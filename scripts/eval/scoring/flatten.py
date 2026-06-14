@@ -23,6 +23,23 @@ from pathlib import Path
 _NARRATIVE_NAMES = ("final_report.md", "report.md", "interpretation.md", "summary.md", "result.md")
 _RESULT_JSON_KEYS = ("narrative", "interpretation", "summary", "report", "answer", "text")
 
+# Extension -> markdown code-fence language for surfacing executed code into the
+# trace. The keys are the on-disk script suffixes the agent writes under
+# runtime/outputs/<tid>/scripts/; the suffix allowlist is also the guard that
+# keeps non-code siblings (.log/.lock/.json) out of the rendered block.
+# Suffix -> code-fence language. Mirrors the emitter's GeneratedCode completion
+# gate (*.{py,R,sh,smk}) so a task whose real mechanism is a Snakemake rule is
+# surfaced rather than silently dropped. Snakemake is Python-syntax.
+_CODE_FENCE_LANG = {".py": "python", ".r": "r", ".R": "r", ".sh": "bash", ".smk": "python"}
+_CODE_EXTS = tuple(_CODE_FENCE_LANG)
+# Generous per-file cap: real analysis scripts are far smaller (a DESeq2 script
+# is ~9 KB), so this never truncates genuine mechanism logic, but it bounds a
+# pathological long script from ballooning the judged trace. Truncation is
+# marked, never silent.
+_MAX_CODE_BYTES_PER_FILE = 48_000
+# agent-code.json `language` tag -> code-fence language for the fallback path.
+_AGENT_CODE_LANG = {"Python": "python", "R": "r", "Bash": "bash"}
+
 
 def _normalize_tasks(tasks) -> dict[str, dict]:
     """Coerce the WORKFLOW.json ``tasks`` payload into an ``{id: task}`` dict.
@@ -205,6 +222,88 @@ def _result_json_claims_block(task_dir: Path) -> str:
     return "\n".join(lines) if len(lines) > 2 else ""
 
 
+def _fence_code(lang: str, code: str) -> str:
+    """Wrap one script in a fenced block, capped at ``_MAX_CODE_BYTES_PER_FILE``.
+
+    Real analysis scripts sit well under the cap, so genuine mechanism logic is
+    never lost; truncation only guards a pathological long file and is marked
+    explicitly (never silent) so the trace stays honest about completeness.
+    """
+    body = code.rstrip()
+    if len(body) > _MAX_CODE_BYTES_PER_FILE:
+        body = body[:_MAX_CODE_BYTES_PER_FILE] + "\n# … [truncated for trace length]"
+    return f"```{lang}\n{body}\n```"
+
+
+def _executed_code_block(task_dir: Path) -> str:
+    """Render the task's OWN executed code as fenced blocks for the trace.
+
+    The agent writes its real, copy-pasteable scripts to
+    ``runtime/outputs/<tid>/scripts/*.{py,R,sh}`` at execution time; these are
+    the durable, on-disk record of the mechanism that produced the results
+    (e.g. the DESeq2/fgsea/OLS scripts). The graded trace is otherwise pure
+    prose, so the judge must take the method on faith — surfacing the code
+    closes that fidelity gap and brings the ECAA arm to parity with the bare
+    arm, which already inlines its code per step (the rubric requires shown,
+    executable code of BOTH arms). This is faithful surfacing of code the agent
+    actually ran, not augmentation: nothing is fabricated, and the same
+    requirement applies to both arms.
+
+    Source priority:
+      1. On-disk ``scripts/*.{py,R,sh}`` — the reliable source. Globbed
+         non-recursively (no nested subdirs) and filtered by the ``_CODE_EXTS``
+         suffix allowlist so coexisting ``.log``/``.lock``/``.json`` siblings
+         are skipped. Files are read in sorted order for determinism within a
+         run.
+      2. FALLBACK (forward-compatible): when no script files exist, read
+         ``agent-code.json`` and surface a non-empty ``executed_code`` field.
+         Today ``executed_code`` is empty in practice (the agent log is a
+         single-line JSON blob with no parsable code), so this is a no-op for
+         current packages, but it keeps the trace correct if the CLI ever
+         exposes a transcript that populates the field.
+
+    The header is the neutral ``### Executed code`` — no exhaustive-
+    reproducibility claim is made (the surfaced scripts are the persisted
+    executable record, not a guarantee of every inline snippet). Returns ""
+    when neither source yields code. Never raises — IO/JSON errors yield "".
+    """
+    blocks: list[str] = []
+    scripts_dir = task_dir / "scripts"
+    if scripts_dir.is_dir():
+        try:
+            files = sorted(
+                p for p in scripts_dir.iterdir()
+                if p.is_file() and p.suffix in _CODE_EXTS
+            )
+        except OSError:
+            files = []
+        for p in files:
+            try:
+                code = p.read_text()
+            except OSError:
+                continue
+            if code.strip():
+                blocks.append(_fence_code(_CODE_FENCE_LANG[p.suffix], code))
+
+    if not blocks:
+        # Fallback: no on-disk scripts/ — surface agent-code.json if populated.
+        ac = task_dir / "agent-code.json"
+        if ac.exists():
+            try:
+                data = json.loads(ac.read_text())
+            except (json.JSONDecodeError, OSError):
+                data = None
+            if isinstance(data, dict):
+                code = data.get("executed_code")
+                if isinstance(code, str) and code.strip():
+                    lang = _AGENT_CODE_LANG.get(data.get("language", ""), "")
+                    blocks.append(_fence_code(lang, code))
+
+    if not blocks:
+        return ""
+    return "\n\n### Executed code\n\n" + "\n\n".join(blocks)
+
+
 def _augment_enabled() -> bool:
     """Per-run narrative augmentation toggle. Default OFF so scored runs feed
     the judge the SAME raw narrative on both arms (H1 fairness): the ECAA-only
@@ -228,6 +327,13 @@ def flatten_outputs(outputs_dir: Path, workflow_json: Path) -> tuple[str, str]:
         # detail the bare arm cannot receive.
         if augment and tid == terminal_id:
             narr = (narr + _result_json_claims_block(outputs_dir / tid)).strip()
+        # Surface the task's OWN executed code into its trace section,
+        # UNCONDITIONALLY (not behind the augment toggle): the bare arm already
+        # inlines its code per step and the rubric requires shown code of BOTH
+        # arms, so this removes an asymmetry rather than augmenting one arm.
+        code_block = _executed_code_block(outputs_dir / tid)
+        if code_block:
+            narr = (narr + code_block).strip()
         if narr:
             sections.append(f"## Task: {tid} ({stage.get(tid,'')})\n\n{narr}")
     trace = "\n\n".join(sections)

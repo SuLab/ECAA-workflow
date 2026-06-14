@@ -10,6 +10,7 @@ from scripts.eval.scoring.flatten import (
     _topo,
     _terminal_id,
     _stage_of,
+    _executed_code_block,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -344,3 +345,160 @@ def test_narrative_real_agent_result_json_shape(tmp_path):
     assert "DESeq2 analysis identified 2018 differentially expressed genes" in text
     assert "claim_id" not in text
     assert "supported_by" not in text
+
+
+# --- executed-code surfacing into the trace ---
+#
+# The ECAA arm executes real code per task and persists it under
+# runtime/outputs/<tid>/scripts/*.{py,R,sh}, but the assembled trace was prose
+# only — costing rubric code-mechanics points the work genuinely earned. These
+# tests assert the agent's OWN executed code now flows into the graded trace.
+
+_DESEQ2_SCRIPT = (
+    "#!/usr/bin/env Rscript\n"
+    "# Tool: DESeq2 1.50.2\n"
+    "library(DESeq2)\n"
+    "df <- df[complete.cases(df), ]  # dropna\n"
+    "stopifnot(nrow(df) >= 5)        # n>=5\n"
+    "dds <- DESeqDataSetFromMatrix(counts, coldata, ~condition)\n"
+)
+
+
+def _code_pkg(tmp_path, scripts_by_task):
+    """3-task workflow with report.md prose plus per-task scripts/ files.
+
+    ``scripts_by_task`` maps task id -> {filename: contents}. Tasks always get a
+    report.md so the prose narrative is present alongside the surfaced code.
+    """
+    wf = {"tasks": {
+        "data_acquisition": _task([]),
+        "differential_expression": _task(["data_acquisition"]),
+        "final_reporting": _task(["differential_expression"]),
+    }}
+    (tmp_path / "WORKFLOW.json").write_text(json.dumps(wf))
+    out = tmp_path / "runtime" / "outputs"
+    for tid in ("data_acquisition", "differential_expression", "final_reporting"):
+        d = out / tid
+        d.mkdir(parents=True)
+        (d / "report.md").write_text(f"# {tid}\nprose for {tid}\n")
+    for tid, files in scripts_by_task.items():
+        sd = out / tid / "scripts"
+        sd.mkdir(parents=True)
+        for name, contents in files.items():
+            (sd / name).write_text(contents)
+    return tmp_path
+
+
+def test_executed_code_block_reads_ondisk_scripts(tmp_path):
+    """The on-disk scripts/*.R is surfaced as an ```r fence in the trace; a
+    coexisting .log sibling is excluded by the suffix allowlist."""
+    pkg = _code_pkg(tmp_path, {
+        "differential_expression": {
+            "01_deseq2_de_analysis.R": _DESEQ2_SCRIPT,
+            "00_install.log": "INSTALL LOG ===> conda install r-deseq2 (noise)\n",
+        }
+    })
+    trace, _ = flatten_outputs(pkg / "runtime" / "outputs", pkg / "WORKFLOW.json")
+    assert "### Executed code" in trace
+    assert "```r" in trace
+    assert "library(DESeq2)" in trace
+    assert "complete.cases(df)" in trace  # dropna mechanism (C6)
+    assert "nrow(df) >= 5" in trace       # n>=5 mechanism (C6)
+    # the .log sibling must NOT bleed into the rendered block
+    assert "INSTALL LOG" not in trace
+
+
+def test_executed_code_multiple_scripts_sorted(tmp_path):
+    """Multiple scripts of mixed language are each fenced, in sorted order, with
+    the per-extension fence language."""
+    pkg = _code_pkg(tmp_path, {
+        "differential_expression": {
+            "02_run_fgsea.R": "library(fgsea)\nfgseaRes <- fgsea(pathways, ranks)\n",
+            "01_prep_ranks.py": "import pandas as pd\nranks = df['stat'].dropna()\n",
+        }
+    })
+    trace, _ = flatten_outputs(pkg / "runtime" / "outputs", pkg / "WORKFLOW.json")
+    assert "```python" in trace
+    assert "```r" in trace
+    # sorted() on the path puts 01_*.py before 02_*.R
+    assert trace.index("import pandas as pd") < trace.index("library(fgsea)")
+
+
+def test_executed_code_fallback_to_agent_code_json(tmp_path):
+    """When no scripts/ dir exists, a non-empty agent-code.json executed_code is
+    surfaced, fenced by its language tag."""
+    wf = {"tasks": {"differential_expression": _task([])}}
+    (tmp_path / "WORKFLOW.json").write_text(json.dumps(wf))
+    d = tmp_path / "runtime" / "outputs" / "differential_expression"
+    d.mkdir(parents=True)
+    (d / "report.md").write_text("# differential_expression\nprose\n")
+    (d / "agent-code.json").write_text(json.dumps({
+        "prompt": "p",
+        "response_text": "",
+        "executed_code": "import numpy as np\nbaseline = pre.mean()\npeak = post.max()\n",
+        "language": "Python",
+        "started_at": "2026-01-01T00:00:00Z",
+        "completed_at": "2026-01-01T00:01:00Z",
+    }))
+    trace, _ = flatten_outputs(tmp_path / "runtime" / "outputs", tmp_path / "WORKFLOW.json")
+    assert "### Executed code" in trace
+    assert "```python" in trace
+    assert "baseline = pre.mean()" in trace
+    assert "peak = post.max()" in trace
+
+
+def test_executed_code_block_empty_when_no_source(tmp_path):
+    """Neither scripts/ nor a populated agent-code.json yields no code header.
+
+    Mirrors the real-package case: agent-code.json's executed_code is empty in
+    practice, so the fallback is a no-op and the trace stays prose-only."""
+    wf = {"tasks": {"differential_expression": _task([])}}
+    (tmp_path / "WORKFLOW.json").write_text(json.dumps(wf))
+    d = tmp_path / "runtime" / "outputs" / "differential_expression"
+    d.mkdir(parents=True)
+    (d / "report.md").write_text("# differential_expression\nprose only\n")
+    (d / "agent-code.json").write_text(json.dumps({
+        "prompt": "p",
+        "response_text": "",
+        "executed_code": "",
+        "language": "unknown",
+        "started_at": "2026-01-01T00:00:00Z",
+        "completed_at": "2026-01-01T00:01:00Z",
+    }))
+    trace, _ = flatten_outputs(tmp_path / "runtime" / "outputs", tmp_path / "WORKFLOW.json")
+    assert "### Executed code" not in trace
+    # the empty-executed_code agent-code.json fallback is a no-op
+    assert _executed_code_block(d) == ""
+
+
+def test_existing_prose_trace_unchanged_when_no_code(tmp_path):
+    """Regression: the prose-only fixture (_pkg, report.md only, no scripts/ and
+    no agent-code.json) yields a byte-identical trace with the code path in
+    place — no regression to current prose-only packages."""
+    pkg = _pkg(tmp_path)
+    trace, _ = flatten_outputs(pkg / "runtime" / "outputs", pkg / "WORKFLOW.json")
+    assert "### Executed code" not in trace
+    # exact expected trace: three prose sections, no code injected
+    expected = "\n\n".join(
+        f"## Task: {tid} ({tid})\n\n# {tid}\n{txt}\n"
+        for tid, txt in [
+            ("data_acquisition", "loaded 4 samples"),
+            ("differential_expression", "2018 sig genes"),
+            ("final_reporting", "Treatment reduces recovery time."),
+        ]
+    )
+    assert trace == expected
+
+
+def test_executed_code_in_trace_not_answer(tmp_path):
+    """Code belongs in the per-step TRACE channel (mirroring the bare arm), not
+    the ANSWER channel — the answer is the final-result string, unchanged."""
+    pkg = _code_pkg(tmp_path, {
+        "final_reporting": {"01_assemble.py": "print('done')\n"},
+    })
+    trace, answer = flatten_outputs(pkg / "runtime" / "outputs", pkg / "WORKFLOW.json")
+    assert "### Executed code" in trace
+    assert "print('done')" in trace
+    # the answer channel carries only the terminal narrative, no code block
+    assert "### Executed code" not in answer
+    assert "print('done')" not in answer

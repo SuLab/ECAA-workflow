@@ -470,4 +470,18 @@ class BiomniBench(Benchmark):
                                    "them, so ECAA scores up to ~10 points BELOW the "
                                    "published 73.34 on any imperfect-sourcing run — a "
                                    "deliberate, paper-faithful divergence."),
+                               "code_surfacing": (
+                                   "The ECAA arm's graded trace.md now surfaces each "
+                                   "task's OWN executed code (read verbatim from "
+                                   "runtime/outputs/<task>/scripts/*.{py,R,sh,smk} that "
+                                   "the agent is required to write, fallback "
+                                   "agent-code.json) under a per-task '### Executed "
+                                   "code' block. This is UNCONDITIONAL (not gated like "
+                                   "the OFF-by-default ECAA_EVAL_NARRATIVE_AUGMENT "
+                                   "claims block) and arm-FAIR: the rubric requires "
+                                   "shown executable code of BOTH arms and the bare arm "
+                                   "already inlines its code per step, so this closes a "
+                                   "trace-assembly fidelity gap rather than advantaging "
+                                   "ECAA. No code is fabricated; only code the agent "
+                                   "actually ran is surfaced."),
                                "judge_agreement": judge_agreement})
