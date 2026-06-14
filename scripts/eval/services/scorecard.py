@@ -590,6 +590,60 @@ def _render_guard_outcomes(per_arm: dict) -> list[str]:
     return lines
 
 
+# ── Advisory domain-correctness warnings (NON-blocking diagnostics) ──────────
+#
+# Rolls per-row Score.extra["advisory_domain_warnings"] (populated by the
+# BiomniBench plugin when the harness ran with ECAA_HARNESS_CONTRACT_ADVISORY
+# on) up to per-arm totals. A warning is a *required* domain-correctness
+# assertion that FAILED but did NOT block the task — surfaced so a fair
+# single-shot eval can disclose the strict checks fired as diagnostics. Pure
+# visibility; never gates a run and never alters scoring.
+
+def _aggregate_advisory_domain_warnings(card: Scorecard) -> dict:
+    """Roll per-row advisory domain-correctness warnings up to per-arm totals.
+    Returns ``{arm: {"warning_count": N, "assertion_ids": [sorted unique]}}``,
+    or ``{}`` when no row carries any advisory warning."""
+    per_arm: dict[str, dict] = {}
+    ids_seen: dict[str, set[str]] = {}
+    for r in card.rows:
+        adv = (r.extra or {}).get("advisory_domain_warnings")
+        if not isinstance(adv, dict):
+            continue
+        count = int(adv.get("count", 0) or 0)
+        if count == 0:
+            continue
+        agg = per_arm.setdefault(r.arm, {"warning_count": 0, "assertion_ids": []})
+        agg["warning_count"] += count
+        for aid in adv.get("assertion_ids", []) or []:
+            if isinstance(aid, str) and aid:
+                ids_seen.setdefault(r.arm, set()).add(aid)
+    for arm, agg in per_arm.items():
+        agg["assertion_ids"] = sorted(ids_seen.get(arm, set()))
+    return per_arm
+
+
+def _render_advisory_domain_warnings(per_arm: dict) -> list[str]:
+    lines = [
+        "",
+        "## Advisory domain-correctness warnings (NON-blocking diagnostics)",
+        "",
+        "Run with `ECAA_HARNESS_CONTRACT_ADVISORY` on: a *required* "
+        "domain-correctness assertion that FAILED was recorded as an advisory "
+        "warning rather than blocking the task, so this single-shot run kept "
+        "the strict checks active as diagnostics. These never gate a run or "
+        "alter scoring.",
+        "",
+    ]
+    for arm in sorted(per_arm):
+        a = per_arm[arm]
+        ids = ", ".join(a["assertion_ids"]) if a["assertion_ids"] else "(none)"
+        lines.append(
+            f"- {arm}: {a['warning_count']} advisory warning(s) over "
+            f"{len(a['assertion_ids'])} unique assertion(s): {ids}"
+        )
+    return lines
+
+
 # ── WS-3: claim-groundedness dimension (ECAA narrative grounding, measured) ───
 #
 # Rolls per-row Score.extra["claim_groundedness"] (populated by the BiomniBench
@@ -1229,6 +1283,13 @@ def _markdown(card: Scorecard) -> str:
     guard = _aggregate_guard_outcomes(card)
     if guard:
         lines += _render_guard_outcomes(guard)
+
+    # Advisory domain-correctness warnings (NON-blocking diagnostics):
+    # surfaced only when a run carried at least one advisory warning (the
+    # harness ran with ECAA_HARNESS_CONTRACT_ADVISORY on). Pure visibility.
+    advisory = _aggregate_advisory_domain_warnings(card)
+    if advisory:
+        lines += _render_advisory_domain_warnings(advisory)
 
     # E1: session-metrics dimension (SME friction, harvested from /metrics).
     session = _aggregate_session_metrics(card)

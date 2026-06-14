@@ -286,6 +286,17 @@ pub struct Config {
     /// `validation_recovery::recovery_enabled`; this field is the typed
     /// catalog entry (C7) so the flag is discoverable in one place.
     pub harness_validation_recovery: bool,
+    /// `ECAA_HARNESS_CONTRACT_ADVISORY`. When truthy, the harness evaluates
+    /// `required` validation-contract assertions but treats a failure as an
+    /// advisory diagnostic rather than a block: the task stays in its
+    /// completed state, the DAG proceeds, and each failure is appended to a
+    /// per-package `runtime/validation-warnings.jsonl` sidecar. Advisory
+    /// mode takes precedence over `harness_validation_recovery` — when both
+    /// are set, advisory wins (no block, no re-dispatch). Default `false`
+    /// preserves the production / SME human checkpoint (a failed required
+    /// assertion blocks the task for the SME). This field is the typed
+    /// catalog entry (C7) so the flag is discoverable in one place.
+    pub harness_contract_advisory: bool,
 
     /// `ECAA_HARNESS_BIN_PATH`. Optional override for integration tests.
     pub harness_bin_path: Option<PathBuf>,
@@ -443,6 +454,11 @@ impl Config {
         // checkpoint is preserved.
         let harness_validation_recovery =
             parse_bool(env, "ECAA_HARNESS_VALIDATION_RECOVERY", false);
+        // `ECAA_HARNESS_CONTRACT_ADVISORY` — evaluate required assertions as
+        // non-blocking diagnostics. Off by default so the SME human
+        // checkpoint is preserved. Takes precedence over recovery.
+        let harness_contract_advisory =
+            parse_bool(env, "ECAA_HARNESS_CONTRACT_ADVISORY", false);
 
         // -- Literature ------------------------------------------------
         let source_scope = match env.get("ECAA_LIT_SOURCE_SCOPE").copied() {
@@ -559,6 +575,7 @@ impl Config {
             harness_batch_window_secs,
             task_heartbeat_stall_secs,
             harness_validation_recovery,
+            harness_contract_advisory,
             harness_bin_path,
             literature,
             upload_root,
@@ -617,6 +634,7 @@ impl std::fmt::Debug for Config {
                 "harness_validation_recovery",
                 &self.harness_validation_recovery,
             )
+            .field("harness_contract_advisory", &self.harness_contract_advisory)
             .field("harness_bin_path", &self.harness_bin_path)
             .field("literature", &self.literature)
             .field("upload_root", &self.upload_root)
@@ -673,6 +691,7 @@ impl Default for ConfigBuilder {
                 harness_batch_window_secs: DEFAULT_HARNESS_BATCH_WINDOW_SECS,
                 task_heartbeat_stall_secs: DEFAULT_TASK_HEARTBEAT_STALL_SECS,
                 harness_validation_recovery: false,
+                harness_contract_advisory: false,
                 harness_bin_path: None,
                 literature: LiteratureConfig {
                     source_scope: LitSourceScope::PmcOa,
@@ -839,6 +858,14 @@ impl ConfigBuilder {
     /// required-assertion block). Off by default.
     pub fn harness_validation_recovery(mut self, v: bool) -> Self {
         self.inner.harness_validation_recovery = v;
+        self
+    }
+
+    /// Harness contract-advisory flag (evaluate required assertions as
+    /// non-blocking diagnostics; takes precedence over recovery). Off by
+    /// default.
+    pub fn harness_contract_advisory(mut self, v: bool) -> Self {
+        self.inner.harness_contract_advisory = v;
         self
     }
 
@@ -1261,6 +1288,24 @@ mod tests {
         assert!(
             cfg.harness_validation_recovery,
             "ECAA_HARNESS_VALIDATION_RECOVERY=1 must enable"
+        );
+    }
+
+    #[test]
+    fn harness_contract_advisory_defaults_off_and_parses_on() {
+        let empty: HashMap<&str, &str> = HashMap::new();
+        let cfg = Config::from_env_map(&empty).expect("empty env config");
+        assert!(
+            !cfg.harness_contract_advisory,
+            "harness_contract_advisory must default off so the SME checkpoint is preserved"
+        );
+
+        let mut env: HashMap<&str, &str> = HashMap::new();
+        env.insert("ECAA_HARNESS_CONTRACT_ADVISORY", "1");
+        let cfg = Config::from_env_map(&env).expect("env config");
+        assert!(
+            cfg.harness_contract_advisory,
+            "ECAA_HARNESS_CONTRACT_ADVISORY=1 must enable"
         );
     }
 }

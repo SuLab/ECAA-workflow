@@ -49,6 +49,12 @@ use std::path::{Path, PathBuf};
 /// Env var that turns the autonomous recovery path ON. Default OFF.
 pub const ENV_VALIDATION_RECOVERY: &str = "ECAA_HARNESS_VALIDATION_RECOVERY";
 
+/// Env var that turns the advisory / warn-only contract path ON. Default
+/// OFF. When ON, a failed `required` assertion is recorded as a
+/// non-blocking diagnostic instead of re-blocking the task — see
+/// [`advisory_enabled`].
+pub const ENV_CONTRACT_ADVISORY: &str = "ECAA_HARNESS_CONTRACT_ADVISORY";
+
 /// Env var that overrides the per-task recovery attempt budget. Clamped
 /// to `[0, MAX_VALIDATION_RECOVERY_ATTEMPTS_CEILING]`.
 pub const ENV_VALIDATION_RECOVERY_MAX: &str = "ECAA_HARNESS_VALIDATION_RECOVERY_MAX";
@@ -75,6 +81,26 @@ pub const SIGNAL_SCHEMA_VERSION: u32 = 1;
 pub fn recovery_enabled() -> bool {
     matches!(
         std::env::var(ENV_VALIDATION_RECOVERY)
+            .ok()
+            .as_deref()
+            .map(str::trim)
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
+        Some("1") | Some("true") | Some("yes") | Some("on") | Some("t") | Some("y")
+    )
+}
+
+/// Whether the advisory / warn-only contract path is enabled. Default
+/// OFF — only the canonical truthy table (matching `recovery_enabled` and
+/// `core::config`'s `parse_bool`) enables it, so a typo never silently
+/// turns a production / SME block into a non-blocking diagnostic. When ON,
+/// a failed `required` assertion is appended to the per-package
+/// `runtime/validation-warnings.jsonl` sidecar instead of re-blocking the
+/// task; advisory mode takes PRECEDENCE over [`recovery_enabled`] (no
+/// block, no re-dispatch).
+pub fn advisory_enabled() -> bool {
+    matches!(
+        std::env::var(ENV_CONTRACT_ADVISORY)
             .ok()
             .as_deref()
             .map(str::trim)
@@ -174,6 +200,80 @@ pub fn write_signal(
         serde_json::to_string_pretty(signal).context("serialising domain-correctness signal")?;
     ecaa_workflow_core::fs_helpers::atomic_write_bytes_sync(&path, raw.as_bytes())
         .with_context(|| format!("atomic write domain-correctness signal at {}", path.display()))?;
+    Ok(())
+}
+
+/// One advisory-warning record for a failed `required` validation-contract
+/// assertion under the warn-only path. Appended to the per-package
+/// `runtime/validation-warnings.jsonl` sidecar — one JSON line per
+/// failure. Carries NO timestamp so the sidecar stays byte-deterministic
+/// for a given DAG state.
+///
+/// Internal harness-crate artifact type: it never crosses the ts-rs /
+/// RO-Crate / HTTP boundary, so the `#[non_exhaustive]` SemVer convention
+/// for wire-facing types does not apply.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct AdvisoryWarning {
+    /// The compute task whose required assertion failed.
+    pub task_id: String,
+    /// The contract assertion id (e.g. `variant_calling.het_tail_band_nonempty`).
+    pub assertion_id: String,
+    /// Assertion severity. Always `required` today (only required
+    /// assertions are evaluated), but recorded so the scorecard can
+    /// distinguish if `recommended` ever joins the evaluated set.
+    pub severity: String,
+    /// The SAME reason text the block path computes — the task-level
+    /// "required assertion(s) unsatisfied: ..." string the SME would have
+    /// seen had the task been blocked.
+    pub reason: String,
+}
+
+/// On-disk location of the per-package advisory-warnings sidecar. Lives at
+/// `runtime/validation-warnings.jsonl` — a runtime artifact (like
+/// `result.json`), excluded from the byte-repro baseline but written in a
+/// deterministic order so its contents are stable for a given DAG state.
+pub fn warnings_path(package: &Path) -> PathBuf {
+    package.join("runtime").join("validation-warnings.jsonl")
+}
+
+/// Merge `new_warnings` into the package's advisory-warnings sidecar and
+/// rewrite it atomically. The enforcer runs every iteration, so the sidecar
+/// is REWRITTEN (not blindly appended) as the deduped union of any existing
+/// records plus the new ones, in a deterministic (sorted, then deduped)
+/// order — a failed assertion produces the same single line no matter how
+/// many enforcement passes observe it. Unreadable existing content is
+/// treated as empty (fail-open: a corrupt sidecar must not brick the loop).
+pub fn append_warnings(package: &Path, new_warnings: &[AdvisoryWarning]) -> anyhow::Result<()> {
+    use anyhow::Context as _;
+    if new_warnings.is_empty() {
+        return Ok(());
+    }
+    let path = warnings_path(package);
+    let mut all: Vec<AdvisoryWarning> = Vec::new();
+    if path.exists() {
+        if let Ok(raw) = crate::ecaa_io::read_capped(&path, crate::ecaa_io::resolve_max_bytes()) {
+            for line in raw.lines() {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+                if let Ok(w) = serde_json::from_str::<AdvisoryWarning>(line) {
+                    all.push(w);
+                }
+            }
+        }
+    }
+    all.extend(new_warnings.iter().cloned());
+    all.sort();
+    all.dedup();
+    let mut body = String::new();
+    for w in &all {
+        let line = serde_json::to_string(w).context("serialising advisory warning")?;
+        body.push_str(&line);
+        body.push('\n');
+    }
+    ecaa_workflow_core::fs_helpers::atomic_write_bytes_sync(&path, body.as_bytes())
+        .with_context(|| format!("atomic write advisory warnings at {}", path.display()))?;
     Ok(())
 }
 
@@ -725,5 +825,76 @@ mod tests {
         assert_eq!(back, sig);
         // Absent file -> Ok(None).
         assert!(read_signal(pkg, "nope").unwrap().is_none());
+    }
+
+    #[test]
+    fn advisory_enable_default_off_and_parses_truthy_only() {
+        // One test owns ENV_CONTRACT_ADVISORY so threaded cargo test can't
+        // race on the shared process env.
+        std::env::remove_var(ENV_CONTRACT_ADVISORY);
+        assert!(
+            !advisory_enabled(),
+            "must default OFF with the var unset (preserves the SME checkpoint)"
+        );
+        for (v, want) in [
+            ("1", true),
+            ("true", true),
+            ("YES", true),
+            ("on", true),
+            ("0", false),
+            ("false", false),
+            ("maybe", false),
+            ("", false),
+        ] {
+            std::env::set_var(ENV_CONTRACT_ADVISORY, v);
+            assert_eq!(advisory_enabled(), want, "value {v:?}");
+        }
+        std::env::remove_var(ENV_CONTRACT_ADVISORY);
+    }
+
+    #[test]
+    fn append_warnings_is_deduped_sorted_and_deterministic() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        let w = |task: &str, assertion: &str| AdvisoryWarning {
+            task_id: task.to_string(),
+            assertion_id: assertion.to_string(),
+            severity: "required".to_string(),
+            reason: "required assertion(s) unsatisfied".to_string(),
+        };
+        // First pass writes two warnings.
+        append_warnings(
+            pkg,
+            &[
+                w("variant_calling", "variant_calling.het_tail_band_nonempty"),
+                w("qc", "qc.manifest_present"),
+            ],
+        )
+        .unwrap();
+        // Second pass repeats one and adds a new one — the repeat must not
+        // duplicate, and the file is rewritten in sorted order.
+        append_warnings(
+            pkg,
+            &[
+                w("variant_calling", "variant_calling.het_tail_band_nonempty"),
+                w("annotation", "annotation.gene_symbols_present"),
+            ],
+        )
+        .unwrap();
+        let raw = std::fs::read_to_string(warnings_path(pkg)).unwrap();
+        let lines: Vec<&str> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert_eq!(lines.len(), 3, "deduped union of distinct warnings: {raw}");
+        // Sorted by (task_id, assertion_id): annotation < qc < variant_calling.
+        let parsed: Vec<AdvisoryWarning> = lines
+            .iter()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        assert_eq!(parsed[0].task_id, "annotation");
+        assert_eq!(parsed[1].task_id, "qc");
+        assert_eq!(parsed[2].task_id, "variant_calling");
+        // Empty input is a no-op.
+        let before = std::fs::read_to_string(warnings_path(pkg)).unwrap();
+        append_warnings(pkg, &[]).unwrap();
+        assert_eq!(std::fs::read_to_string(warnings_path(pkg)).unwrap(), before);
     }
 }

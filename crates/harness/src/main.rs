@@ -3402,7 +3402,13 @@ fn run_loop(
         // budget is DURABLE on disk (the signal file's
         // `recovery_attempts_consumed`) so it stays bounded across the
         // server's auto-relaunch of the harness between dispatches.
-        if validation_recovery::recovery_enabled() {
+        // Advisory / warn-only mode takes PRECEDENCE over recovery: when
+        // both flags are set, advisory wins (the enforcer already recorded
+        // the failures as non-blocking warnings and left the tasks
+        // completed, so there is nothing to re-dispatch). Skip the recovery
+        // path entirely so a failed required assertion is never both an
+        // advisory warning and a re-dispatch.
+        if validation_recovery::recovery_enabled() && !validation_recovery::advisory_enabled() {
             let budget = validation_recovery::max_recovery_attempts();
             let signals = collect_validation_failure_signals(path, &after);
             let mut recovered: Vec<(String, u32)> = Vec::new();
@@ -4741,6 +4747,15 @@ fn enforce_validation_contract(
 
     let mut violations: Vec<(String, Vec<String>)> = Vec::new();
 
+    // Advisory / warn-only mode (default OFF). When ON, a failed
+    // `required` assertion is recorded as a non-blocking diagnostic in the
+    // per-package `runtime/validation-warnings.jsonl` sidecar and the task
+    // is LEFT in its completed state so the DAG proceeds — no block, and
+    // (since advisory takes precedence over recovery) no re-dispatch. When
+    // OFF, behaviour is byte-identical to the strict block path below.
+    let advisory = validation_recovery::advisory_enabled();
+    let mut advisory_warnings: Vec<validation_recovery::AdvisoryWarning> = Vec::new();
+
     // Map upstream task_id -> its output dir, so cross-stage assertions
     // can resolve a producer's result regardless of which validator is
     // running. Deterministic: BTreeMap, sorted iteration over task ids.
@@ -4816,6 +4831,34 @@ fn enforce_validation_contract(
             }
         }
         if !failed_ids.is_empty() {
+            // The task-level reason the strict block path computes. In
+            // advisory mode it is reused verbatim as each warning record's
+            // `reason` so the sidecar carries exactly what the SME would
+            // have seen on a block.
+            let block_reason = format!(
+                "Harness validation-contract check: required assertion(s) unsatisfied: {}. See policies/validation-contract.json. Remediate and re-run.",
+                failed_ids.join(", ")
+            );
+            if advisory {
+                // Warn-only: do NOT block, do NOT engage recovery (the
+                // call site gates recovery on a non-empty `violations`
+                // return AND on advisory being off). Leave the task in its
+                // completed state so the DAG proceeds; record one advisory
+                // warning per failed assertion and log it.
+                for assertion_id in &failed_ids {
+                    advisory_warnings.push(validation_recovery::AdvisoryWarning {
+                        task_id: parent_id.clone(),
+                        assertion_id: assertion_id.clone(),
+                        severity: "required".to_string(),
+                        reason: block_reason.clone(),
+                    });
+                    tracing::warn!(
+                        target: "contract-advisory",
+                        "[contract-advisory] {parent_id}.{assertion_id} failed (advisory, not blocking): {block_reason}"
+                    );
+                }
+                continue;
+            }
             violations.push((parent_id.clone(), failed_ids.clone()));
             // Re-block the parent compute task so downstream tasks (which depend
             // on it, not on its validator) cannot proceed until the agent
@@ -4823,10 +4866,7 @@ fn enforce_validation_contract(
             if let Some(t) = dag.tasks.get_mut(parent_id.as_str()) {
                 t.state = TaskState::Blocked {
                     record: ecaa_workflow_core::dag::BlockedRecord {
-                        reason: format!(
-                            "Harness validation-contract check: required assertion(s) unsatisfied: {}. See policies/validation-contract.json. Remediate and re-run.",
-                            failed_ids.join(", ")
-                        ),
+                        reason: block_reason,
                         attempts: vec![],
                     },
                 };
@@ -4846,6 +4886,18 @@ fn enforce_validation_contract(
                     },
                 };
             }
+        }
+    }
+    // Persist the advisory sidecar once per enforcement pass (deterministic
+    // rewrite of the deduped union). A write failure is logged but never
+    // bricks the loop — advisory mode is a diagnostic, not a gate.
+    if advisory && !advisory_warnings.is_empty() {
+        if let Err(e) = validation_recovery::append_warnings(pkg_dir, &advisory_warnings) {
+            tracing::warn!(
+                target: "contract-advisory",
+                error = format!("{:#}", e),
+                "failed to persist advisory validation-warnings sidecar"
+            );
         }
     }
     Ok(violations)
@@ -6494,6 +6546,188 @@ mod read_dag_tests {
                 .state,
             TaskState::Blocked { .. }
         ));
+    }
+
+    /// Build a fixture package with a Completed `variant_calling` task whose
+    /// own result.json fails the het-band required assertion (0 calls,
+    /// design requires >= 1), plus a Completed `validate_variant_calling`
+    /// companion. Returns `(tempdir, pkg_path, dag)`. The tempdir must
+    /// outlive the dag (it owns the on-disk fixture).
+    fn advisory_failing_fixture() -> (tempfile::TempDir, std::path::PathBuf, DAG) {
+        use ecaa_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path().to_path_buf();
+        std::fs::create_dir_all(pkg.join("policies")).unwrap();
+        std::fs::create_dir_all(pkg.join("runtime/outputs/variant_calling")).unwrap();
+        std::fs::write(
+            pkg.join("runtime/outputs/variant_calling/result.json"),
+            r#"{"low_af_band_count": 0}"#,
+        )
+        .unwrap();
+        let contract = serde_json::json!({
+            "contract_id": "test-variant",
+            "stages": {
+                "variant_calling": {
+                    "assertions": [
+                        {
+                            "id": "variant_calling.het_tail_band_nonempty",
+                            "assertion_type": "numeric_threshold",
+                            "target": "runtime/outputs/variant_calling/result.json",
+                            "check": { "json_pointer": "/low_af_band_count", "op": "gte", "value": 1.0 },
+                            "severity": "required"
+                        }
+                    ]
+                }
+            }
+        });
+        std::fs::write(
+            pkg.join("policies/validation-contract.json"),
+            serde_json::to_string_pretty(&contract).unwrap(),
+        )
+        .unwrap();
+        let mk = |kind: TaskKind, depends_on: Vec<TaskId>| Task {
+            kind,
+            state: TaskState::Completed {
+                result: serde_json::json!({"method": "x"}),
+            },
+            depends_on,
+            assignee: Assignee::Agent,
+            description: "vc".into(),
+            spec: Some(serde_json::json!({"stage_class": "variant_calling"})),
+            resolution: None,
+            result_ref: None,
+            resource_class: ResourceClass::CpuHeavy,
+            requires_sme_review: false,
+            required_artifacts: vec![],
+            container: None,
+            source_atom_id: None,
+            safety: Default::default(),
+        };
+        let mut tasks: std::collections::BTreeMap<TaskId, Task> = std::collections::BTreeMap::new();
+        tasks.insert("variant_calling".into(), mk(TaskKind::Computation, vec![]));
+        tasks.insert(
+            "validate_variant_calling".into(),
+            mk(TaskKind::Validation, vec!["variant_calling".into()]),
+        );
+        let dag = DAG {
+            version: "1.0".into(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
+            workflow_id: "t".into(),
+            current_task: None,
+            tasks,
+            reverse_deps: std::collections::BTreeMap::new(),
+            run_id: None,
+        };
+        (tmp, pkg, dag)
+    }
+
+    /// Advisory / warn-only contract mode, end-to-end through
+    /// `enforce_validation_contract`. One test owns both the advisory and
+    /// the recovery env vars start-to-finish so threaded `cargo test`
+    /// can't race on the shared process env (nextest is process-isolated;
+    /// this is robust under either). Covers:
+    ///   - advisory ON + a failing required assertion -> task NOT blocked
+    ///     (stays Completed), no violations returned, and a
+    ///     validation-warnings.jsonl line written with the right
+    ///     task_id/assertion_id/severity + the SAME reason the block path
+    ///     computes;
+    ///   - advisory OFF -> still blocks (regression guard, unchanged);
+    ///   - advisory ON + recovery ON -> advisory wins (no block; recovery
+    ///     never fires because the task is left Completed and the call site
+    ///     gates recovery on advisory being off).
+    #[test]
+    fn advisory_mode_records_warning_without_blocking() {
+        use ecaa_workflow_core::dag::TaskState;
+
+        // --- advisory ON: warn-only, no block ---
+        std::env::set_var(validation_recovery::ENV_CONTRACT_ADVISORY, "1");
+        std::env::remove_var(validation_recovery::ENV_VALIDATION_RECOVERY);
+        let (_tmp, pkg, mut dag) = advisory_failing_fixture();
+        let violations = enforce_validation_contract(&pkg, &mut dag).unwrap();
+        assert!(
+            violations.is_empty(),
+            "advisory mode must not report violations (no block): {violations:?}"
+        );
+        assert!(
+            matches!(
+                dag.tasks.get("variant_calling").unwrap().state,
+                TaskState::Completed { .. }
+            ),
+            "advisory mode must leave the compute task Completed so the DAG proceeds"
+        );
+        assert!(
+            matches!(
+                dag.tasks.get("validate_variant_calling").unwrap().state,
+                TaskState::Completed { .. }
+            ),
+            "advisory mode must not re-block the validator"
+        );
+        // The sidecar carries exactly one warning with the right fields.
+        let raw = std::fs::read_to_string(validation_recovery::warnings_path(&pkg))
+            .expect("validation-warnings.jsonl must be written");
+        let lines: Vec<&str> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert_eq!(lines.len(), 1, "one warning per failed assertion: {raw}");
+        let w: validation_recovery::AdvisoryWarning = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(w.task_id, "variant_calling");
+        assert_eq!(w.assertion_id, "variant_calling.het_tail_band_nonempty");
+        assert_eq!(w.severity, "required");
+        // Reuses the SAME reason text the block path computes.
+        assert!(
+            w.reason.contains(
+                "required assertion(s) unsatisfied: variant_calling.het_tail_band_nonempty"
+            ),
+            "reason must reuse the block path's text: {}",
+            w.reason
+        );
+        // Re-running the enforcer is idempotent: the sidecar stays a single
+        // deduped line (deterministic, not append-on-every-pass).
+        let _ = enforce_validation_contract(&pkg, &mut dag).unwrap();
+        let raw2 = std::fs::read_to_string(validation_recovery::warnings_path(&pkg)).unwrap();
+        assert_eq!(
+            raw2.lines().filter(|l| !l.trim().is_empty()).count(),
+            1,
+            "re-enforcement must not duplicate warning lines: {raw2}"
+        );
+
+        // --- advisory ON + recovery ON: advisory wins (no block, and the
+        // recovery gate is suppressed) ---
+        std::env::set_var(validation_recovery::ENV_VALIDATION_RECOVERY, "1");
+        assert!(
+            validation_recovery::advisory_enabled()
+                && validation_recovery::recovery_enabled(),
+            "both flags must be live for the precedence check"
+        );
+        let (_tmp2, pkg2, mut dag2) = advisory_failing_fixture();
+        let violations2 = enforce_validation_contract(&pkg2, &mut dag2).unwrap();
+        assert!(
+            violations2.is_empty() && matches!(
+                dag2.tasks.get("variant_calling").unwrap().state,
+                TaskState::Completed { .. }
+            ),
+            "with both flags set, advisory must win (no block, no recovery re-dispatch)"
+        );
+
+        // --- advisory OFF: still blocks (regression guard) ---
+        std::env::remove_var(validation_recovery::ENV_CONTRACT_ADVISORY);
+        std::env::remove_var(validation_recovery::ENV_VALIDATION_RECOVERY);
+        let (_tmp3, pkg3, mut dag3) = advisory_failing_fixture();
+        let violations3 = enforce_validation_contract(&pkg3, &mut dag3).unwrap();
+        assert_eq!(
+            violations3.len(),
+            1,
+            "advisory OFF must restore the strict block path"
+        );
+        assert!(
+            matches!(
+                dag3.tasks.get("variant_calling").unwrap().state,
+                TaskState::Blocked { .. }
+            ),
+            "advisory OFF must re-block the failing compute task"
+        );
+        assert!(
+            !validation_recovery::warnings_path(&pkg3).exists(),
+            "advisory OFF must not write the warnings sidecar"
+        );
     }
 
     /// The same contract PASSES a correctly-specified DE: the design adjusts for

@@ -56,6 +56,42 @@ def _read_first(*candidates) -> str:
     return ""
 
 
+def _collect_advisory_domain_warnings(run_dir: Path) -> dict | None:
+    """Summarize the ECAA package's ``runtime/validation-warnings.jsonl``
+    advisory-diagnostics sidecar (written by the harness when
+    ``ECAA_HARNESS_CONTRACT_ADVISORY`` is on: a failed *required*
+    domain-correctness assertion is recorded as a NON-blocking warning so a
+    fair single-shot eval can run with the strict checks active as
+    diagnostics).
+
+    Returns ``{"count": N, "assertion_ids": [sorted unique ids]}`` when the
+    sidecar exists and carries at least one warning, else ``None`` (absent
+    sidecar = advisory mode off, or no required assertion failed). Malformed
+    lines are skipped; the summary never changes scoring."""
+    sidecar = run_dir / "runtime" / "validation-warnings.jsonl"
+    if not sidecar.is_file():
+        return None
+    assertion_ids: set[str] = set()
+    count = 0
+    for line in sidecar.read_text().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(rec, dict):
+            continue
+        count += 1
+        aid = rec.get("assertion_id")
+        if isinstance(aid, str) and aid:
+            assertion_ids.add(aid)
+    if count == 0:
+        return None
+    return {"count": count, "assertion_ids": sorted(assertion_ids)}
+
+
 _CONTAMINATION_DIRECTIVE = (
     "## Evaluation integrity\n"
     "This is a benchmark task. Base every result solely on the data files "
@@ -252,6 +288,13 @@ class BiomniBench(Benchmark):
                     f"{reason} "
                     f"({status['with_output']}/{status['total']} tasks completed)"
                 )
+            # Advisory domain-correctness diagnostics (NON-blocking): present
+            # only when the harness ran with ECAA_HARNESS_CONTRACT_ADVISORY on
+            # and a required assertion failed. Surfaced in the scorecard meta;
+            # never affects scoring math.
+            advisory = _collect_advisory_domain_warnings(run_dir)
+            if advisory is not None:
+                artifacts["advisory_domain_warnings"] = advisory
         else:
             trace_path = run_dir / "trace.md"
             answer_path = run_dir / "answer.txt"
@@ -333,6 +376,9 @@ class BiomniBench(Benchmark):
                 output.trace_md, output.answer_txt)
         if output.artifacts.get("incomplete_reason"):
             extra["incomplete_reason"] = output.artifacts["incomplete_reason"]
+        if output.artifacts.get("advisory_domain_warnings"):
+            extra["advisory_domain_warnings"] = \
+                output.artifacts["advisory_domain_warnings"]
         # Source-penalty-stripped companion of the primary headline (the same
         # score WITHOUT the negative source-reliability penalty, matching the
         # published reference scorer). The headline Score.overall stays the
@@ -393,6 +439,9 @@ class BiomniBench(Benchmark):
             extra["overall_no_source_penalty"] = headline["overall_no_source_penalty"]
         if "overall_no_source_penalty" in cross:
             extra["cross_overall_no_source_penalty"] = cross["overall_no_source_penalty"]
+        if output.artifacts.get("advisory_domain_warnings"):
+            extra["advisory_domain_warnings"] = \
+                output.artifacts["advisory_domain_warnings"]
         return Score(task_id=task.task_id, arm=arm.value, trial=trial,
                      overall=headline["overall"], dimensions=headline["dimensions"],
                      jaccard=None, error_cells=None, judge_id="gemini-3.1-pro",
