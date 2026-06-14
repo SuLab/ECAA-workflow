@@ -1,7 +1,7 @@
 {
   "contract_id": "validation-contract-variants",
   "description": "Domain-correctness assertions for the variant-calling taxonomy (mtDNA + germline/somatic SNV/indel) — a single contract carried by the shared variant_calling_germline archetype. Assertions split by goal-applicability: GOAL-AGNOSTIC checks (a VCF exists, sample count recorded, AF in the unit interval, filtered≤called, sample count consistent across stages) are always-on and `required`; mtDNA-HETEROPLASMY-SPECIFIC checks (per-sample count in the mtDNA range, low-AF het-band nonempty, no sub-noise-floor over-calls) carry a `when` gate on /is_mtdna so they apply ONLY to mitochondrial call sets and are SKIPPED for nuclear germline/somatic calling (whose AF spectra cluster at 0.5/1.0 and whose per-sample counts run 10^4–10^6). /is_mtdna is computed by the containerized AF-spectrum measurement from the VCF's CHROM contigs — reference-fixed, so the gate is non-gameable by the agent. A universal (un-gated) `is_mtdna_recorded` assertion on each stage closes the gate's fail-open: it fails-closed when /is_mtdna is absent, so a partial/tampered result.json cannot skip the heteroplasmy checks by omitting the gate field. The heteroplasmy catches are enforced at BOTH variant_calling (catch a caller miss before downstream runs) and variant_filtering (catch a filter-stage drop). Thresholds are operator-authored reference bounds, never handed to the execution agent (method neutrality): each assertion recomputes statistics from the agent's emitted result.json and compares against the bound. Goal-driven and SME-overridable — an SME may widen or tighten any reference bound; the harness never instructs the agent which threshold to apply.",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "stages": {
     "variant_calling": {
       "assertions": [
@@ -22,10 +22,10 @@
         },
         {
           "id": "variant_calling.is_mtdna_recorded",
-          "description": "Universal (un-gated) guard that closes the het-check fail-open: /is_mtdna must be RECORDED whenever this stage completes, so a hand-edited or partial result.json cannot DODGE the mtDNA-gated heteroplasmy checks (het_tail_band_nonempty / no_sub_noise_floor_calls / the per-sample count range) by simply omitting /is_mtdna — their `when` gate would otherwise be unsatisfied and the check skipped (skip-as-pass). is_mtdna is emitted by the containerized AF-spectrum measurement (reference-driven from the VCF's CHROM contigs, non-gameable); its ABSENCE means the measurement did not run or the record was tampered with → fail-closed (block) rather than silently skip the het checks.",
-          "assertion_type": "string_contains",
+          "description": "Universal (un-gated) guard that closes the het-check fail-open: /is_mtdna must resolve to a typed JSON boolean whenever this stage completes, so a hand-edited or partial result.json cannot DODGE the mtDNA-gated heteroplasmy checks (het_tail_band_nonempty / no_sub_noise_floor_calls / the per-sample count range) by simply omitting /is_mtdna — their `when` gate would otherwise be unsatisfied and the check skipped (skip-as-pass). A typed `json_pointer_is_bool` check (not a raw-bytes substring) is required because a substring match would be satisfied by any incidental occurrence of the field name in a note/string (e.g. {\"is_mtdna_note\":\"...is_mtdna...\"}) while /is_mtdna never resolves to a bool. is_mtdna is emitted by the containerized AF-spectrum measurement (reference-driven from the VCF's CHROM contigs, non-gameable); its absence or a non-bool value means the measurement did not run or the record was tampered with → fail-closed (block) rather than silently skip the het checks.",
+          "assertion_type": "json_pointer_is_bool",
           "target": "runtime/outputs/variant_calling/result.json",
-          "check": { "substrings": ["is_mtdna"] },
+          "check": { "json_pointer": "/is_mtdna" },
           "severity": "required"
         },
         {
@@ -99,10 +99,10 @@
       "assertions": [
         {
           "id": "variant_filtering.is_mtdna_recorded",
-          "description": "Universal (un-gated) guard mirroring variant_calling.is_mtdna_recorded: /is_mtdna must be recorded so the post-filter heteroplasmy checks (het_tail_band_nonempty / no_sub_noise_floor_calls / per-sample range) cannot be skipped via an omitted gate field. Reference-driven, fail-closed on absence.",
-          "assertion_type": "string_contains",
+          "description": "Universal (un-gated) guard mirroring variant_calling.is_mtdna_recorded: /is_mtdna must resolve to a typed JSON boolean so the post-filter heteroplasmy checks (het_tail_band_nonempty / no_sub_noise_floor_calls / per-sample range) cannot be skipped via an omitted or non-bool gate field. A typed `json_pointer_is_bool` check (not a substring) prevents an incidental field-name occurrence from satisfying the guard. Reference-driven, fail-closed on absence or non-bool.",
+          "assertion_type": "json_pointer_is_bool",
           "target": "runtime/outputs/variant_filtering/result.json",
-          "check": { "substrings": ["is_mtdna"] },
+          "check": { "json_pointer": "/is_mtdna" },
           "severity": "required"
         },
         {

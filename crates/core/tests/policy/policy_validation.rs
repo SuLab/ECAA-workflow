@@ -279,6 +279,7 @@ const HARNESS_IMPLEMENTED_ASSERTION_TYPES: &[&str] = &[
     "cross_stage_output_comparison",
     "cross_field_equals",
     "formula_references_covariates",
+    "json_pointer_is_bool",
 ];
 
 /// Collect every distinct `assertion_type` used across a validation contract's
@@ -396,15 +397,22 @@ fn variant_contract_has_ungated_is_mtdna_recorded_guard() {
             "{stage}.is_mtdna_recorded must be UN-gated (no `when`) — gating it would \
              reintroduce the fail-open it closes"
         );
-        let subs = g
-            .get("check")
-            .and_then(|c| c.get("substrings"))
-            .and_then(|v| v.as_array())
-            .map(|a| a.iter().filter_map(|s| s.as_str()).collect::<Vec<_>>())
-            .unwrap_or_default();
-        assert!(
-            subs.contains(&"is_mtdna"),
-            "{stage}.is_mtdna_recorded must require the is_mtdna field"
+        // The guard must use the TYPED json_pointer_is_bool check (not a raw-bytes
+        // substring): a substring match is satisfied by any incidental occurrence
+        // of the field name in a note/string while /is_mtdna never resolves to a
+        // bool — the very fail-open this guard exists to close.
+        assert_eq!(
+            g.get("assertion_type").and_then(|v| v.as_str()),
+            Some("json_pointer_is_bool"),
+            "{stage}.is_mtdna_recorded must use the typed json_pointer_is_bool check, \
+             not a substring (which an incidental field-name occurrence would satisfy)"
+        );
+        assert_eq!(
+            g.get("check")
+                .and_then(|c| c.get("json_pointer"))
+                .and_then(|v| v.as_str()),
+            Some("/is_mtdna"),
+            "{stage}.is_mtdna_recorded must verify the /is_mtdna pointer resolves to a bool"
         );
     }
 }
@@ -435,6 +443,38 @@ fn association_design_recorded_requires_available_covariates() {
         assert!(
             subs.contains(&required),
             "design_recorded must require `{required}` (closing the omission false-negative)"
+        );
+    }
+}
+
+/// The single-cell DE contract carries the SAME covariate-omission closure as the
+/// association contract: its `design_adjusts_available_covariates` check is
+/// `when`-gated on /available_covariates, so the `design_recorded` precondition
+/// must REQUIRE available_covariates — otherwise an agent dodges the adjustment
+/// check by omitting the field (the FN association closed). Guards the singlecell
+/// contract from regressing to the association-only fix.
+#[test]
+fn singlecell_design_recorded_requires_available_covariates() {
+    let path = policies_dir().join("validation-contract-singlecell.json");
+    let contract: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    let recorded = stage_assertions(&contract, "differential_expression")
+        .into_iter()
+        .find(|a| {
+            a.get("id").and_then(|v| v.as_str())
+                == Some("differential_expression.design_recorded")
+        })
+        .expect("singlecell contract must have a design_recorded precondition");
+    let subs = recorded
+        .get("check")
+        .and_then(|c| c.get("substrings"))
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(|s| s.as_str()).collect::<Vec<_>>())
+        .unwrap_or_default();
+    for required in ["design_formula", "response_variable", "available_covariates"] {
+        assert!(
+            subs.contains(&required),
+            "singlecell design_recorded must require `{required}` (closing the omission false-negative)"
         );
     }
 }

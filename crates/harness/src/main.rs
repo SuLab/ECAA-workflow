@@ -5374,6 +5374,30 @@ fn run_assertion(
                 .map(|n| n == 0)
                 .unwrap_or(false)
         }
+        "json_pointer_is_bool" => {
+            // Typed presence guard: the json_pointer must resolve to an actual
+            // JSON boolean (true OR false). Stronger than `string_contains` on
+            // the same field name, which a raw-bytes substring match would
+            // satisfy from any incidental occurrence of the key in a note/string
+            // (e.g. {"is_mtdna_note":"...is_mtdna..."}) while the pointer never
+            // resolves to a bool — leaving a `when`-gated check fail-open. Used
+            // to close the is_mtdna_recorded fail-open: /is_mtdna must be a
+            // reference-derived boolean, so a partial/tampered result.json cannot
+            // dodge the mtDNA-gated heteroplasmy checks. Unreadable file / absent
+            // pointer / non-bool value → false (fail-closed).
+            let path = resolve(target);
+            let Some(pointer) = assertion
+                .get("check")
+                .and_then(|c| c.get("json_pointer"))
+                .and_then(|v| v.as_str())
+            else {
+                return false;
+            };
+            matches!(
+                read_json_pointer_value(&path, pointer),
+                Some(serde_json::Value::Bool(_))
+            )
+        }
         "cross_stage_output_comparison" => {
             let this_path = resolve(target);
             let Some(check) = assertion.get("check") else {
@@ -7086,6 +7110,46 @@ mod read_dag_tests {
             "check": { "json_pointer": "/summary/nope", "op": "gte", "value": 1.0 }
         });
         assert!(!run_assertion(pkg, &a_missing, &empty));
+    }
+
+    #[test]
+    fn json_pointer_is_bool_requires_a_typed_boolean() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        std::fs::create_dir_all(pkg.join("runtime/outputs/vc")).unwrap();
+        let empty = std::collections::BTreeMap::new();
+        let guard = serde_json::json!({
+            "id": "vc.is_mtdna_recorded",
+            "assertion_type": "json_pointer_is_bool",
+            "target": "runtime/outputs/vc/result.json",
+            "check": { "json_pointer": "/is_mtdna" }
+        });
+        let write = |body: serde_json::Value| {
+            std::fs::write(
+                pkg.join("runtime/outputs/vc/result.json"),
+                body.to_string(),
+            )
+            .unwrap();
+        };
+        // A typed boolean (true OR false) passes.
+        write(serde_json::json!({ "is_mtdna": true }));
+        assert!(run_assertion(pkg, &guard, &empty), "/is_mtdna=true must pass");
+        write(serde_json::json!({ "is_mtdna": false }));
+        assert!(run_assertion(pkg, &guard, &empty), "/is_mtdna=false must pass");
+        // The fail-open a substring match would have allowed: the field NAME
+        // occurs incidentally in a note string, but /is_mtdna never resolves to
+        // a bool — must fail closed.
+        write(serde_json::json!({ "is_mtdna_note": "computed is_mtdna from contigs", "low_af_band_count": 0 }));
+        assert!(
+            !run_assertion(pkg, &guard, &empty),
+            "an incidental 'is_mtdna' substring with no typed /is_mtdna must fail (the closed fail-open)"
+        );
+        // A non-bool value at the pointer fails closed.
+        write(serde_json::json!({ "is_mtdna": "true" }));
+        assert!(!run_assertion(pkg, &guard, &empty), "/is_mtdna as a string must fail");
+        // Absent pointer fails closed.
+        write(serde_json::json!({ "something_else": 1 }));
+        assert!(!run_assertion(pkg, &guard, &empty), "absent /is_mtdna must fail");
     }
 
     #[test]

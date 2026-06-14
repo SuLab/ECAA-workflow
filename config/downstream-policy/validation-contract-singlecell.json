@@ -1,7 +1,7 @@
 {
   "contract_id": "validation-contract-singlecell",
   "description": "Per-stage required assertions for the single-cell RNA-seq taxonomy, carried by the single_cell_de archetype. Stage keys match the archetype's task ids (the harness matches on task_id when spec.stage_class is absent); required-artifact filenames match the single_cell_de atoms' declared required_artifacts, so a free-choice agent that fulfils its task spec passes. Goal-agnostic: required assertions check only that each stage produced its declared output (recursive `**` glob, so flat OR compartment-partitioned layouts both match). Study-specific clinical covariates carried over from the original IVD derivation (a disease-grade column, a tissue-compartment column, an age column, a study column) were REMOVED from the required metadata-column check — they would false-fail a general single-cell study (tumour/immune atlas); only a sample-level join key is required. Stages absent from a given DAG self-gate (the harness only enforces a stage_class that has a matching completed task).",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "stages": {
     "data_acquisition": {
       "assertions": [
@@ -123,10 +123,10 @@
         },
         {
           "id": "differential_expression.design_recorded",
-          "description": "Method-correctness precondition (shared with validation-contract-association): result.json must record the fitted model so it is auditable. An unauditable model (no recorded design_formula / response_variable) is itself a failure. Substrings are field-name keys, not model prescriptions. available_covariates/stated_outcome are the agent's honest record of the data's columns / the task's stated outcome (record-what-you-did); hardening available_covariates to a pinned measurement script is a follow-up (docs/known-limitations.md).",
+          "description": "Method-correctness precondition (shared with validation-contract-association): result.json must record the fitted model so it is auditable, INCLUDING `available_covariates` (the covariate columns the agent observed). Requiring available_covariates here closes the omission false-negative — an agent cannot skip the covariate-adjustment check (`design_adjusts_available_covariates`, which `when`-gates on /available_covariates) by simply not recording it. An unauditable model (missing design_formula / response_variable / available_covariates) is itself a failure. Substrings are field-name keys, not model prescriptions. A covariate-free run legitimately records an empty available_covariates array — the key is satisfied while the adjustment check's empty-array `when` gate skips (no false-fire). stated_outcome is the agent's honest record of the task's stated outcome (record-what-you-did); hardening available_covariates to a pinned measurement script is a follow-up (docs/known-limitations.md).",
           "assertion_type": "string_contains",
           "target": "runtime/outputs/differential_expression/result.json",
-          "check": { "substrings": ["design_formula", "response_variable"] },
+          "check": { "substrings": ["design_formula", "response_variable", "available_covariates"] },
           "severity": "required"
         },
         {

@@ -38,7 +38,8 @@
                     "numeric_distribution",
                     "reference_range_outlier",
                     "positive_control_present",
-                    "negative_control_present"
+                    "negative_control_present",
+                    "json_pointer_is_bool"
                   ]
                 },
                 "target": { "type": "string", "minLength": 1 },
