@@ -13,6 +13,55 @@ def test_report_aggregates_jaccard_by_arm():
     assert len(card.rows) == 2
 
 
+def test_headline_is_macro_m3_flat_pool_kept_secondary():
+    """The Nekrutenko headline is the paper's per-sample macro M3; the flat-pool
+    Jaccard is kept COMPUTED and VISIBLE but labeled secondary.
+
+    Fixture: one ECAA row whose flat-pool Jaccard is 0.667 (Score.overall=66.7,
+    Score.jaccard=0.667) while the per-sample macro M3 is 0.917 — the canonical
+    case where pooling all four samples into one denominator amplifies a single
+    low-AF heteroplasmy miss ~4x below the macro-mean. The headline must map to
+    0.917 (M3), the flat-pool must stay reported at 0.667, and Score.overall (the
+    serialization contract) must be untouched."""
+    rows = [
+        Score("mtdna", "ecaa", 0, 66.7, {}, jaccard=0.667, error_cells=[],
+              judge_id="deterministic",
+              extra={"per_sample_macro_jaccard": 0.917}),
+    ]
+    card = Nekrutenko().report(rows)
+
+    # Score.overall (serialization contract) is unchanged — still flat-pool×100.
+    assert card.rows[0].overall == 66.7
+    assert card.rows[0].jaccard == 0.667
+
+    # BOTH metrics present in meta, per arm.
+    assert card.meta["per_sample_macro_jaccard"] == {"ecaa": 0.917}
+    assert card.meta["flat_pool_jaccard"] == {"ecaa": 0.667}
+
+    # The headline block leads with M3 (primary) and keeps flat-pool secondary.
+    hl = card.meta["nekrutenko_headline"]
+    assert hl["primary_metric"] == "per_sample_macro_jaccard"
+    assert hl["per_sample_macro_jaccard"]["ecaa"] == 0.917      # headline value
+    assert hl["secondary_metric"] == "flat_pool_jaccard"
+    assert hl["flat_pool_jaccard"]["ecaa"] == 0.667             # secondary, kept
+    assert "paper primary" in hl["primary_label"].lower()
+    assert "secondary" in hl["secondary_label"].lower()
+    # The note must explain the ~4x amplification AND that the choice is
+    # arm-agnostic (so the metric switch can't be read as gaming).
+    assert "4x" in hl["note"] and "arm-agnostic" in hl["note"].lower()
+
+    # The rendered markdown headline section maps to the macro (0.917) and still
+    # shows the flat-pool (0.667), clearly labeled secondary.
+    import tempfile
+    from scripts.eval.services.scorecard import write_scorecard
+    with tempfile.TemporaryDirectory() as td:
+        md = (write_scorecard(card, Path(td)) / "scorecard.md").read_text()
+    assert "Jaccard headline" in md
+    assert "per-sample macro M3 (paper primary)" in md
+    assert "amplifies single-site misses" in md
+    assert "0.9170" in md and "0.6670" in md
+
+
 def test_nekrutenko_error_matrix_uses_classify_cell(tmp_path):
     """error_matrix returns cells whose handle/recover/diagnose match classify_cell
     for the simulated outcomes produced by the fake run_fn."""

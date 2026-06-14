@@ -2,10 +2,12 @@
 
 ECAA arm: workflow description -> ecaa-workflow intake -> package -> harness.
 Direct arm: problem statement + tool inventory only (Track-B equivalent).
-Scored by the recipe-agnostic flat-pool VCF Jaccard (headline) PLUS the paper's
-per-sample macro-mean M3 (companion), and the 36-cell PATH-shim error matrix
-(12 pattern×tool combinations × 3 seeds = 36 cells), classified with the paper's
-pattern-specific target_n recover metric + handle histogram + 3-signal diagnose.
+Scored by the paper's per-sample macro-mean M3 VCF Jaccard (HEADLINE) PLUS the
+recipe-agnostic flat-pool Jaccard (secondary; amplifies single-site misses), and
+the 36-cell PATH-shim error matrix (12 pattern×tool combinations × 3 seeds = 36
+cells), classified with the paper's pattern-specific target_n recover metric +
+handle histogram + 3-signal diagnose. The metric choice is arm-agnostic: both
+Jaccard views are computed identically for every arm.
 
 SCOPE — what this harness reproduces vs the paper, stated explicitly so the
 numbers are not over-read:
@@ -309,16 +311,19 @@ class Nekrutenko(Benchmark):
                       "vcfs": vcfs}, exit_ok=True, wall_secs=0.0)  # exit/wall set by driver
 
     def score(self, task, arm, output, trial):
-        # HEADLINE = recipe-agnostic CALL-SET overlap. The ECAA arm is pinned to
-        # lofreq (see locked_methods) and emits per-sample VCFs, but file NAMING
-        # and per-sample-vs-cohort organisation are not guaranteed to match the
-        # answer key's `{sample}.vcf.gz`. A strict per-sample stem-match would
-        # score ~0 by construction on a naming mismatch even when the same
-        # variants were called. So the headline pools ALL of the agent's
-        # final-call VCFs (everything collect() indexed, minus gVCF intermediates)
-        # and ALL answer-key VCFs into two flat sets and takes their Jaccard with
-        # the same ±0.02 AF tolerance. We ALSO compute the paper's primary M3
-        # (per-sample macro-mean) and surface it as a comparable companion metric.
+        # Score.overall = recipe-agnostic CALL-SET overlap (flat-pool Jaccard).
+        # This stays the per-row serialized value (the journal + _score_to_dict
+        # read overall), but it is the SECONDARY metric at report time — the
+        # scorecard headline is the paper's per-sample macro M3 (see report()).
+        # The ECAA arm emits per-sample VCFs, but file NAMING and per-sample-vs-
+        # cohort organisation are not guaranteed to match the answer key's
+        # `{sample}.vcf.gz`. A strict per-sample stem-match would score ~0 by
+        # construction on a naming mismatch even when the same variants were
+        # called. So flat-pool pools ALL of the agent's final-call VCFs
+        # (everything collect() indexed, minus gVCF intermediates) and ALL
+        # answer-key VCFs into two flat sets and takes their Jaccard with the same
+        # ±0.02 AF tolerance. We ALSO compute the paper's primary M3 (per-sample
+        # macro-mean) and surface it as the headline companion metric.
         key_dir = task.answer_key
         ref_paths = sorted(Path(key_dir).glob("*.vcf.gz")) if key_dir else []
         # collect() indexes each VCF under one or more keys; de-dup by resolved
@@ -421,24 +426,61 @@ class Nekrutenko(Benchmark):
         meta: dict = {"scorer": "variant_overlap_jaccard+error_matrix"}
         if error_matrix:
             meta["error_matrix"] = error_matrix
-        # Per-arm mean of the paper-comparable per-sample macro Jaccard (M3),
-        # alongside the recipe-agnostic flat-pool headline (Score.overall). Both
-        # surfaced so the headline stays naming-agnostic while the per-sample
-        # number lines up with the paper's primary metric.
+        # Two Jaccard views, per arm:
+        #   * per-sample macro-mean M3 (Nekrutenko's OWN primary metric) — the
+        #     HEADLINE. Read from each row's extra["per_sample_macro_jaccard"].
+        #   * flat-pool Jaccard (recipe/naming-agnostic) — SECONDARY. Read from
+        #     Score.jaccard (== overall/100); kept computed + visible because it
+        #     is naming-organisation-robust, but it is NOT the headline: pooling
+        #     all four samples means a single low-AF heteroplasmy miss (e.g. the
+        #     ~4% chrM:16455 het) is divided into one shared denominator, so one
+        #     missed site at one sample drops the pooled number ~4x harder than it
+        #     drops the per-sample macro-mean.
         per_sample_by_arm: dict[str, list[float]] = {}
+        flat_by_arm: dict[str, list[float]] = {}
         for row in scores:
             v = (row.extra or {}).get("per_sample_macro_jaccard")
             if v is not None:
                 per_sample_by_arm.setdefault(row.arm, []).append(v)
+            if row.jaccard is not None:
+                flat_by_arm.setdefault(row.arm, []).append(row.jaccard)
         if per_sample_by_arm:
             meta["per_sample_macro_jaccard"] = {
                 arm: round(mean(vs), 4) for arm, vs in per_sample_by_arm.items()
             }
+        if flat_by_arm:
+            meta["flat_pool_jaccard"] = {
+                arm: round(mean(vs), 4) for arm, vs in flat_by_arm.items()
+            }
+        # The benchmark HEADLINE block: M3 primary, flat-pool secondary, with the
+        # amplification + arm-agnostic note rendered by the scorecard. Surfaced as
+        # its own meta key so the human card leads with the paper's own metric
+        # instead of the generic Score.overall (which stays the flat-pool Jaccard
+        # for serialization-contract stability — the journal reads overall).
+        if per_sample_by_arm or flat_by_arm:
+            meta["nekrutenko_headline"] = {
+                "primary_metric": "per_sample_macro_jaccard",
+                "primary_label": "per-sample macro M3 (paper primary)",
+                "secondary_metric": "flat_pool_jaccard",
+                "secondary_label": (
+                    "pooled Jaccard (secondary; amplifies single-site misses)"),
+                "per_sample_macro_jaccard": meta.get("per_sample_macro_jaccard", {}),
+                "flat_pool_jaccard": meta.get("flat_pool_jaccard", {}),
+                "note": (
+                    "Headline is the paper's PRIMARY per-sample macro-mean M3 "
+                    "(score_run.py::m3_jaccard). The flat-pool Jaccard is reported "
+                    "as a secondary, naming-agnostic view: pooling all four samples "
+                    "into one denominator amplifies a single low-AF heteroplasmy "
+                    "miss (the ~4% chrM:16455 het) roughly 4x relative to the "
+                    "macro-mean. The metric choice is ARM-AGNOSTIC — both metrics "
+                    "are computed identically for every arm; read the per-arm "
+                    "values in the side-by-side table for the comparison."),
+            }
             meta["jaccard_note"] = (
-                "Headline (overall) is the recipe-agnostic FLAT-POOL Jaccard; "
-                "per_sample_macro_jaccard is the paper's primary M3 (per-sample "
-                "macro-mean). They differ when calls move between per-sample and "
-                "pooled organisation — read the per-sample number for paper parity.")
+                "Headline is the paper's primary M3 (per_sample_macro_jaccard, "
+                "per-sample macro-mean). flat_pool_jaccard is a SECONDARY, "
+                "naming-agnostic view that amplifies single-site misses ~4x; "
+                "Score.overall stays the flat-pool Jaccard for contract stability.")
         # WS-E: the ECAA method-lock was dropped — discovery chooses methods on
         # BOTH arms now. Record it so the new (free-choice) comparison is never
         # silently read against the old locked-arm 0.483 baseline.

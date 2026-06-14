@@ -274,6 +274,37 @@ def _render_error_matrix(em: dict) -> list[str]:
     return lines
 
 
+def _render_nekrutenko_headline(hl: dict) -> list[str]:
+    """Render meta["nekrutenko_headline"] — the per-sample macro M3 (paper
+    primary) as the HEADLINE, with the flat-pool Jaccard labeled secondary.
+
+    M3 (Nekrutenko's own primary metric) leads; the flat-pool Jaccard is shown
+    alongside but clearly marked secondary because pooling all four samples into
+    one denominator amplifies a single low-AF heteroplasmy miss ~4x. The choice
+    is arm-agnostic (both metrics computed identically per arm), spelled out in
+    the note so a reader can't read the metric switch as gaming."""
+    macro = hl.get("per_sample_macro_jaccard", {}) or {}
+    flat = hl.get("flat_pool_jaccard", {}) or {}
+    primary_label = hl.get("primary_label", "per-sample macro M3 (paper primary)")
+    secondary_label = hl.get(
+        "secondary_label", "pooled Jaccard (secondary; amplifies single-site misses)")
+    lines = ["", "## Jaccard headline", ""]
+    lines.append(f"| arm | {primary_label} | {secondary_label} |")
+    lines.append("|---|---|---|")
+    for arm in sorted(set(macro) | set(flat)):
+        m = macro.get(arm)
+        f = flat.get(arm)
+        m_s = f"{m:.4f}" if isinstance(m, (int, float)) else "—"
+        f_s = f"{f:.4f}" if isinstance(f, (int, float)) else "—"
+        lines.append(f"| {arm} | {m_s} | {f_s} |")
+    lines.append("")
+    note = hl.get("note")
+    if note:
+        lines.append(f"> {note}")
+        lines.append("")
+    return lines
+
+
 def _dimension_caveat_text(meta: dict) -> str | None:
     """The explicit 'these are NOT paper-faithful dimension scores' caveat.
 
@@ -1127,7 +1158,11 @@ def _markdown(card: Scorecard) -> str:
                   # H2: rendered as the Relaunch budget table, not a bullet.
                   "relaunch",
                   # rendered as the Source-penalty-stripped table, not a bullet.
-                  "source_penalty_stripped"}
+                  "source_penalty_stripped",
+                  # Nekrutenko: rendered as the Jaccard headline table (M3
+                  # primary, flat-pool secondary), not scalar bullets.
+                  "nekrutenko_headline", "per_sample_macro_jaccard",
+                  "flat_pool_jaccard"}
     if card.meta:
         for k, v in card.meta.items():
             if k not in _RICH_KEYS:
@@ -1152,6 +1187,14 @@ def _markdown(card: Scorecard) -> str:
     if "ecaa" in arms and "claude-direct" in arms:
         delta = mean(arms["ecaa"]) - mean(arms["claude-direct"])
         lines.append(f"**ecaa - claude-direct raw-mean delta:** {delta:+.1f}")
+
+    # Nekrutenko: the generic arm-means table above reports Score.overall (the
+    # flat-pool Jaccard×100, kept stable for the serialization contract). The
+    # paper's PRIMARY metric is the per-sample macro M3 — surface it as the
+    # explicit headline (M3 primary, flat-pool secondary) right under the generic
+    # table so the human card leads with the paper's own metric.
+    if card.meta.get("nekrutenko_headline"):
+        lines += _render_nekrutenko_headline(card.meta["nekrutenko_headline"])
 
     # Source-penalty-stripped companion: each arm's score WITH (headline,
     # unchanged) and WITHOUT the negative source-reliability penalty, so the
