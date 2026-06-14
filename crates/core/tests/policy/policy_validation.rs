@@ -280,6 +280,7 @@ const HARNESS_IMPLEMENTED_ASSERTION_TYPES: &[&str] = &[
     "cross_field_equals",
     "formula_references_covariates",
     "json_pointer_is_bool",
+    "json_pointer_is_array",
 ];
 
 /// Collect every distinct `assertion_type` used across a validation contract's
@@ -418,63 +419,56 @@ fn variant_contract_has_ungated_is_mtdna_recorded_guard() {
 }
 
 /// Self-report-evasion hardening (gaming-audit): the covariate-adjustment check
-/// is `when`-gated on /available_covariates, so omitting it would skip the check.
-/// The `design_recorded` precondition must REQUIRE available_covariates so it
-/// cannot be omitted to dodge the covariate check.
+/// is `when`-gated on the JSON pointer /available_covariates, so omitting it (or
+/// recording it at a nested key / inside a free-text note) would skip the check.
+/// Both DE contracts must carry a `design_records_covariate_columns` assertion
+/// that REQUIRES /available_covariates to resolve to an ARRAY via the SAME
+/// pointer read-mechanism the adjustment check's `when` gate uses — closing the
+/// substring-vs-pointer mismatch a plain `string_contains` left open. The check
+/// must be `required`, un-gated (so absence fails closed), and typed
+/// `json_pointer_is_array` (an empty array is allowed; the adjustment check's own
+/// empty-array `when` gate then self-skips). Shared by both contracts.
 #[test]
-fn association_design_recorded_requires_available_covariates() {
-    let path = policies_dir().join("validation-contract-association.json");
-    let contract: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
-    let recorded = stage_assertions(&contract, "differential_expression")
-        .into_iter()
-        .find(|a| {
-            a.get("id").and_then(|v| v.as_str())
-                == Some("differential_expression.design_recorded")
-        })
-        .expect("association contract must have a design_recorded precondition");
-    let subs = recorded
-        .get("check")
-        .and_then(|c| c.get("substrings"))
-        .and_then(|v| v.as_array())
-        .map(|a| a.iter().filter_map(|s| s.as_str()).collect::<Vec<_>>())
-        .unwrap_or_default();
-    for required in ["design_formula", "response_variable", "available_covariates"] {
-        assert!(
-            subs.contains(&required),
-            "design_recorded must require `{required}` (closing the omission false-negative)"
+fn de_contracts_record_covariate_columns_via_typed_pointer() {
+    for file in [
+        "validation-contract-association.json",
+        "validation-contract-singlecell.json",
+    ] {
+        let path = policies_dir().join(file);
+        let contract: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        let guard = stage_assertions(&contract, "differential_expression")
+            .into_iter()
+            .find(|a| {
+                a.get("id").and_then(|v| v.as_str())
+                    == Some("differential_expression.design_records_covariate_columns")
+            })
+            .unwrap_or_else(|| {
+                panic!("{file}: must carry a design_records_covariate_columns assertion")
+            });
+        assert_eq!(
+            guard.get("assertion_type").and_then(|v| v.as_str()),
+            Some("json_pointer_is_array"),
+            "{file}: covariate-columns guard must use the TYPED json_pointer_is_array check \
+             (the same pointer read the adjustment when-gate uses), not a substring"
         );
-    }
-}
-
-/// The single-cell DE contract carries the SAME covariate-omission closure as the
-/// association contract: its `design_adjusts_available_covariates` check is
-/// `when`-gated on /available_covariates, so the `design_recorded` precondition
-/// must REQUIRE available_covariates — otherwise an agent dodges the adjustment
-/// check by omitting the field (the FN association closed). Guards the singlecell
-/// contract from regressing to the association-only fix.
-#[test]
-fn singlecell_design_recorded_requires_available_covariates() {
-    let path = policies_dir().join("validation-contract-singlecell.json");
-    let contract: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
-    let recorded = stage_assertions(&contract, "differential_expression")
-        .into_iter()
-        .find(|a| {
-            a.get("id").and_then(|v| v.as_str())
-                == Some("differential_expression.design_recorded")
-        })
-        .expect("singlecell contract must have a design_recorded precondition");
-    let subs = recorded
-        .get("check")
-        .and_then(|c| c.get("substrings"))
-        .and_then(|v| v.as_array())
-        .map(|a| a.iter().filter_map(|s| s.as_str()).collect::<Vec<_>>())
-        .unwrap_or_default();
-    for required in ["design_formula", "response_variable", "available_covariates"] {
+        assert_eq!(
+            guard
+                .get("check")
+                .and_then(|c| c.get("json_pointer"))
+                .and_then(|v| v.as_str()),
+            Some("/available_covariates"),
+            "{file}: covariate-columns guard must verify /available_covariates"
+        );
+        assert_eq!(
+            guard.get("severity").and_then(|v| v.as_str()),
+            Some("required"),
+            "{file}: covariate-columns guard must be required"
+        );
         assert!(
-            subs.contains(&required),
-            "singlecell design_recorded must require `{required}` (closing the omission false-negative)"
+            guard.get("when").is_none(),
+            "{file}: covariate-columns guard must be UN-gated so an absent \
+             /available_covariates fails closed (the closed omission fail-open)"
         );
     }
 }

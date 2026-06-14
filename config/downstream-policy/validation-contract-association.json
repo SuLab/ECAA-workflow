@@ -1,16 +1,24 @@
 {
   "contract_id": "validation-contract-association",
   "description": "Method-correctness assertions for differential-expression / regression stages — domain-correctness checks the structural validators (a non-empty DE table, an existing model artifact) passed silently in a live eval. AUTHORING NOTE (disclosure): the two error CLASSES below were IDENTIFIED from BiomniBench tasks da-15-1 + da-8-1 (benchmark-informed defect-finding). The executable assertions encode the GENERAL invariants — a model must adjust for the covariates the agent observed; the model's response must equal the task's stated outcome — and contain NO benchmark-specific value, column name, or task id in any check clause; they apply to any differential_expression stage. The two errors caught: (da-15-1) a DESeq2 design that OMITTED all covariates (`~ condition` only, no sex/age/RIN), and (da-8-1) an INVERTED regression (regressed the stated outcome as a predictor). METHOD NEUTRALITY (load-bearing): every assertion asserts a property of fields the AGENT recorded about ITS OWN model (`design_formula`, `response_variable`, `primary_variable`) compared against fields the agent ALSO recorded about the data/task (`available_covariates` — the agent's honest record of the covariate columns it observed in the metadata; `stated_outcome` — the agent's record of the SME's stated outcome when the task names one). It never recommends a model, test, or which covariates to include — the agent chose those; the contract only checks that the agent's own record is internally + task-consistent (record-what-you-did, the same shape as the variant contract asserting AF∈[0,1] on the agent's own VCF). `available_covariates`/`stated_outcome` are agent-recorded in v1; the `design_recorded` precondition REQUIRES `available_covariates` to be recorded so an agent cannot OMIT it to skip the covariate check (the omission false-negative). The residual self-report evasion — an agent recording an empty/under-counted `available_covariates` — is closed by hardening it to a pinned containerized metadata-column measurement script (documented follow-up, see docs/known-limitations.md). Thresholds/columns are never handed to the agent. Stages absent from a given DAG self-gate (enforcement fires only on a stage_class with a matching completed task).",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "stages": {
     "differential_expression": {
       "assertions": [
         {
           "id": "differential_expression.design_recorded",
-          "description": "Precondition: result.json must record the fitted model so it is auditable, INCLUDING `available_covariates` (the covariate columns the agent observed). Requiring available_covariates here closes the omission false-negative: an agent cannot skip the covariate-adjustment check by simply not recording available_covariates (which would leave its `when` gate unsatisfied). An unauditable model (missing design_formula / response_variable / available_covariates) is itself a failure — the agent must state what it did and what columns it saw. Substrings are field-name keys, not model prescriptions.",
+          "description": "Precondition: result.json must record the fitted model so it is auditable — design_formula and response_variable. An unauditable model (missing either) is itself a failure — the agent must state what it did. Substrings are field-name keys, not model prescriptions. The covariate-columns record (`available_covariates`) is enforced separately by design_records_covariate_columns with a TYPED pointer check, because a substring scan would accept an incidental or nested occurrence the covariate-adjustment when-gate cannot read.",
           "assertion_type": "string_contains",
           "target": "runtime/outputs/differential_expression/result.json",
-          "check": { "substrings": ["design_formula", "response_variable", "available_covariates"] },
+          "check": { "substrings": ["design_formula", "response_variable"] },
+          "severity": "required"
+        },
+        {
+          "id": "differential_expression.design_records_covariate_columns",
+          "description": "Closes the covariate-omission false-negative at the SAME read mechanism the dependent check uses. design_adjusts_available_covariates `when`-gates on the JSON pointer /available_covariates; a whole-file substring scan of `available_covariates` would be satisfied by an incidental occurrence in a note OR a nested key while /available_covariates does not resolve at the top level — letting the adjustment check skip (skip-as-pass). This typed json_pointer_is_array check requires /available_covariates to resolve to an ARRAY: the covariate columns the agent observed, recorded as a list. An EMPTY array is allowed (a covariate-free run) — the adjustment check's own empty-array when-gate then self-skips, so this never false-fires the common case. Absence or a non-array value fails closed. It records what columns the agent saw (record-what-you-did); it never names which covariates to include (method-neutral).",
+          "assertion_type": "json_pointer_is_array",
+          "target": "runtime/outputs/differential_expression/result.json",
+          "check": { "json_pointer": "/available_covariates" },
           "severity": "required"
         },
         {

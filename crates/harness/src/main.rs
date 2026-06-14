@@ -5407,6 +5407,31 @@ fn run_assertion(
                 Some(serde_json::Value::Bool(_))
             )
         }
+        "json_pointer_is_array" => {
+            // Typed presence guard: the json_pointer must resolve to a JSON
+            // ARRAY (empty allowed). Stronger than `string_contains` on the same
+            // field name: a substring match is satisfied by an incidental
+            // occurrence of the field name in a note or at a NESTED key while the
+            // top-level pointer never resolves to an array — leaving a check that
+            // `when`-gates on that same pointer fail-open. Used so the
+            // covariate-adjustment precondition reads the SAME basis (the
+            // /available_covariates pointer) the adjustment check's `when` gate
+            // reads. An empty array passes (a covariate-free run); the adjustment
+            // check's own empty-array `when` gate then self-skips. Absent /
+            // non-array → false (fail-closed).
+            let path = resolve(target);
+            let Some(pointer) = assertion
+                .get("check")
+                .and_then(|c| c.get("json_pointer"))
+                .and_then(|v| v.as_str())
+            else {
+                return false;
+            };
+            matches!(
+                read_json_pointer_value(&path, pointer),
+                Some(serde_json::Value::Array(_))
+            )
+        }
         "cross_stage_output_comparison" => {
             let this_path = resolve(target);
             let Some(check) = assertion.get("check") else {
@@ -7159,6 +7184,44 @@ mod read_dag_tests {
         // Absent pointer fails closed.
         write(serde_json::json!({ "something_else": 1 }));
         assert!(!run_assertion(pkg, &guard, &empty), "absent /is_mtdna must fail");
+    }
+
+    #[test]
+    fn json_pointer_is_array_requires_a_typed_array_empty_allowed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        std::fs::create_dir_all(pkg.join("runtime/outputs/de")).unwrap();
+        let empty = std::collections::BTreeMap::new();
+        let guard = serde_json::json!({
+            "id": "de.design_records_covariate_columns",
+            "assertion_type": "json_pointer_is_array",
+            "target": "runtime/outputs/de/result.json",
+            "check": { "json_pointer": "/available_covariates" }
+        });
+        let write = |body: serde_json::Value| {
+            std::fs::write(pkg.join("runtime/outputs/de/result.json"), body.to_string()).unwrap();
+        };
+        // A populated array passes; an EMPTY array also passes (covariate-free
+        // run — the adjustment check's own when-gate then self-skips).
+        write(serde_json::json!({ "available_covariates": ["age", "sex"] }));
+        assert!(run_assertion(pkg, &guard, &empty), "non-empty array must pass");
+        write(serde_json::json!({ "available_covariates": [] }));
+        assert!(run_assertion(pkg, &guard, &empty), "empty array must pass (covariate-free)");
+        // The fail-open a substring would have allowed: the field name appears in
+        // a note / at a nested key, but the top-level pointer is not an array.
+        write(serde_json::json!({ "notes": "recorded available_covariates in the model" }));
+        assert!(
+            !run_assertion(pkg, &guard, &empty),
+            "incidental field-name occurrence with no typed /available_covariates must fail"
+        );
+        write(serde_json::json!({ "nested": { "available_covariates": ["age"] } }));
+        assert!(
+            !run_assertion(pkg, &guard, &empty),
+            "a nested available_covariates the when-gate can't read must fail (the closed fail-open)"
+        );
+        // A non-array scalar at the pointer fails closed.
+        write(serde_json::json!({ "available_covariates": "age,sex" }));
+        assert!(!run_assertion(pkg, &guard, &empty), "a string must fail");
     }
 
     #[test]

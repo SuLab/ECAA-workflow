@@ -40,7 +40,8 @@
                     "positive_control_present",
                     "negative_control_present",
                     "cross_field_equals",
-                    "formula_references_covariates"
+                    "formula_references_covariates",
+                    "json_pointer_is_array"
                   ]
                 },
                 "target": { "type": "string", "minLength": 1 },
