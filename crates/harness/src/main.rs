@@ -37,6 +37,7 @@ use ecaa_workflow_harness::scheduler::{
 use ecaa_workflow_harness::scratch_cleanup::cleanup_task_scratch;
 use ecaa_workflow_harness::sme_skip;
 use ecaa_workflow_harness::stall_relay;
+use ecaa_workflow_harness::validation_recovery;
 use ecaa_workflow_harness::watchdog::{Watchdog, WatchdogConfig, WatchdogEvent};
 use progress_client::ProgressClient;
 use std::fs::OpenOptions;
@@ -3386,6 +3387,123 @@ fn run_loop(
             ),
         }
 
+        // Bounded, method-neutral, default-OFF autonomous recovery on a
+        // required validation-contract block. Disabled unless
+        // `ECAA_HARNESS_VALIDATION_RECOVERY` is truthy — the production /
+        // SME path keeps its human checkpoint (the task stays Blocked and
+        // the SME drives the unblock). When ON, for each task the enforcer
+        // just re-blocked the harness: (1) recomputes a NEUTRAL
+        // domain-correctness signal (the failed assertion id + the design's
+        // operator-authored bound vs the agent's OWN result.json numbers —
+        // never a tool, flag, or threshold value), (2) writes it into the
+        // task's next-run inputs so the re-dispatched agent reads what is
+        // biologically off, and (3) flips the task back to Ready (the
+        // monotonic-safe path: Blocked is non-terminal). The recovery
+        // budget is DURABLE on disk (the signal file's
+        // `recovery_attempts_consumed`) so it stays bounded across the
+        // server's auto-relaunch of the harness between dispatches.
+        if validation_recovery::recovery_enabled() {
+            let budget = validation_recovery::max_recovery_attempts();
+            let signals = collect_validation_failure_signals(path, &after);
+            let mut recovered: Vec<(String, u32)> = Vec::new();
+            for (task_id, failed) in signals {
+                // Only act on tasks the enforcer left Blocked this iteration.
+                let is_blocked = matches!(
+                    after.tasks.get(task_id.as_str()).map(|t| &t.state),
+                    Some(TaskState::Blocked { .. })
+                );
+                if !is_blocked {
+                    continue;
+                }
+                let prior = match validation_recovery::read_signal(path, &task_id) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        // Present-but-broken signal -> fail closed (leave
+                        // the task Blocked for the SME) rather than recover
+                        // with an unknown budget.
+                        tracing::warn!(
+                            target: "harness-guard",
+                            task_id = %task_id,
+                            error = %e,
+                            "validation-recovery signal unreadable; leaving task blocked"
+                        );
+                        continue;
+                    }
+                };
+                match validation_recovery::plan_recovery(
+                    &task_id,
+                    true,
+                    budget,
+                    prior.as_ref(),
+                    failed,
+                ) {
+                    validation_recovery::RecoveryDecision::LeaveBlocked => {}
+                    validation_recovery::RecoveryDecision::Redispatch {
+                        signal,
+                        attempt_number,
+                    } => {
+                        if let Err(e) = validation_recovery::write_signal(path, &task_id, &signal) {
+                            tracing::warn!(
+                                target: "harness-guard",
+                                task_id = %task_id,
+                                error = %e,
+                                "writing validation-recovery signal failed; leaving task blocked"
+                            );
+                            continue;
+                        }
+                        // Flip Blocked -> Ready so the next iteration
+                        // re-dispatches this exact task. Blocked is
+                        // non-terminal, so this is monotonic-safe; the
+                        // validate_<stage> companion (also re-blocked) goes
+                        // back to Pending and re-derives readiness after the
+                        // parent re-completes.
+                        if let Some(t) = after.tasks.get_mut(task_id.as_str()) {
+                            t.state = TaskState::Ready;
+                        }
+                        let vid = format!("validate_{task_id}");
+                        if let Some(t) = after.tasks.get_mut(vid.as_str()) {
+                            if matches!(t.state, TaskState::Blocked { .. }) {
+                                t.state = TaskState::Pending;
+                            }
+                        }
+                        recovered.push((task_id.clone(), attempt_number));
+                    }
+                }
+            }
+            if !recovered.is_empty() {
+                for (task_id, attempt_number) in &recovered {
+                    eprintln!(
+                        "{} validation-recovery: re-dispatching {} (attempt {}/{}) with a neutral domain-correctness signal",
+                        "↻".cyan(),
+                        task_id,
+                        attempt_number,
+                        budget
+                    );
+                    append_progress_log(
+                        path,
+                        task_id,
+                        &format!(
+                            "harness validation-recovery: re-dispatch {attempt_number}/{budget} after a neutral domain-correctness signal (see runtime/inputs/{task_id}/domain-correctness-signal.json)"
+                        ),
+                    );
+                }
+                if let Err(e) = write_dag(path, &after) {
+                    tracing::error!(
+                        target: "harness-guard",
+                        error = format!("{:#}", e),
+                        "failed to persist validation-recovery state"
+                    );
+                }
+                if let Some(ref pc) = progress {
+                    for (task_id, _) in &recovered {
+                        if let Some(t) = after.tasks.get(task_id.as_str()) {
+                            pc.set_task_state(task_id, &t.state);
+                        }
+                    }
+                }
+            }
+        }
+
         // Silent-completion guard: layered defense.
         //
         // (a) Legacy sentinel check — if the agent marked a compute task
@@ -4733,6 +4851,114 @@ fn enforce_validation_contract(
     Ok(violations)
 }
 
+/// Collect the per-task, method-neutral domain-correctness signals for
+/// every `required` assertion that currently fails — without mutating the
+/// DAG. Walks the same contract + completed-parent selection as
+/// [`enforce_validation_contract`] but, instead of re-blocking, builds a
+/// [`validation_recovery::FailedAssertionSignal`] per failing assertion
+/// (the assertion id + a recomputed-bound-vs-agent-numbers statement that
+/// names NO method). Used only by the autonomous-recovery path, which is
+/// gated OFF by default; the production / SME path never calls this.
+///
+/// Returns a deterministic map (BTreeMap, contract-authored assertion
+/// order preserved) keyed by the parent compute task id.
+fn collect_validation_failure_signals(
+    pkg_dir: &Path,
+    dag: &DAG,
+) -> std::collections::BTreeMap<String, Vec<validation_recovery::FailedAssertionSignal>> {
+    use std::collections::BTreeMap;
+    let mut out: BTreeMap<String, Vec<validation_recovery::FailedAssertionSignal>> = BTreeMap::new();
+
+    let contract_path = pkg_dir.join("policies").join("validation-contract.json");
+    if !contract_path.exists() {
+        return out;
+    }
+    let contract_bytes = match read_bytes_capped(&contract_path, resolve_max_bytes()) {
+        Ok(b) => b,
+        Err(_) => return out,
+    };
+    let contract: serde_json::Value = match serde_json::from_slice(&contract_bytes) {
+        Ok(v) => v,
+        Err(_) => return out,
+    };
+    let Some(stages) = contract.get("stages").and_then(|v| v.as_object()) else {
+        return out;
+    };
+
+    // Same upstream-output map the enforcer builds, so cross-stage
+    // statements resolve the producer's number.
+    let mut upstream_outputs: BTreeMap<String, std::path::PathBuf> = BTreeMap::new();
+    for tid in dag.tasks.keys() {
+        upstream_outputs.insert(
+            tid.to_string(),
+            pkg_dir
+                .join("runtime")
+                .join("outputs")
+                .join(tid.to_string()),
+        );
+    }
+
+    // Same completed-parent selection as the enforcer.
+    let task_ids: Vec<String> = dag.tasks.keys().map(|id| id.to_string()).collect();
+    let mut to_check: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for tid in &task_ids {
+        let completed = matches!(
+            dag.tasks.get(tid.as_str()).map(|t| &t.state),
+            Some(TaskState::Completed { .. }) | Some(TaskState::Blocked { .. })
+        );
+        if !completed {
+            continue;
+        }
+        let role = ecaa_workflow_core::taxonomy::derive_role_from_id(tid);
+        if role.is_validation() {
+            to_check.insert(tid.trim_start_matches("validate_").to_string());
+        } else if !tid.starts_with("discover_") {
+            to_check.insert(tid.to_string());
+        }
+    }
+
+    for parent_id in to_check {
+        let stage_class = dag
+            .tasks
+            .get(parent_id.as_str())
+            .and_then(|t| t.spec.as_ref())
+            .and_then(|s| s.get("stage_class"))
+            .and_then(|v| v.as_str())
+            .unwrap_or(&parent_id)
+            .to_string();
+        let Some(block) = stages.get(&stage_class).and_then(|v| v.as_object()) else {
+            continue;
+        };
+        let Some(assertions) = block.get("assertions").and_then(|v| v.as_array()) else {
+            continue;
+        };
+        let mut signals: Vec<validation_recovery::FailedAssertionSignal> = Vec::new();
+        for a in assertions {
+            let id = match a.get("id").and_then(|v| v.as_str()) {
+                Some(s) => s.to_string(),
+                None => continue,
+            };
+            let severity = a
+                .get("severity")
+                .and_then(|v| v.as_str())
+                .unwrap_or("recommended");
+            if severity != "required" {
+                continue;
+            }
+            if !run_assertion(pkg_dir, a, &upstream_outputs) {
+                signals.push(validation_recovery::FailedAssertionSignal {
+                    assertion_id: id,
+                    statement: validation_recovery::build_statement(pkg_dir, a, &upstream_outputs),
+                });
+            }
+        }
+        if !signals.is_empty() {
+            out.insert(parent_id, signals);
+        }
+    }
+    out
+}
+
 /// Read a JSON value at `pointer` (RFC-6901) from `path` and return it
 /// as f64. Returns `None` when the file is missing/unparseable, the
 /// pointer doesn't resolve, or the value isn't numeric. Used by the
@@ -5948,6 +6174,173 @@ mod read_dag_tests {
         ));
     }
 
+    /// `collect_validation_failure_signals` produces a method-NEUTRAL
+    /// domain-correctness statement that restates the design's
+    /// operator-authored bound and the agent's OWN recomputed number,
+    /// keyed by the failing assertion id — the input to the bounded
+    /// autonomous recovery path. Mirrors the heteroplasmy het-band miss
+    /// (low_af_band_count = 0, design requires >= 1).
+    #[test]
+    fn collect_signals_builds_neutral_het_band_statement() {
+        use ecaa_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        std::fs::create_dir_all(pkg.join("policies")).unwrap();
+        std::fs::create_dir_all(pkg.join("runtime/outputs/variant_calling")).unwrap();
+        // Agent's own result: the heteroplasmy band has 0 calls, /is_mtdna true.
+        std::fs::write(
+            pkg.join("runtime/outputs/variant_calling/result.json"),
+            r#"{"is_mtdna": true, "low_af_band_count": 0}"#,
+        )
+        .unwrap();
+        let contract = serde_json::json!({
+            "contract_id": "test-variant",
+            "stages": {
+                "variant_calling": {
+                    "assertions": [
+                        {
+                            "id": "variant_calling.het_tail_band_nonempty",
+                            "assertion_type": "numeric_threshold",
+                            "target": "runtime/outputs/variant_calling/result.json",
+                            "check": { "json_pointer": "/low_af_band_count", "op": "gte", "value": 1.0 },
+                            "when": { "json_pointer": "/is_mtdna", "equals": true },
+                            "severity": "required"
+                        }
+                    ]
+                }
+            }
+        });
+        std::fs::write(
+            pkg.join("policies/validation-contract.json"),
+            serde_json::to_string_pretty(&contract).unwrap(),
+        )
+        .unwrap();
+
+        let mut tasks: std::collections::BTreeMap<TaskId, Task> = std::collections::BTreeMap::new();
+        tasks.insert(
+            "variant_calling".into(),
+            Task {
+                kind: TaskKind::Computation,
+                state: TaskState::Completed {
+                    result: serde_json::json!({"method": "x"}),
+                },
+                depends_on: vec![],
+                assignee: Assignee::Agent,
+                description: "variant calling".into(),
+                spec: Some(serde_json::json!({"stage_class": "variant_calling"})),
+                resolution: None,
+                result_ref: None,
+                resource_class: ResourceClass::CpuHeavy,
+                requires_sme_review: false,
+                required_artifacts: vec![],
+                container: None,
+                source_atom_id: None,
+                safety: Default::default(),
+            },
+        );
+        let dag = DAG {
+            version: "1.0".into(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
+            workflow_id: "t".into(),
+            current_task: None,
+            tasks,
+            reverse_deps: std::collections::BTreeMap::new(),
+            run_id: None,
+        };
+        let signals = collect_validation_failure_signals(pkg, &dag);
+        let vc = signals
+            .get("variant_calling")
+            .expect("variant_calling must have a failed-assertion signal");
+        assert_eq!(vc.len(), 1);
+        assert_eq!(vc[0].assertion_id, "variant_calling.het_tail_band_nonempty");
+        let s = &vc[0].statement;
+        // Restates the design bound + the agent's own number; says revisit.
+        assert!(s.contains("at least 1"), "must restate the design bound: {s}");
+        assert!(s.contains("recomputes 0"), "must restate the agent's own number: {s}");
+        assert!(s.contains("revisit"), "must say revisit, not how: {s}");
+        // NEUTRALITY: names no tool / flag / threshold-to-set / caller.
+        let lower = s.to_ascii_lowercase();
+        for token in [
+            "lofreq", "gatk", "mutect", "bcftools", "samtools", "freebayes", "--",
+            "set the threshold", "use the tool", "aligner", "caller ",
+        ] {
+            assert!(!lower.contains(token), "neutral statement leaked {token:?}: {s}");
+        }
+    }
+
+    /// A `recommended` (non-required) assertion that fails must NOT
+    /// produce a recovery signal — only required assertions gate.
+    #[test]
+    fn collect_signals_ignores_recommended_assertions() {
+        use ecaa_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        std::fs::create_dir_all(pkg.join("policies")).unwrap();
+        std::fs::create_dir_all(pkg.join("runtime/outputs/variant_calling")).unwrap();
+        std::fs::write(
+            pkg.join("runtime/outputs/variant_calling/result.json"),
+            r#"{"low_af_band_count": 0}"#,
+        )
+        .unwrap();
+        let contract = serde_json::json!({
+            "contract_id": "test-variant",
+            "stages": {
+                "variant_calling": {
+                    "assertions": [
+                        {
+                            "id": "variant_calling.het_tail_band_nonempty",
+                            "assertion_type": "numeric_threshold",
+                            "target": "runtime/outputs/variant_calling/result.json",
+                            "check": { "json_pointer": "/low_af_band_count", "op": "gte", "value": 1.0 },
+                            "severity": "recommended"
+                        }
+                    ]
+                }
+            }
+        });
+        std::fs::write(
+            pkg.join("policies/validation-contract.json"),
+            serde_json::to_string_pretty(&contract).unwrap(),
+        )
+        .unwrap();
+        let mut tasks: std::collections::BTreeMap<TaskId, Task> = std::collections::BTreeMap::new();
+        tasks.insert(
+            "variant_calling".into(),
+            Task {
+                kind: TaskKind::Computation,
+                state: TaskState::Completed {
+                    result: serde_json::json!({"method": "x"}),
+                },
+                depends_on: vec![],
+                assignee: Assignee::Agent,
+                description: "variant calling".into(),
+                spec: Some(serde_json::json!({"stage_class": "variant_calling"})),
+                resolution: None,
+                result_ref: None,
+                resource_class: ResourceClass::CpuHeavy,
+                requires_sme_review: false,
+                required_artifacts: vec![],
+                container: None,
+                source_atom_id: None,
+                safety: Default::default(),
+            },
+        );
+        let dag = DAG {
+            version: "1.0".into(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
+            workflow_id: "t".into(),
+            current_task: None,
+            tasks,
+            reverse_deps: std::collections::BTreeMap::new(),
+            run_id: None,
+        };
+        let signals = collect_validation_failure_signals(pkg, &dag);
+        assert!(
+            signals.is_empty(),
+            "a failing recommended assertion must not trigger recovery, got {signals:?}"
+        );
+    }
+
     /// Method-correctness contract, end-to-end through enforce_validation_contract:
     /// a Completed differential_expression task whose result.json records a naked
     /// `~ condition` design (covariates available) AND an inverted regression
@@ -6469,6 +6862,139 @@ mod read_dag_tests {
             "check": { "json_pointer": "/low_af_band_count", "op": "gte", "value": 1.0 }
         });
         assert!(run_assertion(pkg, &a, &empty), "non-empty het band must pass");
+    }
+
+    /// The DE effect-size-reliability assertion (C5, da-15-1) is a
+    /// numeric_threshold `gte` on the agent-recomputed
+    /// /top_effect_abundance_ratio (median abundance of the agent's top-K-by-
+    /// |effect| features over the median abundance of the whole tested set;
+    /// null-robust, ≈1 under independence, →0 for the unshrunken-low-count
+    /// artifact), `required` severity, `when`-gated on
+    /// /information_column_recorded == true. Three behaviours:
+    ///   (a) the top-effect abundance ratio below the operator floor, with the
+    ///       gate satisfied -> FAIL.
+    ///   (b) the gate boolean false (no abundance column) -> SKIPPED (pass),
+    ///       never false-failed.
+    ///   (c) build_statement emits a method-neutral recomputed-vs-bound signal.
+    fn top_effect_reliability_assertion() -> serde_json::Value {
+        serde_json::json!({
+            "id": "differential_expression.top_effect_reliability",
+            "assertion_type": "numeric_threshold",
+            "target": "runtime/outputs/differential_expression/result.json",
+            "check": {
+                "json_pointer": "/top_effect_abundance_ratio",
+                "op": "gte",
+                "value": 0.20
+            },
+            "when": { "json_pointer": "/information_column_recorded", "equals": true }
+        })
+    }
+
+    #[test]
+    fn top_effect_reliability_fails_when_abundance_ratio_below_bound() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        std::fs::create_dir_all(pkg.join("runtime/outputs/differential_expression")).unwrap();
+        std::fs::write(
+            pkg.join("runtime/outputs/differential_expression/result.json"),
+            serde_json::json!({
+                "top_effect_abundance_ratio": 0.09,
+                "information_column_recorded": true
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let empty = std::collections::BTreeMap::new();
+        assert!(
+            !run_assertion(pkg, &top_effect_reliability_assertion(), &empty),
+            "a top-effect abundance ratio 0.09 (< floor 0.20) must fail"
+        );
+    }
+
+    #[test]
+    fn top_effect_reliability_passes_when_abundance_ratio_at_or_above_bound() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        std::fs::create_dir_all(pkg.join("runtime/outputs/differential_expression")).unwrap();
+        std::fs::write(
+            pkg.join("runtime/outputs/differential_expression/result.json"),
+            serde_json::json!({
+                "top_effect_abundance_ratio": 1.0,
+                "information_column_recorded": true
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let empty = std::collections::BTreeMap::new();
+        assert!(
+            run_assertion(pkg, &top_effect_reliability_assertion(), &empty),
+            "a top-effect abundance ratio at/above the floor must pass (strong hits well-expressed)"
+        );
+    }
+
+    #[test]
+    fn top_effect_reliability_skipped_when_no_abundance_column() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        std::fs::create_dir_all(pkg.join("runtime/outputs/differential_expression")).unwrap();
+        // Gate boolean false: the table carried no abundance column. The ratio
+        // could even violate the floor, but the `when` gate (equals: true)
+        // makes the check not-applicable -> skipped (pass), never false-failed.
+        std::fs::write(
+            pkg.join("runtime/outputs/differential_expression/result.json"),
+            serde_json::json!({
+                "top_effect_abundance_ratio": 0.09,
+                "information_column_recorded": false
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let empty = std::collections::BTreeMap::new();
+        assert!(
+            !when_clause_satisfied(pkg, &top_effect_reliability_assertion()),
+            "the /information_column_recorded=false gate must be unsatisfied (skip)"
+        );
+        assert!(
+            run_assertion(pkg, &top_effect_reliability_assertion(), &empty),
+            "no abundance column must SKIP (pass), never false-fail the ranking"
+        );
+    }
+
+    #[test]
+    fn top_effect_reliability_recovery_statement_is_method_neutral() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        std::fs::create_dir_all(pkg.join("runtime/outputs/differential_expression")).unwrap();
+        std::fs::write(
+            pkg.join("runtime/outputs/differential_expression/result.json"),
+            serde_json::json!({ "top_effect_abundance_ratio": 0.09 }).to_string(),
+        )
+        .unwrap();
+        let s = validation_recovery::build_statement(
+            pkg,
+            &top_effect_reliability_assertion(),
+            &std::collections::BTreeMap::new(),
+        );
+        // Restates the design's bound + the agent's own recomputed number, says
+        // "revisit", and carries the load-bearing neutrality coda.
+        assert!(s.contains("differential_expression.top_effect_reliability"), "{s}");
+        assert!(s.contains("at least 0.2"), "must restate the design bound: {s}");
+        assert!(s.contains("recomputes 0.09"), "must restate the agent's own number: {s}");
+        assert!(
+            s.contains("no method, tool, or threshold value is prescribed"),
+            "must carry the neutrality coda: {s}"
+        );
+        // No method/estimator/filter token may leak into the neutral signal.
+        let lower = s.to_ascii_lowercase();
+        for token in [
+            "deseq", "edger", "limma", "shrink", "apeglm", "ashr", "wilcoxon", "t-test",
+            "low-count", "filter low", "unshrunken", "normalization method", "set the threshold",
+        ] {
+            assert!(
+                !lower.contains(token),
+                "neutral signal leaked a method/remedy token {token:?}: {s}"
+            );
+        }
     }
 
     #[test]

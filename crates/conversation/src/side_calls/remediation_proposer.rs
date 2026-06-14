@@ -1,4 +1,15 @@
-//! One-shot LLM proposer for `BlockerKind::ToolError` blockers.
+//! One-shot LLM proposer for blocked tasks.
+//!
+//! Triggered for `BlockerKind::ToolError` (a real `error.json` envelope)
+//! AND for `BlockerKind::ValidationFailed` (a validation-contract /
+//! claim-verifier block) — the server endpoint synthesizes a minimal
+//! `ToolErrorEnvelope` from the blocked reason + the method-neutral
+//! domain-correctness signal for the latter, so this proposer is
+//! envelope-shaped for both. The headless/unattended harness recovery
+//! path does NOT call this LIVE LLM proposer; it consumes the
+//! deterministic `runtime/inputs/<task>/domain-correctness-signal.json`
+//! the harness writes (no server, no LLM). This proposer is the
+//! SME-facing analog the BlockerCard's "suggest" affordance drives.
 //!
 //! Input: a `ToolErrorEnvelope` + optional stage-taxonomy / intake-fact
 //! context. Output: a ranked `Vec<RemediationSuggestion>` (1–3 items).

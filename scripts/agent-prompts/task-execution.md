@@ -149,6 +149,28 @@ depth/quality-only hard filter suits a high-confidence-germline goal). This
 shapes ranking only — it is NOT a threshold and NOT a mandated tool; you still
 choose, install, and record `decision.json::chosen` exactly as above.
 
+### Domain-correctness signal (re-dispatch)
+
+Before you start, check for `runtime/inputs/$ECAA_TASK_ID/domain-correctness-signal.json`.
+If it exists, a prior run of THIS task produced a result that did not meet a
+required domain-correctness check, and the harness is re-dispatching you to
+correct it. The file lists, per failed check, the assertion id and a plain
+statement of what is biologically off — the design's required bound versus the
+number recomputed from your OWN previous `result.json` (for example: "the
+low-AF heteroplasmy band [0.01, 0.5) this design requires has 0 calls in your
+result.json; the design requires at least 1 — revisit").
+
+This signal tells you WHAT is off, never HOW to fix it. It names no tool, no
+flag, no aligner or caller, no statistical test, and no threshold value to set —
+those choices are yours, exactly as on a first dispatch. Re-do the analysis so
+the recomputed quantity satisfies the design's bound, write fresh outputs and a
+new `result.json`, and record your terminal state as usual. If, after genuinely
+revisiting your approach, you conclude the design's expectation cannot be met
+for this data (e.g. the signal is biologically wrong for this call set), block
+with a precise, typed `blocker_kind` explaining why rather than fabricating a
+passing number — the recovery budget is bounded and a stranded block is then
+surfaced to the SME.
+
 ### Iterate-until stages
 
 A `Cardinality::IterateUntil` stage is emitted as a 4-template scaffold

@@ -31,6 +31,7 @@ pub mod scratch_cleanup;
 pub mod sme_skip;
 pub mod stale_reset;
 pub mod stall_relay;
+pub mod validation_recovery;
 pub mod validators;
 pub mod watchdog;
 pub mod wrroc_validator_impl;

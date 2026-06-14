@@ -276,6 +276,17 @@ pub struct Config {
     /// `ECAA_TASK_HEARTBEAT_STALL_SECS`. Default `300`. `0` disables the
     /// stall trip-wire entirely (documented escape hatch).
     pub task_heartbeat_stall_secs: u64,
+    /// `ECAA_HARNESS_VALIDATION_RECOVERY`. When truthy, the harness may
+    /// re-dispatch a task that a `required` validation-contract assertion
+    /// re-blocked, a bounded number of times (≤2), after writing a
+    /// method-neutral domain-correctness signal into the task's next-run
+    /// inputs. Default `false` preserves the production / SME human
+    /// checkpoint (a blocked task stays blocked for the SME). The harness
+    /// reads the live env directly via
+    /// `validation_recovery::recovery_enabled`; this field is the typed
+    /// catalog entry (C7) so the flag is discoverable in one place.
+    pub harness_validation_recovery: bool,
+
     /// `ECAA_HARNESS_BIN_PATH`. Optional override for integration tests.
     pub harness_bin_path: Option<PathBuf>,
 
@@ -427,6 +438,11 @@ impl Config {
             .get("ECAA_HARNESS_BIN_PATH")
             .filter(|s| !s.is_empty())
             .map(PathBuf::from);
+        // `ECAA_HARNESS_VALIDATION_RECOVERY` — bounded autonomous recovery
+        // on a required-assertion block. Off by default so the SME human
+        // checkpoint is preserved.
+        let harness_validation_recovery =
+            parse_bool(env, "ECAA_HARNESS_VALIDATION_RECOVERY", false);
 
         // -- Literature ------------------------------------------------
         let source_scope = match env.get("ECAA_LIT_SOURCE_SCOPE").copied() {
@@ -542,6 +558,7 @@ impl Config {
             aws_pricing_overrides,
             harness_batch_window_secs,
             task_heartbeat_stall_secs,
+            harness_validation_recovery,
             harness_bin_path,
             literature,
             upload_root,
@@ -596,6 +613,10 @@ impl std::fmt::Debug for Config {
             )
             .field("harness_batch_window_secs", &self.harness_batch_window_secs)
             .field("task_heartbeat_stall_secs", &self.task_heartbeat_stall_secs)
+            .field(
+                "harness_validation_recovery",
+                &self.harness_validation_recovery,
+            )
             .field("harness_bin_path", &self.harness_bin_path)
             .field("literature", &self.literature)
             .field("upload_root", &self.upload_root)
@@ -651,6 +672,7 @@ impl Default for ConfigBuilder {
                 aws_pricing_overrides: HashMap::new(),
                 harness_batch_window_secs: DEFAULT_HARNESS_BATCH_WINDOW_SECS,
                 task_heartbeat_stall_secs: DEFAULT_TASK_HEARTBEAT_STALL_SECS,
+                harness_validation_recovery: false,
                 harness_bin_path: None,
                 literature: LiteratureConfig {
                     source_scope: LitSourceScope::PmcOa,
@@ -810,6 +832,13 @@ impl ConfigBuilder {
     /// Modality drift mode.
     pub fn modality_drift_mode(mut self, m: ModalityDriftMode) -> Self {
         self.inner.modality_drift_mode = m;
+        self
+    }
+
+    /// Harness validation-recovery flag (bounded autonomous recovery on a
+    /// required-assertion block). Off by default.
+    pub fn harness_validation_recovery(mut self, v: bool) -> Self {
+        self.inner.harness_validation_recovery = v;
         self
     }
 
@@ -1214,6 +1243,24 @@ mod tests {
         assert!(
             cfg.compose_interpretation,
             "ECAA_COMPOSE_INTERPRETATION=1 must enable"
+        );
+    }
+
+    #[test]
+    fn harness_validation_recovery_defaults_off_and_parses_on() {
+        let empty: HashMap<&str, &str> = HashMap::new();
+        let cfg = Config::from_env_map(&empty).expect("empty env config");
+        assert!(
+            !cfg.harness_validation_recovery,
+            "harness_validation_recovery must default off so the SME checkpoint is preserved"
+        );
+
+        let mut env: HashMap<&str, &str> = HashMap::new();
+        env.insert("ECAA_HARNESS_VALIDATION_RECOVERY", "1");
+        let cfg = Config::from_env_map(&env).expect("env config");
+        assert!(
+            cfg.harness_validation_recovery,
+            "ECAA_HARNESS_VALIDATION_RECOVERY=1 must enable"
         );
     }
 }

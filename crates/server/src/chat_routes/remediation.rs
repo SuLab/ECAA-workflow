@@ -125,11 +125,31 @@ pub(super) async fn get_remediation_suggestions(
     let envelope = match read_envelope(&package_path, &task_id) {
         Ok(Some(e)) => e,
         Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                "no error envelope for this task — task may not have failed yet",
-            )
-                .into_response();
+            // No ToolError envelope. Widen the trigger to cover
+            // `BlockerKind::ValidationFailed`: a task re-blocked by the
+            // validation-contract check (or the on-completion claim
+            // verifier) has no `error.json`, but the proposer is still
+            // useful — its method-neutral rubric can suggest how to
+            // approach the failed domain-correctness check. Synthesize a
+            // minimal envelope from the blocked reason + the neutral
+            // domain-correctness signal so the existing proposer path
+            // applies unchanged. NOTE: the proposer is a LIVE server-side
+            // Opus side-call; the headless unattended harness path does
+            // NOT use it. Recovery there consumes the deterministic
+            // `runtime/inputs/<task>/domain-correctness-signal.json`
+            // written by the harness — no LLM call, no server. This
+            // endpoint is the SME-facing analog (the SME clicks "suggest"
+            // in the BlockerCard).
+            match synthesize_validation_failed_envelope(&session, &package_path, &task_id) {
+                Some(e) => e,
+                None => {
+                    return (
+                        StatusCode::NOT_FOUND,
+                        "no error envelope and no validation-contract block for this task — task may not have failed yet",
+                    )
+                        .into_response();
+                }
+            }
         }
         Err(e) => {
             return (
@@ -484,6 +504,140 @@ fn resolve_envelope_path(
     Ok(task_dir.join("error.json"))
 }
 
+/// Markers a harness / verifier writes into a `BlockedRecord::reason`
+/// for a `BlockerKind::ValidationFailed`-class block. Matching any of
+/// these makes the task eligible for a synthesized envelope so the
+/// proposer trigger covers validation failures, not just tool errors.
+const VALIDATION_BLOCK_MARKERS: &[&str] = &[
+    "[validation_failed]",
+    "validation-contract",
+    "required assertion",
+    "ValidationFailed",
+];
+
+/// Synthesize a minimal [`ToolErrorEnvelope`] for a task that a
+/// validation-contract / claim-verifier block left Blocked (no
+/// `error.json` present). Returns `None` when the task is not Blocked on
+/// a validation-failure reason, so the caller falls through to the
+/// "nothing to remediate" 404.
+///
+/// The synthesized envelope's `stderr` carries the blocked reason plus
+/// the METHOD-NEUTRAL domain-correctness statements from
+/// `runtime/inputs/<task>/domain-correctness-signal.json` when present
+/// (written by the harness autonomous-recovery path). Those statements
+/// already name no tool/flag/threshold, and the proposer prompt's
+/// method-neutrality rubric is unchanged, so widening the trigger does
+/// not loosen neutrality.
+fn synthesize_validation_failed_envelope(
+    session: &ecaa_workflow_conversation::session::Session,
+    package: &std::path::Path,
+    task_id: &str,
+) -> Option<ToolErrorEnvelope> {
+    use ecaa_workflow_core::dag::TaskState;
+
+    let dag = session.dag.as_ref()?;
+    let task = dag.tasks.get(task_id)?;
+    let reason = match &task.state {
+        TaskState::Blocked { record } => record.reason.clone(),
+        _ => return None,
+    };
+    if !VALIDATION_BLOCK_MARKERS
+        .iter()
+        .any(|m| reason.contains(m))
+    {
+        return None;
+    }
+
+    // Pull the neutral domain-correctness statements (if the harness
+    // wrote them) so the proposer sees exactly what is biologically off.
+    let neutral_signal = read_domain_correctness_statements(package, task_id);
+    let stage_id = task
+        .spec
+        .as_ref()
+        .and_then(|s| s.get("stage_class"))
+        .and_then(|v| v.as_str())
+        .unwrap_or(task_id)
+        .to_string();
+
+    let mut stderr = String::new();
+    stderr.push_str(&reason);
+    if !neutral_signal.is_empty() {
+        stderr.push_str("\n\nDomain-correctness signal (method-neutral):\n");
+        for s in &neutral_signal {
+            stderr.push_str("- ");
+            stderr.push_str(s);
+            stderr.push('\n');
+        }
+    }
+
+    // `captured_at` keys the proposer cache; derive it from the reason so
+    // an unchanged block reuses the cache, and a new failure reason (the
+    // reason carries the failed assertion ids) re-proposes.
+    let captured_at = format!("validation:{}", short_digest(&reason));
+
+    Some(ecaa_workflow_core::error_envelope::synthesize(
+        ecaa_workflow_core::error_envelope::EnvelopeInput {
+            task_id: ecaa_workflow_core::dag::TaskId::from(task_id),
+            stage_id: stage_id.into(),
+            library: None,
+            library_version: None,
+            stderr: stderr.as_str(),
+            stdout: "",
+            exit_code: None,
+            signal: None,
+            wallclock_secs: None,
+            peak_memory_mb: None,
+            input_summary: Default::default(),
+            executor: "validation-contract".to_string(),
+            executor_context: Default::default(),
+            captured_at,
+            attempt: read_overrides_attempts(package, task_id).saturating_add(1),
+        },
+    ))
+}
+
+/// Read the method-neutral statements from
+/// `runtime/inputs/<task>/domain-correctness-signal.json` (the
+/// harness-written autonomous-recovery signal). Returns an empty vec
+/// when the file is absent / unreadable — the proposer still runs on the
+/// blocked reason alone. Path-jailed on `task_id`.
+fn read_domain_correctness_statements(package: &std::path::Path, task_id: &str) -> Vec<String> {
+    let inputs_base = package.join("runtime/inputs");
+    let Ok(task_inputs) = super::_path_jail::safe_segment_join(&inputs_base, task_id) else {
+        return Vec::new();
+    };
+    let path = task_inputs.join("domain-correctness-signal.json");
+    if super::_path_jail::assert_under_root(package, &path).is_err() {
+        return Vec::new();
+    }
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return Vec::new();
+    };
+    v.get("failed_assertions")
+        .and_then(|a| a.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|e| e.get("statement").and_then(|s| s.as_str()))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Tiny stable digest of a string for cache-keying. Deterministic; not
+/// cryptographic. Uses the std hasher with a fixed seed (default-state
+/// `DefaultHasher`), which is stable within a process run — sufficient
+/// for the in-process proposer cache.
+fn short_digest(s: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    s.hash(&mut h);
+    format!("{:016x}", h.finish())
+}
+
 fn read_envelope(
     package: &std::path::Path,
     task_id: &str,
@@ -613,6 +767,111 @@ mod tests {
         let pkg = tmp.path();
         assert!(read_overrides(pkg, "x").is_none());
         assert_eq!(read_overrides_attempts(pkg, "x"), 0);
+    }
+
+    /// Build a one-task DAG whose single task is in `state`.
+    fn dag_with_task(task_id: &str, state: ecaa_workflow_core::dag::TaskState) -> ecaa_workflow_core::dag::DAG {
+        use ecaa_workflow_core::dag::{Assignee, ResourceClass, Task, TaskId, TaskKind, DAG};
+        let mut tasks: std::collections::BTreeMap<TaskId, Task> = std::collections::BTreeMap::new();
+        tasks.insert(
+            task_id.into(),
+            Task {
+                kind: TaskKind::Computation,
+                state,
+                depends_on: vec![],
+                assignee: Assignee::Agent,
+                description: "t".into(),
+                spec: Some(serde_json::json!({"stage_class": task_id})),
+                resolution: None,
+                result_ref: None,
+                resource_class: ResourceClass::CpuHeavy,
+                requires_sme_review: false,
+                required_artifacts: vec![],
+                container: None,
+                source_atom_id: None,
+                safety: Default::default(),
+            },
+        );
+        DAG {
+            version: "1.0".into(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
+            workflow_id: "t".into(),
+            current_task: None,
+            tasks,
+            reverse_deps: std::collections::BTreeMap::new(),
+            run_id: None,
+        }
+    }
+
+    fn blocked(reason: &str) -> ecaa_workflow_core::dag::TaskState {
+        ecaa_workflow_core::dag::TaskState::Blocked {
+            record: ecaa_workflow_core::dag::BlockedRecord {
+                reason: reason.into(),
+                attempts: vec![],
+            },
+        }
+    }
+
+    /// Trigger widening: a task Blocked on a validation-contract reason
+    /// yields a synthesized envelope carrying the method-neutral signal.
+    #[test]
+    fn validation_block_synthesizes_envelope_with_neutral_signal() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        // Harness-written neutral signal.
+        let sig_dir = pkg.join("runtime/inputs/variant_calling");
+        std::fs::create_dir_all(&sig_dir).unwrap();
+        std::fs::write(
+            sig_dir.join("domain-correctness-signal.json"),
+            r#"{"failed_assertions":[{"assertion_id":"variant_calling.het_tail_band_nonempty","statement":"variant_calling.het_tail_band_nonempty: this design requires /low_af_band_count at least 1, but your result.json recomputes 0 — revisit (no method prescribed)."}]}"#,
+        )
+        .unwrap();
+
+        let mut session = ecaa_workflow_conversation::session::Session::new(false);
+        session.dag = Some(dag_with_task(
+            "variant_calling",
+            blocked("Harness validation-contract check: required assertion(s) unsatisfied: variant_calling.het_tail_band_nonempty."),
+        ));
+
+        let env = synthesize_validation_failed_envelope(&session, pkg, "variant_calling")
+            .expect("a validation-contract block must synthesize an envelope");
+        assert_eq!(env.executor, "validation-contract");
+        let joined = env.stderr_tail.join("\n");
+        assert!(
+            joined.contains("at least 1") && joined.contains("recomputes 0"),
+            "envelope must carry the neutral recomputed-bound statement: {joined}"
+        );
+        // Neutrality: the synthesized stderr names no tool/flag.
+        let lower = joined.to_ascii_lowercase();
+        for token in ["lofreq", "gatk", "--", "set the threshold"] {
+            assert!(!lower.contains(token), "leaked {token:?}: {joined}");
+        }
+    }
+
+    /// A task Blocked on a NON-validation reason (or not blocked) is not
+    /// eligible — the proposer trigger is not widened to every blocker.
+    #[test]
+    fn non_validation_block_returns_none() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        let mut session = ecaa_workflow_conversation::session::Session::new(false);
+        session.dag = Some(dag_with_task(
+            "alignment",
+            blocked("Agent needs the SME to pick a reference genome build."),
+        ));
+        assert!(
+            synthesize_validation_failed_envelope(&session, pkg, "alignment").is_none(),
+            "a non-validation block must not synthesize an envelope"
+        );
+
+        // A completed task is likewise ineligible.
+        session.dag = Some(dag_with_task(
+            "alignment",
+            ecaa_workflow_core::dag::TaskState::Completed {
+                result: serde_json::json!({}),
+            },
+        ));
+        assert!(synthesize_validation_failed_envelope(&session, pkg, "alignment").is_none());
     }
 
     #[test]
