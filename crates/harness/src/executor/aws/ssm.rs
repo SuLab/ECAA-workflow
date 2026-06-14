@@ -449,6 +449,7 @@ impl AwsExecutor {
                 // The wall-clock kill loop is local-only (no PID-bearing
                 // child handle on the remote path); never set here.
                 wall_clock_killed: false,
+                effective_deadline_secs: None,
                 wallclock_secs: None,
                 peak_memory_mb: None,
                 executor_context: ctx,

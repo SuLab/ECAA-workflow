@@ -153,10 +153,18 @@ fn read_existing_envelope_error_class(package: &Path, task_id: &str) -> Option<S
 /// Maps a non-success iteration capture onto the `(observed_secs,
 /// threshold_secs)` pair for a `task_wall_clock_exceeded` progress
 /// event when — and only when — the executor SIGKILLed the agent after
-/// the hard `task_timeout_secs` deadline elapsed. The server promotes
-/// the resulting event to `Blocked { BlockerKind::WallClockExceeded }`.
+/// the hard wall-clock deadline elapsed. The server promotes the
+/// resulting event to `Blocked { BlockerKind::WallClockExceeded }`.
 /// Returns `None` for ordinary (non-wall-clock) agent failures so the
 /// caller falls through to the normal tool-error-envelope path.
+///
+/// `threshold_secs` is the deadline the executor ACTUALLY enforced
+/// (`capture.effective_deadline_secs`, which is
+/// `max(task_timeout, agent_wallclock + grace)` and can exceed the raw
+/// `--task-timeout`), falling back to the raw `task_timeout` only when the
+/// backend cannot report it. Reporting the raw `--task-timeout` instead made
+/// the SME message self-contradictory — e.g. "14520s observed, 300s threshold"
+/// with `task_timeout=300, ECAA_AGENT_WALLCLOCK_SECS=14400`.
 fn wall_clock_blocker_params(
     capture: &ecaa_workflow_harness::executor::IterationCapture,
     task_timeout: u64,
@@ -164,7 +172,8 @@ fn wall_clock_blocker_params(
     if !capture.wall_clock_killed {
         return None;
     }
-    Some((capture.wallclock_secs.unwrap_or(0), task_timeout))
+    let threshold = capture.effective_deadline_secs.unwrap_or(task_timeout);
+    Some((capture.wallclock_secs.unwrap_or(0), threshold))
 }
 
 /// Set the outcome on the most recent applied remediation in
@@ -8780,28 +8789,44 @@ mod wall_clock_blocker_mapping_tests {
     use ecaa_workflow_harness::executor::IterationCapture;
 
     #[test]
-    fn wall_clock_killed_maps_to_blocker() {
+    fn wall_clock_killed_reports_enforced_deadline_not_raw_task_timeout() {
         // A capture flagged wall_clock_killed must yield the
         // (observed_secs, threshold_secs) pair the harness feeds into
         // `pc.wall_clock_exceeded`, which the server promotes to
-        // `Blocked { BlockerKind::WallClockExceeded }`. observed_secs is
-        // the capture's measured wallclock; threshold_secs is the
-        // configured task timeout.
+        // `Blocked { BlockerKind::WallClockExceeded }`. observed_secs is the
+        // capture's measured wallclock; threshold_secs must be the deadline the
+        // executor ACTUALLY enforced (effective_deadline_secs), NOT the raw
+        // --task-timeout — otherwise the SME message is self-contradictory
+        // ("14520s observed, 300s threshold").
         let cap = IterationCapture {
             wall_clock_killed: true,
-            wallclock_secs: Some(312),
+            wallclock_secs: Some(14520),
+            effective_deadline_secs: Some(14520),
             exit_code: None,
             signal: Some("SIGKILL".into()),
             ..Default::default()
         };
-        let task_timeout = 300u64;
+        let task_timeout = 300u64; // raw --task-timeout, smaller than the agent wallclock backstop
         let params =
             wall_clock_blocker_params(&cap, task_timeout).expect("wall-clock kill must map");
         assert_eq!(
             params,
-            (312, 300),
-            "observed_secs == capture.wallclock_secs and threshold_secs == args.task_timeout"
+            (14520, 14520),
+            "threshold_secs == the enforced deadline, not the raw --task-timeout"
         );
+    }
+
+    #[test]
+    fn wall_clock_falls_back_to_task_timeout_when_deadline_unreported() {
+        // Backends that cannot report effective_deadline_secs (None) fall back
+        // to the raw task_timeout so the blocker still carries a threshold.
+        let cap = IterationCapture {
+            wall_clock_killed: true,
+            wallclock_secs: Some(312),
+            effective_deadline_secs: None,
+            ..Default::default()
+        };
+        assert_eq!(wall_clock_blocker_params(&cap, 300), Some((312, 300)));
     }
 
     #[test]

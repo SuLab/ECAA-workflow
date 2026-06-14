@@ -1150,11 +1150,10 @@ impl Executor for LocalExecutor {
                         .ok()
                         .and_then(|s| s.parse::<u64>().ok())
                 });
+            let effective_deadline_secs =
+                effective_task_deadline_secs(self.task_timeout_secs, agent_wallclock_secs);
             let deadline = std::time::Instant::now()
-                + std::time::Duration::from_secs(effective_task_deadline_secs(
-                    self.task_timeout_secs,
-                    agent_wallclock_secs,
-                ));
+                + std::time::Duration::from_secs(effective_deadline_secs);
             let mut wall_clock_killed = false;
             let status = loop {
                 match child.try_wait().context("waiting on agent")? {
@@ -1219,6 +1218,10 @@ impl Executor for LocalExecutor {
                 exit_code: status.code(),
                 signal,
                 wall_clock_killed,
+                // Report the deadline actually enforced (may exceed the raw
+                // --task-timeout) so WallClockExceeded is not self-contradictory
+                // against the observed elapsed time.
+                effective_deadline_secs: wall_clock_killed.then_some(effective_deadline_secs),
                 wallclock_secs: Some(started.elapsed().as_secs()),
                 peak_memory_mb: read_vmhwm_kb(pid).map(|kb| kb / 1024),
                 executor_context: local_context(),
@@ -1255,6 +1258,7 @@ impl Executor for LocalExecutor {
                 // where the agent script's own `ECAA_AGENT_WALLCLOCK_SECS`
                 // SIGTERM timer is the wall-clock backstop.
                 wall_clock_killed: false,
+                effective_deadline_secs: None,
                 wallclock_secs: Some(started.elapsed().as_secs()),
                 peak_memory_mb: None,
                 executor_context: local_context(),

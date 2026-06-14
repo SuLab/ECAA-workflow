@@ -509,6 +509,15 @@ pub struct IterationCapture {
     /// SIGKILL), independent of heartbeat/CPU freshness. The harness
     /// main loop maps this to `BlockerKind::WallClockExceeded`.
     pub wall_clock_killed: bool,
+    /// The deadline the executor actually ENFORCED, in seconds — i.e. the
+    /// value of `effective_task_deadline_secs(task_timeout, agent_wallclock)`,
+    /// which can exceed the raw `--task-timeout` (it is
+    /// `max(task_timeout, agent_wallclock + grace)`). Reported by
+    /// `WallClockExceeded` so the SME sees the deadline that fired, not the
+    /// raw `--task-timeout` (which would be self-contradictory against the
+    /// observed elapsed time). `None` when no wall-clock kill occurred or the
+    /// backend cannot report it.
+    pub effective_deadline_secs: Option<u64>,
     /// Elapsed wall-clock time of the iteration in seconds.
     pub wallclock_secs: Option<u64>,
     /// Peak RSS of the agent subprocess in megabytes.
