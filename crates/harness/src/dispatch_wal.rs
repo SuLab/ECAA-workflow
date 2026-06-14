@@ -868,6 +868,47 @@ mod tests {
     }
 
     #[test]
+    fn heartbeat_liveness_probe_honors_agent_pid_sidecar() {
+        // W5.4: a fresh heartbeat is necessary but not sufficient — when
+        // `.agent-pid` is present the recorded PID must still be alive
+        // (kill(pid,0)). Covers the branch the default-path agent-claude.sh
+        // write now exercises in production (previously untested).
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        let probe = HeartbeatLivenessProbe {
+            package_root: pkg.to_path_buf(),
+            freshness_secs: 60,
+        };
+        let setup = |task: &str, pid: &str| {
+            let dir = pkg.join("runtime/outputs").join(task);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join(".heartbeat"), "now").unwrap();
+            std::fs::write(dir.join(".agent-pid"), pid).unwrap();
+        };
+
+        // Live PID (this very test process) → live.
+        setup("live", &format!("{}\n", std::process::id()));
+        assert!(probe.is_live("live"), "fresh heartbeat + live PID → live");
+
+        // Dead PID: spawn a trivial child, reap it, reuse its now-dead PID.
+        let mut child = std::process::Command::new("true").spawn().unwrap();
+        let dead_pid = child.id();
+        child.wait().unwrap();
+        setup("dead", &format!("{}\n", dead_pid));
+        assert!(
+            !probe.is_live("dead"),
+            "fresh heartbeat but a dead recorded PID → dead (the closed zombie fail-open)"
+        );
+
+        // Malformed sidecar → degrade to mtime-only (heartbeat is fresh → live).
+        setup("malformed", "not-a-pid");
+        assert!(
+            probe.is_live("malformed"),
+            "malformed .agent-pid degrades to mtime-only (fresh heartbeat → live)"
+        );
+    }
+
+    #[test]
     fn truncate_wal_empties_existing_log() {
         // Clean-exit truncation: a populated WAL becomes zero-length,
         // so the next harness start sees an empty WAL and short-circuits

@@ -262,6 +262,16 @@ HEARTBEAT_PID=""
 if [ -n "${ECAA_TASK_ID:-}" ]; then
   HEARTBEAT_FILE="$PACKAGE/runtime/outputs/$ECAA_TASK_ID/.heartbeat"
   mkdir -p "$(dirname "$HEARTBEAT_FILE")" 2>/dev/null || true
+  # W5.4: record THIS wrapper's PID so the harness HeartbeatLivenessProbe can
+  # verify the agent is still alive via kill(pid, 0), not just that .heartbeat is
+  # fresh. The harness only writes .agent-pid on its std::process/sandbox path;
+  # the DEFAULT local/eval dispatch takes the duct path (no PID handle), so
+  # without this write the probe silently degrades to mtime-only and a zombie
+  # that keeps the heartbeat fresh reads as live (the documented W5.4 gap).
+  # $$ is the wrapper PID the harness spawned (same value child.id() records on
+  # the std path), so the two paths agree. Best-effort; removed on exit.
+  AGENT_PID_FILE="$PACKAGE/runtime/outputs/$ECAA_TASK_ID/.agent-pid"
+  printf '%s\n' "$$" > "$AGENT_PID_FILE" 2>/dev/null || true
   # Liveness loop. CRITICAL: a transient write failure must NOT kill the loop.
   # The previous `|| exit 0` made a single failed `date > file` (a momentary fs
   # hiccup, a brief dir-recreate race, an EINTR) terminate the heartbeat
@@ -290,6 +300,10 @@ cleanup_heartbeat() {
   if [ -n "$HEARTBEAT_PID" ]; then
     kill "$HEARTBEAT_PID" 2>/dev/null || true
     wait "$HEARTBEAT_PID" 2>/dev/null || true
+  fi
+  # Remove the liveness sidecar so a reaped/reused PID can't read as live.
+  if [ -n "${AGENT_PID_FILE:-}" ]; then
+    rm -f "$AGENT_PID_FILE" 2>/dev/null || true
   fi
   if [ -n "$CRED_REFRESH_PID" ]; then
     kill "$CRED_REFRESH_PID" 2>/dev/null || true
