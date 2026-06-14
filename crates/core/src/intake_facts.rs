@@ -257,8 +257,24 @@ impl IntakeFacts {
         // rewire `variant_filtering` onto the ingest anchor with a type-violating
         // `data_acquisition.variants` (data:3498) edge. The marker must bind to
         // the noun, not merely co-occur in the document.
+        // Segment on sentence terminators AND intra-sentence separators (comma,
+        // colon, em-/en-dash) so a single run-on sentence does not bind a
+        // possession marker to a downstream output noun across a clause boundary:
+        // "using the provided FASTQ reads, call variants into one VCF per sample"
+        // must NOT seed a supplied VCF — "provided" binds the raw input clause,
+        // "VCF" sits in the produced-output clause. The hyphen-minus '-' is
+        // deliberately EXCLUDED (it joins compound words: gene-level, RNA-seq,
+        // splice-aware, long-read) — only the true dash characters split. A
+        // narrower binding window can only REDUCE seeding (the safe direction for
+        // an over-pruning bug): a genuinely-supplied product phrased with a comma
+        // between marker and noun simply falls back to running the full pipeline.
         let clauses: Vec<&str> = lower
-            .split(|c: char| matches!(c, '.' | ';' | '!' | '?' | '\n'))
+            .split(|c: char| {
+                matches!(
+                    c,
+                    '.' | ';' | '!' | '?' | '\n' | ',' | ':' | '\u{2014}' | '\u{2013}'
+                )
+            })
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .collect();
@@ -695,6 +711,27 @@ mod tests {
             IntakeFacts::detect_input_data_stage(prose, Some("variant_calling")).is_none(),
             "a variant-CALLING goal with FASTQ provided must NOT be read as supplied variants"
         );
+    }
+
+    #[test]
+    fn detect_input_data_stage_single_sentence_provided_fastq_is_not_supplied_variants() {
+        // Residual of the composer prune bug: a SINGLE run-on sentence (no period
+        // between the input clause and the output clause) where the possession
+        // marker binds the RAW input and the VCF is a produced OUTPUT. Before the
+        // intra-sentence (comma/dash) clause split, "provided" and "vcf"
+        // co-occurred in the one clause and falsely seeded a supplied VCF →
+        // over-pruned the calling chain. The finer split keeps "provided FASTQ
+        // reads" and "one VCF per sample" in separate clauses, so no marker binds
+        // the output noun and nothing is seeded (the safe fall-back to raw).
+        for prose in [
+            "Using the provided FASTQ reads, call variants and write one VCF per sample.",
+            "From the provided raw reads — align, call, and emit a VCF of variants per sample.",
+        ] {
+            assert!(
+                IntakeFacts::detect_input_data_stage(prose, Some("variant_calling")).is_none(),
+                "a single-sentence 'provided FASTQ … produce VCF' must NOT seed supplied variants: {prose:?}"
+            );
+        }
     }
 
     #[test]
