@@ -312,6 +312,28 @@ def _augment_enabled() -> bool:
     return os.environ.get("ECAA_EVAL_NARRATIVE_AUGMENT", "0") == "1"
 
 
+def _answer_deliverable(task_dir: Path) -> str:
+    """The task's agent-written ANSWER deliverable for the answer-channel
+    fallback: prefer a standalone ``answer.txt`` (the agent's full written
+    answer — e.g. a ranked result table) over the compressed ``result.json``
+    summary digest that ``_narrative()`` returns. A dead-stalled DAG that never
+    ran its reporting terminal can leave the real analysis only in a task's
+    ``answer.txt`` (with the result.json carrying just a short summary), so
+    consulting it surfaces the agent's OWN computed answer instead of an
+    incidental, longer side-narrative. Falls back to ``_narrative()`` when no
+    answer.txt exists. Surfaces nothing fabricated — only the agent's own file.
+    """
+    p = task_dir / "answer.txt"
+    if p.exists():
+        try:
+            txt = p.read_text()
+        except OSError:
+            txt = ""
+        if txt.strip():
+            return txt
+    return _narrative(task_dir)
+
+
 def flatten_outputs(outputs_dir: Path, workflow_json: Path) -> tuple[str, str]:
     tasks = _normalize_tasks(json.loads(Path(workflow_json).read_text())["tasks"])
     order = _topo(tasks)
@@ -359,7 +381,12 @@ def flatten_outputs(outputs_dir: Path, workflow_json: Path) -> tuple[str, str]:
         for tid in order:
             if tid.startswith("validate_") or tid.startswith("discover_"):
                 continue
-            narr = _narrative(outputs_dir / tid).strip()
+            # Read the agent's answer.txt deliverable (via _answer_deliverable)
+            # so a real 14KB ranked-result table in a task's answer.txt wins over
+            # an incidental side-narrative whose result.json summary is merely
+            # longer (e.g. a literature-mapping blurb) — surfacing the agent's OWN
+            # computed answer, not a side product.
+            narr = _answer_deliverable(outputs_dir / tid).strip()
             if narr and len(narr) >= len(best):
                 best = narr
         answer = best

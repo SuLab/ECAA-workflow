@@ -502,3 +502,31 @@ def test_executed_code_in_trace_not_answer(tmp_path):
     # the answer channel carries only the terminal narrative, no code block
     assert "### Executed code" not in answer
     assert "print('done')" not in answer
+
+
+def test_empty_terminal_fallback_prefers_answer_txt_deliverable(tmp_path):
+    """When the reporting terminal produced no narrative (dead-stalled DAG), the
+    answer-channel fallback must surface the agent's OWN answer.txt deliverable
+    (e.g. a long ranked-result table) rather than an incidental side-narrative
+    whose result.json summary merely happens to be longer. Regression for the
+    da-5-1 thin-answer bug: a 14KB drug-target answer.txt sat in the analysis
+    task while a 1KB literature-mapping summary won on length."""
+    outs = tmp_path / "runtime" / "outputs"
+    outs.mkdir(parents=True)
+    for t in ("final_reporting", "contextualize", "analysis"):
+        (outs / t).mkdir()
+    # final_reporting dead-stalled: no result.json/narrative.
+    # contextualize: a LONG result.json summary (the incidental side-narrative).
+    (outs / "contextualize" / "result.json").write_text(json.dumps({"summary": "L" * 1015}))
+    # analysis: a SHORT result.json summary but a RICH answer.txt deliverable.
+    (outs / "analysis" / "result.json").write_text(json.dumps({"summary": "short digest"}))
+    (outs / "analysis" / "answer.txt").write_text("RANKED TARGETS\n" + "A" * 14000)
+    (tmp_path / "WORKFLOW.json").write_text(json.dumps({"tasks": {
+        "contextualize": {"depends_on": []},
+        "analysis": {"depends_on": ["contextualize"]},
+        "final_reporting": {"depends_on": ["analysis"]},
+    }}))
+    _trace, answer = flatten_outputs(outs, tmp_path / "WORKFLOW.json")
+    assert answer.strip().startswith("RANKED TARGETS"), "fallback must surface the analysis answer.txt"
+    assert len(answer) > 13000, "the rich 14KB deliverable, not the 1KB summary"
+    assert "L" * 100 not in answer, "must NOT pick the longer literature side-narrative"
