@@ -101,6 +101,15 @@ def _parse_af_field(info: str) -> list[float]:
     return []
 
 
+# ALT values that mark a record as NON-variant (gVCF reference blocks, missing
+# calls, the bcftools mpileup symbolic non-ref allele ``<*>``). These never
+# represent an actual short-variant call and must not enter any pooled or
+# per-sample set. Defined here so ``parse_vcf_variants`` — the single source of
+# truth for variant keys, used by BOTH the headline per-sample/macro Jaccard and
+# the secondary flat-pool metric — applies one consistent variant-key definition.
+_NON_VARIANT_ALTS = {"<NON_REF>", "<*>", ".", ""}
+
+
 def parse_vcf_variants(path: Path) -> dict[tuple[str, int, str, str], float]:
     """Parse a VCF into a {(chrom, pos, ref, alt): af} map.
 
@@ -127,6 +136,12 @@ def parse_vcf_variants(path: Path) -> dict[tuple[str, int, str, str], float]:
         alts = alt.split(",")
         afs = _parse_af_field(info)
         for i, allele in enumerate(alts):
+            # Drop non-variant ALT records (gVCF reference blocks, missing calls,
+            # the mpileup symbolic ``<*>``) at the variant-key source so the
+            # headline per-sample/macro Jaccard cannot count them as variants —
+            # the secondary flat-pool path already excluded them downstream.
+            if allele in _NON_VARIANT_ALTS:
+                continue
             if len(afs) == len(alts):
                 af = afs[i]
             elif len(afs) == 1:
@@ -135,12 +150,6 @@ def parse_vcf_variants(path: Path) -> dict[tuple[str, int, str, str], float]:
                 af = 0.0
             variants[(chrom, pos, ref, allele)] = af
     return variants
-
-
-# ALT values that mark a record as NON-variant (gVCF reference blocks, missing
-# calls). These never represent an actual short-variant call and must not enter
-# the pooled set.
-_NON_VARIANT_ALTS = {"<NON_REF>", ".", ""}
 
 
 def _is_gvcf_path(path: Path) -> bool:

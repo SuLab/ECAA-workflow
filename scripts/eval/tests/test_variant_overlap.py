@@ -201,6 +201,38 @@ def test_flat_excludes_non_ref_alt_records(tmp_path):
     assert s == {("chrM", 150, "T", "C")}
 
 
+def test_parse_vcf_variants_excludes_non_variant_alts(tmp_path):
+    """parse_vcf_variants — the single variant-key source used by the HEADLINE
+    per-sample/macro Jaccard — drops gVCF reference blocks (<NON_REF>), missing
+    calls ('.', '') and the bcftools mpileup symbolic non-ref allele (<*>), so
+    they can never count as variants on either metric path."""
+    body = ("##fileformat=VCFv4.2\n"
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+            "chrM\t150\t.\tT\tC\t.\tPASS\tAF=0.99\n"
+            "chrM\t200\t.\tA\t<NON_REF>\t.\t.\t.\n"
+            "chrM\t250\t.\tG\t<*>\t.\tPASS\tAF=0.01\n"
+            "chrM\t300\t.\tG\t.\t.\tPASS\t.\n")
+    p = tmp_path / "M117-bl.vcf"; p.write_text(body)
+    assert set(parse_vcf_variants(p)) == {("chrM", 150, "T", "C")}
+
+
+def test_headline_jaccard_ignores_mpileup_star_allele(tmp_path):
+    """Regression: an mpileup <*> record in a plainly-named per-sample VCF must
+    not inflate the per-sample (headline) Jaccard union. Before the fix the
+    headline path (parse_vcf_variants) admitted non-variant ALTs the flat path
+    already dropped, spuriously deflating the score (union 2 -> jaccard 0.5)."""
+    obs = tmp_path / "obs.vcf"
+    obs.write_text("##fileformat=VCFv4.2\n"
+                   "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+                   "chrM\t150\t.\tT\tC\t.\tPASS\tAF=0.99\n"
+                   "chrM\t777\t.\tG\t<*>\t.\tPASS\tAF=0.00\n")
+    key = tmp_path / "key.vcf"
+    key.write_text("##fileformat=VCFv4.2\n"
+                   "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+                   "chrM\t150\t.\tT\tC\t.\tPASS\tAF=0.99\n")
+    assert abs(jaccard(obs, key, af_tol=0.02) - 1.0) < 1e-9
+
+
 def test_flat_partial_overlap_fraction(tmp_path):
     """Partial overlap yields union/union fraction."""
     obs = tmp_path / "obs.vcf"
