@@ -991,12 +991,18 @@ fn parse_u16_with_default(env: &HashMap<&str, &str>, key: &str, default: u16) ->
 }
 
 /// Parses a bool env-var. Accepts the canonical truthy table (`1`, `true`,
-/// `yes`, `on`); falsy or unset returns `default`.
+/// `yes`, `on`); falsy or unset returns `default`. Surrounding whitespace is
+/// trimmed so a quoted dotenv value like `" 1"` parses identically here and in
+/// the harness live readers (`validation_recovery::{recovery,advisory}_enabled`),
+/// which already trim — without the trim the typed config and the live readers
+/// disagreed for whitespace-padded values, splitting the bool across components.
+/// Trim is applied per-value here (not centrally in `from_env`) so string vars
+/// that legitimately carry surrounding whitespace (paths, tokens) are untouched.
 fn parse_bool(env: &HashMap<&str, &str>, key: &str, default: bool) -> bool {
     match env.get(key).copied() {
         None => default,
         Some(s) => matches!(
-            s.to_ascii_lowercase().as_str(),
+            s.trim().to_ascii_lowercase().as_str(),
             "1" | "true" | "yes" | "on" | "t" | "y"
         ),
     }
@@ -1313,5 +1319,26 @@ mod tests {
             cfg.harness_contract_advisory,
             "ECAA_HARNESS_CONTRACT_ADVISORY=1 must enable"
         );
+    }
+
+    #[test]
+    fn parse_bool_trims_surrounding_whitespace_matching_harness_readers() {
+        // A quoted dotenv value preserves surrounding whitespace; the typed
+        // config must parse it the same as the harness live readers (which
+        // trim), else the bool splits across components. " 1" / "true " enable.
+        for raw in [" 1", "1 ", " true ", "\ton\t"] {
+            let mut env: HashMap<&str, &str> = HashMap::new();
+            env.insert("ECAA_HARNESS_CONTRACT_ADVISORY", raw);
+            let cfg = Config::from_env_map(&env).expect("env config");
+            assert!(
+                cfg.harness_contract_advisory,
+                "whitespace-padded {raw:?} must parse truthy"
+            );
+        }
+        // A non-truthy padded value stays false.
+        let mut env: HashMap<&str, &str> = HashMap::new();
+        env.insert("ECAA_HARNESS_CONTRACT_ADVISORY", "  0  ");
+        let cfg = Config::from_env_map(&env).expect("env config");
+        assert!(!cfg.harness_contract_advisory, "padded 0 must stay false");
     }
 }
