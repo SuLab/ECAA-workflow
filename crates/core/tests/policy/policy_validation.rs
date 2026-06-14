@@ -439,6 +439,107 @@ fn association_design_recorded_requires_available_covariates() {
     }
 }
 
+/// Effect-size-reliability check (C5, da-15-1): both DE contracts must carry a
+/// `differential_expression.top_effect_reliability` assertion that (1) is a
+/// `numeric_threshold` `gte` on the agent-recomputed /top_effect_abundance_ratio
+/// scalar (read from result.json) with the operator-authored floor 0.20, (2) is
+/// `when`-gated on /information_column_recorded == true so a DE table with no
+/// abundance column is SKIPPED (never false-failed) rather than fail-closing on
+/// a missing metric, (3) is `required` severity (the harness only evaluates
+/// required assertions — a `recommended` check is inert), and (4) names no
+/// analysis method in its description (method neutrality). The ratio metric
+/// replaces an earlier bottom-quartile COUNT that under-fired on the real
+/// da-15-1 table (the full-table quartile cut sat below the low-count hits). The
+/// ratio is null-robust — ≈1 under independence, ≈0 for the unshrunken-low-count
+/// artifact — mirroring the variant het_tail_band_nonempty check
+/// (recompute-vs-operator-bound, method-neutral). Guards against silently
+/// dropping the check, regressing its self-skip gate, or demoting it back to a
+/// non-enforced severity.
+#[test]
+fn de_contracts_carry_method_neutral_top_effect_reliability_check() {
+    // Method tokens that must NEVER appear in the agent-facing description: it
+    // states a property of the agent's own ranking, never a remedy.
+    const METHOD_TOKENS: [&str; 10] = [
+        "deseq", "edger", "limma", "voom", "apeglm", "ashr", "shrink", "wilcoxon", "mast",
+        "set the threshold",
+    ];
+    for contract_file in [
+        "validation-contract-association.json",
+        "validation-contract-singlecell.json",
+    ] {
+        let path = policies_dir().join(contract_file);
+        // load_and_validate runs the schema sidecar, so the new assertion must
+        // also pass the contract's JSON Schema.
+        let contract = load_and_validate(&path)
+            .unwrap_or_else(|e| panic!("{contract_file} failed schema validation: {e:#}"));
+        let a = stage_assertions(&contract, "differential_expression")
+            .into_iter()
+            .find(|a| {
+                a.get("id").and_then(|v| v.as_str())
+                    == Some("differential_expression.top_effect_reliability")
+            })
+            .unwrap_or_else(|| {
+                panic!("{contract_file} must carry differential_expression.top_effect_reliability")
+            });
+        assert_eq!(
+            a.get("assertion_type").and_then(|v| v.as_str()),
+            Some("numeric_threshold"),
+            "{contract_file}: top_effect_reliability must be a numeric_threshold"
+        );
+        let check = a.get("check").expect("check present");
+        assert_eq!(
+            check.get("json_pointer").and_then(|v| v.as_str()),
+            Some("/top_effect_abundance_ratio"),
+            "{contract_file}: must read the agent-recomputed /top_effect_abundance_ratio"
+        );
+        assert_eq!(
+            check.get("op").and_then(|v| v.as_str()),
+            Some("gte"),
+            "{contract_file}: the top-effect abundance ratio must be bounded BELOW (a low ratio is the artifact)"
+        );
+        assert_eq!(
+            check.get("value").and_then(|v| v.as_f64()),
+            Some(0.20),
+            "{contract_file}: operator-authored ratio floor must be 0.20"
+        );
+        // Enforcement fix: the harness only evaluates `required` assertions, so
+        // a `recommended` severity left the check inert.
+        assert_eq!(
+            a.get("severity").and_then(|v| v.as_str()),
+            Some("required"),
+            "{contract_file}: top_effect_reliability must be required (the harness skips recommended)"
+        );
+        // Self-skip gate: when no abundance column was recorded, the check is
+        // not applicable and must be skipped (the gate is the precondition, not
+        // a prescribed output). Matches the het_tail_band_nonempty `equals: true`
+        // shape so a recorded `false` reads as not-applicable.
+        let when = a.get("when").expect("when gate present");
+        assert_eq!(
+            when.get("json_pointer").and_then(|v| v.as_str()),
+            Some("/information_column_recorded"),
+            "{contract_file}: must self-skip via the /information_column_recorded gate"
+        );
+        assert_eq!(
+            when.get("equals"),
+            Some(&serde_json::json!(true)),
+            "{contract_file}: gate must require information_column_recorded == true"
+        );
+        // Method neutrality: the agent-facing description states a property of
+        // the agent's own ranking and prescribes no analysis method.
+        let desc = a
+            .get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        for token in METHOD_TOKENS {
+            assert!(
+                !desc.contains(token),
+                "{contract_file}: top_effect_reliability description leaked method token {token:?}"
+            );
+        }
+    }
+}
+
 // The single-cell validation contract is carried by the GENERAL single_cell_de
 // archetype, so its `required` assertions must be goal-agnostic. This guards
 // against regressing the IVD-derivation anti-pattern: no required metadata

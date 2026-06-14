@@ -47,6 +47,17 @@ attributes:
     - limma_voom
     - mast
     - wilcoxon
+  # Byte-pinned containerized measurement (hoisted to spec.attributes.measurement_script
+  # by the emitter, runbook injected by scripts/agent-claude.sh). The agent runs
+  # lib/measure_de_effect_size.py against its OWN de_results.tsv; it recomputes a
+  # method-neutral domain-correctness scalar (how many of the agent's own
+  # top-by-effect features sit in the lowest-information stratum of its own
+  # abundance column) into result.json, read by the
+  # differential_expression.top_effect_reliability assertion in
+  # validation-contract-association.json / validation-contract-singlecell.json.
+  # No method/threshold is handed to the agent — same shape as the variant
+  # contract's measure_af_spectrum.py.
+  measurement_script: measure_de_effect_size.py
   # Record-what-you-did contract consumed by the harness method-correctness
   # validation contract (validation-contract-association.json /
   # validation-contract-singlecell.json `differential_expression` stage). These

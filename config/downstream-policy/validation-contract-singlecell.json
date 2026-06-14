@@ -1,7 +1,7 @@
 {
   "contract_id": "validation-contract-singlecell",
   "description": "Per-stage required assertions for the single-cell RNA-seq taxonomy, carried by the single_cell_de archetype. Stage keys match the archetype's task ids (the harness matches on task_id when spec.stage_class is absent); required-artifact filenames match the single_cell_de atoms' declared required_artifacts, so a free-choice agent that fulfils its task spec passes. Goal-agnostic: required assertions check only that each stage produced its declared output (recursive `**` glob, so flat OR compartment-partitioned layouts both match). Study-specific clinical covariates carried over from the original IVD derivation (a disease-grade column, a tissue-compartment column, an age column, a study column) were REMOVED from the required metadata-column check — they would false-fail a general single-cell study (tumour/immune atlas); only a sample-level join key is required. Stages absent from a given DAG self-gate (the harness only enforces a stage_class that has a matching completed task).",
-  "version": "1.1.0",
+  "version": "1.3.0",
   "stages": {
     "data_acquisition": {
       "assertions": [
@@ -153,6 +153,15 @@
             "normalize": "casefold_trim"
           },
           "when": { "json_pointer": "/stated_outcome" },
+          "severity": "required"
+        },
+        {
+          "id": "differential_expression.top_effect_reliability",
+          "description": "Effect-size reliability (domain-correctness, method-neutral; shared with validation-contract-association): the features the agent ranked as strongest by absolute effect size (its own top-K by |effect estimate|) must sit at least this fraction of the tested set's typical (median) per-feature abundance/information basis the agent recorded (e.g. base mean / mean count / mean expression / logCPM). top_effect_abundance_ratio is recomputed by lib/measure_de_effect_size.py from the agent's OWN ranked results table and its OWN abundance column: the median abundance of its top-K-by-|effect| features divided by the median abundance over the whole tested set. It is null-robust — about 1 when effect and abundance are independent and driven toward 0 when extreme effects concentrate in the lowest-abundance features, where effect estimates are unreliable, so such a 'strongest finding' list is not trustworthy. K and the ratio bound are operator-authored constants in the pinned script, never handed to the agent; the agent chose the ranking and how to keep its strongest-finding list domain-correct is its choice (no method/filter/threshold prescribed). GATED on /information_column_recorded so it is SKIPPED (never blocks) when no per-feature abundance column was recorded — as occurs on some single-cell differential-expression paths, so this check applies only where an abundance basis exists. Severity is `required`: paired with the autonomous validation-recovery path (ECAA_HARNESS_VALIDATION_RECOVERY), an unattended run surfaces this neutral recomputed-vs-bound signal and re-dispatches rather than dead-stalling, while a production SME run treats it as a checkpoint. SME-overridable.",
+          "assertion_type": "numeric_threshold",
+          "target": "runtime/outputs/differential_expression/result.json",
+          "check": { "json_pointer": "/top_effect_abundance_ratio", "op": "gte", "value": 0.20 },
+          "when": { "json_pointer": "/information_column_recorded", "equals": true },
           "severity": "required"
         }
       ]

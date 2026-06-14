@@ -526,6 +526,74 @@ fn emit_copies_af_spectrum_measurement_script_into_lib() {
     );
 }
 
+#[test]
+fn emit_copies_de_effect_size_measurement_script_and_de_task_carries_it() {
+    let tmp = TempDir::new().unwrap();
+    // bulk_rnaseq_de carries a differential_expression task; the atom declares
+    // attributes.measurement_script = measure_de_effect_size.py.
+    let dag = rnaseq_dag();
+    let clf = test_classification();
+    let policies_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("config/downstream-policy");
+
+    emit_package(&EmitConfig {
+        objective: None,
+        output_dir: tmp.path(),
+        dag: &dag,
+        classification: &clf,
+        policies_dir: &policies_dir,
+        policy_allowlist: None,
+        claim_boundary: None,
+        compute_profiles_dir: None,
+        intake_facts: None,
+        amend_from: None,
+        amend_context: None,
+        validation_contract_ref: None,
+        preferred_container: None,
+        runtime_prereqs: None,
+        per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
+        experimental_archetype: false,
+        edge_kinds: None,
+    })
+    .expect("emit must succeed");
+
+    // The byte-pinned DE effect-size measurement script ships unconditionally
+    // (like the AF-spectrum script + plotting library) so a DE task can run
+    // `python3 lib/measure_de_effect_size.py` in the container.
+    assert!(
+        tmp.path().join("lib/measure_de_effect_size.py").is_file(),
+        "measure_de_effect_size.py must be copied into the package lib/"
+    );
+
+    // Measurement delivery: the differential_expression task must surface
+    // `spec.attributes.measurement_script` so the de-effect-size runbook gate in
+    // scripts/agent-claude.sh fires and the agent runs the pinned script against
+    // its own de_results.tsv (producing /top_effect_abundance_ratio read by the
+    // top_effect_reliability assertion).
+    let de_script = dag.tasks.iter().find_map(|(_tid, task)| {
+        if task.source_atom_id.as_deref() != Some("differential_expression") {
+            return None;
+        }
+        task.spec
+            .as_ref()
+            .and_then(|s| s.get("attributes"))
+            .and_then(|a| a.get("measurement_script"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+    });
+    assert_eq!(
+        de_script.as_deref(),
+        Some("measure_de_effect_size.py"),
+        "differential_expression task must carry spec.attributes.measurement_script \
+         (effect-size measurement runbook never fires otherwise)"
+    );
+}
+
 /// Inertness regression test (the test whose absence let the gap ship).
 ///
 /// An mtDNA-heteroplasmy variant package must emit the declarative

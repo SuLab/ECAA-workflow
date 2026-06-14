@@ -484,6 +484,8 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
     copy_plotting_library(dir).context("copying plotting library")?;
     copy_r_plotting_library(dir).context("copying R plotting library")?;
     copy_af_spectrum_measurement_script(dir).context("copying AF-spectrum measurement script")?;
+    copy_de_effect_size_measurement_script(dir)
+        .context("copying DE effect-size measurement script")?;
     emit_compute_profile_policy(dir, config.compute_profiles_dir)
         .context("emitting compute-resource-policy")?;
     emit_gpu_capability_policy(dir, config.compute_profiles_dir)
@@ -721,6 +723,26 @@ fn copy_af_spectrum_measurement_script(package_dir: &Path) -> Result<()> {
     std::fs::create_dir_all(&lib_dir).context("creating lib dir")?;
     std::fs::write(lib_dir.join("measure_af_spectrum.py"), SCRIPT)
         .context("writing measure_af_spectrum.py")?;
+    Ok(())
+}
+
+/// Copy the byte-pinned DE effect-size-reliability measurement script into the
+/// package `lib/` so a differential_expression task can run
+/// `python3 lib/measure_de_effect_size.py` deterministically inside the
+/// container. Embedded via `include_str!` for byte-reproducibility (no
+/// SystemTime, no fs read at emit time). Copied unconditionally alongside the
+/// AF-spectrum script; the runbook injection in `scripts/agent-claude.sh`
+/// (gated on `attributes.measurement_script`) decides which task actually runs
+/// it. Recomputes a method-neutral domain-correctness scalar from the agent's
+/// OWN results table (how many of its own top-by-effect features sit in the
+/// lowest-information stratum) — names no method, mirroring the variant het
+/// contract.
+fn copy_de_effect_size_measurement_script(package_dir: &Path) -> Result<()> {
+    const SCRIPT: &str = include_str!("../../../../scripts/measure_de_effect_size.py");
+    let lib_dir = package_dir.join("lib");
+    std::fs::create_dir_all(&lib_dir).context("creating lib dir")?;
+    std::fs::write(lib_dir.join("measure_de_effect_size.py"), SCRIPT)
+        .context("writing measure_de_effect_size.py")?;
     Ok(())
 }
 

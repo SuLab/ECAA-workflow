@@ -155,26 +155,35 @@ $(cat "$SCRIPT_DIR/agent-prompts/literature-retrieval.md")"
   fi
 fi
 
-# AF-spectrum measurement runbook. When this task's spec declares
+# Containerized measurement runbook. When this task's spec declares
 # `attributes.measurement_script`, append the deterministic measurement
-# contract so the agent runs the byte-pinned lib/measure_af_spectrum.py
-# verbatim against its post-filter VCF (goal stated, no thresholds handed
-# over). Mirrors the literature-retrieval gate above. Best-effort: silently
-# skipped when jq is unavailable, WORKFLOW.json is absent, or the attribute
-# is empty/absent, which preserves byte-identical prompts for non-measurement
-# tasks.
+# contract so the agent runs the named byte-pinned lib/<script>.py verbatim
+# against its OWN output (goal stated, no thresholds handed over). The runbook
+# is SELECTED BY the measurement_script value so a stage that names a different
+# measurement (e.g. differential_expression -> measure_de_effect_size.py) gets
+# its OWN runbook instead of the AF-spectrum one. Mirrors the literature-
+# retrieval gate above. Best-effort: silently skipped when jq is unavailable,
+# WORKFLOW.json is absent, the attribute is empty/absent, or the script has no
+# matching runbook md — which preserves byte-identical prompts for non-
+# measurement tasks AND for the existing variant tasks
+# (measure_af_spectrum.py -> af-spectrum-measurement.md, unchanged).
 AF_MEASUREMENT_BLOCK=""
 if command -v jq >/dev/null 2>&1 \
    && [ -n "${ECAA_TASK_ID:-}" ] \
-   && [ -f "$PACKAGE/WORKFLOW.json" ] \
-   && [ -f "$SCRIPT_DIR/agent-prompts/af-spectrum-measurement.md" ]; then
+   && [ -f "$PACKAGE/WORKFLOW.json" ]; then
   __measurement_script="$(jq -r --arg t "$ECAA_TASK_ID" \
     '.tasks[$t].spec.attributes.measurement_script // ""' \
     "$PACKAGE/WORKFLOW.json" 2>/dev/null || echo "")"
-  if [ -n "$__measurement_script" ]; then
+  __measurement_runbook=""
+  case "$__measurement_script" in
+    measure_af_spectrum.py)    __measurement_runbook="af-spectrum-measurement.md" ;;
+    measure_de_effect_size.py) __measurement_runbook="de-effect-size-measurement.md" ;;
+  esac
+  if [ -n "$__measurement_runbook" ] \
+     && [ -f "$SCRIPT_DIR/agent-prompts/$__measurement_runbook" ]; then
     AF_MEASUREMENT_BLOCK="
 
-$(cat "$SCRIPT_DIR/agent-prompts/af-spectrum-measurement.md")"
+$(cat "$SCRIPT_DIR/agent-prompts/$__measurement_runbook")"
   fi
 fi
 
