@@ -229,6 +229,75 @@ def mean_jaccard(sample_pairs: list[tuple[Path, Path]], af_tol: float = 0.02) ->
     return sum(jaccard(o, k, af_tol) for o, k in sample_pairs) / len(sample_pairs)
 
 
+def _stage_of(path, run_dir):
+    """The pipeline STAGE a VCF belongs to: the directory immediately under
+    ``runtime/outputs/`` in the path, relative to the package/run dir. Returns
+    None for files outside a stage tree (e.g. the bare arm's flat workdir) — those
+    are never treated as supersedable intermediates."""
+    try:
+        rel = Path(path).resolve().relative_to(Path(run_dir).resolve())
+    except (ValueError, OSError):
+        return None
+    parts = rel.parts
+    if "outputs" in parts:
+        i = parts.index("outputs")
+        if i + 1 < len(parts):
+            return parts[i + 1]
+    return None
+
+
+def _transitively_depends(dag, downstream, upstream):
+    """True iff ``downstream`` transitively depends_on ``upstream`` in the DAG
+    (i.e. ``upstream`` is a proper ancestor of ``downstream``). ``dag`` maps a
+    task/stage id to its direct depends_on list."""
+    if downstream == upstream:
+        return False
+    seen, stack = set(), list(dag.get(downstream, []))
+    while stack:
+        d = stack.pop()
+        if d == upstream:
+            return True
+        if d in seen:
+            continue
+        seen.add(d)
+        stack.extend(dag.get(d, []))
+    return False
+
+
+def select_deliverable_obs(obs_paths, run_dir, dag, samples):
+    """Drop per-sample VCFs that are SUPERSEDED by a downstream-stage output for
+    the same sample, so scoring grades the agent's DECLARED DELIVERABLE rather
+    than an upstream producer intermediate.
+
+    Concretely: for each sample stem, if two candidate VCFs sit at stages S and
+    S', and S' transitively depends_on S in the package's own ``depends_on`` DAG
+    (S is a proper ancestor → its file is the pre-deliverable intermediate), the
+    S file is dropped. Selection is keyed PURELY on DAG topology — never on
+    variant count, file size, or Jaccard — so it cannot be read as "prefer the
+    smaller / higher-scoring file" (see the test that proves a larger, lower-
+    scoring downstream file is STILL selected). Generalizes the ``is_scratch_vcf``
+    intermediate-vs-deliverable principle from scratch-DIR naming to DAG-declared
+    cross-stage supersession.
+
+    No-op when ``dag`` is empty (the bare arm's flat workdir has no WORKFLOW.json),
+    or for files with no stage / no same-sample downstream producer — so it is a
+    structural no-op for the single-script arm (arm-fair)."""
+    if not dag:
+        return list(obs_paths)
+    drop = set()
+    for s in samples:
+        cands = [(p, _stage_of(p, run_dir)) for p in obs_paths if s in Path(p).name]
+        cands = [(p, st) for p, st in cands if st is not None]
+        for p, st in cands:
+            if any(
+                _transitively_depends(dag, st2, st)
+                for q, st2 in cands
+                if q is not p and st2 is not None
+            ):
+                drop.add(Path(p).resolve())
+    return [p for p in obs_paths if Path(p).resolve() not in drop]
+
+
 def macro_jaccard_by_sample(
     obs_paths: list[Path], ref_dir, samples, af_tol: float = 0.02
 ) -> tuple[float, dict[str, float]]:
@@ -243,7 +312,12 @@ def macro_jaccard_by_sample(
     headline stays recipe-agnostic while the per-sample number lines up with the
     paper's M3."""
     obs_by_sample: dict[str, Path] = {}
-    for p in obs_paths:
+    # Deterministic per-sample selection: iterate in a stable resolved-path order
+    # so the first stem-match does not depend on filesystem rglob order (the macro
+    # score must be reproducible). Superseded upstream-stage intermediates are
+    # pruned by select_deliverable_obs BEFORE this, so first-match lands on the
+    # agent's declared deliverable.
+    for p in sorted(obs_paths, key=lambda q: str(Path(q).resolve())):
         if _is_gvcf_path(p):
             continue
         for s in samples:

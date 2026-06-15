@@ -30,7 +30,8 @@ from statistics import mean
 from scripts.eval.benchmark import Arm, Benchmark, Output, RunSpec, Score, Scorecard
 from scripts.eval.scoring.variant_overlap import (flat_jaccard, _is_gvcf_path,
                                                   is_scratch_vcf,
-                                                  macro_jaccard_by_sample)
+                                                  macro_jaccard_by_sample,
+                                                  select_deliverable_obs)
 from scripts.eval.scoring.error_matrix import classify_cell
 from scripts.eval.services.datasets import scratch_root, stage_file
 
@@ -92,6 +93,29 @@ _SAMPLE_NAMES = ("M117-bl", "M117-ch", "M117C1-bl", "M117C1-ch")
 # isn't in the emitted DAG (e.g. the agent chose a non-recipe tool, which the shim
 # bypass-detection already flags inconclusive) the reset falls back to full.
 _RECIPE_STAGE_FOR_TOOL = {"bwa": "alignment", "lofreq": "variant_calling"}
+
+
+def _load_depends_on_dag(run_dir) -> dict:
+    """Best-effort {task_id: [depends_on...]} from the package's WORKFLOW.json, so
+    scoring can prefer a downstream-stage deliverable over its producer
+    intermediate (select_deliverable_obs). Missing/malformed (e.g. the bare arm's
+    flat workdir has no WORKFLOW.json) -> {} -> deliverable-selection is a no-op."""
+    if not run_dir:
+        return {}
+    wf = Path(run_dir) / "WORKFLOW.json"
+    if not wf.exists():
+        wf = next(Path(run_dir).rglob("WORKFLOW.json"), None)
+    if not wf or not wf.exists():
+        return {}
+    try:
+        tasks = json.loads(wf.read_text()).get("tasks", {})
+    except (OSError, ValueError):
+        return {}
+    dag: dict = {}
+    if isinstance(tasks, dict):
+        for tid, t in tasks.items():
+            dag[tid] = list((t or {}).get("depends_on", []) or [])
+    return dag
 
 
 def _target_n(pattern: str, n_samples: int = len(_SAMPLE_NAMES)) -> int:
@@ -337,6 +361,15 @@ class Nekrutenko(Benchmark):
                 continue
             seen.add(rp)
             obs_paths.append(p)
+        # Prefer the agent's DECLARED downstream deliverable over its producer
+        # intermediate for any per-sample VCF: grade variant_filtering/<sample>
+        # (the filtered call set) rather than the upstream variant_calling/<sample>
+        # raw producer when the DAG marks the latter a proper ancestor. DAG-keyed
+        # (never score/size), no-op for the bare arm (no WORKFLOW.json). Applied
+        # to BOTH the flat-pool and per-sample macro so they consume one set.
+        run_dir = output.artifacts.get("vcf_dir")
+        obs_paths = select_deliverable_obs(
+            obs_paths, run_dir, _load_depends_on_dag(run_dir), _SAMPLE_NAMES)
         j = flat_jaccard(obs_paths, ref_paths) if ref_paths else 0.0
         # Paper-comparable per-sample macro-mean (m3_jaccard): NOT the headline,
         # but reported so the run lines up with the paper's primary metric.

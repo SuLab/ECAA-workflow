@@ -341,3 +341,74 @@ def test_is_scratch_vcf_relative_to_root(tmp_path):
     # false-positive: the check is relative to root, so the leading path is
     # ignored. tmp_path is under /tmp on most CI/dev hosts.
     assert is_scratch_vcf(final, root) is False
+
+
+# --- Fix 1: deliverable-selection (DAG-supersession) + deterministic matcher ---
+
+_HDR8 = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+
+
+def _mk(path: Path, records: str):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    body = (_HDR8 + records).encode()
+    if str(path).endswith(".gz"):
+        path.write_bytes(gzip.compress(body))
+    else:
+        path.write_bytes(body)
+    return path
+
+
+def test_select_deliverable_prefers_downstream_over_superseded_intermediate(tmp_path):
+    """The variant_filtering deliverable supersedes the variant_calling producer
+    intermediate for the same sample (DAG: variant_filtering depends_on
+    variant_calling): the upstream raw file is dropped, mirroring the live
+    M117C1-ch case where the raw file carried an extra FP indel the filter removed."""
+    from scripts.eval.scoring.variant_overlap import select_deliverable_obs
+    raw = _mk(tmp_path / "runtime/outputs/variant_calling/vcf/M117C1-ch.vcf",
+              "chrM\t150\t.\tT\tC\t.\tPASS\tAF=0.99\nchrM\t16529\t.\tTA\tT\t.\tPASS\tAF=0.0016\n")
+    deliv = _mk(tmp_path / "runtime/outputs/variant_filtering/vcf/M117C1-ch.filt.vcf.gz",
+                "chrM\t150\t.\tT\tC\t.\tPASS\tAF=0.99\n")
+    dag = {"variant_filtering": ["variant_calling"], "variant_calling": ["alignment"], "alignment": []}
+    kept = select_deliverable_obs([raw, deliv], tmp_path, dag, ("M117C1-ch",))
+    assert deliv in kept and raw not in kept, "downstream deliverable must supersede the upstream intermediate"
+
+
+def test_select_deliverable_is_not_score_or_size_driven(tmp_path):
+    """Selection is keyed PURELY on DAG topology — it keeps the DOWNSTREAM file
+    even when that file is LARGER and LOWER-scoring than the upstream one, proving
+    it is not a 'prefer smaller / higher-scoring' (gaming) rule."""
+    from scripts.eval.scoring.variant_overlap import select_deliverable_obs
+    upstream_small_good = _mk(tmp_path / "runtime/outputs/variant_calling/vcf/S1.vcf",
+                              "chrM\t150\t.\tT\tC\t.\tPASS\tAF=0.99\n")
+    downstream_big_bad = _mk(tmp_path / "runtime/outputs/variant_filtering/vcf/S1.vcf",
+                             "chrM\t150\t.\tT\tC\t.\tPASS\tAF=0.99\n"
+                             "chrM\t200\t.\tA\tG\t.\tPASS\tAF=0.5\n"
+                             "chrM\t300\t.\tG\tT\t.\tPASS\tAF=0.5\n"
+                             "chrM\t400\t.\tC\tA\t.\tPASS\tAF=0.5\n")
+    dag = {"variant_filtering": ["variant_calling"], "variant_calling": []}
+    kept = select_deliverable_obs([upstream_small_good, downstream_big_bad], tmp_path, dag, ("S1",))
+    assert downstream_big_bad in kept and upstream_small_good not in kept, \
+        "must keep the DAG-downstream file regardless of its size/score (topology-keyed, non-gaming)"
+
+
+def test_select_deliverable_noop_without_dag(tmp_path):
+    """Empty DAG (the bare arm's flat workdir / no WORKFLOW.json) -> structural
+    no-op: every obs path is kept (arm-fair)."""
+    from scripts.eval.scoring.variant_overlap import select_deliverable_obs
+    a = _mk(tmp_path / "S1.vcf", "chrM\t150\t.\tT\tC\t.\tPASS\tAF=0.99\n")
+    b = _mk(tmp_path / "other/S1.filt.vcf.gz", "chrM\t150\t.\tT\tC\t.\tPASS\tAF=0.99\n")
+    kept = select_deliverable_obs([a, b], tmp_path, {}, ("S1",))
+    assert set(kept) == {a, b}, "no DAG -> no pruning"
+
+
+def test_macro_matcher_deterministic_under_input_reorder(tmp_path):
+    """The per-sample macro matcher must pick the SAME obs file regardless of input
+    ordering (no dependence on filesystem rglob order)."""
+    from scripts.eval.scoring.variant_overlap import macro_jaccard_by_sample
+    f1 = _mk(tmp_path / "a/M117-bl.vcf", "chrM\t150\t.\tT\tC\t.\tPASS\tAF=0.99\n")
+    f2 = _mk(tmp_path / "b/M117-bl.vcf", "chrM\t999\t.\tG\tT\t.\tPASS\tAF=0.5\n")
+    ref_dir = tmp_path / "ref"; ref_dir.mkdir()
+    _mk(ref_dir / "M117-bl.vcf.gz", "chrM\t150\t.\tT\tC\t.\tPASS\tAF=0.99\n")
+    m1, p1 = macro_jaccard_by_sample([f1, f2], ref_dir, ("M117-bl",))
+    m2, p2 = macro_jaccard_by_sample([f2, f1], ref_dir, ("M117-bl",))
+    assert m1 == m2 and p1 == p2, "macro per-sample pick must be input-order-independent (deterministic)"
