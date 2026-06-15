@@ -530,6 +530,24 @@ mod tests {
         );
     }
 
+    /// Method-neutrality must extend to the proposal CONTRACT channel
+    /// (`intent`/`assumptions`/`failure_modes`/`validation_tests` authored into
+    /// `propose_hypothesized_node`), not only the chat-prose channel. Without
+    /// this, the intake LLM can author a method-prescriptive row-inclusion filter
+    /// into the contract that propagates verbatim into the task spec + agent
+    /// script (the da-5-1 PDAC==1 AND EssentialGenes==1 leak that destroyed the
+    /// rubric's required non-pan-essential targets before they could be ranked).
+    /// Pins that the discipline stays wired in the assembled role prompt.
+    #[test]
+    fn prompt_role_pins_proposal_contract_method_neutrality() {
+        assert!(
+            ROLE_AND_STYLE.contains("Method-neutrality applies to the proposal CONTRACT"),
+            "prompt_role.txt no longer extends method-neutrality to the proposal \
+             contract channel — the intake LLM could re-author a prescriptive \
+             row-selection filter into the proposal, the da-5-1 method leak"
+        );
+    }
+
     /// Every worked confirmation-card example in
     /// `prompt_role.txt` must obey the limits the prompt itself
     /// declares (≤800 chars total, ≤200 chars claim_boundary). When
