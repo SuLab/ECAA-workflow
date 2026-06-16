@@ -28,6 +28,11 @@ fn resolve_model_api_id_strips_context_variant_suffix() {
         ModelId::Sonnet46
     );
     assert_eq!(resolve_model_api_id("claude-opus-4-8"), ModelId::Opus48);
+    // RCA finding G: `claude-opus-4-7` must resolve to its own variant,
+    // not fall through to the Sonnet 4.6 fallback (which uniformly
+    // under-priced Opus 4.7 agent runs by ~1.67×).
+    assert_eq!(resolve_model_api_id("claude-opus-4-7"), ModelId::Opus47);
+    assert_eq!(resolve_model_api_id("claude-opus-4-7[1m]"), ModelId::Opus47);
     assert_eq!(resolve_model_api_id("claude-sonnet-4-6"), ModelId::Sonnet46);
     assert_eq!(
         resolve_model_api_id("claude-haiku-4-5-20251001"),

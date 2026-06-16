@@ -44,6 +44,10 @@ pub enum ModelId {
     /// escalations route to `Opus48` (see `ModelPolicy::choose_with_reason`).
     #[serde(rename = "opus_4_6")]
     Opus46,
+    /// Claude Opus 4.7 — paper-faithful eval recipe-implementer; same
+    /// rate card as Opus 4.6/4.8.
+    #[serde(rename = "opus_4_7")]
+    Opus47,
     /// Claude Opus 4.8 — the current Opus escalation target. Same rate
     /// card as 4.6 ($5 input / $25 output / $6.25 5-min cache write /
     /// $0.50 cache read per MTok) with a newer tokenizer and slightly
@@ -64,6 +68,7 @@ impl ModelId {
         match self {
             ModelId::Sonnet46 => "claude-sonnet-4-6",
             ModelId::Opus46 => "claude-opus-4-6",
+            ModelId::Opus47 => "claude-opus-4-7",
             ModelId::Opus48 => "claude-opus-4-8",
             ModelId::Haiku45 => "claude-haiku-4-5-20251001",
         }
@@ -74,7 +79,7 @@ impl ModelId {
     /// `opus_cost_usd` UI mirrors so the upgrade isn't a visual cliff
     /// for operators watching those rows.
     pub fn is_opus(self) -> bool {
-        matches!(self, ModelId::Opus46 | ModelId::Opus48)
+        matches!(self, ModelId::Opus46 | ModelId::Opus47 | ModelId::Opus48)
     }
 
     /// Enumerate every variant. Used by metrics tests to assert every
@@ -83,6 +88,7 @@ impl ModelId {
     pub const ALL: &'static [ModelId] = &[
         ModelId::Sonnet46,
         ModelId::Opus46,
+        ModelId::Opus47,
         ModelId::Opus48,
         ModelId::Haiku45,
     ];
@@ -360,6 +366,7 @@ mod tests {
     fn api_ids_are_correct() {
         assert_eq!(ModelId::Sonnet46.api_id(), "claude-sonnet-4-6");
         assert_eq!(ModelId::Opus46.api_id(), "claude-opus-4-6");
+        assert_eq!(ModelId::Opus47.api_id(), "claude-opus-4-7");
         assert_eq!(ModelId::Opus48.api_id(), "claude-opus-4-8");
         assert_eq!(ModelId::Haiku45.api_id(), "claude-haiku-4-5-20251001");
     }
@@ -367,6 +374,7 @@ mod tests {
     #[test]
     fn is_opus_covers_both_variants() {
         assert!(ModelId::Opus46.is_opus());
+        assert!(ModelId::Opus47.is_opus());
         assert!(ModelId::Opus48.is_opus());
         assert!(!ModelId::Sonnet46.is_opus());
         assert!(!ModelId::Haiku45.is_opus());
@@ -387,6 +395,6 @@ mod tests {
         // If a new variant is added, ModelId::ALL must be extended so the
         // metrics pricing-coverage test can fail loudly. This test pins
         // the count; bump it alongside ALL when adding a variant.
-        assert_eq!(ModelId::ALL.len(), 4);
+        assert_eq!(ModelId::ALL.len(), 5);
     }
 }

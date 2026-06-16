@@ -39,6 +39,18 @@ pub const OPUS_4_6: ModelPrices = ModelPrices {
     cache_read_per_mtok: 0.50,
 };
 
+/// Opus 4.7 list pricing. The paper-faithful eval recipe-implementer
+/// model. Same rate card as Opus 4.6/4.8 ($5 input / $25 output /
+/// $6.25 5-min cache write / $0.50 cache read per MTok); kept as a
+/// distinct constant so agent runs reported as `claude-opus-4-7` price
+/// accurately instead of falling through to Sonnet 4.6 rates.
+pub const OPUS_4_7: ModelPrices = ModelPrices {
+    input_per_mtok: 5.00,
+    output_per_mtok: 25.00,
+    cache_write_per_mtok: 6.25,
+    cache_read_per_mtok: 0.50,
+};
+
 /// Opus 4.8 list pricing. Current Opus escalation target. Same
 /// rate card as 4.6; the upgrade is capability-only. Uses a newer
 /// tokenizer than 4.6 — the per-MTok rate is unchanged but
@@ -69,6 +81,7 @@ pub fn prices_for(model: ModelId) -> &'static ModelPrices {
     match model {
         ModelId::Sonnet46 => &SONNET_4_6,
         ModelId::Opus46 => &OPUS_4_6,
+        ModelId::Opus47 => &OPUS_4_7,
         ModelId::Opus48 => &OPUS_4_8,
         ModelId::Haiku45 => &HAIKU_4_5,
     }
