@@ -3189,6 +3189,11 @@ fn run_loop(
                         // pre-existing envelope BEFORE write_tool_error_envelope
                         // overwrites.
                         let prior_class = read_existing_envelope_error_class(path, &tid);
+                        // Tracks whether the wall-clock watchdog already routed
+                        // this dispatch to `Blocked { WallClockExceeded }`. When
+                        // it did, the immediate-Failed fast path below must NOT
+                        // also fire — the Blocked state is the authoritative one.
+                        let mut wall_clock_fired = false;
                         if let Some(cap) = capture {
                             // The executor SIGKILLed the agent after the
                             // hard `task_timeout_secs` deadline elapsed
@@ -3200,6 +3205,7 @@ fn run_loop(
                             if let Some((observed, threshold)) =
                                 wall_clock_blocker_params(&cap, args.task_timeout)
                             {
+                                wall_clock_fired = true;
                                 println!(
                                     "  {} Agent killed after wall-clock deadline on {}: {}s > {}s",
                                     "⚠".yellow(),
@@ -3227,6 +3233,69 @@ fn run_loop(
                                     ecaa_workflow_core::remediation::RemediationOutcome::NewError
                                 };
                                 update_overrides_outcome(path, &tid, outcome);
+                            }
+                        }
+                        // Fail-fast: a non-zero agent exit that wrote NO
+                        // `state.patch.json` means the dispatch died without
+                        // recording an outcome (a 429/session-limit strand, a
+                        // crash, etc.). Left alone the task stays "Running" until
+                        // the 900s heartbeat watchdog trips `heartbeat_stalled`,
+                        // wedging the whole DAG for ~15 minutes. Transition it to
+                        // Failed immediately so the harness can re-dispatch /
+                        // surface it. Skipped when the wall-clock watchdog already
+                        // routed the task to `Blocked { WallClockExceeded }`, and
+                        // monotonicity is preserved by refusing to overwrite an
+                        // already-terminal on-disk state.
+                        let patch_present = path
+                            .join("runtime")
+                            .join("outputs")
+                            .join(&tid)
+                            .join("state.patch.json")
+                            .is_file();
+                        if !wall_clock_fired && !patch_present {
+                            let failed_state = TaskState::Failed {
+                                reason: format!(
+                                    "[agent_exit_nonzero] task={} exit={} no state.patch.json written",
+                                    tid, o.agent_status,
+                                ),
+                            };
+                            match read_dag(path) {
+                                Ok(mut dag) => {
+                                    let writable = dag
+                                        .tasks
+                                        .get(tid.as_str())
+                                        .map(|t| !t.state.is_terminal())
+                                        .unwrap_or(false);
+                                    if writable {
+                                        if let Some(t) = dag.tasks.get_mut(tid.as_str()) {
+                                            t.state = failed_state.clone();
+                                        }
+                                        if let Err(e) = write_dag(path, &dag) {
+                                            tracing::warn!(
+                                                target: "fail_fast",
+                                                task_id = %tid,
+                                                error = format!("{:#}", e),
+                                                "could not persist immediate Failed state"
+                                            );
+                                        }
+                                        if let Some(ref pc) = progress {
+                                            pc.set_task_state(&tid, &failed_state);
+                                        }
+                                        eprintln!(
+                                            "  {} Agent exited non-zero with no state.patch.json on {} — marking Failed",
+                                            "✗".red(),
+                                            tid.red(),
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        target: "fail_fast",
+                                        task_id = %tid,
+                                        error = format!("{:#}", e),
+                                        "could not read DAG to mark task Failed"
+                                    );
+                                }
                             }
                         }
                     }

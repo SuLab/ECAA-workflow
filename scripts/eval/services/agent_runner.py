@@ -8,12 +8,61 @@ Both return where outputs landed; the plugin's collect() reads them.
 from __future__ import annotations
 import json
 import os
+import signal
 import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+
+# Grace period (seconds) between SIGTERM and SIGKILL when the harness subprocess
+# blows its hard wall-clock deadline. SIGTERM lets agent-claude.sh's signal trap
+# run `docker rm -f` + `kill 0` so the agent's container is torn down before we
+# escalate; SIGKILL is the backstop if the group ignores SIGTERM.
+_GROUP_TEARDOWN_GRACE_SECS = 10
+
+
+def _run_in_process_group(cmd, *, cwd, timeout, env, capture):
+    """Run ``cmd`` in its own process group and tear the WHOLE group down on a
+    hard wall-clock timeout.
+
+    A plain ``subprocess.run(..., timeout=...)`` only kills the direct child on
+    ``TimeoutExpired``; the harness's reparented agent (claude inside ``docker
+    run``) survives and leaks. We launch with ``start_new_session=True`` so the
+    child is a process-group leader, then on timeout ``killpg(SIGTERM)`` (giving
+    agent-claude.sh's trap time to ``docker rm -f`` + ``kill 0``), wait a short
+    grace, then ``killpg(SIGKILL)`` as a backstop, and always collect whatever
+    output was produced.
+
+    Returns a ``subprocess.CompletedProcess`` so the call site is a drop-in for
+    ``subprocess.run`` (same ``.returncode`` / ``.stdout`` / ``.stderr``).
+    """
+    proc = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE if capture else None,
+        stderr=subprocess.PIPE if capture else None,
+        text=True if capture else None,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass
+        try:
+            stdout, stderr = proc.communicate(timeout=_GROUP_TEARDOWN_GRACE_SECS)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+            stdout, stderr = proc.communicate()
+    return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
 
 # Skip option the harness's sme_skip::detect_intent honors — accept a documented
 # deviation instead of re-blocking (crates/harness/src/sme_skip.rs SKIP_OPTION_IDS).
@@ -215,9 +264,9 @@ def run_ecaa_package(package_dir: Path, *, max_iterations: int = 60,
     captured = ""
     prev_completed = -1
     while True:
-        proc = subprocess.run(cmd, cwd=str(REPO_ROOT), timeout=harness_timeout,
-                              env=effective_env,
-                              capture_output=capture, text=True if capture else None)
+        proc = _run_in_process_group(cmd, cwd=str(REPO_ROOT),
+                                     timeout=harness_timeout,
+                                     env=effective_env, capture=capture)
         if capture:
             captured += (proc.stdout or "") + (proc.stderr or "")
         if relaunches >= max_relaunch:

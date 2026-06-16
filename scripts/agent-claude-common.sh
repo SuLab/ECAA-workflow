@@ -189,7 +189,7 @@ claude_terminal_result_transient_error() {
       and ((.is_error // false) == true)
       and (
         (.result // "") | test(
-          "socket connection was closed unexpectedly|connection reset|ECONNRESET|ETIMEDOUT|fetch failed|network error|timed out|temporarily unavailable|502|503|504";
+          "socket connection was closed unexpectedly|connection reset|ECONNRESET|ETIMEDOUT|fetch failed|network error|timed out|temporarily unavailable|502|503|504|429|session limit|usage limit|hit your session|insufficient_quota";
           "i"
         )
       )

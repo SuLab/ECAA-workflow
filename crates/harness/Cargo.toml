@@ -34,7 +34,7 @@ serde_yaml_ng = { workspace = true }
 chrono.workspace = true
 ureq = { version = "2", default-features = false, features = ["json"] }
 uuid.workspace = true
-ctrlc = "3.4"
+ctrlc = { version = "3.4", features = ["termination"] }
 tempfile.workspace = true
 ts-rs.workspace = true
 jsonschema = { workspace = true }

@@ -88,6 +88,7 @@ pub fn synthesize(input: EnvelopeInput<'_>) -> ToolErrorEnvelope {
     let traceback = extract_python_traceback(&stderr_lines);
     let error_class = classify_error(
         &stderr_lines,
+        &stdout_lines,
         input.exit_code,
         input.signal.as_deref(),
         traceback.is_some(),
@@ -146,12 +147,32 @@ fn extract_python_traceback(stderr_lines: &[&str]) -> Option<Vec<String>> {
 /// and a hint to the proposer.
 pub fn classify_error(
     stderr_lines: &[&str],
+    stdout_lines: &[&str],
     exit_code: Option<i32>,
     signal: Option<&str>,
     has_python_traceback: bool,
 ) -> String {
     let stderr_blob: String = stderr_lines.join("\n");
     let blob_lower = stderr_blob.to_ascii_lowercase();
+    // Claude Code's session/usage-cap result text lands on STDOUT (the
+    // `--output-format=json` result envelope), not stderr. Inspect both so a
+    // 429 / session-limit isn't misread as `WallclockExceeded` from a `set -x`
+    // "timeout" token that the harness leaves on stderr.
+    let stdout_blob: String = stdout_lines.join("\n");
+    let stdout_lower = stdout_blob.to_ascii_lowercase();
+    let combined_lower = format!("{}\n{}", blob_lower, stdout_lower);
+
+    // Subscription / usage-cap throttling. Checked BEFORE the SIGTERM /
+    // wallclock branch because the agent is often SIGTERM'd while parked on a
+    // 429 backoff, which would otherwise win the WallclockExceeded label.
+    if combined_lower.contains("429")
+        || combined_lower.contains("session limit")
+        || combined_lower.contains("usage limit")
+        || combined_lower.contains("hit your session")
+        || combined_lower.contains("insufficient_quota")
+    {
+        return "RateLimited".to_string();
+    }
 
     if matches!(signal, Some(s) if s.eq_ignore_ascii_case("SIGKILL"))
         || blob_lower.contains("out of memory")
@@ -262,7 +283,7 @@ mod tests {
 
     #[test]
     fn classifies_oom_from_signal() {
-        let cls = classify_error(&[], Some(137), Some("SIGKILL"), false);
+        let cls = classify_error(&[], &[], Some(137), Some("SIGKILL"), false);
         assert_eq!(cls, "OOM");
     }
 
@@ -270,6 +291,7 @@ mod tests {
     fn classifies_oom_from_message() {
         let cls = classify_error(
             &["pandas internal error", "MemoryError: out of memory"],
+            &[],
             Some(1),
             None,
             true,
@@ -279,7 +301,7 @@ mod tests {
 
     #[test]
     fn classifies_wallclock_from_signal() {
-        let cls = classify_error(&[], Some(124), Some("SIGTERM"), false);
+        let cls = classify_error(&[], &[], Some(124), Some("SIGTERM"), false);
         assert_eq!(cls, "WallclockExceeded");
     }
 
@@ -287,6 +309,7 @@ mod tests {
     fn classifies_missing_dependency() {
         let cls = classify_error(
             &["ModuleNotFoundError: No module named 'pydeseq2'"],
+            &[],
             Some(1),
             None,
             true,
@@ -298,6 +321,7 @@ mod tests {
     fn classifies_network() {
         let cls = classify_error(
             &["urllib.error.HTTPError: 503 Service Unavailable"],
+            &[],
             Some(1),
             None,
             true,
@@ -309,6 +333,7 @@ mod tests {
     fn classifies_disk_full() {
         let cls = classify_error(
             &["IOError: [Errno 28] No space left on device"],
+            &[],
             Some(1),
             None,
             true,
@@ -318,7 +343,7 @@ mod tests {
 
     #[test]
     fn classifies_numerical_instability() {
-        let cls = classify_error(&["LinAlgError: Singular matrix"], Some(1), None, true);
+        let cls = classify_error(&["LinAlgError: Singular matrix"], &[], Some(1), None, true);
         assert_eq!(cls, "NumericalInstability");
     }
 
@@ -330,6 +355,7 @@ mod tests {
                 "  File 'x.py' line 1",
                 "ValueError: y has only one unique value",
             ],
+            &[],
             Some(1),
             None,
             true,
@@ -339,8 +365,36 @@ mod tests {
 
     #[test]
     fn classifies_nonzero_exit() {
-        let cls = classify_error(&["weird tool noise"], Some(42), None, false);
+        let cls = classify_error(&["weird tool noise"], &[], Some(42), None, false);
         assert_eq!(cls, "NonZeroExit(42)");
+    }
+
+    #[test]
+    fn classifies_rate_limit_from_stdout_not_wallclock() {
+        // The `--output-format=json` session-cap text lands on stdout while a
+        // `set -x` "timeout" token sits on stderr. The 429/session-limit branch
+        // must win so the failure is correctly labelled (and retried) rather
+        // than mislabelled WallclockExceeded.
+        let cls = classify_error(
+            &["+ timeout 900 claude -p ..."],
+            &[r#"{"type":"result","is_error":true,"result":"You've hit your session limit (429)."}"#],
+            Some(1),
+            Some("SIGTERM"),
+            false,
+        );
+        assert_eq!(cls, "RateLimited");
+    }
+
+    #[test]
+    fn classifies_usage_limit_from_stderr() {
+        let cls = classify_error(
+            &["Error: usage limit reached for this account"],
+            &[],
+            Some(1),
+            None,
+            false,
+        );
+        assert_eq!(cls, "RateLimited");
     }
 
     #[test]

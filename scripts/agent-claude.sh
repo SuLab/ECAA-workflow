@@ -319,8 +319,24 @@ cleanup_heartbeat() {
   if [ -n "${DOCKER_SECRET_ENV_FILE:-}" ]; then
     rm -f "$DOCKER_SECRET_ENV_FILE" 2>/dev/null || true
   fi
+  if [ -n "${DOCKER_CIDFILE:-}" ]; then
+    rm -f "$DOCKER_CIDFILE" 2>/dev/null || true
+  fi
 }
 trap cleanup_heartbeat EXIT
+# Defense-in-depth process teardown: when the harness (or its hard-timeout
+# killpg) sends SIGTERM/SIGINT, force-remove the agent's docker container (via
+# the cidfile written by `docker run --cidfile` below) and kill the whole
+# process group so a reparented agent can't outlive its parent. The EXIT trap
+# still runs afterward for the heartbeat/credential/scratch cleanup.
+cleanup_on_signal() {
+  if [ -n "${DOCKER_CIDFILE:-}" ] && [ -s "$DOCKER_CIDFILE" ]; then
+    docker rm -f "$(cat "$DOCKER_CIDFILE")" 2>/dev/null || true
+  fi
+  cleanup_heartbeat
+  kill 0 2>/dev/null || true
+}
+trap cleanup_on_signal SIGTERM SIGINT
 
 # Per-task scratch mount. Per-task ephemeral working
 # area distinct from the package's persistent outputs dir. Default
@@ -850,6 +866,13 @@ run_claude_with_retries() {
         "$attempt" "$max_attempts" >> "$task_dir/progress.log" 2>/dev/null || true
     fi
 
+    # `docker run --cidfile` refuses a pre-existing path; clear any stale
+    # cidfile from a prior attempt so the retry can re-create it. No-op on the
+    # host path (DOCKER_CIDFILE unset).
+    if [ -n "${DOCKER_CIDFILE:-}" ]; then
+      rm -f "$DOCKER_CIDFILE" 2>/dev/null || true
+    fi
+
     set +e
     "$@" 2>&1 | tee -a "$OUT_LOG"
     exit_code="${PIPESTATUS[0]}"
@@ -861,7 +884,14 @@ run_claude_with_retries() {
          && [ ! -s "$patch_path" ] \
          && [ "$attempt" -lt "$max_attempts" ]; then
         attempt=$((attempt + 1))
-        sleep 5
+        # Re-source the eval token file (no-op in production) so a token the
+        # failover daemon swapped is picked up on retry; sleep past the
+        # daemon's 25s poll so a 429/session-limit retry hits a fresh token.
+        if [ -f "$HOME/.ecaa-workflow/eval.env" ]; then
+          # shellcheck disable=SC1091
+          . "$HOME/.ecaa-workflow/eval.env"
+        fi
+        sleep 30
         continue
       fi
       return 0
@@ -878,7 +908,14 @@ run_claude_with_retries() {
           "$attempt" "$max_attempts" >> "$task_dir/progress.log" 2>/dev/null || true
       fi
       attempt=$((attempt + 1))
-      sleep 5
+      # Re-source the eval token file (no-op in production) so a token the
+      # failover daemon swapped is picked up on retry; sleep past the
+      # daemon's 25s poll so a 429/session-limit retry hits a fresh token.
+      if [ -f "$HOME/.ecaa-workflow/eval.env" ]; then
+        # shellcheck disable=SC1091
+        . "$HOME/.ecaa-workflow/eval.env"
+      fi
+      sleep 30
       continue
     fi
 
@@ -1362,6 +1399,14 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
     CRED_REFRESH_PID=$!
   fi
 
+  # Container-id sidecar for signal-driven teardown. `docker run --cidfile`
+  # writes the container id here at start; the SIGTERM/SIGINT trap force-removes
+  # that container so a reparented agent can't leak its container on a hard
+  # timeout. `--cidfile` refuses a pre-existing path, so the retry wrapper
+  # removes it before each attempt; the EXIT trap removes it at the end.
+  DOCKER_CIDFILE="$(mktemp -u "${TMPDIR:-/tmp}/ecaa-agent-cid.XXXXXX")"
+  export DOCKER_CIDFILE
+
   # Docker isolation hardening. The agent writes outputs into
   # $PACKAGE and $AGENT_HOME_DIR (which are bound RW above);
   # everything else is read-only. Tmpfs covers /tmp and
@@ -1372,6 +1417,7 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   # `--security-opt no-new-privileges` blocks suid-escalation inside
   # the container. `--pids-limit` fences fork-bombs.
   if run_claude_with_retries docker run --rm \
+    --cidfile "$DOCKER_CIDFILE" \
     --read-only \
     --tmpfs "/tmp:rw,size=$ECAA_DOCKER_TMPFS_TMP_SIZE,mode=1777" \
     --tmpfs "/var/tmp:rw,size=$ECAA_DOCKER_TMPFS_VARTMP_SIZE,mode=1777" \
