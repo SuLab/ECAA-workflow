@@ -49,6 +49,44 @@ def test_anthropic_failure_does_not_block_gemini(monkeypatch, tmp_path):
     assert list((tmp_path / "judge").glob("anthropic-opus-*")) == []
 
 
+def test_gemini_batch_deadline_raises_and_is_fault_isolated(monkeypatch, tmp_path):
+    """A Gemini batch that never reaches a terminal state (e.g. a 503 outage
+    leaving it PENDING forever) must time out on ECAA_EVAL_JUDGE_BATCH_MAX_WAIT
+    and RAISE — converting an infinite hang into a clean, fault-isolated skip
+    (judge_batch's per-provider try/except logs it + leaves rows un-cached)."""
+    import time as _time
+    monkeypatch.setenv("ECAA_EVAL_CACHE_DIR", str(tmp_path))
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    # Force the batch path (>=1 miss) and a zero-second deadline so the very
+    # first deadline check after the (no-op) sleep trips.
+    monkeypatch.setenv("ECAA_EVAL_JUDGE_BATCH_MIN", "1")
+    monkeypatch.setenv("ECAA_EVAL_JUDGE_BATCH_MAX_WAIT", "0")
+    monkeypatch.setattr(_time, "sleep", lambda *_a, **_k: None)
+
+    class _Resp:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    # POST submits the batch (returns a name); GET always reports PENDING.
+    monkeypatch.setattr(J.requests, "post",
+                        lambda *a, **k: _Resp({"name": "batches/stuck"}))
+    monkeypatch.setattr(J.requests, "get",
+                        lambda *a, **k: _Resp({"state": "JOB_STATE_PENDING"}))
+
+    reqs = [{"key": "0:headline", "judge_id": "gemini-3.1-pro",
+             "rubric": _RUBRIC, "trace": "t", "answer": "a"}]
+    results = J.judge_batch(reqs)  # must NOT raise out of judge_batch
+
+    assert "0:headline" not in results                     # left unscored
+    assert list((tmp_path / "judge").glob("gemini-3.1-pro-*")) == []  # un-cached
+
+
 def test_assemble_score_partial_cross_only():
     """Gemini down -> only the Opus cross verdict present -> usable partial score."""
     bb = BiomniBench()

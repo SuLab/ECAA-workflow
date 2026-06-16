@@ -1,5 +1,6 @@
 # scripts/eval/tests/test_eval_runner.py
 import json
+import os
 import pytest
 from pathlib import Path
 from scripts.eval import eval_runner  # see Step 3: module named eval_runner.py
@@ -764,7 +765,7 @@ def test_run_manifest_shape(tmp_path):
         argv=["biomnibench", "--smoke", "--arms", "ecaa"],
         arms=["ecaa"], trials=1, max_iterations=60,
         intake_mode="chat", error_matrix=False, resuming=False,
-        freeze_head="c" * 40)
+        freeze_head="c" * 40, model="claude-sonnet-4-6")
     assert out == tmp_path / "run-manifest.json"
     m = json.loads(out.read_text())
     assert m["benchmark"] == "biomnibench"
@@ -773,6 +774,7 @@ def test_run_manifest_shape(tmp_path):
     assert m["freeze_head"] == "c" * 40
     assert m["max_iterations"] == 60
     assert m["resuming"] is False
+    assert m["model"] == "claude-sonnet-4-6"
 
 
 def test_head_unchanged_passes_when_equal(monkeypatch):
@@ -802,6 +804,9 @@ def test_main_writes_freeze_and_manifest(tmp_path, monkeypatch):
     monkeypatch.setenv("ECAA_EVAL_SCRATCH_DIR", str(tmp_path / "scratch"))
     monkeypatch.setattr(eval_runner, "_validate_datasets_lock", lambda: None)
     monkeypatch.setattr(eval_runner, "_git_head", lambda: "1" * 40)
+    # Register the key so monkeypatch restores it on teardown even though main()
+    # sets os.environ directly (no cross-test ECAA_EVAL_MODEL leak).
+    monkeypatch.setenv("ECAA_EVAL_MODEL", "placeholder")
 
     class _Plugin:
         def fetch(self, c): return Path("/fake")
@@ -827,7 +832,7 @@ def test_main_writes_freeze_and_manifest(tmp_path, monkeypatch):
     monkeypatch.setattr(sc, "write_public_scorecard", lambda *a, **k: None)
 
     rc = eval_runner.main(["biomnibench", "--smoke", "--arms", "claude-direct",
-                           "--trials", "1"])
+                           "--trials", "1", "--model", "claude-opus-4-8"])
     assert rc == 0
     runs = list((tmp_path / "runs").glob("biomnibench-*"))
     assert len(runs) == 1
@@ -836,6 +841,9 @@ def test_main_writes_freeze_and_manifest(tmp_path, monkeypatch):
     manifest = json.loads((runs[0] / "run-manifest.json").read_text())
     assert manifest["freeze_head"] == "1" * 40
     assert manifest["intake_mode"] == "chat"
+    # --model is recorded in the manifest and exported for the executor.
+    assert manifest["model"] == "claude-opus-4-8"
+    assert os.environ["ECAA_EVAL_MODEL"] == "claude-opus-4-8"
 
 
 # ---------------------------------------------------------------------------

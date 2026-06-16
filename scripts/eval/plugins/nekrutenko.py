@@ -306,10 +306,11 @@ class Nekrutenko(Benchmark):
         return []
 
     def proposal_policy(self, task, arm):
-        """Recipe fidelity: reject any hypothesized gap-fill node so the emitted
-        DAG stays the pinned bwa+lofreq reference recipe (the flat-pool VCF
-        scorer needs only the per-sample calls, not added aggregation nodes)."""
-        return "reject"
+        """Recipe fidelity: PROMOTE the SME-named gap node (e.g. cross_sample_variant_table)
+        on first resolution — mirrors the biomnibench signoff path that converges. The
+        flat-pool VCF scorer pools only *.vcf/*.vcf.gz, so the added non-VCF aggregation
+        node does not affect flat-/macro-Jaccard."""
+        return "signoff"
 
     def collect(self, spec, run_dir):
         # rglob pulls every VCF anywhere under the run dir, including cohort /

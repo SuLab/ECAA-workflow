@@ -48,10 +48,13 @@ def test_biomnibench_locks_nothing_either_arm():
     assert plug.locked_methods(_biomni_task(), Arm.CLAUDE_CODE_DIRECT) == []
 
 
-def test_nekrutenko_rejects_hypothesized_proposals_for_recipe_fidelity():
-    # Recipe eval: decline gap-fill nodes so the emitted DAG stays the pinned
-    # bwa+lofreq reference recipe.
-    assert Nekrutenko().proposal_policy(_nekrut_task(), Arm.ECAA_WORKFLOW) == "reject"
+def test_nekrutenko_signs_off_hypothesized_proposals_for_convergence():
+    # Recipe fidelity (RCA A1): PROMOTE the SME-named gap node (e.g.
+    # cross_sample_variant_table) on first resolution — mirrors the biomnibench
+    # signoff path that converges. "reject" idled the intake assistant and failed
+    # to converge in 8 turns. The flat-pool VCF scorer pools only *.vcf/*.vcf.gz,
+    # so the added non-VCF aggregation node does not affect flat-/macro-Jaccard.
+    assert Nekrutenko().proposal_policy(_nekrut_task(), Arm.ECAA_WORKFLOW) == "signoff"
 
 
 def test_biomnibench_signs_off_hypothesized_proposals():

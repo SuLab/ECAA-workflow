@@ -446,9 +446,25 @@ def _gemini_batch(items: list[dict]) -> dict[str, tuple[str, int, int]]:
     # "name" is a full resource path like "batches/123456789".
     batch_name = r.json()["name"]
 
+    # Overall wall-clock deadline for the poll loop (env-tunable; default 1800 s).
+    # Without it, a Gemini-side outage (e.g. a 503 that leaves the batch PENDING
+    # forever) hangs the whole campaign — the just-finished run sat ~4.5 h here.
+    # On timeout we RAISE: the caller (judge_batch's per-provider try/except)
+    # fault-isolates the raise — logs it, leaves these rows un-cached so --resume
+    # retries them — turning an infinite hang into a clean skip.
+    try:
+        max_wait = max(1, int(os.environ.get("ECAA_EVAL_JUDGE_BATCH_MAX_WAIT", "1800")))
+    except ValueError:
+        max_wait = 1800
+    deadline = time.monotonic() + max_wait
+
     # Poll until succeeded or failed.
     while True:
         time.sleep(30)
+        if time.monotonic() > deadline:
+            raise RuntimeError(
+                f"Gemini batch {batch_name} did not reach a terminal state "
+                f"within {max_wait}s")
         poll = requests.get(f"{base}/{batch_name}", params={"key": key}, timeout=60)
         poll.raise_for_status()
         body = poll.json()

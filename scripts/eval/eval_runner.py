@@ -3,8 +3,13 @@
 Usage: python -m scripts.eval.eval_runner <benchmark> [--smoke]
        [--arms ecaa,claude-direct] [--trials N] [--max-iterations N]
        [--error-matrix] [--max-parallel N] [--resume <run_dir>]
+       [--model claude-sonnet-4-6]
 Requires ECAA_EVAL_LIVE=1 plus GEMINI_API_KEY / ECAA_ANTHROPIC_API_KEY
 (biomnibench) to actually run; otherwise prints SKIP and exits 0.
+
+--model selects the execution-agent model for BOTH arms (default
+claude-sonnet-4-6); main() exports it as ECAA_EVAL_MODEL before any run, which
+agent_runner reads. The resolved model is recorded in run-manifest.json.
 """
 from __future__ import annotations
 import argparse
@@ -111,13 +116,14 @@ def _write_campaign_freeze(run_dir: Path, record: dict, *, resuming: bool) -> Pa
 def _write_run_manifest(run_dir: Path, *, benchmark: str, argv: list[str],
                         arms: list[str], trials: int, max_iterations: int,
                         intake_mode: str, error_matrix: bool, resuming: bool,
-                        freeze_head: str) -> Path:
+                        freeze_head: str, model: str) -> Path:
     """Persist the realized-run manifest to run_dir/run-manifest.json.
 
     Records exactly how this run was invoked (argv, arms, trials, intake mode,
-    error-matrix flag) plus the frozen launch HEAD, so a reader can reconstruct
-    the command without re-deriving it from the journal. Re-written on every
-    (re)launch — the latest invocation is the authoritative manifest."""
+    error-matrix flag, execution-agent model) plus the frozen launch HEAD, so a
+    reader can reconstruct the command without re-deriving it from the journal.
+    Re-written on every (re)launch — the latest invocation is the authoritative
+    manifest."""
     run_dir.mkdir(parents=True, exist_ok=True)
     out = run_dir / "run-manifest.json"
     manifest = {
@@ -130,6 +136,7 @@ def _write_run_manifest(run_dir: Path, *, benchmark: str, argv: list[str],
         "error_matrix": bool(error_matrix),
         "resuming": bool(resuming),
         "freeze_head": freeze_head,
+        "model": model,
         "written_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
     tmp = out.with_suffix(".json.tmp")
@@ -809,6 +816,10 @@ def main(argv: list[str]) -> int:
                     help="Max concurrent agent runs (pool size = global cap).")
     ap.add_argument("--resume", default=None,
                     help="Resume into an existing run dir; skip journaled work.")
+    ap.add_argument("--model", default="claude-sonnet-4-6",
+                    help="Execution-agent model for BOTH arms (default "
+                         "claude-sonnet-4-6). Exported as ECAA_EVAL_MODEL before "
+                         "any run; recorded in run-manifest.json.")
     ap.add_argument("--tasks", default=None,
                     help="Comma-separated task_id allowlist (e.g. da-8-1,da-15-1). "
                          "Filters the benchmark's task set; an unknown id aborts. "
@@ -816,6 +827,11 @@ def main(argv: list[str]) -> int:
                          "in scripts/eval/subsets/baseline.toml (run via "
                          "`make eval-baseline`).")
     args = ap.parse_args(argv)
+
+    # Export the chosen model BEFORE any agent/cell runs so both arms' executor
+    # uses it (agent_runner reads ECAA_EVAL_MODEL). Set unconditionally so an
+    # explicit --model always wins over a stale inherited env value.
+    os.environ["ECAA_EVAL_MODEL"] = args.model
 
     if os.environ.get("ECAA_EVAL_LIVE") != "1":
         print("SKIP: set ECAA_EVAL_LIVE=1 (+ GEMINI_API_KEY/ECAA_ANTHROPIC_API_KEY) "
@@ -863,7 +879,7 @@ def main(argv: list[str]) -> int:
         arms=[a.value for a in arms], trials=trials,
         max_iterations=args.max_iterations, intake_mode=_intake_mode(),
         error_matrix=args.error_matrix, resuming=resuming,
-        freeze_head=_freeze_head)
+        freeze_head=_freeze_head, model=args.model)
 
     # Only consult the journal when explicitly resuming. A fresh run never skips
     # work or reconstructs from a pre-existing journal (guards against a stamp

@@ -187,6 +187,23 @@ eval-baseline: ## Tractable baseline (live; operator-run): both benchmarks, both
 	@echo "[eval-baseline] Nekrutenko base + 12-cell matrix (1 seed), sequential, ECAA_HW_FILL_HEADROOM=1"
 	@ECAA_HW_FILL_HEADROOM=1 ECAA_EVAL_NEK_SEEDS=42 $(PYTHON) -m scripts.eval.eval_runner nekrutenko --error-matrix --trials 1 --arms ecaa,claude-direct $(EVAL_ARGS)
 
+BENCH ?= biomnibench
+TRIALS ?= 3
+MODEL ?= claude-sonnet-4-6
+TASKS ?=
+
+eval-tractable: ## Tractable eval on a chosen model (default Sonnet): make eval-tractable BENCH=biomnibench TRIALS=3 MODEL=claude-sonnet-4-6 TASKS="da-8-1,da-15-1" (empty TASKS = baseline.toml subset). Needs ECAA_EVAL_LIVE=1 (+ judge keys for biomnibench).
+	@TASKS="$(TASKS)" ; \
+	 if [ -z "$$TASKS" ]; then \
+	   MANIFEST=scripts/eval/subsets/baseline.toml ; \
+	   TASKS=$$($(PYTHON) -c "import tomllib,pathlib;print(','.join(tomllib.loads(pathlib.Path('$$MANIFEST').read_text()).get('$(BENCH)',{}).get('task_ids',[])))") ; \
+	 fi ; \
+	 echo "[eval-tractable] $(BENCH) model=$(MODEL) trials=$(TRIALS) tasks: $${TASKS:-<all (benchmark default)>}" ; \
+	 ECAA_HW_FILL_HEADROOM=1 $(PYTHON) -m scripts.eval.eval_runner $(BENCH) --tasks "$$TASKS" --trials $(TRIALS) --model $(MODEL) --arms ecaa,claude-direct $(EVAL_ARGS)
+
+eval-list-bbench: ## List cached BiomniBench-DA scenarios (id / category / difficulty / data-size) so the operator can pick TASKS for eval-tractable.
+	@$(PYTHON) -m scripts.eval.list_bbench
+
 eval-biomnibench: ## Tier 3 — only BiomniBench-DA (needs ECAA_EVAL_LIVE=1 + GEMINI_API_KEY + ECAA_ANTHROPIC_API_KEY)
 	@$(PYTHON) -m scripts.eval.eval_runner biomnibench $(EVAL_ARGS)
 
