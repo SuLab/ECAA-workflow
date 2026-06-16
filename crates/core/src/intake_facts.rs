@@ -207,6 +207,12 @@ impl IntakeFacts {
     /// - **called peaks** (`data:1255`) — only peak-calling modalities
     ///   (`chip_seq`, `atac_seq`, `cut_tag`, `chip_exo`).
     /// - **called variants / VCF** (`data:3498`) — only `variant_calling`/`gwas`.
+    /// - **pre-computed DE results** (`data:3134`) — DE-capable modalities
+    ///   (`bulk_rnaseq`, `single_cell_rnaseq`, `long_read_rnaseq`,
+    ///   `spatial_transcriptomics`, `proteomics`) carry a
+    ///   `differential_expression` producer. `data:3134` is the DE node's
+    ///   OUTPUT-PORT type (the prune-match target), NOT the archetype goal type
+    ///   `data:0951`.
     /// - **alignments / BAM** (`data:0863`) — modality-independent (every
     ///   read-based pipeline has an `alignment` producer), so gated only on a
     ///   known modality being present.
@@ -326,6 +332,59 @@ impl IntakeFacts {
                 "intake_called_variants_0",
                 "data:3498",
                 "Sequence variant",
+            ));
+        }
+
+        // Pre-computed DIFFERENTIAL-EXPRESSION RESULTS table: gate on
+        // DE-capable modalities + a DE-results NOUN. This is the supplied
+        // product for the BiomniBench da-15-8 shape — proteomics XLSX inputs
+        // PLUS a pre-computed differential-expression results TSV (no FASTQ).
+        // Without this category the supplied DE table is invisible to
+        // input-stage pruning, so the lifted raw-read chain
+        // (rnaseq_raw_qc → alignment → quantification → differential_expression,
+        // or the proteomics search→quantify→DE chain) is never dropped and
+        // blocks on NoUpstreamSequencingSubstrate / the differential_expression
+        // validation contract.
+        //
+        // INPUT-TYPE RECOGNITION ONLY — method-neutral. Recognizing that the
+        // SME already holds a DE results table prescribes no DE method, model,
+        // or significance threshold; it only declares the product is available.
+        //
+        // The `differential_expression` atom produces `data:3134` ("Gene
+        // expression data") on its `de_results` output port (VERIFIED:
+        // config/stage-atoms/differential_expression.yaml outputs.de_results.iri).
+        // `input_stage_prune::prune_supplied_upstream` matches a supplied
+        // product against NODE OUTPUT PORT types, so the supplied DE table is
+        // typed `data:3134` (the node output), NOT the archetype GOAL type
+        // `data:0951` ("Statistical estimate score") — `data:0951` is the
+        // bulk_rnaseq_de archetype's `goal_data`, never a lifted node port, so
+        // seeding it would no-op the prune.
+        const DE_MODALITIES: &[&str] = &[
+            "bulk_rnaseq",
+            "single_cell_rnaseq",
+            "long_read_rnaseq",
+            "spatial_transcriptomics",
+            "proteomics",
+        ];
+        const DE_RESULTS_NOUNS: &[&str] = &[
+            "differential expression results",
+            "differential expression table",
+            "differential expression result",
+            "de results table",
+            "de_results",
+            "de results",
+            "limma results",
+            "limma output",
+            "deseq2 results",
+            "edger results",
+            "differential abundance results",
+            "differential abundance table",
+        ];
+        if DE_MODALITIES.contains(&modality) && bound(DE_RESULTS_NOUNS) {
+            return Some(supplied_product(
+                "intake_de_results_0",
+                "data:3134",
+                "Gene expression data",
             ));
         }
 
@@ -682,6 +741,64 @@ mod tests {
             assert!(
                 IntakeFacts::detect_input_data_stage(prose, Some("bulk_rnaseq")).is_none(),
                 "expected NO input stage (default raw) for: {prose:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn detect_input_data_stage_recognises_supplied_de_results() {
+        // D4 (BiomniBench da-15-8): the SME holds a PRE-COMPUTED
+        // differential-expression results table (no FASTQ). Each phrase pairs a
+        // DE-results NOUN with a possession marker, so the supplied DE product
+        // is detected and the upstream raw-read / quantify chain can be pruned.
+        // INPUT-TYPE RECOGNITION ONLY — no DE method is prescribed.
+        use crate::workflow_contracts::semantic_type::SemanticType;
+        for (prose, modality) in [
+            (
+                "We already have the differential expression results table; \
+                 just run pathway enrichment and report.",
+                "proteomics",
+            ),
+            (
+                "No raw FASTQs — start from the provided de_results table.",
+                "bulk_rnaseq",
+            ),
+            (
+                "differential abundance results already prepared from the proteomics run",
+                "proteomics",
+            ),
+            (
+                "limma results provided; downstream enrichment only",
+                "bulk_rnaseq",
+            ),
+        ] {
+            let p = IntakeFacts::detect_input_data_stage(prose, Some(modality))
+                .unwrap_or_else(|| panic!("expected a DE-results input stage for: {prose:?}"));
+            match &p.semantic_type {
+                // `data:3134` is the `differential_expression` node OUTPUT-PORT
+                // type (the prune-match target), NOT the goal type `data:0951`.
+                SemanticType::OntologyTerm { iri, .. } => assert_eq!(iri, "data:3134"),
+                other => panic!("expected DE-results ontology term, got {other:?}"),
+            }
+        }
+        // A FASTQ-pipeline description that mentions "a differential expression
+        // test" as a STEP must NOT seed supplied DE results (recount3-airway
+        // regression — the marker must bind a DE-results NOUN, not the verb).
+        for (prose, modality) in [
+            (
+                "bulk RNA-seq FASTQs, four donors; FastQC and adapter trimming, \
+                 splice-aware alignment, gene-level counts, DESeq2-style normalization, \
+                 and a differential expression test",
+                "bulk_rnaseq",
+            ),
+            (
+                "run differential expression on the provided FASTQ reads",
+                "bulk_rnaseq",
+            ),
+        ] {
+            assert!(
+                IntakeFacts::detect_input_data_stage(prose, Some(modality)).is_none(),
+                "a DE STEP (not a held DE table) must NOT seed supplied DE results: {prose:?}"
             );
         }
     }

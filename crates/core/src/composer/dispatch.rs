@@ -400,10 +400,19 @@ pub(crate) fn compose_v4_dispatch_full(
                     ),
                 ]
             }
-            Some(iri @ ("data:1255" | "data:3498" | "data:0863")) => {
+            // `data:3134` ("Gene expression data") is the supplied
+            // pre-computed differential-expression results table (BiomniBench
+            // da-15-8). It is the `differential_expression` atom's OUTPUT-PORT
+            // type, so `input_stage_prune::prune_supplied_upstream` finds the
+            // DE node as the most-upstream producer and drops it plus the whole
+            // upstream raw-read / quantify chain — exactly as the counts-matrix
+            // (`data:3917`) path drops the align/quantify chain. Method-neutral:
+            // this only declares the product is available, never a DE method.
+            Some(iri @ ("data:1255" | "data:3498" | "data:0863" | "data:3134")) => {
                 let label = match iri {
                     "data:1255" => "Called peaks",
                     "data:3498" => "Sequence variant",
+                    "data:3134" => "Gene expression data",
                     _ => "Sequence alignment",
                 };
                 let mut dp =

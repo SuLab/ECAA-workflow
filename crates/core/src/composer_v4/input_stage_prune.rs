@@ -208,6 +208,10 @@ mod tests {
     const BAM: &str = "data:2572";
     const COUNTS: &str = "data:3917";
     const DE: &str = "data:0951";
+    // The `differential_expression` atom's `de_results` OUTPUT-PORT type
+    // (config/stage-atoms/differential_expression.yaml) — the type a supplied
+    // pre-computed DE table must carry to match the DE node for pruning.
+    const DE_RESULTS: &str = "data:3134";
 
     /// A full bulk-RNA-seq chain. Supplying counts must drop
     /// raw_qc/alignment/quantification, keep + rewire qc_preprocessing onto
@@ -505,6 +509,110 @@ mod tests {
         assert!(
             node_produces(da, ALIGNED),
             "data_acquisition must expose the supplied alignment type"
+        );
+    }
+
+    /// D4 (BiomniBench da-15-8): the SME supplies a PRE-COMPUTED
+    /// differential-expression results table (proteomics XLSX + a DE results
+    /// TSV, NO FASTQ) that misroutes into the bulk_rnaseq raw-read pipeline.
+    /// Supplying DE results (`data:3134`, the `differential_expression` node
+    /// OUTPUT-PORT type) must drop the ENTIRE raw-read chain THROUGH
+    /// differential_expression (`rnaseq_raw_qc → alignment → quantification →
+    /// differential_expression`) and rewire the surviving consumer
+    /// (`pathway_enrichment`) onto data_acquisition — so nothing strands on
+    /// NoUpstreamSequencingSubstrate / the differential_expression validation
+    /// contract. Locks the COMPOSER-PRUNE class for the DE-RESULTS branch.
+    #[test]
+    fn supplied_de_results_prunes_rawread_chain_through_de_and_rewires() {
+        let mut dag = WorkflowDag {
+            id: "t".into(),
+            nodes: vec![
+                node("data_acquisition", vec![], vec![out("staged", "data:2531")]),
+                node(
+                    "rnaseq_raw_qc",
+                    vec![inp("reads", FASTQ)],
+                    vec![out("qc", "data:2914")],
+                ),
+                node(
+                    "alignment",
+                    vec![inp("reads", FASTQ)],
+                    vec![out("bam", BAM)],
+                ),
+                node(
+                    "quantification",
+                    vec![inp("bam", BAM)],
+                    vec![out("counts", COUNTS)],
+                ),
+                node(
+                    "differential_expression",
+                    vec![inp("counts", COUNTS)],
+                    vec![out("de", DE_RESULTS)],
+                ),
+                node(
+                    "pathway_enrichment",
+                    vec![inp("de", DE_RESULTS)],
+                    vec![out("pathways", "data:3753")],
+                ),
+            ],
+            edges: vec![
+                edge("data_acquisition", "rnaseq_raw_qc"),
+                edge("rnaseq_raw_qc", "alignment"),
+                edge("alignment", "quantification"),
+                edge("quantification", "differential_expression"),
+                edge("differential_expression", "pathway_enrichment"),
+            ],
+            ..Default::default()
+        };
+        // The supplied DE table is typed `data:3134` (the DE node OUTPUT port,
+        // the prune-match target), NOT the archetype goal type `data:0951`.
+        let supplied = DataProductContract::skeleton(
+            "intake_de_results_0",
+            SemanticType::edam(DE_RESULTS, "Gene expression data"),
+        );
+        let removed = prune_supplied_upstream(&mut dag, &[supplied]);
+        let ids: BTreeSet<&str> = dag.nodes.iter().map(|n| n.id.as_str()).collect();
+        // The whole raw-read chain THROUGH differential_expression is dropped.
+        for gone in [
+            "rnaseq_raw_qc",
+            "alignment",
+            "quantification",
+            "differential_expression",
+        ] {
+            assert!(!ids.contains(gone), "{gone} must be pruned; got {ids:?}");
+            assert!(
+                removed.iter().any(|r| r == gone),
+                "removed should list {gone}"
+            );
+        }
+        // Anchor + surviving DE consumer kept.
+        for kept in ["data_acquisition", "pathway_enrichment"] {
+            assert!(ids.contains(kept), "{kept} must survive; got {ids:?}");
+        }
+        // pathway_enrichment rewired onto data_acquisition (which now stages
+        // the supplied DE table); no edge references the pruned DE node.
+        assert!(
+            dag.edges
+                .iter()
+                .any(|e| e.from_node == "data_acquisition" && e.to_node == "pathway_enrichment"),
+            "pathway_enrichment must be rewired onto data_acquisition; edges={:?}",
+            dag.edges
+                .iter()
+                .map(|e| (e.from_node.clone(), e.to_node.clone()))
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            !dag.edges.iter().any(|e| e.from_node == "differential_expression"
+                || e.to_node == "differential_expression"),
+            "no edges may reference the pruned differential_expression node"
+        );
+        let da = dag
+            .nodes
+            .iter()
+            .find(|n| n.id == "data_acquisition")
+            .unwrap();
+        assert!(
+            node_produces(da, DE_RESULTS),
+            "data_acquisition must expose the supplied DE-results type"
         );
     }
 }

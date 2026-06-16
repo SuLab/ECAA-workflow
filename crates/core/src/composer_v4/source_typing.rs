@@ -67,6 +67,16 @@ pub const GENE_SET_SEMANTIC_LABEL: &str = "Pathway or network";
 const COUNTS_SEMANTIC_IRI: &str = "data:3917";
 const COUNTS_SEMANTIC_LABEL: &str = "Count matrix";
 
+/// EDAM data IRI for a PRE-COMPUTED differential-expression results table
+/// (the SME already holds DE results — log-fold-change + p-value + FDR rows,
+/// e.g. a limma / DESeq2 / edgeR / FragPipe `*_DE_results.tsv`). Matches the
+/// `differential_expression` atom's `de_results` OUTPUT-PORT type so a
+/// registered DE table unifies with the DE node's producing type for
+/// input-stage pruning and downstream consumer sourcing (BiomniBench da-15-8).
+/// This is the node output type, NOT the archetype goal type `data:0951`.
+const DE_RESULTS_SEMANTIC_IRI: &str = "data:3134";
+const DE_RESULTS_SEMANTIC_LABEL: &str = "Gene expression data";
+
 /// EDAM data IRI for raw sequence reads (FASTQ). Matches the
 /// `data_acquisition` atom's existing `raw_reads` output (`data:2044`),
 /// so a registered FASTQ de-dups against the anchor's authored output
@@ -93,6 +103,13 @@ fn lc(s: &str) -> String {
 ///   `.gmt` extension on the file name, OR a role/name that contains
 ///   "gene_set" / "gene set" / "gene set collection". → a port typed
 ///   [`GENE_SET_SEMANTIC_IRI`].
+/// * **Pre-computed DE results**: a `.tsv` / `.csv` file whose role/name
+///   implies a differential-expression results table ("de_results" /
+///   "differential expression" / "limma" / "deseq2" / "edger" /
+///   "differential abundance" / a log-fold-change or adjusted-p column). →
+///   a port typed [`DE_RESULTS_SEMANTIC_IRI`]. Checked BEFORE counts so a
+///   DE table (whose columns may mention "count") is not mistyped as a
+///   counts matrix.
 /// * **Counts matrix**: a `.tsv` / `.csv` file whose role/name implies
 ///   counts ("count" / "counts" / "count_matrix" / "count matrix"). →
 ///   a port typed [`COUNTS_SEMANTIC_IRI`].
@@ -131,6 +148,41 @@ pub fn infer_source_port(
             "registered_gene_set",
             GENE_SET_SEMANTIC_IRI,
             GENE_SET_SEMANTIC_LABEL,
+        ));
+    }
+
+    // --- Pre-computed DE results -------------------------------------
+    // Tabular extension PLUS a differential-expression signal in
+    // role/name. Checked BEFORE counts because a DE results table
+    // (log-fold-change + p-value + FDR per gene/protein) can carry
+    // "count"-adjacent columns yet is a distinct, more-processed product;
+    // matching DE first prevents mistyping the supplied DE table as a raw
+    // counts matrix. INPUT-TYPE RECOGNITION ONLY — typing a held DE table
+    // prescribes no DE method or threshold. The DE node's `de_results`
+    // OUTPUT port is `data:3134`, so this typing lets the supplied table
+    // unify with that producing type for pruning + downstream sourcing.
+    if (has_ext(".tsv") || has_ext(".csv") || mime_lc == "text/tab-separated-values")
+        && (role_or_name_contains("de_results")
+            || role_or_name_contains("de-results")
+            || role_or_name_contains("de results")
+            || role_or_name_contains("differential expression")
+            || role_or_name_contains("differential_expression")
+            || role_or_name_contains("differential abundance")
+            || role_or_name_contains("differential_abundance")
+            || role_or_name_contains("limma")
+            || role_or_name_contains("deseq2")
+            || role_or_name_contains("edger")
+            || role_or_name_contains("log_fc")
+            || role_or_name_contains("logfc")
+            || role_or_name_contains("log2fc")
+            || role_or_name_contains("adj_p_val")
+            || role_or_name_contains("adj.p.val")
+            || role_or_name_contains("padj"))
+    {
+        return Some(source_port(
+            "registered_de_results",
+            DE_RESULTS_SEMANTIC_IRI,
+            DE_RESULTS_SEMANTIC_LABEL,
         ));
     }
 
@@ -325,6 +377,35 @@ mod tests {
         let port = infer_source_port("study.counts.tsv", Some("count_matrix"), None)
             .expect("a counts tsv should infer as a counts source");
         assert_eq!(port.semantic_type.stable_id(), COUNTS_SEMANTIC_IRI);
+    }
+
+    #[test]
+    fn infer_de_results_from_filename_and_role() {
+        // D4 (BiomniBench da-15-8): a pre-computed DE results table must type
+        // to the DE node OUTPUT-PORT IRI (`data:3134`) so it unifies with the
+        // `differential_expression` producing type for pruning + downstream
+        // sourcing — NOT the goal type `data:0951`.
+        for (name, role) in [
+            ("study_DE_results.tsv", None),
+            ("limma_output.tsv", None),
+            ("proteins.csv", Some("differential expression")),
+            ("table.tsv", Some("de_results")),
+            ("abundance.tsv", Some("differential abundance")),
+        ] {
+            let port = infer_source_port(name, role, None).unwrap_or_else(|| {
+                panic!("a DE-results table should infer as a DE source: {name:?}/{role:?}")
+            });
+            assert_eq!(port.semantic_type.stable_id(), DE_RESULTS_SEMANTIC_IRI);
+        }
+    }
+
+    #[test]
+    fn de_results_signal_wins_over_counts() {
+        // A DE table whose name mentions both "de_results" and "count" must
+        // type as DE results, NOT as a counts matrix (DE checked first).
+        let port = infer_source_port("gene_count_DE_results.tsv", None, None)
+            .expect("DE-results signal should win");
+        assert_eq!(port.semantic_type.stable_id(), DE_RESULTS_SEMANTIC_IRI);
     }
 
     #[test]
