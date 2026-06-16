@@ -21,7 +21,7 @@ def test_ecaa_arm_pins_model_override(monkeypatch, tmp_path):
             returncode = 0
         return P()
 
-    monkeypatch.setattr(ar.subprocess, "run", fake_run)
+    monkeypatch.setattr(ar, "_run_in_process_group", fake_run)
     ar.run_ecaa_package(tmp_path)
     assert captured["env"]["ECAA_AGENT_MODEL_OVERRIDE"] == "claude-opus-4-8"
 
@@ -56,7 +56,7 @@ def test_explicit_override_wins(monkeypatch, tmp_path):
             returncode = 0
         return P()
 
-    monkeypatch.setattr(ar.subprocess, "run", fake_run)
+    monkeypatch.setattr(ar, "_run_in_process_group", fake_run)
     ar.run_ecaa_package(tmp_path)
     # an explicit caller/operator override is respected (setdefault)
     assert captured["env"]["ECAA_AGENT_MODEL_OVERRIDE"] == "claude-haiku-4-5"

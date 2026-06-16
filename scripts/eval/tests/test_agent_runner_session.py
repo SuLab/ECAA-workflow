@@ -16,7 +16,7 @@ def _capture(monkeypatch):
         captured["env"] = kw.get("env")
         return _FakeProc()
 
-    monkeypatch.setattr(agent_runner.subprocess, "run", fake_run)
+    monkeypatch.setattr(agent_runner, "_run_in_process_group", fake_run)
     return captured
 
 

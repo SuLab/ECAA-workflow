@@ -81,14 +81,14 @@ def test_run_ecaa_package_capture_default_is_off(tmp_path, monkeypatch):
     seen = {}
 
     def fake_run(cmd, **kw):
-        seen["capture_output"] = kw.get("capture_output")
+        seen["capture"] = kw.get("capture")
         return _FakeProc()
 
-    monkeypatch.setattr(agent_runner.subprocess, "run", fake_run)
+    monkeypatch.setattr(agent_runner, "_run_in_process_group", fake_run)
 
     res = run_ecaa_package(tmp_path)
 
-    assert not seen["capture_output"], "default run must not capture (live stream)"
+    assert not seen["capture"], "default run must not capture (live stream)"
     assert res.exit_ok is True
     assert res.stdout == "", "no captured output when capture is off"
 
@@ -99,14 +99,14 @@ def test_run_ecaa_package_capture_true_enables_capture(tmp_path, monkeypatch):
     seen = {}
 
     def fake_run(cmd, **kw):
-        seen["capture_output"] = kw.get("capture_output")
+        seen["capture"] = kw.get("capture")
         return _FakeProc()
 
-    monkeypatch.setattr(agent_runner.subprocess, "run", fake_run)
+    monkeypatch.setattr(agent_runner, "_run_in_process_group", fake_run)
 
     res = run_ecaa_package(tmp_path, capture=True)
 
-    assert seen["capture_output"] is True, "capture=True must set capture_output"
+    assert seen["capture"] is True, "capture=True must set capture (PIPE)"
     assert res.exit_ok is True
 
 
@@ -134,7 +134,7 @@ def test_run_ecaa_package_single_shot_by_default(tmp_path, monkeypatch):
         calls["n"] += 1
         return _FakeProc()
 
-    monkeypatch.setattr(agent_runner.subprocess, "run", fake_run)
+    monkeypatch.setattr(agent_runner, "_run_in_process_group", fake_run)
     res = run_ecaa_package(tmp_path)
     assert calls["n"] == 1, "default must not relaunch"
     assert not (tmp_path / "runtime/outputs/t/sme-decisions.json").exists()
@@ -155,7 +155,7 @@ def test_run_ecaa_package_relaunches_and_resolves_guard_block(tmp_path, monkeypa
         calls["n"] += 1
         return _FakeProc()
 
-    monkeypatch.setattr(agent_runner.subprocess, "run", fake_run)
+    monkeypatch.setattr(agent_runner, "_run_in_process_group", fake_run)
     res = run_ecaa_package(tmp_path)
     assert calls["n"] == 2, "should relaunch once after resolving the block"
     dec = json.loads((tmp_path / "runtime/outputs/survey_method_landscape/sme-decisions.json").read_text())
@@ -190,7 +190,7 @@ def test_run_ecaa_package_continues_incomplete_unblocked_dag(tmp_path, monkeypat
         calls["n"] += 1
         return _FakeProc()
 
-    monkeypatch.setattr(agent_runner.subprocess, "run", fake_run)
+    monkeypatch.setattr(agent_runner, "_run_in_process_group", fake_run)
     run_ecaa_package(tmp_path)
     assert calls["n"] == 3, "should relaunch to continue an incomplete unblocked DAG"
 
@@ -212,7 +212,7 @@ def test_run_ecaa_package_stops_when_no_progress_and_unblocked(tmp_path, monkeyp
         calls["n"] += 1
         return _FakeProc()
 
-    monkeypatch.setattr(agent_runner.subprocess, "run", fake_run)
+    monkeypatch.setattr(agent_runner, "_run_in_process_group", fake_run)
     run_ecaa_package(tmp_path)
     assert calls["n"] == 2, "no-progress unblocked DAG must stop, not spin"
 
