@@ -367,10 +367,15 @@ mod tests {
     fn candidates_filter_by_session_threshold() {
         let dir = TempDir::new().unwrap();
         let agg = OpaqueAggregator::new(dir.path().join("_opaque_registry.jsonl"));
-        agg.record_observation("blake3:lonely", "s1", "n", "p", "2026-05-12T00:00:00Z")
+        // registry_improvement_candidates filters last_seen against a rolling
+        // `Utc::now() - days_window` cutoff, so the observation timestamp must be
+        // relative to now — a hardcoded date silently falls outside the 30-day
+        // window once wall-clock time advances past it (deterministic rot).
+        let recent = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        agg.record_observation("blake3:lonely", "s1", "n", "p", &recent)
             .unwrap();
         for sid in &["s1", "s2", "s3"] {
-            agg.record_observation("blake3:recurring", sid, "n", "p", "2026-05-12T00:00:00Z")
+            agg.record_observation("blake3:recurring", sid, "n", "p", &recent)
                 .unwrap();
         }
         let candidates = agg.registry_improvement_candidates(3, 30);
