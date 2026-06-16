@@ -83,13 +83,16 @@ fn trim_for_beta(tool_exchange: &[serde_json::Value]) -> Vec<serde_json::Value> 
     tool_exchange[tool_exchange.len() - keep..].to_vec()
 }
 
-/// §3.7 — default per-session input-token budget. The tool loop halts
-/// with a soft-block turn when the running total (input + cache_read +
-/// cache_creation summed across the session) exceeds this. Override
-/// with `ECAA_SESSION_TOKEN_BUDGET` for testing or power users. Set to
-/// 0 to disable. The default is generous enough for multi-branch lotz
-/// v1→v5 sessions (~300K tokens with caching) but flags a runaway tool
-/// loop before it accrues real cost.
+/// §3.7 — default per-session *uncached*-input-token budget. The tool
+/// loop halts with a soft-block turn when the running uncached total
+/// (fresh `input` + `cache_creation` summed across the session) exceeds
+/// this. Cache *reads* are excluded — they cost ~0.1x and don't bill as
+/// fresh content, so the ceiling tracks only content the model actually
+/// had to read for the first time (matching `session_metrics.rs` and
+/// `.env.example`). Override with `ECAA_SESSION_TOKEN_BUDGET` for testing
+/// or power users. Set to 0 to disable. The default is generous enough
+/// for multi-branch lotz v1→v5 sessions (~300K tokens with caching) but
+/// flags a runaway tool loop before it accrues real cost.
 const DEFAULT_SESSION_TOKEN_BUDGET: u64 = 500_000;
 
 fn session_token_budget() -> u64 {
@@ -97,6 +100,21 @@ fn session_token_budget() -> u64 {
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(DEFAULT_SESSION_TOKEN_BUDGET)
+}
+
+/// Tokens that count against the session-wide *uncached*-input ceiling.
+///
+/// The budget tracks only content the model had to read for the first
+/// time: fresh `input` plus `cache_creation` (the fully-billed first
+/// write of cached content). Cache *reads* are excluded entirely — they
+/// cost ~0.1x of input and don't represent new context, so counting them
+/// at full weight wrongly tripped the soft-block on cache-heavy sessions
+/// (e.g. nek intake: 442052 cache_read / 509667 total > 500000 budget).
+/// This matches `metrics/session_metrics.rs` ("only counted against the
+/// uncached remainder ... not cache reads") and `.env.example`
+/// ("cache-read doesn't bill, so the budget tracks fresh content only").
+fn uncached_budget_tokens(input: u64, _cache_read: u64, cache_creation: u64) -> u64 {
+    input.saturating_add(cache_creation)
 }
 
 /// Substitutes a non-empty placeholder when the LLM produced no text in
@@ -214,7 +232,15 @@ impl ConversationService {
             self.metrics()
                 .snapshot(session.id)
                 .await
-                .map(|m| m.total_input_tokens + m.cache_read_tokens + m.cache_creation_tokens)
+                // Uncached-input ceiling: fresh input + cache_creation,
+                // cache reads excluded. See `uncached_budget_tokens`.
+                .map(|m| {
+                    uncached_budget_tokens(
+                        m.total_input_tokens,
+                        m.cache_read_tokens,
+                        m.cache_creation_tokens,
+                    )
+                })
                 .unwrap_or(0)
         };
         // Only the final iteration's assistant text becomes the
@@ -266,9 +292,14 @@ impl ConversationService {
             // §3.7 — session-wide token budget check. Fires before each
             // API call so a runaway tool loop can't blow past the cap.
             if budget > 0 {
-                let turn_tokens = accumulated_usage.input_tokens as u64
-                    + accumulated_usage.cache_read_input_tokens as u64
-                    + accumulated_usage.cache_creation_input_tokens as u64;
+                // Mirror `pre_turn_tokens`: cache-read input is excluded
+                // from the uncached-input ceiling. See
+                // `uncached_budget_tokens`.
+                let turn_tokens = uncached_budget_tokens(
+                    accumulated_usage.input_tokens as u64,
+                    accumulated_usage.cache_read_input_tokens as u64,
+                    accumulated_usage.cache_creation_input_tokens as u64,
+                );
                 if pre_turn_tokens.saturating_add(turn_tokens) >= budget {
                     self.metrics()
                         .record_tool_loop_iterations(session_id_for_hist, iterations)
@@ -918,6 +949,45 @@ mod tests {
         }
 
         unsafe { std::env::remove_var("ECAA_DISABLE_CONTEXT_EDITING") };
+    }
+
+    // D2 (RCA A2) — the session budget is an *uncached*-input ceiling.
+    // Cache reads must NOT count against it.
+    #[test]
+    fn uncached_budget_excludes_cache_reads() {
+        // Fresh input + cache_creation count at full weight.
+        assert_eq!(uncached_budget_tokens(1000, 0, 500), 1500);
+        // Cache reads are dropped entirely, no matter how large.
+        assert_eq!(uncached_budget_tokens(1000, 9_999_999, 500), 1500);
+        // Pure cache-read traffic contributes nothing.
+        assert_eq!(uncached_budget_tokens(0, 442_052, 0), 0);
+    }
+
+    // Reproduces the nek-intake trip: 442052 cache_read of a 509667 total
+    // (the remaining 67615 being fresh input + cache_creation). Under the
+    // old 1:1 accounting this exceeded the 500000 ceiling; under the
+    // uncached-only accounting it stays well under.
+    #[test]
+    fn nek_intake_cache_heavy_session_does_not_trip_budget() {
+        const BUDGET: u64 = 500_000;
+        let cache_read: u64 = 442_052;
+        let fresh_input: u64 = 60_000;
+        let cache_creation: u64 = 7_615;
+
+        // Old behavior (regression target): summing cache_read 1:1 trips.
+        let old_total = fresh_input + cache_read + cache_creation;
+        assert!(
+            old_total >= BUDGET,
+            "precondition: the old 1:1 accounting tripped ({old_total} >= {BUDGET})"
+        );
+
+        // New behavior: uncached-only stays under the ceiling.
+        let new_total = uncached_budget_tokens(fresh_input, cache_read, cache_creation);
+        assert_eq!(new_total, fresh_input + cache_creation);
+        assert!(
+            new_total < BUDGET,
+            "uncached total must stay under budget ({new_total} < {BUDGET})"
+        );
     }
 
     #[test]
