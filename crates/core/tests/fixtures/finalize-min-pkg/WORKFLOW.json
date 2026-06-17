@@ -1,0 +1,27 @@
+{
+  "schema_version": "0.1.0",
+  "version": "1.0",
+  "workflow_id": "workflow-finalize-min",
+  "run_id": "00000000-0000-0000-0000-000000000000",
+  "current_task": null,
+  "meta": {
+    "modality_id": "bulk_rnaseq",
+    "modality_stratum": "core"
+  },
+  "tasks": {
+    "differential_expression": {
+      "assignee": "agent",
+      "kind": "computation",
+      "source_atom_id": "differential_expression",
+      "description": "Confirmatory differential-expression stage.",
+      "depends_on": [],
+      "resource_class": "standard",
+      "spec": {
+        "attributes": {}
+      },
+      "state": {
+        "status": "completed"
+      }
+    }
+  }
+}

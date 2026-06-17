@@ -1,0 +1,9 @@
+{
+  "status": "ok",
+  "claims": [
+    {
+      "claim": "ACAN was upregulated (log2FC=2.1, padj=0.001).",
+      "evidence": "de_results.tsv"
+    }
+  ]
+}

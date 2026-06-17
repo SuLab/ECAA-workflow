@@ -97,6 +97,7 @@ pub mod env_validator;
 pub mod error_envelope;
 pub mod expression;
 pub mod external_registry;
+pub mod finalize;
 pub mod figure_diff;
 pub mod fs_helpers;
 pub mod gene_panel;
