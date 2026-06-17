@@ -83,10 +83,20 @@ pub(super) fn write_bagit_manifest(
     let bagit_path = dir.join("bagit.txt");
     std::fs::write(&bagit_path, bagit_txt).context("writing bagit.txt")?;
 
-    // RFC 8493 §2.2.2 — `Bagging-Date` is a yyyy-mm-dd date. The
-    // `&dyn Clock` keeps this byte-identical across two emits of the
-    // same intake (FrozenClock derived from the intake hash).
-    let bagging_date = clock.now().format("%Y-%m-%d").to_string();
+    // RFC 8493 §2.2.2 — `Bagging-Date` is human-meaningful, so it must NOT
+    // reuse the opaque hash-derived emit clock (which can map into the far
+    // future, e.g. 2061). Pin it to the stable EPOCH_2026 base
+    // (`FrozenClock::default`) so it is (a) byte-identical across two emits
+    // of the same intake AND across emit-vs-reseal, and (b) a defensible
+    // date. `clock` is retained for signature stability with the reseal path.
+    let _ = clock;
+    let bagging_date = {
+        use crate::clock::Clock as _;
+        crate::clock::FrozenClock::default()
+            .now()
+            .format("%Y-%m-%d")
+            .to_string()
+    };
     let bag_info = format!(
         "Source-Organization: Scripps Research\n\
          External-Description: ecaa-workflow emitted RO-Crate package\n\
@@ -317,5 +327,24 @@ mod tests {
         };
         let actual = stream_sha512_hex(&path).unwrap();
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn bagging_date_is_pinned_not_hash_derived() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("a.txt"), b"hi").unwrap();
+        // A FrozenClock at a far-future instant simulates the hash-derived
+        // emit clock that produced "2061-05-20".
+        let future = crate::clock::FrozenClock {
+            at: chrono::TimeZone::timestamp_opt(&chrono::Utc, 3_000_000_000, 0)
+                .single()
+                .unwrap(),
+        };
+        write_bagit_manifest(tmp.path(), &future).unwrap();
+        let info = std::fs::read_to_string(tmp.path().join("bag-info.txt")).unwrap();
+        assert!(
+            info.contains("Bagging-Date: 2026-01-01"),
+            "expected pinned date, got:\n{info}"
+        );
     }
 }
