@@ -150,6 +150,107 @@ pub fn persist_signed_verdicts(
     Ok(path)
 }
 
+/// Plaintext (operator/UI-visible) sidecar path. This is the human-readable,
+/// agent-writable view the UI renders and `jq '.n_checked'` probes; the
+/// signed sink ([`SIGNED_SINK_REL`]) remains the trust surface the
+/// audit-proof loader prefers.
+pub const PLAINTEXT_SIDECAR_REL: &str = "runtime/claim-verification.json";
+
+/// Refresh the plaintext `runtime/claim-verification.json` so its `n_checked`
+/// and `verdicts[]` reflect this task's recomputed verdicts, AGGREGATED across
+/// every finalized task in the package.
+///
+/// Schema: the flat emit-time stub
+/// (`schema_version` + `n_checked`/`n_verified`/`n_mismatch`/`n_unverifiable`
+/// + `verdicts[]`) the emitter writes via
+/// `conversation::emit::sidecars::write_claim_verification`. Each `verdicts[]`
+/// row is the same `{claim_id, status, supported_by}` shape
+/// [`project_verdict_rows`] produces (and [`build_sink_doc`] carries), so the
+/// audit-proof C-graph projection and the UI read both surfaces identically.
+///
+/// **Aggregation + idempotency.** The plaintext is a single flat report with no
+/// per-task keying, but every verdict `claim_id` embeds its task
+/// (`<task_id>#claim-<i>`). We therefore read-modify-write by `claim_id`
+/// prefix: drop any rows belonging to THIS `task_id`, append this task's fresh
+/// rows, and recompute the four counts from the merged verdict set. Finalizing
+/// multiple tasks accumulates; re-finalizing the same task REPLACES its rows
+/// (never double-counts). The whole file is rewritten atomically each call, so
+/// the counts always equal the row tallies.
+///
+/// **Ablation.** Under `ECAA_ABLATE_CLAIM_CONSISTENCY` this task contributes
+/// ZERO rows (mirroring [`build_sink_doc`]'s suppression of the signed sink and
+/// the emit-time stub), so the A-vs-B′ contrast measures enforcement presence.
+///
+/// Verdict rows are written in deterministic order: existing other-task rows
+/// in their on-disk order, then this task's rows in `report.verdicts` order.
+pub fn refresh_plaintext_sidecar(
+    package_root: &Path,
+    task_id: &str,
+    report: &ClaimVerificationReport,
+) -> std::io::Result<PathBuf> {
+    use crate::ablation::{AblationFlag, AblationFlagExt};
+
+    let path = package_root.join(PLAINTEXT_SIDECAR_REL);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    // Read the existing flat report (the emit-time stub, or a prior task's
+    // refresh). Missing/unparsable → start from no rows; this is a best-effort
+    // operator view, not the trust surface.
+    let prior_rows: Vec<Value> = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        .and_then(|v| v.get("verdicts").and_then(Value::as_array).cloned())
+        .unwrap_or_default();
+
+    // Drop any verdict rows belonging to THIS task (idempotent replace), keying
+    // on the `<task_id>#claim-<i>` claim_id convention.
+    let this_task_prefix = format!("{task_id}#");
+    let mut merged: Vec<Value> = prior_rows
+        .into_iter()
+        .filter(|row| {
+            row.get("claim_id")
+                .and_then(Value::as_str)
+                .map(|id| !id.starts_with(&this_task_prefix))
+                .unwrap_or(true)
+        })
+        .collect();
+
+    // Append this task's fresh rows (suppressed under the ablation flag).
+    if !AblationFlag::ClaimConsistency.is_active() {
+        merged.extend(project_verdict_rows(report, task_id));
+    }
+
+    // Recompute the four counts from the merged row set so the counts always
+    // match the rows on disk.
+    let mut n_verified = 0u64;
+    let mut n_mismatch = 0u64;
+    let mut n_unverifiable = 0u64;
+    for row in &merged {
+        match row.get("status").and_then(Value::as_str) {
+            Some("verified") => n_verified += 1,
+            Some("mismatch") => n_mismatch += 1,
+            // "pending" projects from Unverifiable; treat anything else as
+            // unverifiable for count purposes (defensive).
+            _ => n_unverifiable += 1,
+        }
+    }
+    let n_checked = merged.len() as u64;
+
+    let doc = json!({
+        "schema_version": "1",
+        "n_checked": n_checked,
+        "n_verified": n_verified,
+        "n_unverifiable": n_unverifiable,
+        "n_mismatch": n_mismatch,
+        "verdicts": merged,
+    });
+    let body = serde_json::to_vec_pretty(&doc).map_err(std::io::Error::other)?;
+    std::fs::write(&path, body)?;
+    Ok(path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -391,6 +492,93 @@ mod tests {
         // the contrast reduces to a status flip.
         assert_eq!(doc["ablated"], json!(true));
         assert!(doc.get("coverage").is_none());
+    }
+
+    fn verified_report(entity: &str) -> ClaimVerificationReport {
+        ClaimVerificationReport {
+            n_checked: 1,
+            n_verified: 1,
+            n_mismatch: 0,
+            n_unverifiable: 0,
+            verdicts: vec![verdict(
+                claim(entity, Some("results/tables/de.csv")),
+                ClaimStatus::Verified,
+            )],
+            runtime_decision_log_path: None,
+        }
+    }
+
+    fn read_plaintext(root: &Path) -> Value {
+        let raw = std::fs::read_to_string(root.join(PLAINTEXT_SIDECAR_REL)).unwrap();
+        serde_json::from_str(&raw).unwrap()
+    }
+
+    // These read the global ECAA_ABLATE_CLAIM_CONSISTENCY flag, so they must
+    // serialize against the ablation test (and each other) to avoid observing
+    // a mid-window flag flip from a parallel test in the same binary.
+    #[test]
+    #[serial_test::serial]
+    fn refresh_plaintext_populates_n_checked_and_verdicts() {
+        let dir = tempfile::tempdir().unwrap();
+        refresh_plaintext_sidecar(dir.path(), "task_a", &verified_report("TP53")).unwrap();
+        let doc = read_plaintext(dir.path());
+        assert_eq!(doc["schema_version"], json!("1"));
+        assert_eq!(doc["n_checked"], json!(1));
+        assert_eq!(doc["n_verified"], json!(1));
+        assert_eq!(doc["verdicts"].as_array().unwrap().len(), 1);
+        assert_eq!(doc["verdicts"][0]["claim_id"], json!("task_a#claim-0"));
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn refresh_plaintext_aggregates_across_tasks() {
+        let dir = tempfile::tempdir().unwrap();
+        refresh_plaintext_sidecar(dir.path(), "task_a", &verified_report("TP53")).unwrap();
+        refresh_plaintext_sidecar(dir.path(), "task_b", &verified_report("IL6")).unwrap();
+        let doc = read_plaintext(dir.path());
+        // Both tasks accumulate; counts reflect the union.
+        assert_eq!(doc["n_checked"], json!(2));
+        assert_eq!(doc["n_verified"], json!(2));
+        let ids: Vec<&str> = doc["verdicts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["claim_id"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids, vec!["task_a#claim-0", "task_b#claim-0"]);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn refresh_plaintext_is_idempotent_per_task() {
+        let dir = tempfile::tempdir().unwrap();
+        // Finalize task_a twice — its rows must be REPLACED, not doubled.
+        refresh_plaintext_sidecar(dir.path(), "task_a", &verified_report("TP53")).unwrap();
+        refresh_plaintext_sidecar(dir.path(), "task_b", &verified_report("IL6")).unwrap();
+        refresh_plaintext_sidecar(dir.path(), "task_a", &verified_report("TP53")).unwrap();
+        let doc = read_plaintext(dir.path());
+        assert_eq!(
+            doc["n_checked"],
+            json!(2),
+            "re-finalizing task_a must not double-count"
+        );
+        assert_eq!(doc["verdicts"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn refresh_plaintext_suppresses_rows_under_ablation() {
+        let env = crate::ablation::AblationFlag::ClaimConsistency.env_var();
+        std::env::set_var(env, "1");
+        let dir = tempfile::tempdir().unwrap();
+        let res = refresh_plaintext_sidecar(dir.path(), "task_a", &verified_report("TP53"));
+        std::env::remove_var(env);
+        res.unwrap();
+        let doc = read_plaintext(dir.path());
+        // Under the claim-consistency ablation this task contributes zero rows,
+        // mirroring the signed-sink suppression (Site 1).
+        assert_eq!(doc["n_checked"], json!(0));
+        assert_eq!(doc["verdicts"].as_array().unwrap().len(), 0);
     }
 
     #[test]

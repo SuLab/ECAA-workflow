@@ -37,10 +37,16 @@ use std::path::Path;
 ///
 /// At emit time the session has not yet produced any narrative claims
 /// (verification is computed per-task at runtime by
-/// `server::verification::verify_task_with_context`). We emit an
+/// `ecaa_workflow_core::finalize::verify_task_with_context`). We emit an
 /// empty-but-valid stub so the grant's §Authentication of Key Resources
-/// claim "this surface ships at emit" holds; the runtime overwrites
-/// with concrete verdicts as tasks complete.
+/// claim "this surface ships at emit" holds. Post-execution, the host-side
+/// `core::finalize::finalize_task` refreshes this file in place with the
+/// concrete recomputed verdicts (best-effort, aggregated across finalized
+/// tasks via `claim_sink::refresh_plaintext_sidecar`), so a standalone
+/// harness run no longer leaves it at `n_checked: 0`. This plaintext is the
+/// operator/UI-visible view; the HMAC-signed sink under
+/// `runtime/verification-reports/` is the trust surface the audit-proof
+/// loader prefers.
 ///
 /// Under `ECAA_ABLATE_CLAIM_CONSISTENCY` (Arm B′ ablation — Aim 3A) this
 /// emit-time stub records `ablation_engaged: true` with an empty `verdicts`

@@ -5,15 +5,19 @@
 //! matching structured claim, plus a per-package interpretation policy whose
 //! `verifiableEntities.expected` block names that stage) into a tempdir, runs
 //! the standalone finalize path with a 32-byte secret, and asserts the package
-//! is finalized: ≥1 task processed, the HMAC-signed verdict sink written, and
-//! the sink's `n_checked` reflects ≥1 verified claim.
+//! is finalized: 1+ task processed, the HMAC-signed verdict sink written and
+//! reflecting 1+ verified claim, AND the plaintext operator/UI-visible
+//! `runtime/claim-verification.json` refreshed so its `n_checked` is 1+
+//! (the assertion Task 9 Step 3 / Task 6 Step 5 probe with `jq '.n_checked'`).
 //!
 //! The signed-sink PATH asserted here is the real one
 //! `ecaa_workflow_core::claim_sink::persist_signed_verdicts` writes
-//! (`claim_sink::SIGNED_SINK_REL`), not a guess. The emit-time plaintext
-//! `runtime/claim-verification.json` stub is deliberately NOT asserted on —
-//! finalize never rewrites it; the recomputed verdict counts live only in the
-//! signed sink (the loader reads the sink, not the agent-writable stub).
+//! (`claim_sink::SIGNED_SINK_REL`), not a guess. The plaintext path is the
+//! emit-time stub `runtime/claim-verification.json` that
+//! `core::finalize::finalize_task` now refreshes in place post-execution via
+//! `claim_sink::refresh_plaintext_sidecar` — previously a standalone run left
+//! it at `n_checked: 0` (RISK A). The signed sink stays the trust surface; the
+//! plaintext is the populated human-readable view.
 
 use ecaa_workflow_core::audit_writer::AuditWriter;
 use ecaa_workflow_core::claim_sink::SIGNED_SINK_REL;
@@ -86,6 +90,34 @@ fn finalize_package_populates_signed_sink_and_checks_claims() {
         n_checked >= 1,
         "finalize must check ≥1 claim; signed-sink n_checked = {}",
         n_checked
+    );
+
+    // RISK A: the plaintext operator/UI-visible sidecar must ALSO be refreshed
+    // in place (no longer the empty emit-time stub) so `jq '.n_checked'` >= 1 —
+    // the acceptance assertion Task 9 Step 3 / Task 6 Step 5 probe after a
+    // standalone harness run. finalize_task rewrites it from the recomputed
+    // report via claim_sink::refresh_plaintext_sidecar.
+    let plaintext_path = root.join("runtime/claim-verification.json");
+    let plaintext: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&plaintext_path).unwrap()).unwrap();
+    let plaintext_n_checked = plaintext["n_checked"]
+        .as_u64()
+        .expect("plaintext n_checked present");
+    assert!(
+        plaintext_n_checked >= 1,
+        "finalize must refresh the plaintext claim-verification.json; \
+         n_checked = {} (was left an empty stub before the RISK A fix)",
+        plaintext_n_checked
+    );
+    // The refreshed counts must match the verdict rows on disk (internal
+    // consistency of the rewritten flat report).
+    let n_verdicts = plaintext["verdicts"]
+        .as_array()
+        .expect("verdicts array present")
+        .len() as u64;
+    assert_eq!(
+        plaintext_n_checked, n_verdicts,
+        "plaintext n_checked must equal the verdict-row count"
     );
 
     // No coverage recall gap: the structured claim addresses the Required

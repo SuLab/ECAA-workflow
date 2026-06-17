@@ -263,6 +263,24 @@ pub fn finalize_task(
             }
         }
 
+        // Refresh the plaintext operator/UI-visible sidecar
+        // (`runtime/claim-verification.json`) so its `n_checked` + `verdicts[]`
+        // reflect the recomputed report, aggregated across every finalized task
+        // (read-modify-write keyed by `task_id`; idempotent on re-finalize).
+        // The signed sink below remains the trust surface; this is the populated
+        // human-readable view that was previously left as an empty emit-time
+        // stub after a standalone harness run. Best-effort: a write/serialize
+        // failure warns and continues — never aborts finalize. Runs regardless
+        // of `secret`, since the plaintext carries no HMAC.
+        if let Err(e) = crate::claim_sink::refresh_plaintext_sidecar(root, task_id, &v.report) {
+            tracing::warn!(
+                target: "ecaa::finalize",
+                error = %e,
+                task_id,
+                "plaintext claim-verification.json refresh failed"
+            );
+        }
+
         // Signed verdict sink (de-vacuifies audit-proof Inv 1/5). The agent's
         // container has already exited; this host-side write is outside any
         // agent-writable window and outside the emit byte-diff baseline
