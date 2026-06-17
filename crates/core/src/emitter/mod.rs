@@ -667,7 +667,8 @@ pub fn regenerate_bagit_manifest(
     dir: &std::path::Path,
     clock: &dyn crate::clock::Clock,
 ) -> Result<()> {
-    write_bagit_manifest(dir, clock).context("re-sealing BagIt manifest post-execution")
+    bagit::write_bagit_manifest_with_mode(dir, clock, bagit::SealMode::Reseal)
+        .context("re-sealing BagIt manifest post-execution")
 }
 
 /// Derive a deterministic `FrozenClock` from the session's intake text

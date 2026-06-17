@@ -19,6 +19,16 @@
 use anyhow::{anyhow, Context, Result};
 use rayon::prelude::*;
 
+/// Whether the manifest is being written at emit time (skeleton — outputs
+/// don't exist yet) or re-sealed after execution (outputs ARE part of the
+/// at-rest audit surface and must be hashed). Emit keeps `runtime/outputs/`
+/// out so the emit byte-reproducibility baseline is untouched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SealMode {  // pub(super) = visible to emitter/mod.rs
+    Emit,
+    Reseal,
+}
+
 /// Walk every file in `dir` recursively, compute SHA-512 of each, and
 /// write `manifest-sha512.txt` at the package root in BagIt 1.0
 /// Format: `<hex-sha512> <relative/path>` per line. Excludes the
@@ -31,8 +41,16 @@ pub(super) fn write_bagit_manifest(
     dir: &std::path::Path,
     clock: &dyn crate::clock::Clock,
 ) -> Result<()> {
+    write_bagit_manifest_with_mode(dir, clock, SealMode::Emit)
+}
+
+pub(super) fn write_bagit_manifest_with_mode(
+    dir: &std::path::Path,
+    clock: &dyn crate::clock::Clock,
+    mode: SealMode,
+) -> Result<()> {
     let mut entries: Vec<std::path::PathBuf> = Vec::new();
-    walk_for_manifest(dir, dir, &mut entries)?;
+    walk_for_manifest(dir, dir, mode, &mut entries)?;
     entries.sort();
     // Compute Payload-Oxum (sum of payload byte counts + entry count)
     // while we walk. Per RFC 8493 §2.2.2, Payload-Oxum is the octet
@@ -158,12 +176,14 @@ fn stream_sha512_hex(path: &std::path::Path) -> Result<String> {
 }
 
 /// Recursively collect every file under `current` (relative to `root`),
-/// excluding the manifest itself and any path under `runtime/outputs/`
-/// (those are agent-written artifacts; the harness emits a separate
-/// `tag-manifest-sha512.txt` for them when execution completes).
+/// excluding the manifest itself and, depending on `mode`, paths under
+/// `runtime/outputs/` (agent-written artifacts; excluded at emit because
+/// outputs don't exist yet, included on reseal so produced DE tables and
+/// figures are part of the at-rest audit surface).
 fn walk_for_manifest(
     root: &std::path::Path,
     current: &std::path::Path,
+    mode: SealMode,
     out: &mut Vec<std::path::PathBuf>,
 ) -> Result<()> {
     for entry in
@@ -189,7 +209,16 @@ fn walk_for_manifest(
         {
             continue;
         }
-        if rel.starts_with("runtime/outputs") || rel.starts_with("runtime/LOG.jsonl") {
+        // Emit: outputs don't exist yet → always excluded (byte-repro
+        // baseline). Reseal: outputs ARE the at-rest evidence surface → hash
+        // them so a reviewer can verify any reported number against hashed
+        // data. LOG.jsonl stays excluded both ways (append-only run log,
+        // not part of the integrity surface). task-spec.json under outputs
+        // is deterministic and now covered on reseal.
+        if rel.starts_with("runtime/LOG.jsonl") {
+            continue;
+        }
+        if mode == SealMode::Emit && rel.starts_with("runtime/outputs") {
             continue;
         }
         // P3-4 — per-task verification sidecars are written by the
@@ -271,7 +300,7 @@ fn walk_for_manifest(
             continue;
         }
         if path.is_dir() {
-            walk_for_manifest(root, &path, out)?;
+            walk_for_manifest(root, &path, mode, out)?;
         } else if path.is_file() {
             out.push(rel);
         }
@@ -327,6 +356,23 @@ mod tests {
         };
         let actual = stream_sha512_hex(&path).unwrap();
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn reseal_includes_runtime_outputs_emit_excludes() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("runtime/outputs/de")).unwrap();
+        std::fs::write(tmp.path().join("runtime/outputs/de/de_results.tsv"), b"gene\tpadj\n").unwrap();
+        std::fs::write(tmp.path().join("root.txt"), b"x").unwrap();
+        let clk = crate::clock::FrozenClock::default();
+
+        write_bagit_manifest_with_mode(tmp.path(), &clk, SealMode::Emit).unwrap();
+        let emit_m = std::fs::read_to_string(tmp.path().join("manifest-sha512.txt")).unwrap();
+        assert!(!emit_m.contains("runtime/outputs/de/de_results.tsv"), "emit must exclude outputs");
+
+        write_bagit_manifest_with_mode(tmp.path(), &clk, SealMode::Reseal).unwrap();
+        let reseal_m = std::fs::read_to_string(tmp.path().join("manifest-sha512.txt")).unwrap();
+        assert!(reseal_m.contains("runtime/outputs/de/de_results.tsv"), "reseal must include outputs");
     }
 
     #[test]
