@@ -12,6 +12,7 @@ pub mod dag_patch;
 pub mod dispatch_guard;
 pub mod dispatch_wal;
 pub mod ecaa_io;
+pub mod end_of_run_finalize;
 pub mod executor;
 pub mod finalize_probe;
 pub mod invocation_log;

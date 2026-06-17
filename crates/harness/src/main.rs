@@ -2034,6 +2034,13 @@ fn run_loop(
 ) -> Result<()> {
     let path = Path::new(&args.package);
 
+    // Resolved once for the standalone end-of-run finalize (the
+    // `after.is_complete()` block below). Carries the BASE
+    // `downstream-policy/interpretation-policy.json` the finalize path reads;
+    // resolution mirrors the server's `config_dir_or_default`
+    // (ECAA_CONFIG_DIR → binary-relative walk-up → CWD `config`).
+    let finalize_config_dir = ecaa_workflow_harness::end_of_run_finalize::resolve_config_dir();
+
     let mut prior_completed: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut prior_running: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut prior_blocked: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -4011,6 +4018,22 @@ fn run_loop(
                 "✓".green().bold(),
                 i + 1
             );
+
+            // Standalone self-finalization: the server normally finalizes
+            // per-task on `task_completed` events, but a no-session run sends
+            // none — so finalize the whole package here (verify+sign claims,
+            // refresh the plaintext sidecar, register evidence + reseal the
+            // BagIt manifest over outputs, regenerate the at-rest audit-proof).
+            // Best-effort: every failure inside is logged, never fatal, so the
+            // WAL truncate + `Ok(())` below always run. Skipped when bound to a
+            // session — the server owns finalization incrementally in that path.
+            if progress.is_none() {
+                ecaa_workflow_harness::end_of_run_finalize::finalize_completed_package(
+                    path,
+                    &finalize_config_dir,
+                );
+            }
+
             if let Some(ref pc) = progress {
                 pc.execution_finished();
             }

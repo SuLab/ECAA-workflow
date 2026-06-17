@@ -40,6 +40,11 @@ ts-rs.workspace = true
 jsonschema = { workspace = true }
 glob = "0.3"
 flate2 = "1"
+# Decode the 64-hex-char `ECAA_AUDIT_SECRET` into the 32-byte HMAC key for
+# end-of-run package finalization (`end_of_run_finalize`), byte-identically to
+# `ecaa-workflow-audit-proof --secret` so the operator verifies with the same
+# key. Same pin as crates/cli + crates/core.
+hex = "0.4"
 # v3 P7 — `DispatchRecord::schema_version` promoted to semver.
 # Workspace pin in the root `Cargo.toml`.
 semver = { workspace = true }

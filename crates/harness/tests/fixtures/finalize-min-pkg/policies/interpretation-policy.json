@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "1.1",
+  "targetStages": ["biological_interpretation", "differential_expression"],
+  "claimBoundary": {"associativeOnly": [], "requiresEvidence": []},
+  "verifiableEntities": {
+    "enabled": true,
+    "entityNamePatterns": ["[A-Z][A-Z0-9]{1,}"],
+    "directionVocab": {
+      "up": ["upregulated", "increased"],
+      "down": ["downregulated", "decreased"]
+    },
+    "effectSizeColumns": ["log2FC"],
+    "entityColumns": ["gene"],
+    "pvalueColumns": ["padj"],
+    "expected": [
+      {
+        "entity": "differential_expression",
+        "expected_output_table": "de_results",
+        "requirement": "required",
+        "edam_data": "data:0951"
+      }
+    ]
+  },
+  "validationContract": {"requiredOutputs": [], "metrics": []},
+  "evidenceRules": []
+}
