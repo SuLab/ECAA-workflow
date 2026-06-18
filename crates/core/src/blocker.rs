@@ -107,6 +107,23 @@ pub fn parse_agent_blocker_kind_with_envelope(
         };
     }
 
+    // Claim-coverage recall-gap marker. The harness's standalone coverage
+    // gate writes reasons of the form
+    // `[claim_coverage] task=<id> — <human prose>`
+    // when a confirmatory task completes but leaves a Required expected-claim
+    // entry unaddressed. Mapped to the SAME `BlockerKind::ValidationFailed
+    // { check: "claim_coverage:<id>" }` the server's incremental verify path
+    // produces (`crates/server/src/verification.rs`), so the standalone and
+    // session-backed runs surface a byte-identical typed blocker. The full
+    // marker line (minus the prefix) is the human-readable `message`.
+    if let Some(rest) = reason.strip_prefix("[claim_coverage]") {
+        return BlockerKind::ValidationFailed {
+            check: format!("claim_coverage:{task_id}"),
+            message: rest.trim().to_string(),
+            cause: None,
+        };
+    }
+
     // Heartbeat stall marker. The container-aware reaper (S15.22) emits
     // an upgraded marker `[container_hung] task=<id> age_secs=<N>
     // container_id=<id> runtime=<docker|podman|apptainer>` when an SSM /

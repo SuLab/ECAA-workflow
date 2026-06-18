@@ -67,6 +67,9 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
 # tempfile is in [dependencies] (used by DeterminismRunner in src/)
+# Serialize env-var-mutating tests (the coverage-gate gate reads
+# ECAA_HARNESS_CONTRACT_ADVISORY / ECAA_AUDIT_SECRET / ECAA_CONFIG_DIR).
+serial_test = "3"
 
 # Product/research split. SLURM goes research-tier per
 # (see docs/2026-05/product-research-decision.md): it needs a

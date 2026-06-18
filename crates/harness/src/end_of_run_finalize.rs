@@ -20,7 +20,9 @@
 //! best-effort post-exec convenience, never a gate.
 
 use ecaa_workflow_core::decision_log::DecisionRecord;
-use ecaa_workflow_core::finalize::{finalize_package, PackageFinalizeSummary};
+use ecaa_workflow_core::finalize::{
+    coverage_should_block, finalize_package, finalize_task, PackageFinalizeSummary,
+};
 use ecaa_workflow_core::project_class::ProjectClass;
 use std::path::{Path, PathBuf};
 
@@ -227,6 +229,103 @@ pub fn finalize_completed_package(package_root: &Path, config_dir: &Path) {
             tracing::warn!(target: "harness-finalize", error = %e, "package finalize failed");
         }
     }
+}
+
+/// Reason-string marker prefix the standalone coverage gate writes into a
+/// re-blocked task's `BlockedRecord.reason`. The core blocker mapper
+/// (`ecaa_workflow_core::blocker::parse_agent_blocker_kind`) promotes this
+/// prefix to `BlockerKind::ValidationFailed { check: "claim_coverage:<id>" }`,
+/// matching the server's incremental verify path byte-for-byte.
+const CLAIM_COVERAGE_MARKER: &str = "[claim_coverage]";
+
+/// Per-task coverage gate for the STANDALONE harness path.
+///
+/// Finalizes a just-completed task FROM SOURCE (verify + sign the verdict sink
+/// + refresh the plaintext sidecar + register evidence + regenerate audit-proof
+/// — idempotent with the end-of-run [`finalize_completed_package`]) and inspects
+/// the returned coverage. Returns `Some(reason)` — the `[claim_coverage]`
+/// re-block marker the caller writes into the task's DAG state — ONLY when ALL
+/// of:
+///
+/// 1. the task carries a Required expected-claim manifest entry (otherwise
+///    `finalize_task` returns `coverage: None` and a non-confirmatory task
+///    no-ops here naturally — no extra confirmatory check is needed),
+/// 2. that coverage shows a Required recall gap
+///    ([`coverage_should_block`] — absent or unverifiable), and
+/// 3. enforcement is on (advisory / warn-only OFF).
+///
+/// The advisory toggle is [`validation_recovery::advisory_enabled`], whose
+/// truthy table (`1`/`true`/`yes`/`on`/`t`/`y`, case-insensitive, trimmed) is
+/// the same `ECAA_HARNESS_CONTRACT_ADVISORY` interpretation the server reads via
+/// `Config.harness_contract_advisory` (both source from `core::config`'s
+/// `parse_bool`). In advisory mode the gap is logged and the task is LEFT
+/// completed — the signed verdict sink already persisted the gap as a durable
+/// diagnostic — so this returns `None`.
+///
+/// A `finalize_task` error is non-fatal: it is logged and `None` is returned so
+/// the harness never aborts a run on a finalize hiccup (the gate is additive,
+/// not a hard guard on the dispatch loop).
+pub fn coverage_reblock_reason(
+    root: &Path,
+    task_id: &str,
+    config_dir: &Path,
+    project_class: ProjectClass,
+    decisions: &[DecisionRecord],
+    is_confirmatory: bool,
+    secret: Option<&[u8; 32]>,
+) -> Option<String> {
+    let res = match finalize_task(
+        root,
+        task_id,
+        config_dir,
+        project_class,
+        decisions,
+        is_confirmatory,
+        secret,
+    ) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(
+                target: "harness-coverage",
+                error = %e,
+                task_id,
+                "coverage gate: finalize_task failed — leaving task completed"
+            );
+            return None;
+        }
+    };
+
+    // `coverage` is `Some` only for a task with a Required manifest entry, so
+    // a non-confirmatory / un-anchored task naturally falls through here.
+    let cov = res.coverage?;
+    if !coverage_should_block(&cov) {
+        return None;
+    }
+
+    let detail = format!(
+        "recall gap on task {}: {} required claim(s) absent, {} unverifiable",
+        task_id, cov.required_absent, cov.required_unverifiable
+    );
+
+    // Advisory / warn-only mode (default OFF). Mirrors the server's
+    // `harness_contract_advisory` branch: the recall gap is already persisted
+    // into the signed verdict sink + audit-proof report by `finalize_task`
+    // above, so the task is LEFT completed and the re-block is suppressed.
+    if crate::validation_recovery::advisory_enabled() {
+        tracing::warn!(
+            target: "contract-advisory",
+            %task_id,
+            "[contract-advisory] {detail} (advisory, not blocking)"
+        );
+        return None;
+    }
+
+    tracing::warn!(
+        target: "harness-coverage",
+        %task_id,
+        "{detail} — re-blocking"
+    );
+    Some(format!("{CLAIM_COVERAGE_MARKER} task={task_id} — {detail}"))
 }
 
 #[cfg(test)]

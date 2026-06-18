@@ -2040,6 +2040,21 @@ fn run_loop(
     // the harness was launched (ECAA_CONFIG_DIR overrides for an operator).
     let finalize_config_dir =
         ecaa_workflow_harness::end_of_run_finalize::resolve_config_dir(path);
+    // Inputs for the standalone per-task claim-coverage gate (guard (d) in the
+    // silent-completion pass) — derived ONCE here so the gate reuses the SAME
+    // values the end-of-run finalize does, rather than recomputing them
+    // differently. `decisions` is re-read per-evaluation (the agent may append
+    // to runtime/decisions.jsonl mid-run), matching the end-of-run read shape.
+    let coverage_project_class = ecaa_workflow_core::project_class::ProjectClass::default();
+    let coverage_is_confirmatory =
+        ecaa_workflow_harness::end_of_run_finalize::derive_is_confirmatory(path);
+    let coverage_secret = ecaa_workflow_harness::end_of_run_finalize::audit_secret_from_env();
+    // Tracks task ids the coverage gate already finalized + passed this run, so
+    // a Completed task that cleared coverage is not re-finalized every loop
+    // iteration. A re-blocked task leaves Completed (so it never enters here),
+    // and on a later re-completion it is absent from the set → re-evaluated.
+    let mut coverage_gate_passed: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
 
     let mut prior_completed: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut prior_running: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -3771,6 +3786,51 @@ fn run_loop(
                                 },
                             };
                             guard_flipped.push(tid.to_string());
+                        }
+                    }
+                }
+                // (d) claim-coverage recall gate. A confirmatory task can
+                // complete (artifacts present, validators green) yet author
+                // 0 structured claims, leaving a Required expected-claim
+                // manifest entry unaddressed. The server's incremental
+                // verify path re-blocks that as `BlockerKind::ValidationFailed
+                // { check: "claim_coverage:<id>" }`; in a standalone (no
+                // --session-id) run no event fires, so we run the SAME gate
+                // here. `coverage_reblock_reason` finalizes the task FROM
+                // SOURCE (idempotent with the end-of-run finalize), and yields
+                // a `[claim_coverage]` marker reason only when a Required gap
+                // exists AND advisory mode is OFF — the core blocker mapper
+                // promotes that marker back to the identical typed blocker.
+                // `coverage` is `Some` only for a task with a Required entry,
+                // so non-confirmatory tasks no-op without an extra check. The
+                // `coverage_gate_passed` set keeps the expensive finalize to
+                // once per task per run for tasks that clear the gate.
+                if !coverage_gate_passed.contains(tid.as_str()) {
+                    let decisions =
+                        ecaa_workflow_harness::end_of_run_finalize::load_decisions(path);
+                    match ecaa_workflow_harness::end_of_run_finalize::coverage_reblock_reason(
+                        path,
+                        tid.as_str(),
+                        &finalize_config_dir,
+                        coverage_project_class,
+                        &decisions,
+                        coverage_is_confirmatory,
+                        coverage_secret.as_ref(),
+                    ) {
+                        Some(reason) => {
+                            task.state = TaskState::Blocked {
+                                record: ecaa_workflow_core::dag::BlockedRecord {
+                                    reason,
+                                    attempts: vec![],
+                                },
+                            };
+                            guard_flipped.push(tid.to_string());
+                        }
+                        None => {
+                            // No gap (or advisory mode): the task cleared the
+                            // gate; record it so the finalize is not re-run
+                            // every iteration while it stays completed.
+                            coverage_gate_passed.insert(tid.to_string());
                         }
                     }
                 }
