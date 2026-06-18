@@ -122,8 +122,10 @@ fn load_output_entities(root: &Path) -> Result<Vec<Value>> {
 /// The signed sink is append-only JSONL: one HMAC-signed row per task
 /// verification. EVERY row is verified — any HMAC failure ⇒ `claims_tampered`
 /// (Inv 1 Fail). A single row is returned as-is (byte-identical to the
-/// pre-accumulator behavior); multiple rows are unioned so an earlier recall
-/// gap survives a later coverage-less task (the F2 at-rest erasure fix).
+/// pre-accumulator behavior); multiple rows are unioned (and verdicts
+/// deduplicated by `claim_id`) so an earlier recall gap survives a later
+/// coverage-less task (the F2 at-rest erasure fix) and a re-finalized task's
+/// duplicate rows collapse instead of double-counting `n_inspected`.
 fn load_claims(
     rt: &Path,
     verifier: Option<&crate::audit_writer::AuditWriter>,
@@ -164,20 +166,50 @@ fn load_claims(
 /// invariants read (Inv 1 claim-completeness, Inv 5 cross-graph-integrity,
 /// evidence-coverage).
 ///
-/// Verdicts are concatenated in file order — `claim_id` embeds the task id
-/// (`<task_id>#claim-<i>`), so rows do not collide across tasks. Coverage is
-/// unioned per-entity by BEST outcome (`addressed` > `unverifiable` >
-/// `absent`): a later task addressing an entity RESOLVES an earlier gap,
-/// while a coverage-LESS row contributes nothing and therefore can never
-/// erase a recorded gap. The `coverage` key is omitted entirely when no row
-/// carried one, preserving the verdict-only predicate for un-anchored runs.
+/// Verdicts are unioned and deduplicated by `claim_id`, keeping the LAST
+/// occurrence. The `claim_id` embeds the task id and a positional index
+/// (`<task_id>#claim-<i>`), so distinct tasks (and distinct claims within a
+/// task) yield distinct ids and are ALL preserved — the F2 cross-task union
+/// is intact. The only collisions are exact-`claim_id` duplicates from
+/// re-finalizing the SAME task (the per-task coverage gate plus the
+/// end-of-run finalize append two rows in a standalone clean pass); collapsing
+/// those keeps `n_inspected` equal to the true distinct-claim count instead of
+/// double-counting. Keeping the LAST row preserves the most recent finalize
+/// and a valid HMAC (each row is individually signed). Ordering is stable:
+/// claim_ids appear in first-seen order, each carrying its last-seen content.
+/// Coverage is unioned per-entity by BEST outcome (`addressed` >
+/// `unverifiable` > `absent`): a later task addressing an entity RESOLVES an
+/// earlier gap, while a coverage-LESS row contributes nothing and therefore
+/// can never erase a recorded gap. The `coverage` key is omitted entirely when
+/// no row carried one, preserving the verdict-only predicate for un-anchored
+/// runs.
 fn union_signed_rows(rows: &[Value]) -> Value {
-    let mut verdicts: Vec<Value> = Vec::new();
+    // First-seen order of claim_ids, each mapped to its LAST-seen verdict row.
+    // A verdict with no `claim_id` (defensive — projected rows always carry
+    // one) is kept positionally and never collapsed.
+    let mut order: Vec<String> = Vec::new();
+    let mut by_id: BTreeMap<String, Value> = BTreeMap::new();
+    let mut unkeyed: Vec<Value> = Vec::new();
     for r in rows {
         if let Some(arr) = r.get("verdicts").and_then(Value::as_array) {
-            verdicts.extend(arr.iter().cloned());
+            for v in arr {
+                match v.get("claim_id").and_then(Value::as_str) {
+                    Some(id) => {
+                        let id = id.to_string();
+                        if by_id.insert(id.clone(), v.clone()).is_none() {
+                            order.push(id);
+                        }
+                    }
+                    None => unkeyed.push(v.clone()),
+                }
+            }
         }
     }
+    let mut verdicts: Vec<Value> = order
+        .into_iter()
+        .map(|id| by_id.remove(&id).expect("claim_id recorded in order map"))
+        .collect();
+    verdicts.extend(unkeyed);
 
     // entity -> best-outcome rank (2=addressed, 1=unverifiable, 0=absent).
     let mut best: BTreeMap<String, u8> = BTreeMap::new();

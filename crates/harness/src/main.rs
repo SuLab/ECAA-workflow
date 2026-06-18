@@ -3830,7 +3830,15 @@ fn run_loop(
                 // so non-confirmatory tasks no-op without an extra check. The
                 // `coverage_gate_passed` set keeps the expensive finalize to
                 // once per task per run for tasks that clear the gate.
-                if !coverage_gate_passed.contains(tid.as_str()) {
+                //
+                // Standalone-only: a session-backed run's server already
+                // finalizes per-task on `task_completed` events (and runs the
+                // identical coverage re-block), so the harness must NOT also
+                // finalize — a second `finalize_task` here would append a
+                // duplicate signed-sink row for the task. Guard (d) therefore
+                // mirrors the end-of-run finalize block's `progress.is_none()`
+                // gate; guards (a)/(b)/(c) above stay unconditional.
+                if progress.is_none() && !coverage_gate_passed.contains(tid.as_str()) {
                     let decisions =
                         ecaa_workflow_harness::end_of_run_finalize::load_decisions(path);
                     match ecaa_workflow_harness::end_of_run_finalize::coverage_reblock_reason(

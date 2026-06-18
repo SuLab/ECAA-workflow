@@ -657,12 +657,14 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
 /// stale-on-arrival for every live run. Re-sealing brings the at-rest package
 /// back to self-consistency (e.g. for an external `bagit.py --validate`).
 ///
-/// Delegates to the SAME [`write_bagit_manifest`] walk used at emit, so the
-/// exclusion set (`runtime/outputs`, `runtime/verification-reports`, the
-/// enumerated runtime sidecars, tag files) is identical and the emit-time
-/// byte-reproducibility surface is unchanged — the re-seal only ever runs on a
-/// post-exec package, which the reproducibility harness (which re-emits into a
-/// fresh tempdir) never observes.
+/// Runs the same manifest walk as emit but in [`bagit::SealMode::Reseal`],
+/// which EXTENDS the manifest to cover `runtime/outputs/` (the agent-written
+/// at-rest evidence surface, excluded at emit because it doesn't exist yet);
+/// the rest of the exclusion set (`runtime/verification-reports`, the
+/// enumerated append-only runtime sidecars incl. LOG.jsonl, tag files) is
+/// identical. The emit-time byte-reproducibility baseline is unchanged — the
+/// re-seal only ever runs on a post-exec package, which the reproducibility
+/// harness (which re-emits into a fresh tempdir) never observes.
 pub fn regenerate_bagit_manifest(
     dir: &std::path::Path,
     clock: &dyn crate::clock::Clock,
