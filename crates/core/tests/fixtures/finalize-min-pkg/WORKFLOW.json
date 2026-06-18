@@ -9,12 +9,28 @@
     "modality_stratum": "core"
   },
   "tasks": {
+    "data_import": {
+      "assignee": "agent",
+      "kind": "computation",
+      "source_atom_id": "data_import",
+      "description": "Import raw count matrix.",
+      "depends_on": [],
+      "resource_class": "standard",
+      "spec": {
+        "attributes": {}
+      },
+      "state": {
+        "status": "completed"
+      }
+    },
     "differential_expression": {
       "assignee": "agent",
       "kind": "computation",
       "source_atom_id": "differential_expression",
       "description": "Confirmatory differential-expression stage.",
-      "depends_on": [],
+      "depends_on": [
+        "data_import"
+      ],
       "resource_class": "standard",
       "spec": {
         "attributes": {}

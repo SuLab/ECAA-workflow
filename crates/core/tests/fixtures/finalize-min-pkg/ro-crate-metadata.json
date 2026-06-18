@@ -1,0 +1,40 @@
+{
+  "@context": [
+    "https://w3id.org/ro/crate/1.1/context",
+    "https://w3id.org/ro/terms/workflow-run"
+  ],
+  "@graph": [
+    {
+      "@id": "ro-crate-metadata.json",
+      "@type": "CreativeWork",
+      "about": {"@id": "./"},
+      "conformsTo": {"@id": "https://w3id.org/ro/crate/1.1"}
+    },
+    {
+      "@id": "./",
+      "@type": "Dataset",
+      "name": "finalize-min fixture package",
+      "hasPart": []
+    },
+    {
+      "@id": "#step-data_import",
+      "@type": "HowToStep",
+      "name": "Import raw count matrix.",
+      "position": 1,
+      "additionalType": "computation"
+    },
+    {
+      "@id": "#step-differential_expression",
+      "@type": "HowToStep",
+      "name": "Confirmatory differential-expression stage.",
+      "position": 2,
+      "additionalType": "computation"
+    },
+    {
+      "@id": "#parameter-connection/data_import__to__differential_expression",
+      "@type": "ParameterConnection",
+      "sourceParameter": {"@id": "#step-data_import#output"},
+      "targetParameter": {"@id": "#step-differential_expression#input"}
+    }
+  ]
+}

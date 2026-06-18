@@ -21,6 +21,7 @@
 
 use ecaa_workflow_core::audit_writer::AuditWriter;
 use ecaa_workflow_core::claim_sink::SIGNED_SINK_REL;
+use serde_json::Value;
 use std::path::Path;
 
 /// Recursively copy `src` → `dst`.
@@ -126,5 +127,96 @@ fn finalize_package_populates_signed_sink_and_checks_claims() {
         summary.coverage_gaps.is_empty(),
         "expected clean coverage, got gaps: {:?}",
         summary.coverage_gaps
+    );
+}
+
+/// After finalize, every produced result table registered into the RO-Crate
+/// `@graph` must point back to its producing stage through standard PROV
+/// relations: the output File/Dataset node carries `wasGeneratedBy` referencing
+/// a `CreateAction` whose `result` is the output and whose `object` (PROV
+/// `used`) references the producing task's input(s) — derived from the task's
+/// `ParameterConnection` edges already in the graph (here `#step-data_import`
+/// → `#step-differential_expression`).
+#[test]
+fn finalize_emits_per_output_was_generated_by_create_action() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/finalize-min-pkg");
+    let config_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config");
+
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("pkg");
+    copy_tree(&fixture, &root);
+
+    let secret = [7u8; 32];
+    ecaa_workflow_core::finalize::finalize_package(
+        &root,
+        &config_dir,
+        ecaa_workflow_core::project_class::ProjectClass::default(),
+        &[],
+        true,
+        Some(&secret),
+    )
+    .expect("finalize_package");
+
+    let descriptor = root.join("ro-crate-metadata.json");
+    let doc: Value =
+        serde_json::from_str(&std::fs::read_to_string(&descriptor).unwrap()).unwrap();
+    let graph = doc["@graph"].as_array().expect("@graph array");
+
+    // The produced result table for the differential_expression stage.
+    let output_id = "runtime/outputs/differential_expression/de_results.tsv";
+
+    // 1. The output File/Dataset node carries `wasGeneratedBy`.
+    let output_node = graph
+        .iter()
+        .find(|e| e["@id"].as_str() == Some(output_id))
+        .unwrap_or_else(|| panic!("produced output table {output_id} must be a @graph node"));
+    let action_ref = output_node["wasGeneratedBy"]["@id"]
+        .as_str()
+        .unwrap_or_else(|| {
+            panic!("output node {output_id} must carry wasGeneratedBy.@id; node = {output_node}")
+        });
+
+    // 2. The referenced CreateAction exists with the producing step as
+    // `instrument`, the output as `result`, and the task's input(s) as `object`.
+    let action = graph
+        .iter()
+        .find(|e| e["@id"].as_str() == Some(action_ref))
+        .unwrap_or_else(|| panic!("CreateAction {action_ref} referenced by wasGeneratedBy missing"));
+
+    let types: Vec<&str> = action["@type"]
+        .as_array()
+        .map(|a| a.iter().filter_map(Value::as_str).collect())
+        .or_else(|| action["@type"].as_str().map(|s| vec![s]))
+        .unwrap_or_default();
+    assert!(
+        types.contains(&"CreateAction") || types.contains(&"prov:Activity"),
+        "action {action_ref} must be a CreateAction/prov:Activity; @type = {:?}",
+        action["@type"]
+    );
+
+    assert_eq!(
+        action["result"]["@id"].as_str(),
+        Some(output_id),
+        "CreateAction.result must reference the produced output"
+    );
+    assert_eq!(
+        action["instrument"]["@id"].as_str(),
+        Some("#step-differential_expression"),
+        "CreateAction.instrument must reference the producing workflow step"
+    );
+
+    // 3. The `object` (PROV used) references the task's input(s), derived from
+    // the ParameterConnection edge `#step-data_import` →
+    // `#step-differential_expression`.
+    let objects = action["object"]
+        .as_array()
+        .expect("CreateAction.object must be an array of input @id refs");
+    let object_ids: Vec<&str> = objects
+        .iter()
+        .filter_map(|o| o["@id"].as_str())
+        .collect();
+    assert!(
+        object_ids.contains(&"#step-data_import"),
+        "CreateAction.object must reference the task input #step-data_import; got {object_ids:?}"
     );
 }

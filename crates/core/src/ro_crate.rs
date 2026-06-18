@@ -670,6 +670,15 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
         .filter_map(|e| e.get("@id").and_then(Value::as_str).map(String::from))
         .collect();
 
+    // Per-task input step ids, read off the `ParameterConnection` edges already
+    // in the graph. Each connection's `targetParameter` is `#step-<task>#<port>`
+    // and its `sourceParameter` is `#step-<source>#<port>`; the input `@id` we
+    // attribute to the produced output's `CreateAction.object` is the bare
+    // source step `#step-<source>`. BTreeMap + BTreeSet so the derived input
+    // list is sorted and the emitted PROV is deterministic; we never invent
+    // inputs — a task with no inbound ParameterConnection yields an empty list.
+    let task_inputs = collect_task_inputs(graph);
+
     // Discover produced tables, deterministically ordered (tasks, then nested
     // files in sorted path order). Each `runtime/outputs/<task>/` is walked
     // RECURSIVELY so tables the agent nested (e.g. `…/<task>/tables/de.tsv`)
@@ -700,6 +709,13 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
     rels.sort();
 
     let mut new_parts: Vec<Value> = Vec::new();
+    // Retrospective per-output PROV: one WRROC `CreateAction` per produced
+    // table, accumulated here and appended AFTER the output nodes so the graph
+    // stays in a stable (outputs, then actions; both in sorted `rels` order)
+    // shape. Each output's `wasGeneratedBy` points at its action; the action's
+    // `result` is the output, `instrument` is the producing step, and `object`
+    // (PROV `used`) is the task's input step(s).
+    let mut new_actions: Vec<Value> = Vec::new();
     for rel in &rels {
         if existing.contains(rel) {
             continue;
@@ -715,6 +731,9 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
         } else {
             "text/tab-separated-values"
         };
+        // Deterministic action id keyed on the full output path (unique per
+        // produced table even when one task emits several).
+        let action_id = format!("#action/{rel}");
         graph.push(json!({
             "@id": rel,
             "@type": ["File", "Dataset"],
@@ -722,9 +741,25 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
             "description": format!("Analytical result table produced by stage '{task}'."),
             "encodingFormat": fmt,
             "schema:about": {"@id": format!("#step-{task}")},
+            "wasGeneratedBy": {"@id": action_id.clone()},
+        }));
+        // Input step ids derived from the task's ParameterConnection edges
+        // (sorted; empty when the task has no inbound connection).
+        let object: Vec<Value> = task_inputs
+            .get(task)
+            .map(|ins| ins.iter().map(|id| json!({"@id": id})).collect())
+            .unwrap_or_default();
+        new_actions.push(json!({
+            "@id": action_id,
+            "@type": ["CreateAction", "prov:Activity"],
+            "name": format!("Production of {file} by stage '{task}'."),
+            "instrument": {"@id": format!("#step-{task}")},
+            "result": {"@id": rel},
+            "object": object,
         }));
         new_parts.push(json!({"@id": rel}));
     }
+    graph.extend(new_actions);
 
     let added = new_parts.len();
     if added == 0 {
@@ -755,6 +790,57 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
     let serialized = serde_json::to_vec_pretty(&doc)?;
     crate::fs_helpers::atomic_write_bytes_sync(&descriptor, &serialized)?;
     Ok(added)
+}
+
+/// Map each workflow task to the sorted set of input step `@id`s feeding it,
+/// read off the `ParameterConnection` entities already in the `@graph`.
+///
+/// A connection carries `sourceParameter {@id: "#step-<source>#<port>"}` and
+/// `targetParameter {@id: "#step-<target>#<port>"}`. The target's bare task
+/// token keys the map; the input `@id` recorded is the bare source step
+/// (`#step-<source>`, the port fragment dropped). BTreeMap + BTreeSet keep the
+/// derived per-task input list sorted so the emitted `CreateAction.object`
+/// arrays are deterministic. Connections whose endpoints are not `#step-…`
+/// references are ignored — inputs are never invented.
+fn collect_task_inputs(
+    graph: &[Value],
+) -> std::collections::BTreeMap<String, std::collections::BTreeSet<String>> {
+    let mut inputs: std::collections::BTreeMap<String, std::collections::BTreeSet<String>> =
+        std::collections::BTreeMap::new();
+    // Split `#step-<task>#<port>` (or `#step-<task>`) into the step `@id`
+    // (`#step-<task>`) and the bare task token (`<task>`).
+    let step_ref = |raw: &str| -> Option<(String, String)> {
+        let body = raw.strip_prefix("#step-")?;
+        let task = body.split('#').next().unwrap_or(body);
+        if task.is_empty() {
+            return None;
+        }
+        Some((format!("#step-{task}"), task.to_string()))
+    };
+    for node in graph {
+        let is_connection = match node.get("@type") {
+            Some(Value::String(s)) => s == "ParameterConnection",
+            Some(Value::Array(a)) => a.iter().any(|t| t.as_str() == Some("ParameterConnection")),
+            _ => false,
+        };
+        if !is_connection {
+            continue;
+        }
+        let source = node
+            .get("sourceParameter")
+            .and_then(|p| p.get("@id"))
+            .and_then(Value::as_str);
+        let target = node
+            .get("targetParameter")
+            .and_then(|p| p.get("@id"))
+            .and_then(Value::as_str);
+        if let (Some(src), Some(tgt)) = (source, target) {
+            if let (Some((src_step, _)), Some((_, tgt_task))) = (step_ref(src), step_ref(tgt)) {
+                inputs.entry(tgt_task).or_default().insert(src_step);
+            }
+        }
+    }
+    inputs
 }
 
 /// Recursively collect produced result-table relative paths under `dir`,
