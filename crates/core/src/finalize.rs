@@ -89,8 +89,7 @@ pub fn verify_task_with_context(
         PolicyLoad::Disabled => return VerifyOutcome::Disabled,
         PolicyLoad::Unavailable { reason } => return VerifyOutcome::Unavailable { reason },
     };
-    let policy_dir = config_dir.join("downstream-policy");
-    let cfg = match ExtractorConfig::from_policy_for_class(&policy, &policy_dir, project_class) {
+    let cfg = match ExtractorConfig::from_policy_for_class(&policy, config_dir, project_class) {
         Ok(cfg) => cfg,
         Err(e) => {
             tracing::error!(
@@ -254,11 +253,7 @@ pub fn finalize_task(
         // ExtractorConfig is rebuilt from the same policy the verify used.
         // `None` when the package carries no manifest (un-anchored task).
         if let PolicyLoad::Loaded(p) = load_interpretation_policy(config_dir) {
-            if let Ok(cfg) = ExtractorConfig::from_policy_for_class(
-                &p,
-                &config_dir.join("downstream-policy"),
-                project_class,
-            ) {
+            if let Ok(cfg) = ExtractorConfig::from_policy_for_class(&p, config_dir, project_class) {
                 coverage = compute_task_coverage(root, task_id, &cfg);
             }
         }
@@ -595,9 +590,26 @@ pub enum PolicyLoad {
 }
 
 fn load_interpretation_policy(config_dir: &Path) -> PolicyLoad {
-    let path = config_dir
-        .join("downstream-policy")
-        .join("interpretation-policy.json");
+    // Resolve the base policy with the downstream-policy-first / flat-fallback
+    // precedence so a self-contained emitted package (policy files copied FLAT
+    // under `<root>/policies/`) finalizes without a repo `config/` reachable,
+    // while a repo `config/` (the server) resolves exactly as before.
+    let Some(path) =
+        crate::claim_extractor::resolve_policy_file(config_dir, "interpretation-policy.json")
+    else {
+        let attempted = config_dir
+            .join("downstream-policy")
+            .join("interpretation-policy.json");
+        tracing::error!(
+            target: "verification",
+            config_dir = %config_dir.display(),
+            "interpretation-policy.json not found under downstream-policy/ or flat — \
+             claim verification is NOT running; check ECAA_CONFIG_DIR / working directory"
+        );
+        return PolicyLoad::Unavailable {
+            reason: format!("read {}: not found", attempted.display()),
+        };
+    };
     let raw = match std::fs::read_to_string(&path) {
         Ok(r) => r,
         Err(e) => {
@@ -1063,6 +1075,99 @@ mod tests {
         assert!(
             default_policy_is_loadable(&real),
             "shipped default policy must be loadable + enabled"
+        );
+    }
+
+    // ── flat-fallback policy resolution (self-contained packages) ────────
+
+    /// An EMITTED package carries policy files FLAT under `<root>/policies/`
+    /// (no `downstream-policy/` subdir). Pointing `config_dir` at that flat dir
+    /// must resolve + load the policy via the flat fallback.
+    #[test]
+    fn loads_policy_from_flat_config_dir() {
+        let cfg = tempdir().unwrap();
+        // Flat: interpretation-policy.json at the top level, NO downstream-policy/.
+        write(
+            &cfg.path().join("interpretation-policy.json"),
+            r#"{"verifiableEntities":{"enabled":true}}"#,
+        );
+        assert!(
+            matches!(load_interpretation_policy(cfg.path()), PolicyLoad::Loaded(_)),
+            "flat policy must load via the flat fallback"
+        );
+    }
+
+    /// Precedence proof: when BOTH locations hold a policy, the
+    /// `downstream-policy/` nested file wins — so a repo `config/` (the server)
+    /// resolves byte-identically to before this fallback was added.
+    #[test]
+    fn downstream_policy_subdir_wins_over_flat() {
+        let cfg = tempdir().unwrap();
+        // Flat copy is DISABLED; nested copy is ENABLED.
+        write(
+            &cfg.path().join("interpretation-policy.json"),
+            r#"{"verifiableEntities":{"enabled":false},"marker":"flat"}"#,
+        );
+        write(
+            &cfg.path()
+                .join("downstream-policy")
+                .join("interpretation-policy.json"),
+            r#"{"verifiableEntities":{"enabled":true},"marker":"nested"}"#,
+        );
+        match load_interpretation_policy(cfg.path()) {
+            PolicyLoad::Loaded(v) => assert_eq!(
+                v.get("marker").and_then(|m| m.as_str()),
+                Some("nested"),
+                "downstream-policy/ must win over the flat copy"
+            ),
+            other => panic!("expected nested (enabled) policy to load, got {:?}", other),
+        }
+    }
+
+    /// End-to-end self-containment: verification runs with `config_dir` pointed
+    /// at the package's OWN FLAT `policies/` dir and NO repo `config/` reachable.
+    /// Proves the deployment-independent finalize path: n_checked >= 1.
+    #[test]
+    fn verifies_with_config_dir_at_package_own_flat_policies() {
+        let pkg = tempdir().unwrap();
+        let root = pkg.path();
+        // The package's own flat policies/ — exactly what the emitter copies.
+        write(
+            &root.join("policies").join("interpretation-policy.json"),
+            r#"{
+                "verifiableEntities": {
+                    "enabled": true,
+                    "entityNamePatterns": ["[A-Z][A-Z0-9]{1,}"],
+                    "directionVocab": {"up": ["upregulated"], "down": ["downregulated"]},
+                    "effectSizeColumns": ["log2FC"],
+                    "entityColumns": ["gene"],
+                    "pvalueColumns": ["padj"]
+                }
+            }"#,
+        );
+        let task_dir = root.join("runtime").join("outputs").join("task_interp");
+        write(
+            &task_dir.join("report.md"),
+            "ACAN was upregulated (log2FC=2.1, padj=0.001, Table S1).\n",
+        );
+        write(
+            &root.join("results/tables/summary_s1.tsv"),
+            "gene\tlog2FC\tpadj\nACAN\t2.1\t0.001\n",
+        );
+
+        // config_dir IS the package's own flat policies/ — no repo config.
+        let out = expect_verified(verify_task_with_context(
+            root,
+            "task_interp",
+            &root.join("policies"),
+            ProjectClass::Bioinformatics,
+            &[],
+            false,
+        ));
+        assert!(
+            out.report.n_checked >= 1,
+            "flat package-own policies must drive verification; n_checked = {}",
+            out.report.n_checked
         );
     }
 }

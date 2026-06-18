@@ -316,15 +316,15 @@ fn find_narrative_artifact(package_root: &Path, task_id: &str) -> Option<PathBuf
     candidates.into_iter().next()
 }
 
-/// Load `<config_dir>/downstream-policy/interpretation-policy.json`. The
-/// emit-time entry-point reuses this when the package-side
-/// `policies/interpretation-policy.json` gate is enabled — the extractor
-/// needs the full config-side policy (entity name patterns, direction
-/// vocab, tolerances) which is only canonical at `config_dir`.
+/// Load `interpretation-policy.json` from `config_dir`, trying
+/// `config_dir/downstream-policy/` first (the repo `config/` layout) then a
+/// flat `config_dir/` (an emitted package's own `policies/`) via
+/// [`crate::claim_extractor::resolve_policy_file`]. The emit-time entry-point
+/// reuses this when the package-side `policies/interpretation-policy.json` gate
+/// is enabled — the extractor needs the full policy (entity name patterns,
+/// direction vocab, tolerances).
 fn load_interpretation_policy(config_dir: &Path) -> Option<serde_json::Value> {
-    let path = config_dir
-        .join("downstream-policy")
-        .join("interpretation-policy.json");
+    let path = crate::claim_extractor::resolve_policy_file(config_dir, "interpretation-policy.json")?;
     let raw = std::fs::read_to_string(&path).ok()?;
     serde_json::from_str(&raw).ok()
 }
@@ -361,8 +361,7 @@ pub fn verify_task_with_context_emit_time(
 ) -> Option<ClaimVerificationReport> {
     let narrative_path = find_narrative_artifact(package_root, task_id)?;
     let policy = load_interpretation_policy(config_dir)?;
-    let policy_dir = config_dir.join("downstream-policy");
-    let cfg = ExtractorConfig::from_policy_for_class(&policy, &policy_dir, project_class).ok()?;
+    let cfg = ExtractorConfig::from_policy_for_class(&policy, config_dir, project_class).ok()?;
     let narrative = std::fs::read_to_string(&narrative_path).ok()?;
 
     let tables_root = package_root.join("results").join("tables");
@@ -2516,15 +2515,15 @@ mod tests {
     fn clinical_trial_overlay_verifies_hazard_ratio_claim() {
         use crate::claim_extractor::{extract_claims, ExtractorConfig};
         let base = policy_json();
-        let policy_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        let config_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .unwrap()
             .parent()
             .unwrap()
-            .join("config/downstream-policy");
+            .join("config");
         let cfg = ExtractorConfig::from_policy_for_class(
             &base,
-            &policy_dir,
+            &config_dir,
             crate::project_class::ProjectClass::ClinicalTrial,
         )
         .unwrap();

@@ -87,50 +87,24 @@ pub fn audit_secret_from_env() -> Option<[u8; 32]> {
     }
 }
 
-/// Resolve the config directory carrying `downstream-policy/interpretation-policy.json`
-/// (the BASE policy + extractor config the finalize path reads). Mirrors the
-/// server's `chat_routes::tasks::config_dir_or_default` resolution so a
-/// standalone harness launched from an arbitrary CWD finds the same policy:
+/// Resolve the config directory the finalize path reads its base
+/// `interpretation-policy.json` (+ class overlay + extractor config) from:
 ///
 /// 1. `ECAA_CONFIG_DIR` — explicit operator override, always wins.
-/// 2. Binary-relative discovery — walk up from `current_exe()` for a `config/`
-///    dir carrying the `downstream-policy` marker (works for an installed
-///    `ecaa-workflow-harness`).
-/// 3. CWD-relative `config` — final fallback (repo-root / test launches).
+/// 2. `<package_root>/policies` — the emitted package's OWN copied policies.
 ///
-/// NOTE: this is the BASE policy directory, distinct from the package's own
-/// `policies/interpretation-policy.json` (the injected expected-claim manifest),
-/// which `core::finalize` reads separately via the package root.
-pub fn resolve_config_dir() -> PathBuf {
+/// The emitter copies every downstream-policy `.json` FLAT into
+/// `<root>/policies/` (no `downstream-policy/` subdir), and
+/// `core::finalize` resolves policy files with a downstream-policy-first /
+/// flat-fallback precedence — so pointing `config_dir` at `<root>/policies`
+/// makes the package self-contained for verification regardless of where the
+/// harness was launched. This drops the prior fragile binary-walk-up / CWD
+/// fallback for the finalize path.
+pub fn resolve_config_dir(package_root: &Path) -> PathBuf {
     if let Ok(explicit) = std::env::var("ECAA_CONFIG_DIR") {
         return PathBuf::from(explicit);
     }
-    if let Some(found) = config_dir_from_exe() {
-        return found;
-    }
-    PathBuf::from("config")
-}
-
-fn config_dir_has_marker(dir: &Path) -> bool {
-    dir.join("downstream-policy").is_dir()
-}
-
-fn config_dir_from_exe() -> Option<PathBuf> {
-    config_dir_from_exe_path(&std::env::current_exe().ok()?)
-}
-
-/// Pure walk-up over a given executable path (split out for testing — the real
-/// `current_exe()` can't be relocated under `cargo test`).
-fn config_dir_from_exe_path(exe: &Path) -> Option<PathBuf> {
-    let mut dir = exe.parent();
-    while let Some(d) = dir {
-        let candidate = d.join("config");
-        if config_dir_has_marker(&candidate) {
-            return Some(candidate);
-        }
-        dir = d.parent();
-    }
-    None
+    package_root.join("policies")
 }
 
 /// Read `runtime/decisions.jsonl` back into `Vec<DecisionRecord>`. Line-delimited
@@ -212,6 +186,14 @@ pub fn finalize_completed_package(package_root: &Path, config_dir: &Path) {
     let project_class = ProjectClass::default();
     let is_confirmatory = derive_is_confirmatory(package_root);
     let decisions = load_decisions(package_root);
+
+    // Surface a genuinely-missing/unreadable interpretation policy loudly: a
+    // standalone run finalizing against the package's own `policies/` would
+    // otherwise verify nothing (every task → Unavailable → no signed sink,
+    // n_checked stays 0) without a trace. `assert_default_policy_present`
+    // logs an error on Unavailable, a warn on Disabled, and is quiet when the
+    // policy loads — so a real misconfiguration is no longer a silent no-op.
+    ecaa_workflow_core::finalize::assert_default_policy_present(config_dir);
 
     match finalize_package(
         package_root,
@@ -315,16 +297,18 @@ mod tests {
     }
 
     #[test]
-    fn config_dir_walk_up_finds_marked_config() {
+    fn resolve_config_dir_points_at_package_policies() {
         let tmp = tempfile::tempdir().unwrap();
-        // <tmp>/bin/harness ; marker at <tmp>/config/downstream-policy.
-        std::fs::create_dir_all(tmp.path().join("config").join("downstream-policy")).unwrap();
-        std::fs::create_dir_all(tmp.path().join("bin")).unwrap();
-        let exe = tmp.path().join("bin").join("ecaa-workflow-harness");
-        let found = config_dir_from_exe_path(&exe).expect("walk-up should find config");
-        assert_eq!(found, tmp.path().join("config"));
-        // No marker anywhere → None.
-        let bare = tempfile::tempdir().unwrap();
-        assert!(config_dir_from_exe_path(&bare.path().join("bin").join("h")).is_none());
+        let root = tmp.path().join("pkg");
+        // No ECAA_CONFIG_DIR override → the package's own policies/ dir.
+        std::env::remove_var("ECAA_CONFIG_DIR");
+        assert_eq!(resolve_config_dir(&root), root.join("policies"));
+        // Explicit override wins.
+        std::env::set_var("ECAA_CONFIG_DIR", "/some/explicit/config");
+        assert_eq!(
+            resolve_config_dir(&root),
+            std::path::PathBuf::from("/some/explicit/config")
+        );
+        std::env::remove_var("ECAA_CONFIG_DIR");
     }
 }

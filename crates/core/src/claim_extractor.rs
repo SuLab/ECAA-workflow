@@ -43,6 +43,32 @@ use ts_rs::TS;
 
 use crate::claim_contract::ClaimContract;
 
+/// Resolve a downstream-policy file by name under `config_dir`, returning the
+/// FIRST existing of:
+///
+/// 1. `config_dir/downstream-policy/<filename>` — the canonical repo layout
+///    (`config/downstream-policy/`), so a repo-rooted `config_dir` (the server)
+///    resolves exactly as before.
+/// 2. `config_dir/<filename>` (flat) — the layout an EMITTED package carries:
+///    the emitter copies downstream-policy `.json` files FLAT into
+///    `<root>/policies/` with NO `downstream-policy/` subdir. Pointing
+///    `config_dir` at the package's own `policies/` resolves here.
+///
+/// Because the `downstream-policy/` subdir is tried FIRST, this is purely
+/// ADDITIVE: any caller passing a repo `config/` (server, tests) is unaffected.
+/// Returns `None` when neither location holds the file.
+pub fn resolve_policy_file(config_dir: &std::path::Path, filename: &str) -> Option<std::path::PathBuf> {
+    let nested = config_dir.join("downstream-policy").join(filename);
+    if nested.is_file() {
+        return Some(nested);
+    }
+    let flat = config_dir.join(filename);
+    if flat.is_file() {
+        return Some(flat);
+    }
+    None
+}
+
 /// Static regex for `classify_contract`'s rank/top-N detector. Hoisted
 /// out of the per-call hot path so the pattern is compiled once on
 /// first use rather than per sentence.
@@ -267,17 +293,19 @@ impl ExtractorConfig {
     /// every field it specifies; fields absent from the overlay fall
     /// through to the base `interpretation-policy.json`.
     ///
-    /// `policy_dir` is typically `config/downstream-policy/`. When no
-    /// overlay exists for the class, or the class is `Bioinformatics`,
-    /// the base policy is used unchanged.
+    /// `config_dir` is the policy root: either a repo `config/` (the overlay
+    /// resolves under `config/downstream-policy/`) or an emitted package's own
+    /// `policies/` (the overlay resolves flat) — [`resolve_policy_file`]
+    /// encodes the downstream-policy-first precedence. When no overlay exists
+    /// for the class, or the class is `Bioinformatics`, the base policy is used
+    /// unchanged.
     pub fn from_policy_for_class(
         base_policy: &Value,
-        policy_dir: &std::path::Path,
+        config_dir: &std::path::Path,
         class: crate::project_class::ProjectClass,
     ) -> Result<Self> {
         let overlay_name = format!("interpretation-policy.{}.json", class.as_str());
-        let overlay_path = policy_dir.join(&overlay_name);
-        let merged = if overlay_path.exists() {
+        let merged = if let Some(overlay_path) = resolve_policy_file(config_dir, &overlay_name) {
             let overlay_bytes = std::fs::read(&overlay_path)
                 .with_context(|| format!("reading overlay policy '{}'", overlay_path.display()))?;
             let overlay: Value = serde_json::from_slice(&overlay_bytes)
@@ -1212,6 +1240,29 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    #[test]
+    fn resolve_policy_file_prefers_downstream_policy_then_flat() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        // Neither location → None.
+        assert!(resolve_policy_file(dir, "interpretation-policy.json").is_none());
+        // Flat only → flat path.
+        let flat = dir.join("interpretation-policy.json");
+        std::fs::write(&flat, "{}").unwrap();
+        assert_eq!(
+            resolve_policy_file(dir, "interpretation-policy.json"),
+            Some(flat.clone())
+        );
+        // Both present → downstream-policy/ wins (server precedence unchanged).
+        let nested = dir.join("downstream-policy").join("interpretation-policy.json");
+        std::fs::create_dir_all(nested.parent().unwrap()).unwrap();
+        std::fs::write(&nested, "{}").unwrap();
+        assert_eq!(
+            resolve_policy_file(dir, "interpretation-policy.json"),
+            Some(nested)
+        );
+    }
+
     fn policy_json() -> Value {
         json!({
             "verifiableEntities": {
@@ -1286,15 +1337,15 @@ mod tests {
         // interpretation-policy.clinical_trial.json. Resolve it from
         // the crate manifest root.
         let base = policy_json();
-        let policy_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        let config_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .unwrap()
             .parent()
             .unwrap()
-            .join("config/downstream-policy");
+            .join("config");
         let cfg = ExtractorConfig::from_policy_for_class(
             &base,
-            &policy_dir,
+            &config_dir,
             crate::project_class::ProjectClass::ClinicalTrial,
         )
         .expect("clinical_trial overlay merges cleanly");
@@ -1322,15 +1373,15 @@ mod tests {
     #[test]
     fn from_policy_for_class_bio_is_identity() {
         let base = policy_json();
-        let policy_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        let config_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .unwrap()
             .parent()
             .unwrap()
-            .join("config/downstream-policy");
+            .join("config");
         let cfg = ExtractorConfig::from_policy_for_class(
             &base,
-            &policy_dir,
+            &config_dir,
             crate::project_class::ProjectClass::Bioinformatics,
         )
         .expect("bio class does not require an overlay");

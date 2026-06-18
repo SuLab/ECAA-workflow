@@ -41,22 +41,25 @@ fn copy_tree(src: &Path, dst: &Path) {
 fn standalone_run_self_finalizes_the_package() {
     let fixture =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/finalize-min-pkg");
-    // The finalize path reads the BASE interpretation policy + extractor config
-    // from `config_dir/downstream-policy/`; point it at the repo's real shipped
-    // config (CARGO_MANIFEST_DIR is crates/harness, so ../../config is repo root).
-    let config_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config");
 
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("pkg");
     copy_tree(&fixture, &root);
 
+    // SELF-CONTAINED finalize: point config_dir at the PACKAGE'S OWN flat
+    // `policies/` (the emitter copies the downstream-policy files FLAT there).
+    // NO repo `config/` is involved — proving deployment-independent
+    // self-finalization. The fixture carries `policies/interpretation-policy.json`
+    // with the injected `verifiableEntities.expected` manifest, so verification
+    // resolves the base policy via the new flat-fallback in `core::finalize`.
+    let config_dir = root.join("policies");
+
     // A valid 64-hex-char secret (32 bytes) — the same shape
     // `ecaa-workflow-audit-proof --secret` requires.
     std::env::set_var("ECAA_AUDIT_SECRET", "7".repeat(64));
     // Don't let an ambient ECAA_CONFIG_DIR from the runner shadow our explicit
-    // config_dir argument (the helper resolves config_dir separately for the
-    // binary path; here we pass it in directly, but the env read inside
-    // audit_secret/decisions is independent).
+    // package-own config_dir argument.
+    std::env::remove_var("ECAA_CONFIG_DIR");
     finalize_completed_package(&root, &config_dir);
     std::env::remove_var("ECAA_AUDIT_SECRET");
 

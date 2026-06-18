@@ -2035,11 +2035,11 @@ fn run_loop(
     let path = Path::new(&args.package);
 
     // Resolved once for the standalone end-of-run finalize (the
-    // `after.is_complete()` block below). Carries the BASE
-    // `downstream-policy/interpretation-policy.json` the finalize path reads;
-    // resolution mirrors the server's `config_dir_or_default`
-    // (ECAA_CONFIG_DIR → binary-relative walk-up → CWD `config`).
-    let finalize_config_dir = ecaa_workflow_harness::end_of_run_finalize::resolve_config_dir();
+    // `after.is_complete()` block below). Points at the emitted package's OWN
+    // copied `policies/` so finalization is self-contained regardless of where
+    // the harness was launched (ECAA_CONFIG_DIR overrides for an operator).
+    let finalize_config_dir =
+        ecaa_workflow_harness::end_of_run_finalize::resolve_config_dir(path);
 
     let mut prior_completed: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut prior_running: std::collections::HashSet<String> = std::collections::HashSet::new();
