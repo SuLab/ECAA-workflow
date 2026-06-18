@@ -86,9 +86,13 @@ writer of task state.
    long-running step with no progress line can look like a stall.
 
 4. **`runtime/LOG.jsonl`** — append one JSON object per line for audit
-   context (decisions, tool invocations, observations). Never write to
-   `runtime/decisions.jsonl` — that file is owned by the conversation/server
-   layer and carries only the typed `DecisionRecord` taxonomy.
+   context (decisions, tool invocations, observations). Each entry's `ts`
+   field must be the real wall-clock time in ISO-8601 UTC (the value of
+   `date -u +%Y-%m-%dT%H:%M:%SZ` at the moment you write the line) — never a
+   placeholder such as `2026-01-01T00:00:00Z`, which makes the audit trail's
+   timestamps untrustworthy. Never write to `runtime/decisions.jsonl` — that
+   file is owned by the conversation/server layer and carries only the typed
+   `DecisionRecord` taxonomy.
 
 ### Figures obligation
 
