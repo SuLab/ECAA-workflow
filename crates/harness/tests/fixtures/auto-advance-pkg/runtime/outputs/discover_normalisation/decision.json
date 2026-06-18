@@ -1,0 +1,6 @@
+{
+  "auto_advanced": true,
+  "method": "scran_log_normalization",
+  "stage": "normalisation",
+  "rationale": "Spec-preferred method confirmed by agent pre-flight check."
+}

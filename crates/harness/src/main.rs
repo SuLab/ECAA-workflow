@@ -2059,6 +2059,13 @@ fn run_loop(
     let mut prior_completed: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut prior_running: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut prior_blocked: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // Per-run guard for auto-advance decision promotion. Stages whose
+    // `decision.json` carries `auto_advanced = true` are promoted to
+    // `runtime/decisions.jsonl` exactly ONCE per harness run.
+    // `promote_auto_advance_decisions` inserts each successfully-appended
+    // stage id here so subsequent loop iterations skip it.
+    let mut auto_advance_decisions_recorded: std::collections::BTreeSet<String> =
+        std::collections::BTreeSet::new();
     // No-progress guard: force-block a task whose agent keeps being
     // re-dispatched (orphan recovery) without ever writing a terminal
     // state patch — a crash loop that heartbeat-stall can't catch because
@@ -2641,6 +2648,24 @@ fn run_loop(
             let mut dag_mut = read_dag(path)?;
             let mut picked_dispatches = Vec::new();
             let confirmed_stages = read_confirmed_review_stages(path);
+            // Promote any auto-advanced discover_* decisions into
+            // `runtime/decisions.jsonl` so audit-proof
+            // `decision_justification` is no longer Unverified on
+            // standalone runs. Uses the session id when available (web
+            // UI path) or the harness run id (offline path) so every
+            // record is traceable. Best-effort; errors are logged and
+            // dispatch continues.
+            {
+                let sid = args
+                    .session_id
+                    .as_deref()
+                    .unwrap_or(harness_run_id);
+                ecaa_workflow_harness::scheduler::promote_auto_advance_decisions(
+                    path,
+                    sid,
+                    &mut auto_advance_decisions_recorded,
+                );
+            }
             let sme_eligible_ready = ready_task_ids_passing_sme_gate(&dag_mut, &confirmed_stages);
             let mut allowed_ready = sme_eligible_ready.clone();
             // Apply gates before budget picking. If a lexically early Ready

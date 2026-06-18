@@ -447,6 +447,160 @@ fn is_safe_stage_token(stage: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
+/// Append one [`ecaa_workflow_core::decision_log::DecisionRecord`] to
+/// `<pkg>/runtime/decisions.jsonl`. Mirrors the append + fdatasync
+/// discipline of `crates/conversation/src/session/decision_helpers.rs`
+/// (`record_decision_with_ip`, lines 80–114). Errors are returned to the
+/// caller; they never abort dispatch.
+fn append_decision(
+    pkg: &std::path::Path,
+    record: &ecaa_workflow_core::decision_log::DecisionRecord,
+) -> std::io::Result<()> {
+    use std::io::Write as _;
+    let path = pkg.join("runtime").join("decisions.jsonl");
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let line = serde_json::to_string(record)
+        .expect("DecisionRecord always serializes to valid JSON");
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)?;
+    writeln!(f, "{line}")?;
+    // fdatasync: matches the durability contract used by
+    // `decision_helpers.rs` — guarantees the record survives a kernel
+    // crash between the write and a later `runtime/decisions.jsonl` read.
+    f.sync_data()?;
+    Ok(())
+}
+
+/// Scan `<pkg>/runtime/outputs/<task>/decision.json` for entries where
+/// `auto_advanced == true` (or the legacy alias `auto_picked == true`)
+/// and append one [`ecaa_workflow_core::decision_log::DecisionRecord`] per
+/// newly-seen stage to `runtime/decisions.jsonl`.
+///
+/// `session_id` is the value passed to `DecisionRecord::new`; callers
+/// should use the `--session-id` argument when present, falling back to
+/// the harness run id so every record is traceable.
+///
+/// `already_recorded` is a per-run in-memory guard: stages already
+/// appended this run are skipped on subsequent calls. This prevents
+/// duplicate lines when the harness loop calls `read_confirmed_review_stages`
+/// (and therefore reaches the same `decision.json` files) on every
+/// iteration. Re-starting the harness from scratch starts a fresh set,
+/// but `decisions.jsonl` is explicitly excluded from the byte-repro
+/// baseline so re-runs do not violate reproducibility.
+///
+/// Best-effort: any single-stage append error is logged and the
+/// function continues with the remaining stages. The caller must not
+/// propagate these errors — a disk hiccup on the audit file must never
+/// block dispatch.
+pub fn promote_auto_advance_decisions(
+    pkg: &std::path::Path,
+    session_id: &str,
+    already_recorded: &mut std::collections::BTreeSet<String>,
+) {
+    use ecaa_workflow_core::decision_log::{
+        DecisionActor, DecisionAuthority, DecisionRecord, DecisionType,
+    };
+
+    let outputs = pkg.join("runtime").join("outputs");
+    let entries = match std::fs::read_dir(&outputs) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+
+    for entry in entries.flatten() {
+        let Ok(name) = entry.file_name().into_string() else {
+            continue;
+        };
+        // Each output directory name is the task/stage id.
+        let stage = name.clone();
+
+        // Skip stages already promoted this harness run.
+        if already_recorded.contains(&stage) {
+            continue;
+        }
+
+        let decision_path = entry.path().join("decision.json");
+        if !decision_path.is_file() {
+            continue;
+        }
+        let Ok(decision_bytes) = std::fs::read(&decision_path) else {
+            continue;
+        };
+        let Ok(decision_json) =
+            serde_json::from_slice::<serde_json::Value>(&decision_bytes)
+        else {
+            continue;
+        };
+
+        let is_auto_advanced = decision_json
+            .get("auto_advanced")
+            .or_else(|| decision_json.get("auto_picked"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        if !is_auto_advanced {
+            continue;
+        }
+
+        // Extract the human-readable method prose when the agent wrote
+        // it into decision.json (common field names: `method`, `chosen`,
+        // `chosen_method`). Fall back to the stage name when absent so
+        // the record is always readable.
+        let method = decision_json
+            .get("method")
+            .or_else(|| decision_json.get("chosen"))
+            .or_else(|| decision_json.get("chosen_method"))
+            .and_then(|v| v.as_str())
+            .unwrap_or(&stage)
+            .to_string();
+
+        // `mode` captures whether the stage was advanced via the
+        // `.sme-auto-approve-discoveries` marker ("marker") or because
+        // the agent set `auto_advanced = true` without a marker
+        // ("agent"). Distinguish so auditors can tell apart
+        // operator-pre-authorized stages from purely agent-driven ones.
+        let mode = if pkg
+            .join("runtime")
+            .join(".sme-auto-approve-discoveries")
+            .exists()
+        {
+            "marker"
+        } else {
+            "agent"
+        };
+
+        let mut record = DecisionRecord::new(
+            session_id,
+            DecisionType::AutoAdvanced {
+                stage: stage.clone(),
+                mode: mode.to_string(),
+            },
+            DecisionActor::Harness,
+            Some(format!(
+                "auto-advanced under .sme-auto-approve-discoveries: method={method}"
+            )),
+        );
+        // Harness actor → SchemaValidated (decision_helpers.rs:58-65).
+        record.authority = DecisionAuthority::SchemaValidated;
+
+        match append_decision(pkg, &record) {
+            Ok(()) => {
+                // Mark promoted so the next loop iteration skips it.
+                already_recorded.insert(stage);
+            }
+            Err(e) => {
+                eprintln!(
+                    "[decision-promotion] append failed for stage {stage}: {e}"
+                );
+            }
+        }
+    }
+}
+
 /// Compute the set of task IDs that transitively depend on any task in
 /// `blocked_ids`. Uses the DAG's `reverse_deps` adjacency (parent →
 /// children that depend on it) to walk forward from each blocked task.
