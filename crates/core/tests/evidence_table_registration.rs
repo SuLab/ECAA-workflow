@@ -195,11 +195,21 @@ fn finalize_registers_tables_and_reseals_manifest() {
          live_hex={live_hex}\nmanifest=\n{manifest_after}"
     );
 
-    // The produced-table payload exclusion still holds (runtime/outputs/ is a
-    // walk exclusion; the table is a V `@graph` entity, not a manifested file).
+    // The post-execution reseal (SealMode::Reseal) extends the payload manifest
+    // to cover runtime/outputs/, so the produced result table is now hashed in
+    // the at-rest integrity surface (in addition to being a V `@graph` entity).
+    // Verify its manifest row matches the table's live bytes.
+    let table_rel = format!("runtime/outputs/{task}/{table}");
+    let table_bytes = fs::read(root.join(&table_rel)).unwrap();
+    let mut th = <sha2::Sha512 as sha2::Digest>::new();
+    sha2::Digest::update(&mut th, &table_bytes);
+    let table_hex = hex::encode(sha2::Digest::finalize(th));
     assert!(
-        !manifest_after.contains("runtime/outputs"),
-        "runtime/outputs must remain excluded from the payload manifest:\n{manifest_after}"
+        manifest_after
+            .lines()
+            .any(|l| l.starts_with(&table_hex) && l.ends_with(&format!("  {table_rel}"))),
+        "re-sealed manifest must include the produced output table with a row matching its \
+         live bytes; table_hex={table_hex}\nmanifest=\n{manifest_after}"
     );
 
     // And the verified table-backed claim now resolves in Inv 5.
