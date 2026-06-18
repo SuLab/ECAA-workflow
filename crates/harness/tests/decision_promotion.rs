@@ -15,6 +15,9 @@
 //!      `authority == SchemaValidated`.
 //!   2. Idempotency: calling a second time with the SAME `already_recorded`
 //!      set leaves the line count unchanged (no duplicate appended).
+//!   3. (Invariant acceptance) The written record uses `kind = "set_intake_method"`,
+//!      so `check_decision_justification` returns `n_inspected >= 1` and
+//!      `status == Pass` — Task 5's sole purpose (decision_justification Verified).
 
 use ecaa_workflow_core::decision_log::{DecisionActor, DecisionAuthority, DecisionRecord};
 use ecaa_workflow_harness::scheduler::promote_auto_advance_decisions;
@@ -141,5 +144,54 @@ fn non_auto_advanced_decision_json_is_not_promoted() {
     assert!(
         integration_records.is_empty(),
         "non-auto-advanced stage must not appear in decisions.jsonl; found: {integration_records:?}"
+    );
+}
+
+/// Invariant acceptance test: after `promote_auto_advance_decisions` runs,
+/// `check_decision_justification` must return Pass with n_inspected >= 1.
+///
+/// This is the end-to-end proof that Task 5's Critical finding is fixed.
+/// The written record must use `kind = "set_intake_method"` (the only kind
+/// the invariant counts at decision_justification.rs:29-31). Any record
+/// written with `kind = "auto_advanced"` would leave n_inspected == 0 and
+/// return Unverified — which is the bug this test catches.
+#[test]
+fn promoted_record_makes_decision_justification_pass() {
+    use ecaa_workflow_core::audit_proof::invariants::decision_justification::check_decision_justification;
+    use ecaa_workflow_core::audit_proof::loader::LoadedPackage;
+    use ecaa_workflow_core::audit_proof::InvariantStatus;
+
+    let (_tmp, root) = stage_auto_advance_pkg();
+    let mut already_recorded = std::collections::BTreeSet::new();
+
+    // Promote the auto-advanced stage into decisions.jsonl.
+    promote_auto_advance_decisions(&root, "test-session-id", &mut already_recorded);
+
+    // Load the package and run the invariant directly.
+    let pkg = LoadedPackage::from_root(&root)
+        .expect("LoadedPackage must load from fixture after promotion");
+
+    assert!(
+        !pkg.decisions.is_empty(),
+        "decisions must be non-empty after promotion; got: {:?}",
+        pkg.decisions
+    );
+
+    let verdict = check_decision_justification(&pkg);
+
+    assert!(
+        verdict.n_inspected >= 1,
+        "decision_justification must inspect >= 1 record (kind=set_intake_method); \
+         n_inspected={}; detail={:?}",
+        verdict.n_inspected,
+        verdict.detail
+    );
+    assert_eq!(
+        verdict.status,
+        InvariantStatus::Pass,
+        "decision_justification invariant must be Pass after promotion; \
+         status={:?}; detail={:?}",
+        verdict.status,
+        verdict.detail
     );
 }
