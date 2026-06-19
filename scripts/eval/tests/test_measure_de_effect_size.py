@@ -167,3 +167,124 @@ def test_end_to_end_missing_table_emits_skip_result(tmp_path):
     # rather than fail-closing on a missing metric.
     assert parsed["information_column_recorded"] is False
     assert parsed["top_effect_abundance_ratio"] == 1.0
+    # The report-completeness flags are also false (no header) and the gate skips.
+    assert parsed["r_squared_column_recorded"] is False
+    assert parsed["sample_size_column_recorded"] is False
+
+
+# ---------------------------------------------------------------------------
+# Report-completeness (da-8-1 C8): model-fit + per-row-n presence flags + the
+# folded narrative_text channel. The flags mirror information_column_recorded
+# EXACTLY (FOUND-and-usable), so the contract's `when` gate skips when the column
+# is absent and never prescribes producing it.
+# ---------------------------------------------------------------------------
+
+
+def test_modelfit_and_samplesize_role_detection():
+    mod = _load_module()
+    # Header-convention role detection across common R-squared / n synonyms,
+    # case-insensitive, exactly like _EFFECT_COLS / _BASEMEAN_COLS — names no
+    # method.
+    for h in ("r_squared", "R2", "adj_r_squared", "pseudo_r2"):
+        assert mod._find_col(["g", h], mod._MODELFIT_COLS) == 1, h
+    for h in ("n", "sample_size", "N_obs", "num_samples"):
+        assert mod._find_col(["g", h], mod._SAMPLESIZE_COLS) == 1, h
+
+
+def test_presence_flags_true_when_column_recorded():
+    mod = _load_module()
+    header = ["gene", "log2fc", "base_mean", "r_squared", "n"]
+    rows = [["g1", "1.0", "20", "0.85", "12"], ["g2", "2.0", "30", "0.6", "11"]]
+    flags = mod.report_completeness_flags(header, rows)
+    assert flags["r_squared_column_recorded"] is True, flags
+    assert flags["sample_size_column_recorded"] is True, flags
+
+
+def test_presence_flags_false_when_column_absent_so_gate_skips():
+    mod = _load_module()
+    # No model-fit / sample-size column -> flags false -> contract `when` SKIPS
+    # (never blocks, never prescribes adding the column).
+    header = ["gene", "log2fc", "base_mean"]
+    flags = mod.report_completeness_flags(header, [["g1", "1.0", "20"]])
+    assert flags["r_squared_column_recorded"] is False, flags
+    assert flags["sample_size_column_recorded"] is False, flags
+
+
+def test_presence_flags_false_when_column_header_only_or_all_nan():
+    mod = _load_module()
+    # Column present in the header but every value unparseable -> not recorded
+    # (same FOUND-and-usable semantics as information_column_recorded, which uses
+    # plain float(): "NA"/""/"n/a" are unparseable, so the flag reads False and
+    # the contract `when` gate skips).
+    header = ["gene", "r2", "sample_size"]
+    flags = mod.report_completeness_flags(header, [["g1", "NA", ""], ["g2", "", "n/a"]])
+    assert flags["r_squared_column_recorded"] is False, flags
+    assert flags["sample_size_column_recorded"] is False, flags
+
+
+def test_fold_narrative_text_folds_siblings_by_precedence_and_own_narrative(tmp_path):
+    mod = _load_module()
+    out = tmp_path / "result.json"
+    # Pre-existing result.json carrying the agent's own narrative field.
+    out.write_text(json.dumps({"narrative": "OWN model fit R-squared = 0.85"}))
+    # Sibling deliverables (report > interpretation > summary > other precedence).
+    (tmp_path / "report.md").write_text("REPORT variance explained = 0.85.")
+    (tmp_path / "answer.txt").write_text("ANSWER sample size n = 41 per metabolite.")
+    folded = mod._fold_narrative_text(str(out))
+    # Both channels (own + sibling) fold into one searchable blob.
+    assert "OWN model fit" in folded
+    assert "REPORT variance explained" in folded
+    assert "ANSWER sample size" in folded
+    # result.json itself is never re-read as a narrative sibling.
+    assert folded.count("OWN model fit") == 1
+    # Precedence: report.md (precedence 0) sorts before answer.txt (precedence 3).
+    assert folded.index("REPORT variance explained") < folded.index("ANSWER sample")
+
+
+def test_fold_narrative_text_empty_when_no_artifacts(tmp_path):
+    mod = _load_module()
+    out = tmp_path / "result.json"
+    # No siblings, no pre-existing result.json -> empty string (the contract's
+    # substring search then matches nothing, but the `when` gate already skips
+    # when no column was recorded, so an empty narrative never false-fails).
+    assert mod._fold_narrative_text(str(out)) == ""
+
+
+def test_end_to_end_emits_completeness_flags_and_narrative_text(tmp_path):
+    mod = _load_module()
+    header = ["feature", "log2fc", "base_mean", "r_squared", "n"]
+    table = tmp_path / "de_results.tsv"
+    lines = ["\t".join(header)]
+    for i in range(20):
+        lines.append("\t".join([f"g{i}", f"{1.0 + i}", f"{10 + i}", "0.8", "12"]))
+    table.write_text("\n".join(lines) + "\n")
+    out = tmp_path / "result.json"
+    # A sibling narrative that DOES surface both statistics.
+    (tmp_path / "report.md").write_text(
+        "The model R-squared is 0.8 and the sample size n = 12 per feature."
+    )
+    rc = mod.main(["--table", str(table), "--out", str(out)])
+    assert rc == 0
+    parsed = json.loads(out.read_text())
+    assert parsed["r_squared_column_recorded"] is True, parsed
+    assert parsed["sample_size_column_recorded"] is True, parsed
+    assert "R-squared is 0.8" in parsed["narrative_text"]
+    assert "n = 12" in parsed["narrative_text"]
+    # Deterministic on-disk shape preserved with the new keys.
+    assert list(parsed.keys()) == sorted(parsed.keys())
+
+
+def test_end_to_end_no_effect_column_still_records_completeness_flags(tmp_path):
+    mod = _load_module()
+    # A table with no effect column (the abundance-ratio gate skips) can still
+    # record an R-squared / n column; the completeness flags must still be set.
+    header = ["feature", "r_squared", "n"]
+    table = tmp_path / "fit.tsv"
+    table.write_text("\t".join(header) + "\n" + "x\t0.7\t9\ny\t0.6\t8\n")
+    out = tmp_path / "result.json"
+    rc = mod.main(["--table", str(table), "--out", str(out)])
+    assert rc == 0
+    parsed = json.loads(out.read_text())
+    assert parsed["information_column_recorded"] is False  # no effect col to rank
+    assert parsed["r_squared_column_recorded"] is True, parsed
+    assert parsed["sample_size_column_recorded"] is True, parsed

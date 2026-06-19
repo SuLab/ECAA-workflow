@@ -574,6 +574,113 @@ fn de_contracts_carry_method_neutral_top_effect_reliability_check() {
     }
 }
 
+/// Report-completeness checks (da-8-1 C8): both DE contracts must carry
+/// `differential_expression.reports_model_fit` and
+/// `differential_expression.reports_per_row_n`. Each must (1) be a
+/// `string_contains` (no new assertion_type), (2) read the agent's OWN folded
+/// narrative via `check.json_pointer == /narrative_text` so the search is scoped
+/// off the field names (a whole-file search would match `r_squared` inside the
+/// flag key `r_squared_column_recorded` and false-pass), (3) use `substrings_any`
+/// (OR) so any reasonable surfacing matches — never `substrings` (AND), which
+/// would demand a specific phrasing, (4) be `when`-gated on the corresponding
+/// presence flag with `equals: true` so a table that did NOT record the column is
+/// SKIPPED (never blocks, never prescribes producing the column), (5) be
+/// `required` severity (the harness skips `recommended`), and (6) name NO
+/// analysis method, estimator, threshold value, gene name, task id, or
+/// benchmark-specific column literal in the description or in any check clause
+/// (method neutrality + no eval-overfit). Guards against silently dropping the
+/// checks, regressing the scoping/gate, demoting severity, or leaking a method
+/// token.
+#[test]
+fn de_contracts_carry_method_neutral_report_completeness_checks() {
+    // Tokens that must NEVER appear in the agent-facing description (methods /
+    // estimators) NOR any benchmark-specific value/literal (eval-overfit). The
+    // checks state a fact about the agent's own recorded output, never a method
+    // or a benchmark value. "41" is the da-8-1 passing-set count the DECLINED
+    // half (b) would have read; it must never appear in any shipped clause.
+    const BANNED_TOKENS: [&str; 12] = [
+        "deseq", "edger", "limma", "voom", "wilcoxon", "mast", "shrink",
+        "set the threshold", "41", "metabolite ~", "repurposing", "tier",
+    ];
+    let expected: [(&str, &str); 2] = [
+        ("differential_expression.reports_model_fit", "/r_squared_column_recorded"),
+        ("differential_expression.reports_per_row_n", "/sample_size_column_recorded"),
+    ];
+    for contract_file in [
+        "validation-contract-association.json",
+        "validation-contract-singlecell.json",
+    ] {
+        let path = policies_dir().join(contract_file);
+        let contract = load_and_validate(&path)
+            .unwrap_or_else(|e| panic!("{contract_file} failed schema validation: {e:#}"));
+        for (id, gate_ptr) in expected {
+            let a = stage_assertions(&contract, "differential_expression")
+                .into_iter()
+                .find(|a| a.get("id").and_then(|v| v.as_str()) == Some(id))
+                .unwrap_or_else(|| panic!("{contract_file} must carry {id}"));
+            // (1) string_contains, no new assertion_type.
+            assert_eq!(
+                a.get("assertion_type").and_then(|v| v.as_str()),
+                Some("string_contains"),
+                "{contract_file}: {id} must be a string_contains (no new assertion_type)"
+            );
+            let check = a.get("check").expect("check present");
+            // (2) scoped to /narrative_text (the folded agent narrative channel).
+            assert_eq!(
+                check.get("json_pointer").and_then(|v| v.as_str()),
+                Some("/narrative_text"),
+                "{contract_file}: {id} must scope the search to /narrative_text \
+                 (a whole-file search would false-pass on the field name)"
+            );
+            // (3) substrings_any (OR), never substrings (AND).
+            assert!(
+                check.get("substrings_any").and_then(|v| v.as_array()).is_some(),
+                "{contract_file}: {id} must use substrings_any (OR), not substrings (AND)"
+            );
+            assert!(
+                check.get("substrings").is_none(),
+                "{contract_file}: {id} must NOT use substrings (AND) — it would demand one phrasing"
+            );
+            // (4) gated on the presence flag with equals: true.
+            let when = a.get("when").expect("when gate present");
+            assert_eq!(
+                when.get("json_pointer").and_then(|v| v.as_str()),
+                Some(gate_ptr),
+                "{contract_file}: {id} must self-skip via the {gate_ptr} presence gate"
+            );
+            assert_eq!(
+                when.get("equals"),
+                Some(&serde_json::json!(true)),
+                "{contract_file}: {id} gate must require the presence flag == true"
+            );
+            // (5) required severity.
+            assert_eq!(
+                a.get("severity").and_then(|v| v.as_str()),
+                Some("required"),
+                "{contract_file}: {id} must be required (the harness skips recommended)"
+            );
+            // (6) neutrality + no-overfit: scan the description AND every check
+            // clause string for a banned method/value token.
+            let desc = a
+                .get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            let check_blob = serde_json::to_string(check).unwrap().to_ascii_lowercase();
+            for token in BANNED_TOKENS {
+                assert!(
+                    !desc.contains(token),
+                    "{contract_file}: {id} description leaked banned token {token:?}"
+                );
+                assert!(
+                    !check_blob.contains(token),
+                    "{contract_file}: {id} check clause leaked banned token {token:?}"
+                );
+            }
+        }
+    }
+}
+
 // The single-cell validation contract is carried by the GENERAL single_cell_de
 // archetype, so its `required` assertions must be goal-agnostic. This guards
 // against regressing the IVD-derivation anti-pattern: no required metadata
