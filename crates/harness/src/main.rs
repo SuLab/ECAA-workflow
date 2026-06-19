@@ -5429,7 +5429,41 @@ fn run_assertion(
             let Ok(bytes) = std::fs::read(&path) else {
                 return false;
             };
-            let text = String::from_utf8_lossy(&bytes);
+            // Optional `check.json_pointer` SCOPES the substring search to a
+            // single string value inside the target JSON (fail-closed when the
+            // file is not JSON or the pointer does not resolve to a string).
+            // Without a pointer the whole file is searched as text — the
+            // original behavior, byte-identical for every existing assertion
+            // (design_recorded etc. carry no json_pointer). Scoping is required
+            // for the report-completeness arms: searching the WHOLE result.json
+            // would match a substring inside a sibling FIELD NAME (e.g.
+            // "r_squared" inside the flag key "r_squared_column_recorded"),
+            // false-passing regardless of the narrative — so those arms scope to
+            // /narrative_text.
+            // Outer Option: was a json_pointer requested? Inner Option: did it
+            // resolve to a string? `Some(None)` = pointer requested but
+            // unresolved -> fail-closed empty haystack; `None` = no pointer ->
+            // whole-file search (original behavior).
+            let owned_scope: Option<Option<String>> = assertion
+                .get("check")
+                .and_then(|c| c.get("json_pointer"))
+                .and_then(|v| v.as_str())
+                .map(|ptr| {
+                    serde_json::from_slice::<serde_json::Value>(&bytes)
+                        .ok()
+                        .and_then(|v| {
+                            v.pointer(ptr)
+                                .and_then(|x| x.as_str())
+                                .map(|s| s.to_string())
+                        })
+                });
+            let text: std::borrow::Cow<str> = match owned_scope {
+                // Pointer requested but unresolved (not JSON / not a string) ->
+                // fail closed with an empty haystack so substrings can't match.
+                Some(None) => std::borrow::Cow::Borrowed(""),
+                Some(Some(ref s)) => std::borrow::Cow::Borrowed(s.as_str()),
+                None => String::from_utf8_lossy(&bytes),
+            };
             // Supports either `substrings: [required all of]` or
             // `substrings_any: [any of]`.
             if let Some(req) = assertion
@@ -8094,6 +8128,119 @@ mod read_dag_tests {
         assert!(
             !run_assertion(only_one.path(), &a, &empty),
             "missing response_variable -> fail (unauditable model)"
+        );
+    }
+
+    // Report-completeness arms (da-8-1 C8): a string_contains scoped to
+    // /narrative_text, `when`-gated on the agent-recorded presence flag.
+    fn reports_model_fit_assertion() -> serde_json::Value {
+        serde_json::json!({
+            "id": "de.reports_model_fit",
+            "assertion_type": "string_contains",
+            "target": "runtime/outputs/differential_expression/result.json",
+            "check": {
+                "json_pointer": "/narrative_text",
+                "substrings_any": ["r2", "r-squared", "variance explained", "r_squared"]
+            },
+            "when": { "json_pointer": "/r_squared_column_recorded", "equals": true }
+        })
+    }
+
+    /// Gate-skip: when the agent recorded no model-fit column the flag is false,
+    /// so the assertion is NOT APPLICABLE and skips (never blocks) regardless of
+    /// the narrative.
+    #[test]
+    fn reports_model_fit_skips_when_flag_false() {
+        let tmp = write_de_result(serde_json::json!({
+            "r_squared_column_recorded": false,
+            "narrative_text": "no model-fit mention at all"
+        }));
+        let empty = std::collections::BTreeMap::new();
+        assert!(
+            run_assertion(tmp.path(), &reports_model_fit_assertion(), &empty),
+            "flag false -> gate skips -> passes"
+        );
+    }
+
+    /// Pass: column recorded AND the narrative surfaces the statistic.
+    #[test]
+    fn reports_model_fit_passes_when_narrative_references_statistic() {
+        let tmp = write_de_result(serde_json::json!({
+            "r_squared_column_recorded": true,
+            "narrative_text": "The regression R-squared was 0.84 across features."
+        }));
+        let empty = std::collections::BTreeMap::new();
+        assert!(
+            run_assertion(tmp.path(), &reports_model_fit_assertion(), &empty),
+            "column recorded + narrative surfaces R-squared -> passes"
+        );
+    }
+
+    /// Fail: column recorded but the narrative OMITS the statistic.
+    #[test]
+    fn reports_model_fit_fails_when_recorded_but_narrative_omits() {
+        let tmp = write_de_result(serde_json::json!({
+            "r_squared_column_recorded": true,
+            "narrative_text": "We report the top features and their fold changes."
+        }));
+        let empty = std::collections::BTreeMap::new();
+        assert!(
+            !run_assertion(tmp.path(), &reports_model_fit_assertion(), &empty),
+            "recorded but narrative omits the statistic -> fails"
+        );
+    }
+
+    /// Channel-scope guard (the load-bearing false-pass defense): the substring
+    /// `r_squared` also occurs inside the FIELD NAME `r_squared_column_recorded`.
+    /// A whole-file search would false-PASS regardless of the narrative. The
+    /// json_pointer scoping must confine the search to /narrative_text so the
+    /// field name cannot satisfy the check.
+    #[test]
+    fn reports_model_fit_scoping_ignores_field_name_collision() {
+        let tmp = write_de_result(serde_json::json!({
+            // The flag key contains "r_squared"; the narrative does NOT mention
+            // the statistic. Scoped search must FAIL here.
+            "r_squared_column_recorded": true,
+            "narrative_text": "Only fold changes are discussed."
+        }));
+        let empty = std::collections::BTreeMap::new();
+        assert!(
+            !run_assertion(tmp.path(), &reports_model_fit_assertion(), &empty),
+            "scoped to /narrative_text -> field-name 'r_squared_column_recorded' must NOT satisfy the check"
+        );
+    }
+
+    /// Unscoped string_contains (no json_pointer) keeps its original whole-file
+    /// behavior byte-for-byte — the existing design_recorded etc. rely on it.
+    #[test]
+    fn string_contains_without_pointer_searches_whole_file() {
+        let a = serde_json::json!({
+            "id": "de.whole_file",
+            "assertion_type": "string_contains",
+            "target": "runtime/outputs/differential_expression/result.json",
+            "check": { "substrings_any": ["design_formula"] }
+        });
+        let tmp = write_de_result(serde_json::json!({ "design_formula": "~ condition" }));
+        let empty = std::collections::BTreeMap::new();
+        assert!(
+            run_assertion(tmp.path(), &a, &empty),
+            "no json_pointer -> whole-file search (original behavior) finds the field name"
+        );
+    }
+
+    /// A json_pointer that does not resolve to a string (absent / non-string)
+    /// fails closed with an empty haystack rather than falling back to a
+    /// whole-file search.
+    #[test]
+    fn string_contains_pointer_unresolved_fails_closed() {
+        let tmp = write_de_result(serde_json::json!({
+            "r_squared_column_recorded": true
+            // no narrative_text key at all
+        }));
+        let empty = std::collections::BTreeMap::new();
+        assert!(
+            !run_assertion(tmp.path(), &reports_model_fit_assertion(), &empty),
+            "missing /narrative_text -> empty haystack -> fails closed (no whole-file fallback)"
         );
     }
 

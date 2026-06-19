@@ -55,6 +55,30 @@
           "check": { "json_pointer": "/top_effect_abundance_ratio", "op": "gte", "value": 0.20 },
           "when": { "json_pointer": "/information_column_recorded", "equals": true },
           "severity": "required"
+        },
+        {
+          "id": "differential_expression.reports_model_fit",
+          "description": "Report-completeness (domain-correctness, method-neutral): when YOUR OWN results table records a model-fit / variance-explained column (an R-squared and its conventional synonyms), your written answer must SURFACE that statistic. This states a fact about your own recorded output — you computed and tabulated a model-fit column, so report it — and prescribes no method, estimator, model, or value; HOW you surface it (a sentence, a table, a value) is your choice. The check is a deterministic substring presence test (string_contains, substrings_any/OR) over /narrative_text, the single channel into which lib/measure_de_effect_size.py folds your sibling narrative deliverable (report.md / interpretation.md / summary.md / answer.txt) plus your own recorded narrative — so it never false-fires when the answer lives in a sibling .md/.txt instead of result.json. GATED on /r_squared_column_recorded so it is SKIPPED (never blocks, never prescribes adding the column) when no model-fit column is recorded — recorded-ness has the same FOUND-and-usable semantics as /information_column_recorded. AUTHORING NOTE (disclosure): this error CLASS was identified from BiomniBench da-8-1 C8 (an answer that omitted the R-squared its own table recorded); the assertion encodes the GENERAL invariant 'surface the model-fit statistic your own table records' and contains NO benchmark value, gene name, column literal, or task id in any check clause; the substrings are generic statistic-name synonyms, not column literals lifted from any dataset. It asserts a property of the agent's own artifacts, the same shape as top_effect_reliability over the agent's own ranking. SME-overridable by editing the pinned script's role tuple.",
+          "assertion_type": "string_contains",
+          "target": "runtime/outputs/differential_expression/result.json",
+          "check": {
+            "json_pointer": "/narrative_text",
+            "substrings_any": ["r2", "r-squared", "r squared", "r²", "variance explained", "r_squared"]
+          },
+          "when": { "json_pointer": "/r_squared_column_recorded", "equals": true },
+          "severity": "required"
+        },
+        {
+          "id": "differential_expression.reports_per_row_n",
+          "description": "Report-completeness (domain-correctness, method-neutral): when YOUR OWN results table records a per-row sample-size column, your written answer must SURFACE the per-row sample size. This states a fact about your own recorded output — you tabulated a per-row n, so report it — and prescribes no method or value; HOW you surface it is your choice. The check is a deterministic substring presence test (string_contains, substrings_any/OR) over /narrative_text, the single folded channel (report.md / interpretation.md / summary.md / answer.txt + your own narrative) lib/measure_de_effect_size.py writes, so it never false-fires when the answer sits in a sibling .md/.txt. GATED on /sample_size_column_recorded so it is SKIPPED (never blocks, never prescribes adding the column) when no per-row sample-size column is recorded — same FOUND-and-usable recorded-ness as /information_column_recorded. AUTHORING NOTE (disclosure): this error CLASS was identified from BiomniBench da-8-1 C8 (an answer that omitted the per-metabolite sample sizes its own table recorded); the assertion encodes the GENERAL invariant 'surface the per-row sample size your own table records' and contains NO benchmark value or task id in any check clause; the substrings are generic phrasings of a sample-size mention, not literals from any dataset. SME-overridable.",
+          "assertion_type": "string_contains",
+          "target": "runtime/outputs/differential_expression/result.json",
+          "check": {
+            "json_pointer": "/narrative_text",
+            "substrings_any": ["n =", "n=", "sample size", "samples per", "per-metabolite n", "number of samples"]
+          },
+          "when": { "json_pointer": "/sample_size_column_recorded", "equals": true },
+          "severity": "required"
         }
       ]
     }

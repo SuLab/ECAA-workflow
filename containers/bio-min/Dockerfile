@@ -241,6 +241,16 @@ RUN mkdir -p /etc/bio-min \
  && Rscript --vanilla -e 'blas <- extSoftVersion()[["BLAS"]]; cat("R BLAS:", blas, "\n")' \
  && cat /etc/bio-min/RUNTIME_VERSIONS.json
 
+# Keep /opt/conda/bin on PATH for LOGIN shells. The image ENV PATH puts conda
+# first, but Debian's /etc/profile OVERWRITES PATH with the base set for any
+# login shell — so `bash -lc 'samtools'` resolved to "command not found" even
+# though samtools/bcftools are installed under /opt/conda/bin. /etc/profile
+# sources /etc/profile.d/*.sh AFTER that reset (verified), so this entry restores
+# conda for login shells, matching the non-login ENV PATH. Without it, agents
+# that shell out via a login shell silently fail variant-caller / samtools calls.
+RUN printf '%s\n' 'export PATH="/opt/conda/bin:$PATH"' > /etc/profile.d/99-conda-path.sh \
+ && chmod 0644 /etc/profile.d/99-conda-path.sh
+
 # Working dir conventions — the harness mounts:
 #   /work/inputs   (read-only intake + reference data)
 #   /work/scratch  (per-task scratch)

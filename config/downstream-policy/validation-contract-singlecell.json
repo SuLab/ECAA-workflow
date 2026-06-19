@@ -171,6 +171,30 @@
           "check": { "json_pointer": "/top_effect_abundance_ratio", "op": "gte", "value": 0.20 },
           "when": { "json_pointer": "/information_column_recorded", "equals": true },
           "severity": "required"
+        },
+        {
+          "id": "differential_expression.reports_model_fit",
+          "description": "Report-completeness (domain-correctness, method-neutral; shared with validation-contract-association): when the agent's OWN results table records a model-fit / variance-explained column (an R-squared and its conventional synonyms), the agent's written answer must SURFACE that statistic. States a fact about the agent's own recorded output, prescribing no method/estimator/model/value; how the agent surfaces it is its choice. Deterministic substring presence test (string_contains, substrings_any/OR) over /narrative_text — the single channel lib/measure_de_effect_size.py folds the sibling narrative deliverable (report.md / interpretation.md / summary.md / answer.txt) plus the agent's own narrative into, so it never false-fires when the answer lives in a sibling .md/.txt. GATED on /r_squared_column_recorded (FOUND-and-usable recorded-ness, same as /information_column_recorded) so it is SKIPPED (never blocks, never prescribes the column) when no model-fit column is recorded — as occurs on the common single-cell DE path (no per-feature variance-explained column), so this check applies only where a model-fit basis exists. AUTHORING NOTE (disclosure): error CLASS identified from BiomniBench da-8-1 C8; the assertion encodes the GENERAL invariant 'surface the model-fit statistic your own table records' with NO benchmark value, gene name, column literal, or task id in any check clause; substrings are generic statistic-name synonyms. SME-overridable.",
+          "assertion_type": "string_contains",
+          "target": "runtime/outputs/differential_expression/result.json",
+          "check": {
+            "json_pointer": "/narrative_text",
+            "substrings_any": ["r2", "r-squared", "r squared", "r²", "variance explained", "r_squared"]
+          },
+          "when": { "json_pointer": "/r_squared_column_recorded", "equals": true },
+          "severity": "required"
+        },
+        {
+          "id": "differential_expression.reports_per_row_n",
+          "description": "Report-completeness (domain-correctness, method-neutral; shared with validation-contract-association): when the agent's OWN results table records a per-row sample-size column, the agent's written answer must SURFACE the per-row sample size. States a fact about the agent's own recorded output, prescribing no method/value; how the agent surfaces it is its choice. Deterministic substring presence test (string_contains, substrings_any/OR) over /narrative_text — the single folded channel (report.md / interpretation.md / summary.md / answer.txt + own narrative) lib/measure_de_effect_size.py writes, so it never false-fires when the answer sits in a sibling .md/.txt. GATED on /sample_size_column_recorded (FOUND-and-usable recorded-ness) so it is SKIPPED (never blocks, never prescribes the column) when no per-row sample-size column is recorded. AUTHORING NOTE (disclosure): error CLASS identified from BiomniBench da-8-1 C8; encodes the GENERAL invariant 'surface the per-row sample size your own table records' with NO benchmark value or task id in any check clause; substrings are generic phrasings of a sample-size mention. SME-overridable.",
+          "assertion_type": "string_contains",
+          "target": "runtime/outputs/differential_expression/result.json",
+          "check": {
+            "json_pointer": "/narrative_text",
+            "substrings_any": ["n =", "n=", "sample size", "samples per", "per-metabolite n", "number of samples"]
+          },
+          "when": { "json_pointer": "/sample_size_column_recorded", "equals": true },
+          "severity": "required"
         }
       ]
     },
