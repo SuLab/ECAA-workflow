@@ -137,68 +137,17 @@ pub fn verify_task_with_context(
         report.push(v);
     }
 
-    // 3. Structured TSV/CSV result tables — a table-only task (qc /
-    //    normalisation / differential_expression / pathway, whose outputs are
-    //    `de_results.tsv`-style files and no `.md`/`.txt` narrative) otherwise
-    //    contributes nothing. Glob `runtime/outputs/<task>/*.tsv|*.csv`, mine
-    //    each for per-row claims, set `source_table` to the file basename, and
-    //    verify them through the same discovery path the narrative claims use.
-    //    The narrative artifact (a `.md`/`.txt`) is never matched by the
-    //    `.tsv`/`.csv` glob, but we skip it explicitly to be safe. Dedup by
-    //    `(entity, direction)` inside the verifier handles overlaps with the
-    //    narrative/markdown claims.
-    if let Some(task_dir) = resolve_task_runtime_dir_local(package_root, task_id) {
-        let tables_root = package_root.join("results").join("tables");
-        let effective_root = if tables_root.is_dir() {
-            tables_root
-        } else {
-            task_dir.clone()
-        };
-        let mut table_claims: Vec<crate::claim_extractor::Claim> = Vec::new();
-        if let Ok(rd) = std::fs::read_dir(&task_dir) {
-            // Sort entries for deterministic claim ordering (read_dir order is
-            // filesystem-dependent).
-            let mut files: Vec<PathBuf> = rd
-                .flatten()
-                .map(|e| e.path())
-                .filter(|p| p.is_file())
-                .collect();
-            files.sort();
-            for path in files {
-                if narrative_path.as_ref() == Some(&path) {
-                    continue;
-                }
-                let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
-                    continue;
-                };
-                let delimiter = match ext.to_ascii_lowercase().as_str() {
-                    "tsv" => b'\t',
-                    "csv" => b',',
-                    _ => continue,
-                };
-                let Ok(file) = std::fs::File::open(&path) else {
-                    continue;
-                };
-                let basename = path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|s| s.to_string());
-                for mut claim in
-                    crate::claim_extractor::extract_delimited_table_claims(file, delimiter, &cfg)
-                {
-                    claim.source_table = basename.clone();
-                    table_claims.push(claim);
-                }
-            }
-        }
-        if !table_claims.is_empty() {
-            for v in
-                verify_claims_with_discovery(&table_claims, &effective_root, package_root, &cfg)
-            {
-                report.push(v);
-            }
-        }
-    }
+    // NOTE (C3 reverted): we deliberately do NOT mine raw result-table rows
+    // (`de_results.tsv` etc.) as claims. Doing so emits one claim per row and
+    // then "verifies" each row against the very table it was read from — a
+    // circular self-check that inflates the Verified count by tens of thousands
+    // of vacuous entries (e.g. ~17.8k for a per-gene DE table) without adding
+    // any narrative-to-evidence signal. The meaningful audit is narrative prose
+    // checked against tables; a genuine gene mention in a task's narrative is
+    // now resolvable because `de_results.tsv` (entity header `gene_id`) loads
+    // via the policy `entityColumns` (Workstream A). Summary numerics that a
+    // table-only stage should surface belong in that stage's narrative, not in
+    // a row-by-row table mine.
 
     // Nothing to verify: no narrative AND no structured claims. The policy
     // is enabled and loadable here — this is normally a benign "nothing to
@@ -1293,12 +1242,13 @@ mod tests {
     }
 
     #[test]
-    fn de_results_tsv_contributes_table_claims() {
-        // A table-only differential_expression task (no .md/.txt narrative,
-        // no result.json claims) must still contribute verifiable claims from
-        // its de_results.tsv. Self-contained: the policy here includes gene_id
-        // in entityColumns so this does not depend on the Workstream A policy
-        // change.
+    fn de_results_table_is_not_mined_into_per_row_claims() {
+        // C3 reverted: a table-only differential_expression task (no narrative)
+        // must NOT spawn one claim per de_results.tsv row. Mining + self-verifying
+        // raw result-table rows is a circular self-check that inflates n_checked
+        // with vacuous Verified entries (~17.8k for a real DE table). Here the
+        // single-row table must yield ZERO mined claims (the task verifies as
+        // Disabled / recall-gap, never a table-row claim explosion).
         let pkg = tempdir().unwrap();
         let cfg = tempdir().unwrap();
         scaffold_config_dir_with_gene_id(cfg.path());
@@ -1312,24 +1262,29 @@ mod tests {
             &de_dir.join("de_results.tsv"),
             "gene_id\tlog2fc\tadj_pvalue\nENSG00000103196\t2.63\t8e-60\n",
         );
-        // Minimal WORKFLOW.json with one completed differential_expression task.
         write(
             &root.join("WORKFLOW.json"),
             r#"{"tasks":{"differential_expression":{"state":{"status":"completed"}}}}"#,
         );
 
-        let out = expect_verified(verify_task_with_context(
+        let outcome = verify_task_with_context(
             root,
             "differential_expression",
             cfg.path(),
             ProjectClass::Bioinformatics,
             &[],
             false,
-        ));
-        assert!(
-            out.report.n_checked >= 1,
-            "de_results.tsv must contribute at least one table claim; n_checked = {}",
-            out.report.n_checked
+        );
+        // No narrative + no structured claims + no table mining => nothing to
+        // verify. Whatever the outcome (Disabled or a recall-gap Verified with
+        // an empty report), it must carry NO per-row table claim.
+        let n = match outcome {
+            VerifyOutcome::Verified(v) => v.report.n_checked,
+            _ => 0,
+        };
+        assert_eq!(
+            n, 0,
+            "raw de_results.tsv rows must not be mined into claims; got n_checked = {n}"
         );
     }
 
