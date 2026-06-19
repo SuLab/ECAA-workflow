@@ -439,14 +439,56 @@ mod tests {
     /// that need the same downstream check a regular operation gets).
     #[test]
     fn biological_interpretation_gets_validate_companion() {
-        let mut dag =
-            dummy_dag_with_node("biological_interpretation", crate::atom::AtomRole::Operation);
+        let mut dag = dummy_dag_with_node(
+            "biological_interpretation",
+            crate::atom::AtomRole::Operation,
+        );
         let reg = AtomRegistry::default();
         synthesize_validate_companions(&mut dag, &reg);
         let ids: BTreeSet<String> = dag.nodes.iter().map(|n| n.id.clone()).collect();
         assert!(
             ids.contains("validate_biological_interpretation"),
             "interpretation node must receive a validate companion; got {ids:?}"
+        );
+    }
+
+    /// Workstream-B (B1) atom-contract guard: the contextualize atom's
+    /// `claim_boundary` must forbid hardcoded/from-memory Ensembl IDs and mandate
+    /// annotation/adapter-based resolution. Reads the YAML file directly (the
+    /// committed source the emitter copies verbatim) and parses it with the
+    /// crate's YAML dep so the assertion tracks the on-disk contract, not a Rust
+    /// constant. Guards the root-cause fix for the wrong-gene hallucination
+    /// (CRISPLD2 bound to the ACSL5 Ensembl id by a hardcoded map).
+    #[test]
+    fn contextualize_atom_claim_boundary_forbids_hardcoded_ensembl_ids() {
+        // Test CWD is the crate dir (crates/core); the committed atom lives at
+        // the repo root under config/stage-atoms/.
+        let yaml_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../config/stage-atoms/contextualize_findings_with_literature.yaml");
+        let raw = std::fs::read_to_string(&yaml_path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", yaml_path.display()));
+        // Parse with the crate's YAML dep so the file is confirmed to still parse
+        // (B1 "verify the YAML still parses by reading it back").
+        let doc: serde_yaml_ng::Value =
+            serde_yaml_ng::from_str(&raw).expect("contextualize atom YAML must parse");
+        let cb = doc
+            .get("claim_boundary")
+            .and_then(|v| v.as_str())
+            .expect("contextualize atom must declare a claim_boundary block");
+        let cb_l = cb.to_ascii_lowercase();
+        assert!(
+            cb_l.contains("ensembl"),
+            "claim_boundary must reference Ensembl IDs"
+        );
+        assert!(
+            cb_l.contains("must not hardcode") || cb_l.contains("do not hardcode"),
+            "claim_boundary must forbid hardcoded Ensembl IDs (a 'must not hardcode' / 'do not hardcode' clause)"
+        );
+        assert!(
+            cb_l.contains("annotation")
+                || cb_l.contains("org.hs.eg.db")
+                || cb_l.contains("adapter"),
+            "claim_boundary must mandate annotation/adapter-based resolution"
         );
     }
 

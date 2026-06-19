@@ -15,9 +15,7 @@
 //! produce the same finalized package a session-backed run produces
 //! incrementally.
 
-use crate::claim_extractor::{
-    extract_claims, extract_markdown_table_claims, ExtractorConfig,
-};
+use crate::claim_extractor::{extract_claims, extract_markdown_table_claims, ExtractorConfig};
 use crate::claim_verifier::{
     demote_claims_from_deviations, verify_claims_with_discovery, verify_structured_claims,
     ClaimVerificationReport, StructuredClaim,
@@ -137,6 +135,69 @@ pub fn verify_task_with_context(
     let structured = load_structured_claims(package_root, task_id);
     for v in verify_structured_claims(&structured, package_root, &cfg) {
         report.push(v);
+    }
+
+    // 3. Structured TSV/CSV result tables — a table-only task (qc /
+    //    normalisation / differential_expression / pathway, whose outputs are
+    //    `de_results.tsv`-style files and no `.md`/`.txt` narrative) otherwise
+    //    contributes nothing. Glob `runtime/outputs/<task>/*.tsv|*.csv`, mine
+    //    each for per-row claims, set `source_table` to the file basename, and
+    //    verify them through the same discovery path the narrative claims use.
+    //    The narrative artifact (a `.md`/`.txt`) is never matched by the
+    //    `.tsv`/`.csv` glob, but we skip it explicitly to be safe. Dedup by
+    //    `(entity, direction)` inside the verifier handles overlaps with the
+    //    narrative/markdown claims.
+    if let Some(task_dir) = resolve_task_runtime_dir_local(package_root, task_id) {
+        let tables_root = package_root.join("results").join("tables");
+        let effective_root = if tables_root.is_dir() {
+            tables_root
+        } else {
+            task_dir.clone()
+        };
+        let mut table_claims: Vec<crate::claim_extractor::Claim> = Vec::new();
+        if let Ok(rd) = std::fs::read_dir(&task_dir) {
+            // Sort entries for deterministic claim ordering (read_dir order is
+            // filesystem-dependent).
+            let mut files: Vec<PathBuf> = rd
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.is_file())
+                .collect();
+            files.sort();
+            for path in files {
+                if narrative_path.as_ref() == Some(&path) {
+                    continue;
+                }
+                let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
+                    continue;
+                };
+                let delimiter = match ext.to_ascii_lowercase().as_str() {
+                    "tsv" => b'\t',
+                    "csv" => b',',
+                    _ => continue,
+                };
+                let Ok(file) = std::fs::File::open(&path) else {
+                    continue;
+                };
+                let basename = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|s| s.to_string());
+                for mut claim in
+                    crate::claim_extractor::extract_delimited_table_claims(file, delimiter, &cfg)
+                {
+                    claim.source_table = basename.clone();
+                    table_claims.push(claim);
+                }
+            }
+        }
+        if !table_claims.is_empty() {
+            for v in
+                verify_claims_with_discovery(&table_claims, &effective_root, package_root, &cfg)
+            {
+                report.push(v);
+            }
+        }
     }
 
     // Nothing to verify: no narrative AND no structured claims. The policy
@@ -327,9 +388,12 @@ pub fn finalize_task(
             // `evaluated_at`), so rewriting it post-exec does not affect emit
             // byte-reproducibility.
             let validator = crate::wrroc_validator::NoopWrrocValidator;
-            if let Ok(doc) =
-                crate::audit_proof::run_audit_proof_with_verifier(root, &validator, &WallClock, Some(&writer))
-            {
+            if let Ok(doc) = crate::audit_proof::run_audit_proof_with_verifier(
+                root,
+                &validator,
+                &WallClock,
+                Some(&writer),
+            ) {
                 if let Ok(bytes) = serde_json::to_vec_pretty(&doc) {
                     let _ = std::fs::write(root.join("runtime/audit-proof-report.json"), bytes);
                 }
@@ -397,6 +461,26 @@ pub fn finalize_package(
             }
         }
     }
+
+    // Observability (E1): a package that finalized zero tasks is almost always
+    // emit-only / never executed (no task reached `completed`), NOT a
+    // verification failure. Distinguish the two so an emit-only
+    // `~/.ecaa-workflow` package's `claim-verification.json n_checked:0` is not
+    // mistaken for — or quoted as — a real "0 claims" result.
+    if summary.tasks_finalized == 0 {
+        let total_tasks = wf
+            .get("tasks")
+            .and_then(|t| t.as_object())
+            .map(|o| o.len())
+            .unwrap_or(0);
+        tracing::warn!(
+            target: "ecaa::finalize",
+            total_tasks,
+            "finalize_package finalized 0 tasks: package appears emit-only / not executed — \
+             claim-verification.json n_checked:0 reflects 'not run', not a verification failure"
+        );
+    }
+
     Ok(summary)
 }
 
@@ -654,7 +738,10 @@ fn load_interpretation_policy(config_dir: &Path) -> PolicyLoad {
 /// True when the interpretation policy at `config_dir` is present,
 /// parseable, and has `verifiableEntities.enabled: true`.
 pub fn default_policy_is_loadable(config_dir: &Path) -> bool {
-    matches!(load_interpretation_policy(config_dir), PolicyLoad::Loaded(_))
+    matches!(
+        load_interpretation_policy(config_dir),
+        PolicyLoad::Loaded(_)
+    )
 }
 
 /// Boot-time check: emit a loud error + telemetry signal (no panic) when
@@ -732,7 +819,8 @@ mod tests {
                         r.n_checked, r.n_verified, r.n_mismatch, r.n_unverifiable
                     );
                     for vd in &r.verdicts {
-                        if let crate::claim_verifier::ClaimStatus::Mismatch { detail } = &vd.status {
+                        if let crate::claim_verifier::ClaimStatus::Mismatch { detail } = &vd.status
+                        {
                             let ent: String = vd.claim.entity.chars().take(40).collect();
                             println!("      MISMATCH {ent}: {detail:.90}");
                         }
@@ -1092,7 +1180,10 @@ mod tests {
             r#"{"verifiableEntities":{"enabled":true}}"#,
         );
         assert!(
-            matches!(load_interpretation_policy(cfg.path()), PolicyLoad::Loaded(_)),
+            matches!(
+                load_interpretation_policy(cfg.path()),
+                PolicyLoad::Loaded(_)
+            ),
             "flat policy must load via the flat fallback"
         );
     }
@@ -1168,6 +1259,112 @@ mod tests {
             out.report.n_checked >= 1,
             "flat package-own policies must drive verification; n_checked = {}",
             out.report.n_checked
+        );
+    }
+
+    /// Config scaffold whose entityColumns include `gene_id` so a
+    /// `de_results.tsv` (header `gene_id`) both extracts (entity column) and
+    /// verifies (table-load entity column). Self-contained: does NOT depend on
+    /// the separate interpretation-policy.json change from Workstream A.
+    fn scaffold_config_dir_with_gene_id(dir: &Path) {
+        let policy_dir = dir.join("downstream-policy");
+        fs::create_dir_all(&policy_dir).unwrap();
+        write(
+            &policy_dir.join("interpretation-policy.json"),
+            r#"{
+                "schemaVersion": "1.1",
+                "targetStages": ["differential_expression"],
+                "claimBoundary": {"associativeOnly": [], "requiresEvidence": []},
+                "verifiableEntities": {
+                    "enabled": true,
+                    "entityNamePatterns": ["[A-Z][A-Z0-9]{1,}"],
+                    "directionVocab": {
+                        "up": ["upregulated", "increased"],
+                        "down": ["downregulated", "decreased"]
+                    },
+                    "effectSizeColumns": ["log2fc", "log2FC"],
+                    "entityColumns": ["gene_id", "gene"],
+                    "pvalueColumns": ["adj_pvalue", "padj"]
+                },
+                "validationContract": {"requiredOutputs": [], "metrics": []},
+                "evidenceRules": []
+            }"#,
+        );
+    }
+
+    #[test]
+    fn de_results_tsv_contributes_table_claims() {
+        // A table-only differential_expression task (no .md/.txt narrative,
+        // no result.json claims) must still contribute verifiable claims from
+        // its de_results.tsv. Self-contained: the policy here includes gene_id
+        // in entityColumns so this does not depend on the Workstream A policy
+        // change.
+        let pkg = tempdir().unwrap();
+        let cfg = tempdir().unwrap();
+        scaffold_config_dir_with_gene_id(cfg.path());
+
+        let root = pkg.path();
+        let de_dir = root
+            .join("runtime")
+            .join("outputs")
+            .join("differential_expression");
+        write(
+            &de_dir.join("de_results.tsv"),
+            "gene_id\tlog2fc\tadj_pvalue\nENSG00000103196\t2.63\t8e-60\n",
+        );
+        // Minimal WORKFLOW.json with one completed differential_expression task.
+        write(
+            &root.join("WORKFLOW.json"),
+            r#"{"tasks":{"differential_expression":{"state":{"status":"completed"}}}}"#,
+        );
+
+        let out = expect_verified(verify_task_with_context(
+            root,
+            "differential_expression",
+            cfg.path(),
+            ProjectClass::Bioinformatics,
+            &[],
+            false,
+        ));
+        assert!(
+            out.report.n_checked >= 1,
+            "de_results.tsv must contribute at least one table claim; n_checked = {}",
+            out.report.n_checked
+        );
+    }
+
+    #[test]
+    fn finalize_package_reports_zero_for_unexecuted_package() {
+        // An emit-only package whose tasks are NOT completed must finalize 0
+        // tasks — the returned summary reflects "not run", and finalize_package
+        // emits the observability warn (E1). The summary flag is the asserted
+        // contract here; the tracing warn is best-effort.
+        let pkg = tempdir().unwrap();
+        let cfg = tempdir().unwrap();
+        scaffold_config_dir(cfg.path());
+
+        let root = pkg.path();
+        // Two tasks, neither completed (emit-only / never executed).
+        write(
+            &root.join("WORKFLOW.json"),
+            r#"{"tasks":{
+                "differential_expression":{"state":{"status":"pending"}},
+                "pathway_enrichment":{"state":{"status":"pending"}}
+            }}"#,
+        );
+
+        let summary = finalize_package(
+            root,
+            cfg.path(),
+            ProjectClass::Bioinformatics,
+            &[],
+            false,
+            None,
+        )
+        .expect("finalize_package over an unexecuted package must not error");
+        assert_eq!(
+            summary.tasks_finalized, 0,
+            "an unexecuted package must finalize 0 tasks (n_checked:0 reflects 'not run')"
         );
     }
 }

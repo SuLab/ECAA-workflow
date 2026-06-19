@@ -64,6 +64,19 @@ fn table_label(path: &Path) -> String {
         .unwrap_or_else(|| "?".into())
 }
 
+/// Package-root-relative path with forward slashes (e.g.
+/// `runtime/outputs/data_acquisition/cohort_manifest.tsv`), used as a
+/// discovered claim's `source_table` so the projected `supported_by`
+/// evidence reference points at the directory the table actually lives in.
+/// Falls back to the bare file name if `path` is not under `package_root`.
+fn package_relative_label(path: &Path, package_root: &Path) -> String {
+    path.strip_prefix(package_root)
+        .ok()
+        .and_then(|p| p.to_str())
+        .map(|s| s.replace('\\', "/"))
+        .unwrap_or_else(|| table_label(path))
+}
+
 /// Per-claim verdict.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, schemars::JsonSchema)]
 #[ts(export)]
@@ -324,7 +337,8 @@ fn find_narrative_artifact(package_root: &Path, task_id: &str) -> Option<PathBuf
 /// is enabled — the extractor needs the full policy (entity name patterns,
 /// direction vocab, tolerances).
 fn load_interpretation_policy(config_dir: &Path) -> Option<serde_json::Value> {
-    let path = crate::claim_extractor::resolve_policy_file(config_dir, "interpretation-policy.json")?;
+    let path =
+        crate::claim_extractor::resolve_policy_file(config_dir, "interpretation-policy.json")?;
     let raw = std::fs::read_to_string(&path).ok()?;
     serde_json::from_str(&raw).ok()
 }
@@ -813,7 +827,9 @@ fn verify_one(
                             .and_then(|raw| raw.parse::<f64>().ok())
                     })
                     .filter(|v| v.is_finite())
-                    .fold(None, |acc: Option<f64>, v| Some(acc.map_or(v, |a: f64| a.max(v))));
+                    .fold(None, |acc: Option<f64>, v| {
+                        Some(acc.map_or(v, |a: f64| a.max(v)))
+                    });
                 let non_significant = max_p.map_or(true, |p| p >= 0.05);
                 if non_significant {
                     return ClaimStatus::Unverifiable {
@@ -1186,7 +1202,14 @@ pub fn parse_table_rows_from_reader<R: Read>(
             let needle = normalize(col);
             header_norm.iter().position(|h| h == &needle)
         })
-        .ok_or_else(|| anyhow!("no configured entity column in headers {:?}", headers))?;
+        .unwrap_or_else(|| {
+            tracing::warn!(
+                target: "ecaa::claim_verifier",
+                headers = ?headers,
+                "no configured entity column matched; falling back to first column as entity"
+            );
+            0
+        });
 
     let mut rows: Vec<TableRow> = Vec::new();
     for record in csv_reader.records() {
@@ -1406,8 +1429,8 @@ fn load_literature_rows(path: &Path) -> Result<Vec<LiteratureRow>> {
     };
     let finding_idx = col("finding_id")
         .ok_or_else(|| anyhow!("claims_evidence_matrix.csv missing finding_id column"))?;
-    let entity_idx = col("entity")
-        .ok_or_else(|| anyhow!("claims_evidence_matrix.csv missing entity column"))?;
+    let entity_idx =
+        col("entity").ok_or_else(|| anyhow!("claims_evidence_matrix.csv missing entity column"))?;
     let pmids_idx = col("prior_pmids");
     let flag_idx = col("concordance_flag");
     let source_idx = col("source_kind");
@@ -1417,7 +1440,10 @@ fn load_literature_rows(path: &Path) -> Result<Vec<LiteratureRow>> {
     for record in reader.records() {
         let record = record?;
         let get = |i: Option<usize>| -> String {
-            i.and_then(|k| record.get(k)).unwrap_or("").trim().to_string()
+            i.and_then(|k| record.get(k))
+                .unwrap_or("")
+                .trim()
+                .to_string()
         };
         let prior_pmids = pmids_idx
             .and_then(|k| record.get(k))
@@ -1433,7 +1459,10 @@ fn load_literature_rows(path: &Path) -> Result<Vec<LiteratureRow>> {
             prior_pmids,
             concordance_flag: get(flag_idx),
             source_kind: get(source_idx),
-            verified: matches!(get(verified_idx).to_ascii_lowercase().as_str(), "true" | "1"),
+            verified: matches!(
+                get(verified_idx).to_ascii_lowercase().as_str(),
+                "true" | "1"
+            ),
         });
     }
     Ok(rows)
@@ -1492,9 +1521,12 @@ fn verify_literature_grounded_at(
             reason: "literature-grounded claim carries no finding_id / cited PMIDs".into(),
         };
     };
-    let Some(matrix_path) =
-        resolve_evidence_literature(package_root, &evidence.finding_id, &evidence.cited_pmids, cfg)
-    else {
+    let Some(matrix_path) = resolve_evidence_literature(
+        package_root,
+        &evidence.finding_id,
+        &evidence.cited_pmids,
+        cfg,
+    ) else {
         return ClaimStatus::Unverifiable {
             reason: "claims_evidence_matrix.csv not found in package".into(),
         };
@@ -1529,7 +1561,10 @@ fn verify_literature_grounded_at(
 
     // Any matched row asserting opposite-direction prior literature contradicts
     // a concordance claim → Mismatch.
-    if matched.iter().any(|r| r.concordance_flag == "opposite_direction") {
+    if matched
+        .iter()
+        .any(|r| r.concordance_flag == "opposite_direction")
+    {
         return ClaimStatus::Mismatch {
             detail: format!(
                 "literature: matrix records opposite-direction prior finding for `{}`",
@@ -2191,7 +2226,15 @@ pub fn verify_claims_with_discovery(
                         Ok(t) => {
                             cache.insert((*cand).clone(), t);
                         }
-                        Err(_) => return false,
+                        Err(e) => {
+                            tracing::warn!(
+                                target: "ecaa::claim_verifier",
+                                table = %cand.display(),
+                                error = %e,
+                                "result table failed to load during claim discovery; excluding it"
+                            );
+                            return false;
+                        }
                     }
                 }
                 cache
@@ -2214,7 +2257,13 @@ pub fn verify_claims_with_discovery(
             let mut chosen = claim.clone();
             for path in &containing {
                 let mut c = claim.clone();
-                c.source_table = Some(table_label(path));
+                // D1: record the table as a package-root-relative path (it
+                // contains `/`), so the evidence reference projected into
+                // `supported_by` points at the directory the table actually
+                // lives in (e.g. data_acquisition/) rather than being
+                // re-prefixed with the *claim's* own task id. `evidence_ref_for`
+                // passes a path containing `/` through verbatim.
+                c.source_table = Some(package_relative_label(path, package_root));
                 let idx = TableIndex::single(path);
                 let status = verify_for_contract(&c, &idx, cfg, &mut cache);
                 let verified = matches!(status, ClaimStatus::Verified);
@@ -2253,6 +2302,50 @@ mod tests {
     use crate::decision_log::{DecisionActor, DecisionRecord, DecisionType};
     use serde_json::json;
     use tempfile::tempdir;
+
+    /// D1: a claim discovered against a table that physically lives under a
+    /// DIFFERENT task directory must record that table as a package-relative
+    /// path (so the projected `supported_by` points at the real directory),
+    /// not a bare basename that would be re-prefixed with the claim's task id.
+    /// D1: a claim discovered against a table that physically lives under a
+    /// DIFFERENT task directory must record that table as a package-relative
+    /// path, so the projected `supported_by` points at the real directory
+    /// instead of being re-prefixed with the claim's own task id.
+    #[test]
+    fn discovered_source_table_is_package_relative_path() {
+        let pkg = tempdir().unwrap();
+        let acq = pkg
+            .path()
+            .join("runtime")
+            .join("outputs")
+            .join("data_acquisition");
+        std::fs::create_dir_all(&acq).unwrap();
+        // entity column `gene`, plus an effect-size slot so the row verifies.
+        std::fs::write(
+            acq.join("cohort_manifest.tsv"),
+            "gene\tlog2FC\nCRISPLD2\t2.6\n",
+        )
+        .unwrap();
+
+        let cfg = cfg_with_entity_cols(&["gene", "gene_id"]);
+        // No cited source_table -> the claim goes through table discovery.
+        let claim = Claim {
+            entity: "CRISPLD2".into(),
+            direction: Some(Direction::Up),
+            effect_size: Some(2.6),
+            pvalue: None,
+            source_table: None,
+            excerpt: "CRISPLD2 is present.".into(),
+            contract: ClaimContract::NumericTableLookup,
+            literature_evidence: None,
+        };
+        let verdicts = verify_claims_with_discovery(&[claim], pkg.path(), pkg.path(), &cfg);
+        let st = verdicts[0].claim.source_table.as_deref().unwrap_or("");
+        assert_eq!(
+            st, "runtime/outputs/data_acquisition/cohort_manifest.tsv",
+            "discovered source_table must be the package-relative path to the real dir, got {st:?}"
+        );
+    }
 
     #[test]
     fn demote_claims_skips_non_confirmatory_sessions() {
@@ -2572,11 +2665,19 @@ mod tests {
     }
 
     #[test]
-    fn parse_table_rows_from_reader_errors_on_missing_entity_column() {
+    fn parse_table_rows_from_reader_falls_back_to_first_column() {
+        // No header matches the configured entity columns, so the parser must
+        // fall back to column 0 as the entity (logging a warn) instead of
+        // erroring — defense-in-depth for tables whose first column is the
+        // entity under an unlisted header name.
         let tsv = "some_other\tvalue\nFOO\t1\n";
         let cols = vec!["gene".to_string(), "symbol".to_string()];
-        let err = parse_table_rows_from_reader(tsv.as_bytes(), b'\t', &cols).unwrap_err();
-        assert!(err.to_string().contains("no configured entity column"));
+        let rows = parse_table_rows_from_reader(tsv.as_bytes(), b'\t', &cols).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            rows[0].entity, "FOO",
+            "first column is used as entity fallback"
+        );
     }
 
     // ── Per-contract dispatch tests (E17) ────────────────────────────────
@@ -3120,6 +3221,59 @@ mod tests {
         );
     }
 
+    /// Build an `ExtractorConfig` from the test `policy_json()` with its entity
+    /// columns overridden so a `gene_id`-headed DE table loads (mirrors the
+    /// production A1 policy edit without touching the committed policy file).
+    fn cfg_with_entity_cols(cols: &[&str]) -> ExtractorConfig {
+        let mut cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        cfg.entity_columns = cols.iter().map(|c| c.to_string()).collect();
+        cfg
+    }
+
+    #[test]
+    fn discovery_skips_unloadable_table_but_uses_good_sibling() {
+        // A candidate table that fails to load (genuinely unparseable bytes)
+        // must be excluded *and logged* (A2), and discovery must still resolve
+        // the claim against a good sibling table rather than reporting it
+        // Unverifiable because of the bad sibling.
+        let tmp = tempdir().unwrap();
+        let outputs = tmp.path().join("runtime").join("outputs").join("de");
+        std::fs::create_dir_all(&outputs).unwrap();
+        // Bad table: invalid UTF-8 header bytes — `load_table_rows` errors even
+        // after the A3 first-column fallback (the fallback only handles an
+        // *unmatched* header, not an unparseable one), so this exercises the A2
+        // warn-and-exclude path rather than silently masquerading as "entity
+        // absent".
+        std::fs::write(outputs.join("broken.tsv"), b"\xff\xfe\tcol\nX\t1\n").unwrap();
+        // Good table: gene_id + log2FC + padj, containing CRISPLD2 upregulated.
+        std::fs::write(
+            outputs.join("de_results.tsv"),
+            "gene_id\tlog2FC\tpadj\nCRISPLD2\t2.6\t1e-60\n",
+        )
+        .unwrap();
+        let cfg = cfg_with_entity_cols(&["gene_id", "gene"]);
+        let claim = Claim {
+            entity: "CRISPLD2".into(),
+            direction: Some(Direction::Up),
+            effect_size: Some(2.6),
+            pvalue: None,
+            source_table: None,
+            excerpt: "CRISPLD2 was upregulated".into(),
+            contract: ClaimContract::NumericTableLookup,
+            literature_evidence: None,
+        };
+        let v = verify_claims_with_discovery(&[claim], tmp.path(), tmp.path(), &cfg);
+        assert!(
+            matches!(
+                v[0].status,
+                ClaimStatus::Verified | ClaimStatus::Mismatch { .. }
+            ),
+            "CRISPLD2 must resolve against de_results.tsv even though broken.tsv \
+             fails to load; got {:?}",
+            v[0].status
+        );
+    }
+
     #[test]
     fn discovery_prefers_any_agreeing_table() {
         // Entity present in two tables with different values; the claim
@@ -3220,10 +3374,18 @@ mod tests {
         // direction is not mechanically determinable.
         let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
         let tmp = tempdir().unwrap();
-        write_table(tmp.path(), "de_s1.tsv", "gene\tlog2FC\tpadj\nACAN\t0.3\t0.70\n");
+        write_table(
+            tmp.path(),
+            "de_s1.tsv",
+            "gene\tlog2FC\tpadj\nACAN\t0.3\t0.70\n",
+        );
         let claims = extract_claims("ACAN was upregulated (Table S1).", &cfg);
         let report = verify_claims(&claims, tmp.path(), &cfg);
-        let v = report.verdicts.iter().find(|v| v.claim.entity == "ACAN").unwrap();
+        let v = report
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "ACAN")
+            .unwrap();
         assert!(
             matches!(v.status, ClaimStatus::Unverifiable { .. }),
             "non-sig near-zero direction must be Unverifiable, got {:?}",
@@ -3238,10 +3400,18 @@ mod tests {
         // established can be neither confirmed nor refuted.
         let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
         let tmp = tempdir().unwrap();
-        write_table(tmp.path(), "de_s1.tsv", "gene\tlog2FC\tpadj\nACAN\t0.3\t0.70\n");
+        write_table(
+            tmp.path(),
+            "de_s1.tsv",
+            "gene\tlog2FC\tpadj\nACAN\t0.3\t0.70\n",
+        );
         let claims = extract_claims("ACAN was downregulated (Table S1).", &cfg);
         let report = verify_claims(&claims, tmp.path(), &cfg);
-        let v = report.verdicts.iter().find(|v| v.claim.entity == "ACAN").unwrap();
+        let v = report
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "ACAN")
+            .unwrap();
         assert!(
             matches!(v.status, ClaimStatus::Unverifiable { .. }),
             "contradicting direction on non-sig near-zero must be Unverifiable, got {:?}",
@@ -3255,10 +3425,18 @@ mod tests {
         // significant effect keeps a determinable direction.
         let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
         let tmp = tempdir().unwrap();
-        write_table(tmp.path(), "de_s1.tsv", "gene\tlog2FC\tpadj\nACAN\t0.3\t0.001\n");
+        write_table(
+            tmp.path(),
+            "de_s1.tsv",
+            "gene\tlog2FC\tpadj\nACAN\t0.3\t0.001\n",
+        );
         let claims = extract_claims("ACAN was upregulated (Table S1).", &cfg);
         let report = verify_claims(&claims, tmp.path(), &cfg);
-        let v = report.verdicts.iter().find(|v| v.claim.entity == "ACAN").unwrap();
+        let v = report
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "ACAN")
+            .unwrap();
         assert!(
             matches!(v.status, ClaimStatus::Verified),
             "significant near-zero up-claim should verify, got {:?}",
@@ -3371,8 +3549,11 @@ mod tests {
             "finding_id,entity,prior_pmids,concordance_flag,source_kind,verified\n\
              finding_42,TP53,12345678;23456789,same_direction,pmc_oa_full_text,true\n",
         );
-        let status =
-            verify_literature_grounded_at(&lit_claim("finding_42", vec![12345678]), tmp.path(), &cfg);
+        let status = verify_literature_grounded_at(
+            &lit_claim("finding_42", vec![12345678]),
+            tmp.path(),
+            &cfg,
+        );
         assert!(matches!(status, ClaimStatus::Verified), "{status:?}");
     }
 
@@ -3428,7 +3609,10 @@ mod tests {
             tmp.path(),
             &cfg,
         );
-        assert!(matches!(status, ClaimStatus::Unverifiable { .. }), "{status:?}");
+        assert!(
+            matches!(status, ClaimStatus::Unverifiable { .. }),
+            "{status:?}"
+        );
     }
 
     #[test]
@@ -3443,7 +3627,10 @@ mod tests {
         let mut claim = lit_claim("finding_42", vec![12345678]);
         claim.literature_evidence = None;
         let status = verify_literature_grounded_at(&claim, tmp.path(), &cfg);
-        assert!(matches!(status, ClaimStatus::Unverifiable { .. }), "{status:?}");
+        assert!(
+            matches!(status, ClaimStatus::Unverifiable { .. }),
+            "{status:?}"
+        );
     }
 
     #[test]
@@ -3530,23 +3717,39 @@ mod tests {
     fn aggregate_n_unverifiable_when_not_count_shaped() {
         let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
         let tmp = tempdir().unwrap();
-        write_pkg_table(tmp.path(), "de", "de.tsv", "gene\tlog2FC\tpadj\nA\t2.0\t0.001\n");
+        write_pkg_table(
+            tmp.path(),
+            "de",
+            "de.tsv",
+            "gene\tlog2FC\tpadj\nA\t2.0\t0.001\n",
+        );
         let table = resolve_evidence_table(tmp.path(), "de.tsv").unwrap();
         let status =
             verify_aggregate_n_in_range("the analysis was performed", &table, &cfg, 1.0, 100.0);
-        assert!(matches!(status, ClaimStatus::Unverifiable { .. }), "{status:?}");
+        assert!(
+            matches!(status, ClaimStatus::Unverifiable { .. }),
+            "{status:?}"
+        );
     }
 
     #[test]
     fn narrative_must_state_threshold() {
         let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
         let tmp = tempdir().unwrap();
-        write_pkg_table(tmp.path(), "de", "de.tsv", "gene\tlog2FC\tpadj\nA\t2.0\t0.001\n");
+        write_pkg_table(
+            tmp.path(),
+            "de",
+            "de.tsv",
+            "gene\tlog2FC\tpadj\nA\t2.0\t0.001\n",
+        );
         let table = resolve_evidence_table(tmp.path(), "de.tsv").unwrap();
         // No "padj < X" stated → Unverifiable (the SME never declared the cut).
         let status =
             verify_narrative_threshold_honored("we report the significant genes", &table, &cfg);
-        assert!(matches!(status, ClaimStatus::Unverifiable { .. }), "{status:?}");
+        assert!(
+            matches!(status, ClaimStatus::Unverifiable { .. }),
+            "{status:?}"
+        );
     }
 
     #[test]

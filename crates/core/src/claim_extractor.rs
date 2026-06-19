@@ -57,7 +57,10 @@ use crate::claim_contract::ClaimContract;
 /// Because the `downstream-policy/` subdir is tried FIRST, this is purely
 /// ADDITIVE: any caller passing a repo `config/` (server, tests) is unaffected.
 /// Returns `None` when neither location holds the file.
-pub fn resolve_policy_file(config_dir: &std::path::Path, filename: &str) -> Option<std::path::PathBuf> {
+pub fn resolve_policy_file(
+    config_dir: &std::path::Path,
+    filename: &str,
+) -> Option<std::path::PathBuf> {
     let nested = config_dir.join("downstream-policy").join(filename);
     if nested.is_file() {
         return Some(nested);
@@ -763,6 +766,13 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
                 continue;
             }
             seen.insert(key);
+            // Note: report-control ALLCAPS noise (PASS/FAIL/GATING/…) is removed
+            // precisely by the policy `entityNameExcludePatterns` deny-list, not
+            // by a slot heuristic. A real gene symbol mentioned in prose with no
+            // inline number is deliberately KEPT as a candidate claim: the
+            // discovery verifier resolves it against the result tables by entity
+            // membership (now that the DE table loads), so dropping it here would
+            // reduce verifiable-claim recall — the opposite of the intent.
             let literature_evidence = if contract == ClaimContract::LiteratureGrounded {
                 Some(LiteratureEvidence {
                     finding_id: ent_name.clone(),
@@ -824,100 +834,7 @@ pub fn extract_markdown_table_claims(text: &str, cfg: &ExtractorConfig) -> Vec<C
             i += 1;
             continue;
         }
-        // Map header columns to roles by EXACT cleaned-header match. A
-        // substring test wrongly maps count / annotation columns: e.g.
-        // "Top up-gene" contains "gene" and "N sig (FDR<0.05)" contains
-        // "fdr", which would mis-read a cluster-summary table as per-gene
-        // DE rows and emit false claims. `clean_header` lowercases, drops
-        // any "(…)" qualifier, and normalizes separators so a header is
-        // matched only when it *names* the role.
-        let clean: Vec<String> = headers.iter().map(|h| clean_header(h)).collect();
-        let find_col = |variants: &[&str], cfg_cols: &[String]| -> Option<usize> {
-            clean.iter().position(|h| {
-                variants.iter().any(|v| h == v) || cfg_cols.iter().any(|c| clean_header(c) == *h)
-            })
-        };
-        let entity_idx = find_col(
-            &[
-                "gene",
-                "gene id",
-                "gene name",
-                "gene symbol",
-                "feature",
-                "feature id",
-                "symbol",
-                "term",
-                "id",
-                "name",
-                "protein",
-                "protein id",
-                "peak",
-                "peak id",
-                "region",
-                "taxon",
-                "taxon id",
-                "taxon name",
-                "otu",
-                "otu id",
-                "asv",
-                "cpg",
-                "cpg id",
-                "site",
-                "probe",
-                "probe id",
-                "variant",
-                "snp",
-                "rsid",
-                "transcript",
-                "transcript id",
-                "uniprot",
-                "accession",
-                "entity",
-            ],
-            &cfg.entity_columns,
-        );
-        let effect_idx = find_col(
-            &[
-                "log2fc",
-                "log2 fc",
-                "logfc",
-                "log fc",
-                "logfoldchange",
-                "log2foldchange",
-                "log2 fold change",
-                "log fold change",
-                "lfc",
-                "fold change",
-                "nes",
-                "effect size",
-                "effect",
-                "estimate",
-                "beta",
-                "es",
-            ],
-            &cfg.effect_size_columns,
-        );
-        let pvalue_idx = find_col(
-            &[
-                "padj",
-                "p adj",
-                "p adjust",
-                "adj p",
-                "adj p val",
-                "adj p value",
-                "adjusted p value",
-                "fdr",
-                "q value",
-                "qvalue",
-                "q val",
-                "pvalue",
-                "p value",
-                "pval",
-                "fdr q value",
-            ],
-            &cfg.pvalue_columns,
-        );
-        let Some(entity_idx) = entity_idx else {
+        let Some(roles) = table_column_roles(&headers, cfg) else {
             i += 2;
             continue;
         };
@@ -929,49 +846,244 @@ pub fn extract_markdown_table_claims(text: &str, cfg: &ExtractorConfig) -> Vec<C
             if cells.len() != headers.len() {
                 break;
             }
-            if let Some(raw_entity) = cells.get(entity_idx) {
-                if let Some(entity) = matched_entity_token(raw_entity, cfg) {
-                    let effect_size = effect_idx
-                        .and_then(|k| cells.get(k))
-                        .and_then(|c| parse_leading_number(c));
-                    let pvalue = pvalue_idx
-                        .and_then(|k| cells.get(k))
-                        .and_then(|c| parse_leading_number(c));
-                    let direction = effect_size.map(|e| {
-                        if e >= 0.0 {
-                            Direction::Up
-                        } else {
-                            Direction::Down
-                        }
-                    });
-                    // Re-scan the row text for key=value numerics too, in
-                    // case the agent wrote "log2FC=…" inside a cell.
-                    let row_text = lines[j];
-                    let effect_size = effect_size.or_else(|| {
-                        scan_effect_size_positions(row_text, &regex_cache)
-                            .first()
-                            .map(|(_, v)| *v)
-                    });
-                    let pvalue = pvalue.or_else(|| {
-                        scan_pvalue_positions(row_text, &regex_cache)
-                            .first()
-                            .map(|(_, v)| *v)
-                    });
-                    out.push(Claim {
-                        entity,
-                        direction,
-                        effect_size,
-                        pvalue,
-                        source_table: None,
-                        excerpt: lines[j].trim().to_string(),
-                        contract: ClaimContract::NumericTableLookup,
-                        literature_evidence: None,
-                    });
-                }
+            // Re-scan the raw row text for key=value numerics too, in case
+            // the agent wrote "log2FC=…" inside a cell; `None` source_table
+            // because markdown rows carry no "Table S1" citation (the
+            // verifier's discovery step resolves the backing file).
+            if let Some(claim) =
+                claim_from_table_row(&cells, &roles, lines[j], None, cfg, &regex_cache)
+            {
+                out.push(claim);
             }
             j += 1;
         }
         i = j.max(i + 2);
+    }
+    out
+}
+
+/// Column-role indices for a result table: which header column carries the
+/// entity, the effect size, and the p-value. Produced by
+/// [`table_column_roles`] and consumed by [`claim_from_table_row`] so the
+/// markdown-table and delimited-file (TSV/CSV) extractors share one mapping
+/// and one per-row emission path.
+struct TableColumnRoles {
+    entity_idx: usize,
+    effect_idx: Option<usize>,
+    pvalue_idx: Option<usize>,
+}
+
+/// Map header cells to entity / effect-size / p-value roles by EXACT
+/// cleaned-header match. A substring test wrongly maps count / annotation
+/// columns: e.g. "Top up-gene" contains "gene" and "N sig (FDR<0.05)"
+/// contains "fdr", which would mis-read a cluster-summary table as per-gene
+/// DE rows and emit false claims. `clean_header` lowercases, drops any
+/// "(…)" qualifier, and normalizes separators so a header is matched only
+/// when it *names* the role. Returns `None` when no entity column is found
+/// (a table with no recognizable entity yields no claims).
+fn table_column_roles(headers: &[String], cfg: &ExtractorConfig) -> Option<TableColumnRoles> {
+    let clean: Vec<String> = headers.iter().map(|h| clean_header(h)).collect();
+    let find_col = |variants: &[&str], cfg_cols: &[String]| -> Option<usize> {
+        clean.iter().position(|h| {
+            variants.iter().any(|v| h == v) || cfg_cols.iter().any(|c| clean_header(c) == *h)
+        })
+    };
+    let entity_idx = find_col(
+        &[
+            "gene",
+            "gene id",
+            "gene name",
+            "gene symbol",
+            "feature",
+            "feature id",
+            "symbol",
+            "term",
+            "id",
+            "name",
+            "protein",
+            "protein id",
+            "peak",
+            "peak id",
+            "region",
+            "taxon",
+            "taxon id",
+            "taxon name",
+            "otu",
+            "otu id",
+            "asv",
+            "cpg",
+            "cpg id",
+            "site",
+            "probe",
+            "probe id",
+            "variant",
+            "snp",
+            "rsid",
+            "transcript",
+            "transcript id",
+            "uniprot",
+            "accession",
+            "entity",
+        ],
+        &cfg.entity_columns,
+    )?;
+    let effect_idx = find_col(
+        &[
+            "log2fc",
+            "log2 fc",
+            "logfc",
+            "log fc",
+            "logfoldchange",
+            "log2foldchange",
+            "log2 fold change",
+            "log fold change",
+            "lfc",
+            "fold change",
+            "nes",
+            "effect size",
+            "effect",
+            "estimate",
+            "beta",
+            "es",
+        ],
+        &cfg.effect_size_columns,
+    );
+    let pvalue_idx = find_col(
+        &[
+            "padj",
+            "p adj",
+            "p adjust",
+            "adj p",
+            "adj p val",
+            "adj p value",
+            "adjusted p value",
+            "fdr",
+            "q value",
+            "qvalue",
+            "q val",
+            "pvalue",
+            "p value",
+            "pval",
+            "fdr q value",
+        ],
+        &cfg.pvalue_columns,
+    );
+    Some(TableColumnRoles {
+        entity_idx,
+        effect_idx,
+        pvalue_idx,
+    })
+}
+
+/// Build one `NumericTableLookup` [`Claim`] from a single result-table row,
+/// or `None` if the row's entity cell does not match a configured entity
+/// pattern or the row carries no checkable numeric slot. `row_text` is the
+/// raw line, re-scanned for in-cell `log2FC=…` key/value numerics.
+/// `source_table` is the file basename for a delimited file (so the verifier
+/// reads the cited table directly) or `None` for a markdown row (so the
+/// verifier's discovery step resolves the backing file). Applies the same
+/// all-`None` guard as the prose path: a row with a recognized entity but no
+/// direction / effect size / p-value is unverifiable noise and is dropped.
+fn claim_from_table_row(
+    cells: &[String],
+    roles: &TableColumnRoles,
+    row_text: &str,
+    source_table: Option<String>,
+    cfg: &ExtractorConfig,
+    regex_cache: &ExtractorRegexCache,
+) -> Option<Claim> {
+    let raw_entity = cells.get(roles.entity_idx)?;
+    let entity = matched_entity_token(raw_entity, cfg)?;
+    let effect_size = roles
+        .effect_idx
+        .and_then(|k| cells.get(k))
+        .and_then(|c| parse_leading_number(c));
+    let pvalue = roles
+        .pvalue_idx
+        .and_then(|k| cells.get(k))
+        .and_then(|c| parse_leading_number(c));
+    let direction = effect_size.map(|e| {
+        if e >= 0.0 {
+            Direction::Up
+        } else {
+            Direction::Down
+        }
+    });
+    // Re-scan the row text for key=value numerics too, in case the agent
+    // wrote "log2FC=…" inside a cell.
+    let effect_size = effect_size.or_else(|| {
+        scan_effect_size_positions(row_text, regex_cache)
+            .first()
+            .map(|(_, v)| *v)
+    });
+    let pvalue = pvalue.or_else(|| {
+        scan_pvalue_positions(row_text, regex_cache)
+            .first()
+            .map(|(_, v)| *v)
+    });
+    // C2 all-None guard: a row whose entity matched but that has no
+    // direction, effect size, or p-value carries nothing for the verifier
+    // to check (markdown rows always have source_table=None, so it is not
+    // part of the test). Drop it as unverifiable noise rather than emitting
+    // a bare claim.
+    if direction.is_none() && effect_size.is_none() && pvalue.is_none() {
+        return None;
+    }
+    Some(Claim {
+        entity,
+        direction,
+        effect_size,
+        pvalue,
+        source_table,
+        excerpt: row_text.trim().to_string(),
+        contract: ClaimContract::NumericTableLookup,
+        literature_evidence: None,
+    })
+}
+
+/// Mine a delimited (TSV/CSV) result table for per-row claims.
+///
+/// Reads `reader` as a delimited table (header row + data rows, split on
+/// `delimiter`), maps the header columns to entity / effect-size / p-value
+/// roles by name (shared with [`extract_markdown_table_claims`] via
+/// [`table_column_roles`]), and emits one [`ClaimContract::NumericTableLookup`]
+/// [`Claim`] per data row whose entity cell matches a configured entity
+/// pattern AND that carries at least one numeric slot (the C2 all-`None`
+/// guard, applied in [`claim_from_table_row`]). Each emitted claim's
+/// `source_table` is left `None` here; the caller (`finalize.rs`) sets it to
+/// the file's basename so the verifier reads the cited table directly. Reuses
+/// the same `matched_entity_token` / `scan_effect_size_positions` /
+/// `scan_pvalue_positions` helpers as the prose and markdown paths.
+pub fn extract_delimited_table_claims<R: std::io::Read>(
+    reader: R,
+    delimiter: u8,
+    cfg: &ExtractorConfig,
+) -> Vec<Claim> {
+    let regex_cache = ExtractorRegexCache::build(cfg);
+    let mut csv_reader = csv::ReaderBuilder::new()
+        .delimiter(delimiter)
+        .has_headers(true)
+        .flexible(true)
+        .from_reader(reader);
+    let Ok(header_record) = csv_reader.headers() else {
+        return Vec::new();
+    };
+    let headers: Vec<String> = header_record.iter().map(|h| h.to_string()).collect();
+    let Some(roles) = table_column_roles(&headers, cfg) else {
+        return Vec::new();
+    };
+    let mut out: Vec<Claim> = Vec::new();
+    for record in csv_reader.records().flatten() {
+        let cells: Vec<String> = record.iter().map(|c| c.to_string()).collect();
+        // Canonicalize the row so Unicode scientific notation / minus signs
+        // parse the same way the prose and markdown paths do.
+        let row_text = canonicalize_scientific(&cells.join(" "));
+        let canon_cells: Vec<String> = cells.iter().map(|c| canonicalize_scientific(c)).collect();
+        if let Some(claim) =
+            claim_from_table_row(&canon_cells, &roles, &row_text, None, cfg, &regex_cache)
+        {
+            out.push(claim);
+        }
     }
     out
 }
@@ -1254,7 +1366,9 @@ mod tests {
             Some(flat.clone())
         );
         // Both present → downstream-policy/ wins (server precedence unchanged).
-        let nested = dir.join("downstream-policy").join("interpretation-policy.json");
+        let nested = dir
+            .join("downstream-policy")
+            .join("interpretation-policy.json");
         std::fs::create_dir_all(nested.parent().unwrap()).unwrap();
         std::fs::write(&nested, "{}").unwrap();
         assert_eq!(
@@ -1634,7 +1748,9 @@ mod tests {
         // A PMID citation token marks the sentence as a literature-support
         // claim, verified against the PMID-anchored evidence matrix.
         assert_eq!(
-            classify_contract("TP53 dysregulation is concordant with prior reports (PMID 12345678)"),
+            classify_contract(
+                "TP53 dysregulation is concordant with prior reports (PMID 12345678)"
+            ),
             ClaimContract::LiteratureGrounded,
         );
         assert_eq!(
@@ -1736,5 +1852,79 @@ mod tests {
         let cfg = ExtractorConfig::from_policy(&p).unwrap();
         assert_eq!(cfg.literature_min_papers, 3);
         assert_eq!(cfg.literature_min_sources, 2);
+    }
+
+    #[test]
+    fn report_control_token_denylisted_but_bare_gene_mention_kept() {
+        // Report-control noise ("GATING") is removed by the policy
+        // `entityNameExcludePatterns` deny-list — the precise mechanism, not a
+        // slot heuristic. A real gene mentioned in prose with NO inline number
+        // ("ACTB") must still be KEPT: the discovery verifier resolves it
+        // against the result tables by entity membership, so dropping bare
+        // mentions would reduce verifiable-claim recall. CRISPLD2, which also
+        // carries an effect size, survives with that slot populated.
+        let mut p = policy_json();
+        p["verifiableEntities"]["entityNameExcludePatterns"] = json!(["^GATING$"]);
+        let cfg = ExtractorConfig::from_policy(&p).unwrap();
+        let claims = extract_claims(
+            "The GATING step ran. ACTB is a housekeeping gene. \
+             CRISPLD2 was upregulated (log2FC=2.6, Table S1).",
+            &cfg,
+        );
+        let entities: Vec<&str> = claims.iter().map(|c| c.entity.as_str()).collect();
+        assert!(
+            !entities.contains(&"GATING"),
+            "deny-listed report token must be excluded: {entities:?}"
+        );
+        assert!(
+            entities.contains(&"ACTB"),
+            "a real gene mentioned with no inline number must still be extracted \
+             (discovery verifies it): {entities:?}"
+        );
+        assert!(
+            claims
+                .iter()
+                .any(|c| c.entity == "CRISPLD2" && c.effect_size.is_some()),
+            "CRISPLD2 with an effect size must survive: {:?}",
+            claims
+        );
+    }
+
+    #[test]
+    fn delimited_tsv_yields_per_row_claims() {
+        // A bare TSV result table (no markdown pipes) must produce one
+        // NumericTableLookup claim per row that has a recognized entity and a
+        // numeric slot.
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tsv = "gene\tlog2FC\tpadj\nACAN\t-4.606\t1.49e-159\nCOL2A1\t2.889\t7.48e-110\n";
+        let claims = extract_delimited_table_claims(tsv.as_bytes(), b'\t', &cfg);
+        let acan = claims.iter().find(|c| c.entity == "ACAN").unwrap();
+        assert!(
+            (acan.effect_size.unwrap() + 4.606).abs() < 1e-6,
+            "{:?}",
+            acan
+        );
+        assert!(
+            (acan.pvalue.unwrap() - 1.49e-159).abs() < 1e-165,
+            "{:?}",
+            acan
+        );
+        assert_eq!(acan.direction, Some(Direction::Down));
+        assert_eq!(acan.contract, ClaimContract::NumericTableLookup);
+        assert!(claims.iter().any(|c| c.entity == "COL2A1"));
+    }
+
+    #[test]
+    fn delimited_csv_drops_rows_with_no_numeric_slot() {
+        // A CSV with an entity column but no recognized numeric column must
+        // emit nothing (the C2 all-None guard).
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let csv = "gene,note\nACAN,present\nCOL2A1,absent\n";
+        let claims = extract_delimited_table_claims(csv.as_bytes(), b',', &cfg);
+        assert!(
+            claims.is_empty(),
+            "rows with no numeric slot must yield no claims: {:?}",
+            claims.iter().map(|c| &c.entity).collect::<Vec<_>>()
+        );
     }
 }

@@ -6,6 +6,7 @@ mod assumption_policy_schema;
 mod authority_provenance;
 mod blocker_variant_count;
 mod boundary_actionability_coverage;
+mod claim_entity_coverage;
 mod compatibility_proof_evidence;
 mod config_parse;
 mod cost_arithmetic;

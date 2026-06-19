@@ -91,6 +91,7 @@ validators:
   - redistributable_or_marked
   - claim_row_has_finding_id
   - concordance_flag_in_closed_set
+  - gene_symbol_ensembl_consistent
 figure_exempt:
   reason: "Structured-text outputs only."
   category: non_plottable
@@ -137,3 +138,14 @@ claim_boundary: |
   unretrieved PMID is an unsupported claim and will block the workflow. Record
   every PMID you DO cite as an entry in THIS task's evidence/manifest.json
   (reuse the upstream snapshot path) so downstream validation resolves it.
+
+  Gene-identity rule (MANDATORY): gene symbols MUST be resolved to Ensembl IDs
+  using the run's pinned genome annotation (org.Hs.eg.db / biomaRt at the
+  package's Ensembl release), OR by joining on the Ensembl IDs already present
+  in the upstream differential-expression table (de_results.tsv gene_id column).
+  You MUST NOT hardcode Ensembl IDs and you MUST NOT recall them from memory; do
+  not embed a literal symbol→Ensembl map in the script. You MUST NOT fall back to
+  a literal ID when a lookup fails — on lookup failure, mark the gene unresolved
+  rather than guessing. Resolution goes through the pinned annotation/adapter or
+  the upstream table only. Every emitted finding_id must be an Ensembl ID that
+  appears in the upstream DE table or is explicitly flagged absent.

@@ -1656,6 +1656,182 @@ pub fn run_doc_page_matches_tool(
 }
 
 // ============================================================================
+// Runner 8: gene_symbol_ensembl_consistent (Workstream B — committed,
+//           INDEPENDENT gene-symbol↔Ensembl identity cross-check)
+// ============================================================================
+//
+// `ValidatorOutcome` is imported at the trait-wrappers section below
+// (`use crate::validators::{ValidatorOutcome, ValidatorRunner};`), which is
+// module-scoped and so is in scope here too.
+
+/// Read a delimited table into a `(symbol -> ensembl)` map by HEADER NAME,
+/// tolerating column-name variance: the symbol column is the first header in
+/// {`symbol`, `gene_symbol`, `gene_name`, `gene`} and the Ensembl column the
+/// first in {`gene_id`, `ensembl`, `ensembl_id`, `ensembl_gene_id`}. Returns
+/// `None` when the file is unreadable or carries neither pairing — the caller
+/// treats that as "no independent annotation source" (soft-pass). Delimiter is
+/// sniffed from the extension (`.tsv` → tab, else comma).
+fn load_symbol_ensembl_map(path: &Path) -> Option<BTreeMap<String, String>> {
+    let delimiter = if path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case("tsv"))
+        .unwrap_or(false)
+    {
+        b'\t'
+    } else {
+        b','
+    };
+    let mut rdr = csv::ReaderBuilder::new()
+        .delimiter(delimiter)
+        .from_path(path)
+        .ok()?;
+    let headers = rdr.headers().ok()?.clone();
+    let find_col = |names: &[&str]| -> Option<usize> {
+        headers
+            .iter()
+            .position(|h| names.iter().any(|n| h.eq_ignore_ascii_case(n)))
+    };
+    let sym_idx = find_col(&["symbol", "gene_symbol", "gene_name", "gene"])?;
+    let ens_idx = find_col(&["gene_id", "ensembl", "ensembl_id", "ensembl_gene_id"])?;
+    let mut map: BTreeMap<String, String> = BTreeMap::new();
+    for rec in rdr.records().flatten() {
+        let (Some(sym), Some(ens)) = (rec.get(sym_idx), rec.get(ens_idx)) else {
+            continue;
+        };
+        let (sym, ens) = (sym.trim(), ens.trim());
+        if sym.is_empty() || ens.is_empty() {
+            continue;
+        }
+        // First binding wins (deterministic over the BTreeMap on re-read); the
+        // independent annotation table is symbol-unique by construction.
+        map.entry(sym.to_string())
+            .or_insert_with(|| ens.to_string());
+    }
+    if map.is_empty() {
+        None
+    } else {
+        Some(map)
+    }
+}
+
+/// Committed, INDEPENDENT gene-symbol↔Ensembl consistency check. Catches the
+/// wrong-gene literature citation the contextualize step produced when an
+/// agent-generated script hardcoded a wrong symbol→Ensembl map (CRISPLD2 bound
+/// to ENSG00000197142, which is ACSL5). It does NOT trust any map the producer
+/// emitted: the ground truth is read from an INDEPENDENT in-package annotation
+/// table — the pathway step's `pathway_enrichment/intermediates/ranked_genes.tsv`
+/// (symbol↔Ensembl from org.Hs.eg.db) — and the claims matrix's
+/// `(gene_symbol, finding_id)` pairs are checked against it.
+///
+/// Returns:
+///   - [`ValidatorOutcome::Failed`] listing each mismatched
+///     `(gene_symbol: finding_id != truth)` when any pair disagrees;
+///   - [`ValidatorOutcome::Errored`] (the soft-pass / "could not run" variant the
+///     sibling validators use — `has_failures()` does not count it) when no
+///     independent annotation source exists in the package, or the claims matrix
+///     is absent/unreadable;
+///   - [`ValidatorOutcome::Passed`] when every pair is consistent.
+pub fn gene_symbol_ensembl_consistent(package_root: &Path) -> ValidatorOutcome {
+    let outputs = package_root.join("runtime/outputs");
+
+    // (1) INDEPENDENT truth source: the pathway step's ranked_genes.tsv (or any
+    // sibling table carrying both a gene-symbol and an Ensembl/gene_id column).
+    let truth_candidates = [
+        outputs.join("pathway_enrichment/intermediates/ranked_genes.tsv"),
+        outputs.join("pathway_enrichment/ranked_genes.tsv"),
+    ];
+    let truth = truth_candidates
+        .iter()
+        .find(|p| p.exists())
+        .and_then(|p| load_symbol_ensembl_map(p));
+    let Some(truth) = truth else {
+        return ValidatorOutcome::Errored {
+            reason: format!(
+                "no independent symbol↔Ensembl annotation source in package (looked for {})",
+                truth_candidates
+                    .iter()
+                    .map(|p| p.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        };
+    };
+
+    // (2) The claims matrix the contextualize step emitted.
+    let claims_csv =
+        outputs.join("contextualize_findings_with_literature/claims_evidence_matrix.csv");
+    let mut rdr = match csv::Reader::from_path(&claims_csv) {
+        Ok(r) => r,
+        Err(e) => {
+            return ValidatorOutcome::Errored {
+                reason: format!(
+                    "claims_evidence_matrix.csv unreadable at {}: {e}",
+                    claims_csv.display()
+                ),
+            };
+        }
+    };
+    let headers = match rdr.headers() {
+        Ok(h) => h.clone(),
+        Err(e) => {
+            return ValidatorOutcome::Errored {
+                reason: format!("claims_evidence_matrix.csv header unreadable: {e}"),
+            };
+        }
+    };
+    let sym_idx = headers
+        .iter()
+        .position(|h| h.eq_ignore_ascii_case("gene_symbol"));
+    let fid_idx = headers
+        .iter()
+        .position(|h| h.eq_ignore_ascii_case("finding_id"));
+    // Without a gene_symbol column there is no symbol→Ensembl pairing to check
+    // (the canonical schema keys on `entity`); soft-pass rather than fail.
+    let (Some(sym_idx), Some(fid_idx)) = (sym_idx, fid_idx) else {
+        return ValidatorOutcome::Errored {
+            reason:
+                "claims_evidence_matrix.csv has no gene_symbol+finding_id columns to cross-check"
+                    .into(),
+        };
+    };
+
+    // (3) Compare every non-empty gene_symbol's finding_id to the truth Ensembl.
+    let mut mismatches: Vec<String> = Vec::new();
+    for rec in rdr.records().flatten() {
+        let Some(symbol) = rec.get(sym_idx).map(str::trim) else {
+            continue;
+        };
+        if symbol.is_empty() {
+            continue;
+        }
+        let finding_id = rec.get(fid_idx).map(str::trim).unwrap_or("");
+        if let Some(truth_ens) = truth.get(symbol) {
+            if finding_id != truth_ens {
+                mismatches.push(format!(
+                    "{symbol}: finding_id {finding_id} != annotation {truth_ens}"
+                ));
+            }
+        }
+        // A symbol absent from the independent annotation is not adjudicable
+        // here (the truth source may not cover every DE gene); the row's
+        // upstream-PK presence is checked by claim_row_has_finding_id.
+    }
+
+    if mismatches.is_empty() {
+        ValidatorOutcome::Passed
+    } else {
+        ValidatorOutcome::Failed {
+            message: format!(
+                "{} gene-symbol↔Ensembl mismatch(es) vs independent annotation: {}",
+                mismatches.len(),
+                mismatches.join("; ")
+            ),
+        }
+    }
+}
+
+// ============================================================================
 // ValidatorRunner trait wrappers (Phase D — wire into post-task dispatch)
 // ============================================================================
 //

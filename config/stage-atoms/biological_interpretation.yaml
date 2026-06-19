@@ -77,3 +77,14 @@ claim_boundary: |
   choice). Do NOT soften or strengthen effect-size language beyond what
   the result rows state. Do NOT invent prior findings; absence of a PMID
   for a claim means the claim is result-row-grounded only.
+
+  Gene-identity rule (MANDATORY): when a claim names a gene by symbol, its
+  Ensembl ID MUST be resolved through the run's pinned genome annotation
+  (org.Hs.eg.db / biomaRt at the package's Ensembl release) or by joining on the
+  Ensembl IDs already present in the upstream differential-expression table
+  (de_results.tsv gene_id column). You MUST NOT hardcode Ensembl IDs and you MUST
+  NOT recall them from memory; do not embed a literal symbol→Ensembl map. You
+  MUST NOT fall back to a literal ID when a lookup fails — mark the gene
+  unresolved rather than guessing. Every gene identifier cited must trace to an
+  Ensembl ID present in the upstream result table or be explicitly flagged
+  absent.

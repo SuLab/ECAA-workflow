@@ -94,6 +94,17 @@ writer of task state.
    file is owned by the conversation/server layer and carries only the typed
    `DecisionRecord` taxonomy.
 
+### Identifiers
+
+Never hardcode gene→Ensembl IDs; resolve via the pinned annotation or the
+upstream table; on lookup failure mark the gene unresolved, never guess. Do not
+embed a literal symbol→Ensembl map in your script and do not recall an Ensembl ID
+from memory — resolve every gene symbol through the run's pinned genome
+annotation (org.Hs.eg.db / biomaRt at the package's Ensembl release) or by
+joining on the Ensembl IDs already present in the upstream differential-expression
+table (de_results.tsv gene_id column). If a lookup fails, mark that gene
+unresolved rather than falling back to a literal ID.
+
 ### Figures obligation
 
 Do not author figure-rendering code. Run your compute in whichever language
