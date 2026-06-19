@@ -77,7 +77,11 @@ attributes:
       the covariate columns you observed; the harness checks your own record for
       domain-correctness. available_covariates/stated_outcome are agent-recorded
       in v1 — pinning available_covariates to a measurement script is a follow-up
-      (docs/known-limitations.md).
+      (docs/known-limitations.md). Also include a `gene_symbol` column alongside
+      `gene_id` in the results table, resolved from the run's pinned annotation
+      (org.Hs.eg.db / biomaRt) — never hardcoded. This gives the downstream
+      gene-symbol↔Ensembl consistency check an INDEPENDENT annotation so a
+      literature citation cannot be attached to the wrong gene.
 resource_profile:
   cpu: moderate
   memory: medium

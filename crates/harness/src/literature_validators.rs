@@ -1715,6 +1715,50 @@ fn load_symbol_ensembl_map(path: &Path) -> Option<BTreeMap<String, String>> {
     }
 }
 
+/// Scan every task output dir (and its `intermediates/` subdir) for the first
+/// `.tsv`/`.csv` from which `load_symbol_ensembl_map` can build a non-empty
+/// symbol→Ensembl map. Deterministic: directory entries are sorted before the
+/// search so re-reads pick the same table. Returns `None` when no table in the
+/// package pairs a symbol with an Ensembl id (the validator then soft-skips
+/// rather than fabricate a truth source).
+fn scan_for_symbol_ensembl_map(outputs_dir: &Path) -> Option<BTreeMap<String, String>> {
+    let mut dirs: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(outputs_dir) {
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                dirs.push(p.clone());
+                let inter = p.join("intermediates");
+                if inter.is_dir() {
+                    dirs.push(inter);
+                }
+            }
+        }
+    }
+    dirs.sort();
+    for dir in dirs {
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        let mut files: Vec<std::path::PathBuf> =
+            rd.flatten().map(|e| e.path()).filter(|p| p.is_file()).collect();
+        files.sort();
+        for f in files {
+            let is_table = f
+                .extension()
+                .and_then(|x| x.to_str())
+                .map(|x| x.eq_ignore_ascii_case("tsv") || x.eq_ignore_ascii_case("csv"))
+                .unwrap_or(false);
+            if is_table {
+                if let Some(map) = load_symbol_ensembl_map(&f) {
+                    return Some(map);
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Committed, INDEPENDENT gene-symbol↔Ensembl consistency check. Catches the
 /// wrong-gene literature citation the contextualize step produced when an
 /// agent-generated script hardcoded a wrong symbol→Ensembl map (CRISPLD2 bound
@@ -1735,26 +1779,36 @@ fn load_symbol_ensembl_map(path: &Path) -> Option<BTreeMap<String, String>> {
 pub fn gene_symbol_ensembl_consistent(package_root: &Path) -> ValidatorOutcome {
     let outputs = package_root.join("runtime/outputs");
 
-    // (1) INDEPENDENT truth source: the pathway step's ranked_genes.tsv (or any
-    // sibling table carrying both a gene-symbol and an Ensembl/gene_id column).
-    let truth_candidates = [
+    // (1) INDEPENDENT truth source: ANY in-package table that pairs a gene
+    // symbol with an Ensembl id. Filenames drift across runs
+    // (ranked_genes.tsv vs ranked_gene_list.tsv) and the pairing may live in
+    // the DE results table, the pathway ranking, or a dedicated annotation
+    // table — so rather than hardcode one basename, we (a) try a few known
+    // basenames first (cheap, deterministic order) and (b) fall back to
+    // scanning every task output dir for the first .tsv/.csv from which
+    // `load_symbol_ensembl_map` can build a non-empty symbol→Ensembl map. The
+    // map is only usable if a table actually carries BOTH columns, so this is
+    // robust to filename drift without ever fabricating a truth source.
+    let preferred = [
         outputs.join("pathway_enrichment/intermediates/ranked_genes.tsv"),
+        outputs.join("pathway_enrichment/intermediates/ranked_gene_list.tsv"),
         outputs.join("pathway_enrichment/ranked_genes.tsv"),
+        outputs.join("pathway_enrichment/ranked_gene_list.tsv"),
+        outputs.join("differential_expression/de_results.tsv"),
     ];
-    let truth = truth_candidates
+    let truth = preferred
         .iter()
-        .find(|p| p.exists())
-        .and_then(|p| load_symbol_ensembl_map(p));
+        .filter(|p| p.exists())
+        .find_map(|p| load_symbol_ensembl_map(p))
+        .or_else(|| scan_for_symbol_ensembl_map(&outputs));
     let Some(truth) = truth else {
+        // No table in the package pairs a symbol with an Ensembl id, so there
+        // is no INDEPENDENT annotation to adjudicate against. Soft-skip
+        // (Errored is non-blocking) rather than fabricate a verdict.
         return ValidatorOutcome::Errored {
-            reason: format!(
-                "no independent symbol↔Ensembl annotation source in package (looked for {})",
-                truth_candidates
-                    .iter()
-                    .map(|p| p.display().to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
+            reason: "no independent symbol↔Ensembl annotation table in package \
+                     (no output table carries both a symbol and an Ensembl/gene_id column)"
+                .into(),
         };
     };
 
@@ -1780,18 +1834,26 @@ pub fn gene_symbol_ensembl_consistent(package_root: &Path) -> ValidatorOutcome {
             };
         }
     };
-    let sym_idx = headers
-        .iter()
-        .position(|h| h.eq_ignore_ascii_case("gene_symbol"));
+    // Symbol column: the canonical claims schema keys the gene on `entity`
+    // (with entity_kind == gene); older/agent-drifted matrices may use
+    // `gene_symbol`/`symbol`/`gene`. Accept any of them. A non-gene `entity`
+    // (e.g. a pathway) simply won't be present in the gene truth map and is
+    // skipped below, so widening the column match never produces false
+    // mismatches.
+    let sym_idx = headers.iter().position(|h| {
+        ["gene_symbol", "entity", "symbol", "gene", "gene_name"]
+            .iter()
+            .any(|n| h.eq_ignore_ascii_case(n))
+    });
     let fid_idx = headers
         .iter()
         .position(|h| h.eq_ignore_ascii_case("finding_id"));
-    // Without a gene_symbol column there is no symbol→Ensembl pairing to check
-    // (the canonical schema keys on `entity`); soft-pass rather than fail.
+    // Without a symbol + finding_id pairing there is nothing to cross-check;
+    // soft-skip (Errored is non-blocking) rather than fail.
     let (Some(sym_idx), Some(fid_idx)) = (sym_idx, fid_idx) else {
         return ValidatorOutcome::Errored {
             reason:
-                "claims_evidence_matrix.csv has no gene_symbol+finding_id columns to cross-check"
+                "claims_evidence_matrix.csv has no symbol (entity/gene_symbol)+finding_id columns to cross-check"
                     .into(),
         };
     };
@@ -3166,6 +3228,37 @@ mod tests {
             gene_symbol_ensembl_consistent(dir.path()),
             ValidatorOutcome::Errored { .. }
         ));
+    }
+
+    #[test]
+    fn gene_symbol_ensembl_consistent_finds_truth_under_drifted_filename() {
+        // Robustness: the truth table may not be named ranked_genes.tsv. A
+        // drifted basename in any output dir that carries symbol+Ensembl must
+        // still be discovered by the scan fallback.
+        let dir = TempDir::new().unwrap();
+        let ctx = dir
+            .path()
+            .join("runtime/outputs/contextualize_findings_with_literature");
+        fs::create_dir_all(&ctx).unwrap();
+        write(
+            &ctx.join("claims_evidence_matrix.csv"),
+            "finding_id,gene_symbol\nENSG00000197142,CRISPLD2\n",
+        );
+        // Truth lives in a differently-named table (annotation.tsv), not the
+        // hardcoded ranked_genes.tsv.
+        let ann = dir.path().join("runtime/outputs/normalisation");
+        fs::create_dir_all(&ann).unwrap();
+        write(
+            &ann.join("annotation.tsv"),
+            "gene_symbol\tensembl_id\nCRISPLD2\tENSG00000103196\n",
+        );
+        assert!(
+            matches!(
+                gene_symbol_ensembl_consistent(dir.path()),
+                ValidatorOutcome::Failed { .. }
+            ),
+            "must discover the drifted-name truth table and catch the mislabel"
+        );
     }
 
     #[test]

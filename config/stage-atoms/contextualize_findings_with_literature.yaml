@@ -148,4 +148,8 @@ claim_boundary: |
   a literal ID when a lookup fails — on lookup failure, mark the gene unresolved
   rather than guessing. Resolution goes through the pinned annotation/adapter or
   the upstream table only. Every emitted finding_id must be an Ensembl ID that
-  appears in the upstream DE table or is explicitly flagged absent.
+  appears in the upstream DE table or is explicitly flagged absent. For every
+  gene row, ALSO populate the `entity` column with that gene's HGNC symbol (and
+  entity_kind = gene), carried straight from the same annotation join used for
+  the Ensembl id — so the independent gene-symbol↔Ensembl consistency check can
+  confirm the citation is attached to the right gene.
