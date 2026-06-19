@@ -5464,6 +5464,30 @@ fn run_assertion(
                 Some(Some(ref s)) => std::borrow::Cow::Borrowed(s.as_str()),
                 None => String::from_utf8_lossy(&bytes),
             };
+            // Opt-in `check.case_insensitive: true` folds case before matching.
+            // Default is case-SENSITIVE (byte-identical to the original behavior
+            // every existing assertion — design_recorded, method-correctness —
+            // and the contract-blocking tests rely on). The report-completeness
+            // arms set it true because an agent surfaces a statistic in whatever
+            // case reads naturally ("R-squared", "R²") while the configured
+            // substrings are lowercase.
+            let ci = assertion
+                .get("check")
+                .and_then(|c| c.get("case_insensitive"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let hay: std::borrow::Cow<str> = if ci {
+                std::borrow::Cow::Owned(text.to_lowercase())
+            } else {
+                std::borrow::Cow::Borrowed(text.as_ref())
+            };
+            let matches = |ss: &str| -> bool {
+                if ci {
+                    hay.contains(&ss.to_lowercase())
+                } else {
+                    hay.contains(ss)
+                }
+            };
             // Supports either `substrings: [required all of]` or
             // `substrings_any: [any of]`.
             if let Some(req) = assertion
@@ -5472,14 +5496,14 @@ fn run_assertion(
                 .and_then(|v| v.as_array())
             {
                 req.iter()
-                    .all(|s| s.as_str().map(|ss| text.contains(ss)).unwrap_or(false))
+                    .all(|s| s.as_str().map(matches).unwrap_or(false))
             } else if let Some(any) = assertion
                 .get("check")
                 .and_then(|c| c.get("substrings_any"))
                 .and_then(|v| v.as_array())
             {
                 any.iter()
-                    .any(|s| s.as_str().map(|ss| text.contains(ss)).unwrap_or(false))
+                    .any(|s| s.as_str().map(matches).unwrap_or(false))
             } else {
                 false
             }
@@ -8140,6 +8164,7 @@ mod read_dag_tests {
             "target": "runtime/outputs/differential_expression/result.json",
             "check": {
                 "json_pointer": "/narrative_text",
+                "case_insensitive": true,
                 "substrings_any": ["r2", "r-squared", "variance explained", "r_squared"]
             },
             "when": { "json_pointer": "/r_squared_column_recorded", "equals": true }

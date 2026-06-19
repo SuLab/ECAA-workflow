@@ -2049,6 +2049,36 @@ impl ValidatorRunner for ConcordanceFlagInClosedSetRunner {
 }
 
 /// Trait-wrapped runners for the literature obligations. Used by
+/// `ValidatorRunner` for the `gene_symbol_ensembl_consistent` obligation
+/// (Workstream B). Unlike the other literature runners, the underlying check
+/// needs the PACKAGE ROOT (not just this task's artifact dir) because it reads
+/// an INDEPENDENT truth table from a different task's output
+/// (`pathway_enrichment/intermediates/ranked_genes.tsv`) and compares it to the
+/// contextualize step's `claims_evidence_matrix.csv`. The artifact path the
+/// harness passes is `<root>/runtime/outputs/<task_id>`, so we locate the
+/// package root by walking ancestors until we find the `runtime/outputs` dir
+/// (robust to depth changes), then delegate to the pure checker.
+pub struct GeneSymbolEnsemblConsistentRunner;
+impl ValidatorRunner for GeneSymbolEnsemblConsistentRunner {
+    fn obligation_id(&self) -> &'static str {
+        "gene_symbol_ensembl_consistent"
+    }
+    fn run(&self, artifact_path: &Path) -> ValidatorOutcome {
+        match artifact_path
+            .ancestors()
+            .find(|p| p.join("runtime").join("outputs").is_dir())
+        {
+            Some(root) => gene_symbol_ensembl_consistent(root),
+            None => ValidatorOutcome::Errored {
+                reason: format!(
+                    "cannot locate package root (no runtime/outputs ancestor) from {}",
+                    artifact_path.display()
+                ),
+            },
+        }
+    }
+}
+
 /// `crate::validators::default_runners` so the harness post-task hook
 /// routes literature obligation ids to the right runner.
 pub fn literature_runners() -> Vec<Box<dyn ValidatorRunner>> {
@@ -2061,6 +2091,7 @@ pub fn literature_runners() -> Vec<Box<dyn ValidatorRunner>> {
         Box::new(ConcordanceFlagInClosedSetRunner),
         Box::new(ClaimSupportSatisfiedRunner),
         Box::new(DocPageMatchesToolRunner),
+        Box::new(GeneSymbolEnsemblConsistentRunner),
     ]
 }
 
@@ -3071,5 +3102,101 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    // ---- gene_symbol_ensembl_consistent (Workstream B) ----
+
+    fn scaffold_gene_pkg(root: &Path, matrix_csv: &str, with_truth: bool) {
+        let ctx = root.join("runtime/outputs/contextualize_findings_with_literature");
+        fs::create_dir_all(&ctx).unwrap();
+        write(&ctx.join("claims_evidence_matrix.csv"), matrix_csv);
+        if with_truth {
+            let pw = root.join("runtime/outputs/pathway_enrichment/intermediates");
+            fs::create_dir_all(&pw).unwrap();
+            // Independent annotation: CRISPLD2 -> ENSG00000103196 (the real gene).
+            write(
+                &pw.join("ranked_genes.tsv"),
+                "symbol\tgene_id\tstat\nCRISPLD2\tENSG00000103196\t16.7\n",
+            );
+        }
+    }
+
+    #[test]
+    fn gene_symbol_ensembl_consistent_catches_wrong_gene_citation() {
+        // The Jun-18 hallucination: CRISPLD2 bound to ENSG00000197142 (ACSL5).
+        let dir = TempDir::new().unwrap();
+        scaffold_gene_pkg(
+            dir.path(),
+            "finding_id,gene_symbol\nENSG00000197142,CRISPLD2\n",
+            true,
+        );
+        match gene_symbol_ensembl_consistent(dir.path()) {
+            ValidatorOutcome::Failed { message } => {
+                assert!(message.contains("CRISPLD2"), "msg: {message}");
+                assert!(message.contains("ENSG00000197142"), "msg: {message}");
+            }
+            other => panic!("must Fail on the ACSL5 mislabel, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn gene_symbol_ensembl_consistent_passes_on_correct_binding() {
+        let dir = TempDir::new().unwrap();
+        scaffold_gene_pkg(
+            dir.path(),
+            "finding_id,gene_symbol\nENSG00000103196,CRISPLD2\n",
+            true,
+        );
+        assert!(matches!(
+            gene_symbol_ensembl_consistent(dir.path()),
+            ValidatorOutcome::Passed
+        ));
+    }
+
+    #[test]
+    fn gene_symbol_ensembl_consistent_soft_errors_without_truth_source() {
+        // No independent annotation -> Errored (non-blocking), never a false Pass/Fail.
+        let dir = TempDir::new().unwrap();
+        scaffold_gene_pkg(
+            dir.path(),
+            "finding_id,gene_symbol\nENSG00000197142,CRISPLD2\n",
+            false,
+        );
+        assert!(matches!(
+            gene_symbol_ensembl_consistent(dir.path()),
+            ValidatorOutcome::Errored { .. }
+        ));
+    }
+
+    #[test]
+    fn gene_symbol_ensembl_runner_routes_via_default_dispatch() {
+        // The obligation must reach GeneSymbolEnsemblConsistentRunner (not fall
+        // through to Unimplemented), and the runner must derive the package root
+        // from the task artifact dir so the cross-task truth table is found.
+        let dir = TempDir::new().unwrap();
+        scaffold_gene_pkg(
+            dir.path(),
+            "finding_id,gene_symbol\nENSG00000197142,CRISPLD2\n",
+            true,
+        );
+        let artifact = dir
+            .path()
+            .join("runtime/outputs/contextualize_findings_with_literature");
+        let runners = crate::validators::default_runners();
+        let rows = crate::validators::run_validators(
+            &["gene_symbol_ensembl_consistent".into()],
+            &runners,
+            &artifact,
+        );
+        assert_eq!(rows.len(), 1);
+        assert!(
+            !matches!(rows[0].outcome, ValidatorOutcome::Unimplemented { .. }),
+            "obligation must be dispatched, not Unimplemented"
+        );
+        assert!(
+            matches!(rows[0].outcome, ValidatorOutcome::Failed { .. }),
+            "must catch the ACSL5 mislabel through the dispatch path, got {:?}",
+            rows[0].outcome
+        );
     }
 }

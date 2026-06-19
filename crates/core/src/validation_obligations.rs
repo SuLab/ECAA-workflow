@@ -279,6 +279,16 @@ fn literature_obligations() -> Vec<ValidationObligation> {
                 .into(),
             reference: Some("method_landscape.csv".into()),
         },
+        ValidationObligation {
+            id: "gene_symbol_ensembl_consistent".into(),
+            kind: "literature_integrity".into(),
+            statement: "Every claims_evidence_matrix.csv row that carries a gene_symbol binds it \
+                        to an Ensembl finding_id consistent with an INDEPENDENT in-package \
+                        annotation source (the pathway step's symbol↔Ensembl map), so a literature \
+                        citation cannot be attached to the wrong gene."
+                .into(),
+            reference: Some("claims_evidence_matrix.csv".into()),
+        },
     ]
 }
 
@@ -386,6 +396,7 @@ mod tests {
                 "concordance_flag_in_closed_set",
                 "claim_support_satisfied",
                 "doc_page_matches_tool",
+                "gene_symbol_ensembl_consistent",
             ]
         );
     }

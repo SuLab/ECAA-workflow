@@ -10,7 +10,12 @@
           "description": "Precondition: result.json must record the fitted model so it is auditable — design_formula and response_variable. An unauditable model (missing either) is itself a failure — the agent must state what it did. Substrings are field-name keys, not model prescriptions. The covariate-columns record (`available_covariates`) is enforced separately by design_records_covariate_columns with a TYPED pointer check, because a substring scan would accept an incidental or nested occurrence the covariate-adjustment when-gate cannot read.",
           "assertion_type": "string_contains",
           "target": "runtime/outputs/differential_expression/result.json",
-          "check": { "substrings": ["design_formula", "response_variable"] },
+          "check": {
+            "substrings": [
+              "design_formula",
+              "response_variable"
+            ]
+          },
           "severity": "required"
         },
         {
@@ -18,7 +23,9 @@
           "description": "Closes the covariate-omission false-negative at the SAME read mechanism the dependent check uses. design_adjusts_available_covariates `when`-gates on the JSON pointer /available_covariates; a whole-file substring scan of `available_covariates` would be satisfied by an incidental occurrence in a note OR a nested key while /available_covariates does not resolve at the top level — letting the adjustment check skip (skip-as-pass). This typed json_pointer_is_array check requires /available_covariates to resolve to an ARRAY: the covariate columns the agent observed, recorded as a list. An EMPTY array is allowed (a covariate-free run) — the adjustment check's own empty-array when-gate then self-skips, so this never false-fires the common case. Absence or a non-array value fails closed. It records what columns the agent saw (record-what-you-did); it never names which covariates to include (method-neutral).",
           "assertion_type": "json_pointer_is_array",
           "target": "runtime/outputs/differential_expression/result.json",
-          "check": { "json_pointer": "/available_covariates" },
+          "check": {
+            "json_pointer": "/available_covariates"
+          },
           "severity": "required"
         },
         {
@@ -31,7 +38,9 @@
             "covariates_pointer": "/available_covariates",
             "primary_pointer": "/primary_variable"
           },
-          "when": { "json_pointer": "/available_covariates" },
+          "when": {
+            "json_pointer": "/available_covariates"
+          },
           "severity": "required"
         },
         {
@@ -44,7 +53,9 @@
             "other_pointer": "/stated_outcome",
             "normalize": "casefold_trim"
           },
-          "when": { "json_pointer": "/stated_outcome" },
+          "when": {
+            "json_pointer": "/stated_outcome"
+          },
           "severity": "required"
         },
         {
@@ -52,8 +63,15 @@
           "description": "Effect-size reliability (domain-correctness, method-neutral): the features YOU ranked as strongest by absolute effect size (your own top-K by |effect estimate|) must sit at least this fraction of the tested set's typical (median) per-feature abundance/information basis YOU recorded (e.g. base mean / mean count / mean expression / logCPM). top_effect_abundance_ratio is recomputed by the containerized measurement (lib/measure_de_effect_size.py) from the agent's OWN ranked results table and its OWN recorded information column: the median abundance of your top-K-by-|effect| features divided by the median abundance over the whole tested set. It is null-robust — about 1 when effect and abundance are independent (a random sample) and driven toward 0 when extreme effect estimates concentrate in the lowest-abundance features, where effect estimates are unreliable, so such a 'strongest finding' list is not trustworthy. K and the ratio bound are operator-authored reference bounds embedded in the pinned script, NEVER handed to the agent; the agent chose the ranking, and HOW to keep its strongest-finding list domain-correct is its choice (no method, estimator, filter, or threshold value is prescribed). GATED on /information_column_recorded so it is SKIPPED (never blocks) when the agent recorded no per-feature abundance column (as some single-cell differential-expression paths do not) — an abundance column is the precondition for the check, not a prescribed output. This asserts a property of the ranking the agent produced — the same shape as het_tail_band_nonempty asserting a property of the agent's own call set. Severity is `required`: paired with the autonomous validation-recovery path (ECAA_HARNESS_VALIDATION_RECOVERY), an unattended run surfaces this neutral recomputed-vs-bound signal and re-dispatches rather than dead-stalling, while a production SME run treats it as a checkpoint (the SME may widen or tighten the bound by editing the pinned script). SME-overridable.",
           "assertion_type": "numeric_threshold",
           "target": "runtime/outputs/differential_expression/result.json",
-          "check": { "json_pointer": "/top_effect_abundance_ratio", "op": "gte", "value": 0.20 },
-          "when": { "json_pointer": "/information_column_recorded", "equals": true },
+          "check": {
+            "json_pointer": "/top_effect_abundance_ratio",
+            "op": "gte",
+            "value": 0.2
+          },
+          "when": {
+            "json_pointer": "/information_column_recorded",
+            "equals": true
+          },
           "severity": "required"
         },
         {
@@ -63,9 +81,20 @@
           "target": "runtime/outputs/differential_expression/result.json",
           "check": {
             "json_pointer": "/narrative_text",
-            "substrings_any": ["r2", "r-squared", "r squared", "r²", "variance explained", "r_squared"]
+            "case_insensitive": true,
+            "substrings_any": [
+              "r2",
+              "r-squared",
+              "r squared",
+              "r²",
+              "variance explained",
+              "r_squared"
+            ]
           },
-          "when": { "json_pointer": "/r_squared_column_recorded", "equals": true },
+          "when": {
+            "json_pointer": "/r_squared_column_recorded",
+            "equals": true
+          },
           "severity": "required"
         },
         {
@@ -75,9 +104,20 @@
           "target": "runtime/outputs/differential_expression/result.json",
           "check": {
             "json_pointer": "/narrative_text",
-            "substrings_any": ["n =", "n=", "sample size", "samples per", "per-metabolite n", "number of samples"]
+            "case_insensitive": true,
+            "substrings_any": [
+              "n =",
+              "n=",
+              "sample size",
+              "samples per",
+              "per-metabolite n",
+              "number of samples"
+            ]
           },
-          "when": { "json_pointer": "/sample_size_column_recorded", "equals": true },
+          "when": {
+            "json_pointer": "/sample_size_column_recorded",
+            "equals": true
+          },
           "severity": "required"
         }
       ]
