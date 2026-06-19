@@ -330,16 +330,11 @@ pub fn detect_duplicates(
             matches.push(cand);
         }
     }
-    near.sort_by(|a, b| {
-        b.jaccard
-            .partial_cmp(&a.jaccard)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    matches.sort_by(|a, b| {
-        b.jaccard
-            .partial_cmp(&a.jaccard)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    // total_cmp: a genuine total order over all f64 (NaN-safe), so a NaN
+    // jaccard can never trip the "comparison function does not implement a
+    // total order" sort panic.
+    near.sort_by(|a, b| b.jaccard.total_cmp(&a.jaccard));
+    matches.sort_by(|a, b| b.jaccard.total_cmp(&a.jaccard));
     DuplicateDetectionResult {
         near_duplicates: near,
         candidate_matches: matches,

@@ -564,6 +564,9 @@ fn verify_rank_top_n(
         .iter()
         .filter_map(|r| {
             lookup_numeric(&r.values, &cfg.effect_size_columns)
+                // Drop non-finite effect sizes (NaN/±inf from "NA"/blank cells):
+                // they cannot be ranked and would poison the sort comparator.
+                .filter(|eff| eff.is_finite())
                 .map(|eff| (r.entity.as_str(), eff.abs()))
         })
         .collect();
@@ -578,11 +581,10 @@ fn verify_rank_top_n(
         };
     }
 
-    ranked.sort_by(|a, b| {
-        b.1.partial_cmp(&a.1)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.0.cmp(b.0))
-    });
+    // total_cmp is a genuine total order over all f64 (NaN included), so the
+    // sort never panics even if a non-finite value slips through; the entity
+    // tie-break keeps the ordering stable + deterministic.
+    ranked.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(b.0)));
     ranked.truncate(n);
 
     let in_top_n = ranked
@@ -900,12 +902,7 @@ fn verify_one(
             let closest = observed
                 .iter()
                 .cloned()
-                .min_by(|a, b| {
-                    (claimed_p - a)
-                        .abs()
-                        .partial_cmp(&(claimed_p - b).abs())
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                })
+                .min_by(|a, b| (claimed_p - a).abs().total_cmp(&(claimed_p - b).abs()))
                 .unwrap_or(observed[0]);
             return ClaimStatus::Mismatch {
                 detail: format!(
@@ -2791,6 +2788,39 @@ mod tests {
         let claims = extract_claims("ACAN is in the top-5 hits (Table S1).", &cfg);
         let acan = claims.iter().find(|c| c.entity == "ACAN").unwrap();
         assert_eq!(acan.contract, ClaimContract::RankTopN);
+        let report = verify_claims(&claims, tmp.path(), &cfg);
+        assert!(matches!(
+            report
+                .verdicts
+                .iter()
+                .find(|v| v.claim.entity == "ACAN")
+                .unwrap()
+                .status,
+            ClaimStatus::Verified
+        ));
+    }
+
+    /// RankTopN regression: a non-finite effect size (e.g. an "NA" cell) in the
+    /// table must NOT panic the top-N sort. Before the fix the comparator used
+    /// `partial_cmp().unwrap_or(Equal)`, which makes NaN compare Equal to
+    /// everything — an invalid total order that Rust 1.81+ panics on
+    /// ("user-provided comparison function does not correctly implement a total
+    /// order"). The fix drops non-finite effect sizes and sorts with total_cmp.
+    #[test]
+    fn contract_rank_top_n_does_not_panic_on_non_finite_effect_size() {
+        use crate::claim_contract::ClaimContract;
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        // One real top hit + several rows whose log2FC is "NA" (parses to NaN).
+        write_table(
+            tmp.path(),
+            "de_s1.tsv",
+            "gene\tlog2FC\tpadj\nACAN\t3.0\t0.001\nA\tNA\t0.2\nB\tNA\t0.3\nC\tNA\t0.4\nD\tNA\t0.5\n",
+        );
+        let claims = extract_claims("ACAN is in the top-5 hits (Table S1).", &cfg);
+        let acan = claims.iter().find(|c| c.entity == "ACAN").unwrap();
+        assert_eq!(acan.contract, ClaimContract::RankTopN);
+        // Must complete without panicking; ACAN (the only finite row) is top-N.
         let report = verify_claims(&claims, tmp.path(), &cfg);
         assert!(matches!(
             report

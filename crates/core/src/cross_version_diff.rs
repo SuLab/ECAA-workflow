@@ -760,12 +760,10 @@ fn average_ranks(vals: &[f64]) -> Vec<f64> {
     let n = vals.len();
     // Pair each value with its original index so we can scatter ranks back.
     let mut order: Vec<usize> = (0..n).collect();
-    // Sort indices by value; NaN sorts to the end (treated as largest).
-    order.sort_by(|&a, &b| {
-        vals[a]
-            .partial_cmp(&vals[b])
-            .unwrap_or(std::cmp::Ordering::Greater)
-    });
+    // Sort indices by value. total_cmp is a genuine total order over all f64
+    // (NaN included, sorting to the high end via its bit ordering), so the sort
+    // never panics on a NaN the way `partial_cmp().unwrap_or(_)` can.
+    order.sort_by(|&a, &b| vals[a].total_cmp(&vals[b]));
     let mut ranks = vec![0.0f64; n];
     let mut i = 0usize;
     while i < n {
