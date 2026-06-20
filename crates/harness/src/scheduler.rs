@@ -496,6 +496,37 @@ fn append_decision(
 /// function continues with the remaining stages. The caller must not
 /// propagate these errors — a disk hiccup on the audit file must never
 /// block dispatch.
+/// Stages that already have a `set_intake_method` record in the package's
+/// on-disk `runtime/decisions.jsonl`. Used to make auto-advance promotion
+/// idempotent across re-finalizes (a missing/unreadable log → empty set, so
+/// first-run behaviour is unchanged).
+fn existing_intake_method_stages(pkg: &std::path::Path) -> std::collections::BTreeSet<String> {
+    let path = pkg.join("runtime").join("decisions.jsonl");
+    let mut stages = std::collections::BTreeSet::new();
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        return stages;
+    };
+    for line in content.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        let decision = v.get("decision");
+        let kind = decision.and_then(|d| d.get("kind")).and_then(|k| k.as_str());
+        if kind == Some("set_intake_method") {
+            if let Some(stage) = decision
+                .and_then(|d| d.get("stage"))
+                .and_then(|s| s.as_str())
+            {
+                stages.insert(stage.to_string());
+            }
+        }
+    }
+    stages
+}
+
 pub fn promote_auto_advance_decisions(
     pkg: &std::path::Path,
     session_id: &str,
@@ -504,6 +535,17 @@ pub fn promote_auto_advance_decisions(
     use ecaa_workflow_core::decision_log::{
         DecisionActor, DecisionAuthority, DecisionRecord, DecisionType,
     };
+
+    // Idempotency across harness runs. `already_recorded` only de-dupes within
+    // the current run; a re-finalize (the standalone harness re-run on a
+    // completed package) starts with a fresh set and would re-append the same
+    // auto-advance decisions, inflating `runtime/decisions.jsonl` by one copy of
+    // every discovery pick per re-finalize. Seed the skip-set from the decisions
+    // already on disk so a stage promoted in any prior run is never recorded
+    // twice — matching the once-per-decision intent, not once-per-run.
+    for stage in existing_intake_method_stages(pkg) {
+        already_recorded.insert(stage);
+    }
 
     let outputs = pkg.join("runtime").join("outputs");
     let entries = match std::fs::read_dir(&outputs) {
@@ -924,6 +966,38 @@ mod tests {
             );
             assert_eq!(stages.len(), 1);
         }
+    }
+
+    #[test]
+    fn promote_auto_advance_decisions_is_idempotent_across_runs() {
+        // Each standalone harness run (a re-finalize included) starts with a
+        // FRESH `already_recorded` set. Promotion must still record the
+        // auto-advanced discovery pick exactly ONCE across runs — a second run
+        // must not re-append it (the re-finalize decision-log inflation bug).
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp
+            .path()
+            .join("runtime")
+            .join("outputs")
+            .join("discover_normalisation");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("decision.json"),
+            r#"{"task_id":"discover_normalisation","auto_advanced":true,"chosen_method":"DESeq2 VST"}"#,
+        )
+        .unwrap();
+
+        // Run 1, then Run 2 — fresh skip-set each time (as a re-finalize is).
+        promote_auto_advance_decisions(tmp.path(), "sess", &mut Default::default());
+        promote_auto_advance_decisions(tmp.path(), "sess", &mut Default::default());
+
+        let log =
+            std::fs::read_to_string(tmp.path().join("runtime").join("decisions.jsonl")).unwrap();
+        let n = log
+            .lines()
+            .filter(|l| l.contains("set_intake_method") && l.contains("discover_normalisation"))
+            .count();
+        assert_eq!(n, 1, "decision must record once across runs, got {n}:\n{log}");
     }
 
     #[test]

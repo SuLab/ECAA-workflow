@@ -632,21 +632,26 @@ mod controlled_access_gate_tests {
     }
 }
 
-/// Append per-task validator results to
+/// Write this task's validator results into
 /// `runtime/validation-reports.jsonl` so the RO-Crate emitter
 /// registers it as a `CreativeWork` at re-emit time and the
 /// Composition UI tab can render the validation status card.
 ///
-/// The validator runners write their per-row outcome via
-/// `ValidationReportSummary::to_jsonl` which produces sorted,
-/// byte-stable JSON lines. This helper appends those lines to the
-/// session-scoped sidecar (creating the file on first write,
-/// appending on subsequent task completions).
+/// The validator runners produce sorted, byte-stable JSON lines via
+/// `ValidationReportSummary::to_jsonl`. This helper REPLACES the rows
+/// belonging to `task_id` rather than blindly appending: the loop re-runs the
+/// validator bundle for every Completed task on every harness pass, so a plain
+/// append re-emitted one copy of every task's rows on each standalone
+/// re-finalize, inflating the log by ~30x across repeated re-finalizes (the
+/// log then read as hundreds of "obligations" when only ~14 distinct
+/// (obligation, task) checks ran). Each row carries a `task_id`, so drop the
+/// existing rows for this task verbatim-preserving every other task's, then
+/// append the fresh set — idempotent across re-finalizes.
 ///
 /// Best-effort: a failing write is logged to stderr but doesn't
 /// abort the harness loop. Validator wiring is gated on the task's
 /// `RequiredArtifact.validation_obligations` list (today optional);
-/// when empty the report has zero rows and nothing is appended.
+/// when empty the report has zero rows and nothing is written.
 fn append_validation_reports_sidecar(
     package_root: &Path,
     task_id: &str,
@@ -665,24 +670,38 @@ fn append_validation_reports_sidecar(
         return;
     }
     let path = runtime.join("validation-reports.jsonl");
-    let jsonl = summary.to_jsonl();
-    match OpenOptions::new().create(true).append(true).open(&path) {
-        Ok(mut f) => {
-            if let Err(e) = f.write_all(jsonl.as_bytes()) {
-                eprintln!(
-                    "  {} validation-reports.jsonl write failed for {}: {}",
-                    "⚠".yellow(),
-                    task_id,
-                    e
-                );
+
+    // Carry over every OTHER task's rows verbatim (drop this task's stale ones).
+    let mut kept = String::new();
+    if let Ok(existing) = std::fs::read_to_string(&path) {
+        for line in existing.lines() {
+            if line.trim().is_empty() {
+                continue;
             }
+            let belongs_to_this_task = serde_json::from_str::<serde_json::Value>(line)
+                .ok()
+                .and_then(|v| {
+                    v.get("task_id")
+                        .and_then(serde_json::Value::as_str)
+                        .map(|t| t == task_id)
+                })
+                .unwrap_or(false);
+            if belongs_to_this_task {
+                continue;
+            }
+            kept.push_str(line);
+            kept.push('\n');
         }
-        Err(e) => eprintln!(
-            "  {} validation-reports.jsonl open failed for {}: {}",
+    }
+    kept.push_str(&summary.to_jsonl());
+
+    if let Err(e) = std::fs::write(&path, kept.as_bytes()) {
+        eprintln!(
+            "  {} validation-reports.jsonl write failed for {}: {}",
             "⚠".yellow(),
             task_id,
             e
-        ),
+        );
     }
 }
 
