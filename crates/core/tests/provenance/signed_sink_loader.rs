@@ -20,6 +20,8 @@ fn report() -> ClaimVerificationReport {
         excerpt: String::new(),
         contract: ClaimContract::NumericTableLookup,
         literature_evidence: None,
+        matched_pvalue_keyword: None,
+        linear_fold: None,
     };
     ClaimVerificationReport {
         n_checked: 1,
@@ -86,6 +88,8 @@ fn two_claim_report() -> ClaimVerificationReport {
         excerpt: String::new(),
         contract: ClaimContract::NumericTableLookup,
         literature_evidence: None,
+        matched_pvalue_keyword: None,
+        linear_fold: None,
     };
     let v = |entity: &str| ClaimVerdict {
         claim: mk(entity),

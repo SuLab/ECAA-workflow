@@ -222,6 +222,8 @@ fn post_exec_report() -> ecaa_workflow_core::claim_verifier::ClaimVerificationRe
         excerpt: String::new(),
         contract: ClaimContract::NumericTableLookup,
         literature_evidence: None,
+        matched_pvalue_keyword: None,
+        linear_fold: None,
     };
     ClaimVerificationReport {
         n_checked: 1,

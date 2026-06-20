@@ -1035,6 +1035,55 @@ fn verify_one(
                 reason: "table has no configured p-value column/value for claimed p-value".into(),
             };
         }
+        // VF-8 (p-laundering): the narrative attributed the value to an
+        // ADJUSTED p-value ("padj"/"FDR"/"q…"), but the table's adjusted
+        // column(s) disagree while a RAW `pvalue` column matches it — i.e. the
+        // author quoted the (smaller, more impressive) raw p-value under an
+        // adjusted label. Flag ONLY on this positive refutation: claim keyword
+        // is adjusted-class AND the row HAS an adjusted column value AND no
+        // adjusted value matches within tolerance AND some raw value DOES. If
+        // the adjusted column matches (honest rounding), or the row carries no
+        // adjusted column to adjudicate, this is inert — preserving the lenient
+        // "match ANY p-column" acceptance below for honest claims. Asymmetric
+        // by design: a raw value quoted under a raw label ("p = …") is never
+        // flagged, only the laundering direction that inflates significance.
+        if claim
+            .matched_pvalue_keyword
+            .as_deref()
+            .is_some_and(is_adjusted_pvalue_keyword)
+        {
+            let in_tol =
+                |obs: f64| pvalue_within_tolerance(claimed_p, obs, cfg.pvalue_relative_tolerance);
+            let class_observed = |adjusted: bool| -> Vec<f64> {
+                cfg.pvalue_columns
+                    .iter()
+                    .filter(|c| is_adjusted_pvalue_keyword(c) == adjusted)
+                    .filter_map(|c| {
+                        row.values
+                            .get(&normalize(c))
+                            .and_then(|raw| raw.parse::<f64>().ok())
+                    })
+                    .filter(|v| v.is_finite())
+                    .collect()
+            };
+            let adjusted_observed = class_observed(true);
+            let raw_observed = class_observed(false);
+            if !adjusted_observed.is_empty()
+                && !adjusted_observed.iter().copied().any(in_tol)
+                && raw_observed.iter().copied().any(in_tol)
+            {
+                let adj_closest = adjusted_observed
+                    .iter()
+                    .cloned()
+                    .min_by(|a, b| (claimed_p - a).abs().total_cmp(&(claimed_p - b).abs()))
+                    .unwrap_or(adjusted_observed[0]);
+                return ClaimStatus::Mismatch {
+                    detail: format!(
+                        "p-value laundering: narrative quotes adjusted p {claimed_p:.4e} but the table's adjusted column is {adj_closest:.4e}; the quoted value matches only the raw p-value column (raw value mis-labelled as adjusted)"
+                    ),
+                };
+            }
+        }
         let matches_any = observed
             .iter()
             .any(|&obs_p| pvalue_within_tolerance(claimed_p, obs_p, cfg.pvalue_relative_tolerance));
@@ -2288,6 +2337,8 @@ fn verify_one_structured(
             excerpt: excerpt.clone(),
             contract: crate::claim_contract::ClaimContract::ThresholdedDeOrEnrichment,
             literature_evidence: None,
+            matched_pvalue_keyword: None,
+            linear_fold: None,
         },
         status,
         strength: ClaimStrength::Exploratory,
@@ -2615,6 +2666,8 @@ mod tests {
             excerpt: "CRISPLD2 is present.".into(),
             contract: ClaimContract::NumericTableLookup,
             literature_evidence: None,
+            matched_pvalue_keyword: None,
+            linear_fold: None,
         };
         let verdicts = verify_claims_with_discovery(&[claim], pkg.path(), pkg.path(), &cfg);
         let st = verdicts[0].claim.source_table.as_deref().unwrap_or("");
@@ -2637,6 +2690,8 @@ mod tests {
                 excerpt: "TNF is upregulated in primary_endpoint".into(),
                 contract: crate::claim_contract::ClaimContract::NumericTableLookup,
                 literature_evidence: None,
+                matched_pvalue_keyword: None,
+                linear_fold: None,
             },
             status: ClaimStatus::Verified,
             strength: ClaimStrength::Exploratory,
@@ -2669,6 +2724,8 @@ mod tests {
                 excerpt: "Primary endpoint HR = 0.72".into(),
                 contract: crate::claim_contract::ClaimContract::NumericTableLookup,
                 literature_evidence: None,
+                matched_pvalue_keyword: None,
+                linear_fold: None,
             },
             status: ClaimStatus::Verified,
             strength: ClaimStrength::Exploratory,
@@ -2683,6 +2740,8 @@ mod tests {
                 excerpt: "AE rates in safety set".into(),
                 contract: crate::claim_contract::ClaimContract::NumericTableLookup,
                 literature_evidence: None,
+                matched_pvalue_keyword: None,
+                linear_fold: None,
             },
             status: ClaimStatus::Verified,
             strength: ClaimStrength::Exploratory,
@@ -3166,6 +3225,91 @@ mod tests {
         );
     }
 
+    /// VF-8 — p-value laundering. A narrative that quotes a value under an
+    /// ADJUSTED label ("padj=…") which actually matches only the table's RAW
+    /// `pvalue` column (the adjusted column disagrees by orders of magnitude)
+    /// is a fabrication: the author dressed the smaller raw p as an adjusted
+    /// one to inflate significance. The old lenient "match ANY p-column" rule
+    /// passed it. Three twins prove the catch is asymmetric and FP-safe.
+    #[test]
+    fn pvalue_laundering_raw_quoted_as_adjusted_is_mismatch() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+
+        // CATCH: padj column is 0.45 (not significant) but the raw pvalue is
+        // 0.0001; the narrative quotes 0.0001 under the "padj" label.
+        let tmp = tempdir().unwrap();
+        write_table(
+            tmp.path(),
+            "de_s1.tsv",
+            "gene\tlog2FC\tpvalue\tpadj\nACAN\t2.1\t0.0001\t0.45\n",
+        );
+        let fab = extract_claims(
+            "ACAN was upregulated (log2FC=2.1, padj=0.0001, Table S1).",
+            &cfg,
+        );
+        let acan = fab.iter().find(|c| c.entity == "ACAN").unwrap();
+        assert_eq!(
+            acan.matched_pvalue_keyword.as_deref(),
+            Some("padj"),
+            "extractor should record the adjusted keyword the prose used"
+        );
+        let report = verify_claims(&fab, tmp.path(), &cfg);
+        let v = report.verdicts.iter().find(|v| v.claim.entity == "ACAN").unwrap();
+        assert!(
+            matches!(v.status, ClaimStatus::Mismatch { .. }),
+            "raw p quoted under an adjusted label must be a Mismatch, got {:?}",
+            v.status
+        );
+
+        // FAITHFUL TWIN 1: the padj column genuinely matches the quoted value
+        // (raw is smaller). Honest adjusted claim → Verified.
+        let tmp2 = tempdir().unwrap();
+        write_table(
+            tmp2.path(),
+            "de_s1.tsv",
+            "gene\tlog2FC\tpvalue\tpadj\nACAN\t2.1\t0.00005\t0.0001\n",
+        );
+        let honest = extract_claims(
+            "ACAN was upregulated (log2FC=2.1, padj=0.0001, Table S1).",
+            &cfg,
+        );
+        let report2 = verify_claims(&honest, tmp2.path(), &cfg);
+        let v2 = report2.verdicts.iter().find(|v| v.claim.entity == "ACAN").unwrap();
+        assert!(
+            matches!(v2.status, ClaimStatus::Verified),
+            "honest adjusted claim matching the padj column must Verify, got {:?}",
+            v2.status
+        );
+
+        // FAITHFUL TWIN 2 (asymmetry): the SAME raw value quoted under a RAW
+        // label ("pvalue=…") is legitimate — quoting the raw p is not laundering
+        // even when padj is large. Must Verify, proving VF-8 only fires in the
+        // significance-inflating direction.
+        let tmp3 = tempdir().unwrap();
+        write_table(
+            tmp3.path(),
+            "de_s1.tsv",
+            "gene\tlog2FC\tpvalue\tpadj\nACAN\t2.1\t0.0001\t0.45\n",
+        );
+        let raw_label = extract_claims(
+            "ACAN was upregulated (log2FC=2.1, pvalue=0.0001, Table S1).",
+            &cfg,
+        );
+        let rl = raw_label.iter().find(|c| c.entity == "ACAN").unwrap();
+        assert_eq!(
+            rl.matched_pvalue_keyword.as_deref(),
+            Some("pvalue"),
+            "extractor should record the raw keyword the prose used"
+        );
+        let report3 = verify_claims(&raw_label, tmp3.path(), &cfg);
+        let v3 = report3.verdicts.iter().find(|v| v.claim.entity == "ACAN").unwrap();
+        assert!(
+            matches!(v3.status, ClaimStatus::Verified),
+            "raw value under a raw label is not laundering and must Verify, got {:?}",
+            v3.status
+        );
+    }
+
     /// RankTopN: entity in top-5 rows → Verified.
     #[test]
     fn contract_rank_top_n_entity_in_top5_verified() {
@@ -3395,6 +3539,8 @@ mod tests {
             excerpt: "FLAT was upregulated (Table S1).".into(),
             contract: ClaimContract::NumericTableLookup,
             literature_evidence: None,
+            matched_pvalue_keyword: None,
+            linear_fold: None,
         };
         let report = verify_claims(&[claim], tmp.path(), &cfg);
         let v = report
@@ -3430,6 +3576,8 @@ mod tests {
             excerpt: "RISE was upregulated (Table S1).".into(),
             contract: ClaimContract::NumericTableLookup,
             literature_evidence: None,
+            matched_pvalue_keyword: None,
+            linear_fold: None,
         };
         let report = verify_claims(&[claim], tmp.path(), &cfg);
         let v = report
@@ -3592,6 +3740,8 @@ mod tests {
             excerpt: "TNF was elevated".into(),
             contract: ClaimContract::GroupComparison,
             literature_evidence: None,
+            matched_pvalue_keyword: None,
+            linear_fold: None,
         };
         let json = serde_json::to_string(&claim).unwrap();
         let round_tripped: Claim = serde_json::from_str(&json).unwrap();
@@ -3843,6 +3993,8 @@ mod tests {
             excerpt: "CRISPLD2 was upregulated".into(),
             contract: ClaimContract::NumericTableLookup,
             literature_evidence: None,
+            matched_pvalue_keyword: None,
+            linear_fold: None,
         };
         let v = verify_claims_with_discovery(&[claim], tmp.path(), tmp.path(), &cfg);
         assert!(
@@ -3884,6 +4036,8 @@ mod tests {
             excerpt: "row".into(),
             contract: ClaimContract::NumericTableLookup,
             literature_evidence: None,
+            matched_pvalue_keyword: None,
+            linear_fold: None,
         };
         let v = verify_claims_with_discovery(&[claim], tmp.path(), tmp.path(), &cfg);
         assert!(
@@ -4045,6 +4199,8 @@ mod tests {
             excerpt: "TP53 is concordant with prior work (PMID 12345678)".into(),
             contract: ClaimContract::LiteratureGrounded,
             literature_evidence: None,
+            matched_pvalue_keyword: None,
+            linear_fold: None,
         };
         let index = TableIndex::scan(std::path::Path::new("/nonexistent"));
         let mut cache: BTreeMap<PathBuf, CachedTable> = BTreeMap::new();
@@ -4119,6 +4275,8 @@ mod tests {
                 finding_id: finding_id.into(),
                 cited_pmids: pmids,
             }),
+            matched_pvalue_keyword: None,
+            linear_fold: None,
         }
     }
 

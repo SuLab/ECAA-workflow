@@ -21,6 +21,8 @@ fn claim(entity: &str, table: Option<&str>) -> Claim {
         excerpt: String::new(),
         contract: ClaimContract::NumericTableLookup,
         literature_evidence: None,
+        matched_pvalue_keyword: None,
+        linear_fold: None,
     }
 }
 fn v(c: Claim, s: ClaimStatus) -> ClaimVerdict {

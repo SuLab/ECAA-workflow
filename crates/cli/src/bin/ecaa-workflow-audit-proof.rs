@@ -193,6 +193,8 @@ mod tests {
             excerpt: String::new(),
             contract: ClaimContract::NumericTableLookup,
             literature_evidence: None,
+            matched_pvalue_keyword: None,
+            linear_fold: None,
         };
         let rep = ClaimVerificationReport {
             n_checked: 1,

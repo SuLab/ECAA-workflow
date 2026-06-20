@@ -269,6 +269,21 @@ pub struct Claim {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub literature_evidence: Option<LiteratureEvidence>,
+    /// The p-value-family keyword the narrative used for the parsed `pvalue`
+    /// ("padj"/"fdr"/"q…" → adjusted; "pvalue"/"p" → raw). Lets the verifier
+    /// reject a value quoted under the wrong label (a raw value labelled
+    /// "padj"). `None` when no p-value was parsed. (VF-8)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub matched_pvalue_keyword: Option<String>,
+    /// A LINEAR fold-change magnitude parsed from prose ("induced 8-fold",
+    /// "2.3-fold higher"), distinct from the log2 `effect_size`. The verifier
+    /// converts it (log2 of the ratio, signed by direction) before comparing,
+    /// so a linear claim is reconciled against a log2 table. `None` when no
+    /// linear-fold phrase was found. (VF-4)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub linear_fold: Option<f64>,
 }
 
 /// Policy-driven extractor configuration. Parsed once from the
@@ -775,7 +790,7 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
         for (ent_pos, ent_name) in entity_hits {
             let direction = nearest_direction(ent_pos, &direction_hits);
             let effect_size = value_for_entity(ent_pos, &effect_size_hits);
-            let pvalue = value_for_entity(ent_pos, &pvalue_hits);
+            let (pvalue, matched_pvalue_keyword) = pvalue_for_entity(ent_pos, &pvalue_hits);
             let key = (ent_name.clone(), direction);
             if seen.contains(&key) {
                 continue;
@@ -805,6 +820,8 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
                 excerpt: trimmed.to_string(),
                 contract,
                 literature_evidence,
+                matched_pvalue_keyword,
+                linear_fold: None,
             });
         }
     }
@@ -1034,7 +1051,7 @@ fn claim_from_table_row(
     let pvalue = pvalue.or_else(|| {
         scan_pvalue_positions(row_text, regex_cache)
             .first()
-            .map(|(_, v)| *v)
+            .map(|(_, v, _)| *v)
     });
     // C2 all-None guard: a row whose entity matched but that has no
     // direction, effect size, or p-value carries nothing for the verifier
@@ -1053,6 +1070,8 @@ fn claim_from_table_row(
         excerpt: row_text.trim().to_string(),
         contract: ClaimContract::NumericTableLookup,
         literature_evidence: None,
+        matched_pvalue_keyword: None,
+        linear_fold: None,
     })
 }
 
@@ -1265,6 +1284,31 @@ fn value_for_entity(entity_pos: usize, value_hits: &[(usize, f64)]) -> Option<f6
     }
 }
 
+/// Like [`value_for_entity`], but for p-value hits that carry their matched
+/// keyword. Returns the value AND the keyword of the SAME bound hit, so the
+/// recorded `matched_pvalue_keyword` always describes the value actually
+/// attributed to this entity (VF-8). The binding rule is identical to
+/// `value_for_entity` (single value → shared; multiple → first at/after the
+/// entity, else the last), guaranteeing the value the verifier compares and
+/// the keyword it classifies come from one and the same prose mention.
+fn pvalue_for_entity(
+    entity_pos: usize,
+    value_hits: &[(usize, f64, String)],
+) -> (Option<f64>, Option<String>) {
+    let chosen = match value_hits.len() {
+        0 => None,
+        1 => value_hits.first(),
+        _ => value_hits
+            .iter()
+            .find(|(pos, _, _)| *pos >= entity_pos)
+            .or_else(|| value_hits.last()),
+    };
+    match chosen {
+        Some((_, v, kw)) => (Some(*v), Some(kw.clone())),
+        None => (None, None),
+    }
+}
+
 /// Every effect-size match in the sentence as `(keyword_anchor_pos, value)`,
 /// sorted by position. Keyword priority (configured columns first, then the
 /// baked-in `log2fc`/`logfc` defaults) breaks ties so a number matched by two
@@ -1292,25 +1336,30 @@ fn scan_effect_size_positions(sentence: &str, cache: &ExtractorRegexCache) -> Ve
     hits
 }
 
-/// Every p-value match in the sentence as `(keyword_anchor_pos, value)`,
-/// sorted by position. Same per-entity-nearest rationale as
-/// [`scan_effect_size_positions`].
-fn scan_pvalue_positions(sentence: &str, cache: &ExtractorRegexCache) -> Vec<(usize, f64)> {
-    let mut hits: Vec<(usize, f64)> = Vec::new();
-    for (_kw, re) in &cache.pvalue {
+/// Every p-value match in the sentence as `(keyword_anchor_pos, value,
+/// matched_keyword)`, sorted by position. Same per-entity-nearest rationale as
+/// [`scan_effect_size_positions`]. The matched keyword (the literal p-value
+/// term the prose used — "padj"/"fdr"/"pvalue"/"p"/…) is carried so the
+/// verifier can tell which column CLASS the narrative attributed the value to
+/// (VF-8 p-laundering). The set of positions/values is unchanged from the
+/// prior 2-tuple form; only the keyword string is added, so extraction
+/// behaviour (and the faithful-claim path) is untouched.
+fn scan_pvalue_positions(sentence: &str, cache: &ExtractorRegexCache) -> Vec<(usize, f64, String)> {
+    let mut hits: Vec<(usize, f64, String)> = Vec::new();
+    for (kw, re) in &cache.pvalue {
         for caps in re.captures_iter(sentence) {
             let Some(whole) = caps.get(0) else { continue };
             if let Some(m) = caps.get(1) {
                 if let Ok(v) = m.as_str().parse::<f64>() {
                     let pos = whole.start();
-                    if !hits.iter().any(|(p, _)| *p == pos) {
-                        hits.push((pos, v));
+                    if !hits.iter().any(|(p, _, _)| *p == pos) {
+                        hits.push((pos, v, kw.clone()));
                     }
                 }
             }
         }
     }
-    hits.sort_by_key(|(p, _)| *p);
+    hits.sort_by_key(|(p, _, _)| *p);
     hits
 }
 
@@ -1860,6 +1909,8 @@ mod tests {
                 finding_id: "finding_42".into(),
                 cited_pmids: vec![12345678, 23456789],
             }),
+            matched_pvalue_keyword: None,
+            linear_fold: None,
         };
         let json = serde_json::to_string(&claim).unwrap();
         assert!(json.contains("\"literature_evidence\""), "{json}");
@@ -1880,6 +1931,8 @@ mod tests {
             excerpt: "X".into(),
             contract: ClaimContract::NumericTableLookup,
             literature_evidence: None,
+            matched_pvalue_keyword: None,
+            linear_fold: None,
         };
         let bare_json = serde_json::to_string(&bare).unwrap();
         assert!(!bare_json.contains("literature_evidence"), "{bare_json}");

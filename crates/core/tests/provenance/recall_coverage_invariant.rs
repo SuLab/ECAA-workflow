@@ -25,6 +25,8 @@ fn verdict(entity: &str, table: Option<&str>, status: ClaimStatus) -> ClaimVerdi
             excerpt: String::new(),
             contract: ClaimContract::NumericTableLookup,
             literature_evidence: None,
+            matched_pvalue_keyword: None,
+            linear_fold: None,
         },
         status,
         strength: ClaimStrength::Exploratory,

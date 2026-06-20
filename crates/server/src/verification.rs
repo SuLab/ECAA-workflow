@@ -254,6 +254,8 @@ mod signed_sink_wiring_tests {
             excerpt: String::new(),
             contract: ClaimContract::NumericTableLookup,
             literature_evidence: None,
+            matched_pvalue_keyword: None,
+            linear_fold: None,
         };
         let rep = ClaimVerificationReport {
             n_checked: 1,
@@ -330,6 +332,8 @@ mod recall_wiring_tests {
                 excerpt: String::new(),
                 contract: ClaimContract::NumericTableLookup,
                 literature_evidence: None,
+                matched_pvalue_keyword: None,
+                linear_fold: None,
             },
             status: ClaimStatus::Verified,
             strength: ClaimStrength::Exploratory,

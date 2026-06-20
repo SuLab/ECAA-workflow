@@ -49,4 +49,19 @@ contract: ClaimContract,
  * for every other contract class and for claims serialized before this
  * field existed.
  */
-literature_evidence?: LiteratureEvidence, };
+literature_evidence?: LiteratureEvidence, 
+/**
+ * The p-value-family keyword the narrative used for the parsed `pvalue`
+ * ("padj"/"fdr"/"q…" → adjusted; "pvalue"/"p" → raw). Lets the verifier
+ * reject a value quoted under the wrong label (a raw value labelled
+ * "padj"). `None` when no p-value was parsed. (VF-8)
+ */
+matched_pvalue_keyword?: string, 
+/**
+ * A LINEAR fold-change magnitude parsed from prose ("induced 8-fold",
+ * "2.3-fold higher"), distinct from the log2 `effect_size`. The verifier
+ * converts it (log2 of the ratio, signed by direction) before comparing,
+ * so a linear claim is reconciled against a log2 table. `None` when no
+ * linear-fold phrase was found. (VF-4)
+ */
+linear_fold?: number, };

@@ -23,6 +23,8 @@ fn report_claim_completeness_is_non_vacuous_with_sink() {
         excerpt: String::new(),
         contract: ClaimContract::NumericTableLookup,
         literature_evidence: None,
+        matched_pvalue_keyword: None,
+        linear_fold: None,
     };
     let rep = ClaimVerificationReport {
         n_checked: 1,
