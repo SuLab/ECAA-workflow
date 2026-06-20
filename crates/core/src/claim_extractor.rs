@@ -656,6 +656,37 @@ pub fn classify_contract(sentence: &str) -> ClaimContract {
 /// claim; across sentences they do not (a report that says "ACAN was
 /// upregulated" in two places yields two claims so that both occurrences
 /// are verifiable).
+/// Split narrative text into sentence fragments using the SAME preprocessing as
+/// [`extract_claims`]: scientific-notation canonicalization, abbreviation
+/// guarding (so "et al." / "Fig." / "approx." do not split a sentence), and the
+/// shared `SENTENCE_SPLITTER_RE`. The trailing period of each guarded
+/// abbreviation is restored in the returned fragments. Exposed so the
+/// aggregate-count scan (VF-16, in `claim_verifier`) tokenizes a narrative
+/// identically to the per-claim extractor — one source of truth for sentence
+/// boundaries.
+pub fn split_sentences(text: &str) -> Vec<String> {
+    // Sentinel chosen so it can't appear in legitimate input — the BEL
+    // control character (U+0007).
+    const ABBREV_SENTINEL: char = '\u{0007}';
+    let preprocessed = {
+        let mut s = canonicalize_scientific(text);
+        for abbrev in &[
+            "et al.", "Fig.", "fig.", "Tab.", "tab.", "Dr.", "Mr.", "Mrs.", "Ms.", "Prof.", "e.g.",
+            "i.e.", "vs.", "cf.", "approx.", "ca.", "No.", "no.",
+        ] {
+            let replacement = format!("{}{}", &abbrev[..abbrev.len() - 1], ABBREV_SENTINEL);
+            s = s.replace(abbrev, &replacement);
+        }
+        s
+    };
+    SENTENCE_SPLITTER_RE
+        .split(&preprocessed)
+        // Restore the period after splitting so downstream regexes see the
+        // original surface form (entity patterns may rely on it).
+        .map(|frag| frag.replace(ABBREV_SENTINEL, "."))
+        .collect()
+}
+
 pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
     // ECAA_ABLATE_CLAIM_CONSISTENCY suppression deliberately lives at
     // the emit-write site (crates/conversation/src/emit/sidecars.rs
@@ -672,32 +703,13 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
     // treats the Unicode sentence terminators (full-width period
     // U+FF0E, ellipsis U+2026, full-width !? U+FF01/FF1F) the same as
     // ASCII.
-    let sentence_splitter = &*SENTENCE_SPLITTER_RE;
     // Build the per-keyword regex cache once per `extract_claims` call
     // so the hot per-sentence scanners reuse compiled regexes instead
     // of rebuilding them for each (sentence × keyword) pair.
     let regex_cache = ExtractorRegexCache::build(cfg);
-    // Sentinel chosen so it can't appear in legitimate input — the BEL
-    // control character (U+0007).
-    const ABBREV_SENTINEL: char = '\u{0007}';
-    let preprocessed = {
-        let mut s = canonicalize_scientific(text);
-        for abbrev in &[
-            "et al.", "Fig.", "fig.", "Tab.", "tab.", "Dr.", "Mr.", "Mrs.", "Ms.", "Prof.", "e.g.",
-            "i.e.", "vs.", "cf.", "approx.", "ca.", "No.", "no.",
-        ] {
-            let replacement = format!("{}{}", &abbrev[..abbrev.len() - 1], ABBREV_SENTINEL);
-            s = s.replace(abbrev, &replacement);
-        }
-        s
-    };
     let mut out: Vec<Claim> = Vec::new();
 
-    for raw_sentence in sentence_splitter.split(&preprocessed) {
-        // Restore the period after splitting so downstream regexes see
-        // the original surface form (claim entity-patterns may rely on
-        // it).
-        let restored: String = raw_sentence.replace(ABBREV_SENTINEL, ".");
+    for restored in split_sentences(text) {
         let sentence = restored.as_str();
         let trimmed = sentence.trim();
         if trimmed.is_empty() {
@@ -1418,7 +1430,7 @@ fn scan_linear_fold_positions(sentence: &str) -> Vec<(usize, f64)> {
     hits
 }
 
-fn scan_table_reference(sentence: &str) -> Option<String> {
+pub(crate) fn scan_table_reference(sentence: &str) -> Option<String> {
     TABLE_REF_RE.find(sentence).map(|m| m.as_str().to_string())
 }
 

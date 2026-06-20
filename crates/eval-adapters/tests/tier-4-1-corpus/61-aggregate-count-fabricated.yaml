@@ -1,0 +1,16 @@
+# VF-16 fabricated: inflated aggregate counts. "12 genes upregulated" /
+# "9 downregulated" against de_table_6 (3 up-sig, 2 down-sig at padj<0.05). These
+# count sentences carry no per-entity gene, so they bypassed the verifier
+# entirely before VF-16; the narrative-count scan recomputes from the cited table
+# and catches both. expected_claims omitted (count verdicts use synthetic
+# "count:..." entities); aggregate oracles carry the ground truth.
+scenario_id: aggregate_count_fabricated_001
+narrative_path: testdata/eval-tier-4-1/narratives/aggregate_count_fabricated.md
+result_table_path: testdata/eval-tier-4-1/tables/de_table_6.tsv
+interpretation_policy: config/downstream-policy/interpretation-policy.json
+expected_mismatch_count: 2
+planted_fabrications: 2
+expected_verified: 0
+expected_unverifiable_count: 0
+expected_suspicious_count: 0
+fabrication_class: aggregate_count_inflated

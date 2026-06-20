@@ -2352,6 +2352,136 @@ fn verify_count_claim(text: &str, table_path: &Path, cfg: &ExtractorConfig) -> O
     ))
 }
 
+/// A hedge / approximation token immediately preceding a count integer — the
+/// VF-16 false-positive guard so "~2000 genes", "approximately 2,000", "at
+/// least 5", ">1000" abstain rather than being checked against an EXACT
+/// table recompute.
+static HEDGE_BEFORE_COUNT_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r"(?i)(?:~|≈|∼|about|approximately|approx|roughly|around|nearly|over|under|more than|fewer than|less than|up to|at least|at most|>=?|<=?)\s*$",
+    )
+    .expect("static regex")
+});
+
+/// True for a round-number SUMMARY figure: ≥1000, a whole multiple of 100, with
+/// fewer than 3 significant digits (2000, 12000 — but NOT 2209 or 12500). Such
+/// figures read as rounded approximations, so VF-16 abstains rather than
+/// exact-matching them against a recompute.
+fn is_round_count(n: f64) -> bool {
+    if !(n >= 1000.0) || n.fract() != 0.0 || (n % 100.0) != 0.0 {
+        return false;
+    }
+    format!("{}", n as i64).trim_end_matches('0').len() < 3
+}
+
+/// VF-16 — verify aggregate COUNT claims in a narrative ("2209 genes were
+/// upregulated at FDR < 0.05 (Table 1)"). Such sentences carry NO uppercase
+/// entity, so they produce no per-claim `Claim` and bypass the per-entity
+/// verifier entirely — an inflated/fabricated count escapes. This scan splits
+/// the narrative with the SAME splitter as the extractor, and for each
+/// count-shaped sentence recomputes the count from the CITED result table.
+///
+/// ABSTAIN-FIRST (false-positive safety is paramount — this runs over every
+/// production narrative): a count is checked ONLY when it (a) is not hedged
+/// ("~", "about", "at least"), (b) is not a round-number summary, (c) does not
+/// combine up+down in one sentence (which `verify_count_claim` cannot split),
+/// (d) cites a table that resolves and carries the named significance column.
+/// Any of those → `Unverifiable`, never `Mismatch`. Only an exact, single-
+/// direction, cited count that the table can recompute is promoted, and only to
+/// the verdict `verify_count_claim` returns (Verified when within
+/// `compare_count`'s band, else Mismatch).
+pub fn verify_narrative_counts(
+    narrative: &str,
+    tables_root: &Path,
+    cfg: &ExtractorConfig,
+) -> Vec<ClaimVerdict> {
+    let index = TableIndex::scan(tables_root);
+    let mut out: Vec<ClaimVerdict> = Vec::new();
+    for sentence in crate::claim_extractor::split_sentences(narrative) {
+        let s = sentence.trim();
+        // Skip markdown table rows (mined structurally elsewhere).
+        if s.is_empty() || s.starts_with('|') || s.matches('|').count() >= 2 {
+            continue;
+        }
+        let Some(noun_caps) = COUNT_NOUN_RE.captures(s) else {
+            continue;
+        };
+        let noun = noun_caps.get(2).map(|m| m.as_str()).unwrap_or("items");
+        let lower = s.to_lowercase();
+        let has_up = cfg.up_words.iter().any(|w| lower.contains(&w.to_lowercase()));
+        let has_down = cfg.down_words.iter().any(|w| lower.contains(&w.to_lowercase()));
+        let dir = if has_up && !has_down {
+            "up "
+        } else if has_down && !has_up {
+            "down "
+        } else {
+            ""
+        };
+        let entity = format!("count:{dir}{noun}");
+        let make = |status: ClaimStatus, source: Option<String>| ClaimVerdict {
+            claim: Claim {
+                entity: entity.clone(),
+                direction: None,
+                effect_size: None,
+                pvalue: None,
+                source_table: source,
+                excerpt: s.to_string(),
+                contract: crate::claim_contract::ClaimContract::ThresholdedDeOrEnrichment,
+                literature_evidence: None,
+                matched_pvalue_keyword: None,
+                linear_fold: None,
+            },
+            status,
+            strength: ClaimStrength::Exploratory,
+        };
+        let unverifiable =
+            |reason: &str| make(ClaimStatus::Unverifiable { reason: reason.to_string() }, None);
+
+        // FP guard 1 — hedged/approximate count.
+        let int_start = noun_caps.get(1).map(|m| m.start()).unwrap_or(0);
+        if HEDGE_BEFORE_COUNT_RE.is_match(&s[..int_start]) {
+            out.push(unverifiable(
+                "approximate/hedged count — not adjudicable against an exact recompute",
+            ));
+            continue;
+        }
+        // FP guard 2 — round-number summary figure.
+        if noun_caps
+            .get(1)
+            .and_then(|m| parse_count(m.as_str()))
+            .is_some_and(is_round_count)
+        {
+            out.push(unverifiable("round-number summary count — treated as approximate"));
+            continue;
+        }
+        // FP guard 3 — combined up+down in one sentence (directions not separable).
+        if has_up && has_down {
+            out.push(unverifiable(
+                "combined up/down counts in one sentence — directions not separable",
+            ));
+            continue;
+        }
+        // Resolve the cited table (cited-first; abstain on absent/unresolved —
+        // no uncited discovery, keeping the production blast radius FP-safe).
+        let Some(src) = crate::claim_extractor::scan_table_reference(s) else {
+            out.push(unverifiable("no table cited — aggregate count not recomputable"));
+            continue;
+        };
+        let Some(path) = index.resolve(&src) else {
+            out.push(unverifiable("cited table for the aggregate count did not resolve"));
+            continue;
+        };
+        let path = path.to_path_buf();
+        match verify_count_claim(s, &path, cfg) {
+            Some(status) => out.push(make(status, Some(table_label(&path)))),
+            None => out.push(unverifiable(
+                "cited table lacks the named significance column or the count is not recomputable",
+            )),
+        }
+    }
+    out
+}
+
 /// §3.6 narrative↔domain cross-check (aggregate-N half).
 ///
 /// Verifies a narrative's reported aggregate count against a result table on
@@ -3650,6 +3780,63 @@ mod tests {
             matches!(g.status, ClaimStatus::Suspicious { .. }),
             "phantom-cite absent quantitative entity must be Suspicious, got {:?}",
             g.status
+        );
+    }
+
+    /// VF-16 — aggregate count claims. An inflated count is caught; the exact
+    /// count verifies; and every FP guard (hedge, round-number, combined
+    /// up/down, uncited) abstains to Unverifiable rather than risking a false
+    /// Mismatch against an exact recompute.
+    #[test]
+    fn vf16_narrative_count_catch_and_abstain_guards() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        // 3 up-significant, 2 down-significant at padj < 0.05.
+        write_table(
+            tmp.path(),
+            "de_c.tsv",
+            "gene\tlog2FC\tpvalue\tpadj\nU1\t2.0\t1e-8\t1e-6\nU2\t1.5\t2e-8\t2e-6\nU3\t1.2\t3e-8\t3e-6\nD1\t-2.0\t1e-7\t1e-5\nD2\t-1.5\t2e-7\t2e-5\n",
+        );
+        let run = |t: &str| verify_narrative_counts(t, tmp.path(), &cfg);
+
+        // CATCH: inflated count (12 up vs 3).
+        let fab = run("12 genes were upregulated at FDR < 0.05 (Table C).");
+        assert_eq!(fab.len(), 1, "one count verdict expected");
+        assert!(
+            matches!(fab[0].status, ClaimStatus::Mismatch { .. }),
+            "inflated count must Mismatch, got {:?}",
+            fab[0].status
+        );
+
+        // FAITHFUL: exact count (3 up).
+        let ok = run("3 genes were upregulated at FDR < 0.05 (Table C).");
+        assert!(
+            matches!(ok[0].status, ClaimStatus::Verified),
+            "exact count must Verify, got {:?}",
+            ok[0].status
+        );
+
+        // ABSTAIN guards — each must be Unverifiable, never Mismatch:
+        for (label, text) in [
+            ("hedge", "Approximately 3 genes were upregulated at FDR < 0.05 (Table C)."),
+            ("round", "2000 genes were upregulated at FDR < 0.05 (Table C)."),
+            ("uncited", "12 genes were upregulated at FDR < 0.05."),
+        ] {
+            let v = run(text);
+            assert!(
+                !v.is_empty() && v.iter().all(|x| matches!(x.status, ClaimStatus::Unverifiable { .. })),
+                "{label} count must abstain (Unverifiable), got {:?}",
+                v.iter().map(|x| &x.status).collect::<Vec<_>>()
+            );
+        }
+
+        // COMBINED up+down in one sentence: directions not separable → abstain.
+        let combined =
+            run("12 genes were upregulated and 9 were downregulated at FDR < 0.05 (Table C).");
+        assert!(
+            combined.iter().all(|x| matches!(x.status, ClaimStatus::Unverifiable { .. })),
+            "combined up/down must abstain, got {:?}",
+            combined.iter().map(|x| &x.status).collect::<Vec<_>>()
         );
     }
 

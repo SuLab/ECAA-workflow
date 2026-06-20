@@ -17,7 +17,8 @@
 
 use crate::claim_extractor::{extract_claims, extract_markdown_table_claims, ExtractorConfig};
 use crate::claim_verifier::{
-    demote_claims_from_deviations, verify_claims_with_discovery, verify_structured_claims,
+    demote_claims_from_deviations, verify_claims_with_discovery, verify_narrative_counts,
+    verify_structured_claims,
     ClaimVerificationReport, StructuredClaim,
 };
 use crate::clock::WallClock;
@@ -123,6 +124,14 @@ pub fn verify_task_with_context(
             let mut claims = extract_claims(&narrative, &cfg);
             claims.extend(extract_markdown_table_claims(&narrative, &cfg));
             for v in verify_claims_with_discovery(&claims, &effective_root, package_root, &cfg) {
+                report.push(v);
+            }
+            // VF-16: aggregate count sentences ("2209 genes upregulated at
+            // FDR<0.05 (Table N)") carry no per-entity Claim, so recompute them
+            // from the cited table and fold the verdicts in. Abstain-first
+            // (hedged / round / combined / uncited → Unverifiable) keeps the
+            // production blast radius false-positive-safe.
+            for v in verify_narrative_counts(&narrative, &effective_root, &cfg) {
                 report.push(v);
             }
         }

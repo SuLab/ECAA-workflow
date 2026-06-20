@@ -1,0 +1,15 @@
+# VF-16 hedge-abstain guard: the SAME correct counts but written as
+# "Approximately 3" / "About 2". A hedged/approximate count must NOT be checked
+# against an exact recompute (it would risk a false mismatch on legitimate
+# rounding), so both abstain to Unverifiable — never Mismatch, never a false
+# Verify. planted_fabrications: 0 (this is a faithful, just-imprecise narrative).
+scenario_id: aggregate_count_hedged_001
+narrative_path: testdata/eval-tier-4-1/narratives/aggregate_count_hedged.md
+result_table_path: testdata/eval-tier-4-1/tables/de_table_6.tsv
+interpretation_policy: config/downstream-policy/interpretation-policy.json
+expected_mismatch_count: 0
+planted_fabrications: 0
+expected_verified: 0
+expected_unverifiable_count: 2
+expected_suspicious_count: 0
+fabrication_class: aggregate_count_hedged_abstain

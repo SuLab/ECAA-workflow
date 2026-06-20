@@ -15,7 +15,9 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 
 use ecaa_workflow_core::claim_extractor::{self, ExtractorConfig};
-use ecaa_workflow_core::claim_verifier::{verify_claims, ClaimVerificationReport};
+use ecaa_workflow_core::claim_verifier::{
+    verify_claims, verify_narrative_counts, ClaimVerificationReport,
+};
 
 /// One Tier 4.1 fabrication-catch scenario.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -157,7 +159,13 @@ pub fn run_one(scenario: &Tier4_1Scenario) -> Result<Tier4_1Result> {
             scenario.result_table_path.display()
         );
     }
-    let report: ClaimVerificationReport = verify_claims(&claims, &tables_root, &cfg);
+    let mut report: ClaimVerificationReport = verify_claims(&claims, &tables_root, &cfg);
+    // VF-16: aggregate count claims carry no per-entity Claim, so fold the
+    // narrative-count scan's verdicts into the report (mirrors the production
+    // finalize path) — otherwise count scenarios would score as all-zero.
+    for verdict in verify_narrative_counts(&narrative, &tables_root, &cfg) {
+        report.push(verdict);
+    }
 
     let mut passed = report.n_mismatch == scenario.expected_mismatch_count;
     if let Some(floor) = scenario.expected_min_verified {
@@ -306,7 +314,7 @@ mod tests {
             .expect("resolve workspace root");
         let corpus = root.join("crates/eval-adapters/tests/tier-4-1-corpus");
         let scenarios = load_corpus(&corpus).expect("load corpus");
-        assert_eq!(scenarios.len(), 60, "corpus size drifted from 60 scenarios");
+        assert_eq!(scenarios.len(), 63, "corpus size drifted from 63 scenarios");
         let mut failures = Vec::new();
         // Corpus-level precision tally: total mismatches reported vs the
         // human-authored planted-lie count, over scenarios that declare it.
