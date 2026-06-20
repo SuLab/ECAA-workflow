@@ -1193,20 +1193,23 @@ pub fn parse_table_rows_from_reader<R: Read>(
     // matching after NFC + ASCII-lowercase normalization so canonically-
     // equivalent Unicode forms (e.g. NFD-encoded headers) still bind.
     let header_norm: Vec<String> = headers.iter().map(normalize).collect();
+    // Require a CONFIGURED entity column. We deliberately do NOT fall back to
+    // "first column as entity": result tables expose their entity via the
+    // policy `entityColumns` (e.g. de_results.tsv's `gene_id`, added in
+    // Workstream A1), so a table with no configured entity column is a
+    // NON-result table (method_landscape.csv keyed on `axis`,
+    // mean_variance.tsv on `feature`, validation tables on `check_id`). A
+    // first-column fallback let those load and then spuriously matched a
+    // correct claim value against an unrelated number (e.g. a +1.50 log2FC vs
+    // a mean of 10.79), producing false Mismatch verdicts. Erroring here makes
+    // `verify_claims_with_discovery` warn-and-exclude such tables instead.
     let entity_idx = entity_columns
         .iter()
         .find_map(|col| {
             let needle = normalize(col);
             header_norm.iter().position(|h| h == &needle)
         })
-        .unwrap_or_else(|| {
-            tracing::warn!(
-                target: "ecaa::claim_verifier",
-                headers = ?headers,
-                "no configured entity column matched; falling back to first column as entity"
-            );
-            0
-        });
+        .ok_or_else(|| anyhow!("no configured entity column in headers {:?}", headers))?;
 
     let mut rows: Vec<TableRow> = Vec::new();
     for record in csv_reader.records() {
@@ -1428,7 +1431,11 @@ fn load_literature_rows(path: &Path) -> Result<Vec<LiteratureRow>> {
         .ok_or_else(|| anyhow!("claims_evidence_matrix.csv missing finding_id column"))?;
     let entity_idx =
         col("entity").ok_or_else(|| anyhow!("claims_evidence_matrix.csv missing entity column"))?;
-    let pmids_idx = col("prior_pmids");
+    // Accept both the plural `prior_pmids` and the singular `prior_pmid` the
+    // contextualize step actually emits. Without the singular alias every row's
+    // PMID list parsed empty, so a narrative that correctly cited a prior PMID
+    // was falsely flagged "cites PMID X but no supporting row" (Mismatch).
+    let pmids_idx = col("prior_pmids").or_else(|| col("prior_pmid"));
     let flag_idx = col("concordance_flag");
     let source_idx = col("source_kind");
     let verified_idx = col("verified");
@@ -1699,11 +1706,34 @@ fn verify_count_claim(text: &str, table_path: &Path, cfg: &ExtractorConfig) -> O
         .iter()
         .cloned()
         .partition(|c| is_adjusted_pvalue_keyword(c));
-    let pvalue_cols: Vec<String> = if want_adjusted {
+    let ordered_cols: Vec<String> = if want_adjusted {
         adjusted_cols.into_iter().chain(raw_cols).collect()
     } else {
         raw_cols.into_iter().chain(adjusted_cols).collect()
     };
+
+    // Resolve ONE significance column for the whole table — the first
+    // configured column (claimed-class-first) that actually exists in this
+    // table's header. Counting must NOT fall through to the raw `pvalue`
+    // column on a per-row basis: a DESeq2 `padj` cell is NA exactly when
+    // independent filtering excluded that gene, and such a row is *not* below
+    // a `padj<0.05` threshold. A per-row `lookup_numeric` over an ordered list
+    // silently consulted `pvalue` for those NA-`padj` rows and over-counted by
+    // the number of independent-filtered-but-raw-significant genes (4017 →
+    // 4146 on the Himes airway DE table). Pinning the column once means an NA
+    // adjusted cell drops the row; the raw fallback applies only when the
+    // table carries no adjusted column at all.
+    let col_present = |col: &str| -> bool {
+        let needle = normalize(col);
+        cached
+            .rows
+            .first()
+            .is_some_and(|r| r.values.contains_key(&needle))
+    };
+    let Some(count_col) = ordered_cols.iter().find(|c| col_present(c)).cloned() else {
+        return None;
+    };
+    let count_cols = [count_col];
 
     // Optional effect-magnitude constraint ("LFC>1").
     let effect_thresh: Option<(char, f64)> = EFFECT_THRESH_RE.captures(text).and_then(|c| {
@@ -1725,7 +1755,7 @@ fn verify_count_claim(text: &str, table_path: &Path, cfg: &ExtractorConfig) -> O
 
     let mut observed = 0usize;
     for row in &cached.rows {
-        let Some(p) = lookup_numeric(&row.values, &pvalue_cols) else {
+        let Some(p) = lookup_numeric(&row.values, &count_cols) else {
             continue;
         };
         if !(p.is_finite() && p < threshold) {
@@ -1875,15 +1905,31 @@ pub fn verify_narrative_threshold_honored(
         .iter()
         .cloned()
         .partition(|c| is_adjusted_pvalue_keyword(c));
-    let pvalue_cols: Vec<String> = if want_adjusted {
+    let ordered_cols: Vec<String> = if want_adjusted {
         adjusted_cols.into_iter().chain(raw_cols).collect()
     } else {
         raw_cols.into_iter().chain(adjusted_cols).collect()
     };
+    // Pin a single significance column (see `verify_count_claim`): a per-row
+    // fall-through to raw `pvalue` for NA-`padj` rows would mis-enforce an
+    // adjusted-threshold claim against independent-filtered genes.
+    let col_present = |col: &str| -> bool {
+        let needle = normalize(col);
+        cached
+            .rows
+            .first()
+            .is_some_and(|r| r.values.contains_key(&needle))
+    };
+    let probe_cols: Vec<String> = ordered_cols
+        .iter()
+        .find(|c| col_present(c))
+        .cloned()
+        .into_iter()
+        .collect();
 
     let mut probed_any = false;
     for row in &cached.rows {
-        if let Some(p) = lookup_numeric(&row.values, &pvalue_cols) {
+        if let Some(p) = lookup_numeric(&row.values, &probe_cols) {
             probed_any = true;
             if p.is_finite() && p >= threshold {
                 return ClaimStatus::Mismatch {
@@ -2662,18 +2708,17 @@ mod tests {
     }
 
     #[test]
-    fn parse_table_rows_from_reader_falls_back_to_first_column() {
-        // No header matches the configured entity columns, so the parser must
-        // fall back to column 0 as the entity (logging a warn) instead of
-        // erroring — defense-in-depth for tables whose first column is the
-        // entity under an unlisted header name.
+    fn parse_table_rows_from_reader_errors_on_missing_entity_column() {
+        // A table with NO configured entity column must ERROR (so the discovery
+        // path warns-and-excludes it) rather than fall back to column 0 — the
+        // fallback let non-result tables (method_landscape `axis`,
+        // mean_variance `feature`) load and produce false Mismatch verdicts.
         let tsv = "some_other\tvalue\nFOO\t1\n";
         let cols = vec!["gene".to_string(), "symbol".to_string()];
-        let rows = parse_table_rows_from_reader(tsv.as_bytes(), b'\t', &cols).unwrap();
-        assert_eq!(rows.len(), 1);
-        assert_eq!(
-            rows[0].entity, "FOO",
-            "first column is used as entity fallback"
+        let err = parse_table_rows_from_reader(tsv.as_bytes(), b'\t', &cols).unwrap_err();
+        assert!(
+            err.to_string().contains("no configured entity column"),
+            "expected the no-entity-column error, got: {err}"
         );
     }
 
@@ -3201,6 +3246,38 @@ mod tests {
     }
 
     #[test]
+    fn count_claim_excludes_na_adjusted_rows_no_raw_fallthrough() {
+        // Regression for the NA-`padj` fall-through (Himes airway: 4017 → 4146).
+        // DESeq2 sets `padj` = NA for independent-filtered genes. A `padj<0.05`
+        // count must EXCLUDE those rows, never fall through per-row to the raw
+        // `pvalue` column. Here exactly 2 rows have `padj<0.05` (A, B); two more
+        // (D, E) have NA `padj` but raw `pvalue<0.05` — they must NOT be counted.
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_pkg_table(
+            tmp.path(),
+            "de",
+            "de.tsv",
+            "gene\tlog2FC\tpvalue\tpadj\n\
+             A\t2.0\t0.0001\t0.001\n\
+             B\t1.5\t0.0002\t0.01\n\
+             C\t1.0\t0.02\t0.7\n\
+             D\t1.0\t0.001\tNA\n\
+             E\t1.0\t0.002\tNA\n",
+        );
+        let claim = StructuredClaim {
+            claim: "2 genes are significant at padj < 0.05".into(),
+            evidence: Some("de.tsv".into()),
+        };
+        let v = verify_structured_claims(&[claim], tmp.path(), &cfg);
+        assert!(
+            matches!(v[0].status, ClaimStatus::Verified),
+            "NA-padj rows D,E must not fall through to raw pvalue; got {:?}",
+            v[0].status
+        );
+    }
+
+    #[test]
     fn per_entity_pvalue_matches_adjusted_column_when_both_present() {
         // Narrative quotes padj; table carries both raw pvalue (far smaller)
         // and padj. Must verify against padj, not false-mismatch on raw.
@@ -3269,11 +3346,9 @@ mod tests {
         let tmp = tempdir().unwrap();
         let outputs = tmp.path().join("runtime").join("outputs").join("de");
         std::fs::create_dir_all(&outputs).unwrap();
-        // Bad table: invalid UTF-8 header bytes — `load_table_rows` errors even
-        // after the A3 first-column fallback (the fallback only handles an
-        // *unmatched* header, not an unparseable one), so this exercises the A2
-        // warn-and-exclude path rather than silently masquerading as "entity
-        // absent".
+        // Bad table: invalid UTF-8 header bytes — `load_table_rows` errors, so
+        // this exercises the A2 warn-and-exclude path rather than silently
+        // masquerading as "entity absent".
         std::fs::write(outputs.join("broken.tsv"), b"\xff\xfe\tcol\nX\t1\n").unwrap();
         // Good table: gene_id + log2FC + padj, containing CRISPLD2 upregulated.
         std::fs::write(
