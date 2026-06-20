@@ -49,6 +49,43 @@ fn normalize(s: &str) -> String {
     s.nfc().collect::<String>().to_ascii_lowercase()
 }
 
+/// Coarse id-namespace class for the VF-0 (Suspicious) absent-entity guard.
+/// Distinguishes Ensembl-family stable ids (`ENSG…`, `ENSMUSG…`, `ENST…`) from
+/// everything else (gene symbols, etc.). The guard only flags an absent entity
+/// Suspicious when its class MATCHES the cited table's entity-column class — so
+/// a symbol claim looked up in an Ensembl-keyed table (a benign cross-namespace
+/// miss) stays Unverifiable rather than being wrongly flagged.
+fn id_namespace(token: &str) -> &'static str {
+    let t = token.trim();
+    let upper = t.to_ascii_uppercase();
+    if upper.starts_with("ENS") {
+        // ENS + optional species (up to 4 letters) + G/T/P + ≥6 digits.
+        let rest = &upper[3..];
+        let letters: String = rest.chars().take_while(|c| c.is_ascii_alphabetic()).collect();
+        let digits: String = rest[letters.len()..]
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        if letters.len() <= 5 && digits.len() >= 6 {
+            return "ensembl";
+        }
+    }
+    "symbol"
+}
+
+/// True when the claim entity's id-namespace matches the cited table's
+/// entity-column namespace (sampled from the first row). Used by VF-0 so an
+/// absent entity is only flagged Suspicious when its absence is a real
+/// negative in the SAME namespace, not a symbol-vs-Ensembl lookup artifact.
+fn namespace_matches_table(claim_entity: &str, cached: &CachedTable) -> bool {
+    match cached.rows.first() {
+        Some(first) => id_namespace(claim_entity) == id_namespace(&first.entity),
+        // Empty table: no namespace to compare — treat as non-matching so we
+        // stay Unverifiable rather than guess.
+        None => false,
+    }
+}
+
 /// SME-safe table reference: the file's base name only (or `?` when
 /// the path has none). Used inside human-readable `Mismatch`/
 /// `Unverifiable` `detail`/`reason` strings so an absolute path like
@@ -844,6 +881,29 @@ fn verify_one(
 
     let claim_entity_norm = normalize(&claim.entity);
     let Some(row) = cached.get_by_normalized(&claim_entity_norm) else {
+        // VF-0 — unverifiable-as-evasion catch. A CONFIDENT QUANTITATIVE claim
+        // (a specific effect size or p-value) attributed to an entity ABSENT
+        // from a successfully-loaded cited table is the fabricated- or
+        // untested-gene signature — currently a silent Unverifiable pass. Flag
+        // it SUSPICIOUS (soft / review-required; never a hard block). Two
+        // guards keep this false-positive-free: (1) the claim must carry a
+        // quantitative slot — a bare mention or pure interpretation sentence
+        // has nothing fabricated to flag and stays Unverifiable; (2) the claim
+        // entity's id-namespace must MATCH the table's, so a symbol looked up
+        // in an Ensembl-keyed table (a benign cross-namespace miss, handled by
+        // the gene_symbol↔Ensembl validator instead) stays Unverifiable.
+        let has_quant = claim.effect_size.is_some() || claim.pvalue.is_some();
+        if has_quant && namespace_matches_table(&claim.entity, cached) {
+            return ClaimStatus::Suspicious {
+                reason: format!(
+                    "entity `{}` is absent from cited table `{}` ({} rows) yet a specific {} is asserted — a fabricated or untested finding, flagged for review",
+                    claim.entity,
+                    table_label(&path),
+                    cached.rows.len(),
+                    if claim.effect_size.is_some() { "effect size" } else { "p-value" },
+                ),
+            };
+        }
         return ClaimStatus::Unverifiable {
             reason: format!(
                 "entity `{}` not found in table `{}` (checked {} rows)",
@@ -2695,7 +2755,11 @@ mod tests {
     }
 
     #[test]
-    fn unverifiable_when_entity_missing_from_table() {
+    fn vf0_absent_entity_with_quant_same_namespace_is_suspicious() {
+        // VF-0 catch: a SPECIFIC effect size is asserted for ACAN, but ACAN is
+        // absent from the cited (symbol-keyed) table — the fabricated/untested
+        // signature. Same namespace (both gene symbols) → Suspicious (soft),
+        // not a silent Unverifiable pass.
         let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
         let tmp = tempdir().unwrap();
         write_table(
@@ -2705,12 +2769,75 @@ mod tests {
         );
         let claims = extract_claims("ACAN was upregulated (log2FC=2.1, Table S1).", &cfg);
         let report = verify_claims(&claims, tmp.path(), &cfg);
-        let acan = report
-            .verdicts
-            .iter()
-            .find(|v| v.claim.entity == "ACAN")
-            .unwrap();
-        assert!(matches!(acan.status, ClaimStatus::Unverifiable { .. }));
+        let acan = report.verdicts.iter().find(|v| v.claim.entity == "ACAN").unwrap();
+        assert!(
+            matches!(acan.status, ClaimStatus::Suspicious { .. }),
+            "absent entity + specific effect size + same namespace must be Suspicious, got {:?}",
+            acan.status
+        );
+        assert_eq!(report.n_suspicious, 1);
+        assert_eq!(report.n_mismatch, 0, "Suspicious must not count as a mismatch");
+    }
+
+    #[test]
+    fn vf0_absent_entity_without_quant_stays_unverifiable() {
+        // FP guard: a bare mention (no specific effect/p) of an absent entity
+        // has nothing fabricated to flag — it must stay Unverifiable.
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_table(
+            tmp.path(),
+            "de_summary_s1.tsv",
+            "gene\tlog2FC\tpadj\nCOL2A1\t-1.5\t0.003\n",
+        );
+        // No number, no direction-bearing slot beyond the word — bare mention.
+        let claims = extract_claims("ACAN is a chondrocyte matrix gene (Table S1).", &cfg);
+        let report = verify_claims(&claims, tmp.path(), &cfg);
+        let acan = report.verdicts.iter().find(|v| v.claim.entity == "ACAN").unwrap();
+        assert!(
+            matches!(acan.status, ClaimStatus::Unverifiable { .. }),
+            "bare mention of an absent entity must stay Unverifiable, got {:?}",
+            acan.status
+        );
+        assert_eq!(report.n_suspicious, 0);
+    }
+
+    #[test]
+    fn vf0_namespace_mismatch_stays_unverifiable() {
+        // FP guard: a SYMBOL claim looked up in an ENSEMBL-keyed table is a
+        // benign cross-namespace miss (handled by the symbol↔Ensembl validator),
+        // NOT a fabrication. It must stay Unverifiable, never Suspicious — even
+        // though a specific effect size is asserted.
+        let mut policy = policy_json();
+        // Ensure the Ensembl id pattern + gene_id entity column are configured.
+        policy["verifiableEntities"]["entityNamePatterns"] =
+            serde_json::json!(["[A-Z][A-Z0-9]{1,}", "ENS[A-Z]{0,4}[GTP]\\d{6,}"]);
+        policy["verifiableEntities"]["entityColumns"] =
+            serde_json::json!(["gene", "gene_id", "symbol"]);
+        let cfg = ExtractorConfig::from_policy(&policy).unwrap();
+        let tmp = tempdir().unwrap();
+        // Ensembl-keyed table; the claim names a SYMBOL absent from it.
+        write_table(
+            tmp.path(),
+            "de_summary_s1.tsv",
+            "gene_id\tlog2FC\tpadj\nENSG00000139618\t-1.5\t0.003\n",
+        );
+        let claims = extract_claims("CRISPLD2 was upregulated (log2FC=2.6, Table S1).", &cfg);
+        let crispld2 = {
+            let report = verify_claims(&claims, tmp.path(), &cfg);
+            report
+                .verdicts
+                .iter()
+                .find(|v| v.claim.entity == "CRISPLD2")
+                .unwrap()
+                .status
+                .clone()
+        };
+        assert!(
+            matches!(crispld2, ClaimStatus::Unverifiable { .. }),
+            "symbol-vs-Ensembl miss must stay Unverifiable (not Suspicious), got {:?}",
+            crispld2
+        );
     }
 
     #[test]
