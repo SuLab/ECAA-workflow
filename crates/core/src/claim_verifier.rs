@@ -1448,6 +1448,47 @@ static EFFECT_THRESH_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     .expect("static regex")
 });
 
+/// True when the evidence's basename exists ANYWHERE under the package's result
+/// trees (`runtime/outputs`, `results`, `runtime`), even in a location
+/// `resolve_evidence_table` does not scan. VF-1 uses this to tell a PHANTOM
+/// citation (file exists nowhere → fabrication) apart from a mere resolution
+/// gap (file is present but unresolved). Depth-bounded so a pathological tree
+/// cannot stall the verifier.
+fn evidence_basename_exists(package_root: &Path, evidence: &str) -> bool {
+    let Some(base) = Path::new(evidence.trim()).file_name().and_then(|s| s.to_str()) else {
+        return false;
+    };
+    fn walk(dir: &Path, base: &str, depth: usize) -> bool {
+        if depth > 6 {
+            return false;
+        }
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return false;
+        };
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                if walk(&p, base, depth + 1) {
+                    return true;
+                }
+            } else if p
+                .file_name()
+                .and_then(|s| s.to_str())
+                .is_some_and(|n| n.eq_ignore_ascii_case(base))
+            {
+                return true;
+            }
+        }
+        false
+    }
+    ["runtime/outputs", "results", "runtime"]
+        .iter()
+        .any(|root| {
+            let d = package_root.join(root);
+            d.is_dir() && walk(&d, base, 0)
+        })
+}
+
 /// Resolve a structured claim's `evidence` reference to a table file.
 /// Tries, in order: the package-relative path verbatim; the bare
 /// basename under `results/tables/`; the bare basename under any
@@ -2262,19 +2303,31 @@ fn verify_one_structured(
         );
     };
     let Some(table_path) = resolve_evidence_table(package_root, evidence) else {
-        return make(
-            summarize_claim_subject(&sc.claim),
+        let basename = Path::new(evidence)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or(evidence)
+            .to_string();
+        // VF-1 — a structured claim citing an evidence file that exists NOWHERE
+        // in the package is an unambiguous fabricated citation → Mismatch. If
+        // the basename IS present somewhere the resolver did not scan, that is a
+        // resolution gap, not a fabrication → stay Unverifiable (no false flag).
+        let status = if evidence_basename_exists(package_root, evidence) {
             ClaimStatus::Unverifiable {
-                reason: format!("cited evidence `{}` not found in package", evidence),
-            },
-            Some(
-                Path::new(evidence)
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or(evidence)
-                    .to_string(),
-            ),
-        );
+                reason: format!(
+                    "cited evidence `{}` is present in the package but not at a resolvable result-table location",
+                    evidence
+                ),
+            }
+        } else {
+            ClaimStatus::Mismatch {
+                detail: format!(
+                    "claim cites evidence file `{}` that does not exist anywhere in the package",
+                    evidence
+                ),
+            }
+        };
+        return make(summarize_claim_subject(&sc.claim), status, Some(basename));
     };
     let table_name = table_label(&table_path);
 
@@ -3597,6 +3650,51 @@ mod tests {
             matches!(v[1].status, ClaimStatus::Mismatch { .. }),
             "fabricated count must mismatch: {:?}",
             v[1].status
+        );
+    }
+
+    #[test]
+    fn vf1_structured_phantom_evidence_file_is_mismatch() {
+        // VF-1 — a structured claim citing an evidence file that exists NOWHERE
+        // in the package is a fabricated citation → Mismatch. A claim citing a
+        // real file present in an unscanned subdir is only a resolution gap →
+        // Unverifiable (no false flag).
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_pkg_table(
+            tmp.path(),
+            "differential_expression",
+            "de.tsv",
+            "gene\tlog2FC\tpadj\nA\t2.0\t0.001\n",
+        );
+        // Phantom: cites a file that is not anywhere in the package.
+        let phantom = StructuredClaim {
+            claim: "5 genes are differentially expressed (padj < 0.05)".into(),
+            evidence: Some("ghost_table.tsv".into()),
+        };
+        let v = verify_structured_claims(&[phantom], tmp.path(), &cfg);
+        assert!(
+            matches!(v[0].status, ClaimStatus::Mismatch { .. }),
+            "phantom evidence file must be a Mismatch, got {:?}",
+            v[0].status
+        );
+
+        // Resolution-gap twin: the file EXISTS (in an intermediates subdir the
+        // resolver does not scan) → Unverifiable, not Mismatch.
+        let nested = tmp
+            .path()
+            .join("runtime/outputs/differential_expression/intermediates");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(nested.join("aux.tsv"), "gene\tlog2FC\tpadj\nA\t2.0\t0.001\n").unwrap();
+        let present = StructuredClaim {
+            claim: "5 genes are differentially expressed (padj < 0.05)".into(),
+            evidence: Some("aux.tsv".into()),
+        };
+        let v2 = verify_structured_claims(&[present], tmp.path(), &cfg);
+        assert!(
+            matches!(v2[0].status, ClaimStatus::Unverifiable { .. }),
+            "present-but-unresolved evidence must stay Unverifiable, got {:?}",
+            v2[0].status
         );
     }
 
