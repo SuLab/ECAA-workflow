@@ -789,11 +789,27 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
 
         let mut seen: std::collections::BTreeSet<(String, Option<Direction>)> =
             std::collections::BTreeSet::new();
-        for (ent_pos, ent_name) in entity_hits {
+        // VF-12: positional metadata for ambiguity-aware slot binding. The
+        // entity list is position-sorted (above), as is each hit list, so an
+        // entity's index aligns with its value's index for trailing-list
+        // pairing.
+        let n_entities = entity_hits.len();
+        let last_entity_pos = entity_hits.last().map(|(p, _)| *p).unwrap_or(0);
+        let effect_positions: Vec<usize> = effect_size_hits.iter().map(|(p, _)| *p).collect();
+        let pvalue_positions: Vec<usize> = pvalue_hits.iter().map(|(p, _, _)| *p).collect();
+        let fold_positions: Vec<usize> = linear_fold_hits.iter().map(|(p, _)| *p).collect();
+        for (entity_index, (ent_pos, ent_name)) in entity_hits.into_iter().enumerate() {
             let direction = nearest_direction(ent_pos, &direction_hits);
-            let effect_size = value_for_entity(ent_pos, &effect_size_hits);
-            let (pvalue, matched_pvalue_keyword) = pvalue_for_entity(ent_pos, &pvalue_hits);
-            let linear_fold = value_for_entity(ent_pos, &linear_fold_hits);
+            let effect_size =
+                bind_slot_index(entity_index, n_entities, last_entity_pos, ent_pos, &effect_positions)
+                    .map(|i| effect_size_hits[i].1);
+            let p_idx =
+                bind_slot_index(entity_index, n_entities, last_entity_pos, ent_pos, &pvalue_positions);
+            let pvalue = p_idx.map(|i| pvalue_hits[i].1);
+            let matched_pvalue_keyword = p_idx.map(|i| pvalue_hits[i].2.clone());
+            let linear_fold =
+                bind_slot_index(entity_index, n_entities, last_entity_pos, ent_pos, &fold_positions)
+                    .map(|i| linear_fold_hits[i].1);
             let key = (ent_name.clone(), direction);
             if seen.contains(&key) {
                 continue;
@@ -1258,57 +1274,51 @@ fn nearest_direction(
         .map(|(_, d)| *d)
 }
 
-/// Bind a numeric value to one entity in a sentence.
+/// Choose which numeric hit binds to one entity, returning its INDEX into the
+/// position-sorted `positions` list (or `None` for no value / an ambiguous
+/// binding). One selector for every slot (effect size, p-value, linear fold)
+/// so the chosen value AND any companion data (e.g. the p-value keyword) are
+/// read from the SAME hit.
 ///
-/// Reporting prose writes the number *after* the entity it describes
-/// ("ACAN was upregulated (log2FC=2.1) and COL2A1 was downregulated
-/// (log2FC=-1.5)"), so a value belongs to the entity that most recently
-/// precedes it. Rules, given `value_hits` sorted ascending by position:
+/// Reporting prose writes a number *after* the entity it describes ("ACAN was
+/// up (log2FC=2.1) and COL2A1 was down (log2FC=-1.5)"), so the default rule is
+/// the first value at or after `entity_pos`, falling back to the last value
+/// when the entity follows every number. A single value is shared by every
+/// entity ("A and B were both up (log2FC=2.0)"); no values yield `None`.
 ///
-/// * **No values** → `None`.
-/// * **Exactly one value** → that value, for every entity. Preserves the
-///   prior aggregate behavior for a single shared number
-///   ("A and B were both up (log2FC=2.0)").
-/// * **Multiple values** → the first value at or after `entity_pos` (the
-///   number written next to this entity); if the entity follows every
-///   value, the last value. This stops the sentence's first number being
-///   force-attributed onto every entity, which surfaced correct
-///   multi-entity narratives as false mismatches and wrongly blocked
-///   the session.
-fn value_for_entity(entity_pos: usize, value_hits: &[(usize, f64)]) -> Option<f64> {
-    match value_hits.len() {
-        0 => None,
-        1 => Some(value_hits[0].1),
-        _ => value_hits
-            .iter()
-            .find(|(pos, _)| *pos >= entity_pos)
-            .or_else(|| value_hits.last())
-            .map(|(_, v)| *v),
-    }
-}
-
-/// Like [`value_for_entity`], but for p-value hits that carry their matched
-/// keyword. Returns the value AND the keyword of the SAME bound hit, so the
-/// recorded `matched_pvalue_keyword` always describes the value actually
-/// attributed to this entity (VF-8). The binding rule is identical to
-/// `value_for_entity` (single value → shared; multiple → first at/after the
-/// entity, else the last), guaranteeing the value the verifier compares and
-/// the keyword it classifies come from one and the same prose mention.
-fn pvalue_for_entity(
+/// VF-12 ambiguity guard: when MULTIPLE values are listed in a trailing group
+/// AFTER all entities ("A and B were up (2.1, -3.4)"), the default
+/// first-at/after rule mis-attributes the FIRST value to *every* entity. In
+/// that trailing-list shape, pair POSITIONALLY (entity[i] ↔ value[i]) when the
+/// counts match, and DEMOTE to `None` when they do not — so an unpairable
+/// multi-number sentence makes no false numeric assertion (removing a latent
+/// false Mismatch) instead of silently binding the wrong number. Interleaved
+/// and single/zero-value sentences are unchanged from the prior behaviour.
+fn bind_slot_index(
+    entity_index: usize,
+    n_entities: usize,
+    last_entity_pos: usize,
     entity_pos: usize,
-    value_hits: &[(usize, f64, String)],
-) -> (Option<f64>, Option<String>) {
-    let chosen = match value_hits.len() {
+    positions: &[usize],
+) -> Option<usize> {
+    match positions.len() {
         0 => None,
-        1 => value_hits.first(),
-        _ => value_hits
-            .iter()
-            .find(|(pos, _, _)| *pos >= entity_pos)
-            .or_else(|| value_hits.last()),
-    };
-    match chosen {
-        Some((_, v, kw)) => (Some(*v), Some(kw.clone())),
-        None => (None, None),
+        1 => Some(0),
+        _ => {
+            if n_entities > 1 && positions[0] > last_entity_pos {
+                // Trailing value list after all entities: pair positionally or
+                // demote when the counts cannot be paired.
+                return if positions.len() == n_entities {
+                    Some(entity_index)
+                } else {
+                    None
+                };
+            }
+            positions
+                .iter()
+                .position(|p| *p >= entity_pos)
+                .or(Some(positions.len() - 1))
+        }
     }
 }
 
@@ -1779,6 +1789,47 @@ mod tests {
                 "{}: {:?}",
                 ent,
                 c
+            );
+        }
+    }
+
+    #[test]
+    fn vf12_trailing_value_list_pairs_positionally() {
+        // VF-12 twin: a trailing list of values whose count matches the
+        // entities must pair POSITIONALLY (entity[i] ↔ value[i]) — NOT bind the
+        // first value to every entity. Before the fix COL2A1 wrongly inherited
+        // ACAN's +2.1, which would surface a faithful narrative as a false
+        // mismatch against a table where COL2A1 is truly negative.
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let text =
+            "ACAN and COL2A1 were both regulated, with log2FC=2.1 and log2FC=-1.5 respectively.";
+        let claims = extract_claims(text, &cfg);
+        let acan = claims.iter().find(|c| c.entity == "ACAN").unwrap();
+        let col = claims.iter().find(|c| c.entity == "COL2A1").unwrap();
+        assert!(
+            (acan.effect_size.unwrap() - 2.1).abs() < 1e-9,
+            "ACAN should pair to the first value: {acan:?}"
+        );
+        assert!(
+            (col.effect_size.unwrap() + 1.5).abs() < 1e-9,
+            "COL2A1 should pair to the second value, not inherit ACAN's: {col:?}"
+        );
+    }
+
+    #[test]
+    fn vf12_unpairable_trailing_values_demote_to_none() {
+        // VF-12 catch-the-FP: when a trailing value list cannot be paired
+        // one-to-one with the entities (3 entities, 2 values), binding any
+        // number is a guess. Demote every slot to None so no false numeric
+        // assertion is made (the claim becomes a bare mention).
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let text = "ACAN, COL2A1 and TNF were regulated (log2FC=2.1 and log2FC=-1.5).";
+        let claims = extract_claims(text, &cfg);
+        for ent in ["ACAN", "COL2A1", "TNF"] {
+            let c = claims.iter().find(|c| c.entity == ent).unwrap();
+            assert_eq!(
+                c.effect_size, None,
+                "{ent} effect_size must demote to None on an unpairable list: {c:?}"
             );
         }
     }
