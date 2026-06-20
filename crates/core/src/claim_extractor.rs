@@ -1891,6 +1891,37 @@ mod tests {
     }
 
     #[test]
+    fn enrichment_score_acronym_nes_not_mistaken_for_nestin_gene() {
+        // "NES = 1.92" in a gene-set enrichment narrative is a Normalized
+        // Enrichment Score, NOT the Nestin gene (HGNC symbol NES). Without the
+        // deny-list the broad gene-symbol regex captures "NES" as an entity and
+        // the discovery verifier binds it to the Nestin row in an unrelated DE
+        // table (log2FC -0.78), emitting a guaranteed false Mismatch. The
+        // `^NES$` exclude pattern (sibling of the existing `^ES$`) drops it; the
+        // real entity — the gene-set name — is not a gene symbol and is verified
+        // structurally elsewhere. A genuine gene in the same prose still survives.
+        let mut p = policy_json();
+        p["verifiableEntities"]["entityNameExcludePatterns"] = json!(["^NES$", "^FWER$"]);
+        let cfg = ExtractorConfig::from_policy(&p).unwrap();
+        let claims = extract_claims(
+            "Top enriched terms (by NES) include Adipogenesis (NES = 1.92, FDR = 0.001). \
+             CRISPLD2 was upregulated (log2FC=2.6, Table S1).",
+            &cfg,
+        );
+        let entities: Vec<&str> = claims.iter().map(|c| c.entity.as_str()).collect();
+        assert!(
+            !entities.contains(&"NES"),
+            "enrichment-score acronym NES must be deny-listed: {entities:?}"
+        );
+        assert!(
+            claims
+                .iter()
+                .any(|c| c.entity == "CRISPLD2" && c.effect_size.is_some()),
+            "a real gene with an effect size must still survive: {entities:?}"
+        );
+    }
+
+    #[test]
     fn delimited_tsv_yields_per_row_claims() {
         // A bare TSV result table (no markdown pipes) must produce one
         // NumericTableLookup claim per row that has a recognized entity and a

@@ -53,7 +53,7 @@
       "^SME$", "^FASTQ$", "^BH$", "^SWFC$", "^ECAA$", "^SAP$",
       "^ITT$", "^MMRM$", "^GEO$", "^SRA$", "^ENA$", "^BAM$", "^SAM$",
       "^VCF$", "^GFF$", "^GTF$", "^BED$", "^CSV$", "^TSV$", "^JSON$",
-      "^ES$", "^SE$", "^CI$", "^SD$", "^IQR$", "^AUC$", "^ROC$",
+      "^ES$", "^NES$", "^FWER$", "^SE$", "^CI$", "^SD$", "^IQR$", "^AUC$", "^ROC$",
       "^PASS$", "^FAIL$", "^YES$", "^NO$", "^NA$", "^OK$", "^GATING$", "^EVIDENCE$",
       "^GATED$", "^UNVERIFIABLE$", "^VERIFIED$", "^MISMATCH$", "^TRUE$", "^FALSE$",
       "^TODO$", "^NOTE$", "^WARN$", "^ERROR$", "^INFO$", "^SHA256$", "^PMID$"

@@ -219,8 +219,10 @@ negative_test!(
 // pattern. Without this, prose like "significant at FDR < 0.05 using
 // GSEA on TPM counts" extracts FDR/GSEA/TPM as fabricated entities and
 // pollutes every DE/enrichment report's verdict list with spurious
-// `unverifiable` rows. Real gene symbols (e.g. NES = Nestin) must still
-// extract.
+// `unverifiable` rows. `NES` (Normalized Enrichment Score) is now in that
+// deny-list too — it collides with the Nestin gene symbol, and the statistic
+// sense dominates genomics prose (see the in-test rationale). Unambiguous gene
+// symbols (e.g. AKT1) must still extract.
 #[test]
 fn interpretation_policy_excludes_stats_acronyms_not_genes() {
     use ecaa_workflow_core::claim_extractor::{extract_claims, ExtractorConfig};
@@ -231,11 +233,23 @@ fn interpretation_policy_excludes_stats_acronyms_not_genes() {
     let cfg = ExtractorConfig::from_policy(&policy).expect("extractor config builds");
 
     let text = "AKT1 was significantly upregulated at FDR < 0.05 using GSEA on \
-                TPM-normalized counts (Table de). NES was also upregulated (Table de).";
+                TPM-normalized counts (Table de). Adipogenesis was enriched (NES = 1.92).";
     let claims = extract_claims(text, &cfg);
     let entities: Vec<&str> = claims.iter().map(|c| c.entity.as_str()).collect();
 
-    for acronym in ["FDR", "GSEA", "TPM", "CPM", "FPKM", "DE", "DEG", "FC", "QC"] {
+    // `NES` is now deny-listed. The token collides: it is the HGNC symbol for
+    // Nestin AND the standard abbreviation for the GSEA Normalized Enrichment
+    // Score. In genomics results prose the statistic is overwhelmingly the
+    // intended sense (every gene-set enrichment paragraph reports "NES = x"),
+    // and treating it as the Nestin gene produced 6 guaranteed false-mismatch
+    // verdicts in the Himes airway package — each "NES = <score>" bound to the
+    // Nestin row of an unrelated DE/literature table (log2FC -0.78). The earlier
+    // "must not over-reach, keep Nestin" stance is reversed: the recurring
+    // statistic collision outweighs the rare bare-Nestin mention, which can
+    // still be verified when written with its Ensembl id or full name.
+    for acronym in [
+        "FDR", "GSEA", "TPM", "CPM", "FPKM", "DE", "DEG", "FC", "QC", "NES", "FWER",
+    ] {
         assert!(
             !entities.contains(&acronym),
             "stats acronym `{}` must not be extracted as an entity (got {:?})",
@@ -246,11 +260,6 @@ fn interpretation_policy_excludes_stats_acronyms_not_genes() {
     assert!(
         entities.contains(&"AKT1"),
         "real gene AKT1 must extract: {:?}",
-        entities
-    );
-    assert!(
-        entities.contains(&"NES"),
-        "real gene NES (Nestin) must still extract — exclude list must not over-reach: {:?}",
         entities
     );
 }
