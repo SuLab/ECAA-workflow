@@ -130,7 +130,6 @@ pub fn persist_signed_verdicts(
     coverage: Option<&CoverageResult>,
     writer: &AuditWriter,
 ) -> std::io::Result<PathBuf> {
-    use std::io::Write;
     let path = package_root.join(SIGNED_SINK_REL);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -138,15 +137,44 @@ pub fn persist_signed_verdicts(
     let doc = build_sink_doc(report, task_id, coverage);
     let mut buf = Vec::new();
     writer.write_signed_row(&mut buf, &doc)?;
+    // `buf` already ends in '\n' (write_signed_row uses writeln!).
 
-    // `buf` already ends in '\n' (write_signed_row uses writeln!). Host writes
-    // are sequential and post-execution, so a single appended line per call
-    // accumulates one row per task verification.
-    let mut f = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)?;
-    f.write_all(&buf)?;
+    // Idempotent replace, mirroring `refresh_plaintext_sidecar`. The sink is
+    // NDJSON — one independently-MAC'd row per finalized task. A plain append
+    // (the prior behaviour) was correct only for a single end-to-end run; on a
+    // RE-finalize it appended a *second* row for the same task, leaving the
+    // first (now stale) row in place. The audit-proof loader reads the sink as
+    // the trust surface and keys on the first row per task, so it would then
+    // evaluate STALE verdicts (e.g. a claim the corrected verifier no longer
+    // emits) and report phantom violations. Drop any existing row whose
+    // `task_id` equals this task's, preserving every other row's original bytes
+    // (and therefore its signature) verbatim, then append the fresh row.
+    let mut kept: Vec<u8> = Vec::new();
+    if let Ok(existing) = std::fs::read_to_string(&path) {
+        for line in existing.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let belongs_to_this_task = serde_json::from_str::<serde_json::Value>(line)
+                .ok()
+                .and_then(|v| {
+                    v.get("task_id")
+                        .and_then(serde_json::Value::as_str)
+                        .map(|t| t == task_id)
+                })
+                .unwrap_or(false);
+            if belongs_to_this_task {
+                continue;
+            }
+            kept.extend_from_slice(line.as_bytes());
+            kept.push(b'\n');
+        }
+    }
+    kept.extend_from_slice(&buf);
+
+    // Atomic-ish rewrite: a full overwrite replaces the prior contents in one
+    // call (matching the plaintext sidecar's `std::fs::write`).
+    std::fs::write(&path, &kept)?;
     Ok(path)
 }
 
@@ -429,6 +457,53 @@ mod tests {
         let inner = writer.verify_row(&parsed).expect("valid HMAC");
         assert_eq!(inner["verdicts"].as_array().unwrap().len(), 1);
         assert_eq!(inner["source"], json!("runtime-verifier"));
+    }
+
+    #[test]
+    fn re_finalize_replaces_task_row_not_appends() {
+        // Re-finalizing the same task must REPLACE its signed row, never leave a
+        // stale earlier row behind (the append-only bug let the audit-proof
+        // loader read pre-correction verdicts). Other tasks' rows — and their
+        // independent signatures — must survive verbatim.
+        let dir = tempfile::tempdir().unwrap();
+        let writer = AuditWriter::for_session();
+        let mk = |entity: &str, status: ClaimStatus| ClaimVerificationReport {
+            n_checked: 1,
+            n_verified: matches!(status, ClaimStatus::Verified) as usize,
+            n_mismatch: matches!(status, ClaimStatus::Mismatch { .. }) as usize,
+            n_unverifiable: matches!(status, ClaimStatus::Unverifiable { .. }) as usize,
+            verdicts: vec![verdict(claim(entity, Some("results/tables/de.csv")), status)],
+            runtime_decision_log_path: None,
+        };
+
+        // Task A finalized once; task B once; then task A RE-finalized with a
+        // different verdict (mismatch → verified).
+        let path = persist_signed_verdicts(
+            dir.path(),
+            "task_a",
+            &mk("IL6", ClaimStatus::Mismatch { detail: "x".into() }),
+            None,
+            &writer,
+        )
+        .unwrap();
+        persist_signed_verdicts(dir.path(), "task_b", &mk("TP53", ClaimStatus::Verified), None, &writer).unwrap();
+        persist_signed_verdicts(dir.path(), "task_a", &mk("IL6", ClaimStatus::Verified), None, &writer).unwrap();
+
+        let body = std::fs::read_to_string(&path).unwrap();
+        let lines: Vec<&str> = body.lines().filter(|l| !l.trim().is_empty()).collect();
+        // Exactly one row per task — no stale duplicate for task_a.
+        assert_eq!(lines.len(), 2, "expected one row per task, got: {body}");
+        let mut by_task: std::collections::BTreeMap<String, Value> = Default::default();
+        for l in &lines {
+            let parsed: Value = serde_json::from_str(l).unwrap();
+            // Every surviving row must still carry a valid HMAC.
+            let inner = writer.verify_row(&parsed).expect("valid HMAC after rewrite");
+            by_task.insert(inner["task_id"].as_str().unwrap().to_string(), inner);
+        }
+        // task_a's surviving row is the LATEST (verified), not the stale mismatch.
+        assert_eq!(by_task["task_a"]["n_verified"], json!(1));
+        assert_eq!(by_task["task_a"]["n_mismatch"], json!(0));
+        assert_eq!(by_task["task_b"]["n_verified"], json!(1));
     }
 
     #[test]
