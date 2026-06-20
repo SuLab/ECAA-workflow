@@ -60,8 +60,9 @@ matched_pvalue_keyword?: string,
 /**
  * A LINEAR fold-change magnitude parsed from prose ("induced 8-fold",
  * "2.3-fold higher"), distinct from the log2 `effect_size`. The verifier
- * converts it (log2 of the ratio, signed by direction) before comparing,
- * so a linear claim is reconciled against a log2 table. `None` when no
- * linear-fold phrase was found. (VF-4)
+ * compares its MAGNITUDE (`log2(linear_fold)`) against the table's
+ * `|log2FC|`, so a linear-fold claim is reconciled against a log2 table.
+ * Always a positive fold (>1×); direction is left to the direction/sign
+ * checks. `None` when no linear-fold phrase was found. (VF-4)
  */
 linear_fold?: number, };

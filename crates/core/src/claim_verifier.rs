@@ -944,6 +944,34 @@ fn verify_one(
         }
     }
 
+    // VF-4 (linear-fold magnitude): prose often states magnitude as a LINEAR
+    // fold ("induced 10-fold", "8-fold higher") rather than a log2 value, an
+    // assertion that otherwise escapes verification entirely (the effect-size
+    // slot only parses "log2FC=…"). Compare the claimed fold's MAGNITUDE
+    // (log2 of the ratio) against the table's |log2FC| for the entity, and
+    // flag ONLY a gross magnitude contradiction — off by more than one full
+    // log2 unit (>2× in linear terms). Direction-agnostic by design (a sign
+    // error is the direction check's / VF-6's job, not this one) and gated on
+    // a meaningful fold (>1×), so an honest "~10-fold" against a 5–20× table
+    // value is never flagged.
+    if let Some(lf) = claim.linear_fold {
+        if lf > 1.0 && lf.is_finite() {
+            if let Some(obs) = lookup_numeric(&row.values, &cfg.effect_size_columns) {
+                const LINEAR_FOLD_LOG2_BAND: f64 = 1.0; // one full doubling
+                let claimed_log2_mag = lf.log2();
+                let observed_log2_mag = obs.abs();
+                if (claimed_log2_mag - observed_log2_mag).abs() > LINEAR_FOLD_LOG2_BAND {
+                    return ClaimStatus::Mismatch {
+                        detail: format!(
+                            "fold-change magnitude: narrative claims {lf:.1}x (log2 {claimed_log2_mag:.2}) but table |log2FC| is {observed_log2_mag:.2} ({:.1}x)",
+                            observed_log2_mag.exp2()
+                        ),
+                    };
+                }
+            }
+        }
+    }
+
     // Direction word cross-check: if narrative says "upregulated" but the
     // observed effect size is negative (or vice versa), flag it. This is
     // the highest-signal check and catches the lotz v1-style fabrication
@@ -3306,6 +3334,82 @@ mod tests {
         assert!(
             matches!(v3.status, ClaimStatus::Verified),
             "raw value under a raw label is not laundering and must Verify, got {:?}",
+            v3.status
+        );
+    }
+
+    /// VF-4 — linear-fold magnitude. A narrative that states a LINEAR fold
+    /// ("upregulated 10-fold") which grossly disagrees with the table's
+    /// |log2FC| is a magnitude fabrication that otherwise escapes the verifier
+    /// (the effect-size slot only parses "log2FC=…"). Faithful twins (honest
+    /// fold; "log2 fold change" effect-size phrasing) prove the catch is
+    /// FP-safe and does not collide with the log2 keyword.
+    #[test]
+    fn linear_fold_magnitude_overclaim_is_mismatch() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+
+        // CATCH: prose claims 10-fold (log2 ≈ 3.32) but the table shows
+        // log2FC = 0.5 (≈ 1.4×) — off by far more than one doubling.
+        let tmp = tempdir().unwrap();
+        write_table(
+            tmp.path(),
+            "de_s1.tsv",
+            "gene\tlog2FC\tpadj\nACAN\t0.5\t0.001\n",
+        );
+        let fab = extract_claims("ACAN was upregulated 10-fold (Table S1).", &cfg);
+        let acan = fab.iter().find(|c| c.entity == "ACAN").unwrap();
+        assert_eq!(
+            acan.linear_fold,
+            Some(10.0),
+            "extractor should parse the linear fold magnitude from prose"
+        );
+        let report = verify_claims(&fab, tmp.path(), &cfg);
+        let v = report.verdicts.iter().find(|v| v.claim.entity == "ACAN").unwrap();
+        assert!(
+            matches!(v.status, ClaimStatus::Mismatch { .. }),
+            "gross linear-fold magnitude overclaim must be a Mismatch, got {:?}",
+            v.status
+        );
+
+        // FAITHFUL TWIN 1: an honest 8-fold claim against log2FC = 3.0 (= 8×).
+        let tmp2 = tempdir().unwrap();
+        write_table(
+            tmp2.path(),
+            "de_s1.tsv",
+            "gene\tlog2FC\tpadj\nACAN\t3.0\t0.001\n",
+        );
+        let honest = extract_claims("ACAN was upregulated 8-fold (Table S1).", &cfg);
+        let report2 = verify_claims(&honest, tmp2.path(), &cfg);
+        let v2 = report2.verdicts.iter().find(|v| v.claim.entity == "ACAN").unwrap();
+        assert!(
+            matches!(v2.status, ClaimStatus::Verified),
+            "honest linear-fold claim within band must Verify, got {:?}",
+            v2.status
+        );
+
+        // FAITHFUL TWIN 2 (keyword exclusion): "log2 fold change of 3.0" is an
+        // effect-size phrase (VF-3), NOT a 2× linear claim — the "2" in "log2"
+        // must not be parsed as a linear fold. Effect size 3.0 matches → Verified.
+        let tmp3 = tempdir().unwrap();
+        write_table(
+            tmp3.path(),
+            "de_s1.tsv",
+            "gene\tlog2FC\tpadj\nACAN\t3.0\t0.001\n",
+        );
+        let log2_phrase = extract_claims(
+            "ACAN was upregulated with a log2 fold change of 3.0 (Table S1).",
+            &cfg,
+        );
+        let lp = log2_phrase.iter().find(|c| c.entity == "ACAN").unwrap();
+        assert_eq!(
+            lp.linear_fold, None,
+            "the '2' in 'log2 fold change' must not be parsed as a linear fold"
+        );
+        let report3 = verify_claims(&log2_phrase, tmp3.path(), &cfg);
+        let v3 = report3.verdicts.iter().find(|v| v.claim.entity == "ACAN").unwrap();
+        assert!(
+            matches!(v3.status, ClaimStatus::Verified),
+            "log2-fold-change effect-size phrasing must Verify, got {:?}",
             v3.status
         );
     }

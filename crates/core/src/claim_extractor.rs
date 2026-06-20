@@ -278,9 +278,10 @@ pub struct Claim {
     pub matched_pvalue_keyword: Option<String>,
     /// A LINEAR fold-change magnitude parsed from prose ("induced 8-fold",
     /// "2.3-fold higher"), distinct from the log2 `effect_size`. The verifier
-    /// converts it (log2 of the ratio, signed by direction) before comparing,
-    /// so a linear claim is reconciled against a log2 table. `None` when no
-    /// linear-fold phrase was found. (VF-4)
+    /// compares its MAGNITUDE (`log2(linear_fold)`) against the table's
+    /// `|log2FC|`, so a linear-fold claim is reconciled against a log2 table.
+    /// Always a positive fold (>1×); direction is left to the direction/sign
+    /// checks. `None` when no linear-fold phrase was found. (VF-4)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub linear_fold: Option<f64>,
@@ -763,6 +764,7 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
 
         let effect_size_hits = scan_effect_size_positions(trimmed, &regex_cache);
         let pvalue_hits = scan_pvalue_positions(trimmed, &regex_cache);
+        let linear_fold_hits = scan_linear_fold_positions(trimmed);
         let source_table = scan_table_reference(trimmed);
         let contract = classify_contract(trimmed);
 
@@ -791,6 +793,7 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
             let direction = nearest_direction(ent_pos, &direction_hits);
             let effect_size = value_for_entity(ent_pos, &effect_size_hits);
             let (pvalue, matched_pvalue_keyword) = pvalue_for_entity(ent_pos, &pvalue_hits);
+            let linear_fold = value_for_entity(ent_pos, &linear_fold_hits);
             let key = (ent_name.clone(), direction);
             if seen.contains(&key) {
                 continue;
@@ -821,7 +824,7 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
                 contract,
                 literature_evidence,
                 matched_pvalue_keyword,
-                linear_fold: None,
+                linear_fold,
             });
         }
     }
@@ -1363,6 +1366,28 @@ fn scan_pvalue_positions(sentence: &str, cache: &ExtractorRegexCache) -> Vec<(us
     hits
 }
 
+/// Every LINEAR fold-change magnitude in the sentence as `(match_pos,
+/// value)`, sorted by position, for per-entity binding via
+/// [`value_for_entity`] (same nearest-number rationale as the effect-size and
+/// p-value scanners). Captures only the positive fold magnitude; the verifier
+/// compares it against the table's `|log2FC|`. (VF-4)
+fn scan_linear_fold_positions(sentence: &str) -> Vec<(usize, f64)> {
+    let mut hits: Vec<(usize, f64)> = Vec::new();
+    for caps in LINEAR_FOLD_RE.captures_iter(sentence) {
+        let Some(whole) = caps.get(0) else { continue };
+        if let Some(m) = caps.get(1) {
+            if let Ok(v) = m.as_str().parse::<f64>() {
+                let pos = whole.start();
+                if !hits.iter().any(|(p, _)| *p == pos) {
+                    hits.push((pos, v));
+                }
+            }
+        }
+    }
+    hits.sort_by_key(|(p, _)| *p);
+    hits
+}
+
 fn scan_table_reference(sentence: &str) -> Option<String> {
     TABLE_REF_RE.find(sentence).map(|m| m.as_str().to_string())
 }
@@ -1371,6 +1396,15 @@ fn scan_table_reference(sentence: &str) -> Option<String> {
 /// into `<num>e<exp>` so the numeric scanners see standard exponent form.
 static SCI_NOTATION_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(\d(?:\.\d+)?)\s*\*\s*10\s*\^?\s*(-?\d+)").expect("static regex")
+});
+
+/// Linear fold-change magnitude in prose: the number directly before "fold"
+/// ("10-fold", "2.3 fold", "8fold"). The leading `(?:^|[^a-z0-9.])` guard
+/// requires a non-alphanumeric (non-decimal) character before the number, so
+/// the "2" inside "log2-fold change" — an effect-size keyword, NOT a 2× claim
+/// — is never captured (its "2" is preceded by the letter 'g'). (VF-4)
+static LINEAR_FOLD_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)(?:^|[^a-z0-9.])(\d+(?:\.\d+)?)[\s-]*fold").expect("static regex")
 });
 
 /// Canonicalize the Unicode scientific-notation polish that real reports
