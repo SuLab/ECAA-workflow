@@ -477,12 +477,80 @@ pub fn verify_task_with_context_emit_time(
 /// columns differently. `NumericTableLookup` preserves the pre-existing
 /// implementation; the five new classes add targeted checks layered on top
 /// of the common row-lookup path.
+/// A "TOKEN ( TOKEN )" apposition — for the VF-13 symbol↔Ensembl pairing check.
+/// Both tokens are alnum/dot/dash with NO internal whitespace, so a descriptive
+/// parenthetical ("IL6 (interleukin-6 receptor)") is not matched; the in-code
+/// namespace classification then rejects same-namespace and non-id pairs.
+static ID_APPOSITION_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"([A-Za-z0-9][A-Za-z0-9.\-]*)\s*\(\s*([A-Za-z0-9][A-Za-z0-9.\-]*)\s*\)")
+        .expect("static regex")
+});
+
+/// Lowercase and strip a trailing Ensembl version suffix (`.12`) for comparison.
+fn strip_id_version(id: &str) -> String {
+    let lower = id.to_ascii_lowercase();
+    match lower.split_once('.') {
+        Some((stem, _)) => stem.to_string(),
+        None => lower,
+    }
+}
+
+/// VF-13 — detect a gene SYMBOL paired with the WRONG Ensembl id per an
+/// INDEPENDENT symbol→ensembl `map`. Scans `text` for "SYMBOL (ENSG…)" or
+/// "ENSG… (SYMBOL)" appositions and, for one whose symbol the map covers and
+/// whose asserted Ensembl id (version-stripped) differs from the map's truth,
+/// returns `(symbol, asserted_ensembl, detail)`. Abstains (None) when there is
+/// no apposition, both tokens share a namespace, the symbol is absent from the
+/// map (which may be incomplete), or the pairing is correct — so an honest
+/// pairing and an uncovered gene are never flagged.
+fn detect_wrong_id_pairing(
+    text: &str,
+    map: &BTreeMap<String, String>,
+) -> Option<(String, String, String)> {
+    for caps in ID_APPOSITION_RE.captures_iter(text) {
+        let (Some(a), Some(b)) = (caps.get(1), caps.get(2)) else {
+            continue;
+        };
+        let (a, b) = (a.as_str(), b.as_str());
+        let (symbol, ensembl) = match (id_namespace(a) == "ensembl", id_namespace(b) == "ensembl") {
+            (false, true) => (a, b), // SYMBOL (ENSG…)
+            (true, false) => (b, a), // ENSG… (SYMBOL)
+            _ => continue,           // both same namespace → not a cross pairing
+        };
+        if let Some(truth) = map.get(&symbol.to_ascii_lowercase()) {
+            if strip_id_version(truth) != strip_id_version(ensembl) {
+                return Some((
+                    symbol.to_string(),
+                    ensembl.to_string(),
+                    format!(
+                        "gene identity: narrative pairs {symbol} with {ensembl}, but the independent annotation maps {symbol} to {truth} (wrong-gene citation)"
+                    ),
+                ));
+            }
+        }
+    }
+    None
+}
+
 fn verify_for_contract(
     claim: &Claim,
     index: &TableIndex,
     cfg: &ExtractorConfig,
     cache: &mut BTreeMap<PathBuf, CachedTable>,
 ) -> ClaimStatus {
+    // VF-13 — wrong gene-identity pairing. Strictly inert unless an INDEPENDENT
+    // symbol↔Ensembl reference map is configured (no shipped policy sets one).
+    // When the narrative asserts a "SYMBOL (ENSG…)" apposition the map
+    // contradicts, that is a wrong-gene citation (the CRISPLD2→wrong-ENSG
+    // hallucination class); flag Mismatch on the SYMBOL-anchored claim only, so
+    // the redundant Ensembl-entity claim is not double-counted.
+    if let Some(map) = &cfg.gene_annotation_map {
+        if let Some((symbol, _ensembl, detail)) = detect_wrong_id_pairing(&claim.excerpt, map) {
+            if claim.entity.eq_ignore_ascii_case(&symbol) {
+                return ClaimStatus::Mismatch { detail };
+            }
+        }
+    }
     match claim.contract {
         ClaimContract::NumericTableLookup => verify_numeric_lookup(claim, index, cfg, cache),
         ClaimContract::ThresholdedDeOrEnrichment => verify_thresholded(claim, index, cfg, cache),
@@ -3837,6 +3905,63 @@ mod tests {
             combined.iter().all(|x| matches!(x.status, ClaimStatus::Unverifiable { .. })),
             "combined up/down must abstain, got {:?}",
             combined.iter().map(|x| &x.status).collect::<Vec<_>>()
+        );
+    }
+
+    /// VF-13 — a gene SYMBOL paired with the WRONG Ensembl id (the
+    /// CRISPLD2→wrong-ENSG hallucination class), caught against an INDEPENDENT
+    /// reference map. Strictly inert unless a map is configured. Covers the pure
+    /// detector (incl. FP guards) and the inert-by-default end-to-end path.
+    #[test]
+    fn vf13_wrong_symbol_ensembl_pairing() {
+        let mut map = BTreeMap::new();
+        map.insert("crispld2".to_string(), "ENSG00000103196".to_string());
+        map.insert("tp53".to_string(), "ENSG00000141510".to_string());
+
+        // Detector: catches wrong pairing in both apposition orders.
+        assert!(detect_wrong_id_pairing("CRISPLD2 (ENSG00000197142) up", &map).is_some());
+        assert!(detect_wrong_id_pairing("ENSG00000197142 (CRISPLD2) up", &map).is_some());
+        // Abstains: correct pairing, version-suffixed correct, symbol not in the
+        // (incomplete) map, and a descriptive non-Ensembl parenthetical.
+        assert!(detect_wrong_id_pairing("CRISPLD2 (ENSG00000103196) up", &map).is_none());
+        assert!(detect_wrong_id_pairing("CRISPLD2 (ENSG00000103196.12) up", &map).is_none());
+        assert!(detect_wrong_id_pairing("NOVELX (ENSG00000999999) up", &map).is_none());
+        assert!(detect_wrong_id_pairing("IL6 (interleukin-6) elevated", &map).is_none());
+
+        // Inert by default: no shipped policy configures a map.
+        let inert = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        assert!(inert.gene_annotation_map.is_none(), "VF-13 must be inert without a configured map");
+
+        // End to end with a configured map.
+        let mut cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        cfg.gene_annotation_map = Some(map);
+        let tmp = tempdir().unwrap();
+        write_table(tmp.path(), "de_s1.tsv", "gene\tlog2FC\tpadj\nCRISPLD2\t2.6\t1e-60\n");
+
+        let fab = extract_claims(
+            "CRISPLD2 (ENSG00000197142) was upregulated (log2FC=2.6, Table S1).",
+            &cfg,
+        );
+        let rf = verify_claims(&fab, tmp.path(), &cfg);
+        let m = rf.verdicts.iter().find(|v| v.claim.entity == "CRISPLD2").unwrap();
+        assert!(
+            matches!(m.status, ClaimStatus::Mismatch { .. }),
+            "wrong symbol↔Ensembl pairing must Mismatch, got {:?}",
+            m.status
+        );
+
+        // FAITHFUL TWIN: the correct Ensembl id → VF-13 abstains, normal
+        // verification runs and Verifies.
+        let faithful = extract_claims(
+            "CRISPLD2 (ENSG00000103196) was upregulated (log2FC=2.6, Table S1).",
+            &cfg,
+        );
+        let rv = verify_claims(&faithful, tmp.path(), &cfg);
+        let v = rv.verdicts.iter().find(|v| v.claim.entity == "CRISPLD2").unwrap();
+        assert!(
+            matches!(v.status, ClaimStatus::Verified),
+            "correct symbol↔Ensembl pairing must Verify, got {:?}",
+            v.status
         );
     }
 

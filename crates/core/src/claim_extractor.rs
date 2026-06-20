@@ -318,6 +318,13 @@ pub struct ExtractorConfig {
     /// Minimum number of distinct evidence `source_kind`s backing a
     /// literature-grounded claim. Default 1.
     pub literature_min_sources: usize,
+    /// INDEPENDENT gene symbol → Ensembl-id map for the VF-13 wrong-pairing
+    /// check, loaded from the policy's `independentGeneAnnotationTable` path.
+    /// `None` (the default for every shipped policy) makes VF-13 a strict no-op,
+    /// so the verifier can never regress an existing verdict without an
+    /// explicitly configured, vetted reference map. Keys are
+    /// `to_ascii_lowercase` gene symbols.
+    pub gene_annotation_map: Option<std::collections::BTreeMap<String, String>>,
 }
 
 impl ExtractorConfig {
@@ -439,7 +446,61 @@ impl ExtractorConfig {
             pvalue_relative_tolerance,
             literature_min_papers,
             literature_min_sources,
+            // VF-13: best-effort load of an independent symbol↔Ensembl map when
+            // the policy points at one; absent/unreadable → None (inert).
+            gene_annotation_map: ve
+                .get("independentGeneAnnotationTable")
+                .and_then(Value::as_str)
+                .and_then(|p| load_symbol_ensembl_map(std::path::Path::new(p))),
         })
+    }
+}
+
+/// Load an INDEPENDENT gene symbol → Ensembl-id map from a TSV/CSV reference
+/// (for VF-13). Tolerant header matching picks a symbol column
+/// (`gene_symbol`/`symbol`/`gene_name`/`gene`/`hgnc_symbol`) and an Ensembl
+/// column (`ensembl_id`/`ensembl_gene_id`/`ensembl`/`gene_id`). First binding
+/// wins per symbol; keys are `to_ascii_lowercase`. Returns `None` on any read/
+/// parse failure or an empty map so a missing/garbled reference simply disables
+/// VF-13 rather than erroring config construction.
+fn load_symbol_ensembl_map(
+    path: &std::path::Path,
+) -> Option<std::collections::BTreeMap<String, String>> {
+    let file = std::fs::File::open(path).ok()?;
+    let ext = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let delimiter = if ext == "csv" { b',' } else { b'\t' };
+    let mut reader = csv::ReaderBuilder::new()
+        .delimiter(delimiter)
+        .has_headers(true)
+        .flexible(true)
+        .from_reader(file);
+    let headers = reader.headers().ok()?.clone();
+    let norm: Vec<String> = headers.iter().map(|h| h.trim().to_ascii_lowercase()).collect();
+    let sym_idx = norm.iter().position(|h| {
+        matches!(h.as_str(), "gene_symbol" | "symbol" | "gene_name" | "gene" | "hgnc_symbol")
+    })?;
+    let ens_idx = norm.iter().position(|h| {
+        matches!(h.as_str(), "ensembl_id" | "ensembl_gene_id" | "ensembl" | "gene_id" | "ensembl_gene")
+    })?;
+    let mut map: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+    for rec in reader.records().flatten() {
+        let (Some(s), Some(e)) = (rec.get(sym_idx), rec.get(ens_idx)) else {
+            continue;
+        };
+        let (s, e) = (s.trim(), e.trim());
+        if s.is_empty() || e.is_empty() {
+            continue;
+        }
+        map.entry(s.to_ascii_lowercase()).or_insert_with(|| e.to_string());
+    }
+    if map.is_empty() {
+        None
+    } else {
+        Some(map)
     }
 }
 
