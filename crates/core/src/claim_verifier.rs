@@ -543,13 +543,24 @@ fn verify_thresholded(
                     .iter()
                     .find(|r| r.entity.eq_ignore_ascii_case(&claim.entity))
                 {
-                    // VF-7 — judge "significant at FDR/padj < 0.05" on the
-                    // ADJUSTED column, not the raw `pvalue` that `lookup_numeric`
-                    // (column order) returns first. A gene with raw p=0.042 but
-                    // padj=0.16 is NOT FDR-significant; the raw-first probe
-                    // silently passed that overclaim. Prefer the first adjusted
-                    // p-column present; fall back to a raw column only when the
-                    // table carries no adjusted column at all.
+                    // VF-7 — judge a bare-significance claim on the p-value
+                    // column CLASS the claim NAMES. A claim naming an adjusted
+                    // threshold ("significant at FDR/padj < 0.05") is judged on
+                    // the adjusted column: a gene with raw p=0.042 but padj=0.16
+                    // is NOT FDR-significant, and the old raw-first probe
+                    // silently passed that overclaim. A claim naming a RAW
+                    // threshold ("raw p < 0.05", "nominal p < 0.05") is judged
+                    // on the raw column, so a correct nominal-significance
+                    // statement is NOT falsely flagged against the stricter
+                    // adjusted column. A bare "significant" with no explicit
+                    // keyword defaults to the adjusted column (the DE reporting
+                    // convention). The other class is consulted only as a
+                    // fallback when the named class is absent from the table.
+                    let want_adjusted = THRESH_RE
+                        .captures(&claim.excerpt)
+                        .and_then(|c| c.get(1))
+                        .map(|m| is_adjusted_pvalue_keyword(m.as_str()))
+                        .unwrap_or(true);
                     let adjusted: Vec<String> = cfg
                         .pvalue_columns
                         .iter()
@@ -562,13 +573,19 @@ fn verify_thresholded(
                         .filter(|c| !is_adjusted_pvalue_keyword(c))
                         .cloned()
                         .collect();
-                    let obs_p = lookup_numeric(&row.values, &adjusted)
-                        .or_else(|| lookup_numeric(&row.values, &raw));
+                    let (primary, fallback) = if want_adjusted {
+                        (&adjusted, &raw)
+                    } else {
+                        (&raw, &adjusted)
+                    };
+                    let obs_p = lookup_numeric(&row.values, primary)
+                        .or_else(|| lookup_numeric(&row.values, fallback));
                     if let Some(obs_p) = obs_p {
                         if obs_p >= 0.05 {
                             return ClaimStatus::Mismatch {
                                 detail: format!(
-                                    "thresholded claim: observed adjusted p-value {:.4e} does not meet FDR < 0.05",
+                                    "thresholded claim: observed {} p-value {:.4e} does not meet the claimed significance (< 0.05)",
+                                    if want_adjusted { "adjusted" } else { "raw" },
                                     obs_p
                                 ),
                             };
@@ -3249,6 +3266,44 @@ mod tests {
         assert!(
             matches!(v2.status, ClaimStatus::Verified),
             "faithful FDR-significant claim must Verify, got {:?}",
+            v2.status
+        );
+    }
+
+    /// VF-7 precision: a claim that EXPLICITLY names RAW/nominal significance
+    /// ("significant at raw p < 0.05") must be judged on the RAW column, not the
+    /// stricter adjusted column — otherwise a correct nominal-significance
+    /// statement (raw p < 0.05 while padj >= 0.05) is a false Mismatch. The
+    /// adjusted-named claim on the same row stays a Mismatch (the catch).
+    #[test]
+    fn thresholded_raw_significance_judged_on_raw_column() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        // raw pvalue 0.042 (< 0.05) but padj 0.16 (>= 0.05).
+        write_table(
+            tmp.path(),
+            "de_s1.tsv",
+            "gene\tlog2FC\tpvalue\tpadj\nCASP3\t0.9\t0.042\t0.16\n",
+        );
+        // Explicit RAW significance → judged on the raw column → Verified.
+        let raw_claim =
+            extract_claims("CASP3 was significant at raw p < 0.05 (Table S1).", &cfg);
+        let report = verify_claims(&raw_claim, tmp.path(), &cfg);
+        let v = report.verdicts.iter().find(|v| v.claim.entity == "CASP3").unwrap();
+        assert!(
+            matches!(v.status, ClaimStatus::Verified),
+            "explicit raw-significance claim must verify on the raw column, got {:?}",
+            v.status
+        );
+
+        // Same row, but the claim names FDR → judged on padj=0.16 → Mismatch.
+        let fdr_claim =
+            extract_claims("CASP3 was significant at FDR < 0.05 (Table S1).", &cfg);
+        let report2 = verify_claims(&fdr_claim, tmp.path(), &cfg);
+        let v2 = report2.verdicts.iter().find(|v| v.claim.entity == "CASP3").unwrap();
+        assert!(
+            matches!(v2.status, ClaimStatus::Mismatch { .. }),
+            "FDR-named claim on a raw-only-significant gene must Mismatch, got {:?}",
             v2.status
         );
     }

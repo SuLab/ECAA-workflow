@@ -295,7 +295,7 @@ mod tests {
             .expect("resolve workspace root");
         let corpus = root.join("crates/eval-adapters/tests/tier-4-1-corpus");
         let scenarios = load_corpus(&corpus).expect("load corpus");
-        assert_eq!(scenarios.len(), 54, "corpus size drifted from 54 scenarios");
+        assert_eq!(scenarios.len(), 56, "corpus size drifted from 56 scenarios");
         let mut failures = Vec::new();
         for mut s in scenarios {
             s.narrative_path = root.join(&s.narrative_path);

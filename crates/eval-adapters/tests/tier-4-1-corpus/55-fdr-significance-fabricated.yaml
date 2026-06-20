@@ -1,0 +1,19 @@
+# CF-7 fabricated: a bare "significant at FDR < 0.05" claim (no quoted number)
+# must be judged on the ADJUSTED column, not the raw p-value (VF-7).
+#   IRF7  → raw pvalue=2e-4 (<0.05) but padj=0.30 (>=0.05): NOT FDR-significant
+#           → Mismatch (the raw-first probe used to pass this silently).
+#   STAT1 → padj=5e-7 (<0.05): genuinely FDR-significant → Verified.
+scenario_id: fdr_significance_fabricated_001
+narrative_path: testdata/eval-tier-4-1/narratives/fdr_significance_fabricated.md
+result_table_path: testdata/eval-tier-4-1/tables/de_table_5.tsv
+interpretation_policy: config/downstream-policy/interpretation-policy.json
+expected_mismatch_count: 1
+expected_verified: 1
+expected_unverifiable_count: 0
+expected_suspicious_count: 0
+fabrication_class: fdr_significance_on_adjusted_column
+expected_claims:
+  - entity: IRF7
+    status: mismatch
+  - entity: STAT1
+    status: verified
