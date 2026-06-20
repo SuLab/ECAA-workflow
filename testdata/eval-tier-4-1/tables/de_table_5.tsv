@@ -1,0 +1,6 @@
+gene	log2FC	pvalue	padj
+STAT1	3.00	1.0e-08	5.0e-07
+IRF7	1.00	2.0e-04	0.30
+SOCS1	-3.00	3.0e-07	1.0e-05
+CXCL10	5.00	1.0e-12	1.0e-10
+GAPDH	0.02	0.91	0.96

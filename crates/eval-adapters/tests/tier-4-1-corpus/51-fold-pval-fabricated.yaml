@@ -1,0 +1,27 @@
+# CF-6/CF-7 fabricated: linear-fold magnitude overclaim (VF-4) + p-value
+# laundering (VF-8), each paired with a faithful claim in the same narrative so
+# the gate also asserts the honest claims are NOT over-flagged.
+#   STAT1 "upregulated 50-fold"  → table log2FC=3.0 (8x); log2(50)=5.64 vs 3.0
+#                                  is off by >1 log2 unit → Mismatch (VF-4).
+#   IRF7  "significant padj=0.0002" → table padj=0.30 but raw pvalue=2e-4; the
+#                                  adjusted value is quoted as the raw → Mismatch (VF-8).
+#   SOCS1 "downregulated 8-fold" → table log2FC=-3.0 (8x) → Verified (honest fold).
+#   CXCL10 "upregulated"         → table log2FC=+5.0 → Verified (honest direction).
+scenario_id: fold_pval_fabricated_001
+narrative_path: testdata/eval-tier-4-1/narratives/fold_pval_fabricated.md
+result_table_path: testdata/eval-tier-4-1/tables/de_table_5.tsv
+interpretation_policy: config/downstream-policy/interpretation-policy.json
+expected_mismatch_count: 2
+expected_verified: 2
+expected_unverifiable_count: 0
+expected_suspicious_count: 0
+fabrication_class: linear_fold_magnitude_and_pvalue_laundering
+expected_claims:
+  - entity: STAT1
+    status: mismatch
+  - entity: IRF7
+    status: mismatch
+  - entity: SOCS1
+    status: verified
+  - entity: CXCL10
+    status: verified

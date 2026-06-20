@@ -795,9 +795,9 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
         // pairing.
         let n_entities = entity_hits.len();
         let last_entity_pos = entity_hits.last().map(|(p, _)| *p).unwrap_or(0);
+        let entity_positions: Vec<usize> = entity_hits.iter().map(|(p, _)| *p).collect();
         let effect_positions: Vec<usize> = effect_size_hits.iter().map(|(p, _)| *p).collect();
         let pvalue_positions: Vec<usize> = pvalue_hits.iter().map(|(p, _, _)| *p).collect();
-        let fold_positions: Vec<usize> = linear_fold_hits.iter().map(|(p, _)| *p).collect();
         for (entity_index, (ent_pos, ent_name)) in entity_hits.into_iter().enumerate() {
             let direction = nearest_direction(ent_pos, &direction_hits);
             let effect_size =
@@ -807,9 +807,11 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
                 bind_slot_index(entity_index, n_entities, last_entity_pos, ent_pos, &pvalue_positions);
             let pvalue = p_idx.map(|i| pvalue_hits[i].1);
             let matched_pvalue_keyword = p_idx.map(|i| pvalue_hits[i].2.clone());
-            let linear_fold =
-                bind_slot_index(entity_index, n_entities, last_entity_pos, ent_pos, &fold_positions)
-                    .map(|i| linear_fold_hits[i].1);
+            let linear_fold = bind_fold_for_entity(
+                ent_pos,
+                entity_positions.get(entity_index + 1).copied(),
+                &linear_fold_hits,
+            );
             let key = (ent_name.clone(), direction);
             if seen.contains(&key) {
                 continue;
@@ -1294,6 +1296,24 @@ fn nearest_direction(
 /// multi-number sentence makes no false numeric assertion (removing a latent
 /// false Mismatch) instead of silently binding the wrong number. Interleaved
 /// and single/zero-value sentences are unchanged from the prior behaviour.
+/// Bind a linear fold magnitude to one entity, FP-safely. Unlike the shared
+/// numeric slots, a fold phrase ("GENE … N-fold") attaches to the ONE gene
+/// whose clause contains it, so a fold is credited to an entity only when it
+/// falls in `[entity_pos, next_entity_pos)` — never shared across entities nor
+/// attributed to a trailing entity. This keeps "SOCS1 down 8-fold and CXCL10
+/// up" from giving CXCL10 a phantom 8-fold (which would be a false VF-4
+/// Mismatch). The first such fold wins (hits are position-sorted).
+fn bind_fold_for_entity(
+    entity_pos: usize,
+    next_entity_pos: Option<usize>,
+    fold_hits: &[(usize, f64)],
+) -> Option<f64> {
+    fold_hits
+        .iter()
+        .find(|(fp, _)| *fp >= entity_pos && next_entity_pos.is_none_or(|n| *fp < n))
+        .map(|(_, v)| *v)
+}
+
 fn bind_slot_index(
     entity_index: usize,
     n_entities: usize,
@@ -1832,6 +1852,23 @@ mod tests {
                 "{ent} effect_size must demote to None on an unpairable list: {c:?}"
             );
         }
+    }
+
+    #[test]
+    fn vf4_fold_not_shared_across_entities() {
+        // A fold phrase attaches only to the gene whose clause contains it.
+        // "SOCS1 … 8-fold and CXCL10 up" must NOT give CXCL10 a phantom 8-fold
+        // — otherwise VF-4 would flag CXCL10 as a false magnitude mismatch.
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let text = "SOCS1 was downregulated 8-fold and CXCL10 was upregulated.";
+        let claims = extract_claims(text, &cfg);
+        let socs1 = claims.iter().find(|c| c.entity == "SOCS1").unwrap();
+        let cxcl10 = claims.iter().find(|c| c.entity == "CXCL10").unwrap();
+        assert_eq!(socs1.linear_fold, Some(8.0), "fold binds to SOCS1: {socs1:?}");
+        assert_eq!(
+            cxcl10.linear_fold, None,
+            "CXCL10 must not inherit SOCS1's fold: {cxcl10:?}"
+        );
     }
 
     #[test]

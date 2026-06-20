@@ -1,0 +1,25 @@
+# CF-6/CF-7 faithful twin of 51: the SAME four genes reported honestly. Proves
+# the VF-4/VF-8 catches are FP-safe — every claim verifies.
+#   STAT1 "upregulated 8-fold"     → table log2FC=3.0 (8x) → Verified (VF-4 honest).
+#   IRF7  "significant pvalue=0.0002" → raw value under a RAW label matches the
+#                                     raw column → Verified (VF-8 asymmetry).
+#   SOCS1 "downregulated 8-fold"   → table log2FC=-3.0 (8x) → Verified.
+#   CXCL10 "upregulated"           → table log2FC=+5.0 → Verified.
+scenario_id: fold_pval_clean_001
+narrative_path: testdata/eval-tier-4-1/narratives/fold_pval_clean.md
+result_table_path: testdata/eval-tier-4-1/tables/de_table_5.tsv
+interpretation_policy: config/downstream-policy/interpretation-policy.json
+expected_mismatch_count: 0
+expected_verified: 4
+expected_unverifiable_count: 0
+expected_suspicious_count: 0
+fabrication_class: faithful_twin_fold_and_pvalue
+expected_claims:
+  - entity: STAT1
+    status: verified
+  - entity: IRF7
+    status: verified
+  - entity: SOCS1
+    status: verified
+  - entity: CXCL10
+    status: verified
