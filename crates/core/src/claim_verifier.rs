@@ -644,7 +644,9 @@ fn verify_rank_top_n(
 
     // The claimed entity must itself carry a numeric effect size; without one
     // it cannot be ranked, so its top-N membership is unverifiable.
-    let Some(claimed_eff) = lookup_numeric(&claimed_row.values, &cfg.effect_size_columns) else {
+    let Some((claimed_eff_col, claimed_eff)) =
+        matched_numeric_column(&claimed_row.values, &cfg.effect_size_columns)
+    else {
         return ClaimStatus::Unverifiable {
             reason: format!(
                 "entity `{}` has no numeric effect size in `{}` — cannot rank",
@@ -662,13 +664,10 @@ fn verify_rank_top_n(
     // fires when the sign positively contradicts (obs nonzero, opposite sign),
     // so a faithful "top-N upregulated" naming a positive gene still Verifies.
     if let Some(direction) = claim.direction {
-        let observed_direction = if claimed_eff > 0.0 {
-            Some(Direction::Up)
-        } else if claimed_eff < 0.0 {
-            Some(Direction::Down)
-        } else {
-            None
-        };
+        // VF-19: derive the sign on the matched column's scale (ratio columns
+        // pivot at 1.0) so a rank claim on an HR/OR table is not misread.
+        let observed_direction =
+            observed_effect_direction(claimed_eff, effect_column_scale(claimed_eff_col));
         if observed_direction.is_some() && observed_direction != Some(direction) {
             return ClaimStatus::Mismatch {
                 detail: format!(
@@ -994,19 +993,31 @@ fn verify_one(
     // the highest-signal check and catches the lotz v1-style fabrication
     // pattern even when the numeric effect size was omitted.
     if let Some(direction) = claim.direction {
-        let observed = lookup_numeric(&row.values, &cfg.effect_size_columns);
-        if let Some(obs) = observed {
-            // Near-zero / non-significance policy: a *bare* direction claim
-            // (no stated effect-size value) on a gene that is both near-zero
-            // (|log2FC| < EPS) and non-significant has no mechanically
+        // VF-19: resolve WHICH effect column matched so its scale (log2 pivots
+        // at 0, ratio pivots at 1) drives both the near-no-change band and the
+        // observed direction. `matched_numeric_column` returns the same value
+        // `lookup_numeric` would, plus the column name.
+        let observed = matched_numeric_column(&row.values, &cfg.effect_size_columns);
+        if let Some((eff_col, obs)) = observed {
+            let scale = effect_column_scale(eff_col);
+            // Near-no-change / non-significance policy: a *bare* direction claim
+            // (no stated effect-size value) on an entity that is both near the
+            // scale's no-change point AND non-significant has no mechanically
             // determinable direction — neither confirmable nor refutable — so
-            // it is `Unverifiable` rather than verified or flagged. Significance
-            // is judged on the *adjusted* p (the largest reported p-value-family
-            // value, so e.g. padj=0.16 reads non-significant even when raw
-            // p<0.05); a claim that itself states an effect size is exempt
-            // because it makes a checkable quantitative assertion.
+            // it is `Unverifiable` rather than verified or flagged. The
+            // no-change band is |log2FC| < 0.5 on a log scale, or a ratio
+            // within ~1.5× of 1.0 (|ln(ratio)| < 0.405) on a ratio scale.
+            // Significance is judged on the *adjusted* p (the largest reported
+            // p-value-family value, so e.g. padj=0.16 reads non-significant
+            // even when raw p<0.05); a claim that itself states an effect size
+            // is exempt because it makes a checkable quantitative assertion.
             const NEAR_ZERO_LOG2FC: f64 = 0.5;
-            if claim.effect_size.is_none() && obs.abs() < NEAR_ZERO_LOG2FC {
+            const NEAR_ONE_LN_RATIO: f64 = 0.405; // ratio in ~[0.667, 1.5]
+            let near_no_change = match scale {
+                EffectScale::Log => obs.abs() < NEAR_ZERO_LOG2FC,
+                EffectScale::Ratio => obs > 0.0 && obs.ln().abs() < NEAR_ONE_LN_RATIO,
+            };
+            if claim.effect_size.is_none() && near_no_change {
                 let max_p = cfg
                     .pvalue_columns
                     .iter()
@@ -1029,22 +1040,23 @@ fn verify_one(
                     };
                 }
             }
-            // A zero observed effect size agrees with NEITHER direction — an
-            // "upregulated"/"downregulated" claim on a no-change row is a
-            // fabrication, not a confirm. Mirrors the strict `> 0.0` / `< 0.0`
-            // direction guards on the count-recompute path.
-            let observed_direction = if obs > 0.0 {
-                Some(Direction::Up)
-            } else if obs < 0.0 {
-                Some(Direction::Down)
-            } else {
-                None
-            };
+            // A no-change observed effect (0.0 on a log scale, 1.0 on a ratio
+            // scale) agrees with NEITHER direction — an "upregulated"/
+            // "downregulated" claim on a no-change row is a fabrication, not a
+            // confirm. VF-19: a ratio column (HR=0.72) is "down" because it is
+            // < 1.0; the old pivot-at-0 logic read 0.72 > 0 as "up" and falsely
+            // Mismatched a faithful "the hazard was reduced (HR=0.72)".
+            let observed_direction = observed_effect_direction(obs, scale);
             if observed_direction != Some(direction) {
                 return ClaimStatus::Mismatch {
                     detail: format!(
-                        "direction: narrative says {:?}, table effect size is {:+.4}",
-                        direction, obs
+                        "direction: narrative says {:?}, table effect value is {:+.4} (pivot {})",
+                        direction,
+                        obs,
+                        match scale {
+                            EffectScale::Log => "0",
+                            EffectScale::Ratio => "1",
+                        }
                     ),
                 };
             }
@@ -1474,6 +1486,98 @@ fn lookup_numeric(values: &BTreeMap<String, String>, columns: &[String]) -> Opti
         }
     }
     None
+}
+
+/// As [`lookup_numeric`], but also returns WHICH configured column matched
+/// (the configured name, not the normalized key) so the verifier can classify
+/// that column's [`EffectScale`]. First parseable column wins, identical to
+/// `lookup_numeric`'s order, so the value returned here is the same value
+/// `lookup_numeric` would return — only the column identity is added. (VF-19)
+fn matched_numeric_column<'a>(
+    values: &BTreeMap<String, String>,
+    columns: &'a [String],
+) -> Option<(&'a str, f64)> {
+    for col in columns {
+        if let Some(raw) = values.get(&normalize(col)) {
+            if let Ok(v) = raw.parse::<f64>() {
+                return Some((col.as_str(), v));
+            }
+        }
+    }
+    None
+}
+
+/// Whether an effect-size column is on a LINEAR-ratio scale — no change at
+/// 1.0 (hazard/odds/relative-risk ratios, fold-change) — or a LOG/additive
+/// scale — no change at 0.0 (log2FC, NES, coefficients, mean/risk
+/// differences). (VF-19)
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum EffectScale {
+    /// Pivots at 0.0: sign gives direction (the established log2FC default).
+    Log,
+    /// Pivots at 1.0: value > 1 is up, < 1 is down (HR/OR/RR/fold-change).
+    Ratio,
+}
+
+/// Classify an effect-size column name as [`EffectScale::Log`] or
+/// [`EffectScale::Ratio`]. The `log` substring wins FIRST so a log-scaled
+/// column that merely contains "ratio" (`log2_ratio`, `tmt_log2_ratio`,
+/// `lfq_log2_ratio`) is correctly Log, NOT Ratio — the critical false-positive
+/// guard. Additive/coefficient/difference families are Log. A named ratio
+/// family or a `*ratio` name is Ratio. Anything unclassified DEFAULTS to Log,
+/// so every existing RNA-seq column keeps today's pivot-at-0 semantics
+/// (zero behaviour change for the whole existing corpus). (VF-19)
+fn effect_column_scale(col: &str) -> EffectScale {
+    let n = normalize(col);
+    // 1. LOG wins first: any "log" substring forces Log even when "ratio" is
+    //    also present (log2_ratio / tmt_log2_ratio). This is the FP guard.
+    if n.contains("log") {
+        return EffectScale::Log;
+    }
+    let tokens: Vec<&str> = n.split([' ', '_', '-', '.']).filter(|t| !t.is_empty()).collect();
+    // 2. RATIO: an exact ratio-family name (relative_risk has no "ratio"/"rr"
+    //    token so it must be named explicitly), a name ending in "ratio", or a
+    //    ratio-family token. Checked BEFORE the additive/difference families so
+    //    `relative_risk` is Ratio while `risk_difference` falls through to Log.
+    const RATIO_NAMES: &[&str] = &[
+        "hazard_ratio", "odds_ratio", "relative_risk", "risk_ratio", "abundance_ratio",
+        "fold_change", "foldchange",
+    ];
+    const RATIO_TOKENS: &[&str] = &["hr", "or", "rr", "fc", "fold", "ratio"];
+    if RATIO_NAMES.contains(&n.as_str())
+        || n.ends_with("ratio")
+        || tokens.iter().any(|t| RATIO_TOKENS.contains(t))
+    {
+        return EffectScale::Ratio;
+    }
+    // 3. Additive / coefficient / statistic / DIFFERENCE families pivot at 0
+    //    (mean_difference / risk_difference / NNT are additive or counts).
+    const LOG_TOKENS: &[&str] = &[
+        "nes", "es", "estimate", "coefficient", "coefficients", "coef", "beta", "effect",
+        "effectsize", "score", "statistic", "diff", "difference", "md", "rd", "nnt",
+    ];
+    if tokens.iter().any(|t| LOG_TOKENS.contains(t)) {
+        return EffectScale::Log;
+    }
+    // 4. Default: Log — preserves the established log2FC behaviour.
+    EffectScale::Log
+}
+
+/// Observed direction implied by an effect value on its column's scale: Log
+/// pivots at 0.0, Ratio pivots at 1.0. Exactly at the pivot → `None` (no
+/// change agrees with NEITHER direction). (VF-19)
+fn observed_effect_direction(obs: f64, scale: EffectScale) -> Option<Direction> {
+    let pivot = match scale {
+        EffectScale::Log => 0.0,
+        EffectScale::Ratio => 1.0,
+    };
+    if obs > pivot {
+        Some(Direction::Up)
+    } else if obs < pivot {
+        Some(Direction::Down)
+    } else {
+        None
+    }
 }
 
 // ── Structured-claim verification ────────────────────────────────────────
@@ -3305,6 +3409,63 @@ mod tests {
             matches!(v2.status, ClaimStatus::Mismatch { .. }),
             "FDR-named claim on a raw-only-significant gene must Mismatch, got {:?}",
             v2.status
+        );
+    }
+
+    /// VF-19 — column-scale classifier. The CRITICAL false-positive guard is
+    /// that a log-scaled column containing the word "ratio" (log2_ratio,
+    /// tmt_log2_ratio) classifies as Log (pivot 0), NOT Ratio (pivot 1).
+    #[test]
+    fn vf19_effect_column_scale_classification() {
+        for c in ["hazard_ratio", "HR", "odds_ratio", "OR", "relative_risk", "RR", "abundance_ratio", "fold_change", "ratio"] {
+            assert_eq!(effect_column_scale(c), EffectScale::Ratio, "{c} should be Ratio");
+        }
+        for c in ["log2_ratio", "tmt_log2_ratio", "lfq_log2_ratio", "log2FC", "logFC", "nes", "NES", "estimate", "mean_difference", "risk_difference", "nnt", "coefficient", "beta"] {
+            assert_eq!(effect_column_scale(c), EffectScale::Log, "{c} should be Log");
+        }
+        assert_eq!(observed_effect_direction(0.72, EffectScale::Ratio), Some(Direction::Down));
+        assert_eq!(observed_effect_direction(2.0, EffectScale::Ratio), Some(Direction::Up));
+        assert_eq!(observed_effect_direction(1.0, EffectScale::Ratio), None);
+        assert_eq!(observed_effect_direction(0.72, EffectScale::Log), Some(Direction::Up));
+        assert_eq!(observed_effect_direction(0.0, EffectScale::Log), None);
+    }
+
+    /// VF-19 — ratio-column direction end to end. A faithful "reduced
+    /// (hazard_ratio=0.72)" must Verify (0.72 < 1 = down); the old pivot-at-0
+    /// logic read 0.72 > 0 as "up" and false-Mismatched it. An "increased"
+    /// claim on the same row is a genuine Mismatch.
+    #[test]
+    fn vf19_ratio_direction_verifies_reduced_flags_increased() {
+        let policy = serde_json::json!({"verifiableEntities": {
+            "enabled": true,
+            "entityNamePatterns": ["[A-Z][A-Z0-9]{1,}"],
+            "directionVocab": {"up": ["increased", "elevated"], "down": ["reduced", "decreased"]},
+            "effectSizeColumns": ["hazard_ratio"],
+            "entityColumns": ["gene"],
+            "pvalueColumns": ["pvalue", "padj"]
+        }});
+        let cfg = ExtractorConfig::from_policy(&policy).unwrap();
+        let tmp = tempdir().unwrap();
+        write_table(tmp.path(), "hr_s1.tsv", "gene\thazard_ratio\nGENE1\t0.72\n");
+
+        let faithful =
+            extract_claims("GENE1 showed reduced hazard (hazard_ratio=0.72, Table S1).", &cfg);
+        let rv = verify_claims(&faithful, tmp.path(), &cfg);
+        let v = rv.verdicts.iter().find(|v| v.claim.entity == "GENE1").unwrap();
+        assert!(
+            matches!(v.status, ClaimStatus::Verified),
+            "reduced hazard with HR<1 must Verify, got {:?}",
+            v.status
+        );
+
+        let fab =
+            extract_claims("GENE1 showed increased hazard (hazard_ratio=0.72, Table S1).", &cfg);
+        let rf = verify_claims(&fab, tmp.path(), &cfg);
+        let m = rf.verdicts.iter().find(|v| v.claim.entity == "GENE1").unwrap();
+        assert!(
+            matches!(m.status, ClaimStatus::Mismatch { .. }),
+            "increased hazard with HR<1 must Mismatch, got {:?}",
+            m.status
         );
     }
 

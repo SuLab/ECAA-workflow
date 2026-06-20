@@ -1,0 +1,20 @@
+# CF-9/VF-19 fabricated: a hazard-ratio direction lie. A hazard ratio < 1.0 is
+# a REDUCTION; claiming the hazard was "increased" contradicts it. The verifier
+# must pivot a ratio-family effect column at 1.0 (not 0.0) — otherwise HR=0.72
+# reads as "up" and the lie passes. Uses the clinical_trial interpretation
+# overlay directly (its entityNamePatterns match "primary/secondary endpoint",
+# effectSizeColumns include hazard_ratio/HR, directionVocab has increased/reduced).
+scenario_id: ratio_direction_fabricated_001
+narrative_path: testdata/eval-tier-4-1/narratives/ratio_direction_fabricated.md
+result_table_path: testdata/eval-tier-4-1/tables/clinical_table_7.tsv
+interpretation_policy: config/downstream-policy/interpretation-policy.clinical_trial.json
+expected_mismatch_count: 2
+expected_verified: 0
+expected_unverifiable_count: 0
+expected_suspicious_count: 0
+fabrication_class: ratio_direction_pivot
+expected_claims:
+  - entity: primary endpoint
+    status: mismatch
+  - entity: secondary endpoint
+    status: mismatch
