@@ -56,7 +56,11 @@
       "^ES$", "^NES$", "^FWER$", "^SE$", "^CI$", "^SD$", "^IQR$", "^AUC$", "^ROC$",
       "^PASS$", "^FAIL$", "^YES$", "^NO$", "^NA$", "^OK$", "^GATING$", "^EVIDENCE$",
       "^GATED$", "^UNVERIFIABLE$", "^VERIFIED$", "^MISMATCH$", "^TRUE$", "^FALSE$",
-      "^TODO$", "^NOTE$", "^WARN$", "^ERROR$", "^INFO$", "^SHA256$", "^PMID$"
+      "^TODO$", "^NOTE$", "^WARN$", "^ERROR$", "^INFO$", "^SHA256$", "^PMID$",
+      "^DEX$", "^ASM$", "^RIN$", "^GLM$", "^GR$", "^BP$", "^NF$", "^OXPHOS$", "^CCAAT$",
+      "^HGNC$", "^NCBI$", "^NIH$", "^XML$", "^HTML$", "^URL$", "^API$",
+      "^GSE[0-9]+$", "^GSM[0-9]+$", "^SRR[0-9]+$", "^SRP[0-9]+$", "^SRX[0-9]+$", "^PRJ[A-Z0-9]+$",
+      "^N[0-9]{5,}$"
     ],
     "directionVocab": {
       "up": [
