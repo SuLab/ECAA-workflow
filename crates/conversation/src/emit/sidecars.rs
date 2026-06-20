@@ -70,6 +70,7 @@ pub(super) async fn write_claim_verification(output_dir: &Path) -> Result<()> {
             "n_verified": 0,
             "n_unverifiable": 0,
             "n_mismatch": 0,
+            "n_suspicious": 0,
             "verdicts": [],
             "ablation_engaged": true,
             "ablation_note": "ECAA_ABLATE_CLAIM_CONSISTENCY=1 — emit-time stub intentionally empty; the populated signed sink and the live L2 block are also suppressed (two-site toggle, Aim 3A)",
@@ -81,6 +82,7 @@ pub(super) async fn write_claim_verification(output_dir: &Path) -> Result<()> {
             "n_verified": 0,
             "n_unverifiable": 0,
             "n_mismatch": 0,
+            "n_suspicious": 0,
             "verdicts": [],
         }))
     }

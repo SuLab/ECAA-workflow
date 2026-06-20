@@ -228,6 +228,7 @@ fn post_exec_report() -> ecaa_workflow_core::claim_verifier::ClaimVerificationRe
         n_verified: 1,
         n_mismatch: 0,
         n_unverifiable: 0,
+        n_suspicious: 0,
         verdicts: vec![ClaimVerdict {
             claim: c,
             status: ClaimStatus::Verified,

@@ -22,6 +22,11 @@ n_mismatch: number,
  */
 n_unverifiable: number, 
 /**
+ * N suspicious (soft / review-required; never blocks). Defaults to 0 so
+ * older serialized reports without the field still deserialize.
+ */
+n_suspicious: number, 
+/**
  * Verdicts.
  */
 verdicts: Array<ClaimVerdict>, 

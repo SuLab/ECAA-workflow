@@ -33,6 +33,7 @@ fn main() -> Result<()> {
             ClaimStatus::Verified => "VERIFIED",
             ClaimStatus::Mismatch { .. } => "MISMATCH",
             ClaimStatus::Unverifiable { .. } => "UNVERIF ",
+            ClaimStatus::Suspicious { .. } => "SUSPECT ",
         };
         println!(
             "  {kind} entity={:<10} dir={:?} eff={:?} contract={:?}  | {:?}",

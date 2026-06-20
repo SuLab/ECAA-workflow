@@ -37,6 +37,7 @@ fn report_one_verified() -> ClaimVerificationReport {
         n_verified: 1,
         n_mismatch: 0,
         n_unverifiable: 0,
+        n_suspicious: 0,
         verdicts: vec![verdict(
             "differential_expression",
             Some("differential_expression"),

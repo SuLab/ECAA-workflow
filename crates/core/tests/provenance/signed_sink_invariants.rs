@@ -40,6 +40,7 @@ fn verified_claim_is_inspected_and_passes() {
         n_verified: 1,
         n_mismatch: 0,
         n_unverifiable: 0,
+        n_suspicious: 0,
         verdicts: vec![v(
             claim("TP53", Some("results/tables/de.csv")),
             ClaimStatus::Verified,
@@ -66,6 +67,7 @@ fn mismatch_claim_is_a_violation() {
         n_verified: 0,
         n_mismatch: 1,
         n_unverifiable: 0,
+        n_suspicious: 0,
         verdicts: vec![v(
             claim("IL6", Some("results/tables/de.csv")),
             ClaimStatus::Mismatch {
@@ -91,6 +93,7 @@ fn tampered_sink_fails_inv1() {
         n_verified: 1,
         n_mismatch: 0,
         n_unverifiable: 0,
+        n_suspicious: 0,
         verdicts: vec![v(
             claim("TP53", Some("results/tables/de.csv")),
             ClaimStatus::Verified,

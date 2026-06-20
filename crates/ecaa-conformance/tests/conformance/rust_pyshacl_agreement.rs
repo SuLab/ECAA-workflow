@@ -293,6 +293,7 @@ fn pending_one_claim_report() -> ecaa_workflow_core::claim_verifier::ClaimVerifi
         n_verified: 0,
         n_mismatch: 0,
         n_unverifiable: 1,
+        n_suspicious: 0,
         verdicts: vec![ClaimVerdict {
             claim: Claim {
                 entity: "differential_expression".into(),

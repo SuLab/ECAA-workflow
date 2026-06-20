@@ -3,4 +3,4 @@
 /**
  * Per-claim verdict.
  */
-export type ClaimStatus = { "status": "verified" } | { "status": "mismatch", detail: string, } | { "status": "unverifiable", reason: string, };
+export type ClaimStatus = { "status": "verified" } | { "status": "mismatch", detail: string, } | { "status": "unverifiable", reason: string, } | { "status": "suspicious", reason: string, };

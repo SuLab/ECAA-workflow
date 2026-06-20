@@ -47,7 +47,11 @@ pub fn check_claim_completeness(pkg: &LoadedPackage) -> InvariantVerdict {
     let mut violators = Vec::new();
     for v in verdicts {
         let status = v.get("status").and_then(|s| s.as_str()).unwrap_or("");
-        if status == "pending" {
+        // `pending` (Unverifiable) and `suspicious` (soft review-required) are
+        // both exempt from the supported_by floor: neither asserts a grounded
+        // number, so requiring evidence backing would mis-flag them. Suspicious
+        // is surfaced through its own counter, not as a completeness violation.
+        if status == "pending" || status == "suspicious" {
             continue;
         }
         let support = v.get("supported_by").and_then(|s| s.as_array());

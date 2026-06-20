@@ -179,6 +179,11 @@ pub fn reconcile_coverage_scoped(
                 ClaimStatus::Mismatch { .. } | ClaimStatus::Unverifiable { .. } => {
                     EntityCoverage::Unverifiable
                 }
+                // Suspicious is soft/review-required — it must NOT register as a
+                // recall gap (which would hard-fail claim_completeness). A claim
+                // flagged Suspicious did address the entity (it named it with a
+                // quantitative slot); treat it as Addressed for coverage.
+                ClaimStatus::Suspicious { .. } => EntityCoverage::Addressed,
             };
             // Addressed (Verified) beats Unverifiable beats Absent.
             outcome = match (outcome, candidate) {
@@ -258,6 +263,30 @@ mod tests {
             status,
             strength: ClaimStrength::Exploratory,
         }
+    }
+
+    #[test]
+    fn suspicious_required_is_addressed_not_a_recall_gap() {
+        // Suspicious is soft/review-required: it named the entity with a
+        // quantitative slot, so it ADDRESSES the coverage entry (no recall
+        // gap → claim_completeness stays PASS). Mapping it to Unverifiable
+        // would wrongly hard-fail the invariant.
+        let m = manifest(&[("differential_expression", Requirement::Required)]);
+        let verdicts = vec![verdict(
+            "differential_expression",
+            Some("differential_expression"),
+            ClaimStatus::Suspicious {
+                reason: "absent-entity quantitative claim".into(),
+            },
+        )];
+        let cov = reconcile_coverage(&m, &verdicts);
+        assert_eq!(cov.required_addressed, 1);
+        assert_eq!(cov.required_absent, 0);
+        assert_eq!(cov.required_unverifiable, 0);
+        assert_eq!(
+            cov.per_entity["differential_expression"],
+            EntityCoverage::Addressed
+        );
     }
 
     #[test]

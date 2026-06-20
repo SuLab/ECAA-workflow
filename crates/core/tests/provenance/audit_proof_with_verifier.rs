@@ -29,6 +29,7 @@ fn report_claim_completeness_is_non_vacuous_with_sink() {
         n_verified: 1,
         n_mismatch: 0,
         n_unverifiable: 0,
+        n_suspicious: 0,
         verdicts: vec![ClaimVerdict {
             claim: c,
             status: ClaimStatus::Verified,

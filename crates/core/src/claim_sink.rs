@@ -51,6 +51,18 @@ pub fn project_verdict_rows(report: &ClaimVerificationReport, task_id: &str) -> 
                 }
                 ClaimStatus::Unverifiable { .. } => ("pending", Vec::new()),
                 ClaimStatus::Mismatch { .. } => ("mismatch", Vec::new()),
+                // Soft/review-required: carries the cited table it was checked
+                // against (the entity was absent from it), so the audit-proof
+                // supported_by floor is satisfied without a separate exemption.
+                ClaimStatus::Suspicious { .. } => {
+                    let supported = v
+                        .claim
+                        .source_table
+                        .iter()
+                        .map(|t| evidence_ref_for(task_id, t))
+                        .collect();
+                    ("suspicious", supported)
+                }
             };
             json!({
                 "claim_id": format!("{task_id}#claim-{i}"),
@@ -94,6 +106,7 @@ pub fn build_sink_doc(
         "n_verified": if ablated { 0 } else { report.n_verified },
         "n_mismatch": if ablated { 0 } else { report.n_mismatch },
         "n_unverifiable": if ablated { 0 } else { report.n_unverifiable },
+        "n_suspicious": if ablated { 0 } else { report.n_suspicious },
         "verdicts": if ablated { Vec::new() } else { project_verdict_rows(report, task_id) },
     });
     // The coverage block (recall floor) is signed-sink content the reframed
@@ -250,15 +263,17 @@ pub fn refresh_plaintext_sidecar(
         merged.extend(project_verdict_rows(report, task_id));
     }
 
-    // Recompute the four counts from the merged row set so the counts always
+    // Recompute the counts from the merged row set so the counts always
     // match the rows on disk.
     let mut n_verified = 0u64;
     let mut n_mismatch = 0u64;
     let mut n_unverifiable = 0u64;
+    let mut n_suspicious = 0u64;
     for row in &merged {
         match row.get("status").and_then(Value::as_str) {
             Some("verified") => n_verified += 1,
             Some("mismatch") => n_mismatch += 1,
+            Some("suspicious") => n_suspicious += 1,
             // "pending" projects from Unverifiable; treat anything else as
             // unverifiable for count purposes (defensive).
             _ => n_unverifiable += 1,
@@ -272,6 +287,7 @@ pub fn refresh_plaintext_sidecar(
         "n_verified": n_verified,
         "n_unverifiable": n_unverifiable,
         "n_mismatch": n_mismatch,
+        "n_suspicious": n_suspicious,
         "verdicts": merged,
     });
     let body = serde_json::to_vec_pretty(&doc).map_err(std::io::Error::other)?;
@@ -308,12 +324,46 @@ mod tests {
     }
 
     #[test]
+    fn suspicious_status_is_soft_counted_separately_and_projects_with_evidence() {
+        // Foundation contract for the new Suspicious verdict: it increments its
+        // OWN counter (not n_mismatch), does not trip the session block, and
+        // projects to the "suspicious" wire string carrying its cited table so
+        // the audit-proof supported_by floor is satisfied without exemption.
+        use crate::claim_verifier::ClaimStatus;
+        let mut report = ClaimVerificationReport::empty();
+        report.push(verdict(
+            claim("FOOBAR2", Some("results/tables/de.csv")),
+            ClaimStatus::Suspicious {
+                reason: "entity absent from cited table; fabricated/untested".into(),
+            },
+        ));
+        assert_eq!(report.n_suspicious, 1);
+        assert_eq!(report.n_mismatch, 0, "Suspicious must NOT count as mismatch");
+        assert_eq!(report.n_verified, 0);
+        assert_eq!(report.n_unverifiable, 0);
+        assert!(report.has_suspicious());
+        assert!(
+            !report.has_mismatch(),
+            "Suspicious must not trip the session-blocking mismatch gate"
+        );
+        let rows = project_verdict_rows(&report, "diff_expr");
+        assert_eq!(rows[0]["status"], json!("suspicious"));
+        assert_eq!(
+            rows[0]["supported_by"],
+            json!(["results/tables/de.csv"]),
+            "Suspicious carries its cited table (a `/`-bearing ref is kept verbatim) \
+             so the supported_by floor passes"
+        );
+    }
+
+    #[test]
     fn verified_claim_projects_with_supported_by() {
         let report = ClaimVerificationReport {
             n_checked: 1,
             n_verified: 1,
             n_mismatch: 0,
             n_unverifiable: 0,
+            n_suspicious: 0,
             verdicts: vec![verdict(
                 claim("TP53", Some("results/tables/de.csv")),
                 ClaimStatus::Verified,
@@ -334,6 +384,7 @@ mod tests {
             n_verified: 0,
             n_mismatch: 0,
             n_unverifiable: 1,
+            n_suspicious: 0,
             verdicts: vec![verdict(
                 claim("BRCA1", None),
                 ClaimStatus::Unverifiable {
@@ -354,6 +405,7 @@ mod tests {
             n_verified: 0,
             n_mismatch: 1,
             n_unverifiable: 0,
+            n_suspicious: 0,
             verdicts: vec![verdict(
                 claim("IL6", Some("results/tables/de.csv")),
                 ClaimStatus::Mismatch {
@@ -374,6 +426,7 @@ mod tests {
             n_verified: 1,
             n_mismatch: 1,
             n_unverifiable: 0,
+            n_suspicious: 0,
             verdicts: vec![
                 verdict(
                     claim("TP53", Some("results/tables/de.csv")),
@@ -434,6 +487,7 @@ mod tests {
             n_verified: 1,
             n_mismatch: 0,
             n_unverifiable: 0,
+            n_suspicious: 0,
             verdicts: vec![verdict(
                 claim("TP53", Some("results/tables/de.csv")),
                 ClaimStatus::Verified,
@@ -472,6 +526,7 @@ mod tests {
             n_verified: matches!(status, ClaimStatus::Verified) as usize,
             n_mismatch: matches!(status, ClaimStatus::Mismatch { .. }) as usize,
             n_unverifiable: matches!(status, ClaimStatus::Unverifiable { .. }) as usize,
+            n_suspicious: matches!(status, ClaimStatus::Suspicious { .. }) as usize,
             verdicts: vec![verdict(claim(entity, Some("results/tables/de.csv")), status)],
             runtime_decision_log_path: None,
         };
@@ -516,6 +571,7 @@ mod tests {
             n_verified: 2,
             n_mismatch: 0,
             n_unverifiable: 0,
+            n_suspicious: 0,
             verdicts: vec![
                 verdict(
                     claim("TP53", Some("results/tables/de.csv")),
@@ -575,6 +631,7 @@ mod tests {
             n_verified: 1,
             n_mismatch: 0,
             n_unverifiable: 0,
+            n_suspicious: 0,
             verdicts: vec![verdict(
                 claim(entity, Some("results/tables/de.csv")),
                 ClaimStatus::Verified,
@@ -668,6 +725,7 @@ mod tests {
             n_verified: 1,
             n_mismatch: 0,
             n_unverifiable: 0,
+            n_suspicious: 0,
             verdicts: vec![verdict(
                 claim("TP53", Some("results/tables/de.csv")),
                 ClaimStatus::Verified,

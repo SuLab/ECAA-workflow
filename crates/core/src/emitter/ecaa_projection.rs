@@ -519,6 +519,10 @@ fn map_claim_status(status: &str) -> &'static str {
     match status {
         "verified" => "verified",
         "mismatch" | "contradicted" => "contradicted",
+        // `suspicious` is an impl-only soft/review status with no home in the
+        // closed §5.5 spec set {verified, contradicted, pending}; it projects to
+        // `pending` (a soft flag is not a published contradiction). No spec change.
+        "suspicious" => "pending",
         // unverifiable / pending / anything else → pending
         _ => "pending",
     }

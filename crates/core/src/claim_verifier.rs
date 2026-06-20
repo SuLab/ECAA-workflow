@@ -90,6 +90,16 @@ pub enum ClaimStatus {
     /// The claim could not be cross-checked (no table cited, table
     /// missing, entity not in any configured entity column, etc.).
     Unverifiable { reason: String },
+    /// A confident quantitative claim was attributed to an entity that is
+    /// ABSENT from a successfully-loaded cited table whose id-namespace
+    /// matches the claim token — the signature of a fabricated or untested
+    /// finding. SOFT/review-required: it is surfaced and counted separately
+    /// (`n_suspicious`) but, unlike `Mismatch`, never hard-blocks the run —
+    /// so it raises catch-recall on the unverifiable-as-evasion gap without
+    /// risking a false block on a faithful narrative. A pure interpretation
+    /// sentence, a bare mention, or a namespace-mismatched symbol stays
+    /// `Unverifiable`, never `Suspicious`.
+    Suspicious { reason: String },
 }
 
 /// Per-claim verdict plus the source claim itself (so callers can
@@ -143,6 +153,10 @@ pub struct ClaimVerificationReport {
     pub n_mismatch: usize,
     /// N unverifiable.
     pub n_unverifiable: usize,
+    /// N suspicious (soft / review-required; never blocks). Defaults to 0 so
+    /// older serialized reports without the field still deserialize.
+    #[serde(default)]
+    pub n_suspicious: usize,
     /// Verdicts.
     pub verdicts: Vec<ClaimVerdict>,
     /// Dual-channel audit cross-reference.
@@ -166,6 +180,7 @@ impl ClaimVerificationReport {
             n_verified: 0,
             n_mismatch: 0,
             n_unverifiable: 0,
+            n_suspicious: 0,
             verdicts: Vec::new(),
             runtime_decision_log_path: None,
         }
@@ -178,15 +193,24 @@ impl ClaimVerificationReport {
             ClaimStatus::Verified => self.n_verified += 1,
             ClaimStatus::Mismatch { .. } => self.n_mismatch += 1,
             ClaimStatus::Unverifiable { .. } => self.n_unverifiable += 1,
+            ClaimStatus::Suspicious { .. } => self.n_suspicious += 1,
         }
         self.verdicts.push(verdict);
     }
 
     /// True iff at least one claim was classified as `Mismatch`. Used by
     /// the session-state hook to decide whether to transition to
-    /// `Blocked { ValidationFailed }`.
+    /// `Blocked { ValidationFailed }`. `Suspicious` deliberately does NOT
+    /// trip this — it is soft/review-required, never a hard block.
     pub fn has_mismatch(&self) -> bool {
         self.n_mismatch > 0
+    }
+
+    /// True iff at least one claim was flagged `Suspicious` (a confident
+    /// quantitative claim about an entity absent from its cited table).
+    /// Surfaced for review; never blocks the run.
+    pub fn has_suspicious(&self) -> bool {
+        self.n_suspicious > 0
     }
 }
 
@@ -2316,6 +2340,13 @@ pub fn verify_claims_with_discovery(
                     Some(ClaimStatus::Verified) => false,
                     Some(ClaimStatus::Mismatch { .. }) => verified,
                     Some(ClaimStatus::Unverifiable { .. }) => {
+                        verified || matches!(status, ClaimStatus::Mismatch { .. })
+                    }
+                    // Suspicious only arises for entities ABSENT from a table,
+                    // which cannot happen on this containing-tables path; rank
+                    // it like Unverifiable (a stronger Verified/Mismatch wins)
+                    // for completeness.
+                    Some(ClaimStatus::Suspicious { .. }) => {
                         verified || matches!(status, ClaimStatus::Mismatch { .. })
                     }
                 };

@@ -38,6 +38,41 @@ pub struct Tier4_1Scenario {
     /// claims. When omitted, no floor is applied.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_min_verified: Option<usize>,
+    /// EXACT expected `Verified` count. Asserted only when present. Combined
+    /// with the mismatch/unverifiable/suspicious oracles below, this turns the
+    /// gate from "caught the right NUMBER of mismatches" into "produced the
+    /// exact verdict mix" — so a fabrication that DOWNGRADES from a planted
+    /// Mismatch to Unverifiable/Suspicious (an evasion) now fails the gate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_verified: Option<usize>,
+    /// EXACT expected `Unverifiable` count. Asserted only when present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_unverifiable_count: Option<usize>,
+    /// EXACT expected `Suspicious` count (absent-entity quantitative claims
+    /// flagged for review). Asserted only when present — this is how a
+    /// fabricated/untested-gene escape is now measured.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_suspicious_count: Option<usize>,
+    /// Free-text class tag for auditable coverage (e.g. "sign_flip",
+    /// "prose_magnitude", "absent_entity", "rank_direction"). Not asserted;
+    /// lets a report enumerate which fabrication classes the corpus exercises.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fabrication_class: Option<String>,
+    /// Per-claim expected status for the most precise oracle: each entry pins
+    /// one entity's verdict to {verified,mismatch,unverifiable,suspicious}.
+    /// Asserted only for entities listed; absent entities are unconstrained.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub expected_claims: Vec<ClaimExpectation>,
+}
+
+/// One per-claim expectation: a specific entity must receive a specific status.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaimExpectation {
+    /// The claim entity (gene symbol / id) as it appears in the narrative.
+    pub entity: String,
+    /// Expected status: one of `verified`, `mismatch`, `unverifiable`,
+    /// `suspicious`.
+    pub status: String,
 }
 
 /// Per-scenario result of a Tier 4.1 fabrication-catch run.
@@ -53,9 +88,12 @@ pub struct Tier4_1Result {
     pub n_mismatch: usize,
     /// Claims that could not be verified.
     pub n_unverifiable: usize,
+    /// Claims flagged Suspicious (absent-entity quantitative claims).
+    pub n_suspicious: usize,
     /// Authored expected mismatch count from the scenario YAML.
     pub expected_mismatch_count: usize,
-    /// Whether `n_mismatch == expected_mismatch_count`.
+    /// Whether ALL asserted oracles matched (mismatch count + any present
+    /// verified/unverifiable/suspicious/min-verified/per-claim expectations).
     pub passed: bool,
     /// Precision: fraction of predicted mismatches that were correct (TP / (TP + FP)).
     /// In the fabrication-catch framing: the fraction of reported mismatches that are
@@ -116,6 +154,39 @@ pub fn run_one(scenario: &Tier4_1Scenario) -> Result<Tier4_1Result> {
             passed = false;
         }
     }
+    // Exact-count oracles (asserted only when authored). These close the
+    // evasion blind spot: a planted fabrication that downgrades to
+    // Unverifiable/Suspicious instead of Mismatch now diverges from the
+    // authored mix and FAILS the gate, rather than silently passing.
+    if let Some(exp) = scenario.expected_verified {
+        if report.n_verified != exp {
+            passed = false;
+        }
+    }
+    if let Some(exp) = scenario.expected_unverifiable_count {
+        if report.n_unverifiable != exp {
+            passed = false;
+        }
+    }
+    if let Some(exp) = scenario.expected_suspicious_count {
+        if report.n_suspicious != exp {
+            passed = false;
+        }
+    }
+    // Per-claim status oracle: each listed entity must receive exactly the
+    // expected status. Entities not listed are unconstrained.
+    for exp in &scenario.expected_claims {
+        let got = report.verdicts.iter().find(|v| {
+            v.claim.entity.eq_ignore_ascii_case(&exp.entity)
+        });
+        let ok = match got {
+            Some(v) => status_label(&v.status) == exp.status.to_ascii_lowercase(),
+            None => false,
+        };
+        if !ok {
+            passed = false;
+        }
+    }
 
     // Precision and recall under the fabrication-catch framing.
     // TP: mismatches that were genuine (capped at expected count).
@@ -154,11 +225,24 @@ pub fn run_one(scenario: &Tier4_1Scenario) -> Result<Tier4_1Result> {
         n_verified: report.n_verified,
         n_mismatch: report.n_mismatch,
         n_unverifiable: report.n_unverifiable,
+        n_suspicious: report.n_suspicious,
         expected_mismatch_count: scenario.expected_mismatch_count,
         passed,
         precision,
         recall,
     })
+}
+
+/// Wire string for a verdict status, matching the per-claim oracle vocabulary
+/// {verified, mismatch, unverifiable, suspicious}.
+fn status_label(status: &ecaa_workflow_core::claim_verifier::ClaimStatus) -> &'static str {
+    use ecaa_workflow_core::claim_verifier::ClaimStatus;
+    match status {
+        ClaimStatus::Verified => "verified",
+        ClaimStatus::Mismatch { .. } => "mismatch",
+        ClaimStatus::Unverifiable { .. } => "unverifiable",
+        ClaimStatus::Suspicious { .. } => "suspicious",
+    }
 }
 
 /// Load every `*.yaml` scenario file under `corpus_dir`.
