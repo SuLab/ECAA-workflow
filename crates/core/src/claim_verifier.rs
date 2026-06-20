@@ -506,11 +506,32 @@ fn verify_thresholded(
                     .iter()
                     .find(|r| r.entity.eq_ignore_ascii_case(&claim.entity))
                 {
-                    if let Some(obs_p) = lookup_numeric(&row.values, &cfg.pvalue_columns) {
+                    // VF-7 — judge "significant at FDR/padj < 0.05" on the
+                    // ADJUSTED column, not the raw `pvalue` that `lookup_numeric`
+                    // (column order) returns first. A gene with raw p=0.042 but
+                    // padj=0.16 is NOT FDR-significant; the raw-first probe
+                    // silently passed that overclaim. Prefer the first adjusted
+                    // p-column present; fall back to a raw column only when the
+                    // table carries no adjusted column at all.
+                    let adjusted: Vec<String> = cfg
+                        .pvalue_columns
+                        .iter()
+                        .filter(|c| is_adjusted_pvalue_keyword(c))
+                        .cloned()
+                        .collect();
+                    let raw: Vec<String> = cfg
+                        .pvalue_columns
+                        .iter()
+                        .filter(|c| !is_adjusted_pvalue_keyword(c))
+                        .cloned()
+                        .collect();
+                    let obs_p = lookup_numeric(&row.values, &adjusted)
+                        .or_else(|| lookup_numeric(&row.values, &raw));
+                    if let Some(obs_p) = obs_p {
                         if obs_p >= 0.05 {
                             return ClaimStatus::Mismatch {
                                 detail: format!(
-                                    "thresholded claim: observed p-value {:.4e} does not meet FDR < 0.05",
+                                    "thresholded claim: observed adjusted p-value {:.4e} does not meet FDR < 0.05",
                                     obs_p
                                 ),
                             };
@@ -569,7 +590,7 @@ fn verify_rank_top_n(
 
     // The claimed entity must itself carry a numeric effect size; without one
     // it cannot be ranked, so its top-N membership is unverifiable.
-    if lookup_numeric(&claimed_row.values, &cfg.effect_size_columns).is_none() {
+    let Some(claimed_eff) = lookup_numeric(&claimed_row.values, &cfg.effect_size_columns) else {
         return ClaimStatus::Unverifiable {
             reason: format!(
                 "entity `{}` has no numeric effect size in `{}` — cannot rank",
@@ -577,6 +598,34 @@ fn verify_rank_top_n(
                 table_label(&path)
             ),
         };
+    };
+
+    // VF-6 — a ranked claim that ALSO asserts a direction ("the top-3 most
+    // UP-regulated genes include X") must have X's own sign agree. Ranking is
+    // by |effect size|, so a large-NEGATIVE gene can legitimately sit in the
+    // top-N by magnitude while flatly contradicting an "upregulated" claim;
+    // that signed-vs-magnitude confusion is a fabrication, not a pass. Only
+    // fires when the sign positively contradicts (obs nonzero, opposite sign),
+    // so a faithful "top-N upregulated" naming a positive gene still Verifies.
+    if let Some(direction) = claim.direction {
+        let observed_direction = if claimed_eff > 0.0 {
+            Some(Direction::Up)
+        } else if claimed_eff < 0.0 {
+            Some(Direction::Down)
+        } else {
+            None
+        };
+        if observed_direction.is_some() && observed_direction != Some(direction) {
+            return ClaimStatus::Mismatch {
+                detail: format!(
+                    "rank claim direction: narrative says {:?} but `{}` has effect size {:+.4} in `{}`",
+                    direction,
+                    claim.entity,
+                    claimed_eff,
+                    table_label(&path)
+                ),
+            };
+        }
     }
 
     // Rank by |effect size| descending, recomputed from the configured
@@ -2858,6 +2907,53 @@ mod tests {
         );
     }
 
+    /// VF-7 — a bare "significant at FDR < 0.05" claim must be judged on the
+    /// ADJUSTED column. A gene with raw p < 0.05 but padj ≥ 0.05 is NOT
+    /// FDR-significant; the old raw-first probe passed it silently. The
+    /// faithful twin (padj < 0.05) still Verifies.
+    #[test]
+    fn thresholded_significance_uses_adjusted_not_raw_column() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        // Raw pvalue 0.042 (< 0.05) but padj 0.16 (>= 0.05): NOT FDR-significant.
+        write_table(
+            tmp.path(),
+            "de_s1.tsv",
+            "gene\tlog2FC\tpvalue\tpadj\nCASP3\t0.9\t0.042\t0.16\n",
+        );
+        // No quoted p-number → bare-significance probe path.
+        let fab = extract_claims(
+            "CASP3 was upregulated and significant at FDR < 0.05 (Table S1).",
+            &cfg,
+        );
+        let report = verify_claims(&fab, tmp.path(), &cfg);
+        let v = report.verdicts.iter().find(|v| v.claim.entity == "CASP3").unwrap();
+        assert!(
+            matches!(v.status, ClaimStatus::Mismatch { .. }),
+            "raw-sig/adj-nonsig FDR claim must be caught on the adjusted column, got {:?}",
+            v.status
+        );
+
+        // Faithful twin: padj 0.01 (< 0.05) → Verified.
+        let tmp2 = tempdir().unwrap();
+        write_table(
+            tmp2.path(),
+            "de_s1.tsv",
+            "gene\tlog2FC\tpvalue\tpadj\nCASP3\t0.9\t0.042\t0.01\n",
+        );
+        let faithful = extract_claims(
+            "CASP3 was upregulated and significant at FDR < 0.05 (Table S1).",
+            &cfg,
+        );
+        let report2 = verify_claims(&faithful, tmp2.path(), &cfg);
+        let v2 = report2.verdicts.iter().find(|v| v.claim.entity == "CASP3").unwrap();
+        assert!(
+            matches!(v2.status, ClaimStatus::Verified),
+            "faithful FDR-significant claim must Verify, got {:?}",
+            v2.status
+        );
+    }
+
     /// RankTopN: entity in top-5 rows → Verified.
     #[test]
     fn contract_rank_top_n_entity_in_top5_verified() {
@@ -2993,6 +3089,46 @@ mod tests {
             matches!(bar_v.status, ClaimStatus::Mismatch { .. }),
             "BAR ranks 3 by |log2FC|; expected Mismatch, got {:?}",
             bar_v.status
+        );
+    }
+
+    /// VF-6 — RankTopN must cross-check a stated DIRECTION against the named
+    /// entity's own sign. A "top-N most UP-regulated" claim naming a large
+    /// NEGATIVE gene (in the top-N by magnitude, opposite by sign) is a
+    /// fabrication; a faithful one (positive gene) still Verifies.
+    #[test]
+    fn rank_top_n_direction_must_match_entity_sign() {
+        use crate::claim_contract::ClaimContract;
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        // DOWN has the largest |log2FC| (down); UP is a positive top hit.
+        write_table(
+            tmp.path(),
+            "de_s1.tsv",
+            "gene\tlog2FC\tpadj\nDOWN\t-5.0\t0.01\nUP\t4.0\t0.02\nMID\t1.0\t0.03\n",
+        );
+
+        // Fabrication: DOWN is rank-1 by |effect| so it IS "in the top-2", but
+        // it is DOWN-regulated — calling it "upregulated" must be caught.
+        let fab = extract_claims("DOWN is among the top-2 upregulated genes (Table S1).", &cfg);
+        let dc = fab.iter().find(|c| c.entity == "DOWN").unwrap();
+        assert_eq!(dc.contract, ClaimContract::RankTopN);
+        let report = verify_claims(&fab, tmp.path(), &cfg);
+        let v = report.verdicts.iter().find(|v| v.claim.entity == "DOWN").unwrap();
+        assert!(
+            matches!(v.status, ClaimStatus::Mismatch { .. }),
+            "top-N claim with wrong direction must be caught, got {:?}",
+            v.status
+        );
+
+        // Faithful twin: UP is positive and in the top-2 → Verified.
+        let faithful = extract_claims("UP is among the top-2 upregulated genes (Table S1).", &cfg);
+        let report2 = verify_claims(&faithful, tmp.path(), &cfg);
+        let v2 = report2.verdicts.iter().find(|v| v.claim.entity == "UP").unwrap();
+        assert!(
+            matches!(v2.status, ClaimStatus::Verified),
+            "faithful top-N upregulated claim must Verify, got {:?}",
+            v2.status
         );
     }
 
