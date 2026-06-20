@@ -695,8 +695,17 @@ fn verify_categorical(
         };
     }
 
-    // No label column — fall back to existence check.
-    ClaimStatus::Verified
+    // No label/type/cluster column to check a category against — but the
+    // sentence was only routed here because it contained a categorical cue
+    // word (e.g. "marker"). It may STILL carry a checkable direction/effect/
+    // p-value about a real result-table gene ("ACAN was upregulated as a
+    // marker of NP phenotype" — ACAN is -2.8/down in the DE table). The old
+    // blanket-`Verified` existence check let that planted sign-flip pass
+    // silently. Fall back to the numeric/direction verifier: a contradicting
+    // sign now Mismatches, while a faithful direction (or a pure label mention
+    // with no quantitative slot) still Verifies. No false positive — verify_one
+    // only flags a slot the table positively refutes.
+    verify_one(claim, index, cfg, cache)
 }
 
 /// Verify a time-series or clinical-trial summary claim.
@@ -3145,6 +3154,50 @@ mod tests {
                 .status,
             ClaimStatus::Verified
         ));
+    }
+
+    /// Categorical-evasion regression (the proven scenario-11 false negative):
+    /// a "marker" sentence routes to the Categorical contract, but when the
+    /// cited table has NO label column the verifier must STILL check the stated
+    /// direction against the table — not fall through to a blanket Verified. A
+    /// planted sign-flip ("ACAN was upregulated as a marker"; ACAN is -2.8/down)
+    /// must Mismatch; the faithful twin ("downregulated as a marker") must
+    /// Verify (no false positive).
+    #[test]
+    fn categorical_no_label_column_still_checks_direction() {
+        use crate::claim_contract::ClaimContract;
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        // DE table — gene/log2FC/padj, NO label/type/cluster column.
+        write_table(tmp.path(), "de_s1.tsv", "gene\tlog2FC\tpadj\nACAN\t-2.8\t0.001\n");
+
+        // Fabrication: claims UP, table is DOWN → must be caught.
+        let fab = extract_claims(
+            "ACAN was upregulated as a marker of healthy phenotype (Table S1).",
+            &cfg,
+        );
+        let acan = fab.iter().find(|c| c.entity == "ACAN").unwrap();
+        assert_eq!(acan.contract, ClaimContract::Categorical);
+        let report = verify_claims(&fab, tmp.path(), &cfg);
+        let v = report.verdicts.iter().find(|v| v.claim.entity == "ACAN").unwrap();
+        assert!(
+            matches!(v.status, ClaimStatus::Mismatch { .. }),
+            "planted categorical sign-flip must be caught, got {:?}",
+            v.status
+        );
+
+        // Faithful twin: claims DOWN, table is DOWN → must Verify (no FP).
+        let faithful = extract_claims(
+            "ACAN was downregulated as a marker of healthy phenotype (Table S1).",
+            &cfg,
+        );
+        let report2 = verify_claims(&faithful, tmp.path(), &cfg);
+        let v2 = report2.verdicts.iter().find(|v| v.claim.entity == "ACAN").unwrap();
+        assert!(
+            matches!(v2.status, ClaimStatus::Verified),
+            "faithful categorical direction must stay Verified, got {:?}",
+            v2.status
+        );
     }
 
     /// TimeSeriesSummary: entity in table, time value mentioned in excerpt → Verified.
