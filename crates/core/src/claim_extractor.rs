@@ -131,7 +131,17 @@ impl ExtractorRegexCache {
             .iter()
             .map(|c| c.to_lowercase())
             .collect();
-        for extra in ["log2fc", "logfc"] {
+        // Baked-in defaults + the SPACED/full-word log2 prose forms (VF-3) so
+        // "log2 fold change of -4.2" parses the same as "log2FC=-4.2". Only
+        // EXPLICITLY-log2 phrases are added — bare "fold change" is linear and
+        // is handled separately, so a linear magnitude is never mis-read as log2.
+        for extra in [
+            "log2fc",
+            "logfc",
+            "log2 fold change",
+            "log2-fold change",
+            "log2 foldchange",
+        ] {
             if !effect_keywords.iter().any(|k| k == extra) {
                 effect_keywords.push(extra.into());
             }
@@ -149,8 +159,13 @@ impl ExtractorRegexCache {
         let effect_size = effect_keywords
             .into_iter()
             .map(|kw| {
+                // VF-3 — accept the prose separator `of` in addition to `:`/`=`,
+                // so "log2FC of 3.5" / "log2 fold change of -4.2" parse. The
+                // `of` arm requires a digit (optionally signed) IMMEDIATELY
+                // after, so cutoff phrasing like "log2FC of at least 1" does NOT
+                // capture a value (no false effect-size slot → no false flag).
                 let pat = format!(
-                    r"(?i){}\s*[:=]\s*(-?\d+(?:\.\d+)?(?:[eE]-?\d+)?)",
+                    r"(?i){}(?:\s*[:=]\s*|\s+of\s+)(-?\d+(?:\.\d+)?(?:[eE]-?\d+)?)",
                     regex::escape(&kw)
                 );
                 let re = Regex::new(&pat).expect("static-shape regex");
@@ -1520,6 +1535,48 @@ mod tests {
         );
         assert!((acan.pvalue.unwrap() - 0.001).abs() < 1e-9);
         assert!(acan.source_table.as_deref().unwrap().starts_with("Table"));
+    }
+
+    #[test]
+    fn vf3_prose_format_log2fc_magnitude_parses() {
+        // VF-3 — "log2FC of 3.5" and spaced "log2 fold change of -4.2" must
+        // populate effect_size (the old `[:=]`-only regex left them None, so a
+        // fabricated magnitude rode through on a true direction).
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let a = extract_claims("STAT1 was upregulated, log2FC of 3.5 (Table S1).", &cfg);
+        let stat1 = a.iter().find(|c| c.entity == "STAT1").unwrap();
+        assert!(
+            stat1.effect_size.map(|e| (e - 3.5).abs() < 1e-9).unwrap_or(false),
+            "prose 'log2FC of 3.5' must parse, got {:?}",
+            stat1.effect_size
+        );
+        let b = extract_claims(
+            "IFIT1 showed a marked log2 fold change of -4.2 (Table S1).",
+            &cfg,
+        );
+        let ifit1 = b.iter().find(|c| c.entity == "IFIT1").unwrap();
+        assert!(
+            ifit1.effect_size.map(|e| (e + 4.2).abs() < 1e-9).unwrap_or(false),
+            "prose 'log2 fold change of -4.2' must parse, got {:?}",
+            ifit1.effect_size
+        );
+    }
+
+    #[test]
+    fn vf3_cutoff_phrasing_does_not_capture_a_value() {
+        // FP guard: "log2 fold change of at least 1" is a CUTOFF, not a
+        // per-gene effect — the `of\s+<digit>` form must not capture "1".
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let claims = extract_claims(
+            "ACAN passed the log2 fold change of at least 1 cutoff (Table S1).",
+            &cfg,
+        );
+        let acan = claims.iter().find(|c| c.entity == "ACAN").unwrap();
+        assert_eq!(
+            acan.effect_size, None,
+            "cutoff phrasing must not capture a value, got {:?}",
+            acan.effect_size
+        );
     }
 
     #[test]

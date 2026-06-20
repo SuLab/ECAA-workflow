@@ -1,5 +1,11 @@
+# Corrected 2026-06-20: was expected_mismatch_count=4, authored before VF-3
+# parsed prose-format magnitudes. IFIT1's "log2 fold change of -4.2" (table is
+# +4.2) is a genuine sign+magnitude fabrication that previously slipped (its
+# "downregulation" noun is not in the direction vocab and "of -4.2" did not
+# parse). VF-3 now catches it via the magnitude check → 5 mismatches.
 scenario_id: ifn_oa_fabricated_001
 narrative_path: testdata/eval-tier-4-1/narratives/ifn_oa_fabricated.md
 result_table_path: testdata/eval-tier-4-1/tables/de_table_2.tsv
 interpretation_policy: config/downstream-policy/interpretation-policy.json
-expected_mismatch_count: 4
+expected_mismatch_count: 5
+fabrication_class: sign_flip_incl_prose_magnitude
