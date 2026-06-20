@@ -63,6 +63,17 @@ pub struct Tier4_1Scenario {
     /// Asserted only for entities listed; absent entities are unconstrained.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub expected_claims: Vec<ClaimExpectation>,
+    /// HUMAN-AUTHORED ground truth: the number of fabricated claims deliberately
+    /// PLANTED in this scenario's narrative. This is the one number a person
+    /// owns; every other `expected_*` count is a description of how the verifier
+    /// currently routes those plants (caught as Mismatch, flagged Suspicious, or
+    /// — a tracked blind spot — escaped to Unverifiable/Verified). It anchors the
+    /// anti-regression guards: a faithful twin has `planted_fabrications: 0`, and
+    /// a scenario that asserts mismatches with zero plants is a recorded false
+    /// positive (the scenario-11 lock-in). `None` on legacy scenarios not yet
+    /// backfilled (guards skip them). (corpus-expansion roadmap I-0)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub planted_fabrications: Option<usize>,
 }
 
 /// One per-claim expectation: a specific entity must receive a specific status.
@@ -297,16 +308,60 @@ mod tests {
         let scenarios = load_corpus(&corpus).expect("load corpus");
         assert_eq!(scenarios.len(), 58, "corpus size drifted from 58 scenarios");
         let mut failures = Vec::new();
+        // Corpus-level precision tally: total mismatches reported vs the
+        // human-authored planted-lie count, over scenarios that declare it.
+        let (mut total_planted, mut total_mismatch_on_planted) = (0usize, 0usize);
         for mut s in scenarios {
             s.narrative_path = root.join(&s.narrative_path);
             s.result_table_path = root.join(&s.result_table_path);
             s.interpretation_policy = root.join(&s.interpretation_policy);
+
+            // ── Anti-regression guards keyed on the human-authored plant count
+            // (corpus-expansion roadmap I-1). These run BEFORE the verifier so a
+            // mis-authored scenario fails loudly regardless of verifier output.
+            if let Some(planted) = s.planted_fabrications {
+                // G2 — locked-in false positive: zero plants but an asserted
+                // mismatch means a faithful claim was recorded as a fabrication
+                // (the generalized scenario-11 failure).
+                if planted == 0 && s.expected_mismatch_count > 0 {
+                    failures.push(format!(
+                        "{}: G2 locked-in-FP — planted_fabrications=0 but expected_mismatch_count={}",
+                        s.scenario_id, s.expected_mismatch_count
+                    ));
+                }
+                // The verifier must never be asked to find MORE hard mismatches
+                // than were planted (that asserts a false positive as truth).
+                if s.expected_mismatch_count > planted {
+                    failures.push(format!(
+                        "{}: expected_mismatch_count={} exceeds planted_fabrications={} (would lock in a false positive)",
+                        s.scenario_id, s.expected_mismatch_count, planted
+                    ));
+                }
+            }
+
             let r = run_one(&s).expect("run scenario");
             if !r.passed {
                 failures.push(format!(
-                    "{}: got mismatch={} verified={} but expected_mismatch={}",
-                    r.scenario_id, r.n_mismatch, r.n_verified, r.expected_mismatch_count
+                    "{}: got mismatch={} verified={} suspicious={} unverifiable={} but expected_mismatch={}",
+                    r.scenario_id, r.n_mismatch, r.n_verified, r.n_suspicious, r.n_unverifiable,
+                    r.expected_mismatch_count
                 ));
+            }
+
+            // G3 — twin faithfulness: a zero-plant (faithful) scenario must
+            // produce no Mismatch and no Suspicious — every claim verifies or is
+            // honestly unverifiable. A faithful twin that flags is a false
+            // positive the catch must not produce.
+            if s.planted_fabrications == Some(0) && (r.n_mismatch > 0 || r.n_suspicious > 0) {
+                failures.push(format!(
+                    "{}: G3 twin-faithfulness — faithful scenario flagged mismatch={} suspicious={}",
+                    r.scenario_id, r.n_mismatch, r.n_suspicious
+                ));
+            }
+
+            if let Some(planted) = s.planted_fabrications {
+                total_planted += planted;
+                total_mismatch_on_planted += r.n_mismatch;
             }
         }
         assert!(
@@ -314,6 +369,14 @@ mod tests {
             "{} scenario(s) diverged from adjudicated ground truth:\n{}",
             failures.len(),
             failures.join("\n")
+        );
+        // Corpus precision floor (G6): across planted scenarios, no more hard
+        // mismatches than plants — i.e. zero false positives. Recall (caught vs
+        // planted) is allowed below 1.0 (tracked blind spots) but precision is a
+        // hard release gate.
+        assert!(
+            total_mismatch_on_planted <= total_planted,
+            "corpus precision < 1.0: {total_mismatch_on_planted} mismatches reported across {total_planted} planted fabrications (a false positive leaked)"
         );
     }
 }
