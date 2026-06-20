@@ -1,0 +1,19 @@
+# CF-2 faithful twin of 53: the SAME absent gene mentioned WITHOUT a
+# quantitative slot ("MYOZ2 was not among the differentially expressed genes").
+# A bare absent-mention carries nothing to adjudicate, so it stays Unverifiable
+# — NOT Suspicious. This is the FP guard for VF-0: flag only quantitative
+# attributions to absent entities, never plain "not in the set" prose.
+scenario_id: absent_entity_clean_001
+narrative_path: testdata/eval-tier-4-1/narratives/absent_entity_clean.md
+result_table_path: testdata/eval-tier-4-1/tables/de_table_5.tsv
+interpretation_policy: config/downstream-policy/interpretation-policy.json
+expected_mismatch_count: 0
+expected_verified: 1
+expected_unverifiable_count: 1
+expected_suspicious_count: 0
+fabrication_class: faithful_twin_absent_mention
+expected_claims:
+  - entity: MYOZ2
+    status: unverifiable
+  - entity: STAT1
+    status: verified

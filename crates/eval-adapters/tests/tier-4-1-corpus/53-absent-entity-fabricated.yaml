@@ -1,0 +1,20 @@
+# CF-2 fabricated: a quantitative claim attributed to a gene ABSENT from the
+# cited table (the "untested-gene" / unverifiable-as-evasion class). MYOZ2 is
+# symbol-namespace like the table's gene column but is not present, and the
+# claim carries a quantitative slot (log2FC=4.2), so VF-0 flags it Suspicious
+# (soft, review-required) rather than letting it pass as a free Unverifiable.
+# STAT1 is present and honest → Verified.
+scenario_id: absent_entity_fabricated_001
+narrative_path: testdata/eval-tier-4-1/narratives/absent_entity_fabricated.md
+result_table_path: testdata/eval-tier-4-1/tables/de_table_5.tsv
+interpretation_policy: config/downstream-policy/interpretation-policy.json
+expected_mismatch_count: 0
+expected_verified: 1
+expected_unverifiable_count: 0
+expected_suspicious_count: 1
+fabrication_class: absent_entity_quantitative
+expected_claims:
+  - entity: MYOZ2
+    status: suspicious
+  - entity: STAT1
+    status: verified
