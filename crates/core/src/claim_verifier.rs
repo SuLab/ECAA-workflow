@@ -1719,6 +1719,38 @@ fn verify_literature_grounded_at(
         };
     }
 
+    // VF-15a — a narrative that POSITIVELY ASSERTS agreement/concordance with
+    // prior work, while the matrix flags the finding `no_prior_finding`, is a
+    // fabricated concordance → Mismatch. Gated on an explicit agreement cue in
+    // the excerpt: a neutral mention (no concordance claim) with a
+    // no_prior_finding flag falls through to the Unverifiable arms below, so a
+    // faithful "no prior work" statement is never flagged.
+    if matched.iter().any(|r| r.concordance_flag == "no_prior_finding") {
+        let lower = claim.excerpt.to_lowercase();
+        const AGREEMENT_CUES: &[&str] = &[
+            "concordant",
+            "consistent with prior",
+            "consistent with previous",
+            "in agreement with",
+            "agrees with prior",
+            "as previously reported",
+            "as previously shown",
+            "confirms prior",
+            "confirms previous",
+            "replicates prior",
+            "in line with prior",
+            "matches prior",
+        ];
+        if AGREEMENT_CUES.iter().any(|c| lower.contains(c)) {
+            return ClaimStatus::Mismatch {
+                detail: format!(
+                    "literature: narrative asserts prior-work concordance for `{}` but the matrix records no_prior_finding",
+                    claim.entity
+                ),
+            };
+        }
+    }
+
     // Every narrative-cited PMID must appear in the matrix's supporting set.
     let mut supporting: std::collections::BTreeSet<u64> = std::collections::BTreeSet::new();
     let mut sources: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
@@ -4042,6 +4074,37 @@ mod tests {
             &cfg,
         );
         assert!(matches!(status, ClaimStatus::Mismatch { .. }), "{status:?}");
+    }
+
+    #[test]
+    fn vf15a_no_prior_finding_asserted_concordant_is_mismatch() {
+        // VF-15a — the matrix records `no_prior_finding`, but the narrative
+        // POSITIVELY asserts concordance ("...is concordant with prior
+        // reports") → fabricated concordance → Mismatch.
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_lit_matrix(
+            tmp.path(),
+            "finding_id,entity,prior_pmids,concordance_flag,source_kind,verified\n\
+             finding_42,TP53,,no_prior_finding,pmc_oa_full_text,true\n",
+        );
+        // lit_claim's excerpt = "TP53 is concordant with prior reports".
+        let status =
+            verify_literature_grounded_at(&lit_claim("finding_42", vec![]), tmp.path(), &cfg);
+        assert!(
+            matches!(status, ClaimStatus::Mismatch { .. }),
+            "asserted-concordance vs no_prior_finding must be a Mismatch, got {status:?}"
+        );
+
+        // Faithful twin: a NEUTRAL excerpt (no agreement cue) over the same
+        // no_prior_finding row must NOT be a fabricated-concordance Mismatch.
+        let mut neutral = lit_claim("finding_42", vec![]);
+        neutral.excerpt = "TP53 was differentially expressed in this cohort".into();
+        let status2 = verify_literature_grounded_at(&neutral, tmp.path(), &cfg);
+        assert!(
+            !matches!(status2, ClaimStatus::Mismatch { .. }),
+            "neutral no_prior_finding mention must not be flagged a fabricated concordance, got {status2:?}"
+        );
     }
 
     #[test]
