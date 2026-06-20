@@ -1,0 +1,20 @@
+# VF-11 faithful twin of 59: the SAME phantom "Table 91" citation, but both
+# values are honest. The sibling-discovery fallback recovers PGK1/ALDOA from
+# de_table_8 and verifies them — proving the fallback does not manufacture
+# false mismatches from a wrong table label when the underlying values are
+# correct (the FP guard: a garbled cite of a correct result still Verifies).
+scenario_id: phantom_citation_clean_001
+narrative_path: testdata/eval-tier-4-1/narratives/phantom_citation_clean.md
+result_table_path: testdata/eval-tier-4-1/tables/de_table_8.tsv
+interpretation_policy: config/downstream-policy/interpretation-policy.json
+expected_mismatch_count: 0
+planted_fabrications: 0
+expected_verified: 2
+expected_unverifiable_count: 0
+expected_suspicious_count: 0
+fabrication_class: faithful_twin_phantom_citation
+expected_claims:
+  - entity: PGK1
+    status: verified
+  - entity: ALDOA
+    status: verified

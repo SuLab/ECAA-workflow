@@ -616,6 +616,10 @@ fn verify_rank_top_n(
             reason: "no source table cited — cannot check rank membership".into(),
         };
     };
+    // VF-11: unresolved cited table → sibling-membership discovery fallback.
+    if index.resolve(source_ref).is_none() {
+        return verify_via_sibling_discovery(claim, index, cfg, cache);
+    }
     let (path, cached) = match cached_table_for(cache, index, source_ref, cfg) {
         Ok(t) => t,
         Err(status) => return status,
@@ -762,6 +766,10 @@ fn verify_categorical(
             reason: "no source table cited — cannot verify categorical label".into(),
         };
     };
+    // VF-11: unresolved cited table → sibling-membership discovery fallback.
+    if index.resolve(source_ref).is_none() {
+        return verify_via_sibling_discovery(claim, index, cfg, cache);
+    }
     let (_path, cached) = match cached_table_for(cache, index, source_ref, cfg) {
         Ok(t) => t,
         Err(status) => return status,
@@ -827,6 +835,10 @@ fn verify_time_series(
             reason: "no source table cited — cannot verify time-series claim".into(),
         };
     };
+    // VF-11: unresolved cited table → sibling-membership discovery fallback.
+    if index.resolve(source_ref).is_none() {
+        return verify_via_sibling_discovery(claim, index, cfg, cache);
+    }
     // Scope the immutable cache borrow so the trailing `verify_one`
     // can reacquire it mutably without aliasing.
     let early = {
@@ -890,6 +902,11 @@ fn verify_one(
             reason: "no source table cited in narrative".into(),
         };
     };
+    // VF-11: a cited table that does not resolve (phantom or ambiguous) falls
+    // back to sibling-membership discovery rather than a blanket Unverifiable.
+    if index.resolve(source_ref).is_none() {
+        return verify_via_sibling_discovery(claim, index, cfg, cache);
+    }
     let (path, cached) = match cached_table_for(cache, index, source_ref, cfg) {
         Ok(t) => t,
         Err(status) => return status,
@@ -1209,6 +1226,20 @@ impl TableIndex {
         Self { by_name }
     }
 
+    /// The distinct table files in this index, deduped by path (each file is
+    /// stored under both its full-name and its stem key). VF-11 enumerates
+    /// these as the sibling set when a cited table fails to resolve.
+    fn distinct_paths(&self) -> Vec<PathBuf> {
+        let mut seen = std::collections::BTreeSet::new();
+        let mut out = Vec::new();
+        for p in self.by_name.values() {
+            if seen.insert(p.clone()) {
+                out.push(p.clone());
+            }
+        }
+        out
+    }
+
     /// Build an index containing a single known table file (its full
     /// name + stem keys). Used by the structured-claim path, where the
     /// evidence path already resolved to one concrete file and there is
@@ -1364,6 +1395,114 @@ impl CachedTable {
 /// it from disk on first miss. Returns `Err(ClaimStatus::Unverifiable)`
 /// when the table cannot be located or read so callers can short-circuit
 /// without duplicating the diagnostic strings.
+/// VF-11 — recover from a citation that does NOT resolve (phantom: the file
+/// exists nowhere; or ambiguous: ≥2 fuzzy candidates collapse `resolve` to
+/// None). Fires ONLY from the resolution-failure arm of the per-contract
+/// verifiers, so a faithful resolvable citation is byte-for-byte unchanged.
+///
+/// It searches the index's sibling tables for ones CONTAINING the claim entity
+/// and re-runs the contract against each, returning the best status
+/// (Verified > Mismatch > Unverifiable/Suspicious) and short-circuiting on
+/// Verified — so a correct value in a real table verifies even when the human's
+/// table label was garbled. PROMOTES to Mismatch only when a real containing
+/// sibling POSITIVELY contradicts and none verify. When NO sibling contains the
+/// entity: Suspicious if the claim carries a quantitative slot whose namespace
+/// matches some sibling's entity column (a fabricated/garbled-cite finding
+/// flagged for review, mirroring VF-0), else Unverifiable (a genuine resolution
+/// gap — honest claims about untested entities stay unverifiable, never
+/// Mismatch).
+fn verify_via_sibling_discovery(
+    claim: &Claim,
+    index: &TableIndex,
+    cfg: &ExtractorConfig,
+    cache: &mut BTreeMap<PathBuf, CachedTable>,
+) -> ClaimStatus {
+    let needle = normalize(&claim.entity);
+    let siblings = index.distinct_paths();
+    let mut containing: Vec<PathBuf> = Vec::new();
+    let mut any_loaded = false;
+    for path in &siblings {
+        if !cache.contains_key(path) {
+            match load_table_rows(path, &cfg.entity_columns) {
+                Ok(t) => {
+                    cache.insert(path.clone(), t);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "ecaa::claim_verifier",
+                        table = %path.display(),
+                        error = %e,
+                        "sibling table failed to load during VF-11 fallback; excluding it"
+                    );
+                    continue;
+                }
+            }
+        }
+        any_loaded = true;
+        if cache
+            .get(path)
+            .map(|t| t.get_by_normalized(&needle).is_some())
+            .unwrap_or(false)
+        {
+            containing.push(path.clone());
+        }
+    }
+
+    if !containing.is_empty() {
+        // Best-status reducer over the containing siblings (same promote policy
+        // as verify_claims_with_discovery): Verified wins, else Mismatch, else
+        // Unverifiable/Suspicious. Mismatch only on positive contradiction.
+        let mut best: Option<ClaimStatus> = None;
+        for path in &containing {
+            let mut c = claim.clone();
+            c.source_table = Some(table_label(path));
+            let idx = TableIndex::single(path);
+            let status = verify_for_contract(&c, &idx, cfg, cache);
+            let verified = matches!(status, ClaimStatus::Verified);
+            let prefer = match &best {
+                None => true,
+                Some(ClaimStatus::Verified) => false,
+                Some(ClaimStatus::Mismatch { .. }) => verified,
+                Some(_) => verified || matches!(status, ClaimStatus::Mismatch { .. }),
+            };
+            if prefer {
+                best = Some(status);
+            }
+            if matches!(best, Some(ClaimStatus::Verified)) {
+                break;
+            }
+        }
+        return best.expect("non-empty containing set");
+    }
+
+    // No sibling contains the entity.
+    let has_quant = claim.effect_size.is_some() || claim.pvalue.is_some();
+    let namespace_match = any_loaded
+        && siblings.iter().any(|p| {
+            cache
+                .get(p)
+                .map(|t| namespace_matches_table(&claim.entity, t))
+                .unwrap_or(false)
+        });
+    let cited = claim.source_table.as_deref().unwrap_or("?");
+    if has_quant && namespace_match {
+        ClaimStatus::Suspicious {
+            reason: format!(
+                "cited table `{cited}` does not resolve and `{}` is absent from all {} sibling result tables, yet a specific quantitative value is asserted — fabricated/garbled citation flagged for review",
+                claim.entity,
+                siblings.len()
+            ),
+        }
+    } else {
+        ClaimStatus::Unverifiable {
+            reason: format!(
+                "cited table `{cited}` not found and entity `{}` not present in any sibling result table",
+                claim.entity
+            ),
+        }
+    }
+}
+
 fn cached_table_for<'c>(
     cache: &'c mut BTreeMap<PathBuf, CachedTable>,
     index: &TableIndex,
@@ -3466,6 +3605,51 @@ mod tests {
             matches!(m.status, ClaimStatus::Mismatch { .. }),
             "increased hazard with HR<1 must Mismatch, got {:?}",
             m.status
+        );
+    }
+
+    /// VF-11 — a claim citing a table that does NOT resolve (phantom/garbled
+    /// label) falls back to sibling-membership discovery: a real containing
+    /// table that contradicts → Mismatch; one that matches → Verified; an entity
+    /// in no table but with a quantitative slot → Suspicious. The old behaviour
+    /// was a blanket Unverifiable that let the phantom-cite fabrication escape.
+    #[test]
+    fn vf11_phantom_citation_recovers_via_sibling_discovery() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_table(tmp.path(), "de_a.tsv", "gene\tlog2FC\tpadj\nGENE1\t2.0\t0.001\n");
+        write_table(tmp.path(), "de_b.tsv", "gene\tlog2FC\tpadj\nGENE2\t-3.0\t0.001\n");
+
+        // CATCH: "Table Z9" resolves to nothing; GENE2 lives in de_b at -3.0
+        // (down), contradicting the "upregulated (log2FC=3.0)" claim.
+        let fab = extract_claims("GENE2 was upregulated (log2FC=3.0, Table Z9).", &cfg);
+        let rf = verify_claims(&fab, tmp.path(), &cfg);
+        let m = rf.verdicts.iter().find(|v| v.claim.entity == "GENE2").unwrap();
+        assert!(
+            matches!(m.status, ClaimStatus::Mismatch { .. }),
+            "phantom-cite contradicting a real sibling must Mismatch, got {:?}",
+            m.status
+        );
+
+        // FAITHFUL TWIN: same phantom cite, but GENE1's value matches de_a.
+        let faithful = extract_claims("GENE1 was upregulated (log2FC=2.0, Table Z9).", &cfg);
+        let rv = verify_claims(&faithful, tmp.path(), &cfg);
+        let v = rv.verdicts.iter().find(|v| v.claim.entity == "GENE1").unwrap();
+        assert!(
+            matches!(v.status, ClaimStatus::Verified),
+            "phantom-cite matching a real sibling must Verify, got {:?}",
+            v.status
+        );
+
+        // ABSENT: phantom cite + entity in NO table + quantitative slot →
+        // Suspicious (not a free Unverifiable, not a Mismatch).
+        let ghost = extract_claims("GHOST9 was upregulated (log2FC=2.0, Table Z9).", &cfg);
+        let rg = verify_claims(&ghost, tmp.path(), &cfg);
+        let g = rg.verdicts.iter().find(|v| v.claim.entity == "GHOST9").unwrap();
+        assert!(
+            matches!(g.status, ClaimStatus::Suspicious { .. }),
+            "phantom-cite absent quantitative entity must be Suspicious, got {:?}",
+            g.status
         );
     }
 

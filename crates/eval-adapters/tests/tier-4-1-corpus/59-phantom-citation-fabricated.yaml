@@ -1,0 +1,20 @@
+# VF-11 fabricated: claims cite "Table 91", which resolves to NO table (a
+# phantom/garbled citation). Rather than letting the fabrication escape as a
+# free Unverifiable, the verifier falls back to sibling-membership discovery
+# across the result tables, finds PGK1 in de_table_8, and catches the
+# sign/magnitude contradiction. ALDOA (honest, also via the fallback) verifies.
+scenario_id: phantom_citation_fabricated_001
+narrative_path: testdata/eval-tier-4-1/narratives/phantom_citation_fabricated.md
+result_table_path: testdata/eval-tier-4-1/tables/de_table_8.tsv
+interpretation_policy: config/downstream-policy/interpretation-policy.json
+expected_mismatch_count: 1
+planted_fabrications: 1
+expected_verified: 1
+expected_unverifiable_count: 0
+expected_suspicious_count: 0
+fabrication_class: phantom_citation_sibling_discovery
+expected_claims:
+  - entity: PGK1
+    status: mismatch
+  - entity: ALDOA
+    status: verified
