@@ -498,8 +498,138 @@ fn compute_task_coverage(
     };
     // Structured claims ONLY — never the regex/narrative path.
     let structured = load_structured_claims(package_root, task_id);
-    let verdicts = verify_structured_claims(&structured, package_root, cfg);
-    Some(crate::coverage::reconcile_coverage(&manifest, &verdicts))
+    let mut verdicts = verify_structured_claims(&structured, package_root, cfg);
+    // Scoped reconcile: this caller has already restricted both the manifest
+    // entries and the verdicts to `task_id`, so the provenance arm can credit a
+    // Verified result-table claim to this stage's Required entry even when the
+    // agent's table basename differs from the auto-generated atom-id stem.
+    let mut cov = crate::coverage::reconcile_coverage_scoped(&manifest, &verdicts, &task_stems);
+
+    // Harness derivation (recall floor of last resort). If a Required entry is
+    // STILL Absent — the agent emitted no structured claim addressing this
+    // stage, the way pathway_enrichment shipped an empty `claims[]` — but the
+    // stage DID produce a recomputable significant-count table, synthesize ONE
+    // count claim and RECOMPUTE it from that table. The agent's own scalar is
+    // never trusted: the claim is re-derived and re-verified, so a stage that
+    // fabricated or omitted a count cannot launder the floor shut — a recompute
+    // mismatch yields no Verified claim and the gap stays an honest recall gap.
+    if cov.required_absent > 0 {
+        if let Some(derived) = synthesize_stage_count_claim(package_root, task_id) {
+            let dv = verify_structured_claims(std::slice::from_ref(&derived), package_root, cfg);
+            if dv
+                .iter()
+                .any(|v| matches!(v.status, crate::claim_verifier::ClaimStatus::Verified))
+            {
+                verdicts.extend(dv);
+                cov = crate::coverage::reconcile_coverage_scoped(&manifest, &verdicts, &task_stems);
+            }
+        }
+    }
+    Some(cov)
+}
+
+/// Build a single significant-count `StructuredClaim` for an enrichment-style
+/// stage from its `result.json` summary + produced table, so the recall floor
+/// can be re-verified by recompute when the agent shipped no `claims[]`.
+///
+/// Detects the pattern `result.json` carries: a declared total
+/// (`n_terms_tested` / `n_genes_tested` / …) and a `n_sig_<kw>_<digits>` count
+/// whose suffix encodes the FDR/padj threshold (`n_sig_fdr_025` → FDR<0.25,
+/// `n_sig_padj_05` → padj<0.05; threshold = trailing-digits / 100). The cited
+/// table is the one whose data-row count equals the declared total — this pins
+/// the 5,426-row `pathway_results.tsv` over a 500-row `enrichment.tsv`, so the
+/// downstream recompute lands on the right denominator. Returns `None` whenever
+/// the pattern is absent, so non-enrichment stages are untouched. The CLAIM is
+/// only a recompute target: [`verify_structured_claims`] recounts the table and
+/// decides Verified/Mismatch, so a wrong threshold/table simply fails to close
+/// the gap rather than asserting a false count.
+fn synthesize_stage_count_claim(package_root: &Path, task_id: &str) -> Option<StructuredClaim> {
+    let dir = resolve_task_runtime_dir_local(package_root, task_id)?;
+    let raw = std::fs::read_to_string(dir.join("result.json")).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let obj = value.as_object()?;
+
+    // Declared total (the "of M" denominator).
+    let total = [
+        "n_terms_tested",
+        "n_gene_sets_tested",
+        "n_genes_tested",
+        "n_features_tested",
+    ]
+    .iter()
+    .find_map(|k| obj.get(*k).and_then(serde_json::Value::as_u64))?;
+    if total == 0 {
+        return None;
+    }
+
+    // Declared significant count + the threshold encoded in its key suffix.
+    let (count, threshold, noun) = obj.iter().find_map(|(k, val)| {
+        let kl = k.to_ascii_lowercase();
+        if !kl.starts_with("n_sig_") {
+            return None;
+        }
+        let count = val.as_u64()?;
+        let digits: String = kl.chars().rev().take_while(char::is_ascii_digit).collect();
+        if digits.is_empty() {
+            return None;
+        }
+        let digits: String = digits.chars().rev().collect();
+        let threshold = digits.parse::<u32>().ok()? as f64 / 100.0;
+        if !(threshold > 0.0 && threshold < 1.0) {
+            return None;
+        }
+        let noun = if kl.contains("fdr")
+            || kl.contains("term")
+            || kl.contains("set")
+            || kl.contains("pathway")
+        {
+            "gene sets"
+        } else {
+            "features"
+        };
+        Some((count, threshold, noun))
+    })?;
+
+    // The produced table whose data-row count == the declared total.
+    let table = stage_count_table(&dir, total)?;
+    let rel = table
+        .strip_prefix(package_root)
+        .ok()?
+        .to_string_lossy()
+        .into_owned();
+
+    Some(StructuredClaim {
+        claim: format!("{count} of {total} {noun} significant at FDR < {threshold}"),
+        evidence: Some(rel),
+    })
+}
+
+/// Find a `.tsv`/`.csv` directly under `dir` whose data-row count (lines minus
+/// header) equals `total`. Top-level only (skips `figures/`, `intermediates/`).
+fn stage_count_table(dir: &Path, total: u64) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(dir).ok()?;
+    let mut best: Option<PathBuf> = None;
+    for e in entries.flatten() {
+        let p = e.path();
+        let is_table = p
+            .extension()
+            .and_then(|x| x.to_str())
+            .map(|x| x.eq_ignore_ascii_case("tsv") || x.eq_ignore_ascii_case("csv"))
+            .unwrap_or(false);
+        if !p.is_file() || !is_table {
+            continue;
+        }
+        let Ok(content) = std::fs::read_to_string(&p) else {
+            continue;
+        };
+        let data_rows = content.lines().filter(|l| !l.trim().is_empty()).count();
+        // lines minus the header row.
+        if data_rows >= 1 && (data_rows - 1) as u64 == total {
+            best = Some(p);
+            break;
+        }
+    }
+    best
 }
 
 fn expected_claim_matches_task(
@@ -720,6 +850,59 @@ mod tests {
     use super::*;
     use std::fs;
     use tempfile::tempdir;
+
+    #[test]
+    fn synthesize_stage_count_claim_recomputes_enrichment_floor() {
+        // pathway_enrichment shipped an empty claims[]; the recall floor is
+        // recovered by synthesizing a count claim from result.json's summary +
+        // the produced table, pinned by the row-count==total match.
+        let tmp = tempdir().unwrap();
+        let dir = tmp.path().join("runtime/outputs/pathway_enrichment");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("result.json"),
+            r#"{"task_id":"pathway_enrichment","n_terms_tested":10,"n_sig_fdr_025":3}"#,
+        )
+        .unwrap();
+        // 10 data rows; exactly 3 with adj_p_value < 0.25. A 4-row decoy table
+        // with the same column must NOT be chosen (row count != total).
+        fs::write(
+            dir.join("pathway_results.tsv"),
+            "term\tnes\tadj_p_value\n\
+             A\t1\t0.01\nB\t1\t0.10\nC\t1\t0.24\nD\t1\t0.30\nE\t1\t0.40\n\
+             F\t1\t0.50\nG\t1\t0.60\nH\t1\t0.70\nI\t1\t0.80\nJ\t1\t0.90\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.join("enrichment.tsv"),
+            "term\tadj_p_value\nA\t0.01\nB\t0.02\nC\t0.03\nD\t0.04\n",
+        )
+        .unwrap();
+
+        let claim = synthesize_stage_count_claim(tmp.path(), "pathway_enrichment")
+            .expect("enrichment floor claim synthesized");
+        assert_eq!(claim.claim, "3 of 10 gene sets significant at FDR < 0.25");
+        assert_eq!(
+            claim.evidence.as_deref(),
+            Some("runtime/outputs/pathway_enrichment/pathway_results.tsv"),
+            "must pin the 10-row table, not the 4-row enrichment.tsv decoy"
+        );
+    }
+
+    #[test]
+    fn synthesize_stage_count_claim_none_for_non_enrichment_stage() {
+        // A stage with no n_sig_*/total summary fields yields no derived claim,
+        // so ordinary stages are never touched by the floor mechanism.
+        let tmp = tempdir().unwrap();
+        let dir = tmp.path().join("runtime/outputs/qc_preprocessing");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("result.json"),
+            r#"{"task_id":"qc_preprocessing","n_samples":8}"#,
+        )
+        .unwrap();
+        assert!(synthesize_stage_count_claim(tmp.path(), "qc_preprocessing").is_none());
+    }
 
     // Throwaway local-validation harness: run the real verifier against a
     // real emitted package on disk. Ignored by default (path is machine-

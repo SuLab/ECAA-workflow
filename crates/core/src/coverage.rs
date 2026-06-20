@@ -88,6 +88,7 @@ fn table_stem(token: &str) -> String {
 fn verdict_addresses(
     verdict: &ClaimVerdict,
     expected: &crate::expected_claim::ExpectedClaim,
+    task_stems: &std::collections::BTreeSet<String>,
 ) -> bool {
     let want_entity = expected.entity.to_ascii_lowercase();
     let want_table = expected.expected_output_table.as_deref().map(table_stem);
@@ -96,18 +97,68 @@ fn verdict_addresses(
     if got_entity == want_entity {
         return true;
     }
-    match (want_table, got_table) {
-        (Some(w), Some(g)) => w == g,
-        _ => false,
+    if let (Some(w), Some(g)) = (want_table, got_table) {
+        if w == g {
+            return true;
+        }
     }
+    // Third arm — provenance-scoped. The expected manifest auto-generates
+    // `entity`/`expected_output_table` as the *atom-id stem* (e.g.
+    // `differential_expression`), on the design assumption (see
+    // `derive_expected_manifest`) that the verifier resolves it to the agent's
+    // actual table at verify time. That resolution was never implemented here,
+    // so a stage whose verified result table has a DIFFERENT basename
+    // (`de_results.tsv` → stem `de_results`) was scored a false recall gap even
+    // though its count claim verified. Close it WITHOUT loosening text matching:
+    // when the lead caller passes the current task's stem set (the server/test
+    // path passes an empty set, so this arm is inert there), credit a Verified
+    // result-table claim — one that cites a real table and is not a literature
+    // claim — to the Required entry whose own stem belongs to that same task.
+    // Because the caller has already scoped both the verdicts and the manifest
+    // entries to one task, this reconstructs the task↔stage binding rather than
+    // fuzzing the claim text, so an off-topic or cross-task claim cannot launder
+    // an Addressed verdict onto a missing required entry.
+    if !task_stems.is_empty()
+        && matches!(verdict.status, ClaimStatus::Verified)
+        && !matches!(
+            verdict.claim.contract,
+            crate::claim_contract::ClaimContract::LiteratureGrounded
+        )
+        && verdict
+            .claim
+            .source_table
+            .as_deref()
+            .is_some_and(|t| !t.trim().is_empty())
+        && task_stems.contains(&table_stem(&expected.entity))
+    {
+        return true;
+    }
+    false
 }
 
 /// Reconcile the structured-claim verdicts against the manifest's
 /// `Required` entries. ONLY structured-claim verdicts are passed in
 /// (the caller runs `verify_structured_claims`, never the regex path).
+///
+/// Unscoped entry point: no per-task provenance, so `verdict_addresses`' third
+/// (provenance) arm is inert and matching is purely text-based. The standalone
+/// finalize path uses [`reconcile_coverage_scoped`] instead.
 pub fn reconcile_coverage(
     manifest: &ExpectedClaimManifest,
     structured_verdicts: &[ClaimVerdict],
+) -> CoverageResult {
+    reconcile_coverage_scoped(manifest, structured_verdicts, &std::collections::BTreeSet::new())
+}
+
+/// As [`reconcile_coverage`], but with the current task's id-stem set so a
+/// Verified result-table claim from a stage can credit that stage's Required
+/// manifest entry even when the agent's table basename differs from the
+/// auto-generated atom-id stem (the `differential_expression` ↔ `de_results`
+/// case). Pass an EMPTY set to get the pure text-matching behaviour.
+pub fn reconcile_coverage_scoped(
+    manifest: &ExpectedClaimManifest,
+    structured_verdicts: &[ClaimVerdict],
+    task_stems: &std::collections::BTreeSet<String>,
 ) -> CoverageResult {
     let mut per_entity: BTreeMap<String, EntityCoverage> = BTreeMap::new();
 
@@ -120,7 +171,7 @@ pub fn reconcile_coverage(
         // even if a different table's verdict was Unverifiable.
         let mut outcome = EntityCoverage::Absent;
         for v in structured_verdicts {
-            if !verdict_addresses(v, expected) {
+            if !verdict_addresses(v, expected, task_stems) {
                 continue;
             }
             let candidate = match &v.status {
@@ -289,6 +340,70 @@ mod tests {
         assert_eq!(
             cov.per_entity["differential_expression"],
             EntityCoverage::Addressed
+        );
+    }
+
+    #[test]
+    fn provenance_scope_credits_verified_claim_with_divergent_table_basename() {
+        // The real Himes case: the manifest entry is the atom-id stem
+        // `differential_expression`, but the agent's verified count claim cites
+        // `de_results.tsv` (stem `de_results`) and its entity is the count
+        // sentence, so neither text arm matches. UNSCOPED reconcile must keep
+        // scoring it a recall gap (no provenance to lean on); the SCOPED path,
+        // given the task's stem set, credits the Verified result-table claim.
+        let m = manifest(&[("differential_expression", Requirement::Required)]);
+        let v = vec![verdict(
+            "4,017 genes differentially expressed at padj < 0.05",
+            Some("de_results.tsv"),
+            ClaimStatus::Verified,
+        )];
+
+        // Unscoped: strict text matching → still Absent.
+        let unscoped = reconcile_coverage(&m, &v);
+        assert_eq!(
+            unscoped.per_entity["differential_expression"],
+            EntityCoverage::Absent,
+            "unscoped path must not fuzzy-credit a divergent basename"
+        );
+
+        // Scoped to the differential_expression task → Addressed.
+        let stems = std::collections::BTreeSet::from(["differential_expression".to_string()]);
+        let scoped = reconcile_coverage_scoped(&m, &v, &stems);
+        assert_eq!(scoped.required_addressed, 1);
+        assert_eq!(
+            scoped.per_entity["differential_expression"],
+            EntityCoverage::Addressed
+        );
+    }
+
+    #[test]
+    fn provenance_scope_does_not_credit_unverified_or_literature_claims() {
+        // A claim from the right task that is NOT Verified, or that is a
+        // literature claim, must NOT close the recall floor via the third arm —
+        // the gap stays open rather than being laundered shut.
+        let m = manifest(&[("differential_expression", Requirement::Required)]);
+        let stems = std::collections::BTreeSet::from(["differential_expression".to_string()]);
+
+        let unver = vec![verdict(
+            "some sentence",
+            Some("de_results.tsv"),
+            ClaimStatus::Unverifiable {
+                reason: "x".into(),
+            },
+        )];
+        assert_eq!(
+            reconcile_coverage_scoped(&m, &unver, &stems).per_entity["differential_expression"],
+            EntityCoverage::Absent,
+            "the third arm credits ONLY Verified claims; an unverified one matches no arm \
+             (divergent entity + table) so the required entry stays a recall gap"
+        );
+
+        let mut lit = verdict("some sentence", Some("de_results.tsv"), ClaimStatus::Verified);
+        lit.claim.contract = ClaimContract::LiteratureGrounded;
+        assert_eq!(
+            reconcile_coverage_scoped(&m, &[lit], &stems).per_entity["differential_expression"],
+            EntityCoverage::Absent,
+            "a Verified literature claim must not credit a result-table recall floor"
         );
     }
 
