@@ -156,6 +156,10 @@ pub mod remediation;
 // `RepairProposal`s; only `LowAutoAttempt`-classified proposals auto-
 // apply, and substrate emission is mandatory for every proposal.
 pub mod repair;
+/// Iterative repair loop: classifies execution failures, attempts bounded
+/// per-class repairs, and routes agentic needs to review. Distinct from
+/// the V4 DAG `repair` registry above.
+pub mod repair_loop;
 pub mod retrieval_routes;
 /// Ro crate module.
 pub mod ro_crate;

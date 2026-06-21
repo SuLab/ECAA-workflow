@@ -10,6 +10,9 @@ mod chat_llm;
 // v3 P7 — `migrate-sessions` subcommand. Applies the v3 P7
 // `u32 → SemVer` migrator chain to on-disk session JSON in place.
 mod migrate_sessions;
+// Phase 5 — `repair` subcommand. Drives the iterative repair loop over an
+// emitted package and surfaces the verdict + review list.
+mod repair;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -137,6 +140,12 @@ enum Commands {
         #[arg(long)]
         sessions_dir: Option<String>,
     },
+    /// Drive the iterative repair loop over an emitted package: assess
+    /// failures, attempt bounded per-class repairs, and print the verdict
+    /// plus the failures routed to review. With `--agent <cmd>` agentic
+    /// directives re-run the harness; otherwise they are routed to offline
+    /// review. Exit code is non-zero only on a `Failing` verdict.
+    Repair(repair::RepairArgs),
 }
 
 #[derive(Clone, Debug, clap::ValueEnum)]
@@ -190,6 +199,9 @@ fn main() -> Result<()> {
         }
         Commands::DoctorExtensions { sessions_dir } => {
             run_doctor_extensions(sessions_dir)?;
+        }
+        Commands::Repair(args) => {
+            repair::run(args)?;
         }
     }
     Ok(())
