@@ -1,0 +1,16 @@
+# Microbiome faithful twin: both taxa described with their log2FC direction -> Verified.
+scenario_id: microbiome_abundance_clean_001
+narrative_path: testdata/eval-tier-4-1/narratives/microbiome_abundance_clean.md
+result_table_path: testdata/eval-tier-4-1/tables/microbiome_table_20.tsv
+interpretation_policy: config/downstream-policy/interpretation-policy.microbiome.json
+expected_mismatch_count: 0
+planted_fabrications: 0
+expected_verified: 2
+expected_unverifiable_count: 0
+expected_suspicious_count: 0
+fabrication_class: faithful_twin_microbiome
+expected_claims:
+  - entity: ASV12
+    status: verified
+  - entity: ASV34
+    status: verified

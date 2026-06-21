@@ -1,0 +1,19 @@
+# Variant/GWAS odds-ratio direction (VF-19 ratio pivot on a new modality): an OR
+# of 0.70 is PROTECTIVE (< 1.0), so describing rs7412 as "increased risk" is a
+# direction lie; rs429358 (OR 1.45 > 1.0, "increased risk") is honest. Uses the
+# variants overlay (rsID entities, odds_ratio effect column pivoting at 1.0).
+scenario_id: variant_or_fabricated_001
+narrative_path: testdata/eval-tier-4-1/narratives/variant_or_fabricated.md
+result_table_path: testdata/eval-tier-4-1/tables/variant_table_14.tsv
+interpretation_policy: config/downstream-policy/interpretation-policy.variants.json
+expected_mismatch_count: 1
+planted_fabrications: 1
+expected_verified: 1
+expected_unverifiable_count: 0
+expected_suspicious_count: 0
+fabrication_class: variant_odds_ratio_direction
+expected_claims:
+  - entity: rs7412
+    status: mismatch
+  - entity: rs429358
+    status: verified

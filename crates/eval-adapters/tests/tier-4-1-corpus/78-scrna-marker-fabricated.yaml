@@ -1,0 +1,16 @@
+# scRNA marker direction: CD8A avg_log2FC +2.30 (up) described as 'downregulated' -> Mismatch; NKG7 honest -> Verified. Single-cell modality on the singlecell overlay.
+scenario_id: scrna_marker_fabricated_001
+narrative_path: testdata/eval-tier-4-1/narratives/scrna_marker_fabricated.md
+result_table_path: testdata/eval-tier-4-1/tables/scrna_table_15.tsv
+interpretation_policy: config/downstream-policy/interpretation-policy.singlecell.json
+expected_mismatch_count: 1
+planted_fabrications: 1
+expected_verified: 1
+expected_unverifiable_count: 0
+expected_suspicious_count: 0
+fabrication_class: scrna_marker_direction
+expected_claims:
+  - entity: CD8A
+    status: mismatch
+  - entity: NKG7
+    status: verified

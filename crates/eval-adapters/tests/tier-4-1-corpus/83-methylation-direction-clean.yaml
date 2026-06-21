@@ -1,0 +1,16 @@
+# Methylation faithful twin: both probes described with their delta_beta direction -> Verified.
+scenario_id: methylation_direction_clean_001
+narrative_path: testdata/eval-tier-4-1/narratives/methylation_direction_clean.md
+result_table_path: testdata/eval-tier-4-1/tables/methylation_table_17.tsv
+interpretation_policy: config/downstream-policy/interpretation-policy.methylation.json
+expected_mismatch_count: 0
+planted_fabrications: 0
+expected_verified: 2
+expected_unverifiable_count: 0
+expected_suspicious_count: 0
+fabrication_class: faithful_twin_methylation
+expected_claims:
+  - entity: cg00000029
+    status: verified
+  - entity: cg00000108
+    status: verified

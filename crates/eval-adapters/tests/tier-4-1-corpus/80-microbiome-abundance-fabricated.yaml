@@ -1,0 +1,16 @@
+# Microbiome differential abundance: ASV12 log2FC +2.10 (enriched) described as 'depleted' -> Mismatch; ASV34 honest -> Verified.
+scenario_id: microbiome_abundance_fabricated_001
+narrative_path: testdata/eval-tier-4-1/narratives/microbiome_abundance_fabricated.md
+result_table_path: testdata/eval-tier-4-1/tables/microbiome_table_20.tsv
+interpretation_policy: config/downstream-policy/interpretation-policy.microbiome.json
+expected_mismatch_count: 1
+planted_fabrications: 1
+expected_verified: 1
+expected_unverifiable_count: 0
+expected_suspicious_count: 0
+fabrication_class: microbiome_abundance_direction
+expected_claims:
+  - entity: ASV12
+    status: mismatch
+  - entity: ASV34
+    status: verified

@@ -1,0 +1,16 @@
+# scRNA marker faithful twin: both markers described with the direction their avg_log2FC implies -> Verified.
+scenario_id: scrna_marker_clean_001
+narrative_path: testdata/eval-tier-4-1/narratives/scrna_marker_clean.md
+result_table_path: testdata/eval-tier-4-1/tables/scrna_table_15.tsv
+interpretation_policy: config/downstream-policy/interpretation-policy.singlecell.json
+expected_mismatch_count: 0
+planted_fabrications: 0
+expected_verified: 2
+expected_unverifiable_count: 0
+expected_suspicious_count: 0
+fabrication_class: faithful_twin_scrna_marker
+expected_claims:
+  - entity: CD8A
+    status: verified
+  - entity: NKG7
+    status: verified

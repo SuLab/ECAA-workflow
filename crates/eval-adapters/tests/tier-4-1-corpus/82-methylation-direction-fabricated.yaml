@@ -1,0 +1,16 @@
+# Methylation hyper/hypo direction: cg00000029 delta_beta +0.25 (hypermethylated) described as 'hypomethylated' -> Mismatch; cg00000108 honest -> Verified.
+scenario_id: methylation_direction_fabricated_001
+narrative_path: testdata/eval-tier-4-1/narratives/methylation_direction_fabricated.md
+result_table_path: testdata/eval-tier-4-1/tables/methylation_table_17.tsv
+interpretation_policy: config/downstream-policy/interpretation-policy.methylation.json
+expected_mismatch_count: 1
+planted_fabrications: 1
+expected_verified: 1
+expected_unverifiable_count: 0
+expected_suspicious_count: 0
+fabrication_class: methylation_hyper_hypo_direction
+expected_claims:
+  - entity: cg00000029
+    status: mismatch
+  - entity: cg00000108
+    status: verified
