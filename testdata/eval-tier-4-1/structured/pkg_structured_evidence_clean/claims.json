@@ -1,0 +1,4 @@
+[
+  { "claim": "3 genes are differentially expressed (padj < 0.05)", "evidence": "de.tsv" },
+  { "claim": "4 genes are differentially expressed (padj < 0.05)", "evidence": "de_all.tsv" }
+]

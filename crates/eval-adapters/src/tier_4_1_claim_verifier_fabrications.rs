@@ -16,7 +16,8 @@ use std::path::{Path, PathBuf};
 
 use ecaa_workflow_core::claim_extractor::{self, ExtractorConfig};
 use ecaa_workflow_core::claim_verifier::{
-    verify_claims, verify_narrative_counts, ClaimVerificationReport,
+    verify_claims, verify_narrative_counts, verify_structured_claims, ClaimVerificationReport,
+    StructuredClaim,
 };
 
 /// One Tier 4.1 fabrication-catch scenario.
@@ -76,6 +77,15 @@ pub struct Tier4_1Scenario {
     /// backfilled (guards skip them). (corpus-expansion roadmap I-0)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub planted_fabrications: Option<usize>,
+    /// CF-4 STRUCTURED (VF-1): workspace-relative path of a bare JSON array of
+    /// structured claims (`[{"claim":..,"evidence":..}]`). When present, run_one
+    /// ALSO folds `verify_structured_claims` over them, with `package_root` set
+    /// to this file's PARENT directory — so the fixture JSON sits at the package
+    /// root next to `results/`, and each claim's `evidence` basename resolves
+    /// under `results/tables/`. A phantom basename (present nowhere under the
+    /// package) is the VF-1 Mismatch. `None` for every non-structured scenario.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured_claims_path: Option<PathBuf>,
 }
 
 /// One per-claim expectation: a specific entity must receive a specific status.
@@ -165,6 +175,25 @@ pub fn run_one(scenario: &Tier4_1Scenario) -> Result<Tier4_1Result> {
     // finalize path) — otherwise count scenarios would score as all-zero.
     for verdict in verify_narrative_counts(&narrative, &tables_root, &cfg) {
         report.push(verdict);
+    }
+    // CF-4 STRUCTURED (VF-1): when the scenario provides a structured-claims
+    // file, load the bare claims array and fold verify_structured_claims over
+    // it. package_root is the file's parent so evidence references resolve
+    // against the sibling results/ tree (resolve_evidence_table /
+    // evidence_basename_exists). This is the only path that reaches the
+    // structured verifier from the corpus.
+    if let Some(sc_path) = &scenario.structured_claims_path {
+        let raw = std::fs::read_to_string(sc_path)
+            .with_context(|| format!("reading structured claims `{}`", sc_path.display()))?;
+        let structured: Vec<StructuredClaim> = serde_json::from_str(&raw)
+            .with_context(|| format!("parsing structured claims `{}`", sc_path.display()))?;
+        let package_root = sc_path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."));
+        for verdict in verify_structured_claims(&structured, &package_root, &cfg) {
+            report.push(verdict);
+        }
     }
 
     let mut passed = report.n_mismatch == scenario.expected_mismatch_count;
@@ -314,7 +343,7 @@ mod tests {
             .expect("resolve workspace root");
         let corpus = root.join("crates/eval-adapters/tests/tier-4-1-corpus");
         let scenarios = load_corpus(&corpus).expect("load corpus");
-        assert_eq!(scenarios.len(), 63, "corpus size drifted from 63 scenarios");
+        assert_eq!(scenarios.len(), 71, "corpus size drifted from 71 scenarios");
         let mut failures = Vec::new();
         // Corpus-level precision tally: total mismatches reported vs the
         // human-authored planted-lie count, over scenarios that declare it.
@@ -323,6 +352,9 @@ mod tests {
             s.narrative_path = root.join(&s.narrative_path);
             s.result_table_path = root.join(&s.result_table_path);
             s.interpretation_policy = root.join(&s.interpretation_policy);
+            if let Some(p) = s.structured_claims_path.take() {
+                s.structured_claims_path = Some(root.join(p));
+            }
 
             // ── Anti-regression guards keyed on the human-authored plant count
             // (corpus-expansion roadmap I-1). These run BEFORE the verifier so a

@@ -1,0 +1,4 @@
+[
+  { "claim": "3 genes are differentially expressed (padj < 0.05)", "evidence": "de.tsv" },
+  { "claim": "5 genes are differentially expressed (padj < 0.05)", "evidence": "ghost_table.tsv" }
+]

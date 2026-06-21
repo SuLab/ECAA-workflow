@@ -1,0 +1,24 @@
+# CF-9 proteomics fabricated: a protein-abundance direction sign-flip judged
+# against the proteomics overlay (not the base RNA-seq policy). The overlay is a
+# COMPLETE standalone policy — run_one feeds it straight to ExtractorConfig::from_policy,
+# no base merge. Its entityColumns put `protein` ahead of the absent gene/gene_name,
+# so parse_table_rows_from_reader binds the `protein` column; the entityNamePattern
+# `[A-Z][A-Z0-9]{1,}` matches CALR/HSPA5; effectSizeColumns include `log2_ratio`
+# (Log scale — the name contains "log", so the FP guard keeps it pivot-at-0).
+# CALR is +1.85 in the table but the narrative says "downregulated" → Mismatch.
+# HSPA5 is +2.40 and honestly called "upregulated" → Verified.
+scenario_id: proteomics_direction_fabricated_001
+narrative_path: testdata/eval-tier-4-1/narratives/proteomics_direction_fabricated.md
+result_table_path: testdata/eval-tier-4-1/tables/proteomics_table_9.tsv
+interpretation_policy: config/downstream-policy/interpretation-policy.proteomics.json
+expected_mismatch_count: 1
+planted_fabrications: 1
+expected_verified: 1
+expected_unverifiable_count: 0
+expected_suspicious_count: 0
+fabrication_class: proteomics_sign_flip
+expected_claims:
+  - entity: CALR
+    status: mismatch
+  - entity: HSPA5
+    status: verified

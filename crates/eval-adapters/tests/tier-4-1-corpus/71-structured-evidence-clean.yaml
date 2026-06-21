@@ -1,0 +1,17 @@
+# CF-4 STRUCTURED faithful TWIN of 70: the SAME structured-claim shape, but BOTH
+# claims cite evidence files present in the package whose counts recompute
+# EXACTLY -> both Verified. Proves the VF-1 catch is FP-safe (a structured claim
+# citing a REAL evidence file is never flagged).
+#   claim 1 cites de.tsv     (3 sig rows) "3 genes"  -> Verified.
+#   claim 2 cites de_all.tsv (4 sig rows) "4 genes"  -> Verified.
+scenario_id: structured_evidence_clean_001
+narrative_path: testdata/eval-tier-4-1/structured/pkg_structured_evidence_clean/narrative_placeholder.md
+result_table_path: testdata/eval-tier-4-1/structured/pkg_structured_evidence_clean/results/tables/de.tsv
+interpretation_policy: config/downstream-policy/interpretation-policy.json
+structured_claims_path: testdata/eval-tier-4-1/structured/pkg_structured_evidence_clean/claims.json
+expected_mismatch_count: 0
+planted_fabrications: 0
+expected_verified: 2
+expected_unverifiable_count: 0
+expected_suspicious_count: 0
+fabrication_class: faithful_twin_structured_evidence

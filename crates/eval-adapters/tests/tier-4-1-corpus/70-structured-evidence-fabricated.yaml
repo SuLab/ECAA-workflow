@@ -1,0 +1,19 @@
+# CF-4 STRUCTURED (VF-1) fabricated: two structured claims verified by
+# verify_structured_claims against package_root = the claims.json parent dir.
+#   claim 1 cites de.tsv (results/tables/de.tsv); "3 genes padj<0.05" recomputes
+#           to 3 -> Verified.
+#   claim 2 cites ghost_table.tsv, which exists NOWHERE under the package
+#           -> VF-1 phantom-evidence Mismatch (the planted fabrication).
+# Narrative is empty of claims; result_table reused only for run_one's existence
+# check. Report = {verified:1, mismatch:1}.
+scenario_id: structured_evidence_fabricated_001
+narrative_path: testdata/eval-tier-4-1/structured/pkg_structured_evidence_fabricated/narrative_placeholder.md
+result_table_path: testdata/eval-tier-4-1/structured/pkg_structured_evidence_fabricated/results/tables/de.tsv
+interpretation_policy: config/downstream-policy/interpretation-policy.json
+structured_claims_path: testdata/eval-tier-4-1/structured/pkg_structured_evidence_fabricated/claims.json
+expected_mismatch_count: 1
+planted_fabrications: 1
+expected_verified: 1
+expected_unverifiable_count: 0
+expected_suspicious_count: 0
+fabrication_class: structured_phantom_evidence_file

@@ -1,0 +1,24 @@
+# CF-3 multi-table fabricated: TWO sibling DE tables in the same dir hold the
+# SAME genes under opposite contrasts (de_table_10: PKM +2.50 / LDHA +3.10;
+# de_table_11: PKM -1.90 / LDHA -2.70). The narrative cites Table 10 for BOTH
+# sentences but quotes Table 11's PKM value (log2FC=-1.90). verify_claims resolves
+# "Table 10" via TableIndex.scan to de_table_10 ONLY — so PKM's claimed -1.90
+# contradicts the cited table's +2.50 → Mismatch. The fact that -1.90 is a REAL
+# PKM value in the OTHER table (Table 11) is exactly the cross-table contamination
+# the verifier must NOT do: it never pulls a value from an uncited sibling. LDHA is
+# honestly +3.10 in the cited Table 10 → Verified.
+scenario_id: multi_table_fabricated_001
+narrative_path: testdata/eval-tier-4-1/narratives/multi_table_fabricated.md
+result_table_path: testdata/eval-tier-4-1/tables/de_table_10.tsv
+interpretation_policy: config/downstream-policy/interpretation-policy.json
+expected_mismatch_count: 1
+planted_fabrications: 1
+expected_verified: 1
+expected_unverifiable_count: 0
+expected_suspicious_count: 0
+fabrication_class: cross_table_no_contamination
+expected_claims:
+  - entity: PKM
+    status: mismatch
+  - entity: LDHA
+    status: verified

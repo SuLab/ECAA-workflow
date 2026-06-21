@@ -1,0 +1,4 @@
+gene	log2FC	pvalue	padj
+TP53	2.40	1.0e-09	5.0e-08
+CDKN1A	1.80	3.0e-07	2.0e-05
+BRCA1	-2.10	4.0e-08	6.0e-06

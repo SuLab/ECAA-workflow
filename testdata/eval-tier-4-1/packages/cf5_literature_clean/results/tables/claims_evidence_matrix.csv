@@ -1,0 +1,3 @@
+finding_id,entity,prior_pmids,concordance_flag,source_kind,verified
+TP53,TP53,33333333;44444444,same_direction,pmc_oa_full_text,true
+CDKN1A,CDKN1A,,no_prior_finding,none,false

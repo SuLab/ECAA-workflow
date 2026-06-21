@@ -1,0 +1,21 @@
+# CF-5 LITERATURE faithful twin: genuinely concordant TP53 (matrix same_direction,
+# both prior PMIDs cited, verified, meets minPapers=2/minSources=1 -> Verified)
+# plus a NEUTRAL no_prior_finding mention of CDKN1A ("has not been previously
+# reported") that carries NO agreement cue, so VF-15a does NOT fire and the row
+# is unverified -> Unverifiable. Zero plants; G3 twin faithfulness (no Mismatch,
+# no Suspicious).
+scenario_id: cf5_literature_clean_001
+narrative_path: testdata/eval-tier-4-1/narratives/cf5_literature_clean.md
+result_table_path: testdata/eval-tier-4-1/packages/cf5_literature_clean/results/tables/de.tsv
+interpretation_policy: config/downstream-policy/interpretation-policy.json
+expected_mismatch_count: 0
+planted_fabrications: 0
+expected_verified: 1
+expected_unverifiable_count: 1
+expected_suspicious_count: 0
+fabrication_class: literature_clean_twin
+expected_claims:
+  - entity: TP53
+    status: verified
+  - entity: CDKN1A
+    status: unverifiable

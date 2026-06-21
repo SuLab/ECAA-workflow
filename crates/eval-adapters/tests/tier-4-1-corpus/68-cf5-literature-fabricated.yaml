@@ -1,0 +1,22 @@
+# CF-5 LITERATURE fabricated (VF-15a + opposite_direction): a literature-grounded
+# narrative POSITIVELY asserting prior-work concordance for two genes the
+# package's claims_evidence_matrix.csv contradicts. TP53 is flagged
+# no_prior_finding yet the prose says "concordant with prior reports" -> VF-15a
+# fabricated concordance -> Mismatch. BRCA1 is flagged opposite_direction yet the
+# prose asserts consistency -> Mismatch (excerpt-independent arm). The matrix is
+# resolved relative to result_table_path's package root (results/tables/).
+scenario_id: cf5_literature_fabricated_001
+narrative_path: testdata/eval-tier-4-1/narratives/cf5_literature_fabricated.md
+result_table_path: testdata/eval-tier-4-1/packages/cf5_literature_fabricated/results/tables/de.tsv
+interpretation_policy: config/downstream-policy/interpretation-policy.json
+expected_mismatch_count: 2
+planted_fabrications: 2
+expected_verified: 0
+expected_unverifiable_count: 0
+expected_suspicious_count: 0
+fabrication_class: literature_fabricated_concordance
+expected_claims:
+  - entity: TP53
+    status: mismatch
+  - entity: BRCA1
+    status: mismatch
