@@ -1,0 +1,16 @@
+# Time-series coefficient direction: the trend coefficient is +0.45 (increasing) but described as 'decreasing' -> Mismatch; the slope (-0.30, decreasing) is honest -> Verified. Uses the time_series_forecast overlay.
+scenario_id: timeseries_coef_fabricated_001
+narrative_path: testdata/eval-tier-4-1/narratives/timeseries_coef_fabricated.md
+result_table_path: testdata/eval-tier-4-1/tables/timeseries_table_21.tsv
+interpretation_policy: config/downstream-policy/interpretation-policy.time_series_forecast.json
+expected_mismatch_count: 1
+planted_fabrications: 1
+expected_verified: 1
+expected_unverifiable_count: 0
+expected_suspicious_count: 0
+fabrication_class: timeseries_coefficient_direction
+expected_claims:
+  - entity: trend
+    status: mismatch
+  - entity: slope
+    status: verified

@@ -343,7 +343,7 @@ mod tests {
             .expect("resolve workspace root");
         let corpus = root.join("crates/eval-adapters/tests/tier-4-1-corpus");
         let scenarios = load_corpus(&corpus).expect("load corpus");
-        assert_eq!(scenarios.len(), 83, "corpus size drifted from 83 scenarios");
+        assert_eq!(scenarios.len(), 85, "corpus size drifted from 85 scenarios");
         let mut failures = Vec::new();
         // Corpus-level precision tally: total mismatches reported vs the
         // human-authored planted-lie count, over scenarios that declare it.
