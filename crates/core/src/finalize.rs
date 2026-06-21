@@ -295,6 +295,23 @@ pub fn finalize_task(
             );
         }
 
+        // Type-aware repair plan (runtime/claim-repair-plan.json): records, per
+        // failing claim, the correct repair action (narrative correction /
+        // citation fix / evidence completion / review) plus the verifier's
+        // detail (which states the table's correct value). Informational +
+        // non-destructive — it never rewrites a narrative. A claim-verification
+        // failure is a narrative/evidence problem, never a trigger to re-run the
+        // analysis (re-execution is the harness's bounded response to
+        // analysis-validation failures, a different subsystem). Best-effort.
+        if let Err(e) = crate::claim_repair::persist_repair_plan(root, task_id, &v.report) {
+            tracing::warn!(
+                target: "ecaa::finalize",
+                error = %e,
+                task_id,
+                "claim-repair-plan.json refresh failed"
+            );
+        }
+
         // Signed verdict sink (de-vacuifies audit-proof Inv 1/5). The agent's
         // container has already exited; this host-side write is outside any
         // agent-writable window and outside the emit byte-diff baseline

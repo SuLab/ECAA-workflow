@@ -32,6 +32,7 @@ pub mod builder;
 pub mod checkpoint_mode;
 pub mod claim_contract;
 pub mod claim_extractor;
+pub mod claim_repair;
 pub mod claim_sink;
 pub mod claim_verifier;
 /// Classify module.
