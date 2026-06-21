@@ -1,0 +1,16 @@
+# RankTopN faithful twin: BIGUP (log2FC 5.0, rank 1 by magnitude, upregulated) is
+# genuinely among the top-2 most upregulated genes -> Verified. Proves the rank
+# catch is FP-safe.
+scenario_id: rank_topn_clean_001
+narrative_path: testdata/eval-tier-4-1/narratives/rank_topn_clean.md
+result_table_path: testdata/eval-tier-4-1/tables/de_table_13.tsv
+interpretation_policy: config/downstream-policy/interpretation-policy.json
+expected_mismatch_count: 0
+planted_fabrications: 0
+expected_verified: 1
+expected_unverifiable_count: 0
+expected_suspicious_count: 0
+fabrication_class: faithful_twin_rank_top_n
+expected_claims:
+  - entity: BIGUP
+    status: verified

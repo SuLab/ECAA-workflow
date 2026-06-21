@@ -1,0 +1,5 @@
+gene	log2FC	padj
+BIGUP	5.00	1.0e-10
+MIDUP	2.00	1.0e-05
+SMALLUP	0.80	1.0e-03
+BIGDN	-4.50	1.0e-09

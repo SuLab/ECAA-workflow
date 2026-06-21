@@ -1,0 +1,16 @@
+# RankTopN (zero prior coverage): "SMALLUP is among the top-2 most upregulated
+# genes" is false — ranked by |log2FC| the top-2 are BIGUP (5.0) and BIGDN (4.5);
+# SMALLUP (0.8) is rank 4. The rank claim is a fabrication -> Mismatch.
+scenario_id: rank_topn_fabricated_001
+narrative_path: testdata/eval-tier-4-1/narratives/rank_topn_fabricated.md
+result_table_path: testdata/eval-tier-4-1/tables/de_table_13.tsv
+interpretation_policy: config/downstream-policy/interpretation-policy.json
+expected_mismatch_count: 1
+planted_fabrications: 1
+expected_verified: 0
+expected_unverifiable_count: 0
+expected_suspicious_count: 0
+fabrication_class: rank_top_n_membership
+expected_claims:
+  - entity: SMALLUP
+    status: mismatch
