@@ -1,0 +1,13 @@
+# FP-A regression (fabricated): an inflated enriched-set count. gsea_table_12 has
+# 3 sets at padj<0.05 (2 positive-NES, 1 negative-NES); claiming 9 is a count
+# inflation -> Mismatch. Confirms the count catch still fires for set-level nouns.
+scenario_id: gsea_setcount_fabricated_001
+narrative_path: testdata/eval-tier-4-1/narratives/gsea_setcount_fabricated.md
+result_table_path: testdata/eval-tier-4-1/tables/gsea_table_12.tsv
+interpretation_policy: config/downstream-policy/interpretation-policy.json
+expected_mismatch_count: 1
+planted_fabrications: 1
+expected_verified: 0
+expected_unverifiable_count: 0
+expected_suspicious_count: 0
+fabrication_class: enriched_set_count_inflated

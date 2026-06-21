@@ -2363,15 +2363,25 @@ fn verify_count_claim(text: &str, table_path: &Path, cfg: &ExtractorConfig) -> O
     });
     // Direction word (only the up/down sets; nearest-wins is irrelevant
     // for an aggregate count).
+    // FP-A: for a gene-SET / pathway / term count, "enriched"/"depleted" denote
+    // SIGNIFICANCE (a set is enriched at either tail of the ranked list), NOT a
+    // gene-level up/down direction. Applying the effect-sign (NES) filter to
+    // "N enriched gene sets at padj<0.05" wrongly drops the negative-NES
+    // significant sets (453 → 334 on the Himes GSEA run). Skip the direction
+    // filter entirely for set-level nouns so the count is over ALL significant
+    // sets, matching how GSEA reports "enriched".
     let lower = text.to_lowercase();
-    let has_up = cfg
-        .up_words
-        .iter()
-        .any(|w| lower.contains(&w.to_lowercase()));
-    let has_down = cfg
-        .down_words
-        .iter()
-        .any(|w| lower.contains(&w.to_lowercase()));
+    let set_level = is_set_level_noun(&noun);
+    let has_up = !set_level
+        && cfg
+            .up_words
+            .iter()
+            .any(|w| lower.contains(&w.to_lowercase()));
+    let has_down = !set_level
+        && cfg
+            .down_words
+            .iter()
+            .any(|w| lower.contains(&w.to_lowercase()));
 
     let mut observed = 0usize;
     for row in &cached.rows {
@@ -2730,6 +2740,30 @@ fn compare_count(claimed_n: f64, observed: usize, table_path: &Path, what: &str)
 /// True for nouns that denote a *grouping* whose count is the number of
 /// distinct labels (cluster ids, cell types, modules, taxa), as opposed
 /// to a per-row entity (gene, peak) whose count needs a threshold.
+/// True for nouns denoting a gene SET / pathway / term — the units of an
+/// enrichment (GSEA/ORA) result. For these, "enriched"/"depleted" describe
+/// SIGNIFICANCE (the set is enriched at either tail of the ranked list), not a
+/// gene-level up/down direction, so an aggregate-count claim over them must NOT
+/// apply the effect-sign (NES) filter. (FP-A)
+fn is_set_level_noun(noun: &str) -> bool {
+    let n = noun.replace(['-', '_'], " ");
+    matches!(
+        n.trim(),
+        "gene set"
+            | "gene sets"
+            | "geneset"
+            | "genesets"
+            | "pathway"
+            | "pathways"
+            | "term"
+            | "terms"
+            | "gene ontology term"
+            | "gene ontology terms"
+            | "signature"
+            | "signatures"
+    )
+}
+
 fn is_grouping_noun(noun: &str) -> bool {
     let n = noun.replace(['-', '_'], " ");
     let n = n.trim();
@@ -2839,6 +2873,30 @@ fn verify_one_structured(
             None,
         );
     };
+    // FP-B: a `file::json-pointer` evidence reference (e.g.
+    // `result.json::top_effect_abundance_ratio`) is a SELF-reference to a JSON
+    // FIELD, not a result table. The `::pointer` form must NOT be treated as a
+    // phantom filename. Strip the pointer; if the base file exists in the
+    // package it is a legitimate (if not table-adjudicable) self-citation →
+    // Unverifiable, NOT a phantom-file Mismatch. Only a base file that is itself
+    // absent everywhere is a genuine fabricated citation.
+    if let Some((base, _pointer)) = evidence.split_once("::") {
+        let base = base.trim();
+        let status = if !base.is_empty() && evidence_basename_exists(package_root, base) {
+            ClaimStatus::Unverifiable {
+                reason: format!(
+                    "cited evidence `{evidence}` is an in-result field self-reference (not a result table); value not table-adjudicable"
+                ),
+            }
+        } else {
+            ClaimStatus::Mismatch {
+                detail: format!(
+                    "claim cites evidence `{evidence}` whose base file `{base}` does not exist anywhere in the package"
+                ),
+            }
+        };
+        return make(summarize_claim_subject(&sc.claim), status, None);
+    }
     let Some(table_path) = resolve_evidence_table(package_root, evidence) else {
         let basename = Path::new(evidence)
             .file_name()
@@ -3962,6 +4020,91 @@ mod tests {
             matches!(v.status, ClaimStatus::Verified),
             "correct symbol↔Ensembl pairing must Verify, got {:?}",
             v.status
+        );
+    }
+
+    /// FP-A — a gene-SET / pathway count with "enriched" must count ALL
+    /// significant sets (either NES sign), not just positive-NES ones. "enriched"
+    /// for a set is significance, NOT a gene-level up direction. (Exposed on the
+    /// fresh Himes GSEA run: "453 enriched gene sets (padj<0.05)" wrongly read as
+    /// 334 = padj<0.05 AND NES>0.)
+    #[test]
+    fn fpa_enriched_set_count_is_significance_not_direction() {
+        let policy = serde_json::json!({"verifiableEntities": {
+            "enabled": true,
+            "entityNamePatterns": ["[A-Z][A-Z0-9]{1,}"],
+            "directionVocab": {"up": ["enriched", "increased"], "down": ["depleted", "decreased"]},
+            "effectSizeColumns": ["NES"],
+            "entityColumns": ["pathway", "term"],
+            "pvalueColumns": ["padj", "pval"]
+        }});
+        let cfg = ExtractorConfig::from_policy(&policy).unwrap();
+        let tmp = tempdir().unwrap();
+        // 3 significant at padj<0.05: 2 positive-NES, 1 negative-NES.
+        write_table(
+            tmp.path(),
+            "gsea.tsv",
+            "pathway\tNES\tpval\tpadj\nPONE\t2.1\t1e-5\t1e-3\nPTWO\t1.5\t2e-5\t2e-3\nPTHREE\t-1.8\t3e-5\t3e-3\n",
+        );
+        let path = tmp.path().join("gsea.tsv");
+        // Faithful: all 3 significant sets counted as "enriched" → Verified.
+        let s = verify_count_claim(
+            "3 gene sets were significantly enriched (padj < 0.05)",
+            &path,
+            &cfg,
+        );
+        assert!(
+            matches!(s, Some(ClaimStatus::Verified)),
+            "all-significant set count must Verify (not filter to NES>0), got {s:?}"
+        );
+        // Inflated count is still caught.
+        let s2 = verify_count_claim(
+            "9 gene sets were significantly enriched (padj < 0.05)",
+            &path,
+            &cfg,
+        );
+        assert!(
+            matches!(s2, Some(ClaimStatus::Mismatch { .. })),
+            "inflated set count must still Mismatch, got {s2:?}"
+        );
+    }
+
+    /// FP-B — a `file::json-pointer` evidence reference (a self-citation to a
+    /// JSON field that exists) must NOT be a phantom-file Mismatch; it is an
+    /// Unverifiable self-reference. A pointer whose base file is genuinely absent
+    /// is still a Mismatch.
+    #[test]
+    fn fpb_json_pointer_evidence_is_not_phantom() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let pkg = tempdir().unwrap();
+        let dir = pkg.path().join("runtime").join("outputs").join("de");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("result.json"),
+            r#"{"top_effect_abundance_ratio": 0.208}"#,
+        )
+        .unwrap();
+
+        let sc = StructuredClaim {
+            claim: "Top genes have median base_mean ratio = 0.208".into(),
+            evidence: Some("result.json::top_effect_abundance_ratio".into()),
+        };
+        let v = verify_one_structured(&sc, pkg.path(), &cfg);
+        assert!(
+            matches!(v.status, ClaimStatus::Unverifiable { .. }),
+            "file::pointer self-reference to an existing field must be Unverifiable, got {:?}",
+            v.status
+        );
+
+        let sc2 = StructuredClaim {
+            claim: "x".into(),
+            evidence: Some("ghost_nowhere.json::field".into()),
+        };
+        let v2 = verify_one_structured(&sc2, pkg.path(), &cfg);
+        assert!(
+            matches!(v2.status, ClaimStatus::Mismatch { .. }),
+            "pointer into a genuinely-absent base file must Mismatch, got {:?}",
+            v2.status
         );
     }
 

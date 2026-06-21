@@ -1,0 +1,14 @@
+# FP-A regression (faithful twin): "3 enriched gene sets at padj<0.05" must
+# Verify against gsea_table_12's 3 significant sets — counting ALL significant
+# sets (either NES sign), because "enriched" denotes significance for a set, not
+# a gene-level up direction. Before FP-A this false-Mismatched (3 vs 2 = NES>0).
+scenario_id: gsea_setcount_clean_001
+narrative_path: testdata/eval-tier-4-1/narratives/gsea_setcount_clean.md
+result_table_path: testdata/eval-tier-4-1/tables/gsea_table_12.tsv
+interpretation_policy: config/downstream-policy/interpretation-policy.json
+expected_mismatch_count: 0
+planted_fabrications: 0
+expected_verified: 1
+expected_unverifiable_count: 0
+expected_suspicious_count: 0
+fabrication_class: faithful_twin_enriched_set_count
