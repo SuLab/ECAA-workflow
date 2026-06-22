@@ -47,7 +47,8 @@ def test_headline_is_macro_m3_flat_pool_kept_secondary():
     assert "paper primary" in hl["primary_label"].lower()
     assert "secondary" in hl["secondary_label"].lower()
     # The note must explain the ~4x amplification AND that the choice is
-    # arm-agnostic (so the metric switch can't be read as gaming).
+    # arm-agnostic (so the metric switch can't be read as a results-favoring
+    # shortcut).
     assert "4x" in hl["note"] and "arm-agnostic" in hl["note"].lower()
 
     # The rendered markdown headline section maps to the macro (0.917) and still

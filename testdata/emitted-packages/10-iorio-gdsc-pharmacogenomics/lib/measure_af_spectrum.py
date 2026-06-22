@@ -102,7 +102,8 @@ def compute_metrics(af_values, n_samples, per_sample_counts=None, is_mtdna=False
         # Minimum surviving allele frequency (informational only). We deliberately
         # do NOT emit a `min_surviving_af_meets_declared_threshold` pass/fail flag:
         # defining it as `sub_noise_floor_count == 0` would be TAUTOLOGICAL with the
-        # no_sub_noise_floor_calls assertion (a self-satisfying check = gaming), and
+        # no_sub_noise_floor_calls assertion (a self-satisfying check: a tautological
+        # assertion that can pass without exercising the computation), and
         # this script cannot know the AGENT'S declared filter threshold. The
         # noise-floor invariant is enforced directly by no_sub_noise_floor_calls.
         "min_surviving_af": af_sorted[0] if af_sorted else 0.0,

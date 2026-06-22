@@ -376,7 +376,7 @@ def test_select_deliverable_prefers_downstream_over_superseded_intermediate(tmp_
 def test_select_deliverable_is_not_score_or_size_driven(tmp_path):
     """Selection is keyed PURELY on DAG topology — it keeps the DOWNSTREAM file
     even when that file is LARGER and LOWER-scoring than the upstream one, proving
-    it is not a 'prefer smaller / higher-scoring' (gaming) rule."""
+    it is not a 'prefer smaller / higher-scoring' rule."""
     from scripts.eval.scoring.variant_overlap import select_deliverable_obs
     upstream_small_good = _mk(tmp_path / "runtime/outputs/variant_calling/vcf/S1.vcf",
                               "chrM\t150\t.\tT\tC\t.\tPASS\tAF=0.99\n")
@@ -388,7 +388,7 @@ def test_select_deliverable_is_not_score_or_size_driven(tmp_path):
     dag = {"variant_filtering": ["variant_calling"], "variant_calling": []}
     kept = select_deliverable_obs([upstream_small_good, downstream_big_bad], tmp_path, dag, ("S1",))
     assert downstream_big_bad in kept and upstream_small_good not in kept, \
-        "must keep the DAG-downstream file regardless of its size/score (topology-keyed, non-gaming)"
+        "must keep the DAG-downstream file regardless of its size/score (topology-keyed, not size/score-favoring)"
 
 
 def test_select_deliverable_noop_without_dag(tmp_path):

@@ -282,7 +282,8 @@ def _render_nekrutenko_headline(hl: dict) -> list[str]:
     alongside but clearly marked secondary because pooling all four samples into
     one denominator amplifies a single low-AF heteroplasmy miss ~4x. The choice
     is arm-agnostic (both metrics computed identically per arm), spelled out in
-    the note so a reader can't read the metric switch as gaming."""
+    the note so a reader can't read the metric switch as a results-favoring
+    shortcut."""
     macro = hl.get("per_sample_macro_jaccard", {}) or {}
     flat = hl.get("flat_pool_jaccard", {}) or {}
     primary_label = hl.get("primary_label", "per-sample macro M3 (paper primary)")

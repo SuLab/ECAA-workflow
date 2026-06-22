@@ -379,7 +379,7 @@ fn stage_assertions<'a>(
         .unwrap_or_default()
 }
 
-/// Fail-open closure (gaming-audit hardening): the mtDNA heteroplasmy checks are
+/// Fail-open closure (tautology hardening): the mtDNA heteroplasmy checks are
 /// `when`-gated on /is_mtdna, so a result.json that OMITS is_mtdna would skip them
 /// (skip-as-pass). Each variant stage that carries those gated checks must ALSO
 /// carry a universal (un-gated) REQUIRED `is_mtdna_recorded` assertion so an
@@ -427,7 +427,7 @@ fn variant_contract_has_ungated_is_mtdna_recorded_guard() {
     }
 }
 
-/// Self-report-evasion hardening (gaming-audit): the covariate-adjustment check
+/// Self-report-evasion hardening: the covariate-adjustment check
 /// is `when`-gated on the JSON pointer /available_covariates, so omitting it (or
 /// recording it at a nested key / inside a free-text note) would skip the check.
 /// Both DE contracts must carry a `design_records_covariate_columns` assertion
