@@ -1006,6 +1006,10 @@ pub(crate) fn routes() -> axum::Router<ChatAppState> {
             axum::routing::get(super::package_download::get_package_tarball),
         )
         .route(
+            "/api/chat/session/:id/deposit-package.zip",
+            axum::routing::get(super::package_download::get_deposit_package),
+        )
+        .route(
             "/api/chat/session/:id/task/:task_id/note",
             axum::routing::post(post_task_note),
         )

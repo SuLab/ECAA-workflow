@@ -7,6 +7,10 @@
 
 mod chat;
 mod chat_llm;
+// `export` subcommand. Emits a clean, deposit-ready `.zip` of a completed
+// package (tier A+B only; caches / logs / `.git` stripped, BagIt + RO-Crate
+// re-sealed).
+mod export;
 // v3 P7 — `migrate-sessions` subcommand. Applies the v3 P7
 // `u32 → SemVer` migrator chain to on-disk session JSON in place.
 mod migrate_sessions;
@@ -154,6 +158,12 @@ enum Commands {
     /// `runtime/reexecution.json`. Exit code is non-zero when nothing was
     /// compared or any artifact failed / was unavailable.
     Reexec(reexec::ReexecArgs),
+    /// Export a clean, deposit-ready `.zip` of a completed package: copy
+    /// the tier A+B audit/review/deposit + re-execution surface into a
+    /// scratch tree, re-seal the BagIt manifest + RO-Crate, strip `.git`,
+    /// and pack the result into `--out`. Caches, R libraries, logs,
+    /// heartbeats, and other reproducible bloat are dropped.
+    Export(export::ExportArgs),
 }
 
 #[derive(Clone, Debug, clap::ValueEnum)]
@@ -213,6 +223,9 @@ fn main() -> Result<()> {
         }
         Commands::Reexec(args) => {
             reexec::run(args)?;
+        }
+        Commands::Export(args) => {
+            export::run(args)?;
         }
     }
     Ok(())

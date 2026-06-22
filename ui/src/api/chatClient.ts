@@ -1173,6 +1173,19 @@ export function artifactUrl(sessionId: string, path: string): string {
   return tok ? `${base}?share_token=${encodeURIComponent(tok)}` : base
 }
 
+/// Build a URL the browser can GET (`<a download href>`) for the
+/// deposit-ready copy of the session's emitted package
+/// (`GET /api/chat/session/:id/deposit-package.zip`). The server emits
+/// a clean tier-A + tier-B tree as a `.zip`. Forwards `?share_token=`
+/// the same way `artifactUrl` does, since an `<a href>` can't carry the
+/// X-Share-Token header that `_fetch.ts` uses.
+export function depositPackageUrl(sessionId: string): string {
+  const base = `/api/chat/session/${encodeURIComponent(sessionId)}/deposit-package.zip`
+  if (typeof window === 'undefined') return base
+  const tok = new URLSearchParams(window.location.search).get('share_token')
+  return tok ? `${base}?share_token=${encodeURIComponent(tok)}` : base
+}
+
 // ── Task-detail drawer endpoints ───────────────────────────────────────
 
 /// Plain-English stage description shared across sessions on a server.

@@ -34,6 +34,9 @@ serde_json.workspace = true
 hex = "0.4"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 sha2.workspace = true
+# `export` subcommand stages the depositable A+B tree in a scratch dir
+# before zipping it into `--out`; the dir is removed when its guard drops.
+tempfile.workspace = true
 # v3 P7 — `migrate-sessions` subcommand reads/writes a `Version`
 # directly when detecting the legacy `u32` shape.
 semver = { workspace = true }
@@ -50,6 +53,9 @@ assert_cmd = { workspace = true }
 # inline because the workspace doesn't promote it (only assert_cmd
 # consumers need it).
 predicates = "3"
+# `export_cli` re-opens the emitted `.zip` with `zip::ZipArchive` to
+# assert its entry set (kept tiers present, dropped tiers absent).
+zip.workspace = true
 
 [lints]
 workspace = true

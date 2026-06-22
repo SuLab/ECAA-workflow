@@ -120,6 +120,14 @@ tracing = "0.1"
 ts-rs = { version = "10", features = ["serde-compat"] }
 uuid = { version = "1", features = ["v4", "v5", "serde"] }
 walkdir = "2"
+# Depositable-package export (`emitter::export::zip_dir`) writes a single
+# Deflated `.zip` of the A+B-tier export tree for the web download + CLI
+# `export` subcommand. `default-features = false` drops the bzip2 / zstd /
+# lzma / time backends (and their C/extra-license footprint); only the
+# `deflate` feature is enabled, which reuses the workspace's existing
+# `flate2` compressor. License footprint (MIT / Apache-2.0 / Zlib) clears
+# the `deny.toml` allowlist; no new advisory exceptions required.
+zip = { version = "8", default-features = false, features = ["deflate"] }
 # NFC normalization + ASCII-strict casefold of narrative excerpts before
 # substring-matching against table cells in `core::claim_verifier`. Stops
 # canonically-equivalent but byte-different Unicode forms (NFC vs NFD)

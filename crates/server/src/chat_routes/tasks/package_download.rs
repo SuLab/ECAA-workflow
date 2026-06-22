@@ -226,6 +226,148 @@ pub(crate) async fn get_package_tarball(
         })
 }
 
+/// `GET /api/chat/session/:id/deposit-package.zip` — stream a clean,
+/// deposit-ready `.zip` of the emitted package.
+///
+/// Mirrors [`get_package_tarball`]'s session→`emitted_package_path`
+/// resolution + path-jail (canonicalize + `is_dir`) and inherits its
+/// owner-auth from the `/session/:id/` URL shape. Where the tarball handler
+/// streams the *full working tree*, this one runs the core exporter
+/// ([`export_depositable_package`]) to copy only the tier A+B
+/// audit/review/deposit + re-execution surface into a scratch dir, re-seal
+/// BagIt + RO-Crate, and strip `.git`; it then zips that clean tree into a
+/// `NamedTempFile` and streams the file as `application/zip`.
+///
+/// The export + zip run on a blocking thread (filesystem-heavy, synchronous
+/// `zip` writer). The scratch dir + temp zip are deleted when their guards
+/// drop after the response body has been fully read — `ReaderStream` holds
+/// an open `tokio::fs::File`, and the `NamedTempFile` guard is moved into a
+/// closure that runs on stream completion so the bytes outlive the producer.
+pub(crate) async fn get_deposit_package(
+    State(app): State<ChatAppState>,
+    Path(session_id): Path<Uuid>,
+) -> impl IntoResponse {
+    let Some(session) = app.conversation.get_session(session_id).await else {
+        return (StatusCode::NOT_FOUND, "session not found").into_response();
+    };
+    let Some(root) = session.emitted_package_path.clone() else {
+        return (
+            StatusCode::NOT_FOUND,
+            "session has no emitted package — confirm + emit first",
+        )
+            .into_response();
+    };
+    let Ok(root_canon) = root.canonicalize() else {
+        return (StatusCode::NOT_FOUND, "package root missing on disk").into_response();
+    };
+    if !root_canon.is_dir() {
+        return (StatusCode::NOT_FOUND, "package root is not a directory").into_response();
+    }
+
+    let pkg_basename = root_canon
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("scripps-package")
+        .to_string();
+    let download_name = format!("{pkg_basename}-deposit.zip");
+
+    // Export + zip are synchronous, filesystem-heavy work: run on a blocking
+    // thread so the async runtime isn't parked. The result is a sealed temp
+    // `.zip` file we then stream.
+    let zip_result = tokio::task::spawn_blocking(move || build_deposit_zip(&root_canon)).await;
+    let zip_tempfile = match zip_result {
+        Ok(Ok(f)) => f,
+        Ok(Err(e)) => {
+            tracing::warn!(
+                target: "package_download",
+                error = %e,
+                "depositable export failed"
+            );
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "depositable export failed",
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::warn!(
+                target: "package_download",
+                error = %e,
+                "depositable export task panicked"
+            );
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "depositable export task failed",
+            )
+                .into_response();
+        }
+    };
+
+    // Re-open the temp zip as an independent OS handle for streaming, then
+    // drop the `NamedTempFile` guard. On unix the guard's `unlink` only
+    // removes the directory entry; the inode (and its bytes) stays live as
+    // long as our re-opened fd is held — `ReaderStream` keeps that fd open
+    // until the body reaches EOF, at which point the file is reclaimed. This
+    // mirrors the established temp-then-stream pattern without holding the
+    // guard across the async boundary.
+    let std_file = match zip_tempfile.reopen() {
+        Ok(f) => f,
+        Err(e) => {
+            tracing::warn!(
+                target: "package_download",
+                error = %e,
+                "reopening deposit zip tempfile failed"
+            );
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "deposit zip read failed",
+            )
+                .into_response();
+        }
+    };
+    drop(zip_tempfile);
+    let async_file = tokio::fs::File::from_std(std_file);
+    let stream = tokio_util::io::ReaderStream::new(async_file);
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/zip")
+        .header(
+            header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{download_name}\""),
+        )
+        .header(header::CACHE_CONTROL, "private, no-store")
+        .header("x-accel-buffering", "no")
+        .body(Body::from_stream(stream))
+        .unwrap_or_else(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("response build failed: {e}"),
+            )
+                .into_response()
+        })
+}
+
+/// Export the tier-A+B surface of `root` into a scratch dir and zip it into a
+/// sealed `NamedTempFile`. Runs on a blocking thread (see caller). The scratch
+/// `TempDir` is dropped (and deleted) before returning; the returned
+/// `NamedTempFile` carries the finished `.zip`.
+fn build_deposit_zip(root: &std::path::Path) -> anyhow::Result<tempfile::NamedTempFile> {
+    use anyhow::Context as _;
+    use ecaa_workflow_core::emitter::{export_depositable_package, zip_dir};
+
+    let staging = tempfile::tempdir().context("creating deposit export staging dir")?;
+    let export_root = staging.path().join("export");
+    export_depositable_package(root, &export_root)
+        .with_context(|| format!("exporting package {}", root.display()))?;
+
+    let mut zip_file = tempfile::NamedTempFile::new().context("creating deposit zip tempfile")?;
+    zip_dir(&export_root, zip_file.as_file_mut()).context("zipping deposit export")?;
+    // `zip_dir`'s `ZipWriter::finish()` flushed the archive; the caller
+    // streams via a fresh `reopen()` handle (offset 0), so no rewind here.
+    Ok(zip_file)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::chat_routes::test_support::{make_router, seed_session_with_completed_task};
@@ -443,5 +585,121 @@ mod tests {
             "uncompressed total {} below expected 4 MB — pipeline may have truncated",
             total_uncompressed
         );
+    }
+
+    #[tokio::test]
+    async fn deposit_package_returns_zip_without_git_or_cache() {
+        // Build a stub emitted package carrying a tier-A result table plus
+        // tier-E `.git`/cache entries, point a session at it, and download
+        // the depositable `.zip`. Assert 200 application/zip whose body
+        // opens as a valid archive that keeps the tier-A file but drops the
+        // `.git` + cache entries.
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg_root = tmp.path().join("alpha-bulk_rnaseq-20260601T000000");
+        std::fs::create_dir_all(pkg_root.join("runtime/outputs/task_a")).unwrap();
+        std::fs::write(
+            pkg_root.join("runtime/outputs/task_a/result.json"),
+            b"{\"status\":\"completed\"}",
+        )
+        .unwrap();
+        // Tier-A crate substrate so the export tree is well-formed.
+        std::fs::write(
+            pkg_root.join("ro-crate-metadata.json"),
+            br#"{"@context":"https://w3id.org/ro/crate/1.1/context","@graph":[{"@id":"ro-crate-metadata.json","@type":"CreativeWork","about":{"@id":"./"}},{"@id":"./","@type":"Dataset","hasPart":[]}]}"#,
+        )
+        .unwrap();
+        // Tier-E bloat that MUST be stripped from the deposit.
+        std::fs::create_dir_all(pkg_root.join(".git")).unwrap();
+        std::fs::write(pkg_root.join(".git/config"), b"[core]\n").unwrap();
+        std::fs::create_dir_all(pkg_root.join("runtime/cache/x")).unwrap();
+        std::fs::write(pkg_root.join("runtime/cache/x/y"), b"cached\n").unwrap();
+        // Tier-C operational log that MUST be stripped.
+        std::fs::write(
+            pkg_root.join("runtime/outputs/task_a/agent-claude.log"),
+            b"log line\n",
+        )
+        .unwrap();
+
+        let (router, app) = make_router(vec![]).await;
+        let sid = seed_session_with_completed_task(&app, "t_demo", Some(pkg_root.clone())).await;
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!("/api/chat/session/{}/deposit-package.zip", sid))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "deposit-package.zip should return 200"
+        );
+
+        // Headers: application/zip + disposition naming the deposit zip.
+        let headers = resp.headers().clone();
+        assert_eq!(
+            headers
+                .get(axum::http::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok()),
+            Some("application/zip"),
+            "deposit download must be application/zip"
+        );
+        let dispo = headers
+            .get(axum::http::header::CONTENT_DISPOSITION)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert!(
+            dispo.contains("alpha-bulk_rnaseq-20260601T000000-deposit.zip"),
+            "disposition should carry the deposit zip name; got {dispo}"
+        );
+
+        // Body opens as a valid zip lacking .git/cache entries.
+        let body = resp.into_body();
+        let bytes = to_bytes(body, 64 * 1024 * 1024).await.unwrap();
+        let cursor = std::io::Cursor::new(bytes.to_vec());
+        let mut archive =
+            zip::ZipArchive::new(cursor).expect("deposit body must open as a zip archive");
+        let names: Vec<String> = (0..archive.len())
+            .map(|i| archive.by_index(i).unwrap().name().to_string())
+            .collect();
+
+        assert!(
+            names
+                .iter()
+                .any(|n| n == "runtime/outputs/task_a/result.json"),
+            "tier-A result.json must survive into the deposit zip; entries: {names:?}"
+        );
+        assert!(
+            !names.iter().any(|n| n.starts_with(".git/")),
+            "deposit zip must NOT carry any .git/ entry; entries: {names:?}"
+        );
+        assert!(
+            !names.iter().any(|n| n.starts_with("runtime/cache/")),
+            "deposit zip must NOT carry any runtime/cache/ entry; entries: {names:?}"
+        );
+        assert!(
+            !names.iter().any(|n| n.ends_with(".log")),
+            "deposit zip must NOT carry any *.log entry; entries: {names:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn deposit_package_returns_404_for_unknown_session() {
+        let (router, _) = make_router(vec![]).await;
+        let bogus = Uuid::new_v4();
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!("/api/chat/session/{}/deposit-package.zip", bogus))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 }

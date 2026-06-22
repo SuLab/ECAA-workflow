@@ -101,6 +101,13 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 # serial path because the assembly loop walks `entries` + `hashes` in
 # lockstep after the parallel map collects in order.
 rayon = "1"
+# `emitter::export` walks the source package tree (A+B tier copy) and the
+# export tree (zip assembly) recursively; `walkdir` gives a sorted,
+# symlink-safe recursive iterator. Workspace pin in the root `Cargo.toml`.
+walkdir.workspace = true
+# `emitter::export::zip_dir` writes the depositable `.zip` (Deflated). Pinned
+# `default-features = false` + `deflate` only; see the root `Cargo.toml` entry.
+zip.workspace = true
 
 [dev-dependencies]
 pretty_assertions.workspace = true

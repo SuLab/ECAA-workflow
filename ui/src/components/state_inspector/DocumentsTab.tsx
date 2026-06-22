@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react'
-import { artifactUrl, type SessionStateSnapshot } from '../../api/chatClient'
+import {
+  artifactUrl,
+  depositPackageUrl,
+  type SessionStateSnapshot,
+} from '../../api/chatClient'
 import { PlaceholderPane } from './common'
 import { MarkdownViewer } from './MarkdownViewer'
 
@@ -160,14 +164,25 @@ export function DocumentsPane({
         >
           Emitted package
         </h3>
-        <a
-          href={packageTarballUrl(sessionId)}
-          download
-          style={secondaryButtonStyle}
-          aria-label="Download entire package as gzipped tar archive"
-        >
-          Download package (.tar.gz)
-        </a>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <a
+            href={depositPackageUrl(sessionId)}
+            download
+            data-testid="download-depositable"
+            style={primaryButtonStyle}
+            aria-label="Download deposit-ready package as zip archive"
+          >
+            Download depositable package (.zip)
+          </a>
+          <a
+            href={packageTarballUrl(sessionId)}
+            download
+            style={secondaryButtonStyle}
+            aria-label="Download full working package as gzipped tar archive"
+          >
+            Download full working package (.tar.gz)
+          </a>
+        </div>
       </div>
       <p
         style={{

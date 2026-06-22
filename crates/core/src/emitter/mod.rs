@@ -17,6 +17,7 @@ mod amendment;
 mod bagit;
 mod copy_libs;
 mod ecaa;
+mod export;
 pub mod ecaa_projection;
 mod policies;
 use amendment::{
@@ -25,6 +26,7 @@ use amendment::{
 };
 use bagit::write_bagit_manifest;
 use copy_libs::{copy_plotting_library, copy_r_plotting_library};
+pub use export::{export_depositable_package, zip_dir, ExportReport};
 use policies::{
     emit_compute_profile_policy, emit_container_spec, emit_gpu_capability_policy,
     emit_intake_facts, emit_memory_discipline_policy, emit_per_atom_runtime_prereqs,

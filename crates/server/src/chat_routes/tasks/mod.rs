@@ -63,6 +63,7 @@ pub(super) const ROUTES: &[(&str, &str)] = &[
     ("GET", "/api/chat/session/:id/task/:task_id/result"),
     ("GET", "/api/chat/session/:id/artifacts/*path"),
     ("GET", "/api/chat/session/:id/package.tar.gz"),
+    ("GET", "/api/chat/session/:id/deposit-package.zip"),
     ("POST", "/api/chat/session/:id/auto-approve-discoveries"),
     ("POST", "/api/chat/session/:id/task/:task_id/sme-selection"),
     ("GET", "/api/chat/session/:id/task/:task_id/progress-log"),
