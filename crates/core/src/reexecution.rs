@@ -84,8 +84,19 @@ impl ReexecutionReport {
     }
 }
 
-/// Classify every `results/tables/*.{csv,tsv}` artifact found in `parent_pkg`
-/// by comparing it against the corresponding file in `replay_pkg`.
+/// Classify every result table found in `parent_pkg` by comparing it
+/// against the corresponding file in `replay_pkg`.
+///
+/// Candidate `*.{csv,tsv}` tables are gathered from BOTH locations,
+/// deduplicated by their path relative to `parent_pkg`:
+/// - `<parent_pkg>/runtime/outputs/` scanned **recursively** — the real
+///   location, where per-task subdirs hold tables like
+///   `runtime/outputs/differential_expression/de_results.tsv`, AND
+/// - `<parent_pkg>/results/tables/` scanned **non-recursively** —
+///   legacy/forward-compat, kept working.
+///
+/// When NEITHER location yields a table, an empty report is returned
+/// (the historical behavior for an absent `results/tables`).
 ///
 /// `policy_path` is the optional path to a `determinism-shim.json` sidecar
 /// from the parent package. When `None`, the function looks for
@@ -106,8 +117,34 @@ pub fn classify_reexecution(
     // acknowledged non-determinism sources.
     let shim = load_determinism_shim(parent_pkg, policy_path);
 
-    let tables_dir = parent_pkg.join("results").join("tables");
-    if !tables_dir.exists() {
+    // Gather candidate parent tables from both locations, deduplicated by
+    // their path relative to `parent_pkg`. `BTreeMap` keeps the per-artifact
+    // ordering deterministic across runs (a hard dependency for the
+    // byte-reproducibility contract).
+    let mut parent_tables: BTreeMap<String, std::path::PathBuf> = BTreeMap::new();
+
+    // (1) runtime/outputs/ — recursive (the real location).
+    collect_tables_recursive(
+        &parent_pkg.join("runtime").join("outputs"),
+        parent_pkg,
+        &mut parent_tables,
+    )?;
+
+    // (2) results/tables/ — non-recursive (legacy/forward-compat).
+    let legacy_dir = parent_pkg.join("results").join("tables");
+    if legacy_dir.exists() {
+        for entry in fs::read_dir(&legacy_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if !path.is_file() || !is_table_ext(&path) {
+                continue;
+            }
+            insert_table(&path, parent_pkg, &mut parent_tables);
+        }
+    }
+
+    // Neither location yielded a table — preserve the empty-report behavior.
+    if parent_tables.is_empty() {
         return Ok(ReexecutionReport {
             schema_version: "0.1".to_string(),
             bucket_counts: BTreeMap::new(),
@@ -117,35 +154,13 @@ pub fn classify_reexecution(
 
     let mut classifications: Vec<ArtifactClassification> = vec![];
 
-    for entry in fs::read_dir(&tables_dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        if ext != "csv" && ext != "tsv" {
-            continue;
-        }
+    for (rel_path, path) in &parent_tables {
+        // Resolve the replay file by the same relative path. Preserve the
+        // existing fallback: when `path` is somehow not under `parent_pkg`,
+        // join the relative string directly.
+        let replay_path = replay_pkg.join(rel_path);
 
-        let rel_path = path
-            .strip_prefix(parent_pkg)
-            .unwrap_or(&path)
-            .to_string_lossy()
-            .to_string();
-
-        let replay_path = replay_pkg.join(
-            path.strip_prefix(parent_pkg)
-                .map(|p| p.to_path_buf())
-                .unwrap_or_else(|_| {
-                    Path::new("results")
-                        .join("tables")
-                        .join(path.file_name().unwrap_or_default())
-                }),
-        );
-
-        let ac = classify_single_artifact(&path, &replay_path, &rel_path, shim.as_ref(), &bounds);
+        let ac = classify_single_artifact(path, &replay_path, rel_path, shim.as_ref(), &bounds);
         classifications.push(ac);
     }
 
@@ -156,6 +171,55 @@ pub fn classify_reexecution(
     };
     report.finalize_counts();
     Ok(report)
+}
+
+/// `true` when `path` has a `.csv`/`.tsv` extension (case-insensitive).
+fn is_table_ext(path: &Path) -> bool {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    ext == "csv" || ext == "tsv"
+}
+
+/// Insert one parent table into `out`, keyed by its path relative to
+/// `parent_pkg`. The fallback (path not under `parent_pkg`) keys by the
+/// file name so the entry is never silently dropped.
+fn insert_table(path: &Path, parent_pkg: &Path, out: &mut BTreeMap<String, std::path::PathBuf>) {
+    let rel_path = path
+        .strip_prefix(parent_pkg)
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|_| {
+            std::path::PathBuf::from(path.file_name().unwrap_or_default())
+        })
+        .to_string_lossy()
+        .to_string();
+    out.insert(rel_path, path.to_path_buf());
+}
+
+/// Recursively collect `*.{csv,tsv}` files under `dir` into `out`, keyed by
+/// their path relative to `parent_pkg`. A missing `dir` is a no-op (the
+/// always-emits discipline: an absent runtime/outputs must not error).
+fn collect_tables_recursive(
+    dir: &Path,
+    parent_pkg: &Path,
+    out: &mut BTreeMap<String, std::path::PathBuf>,
+) -> io::Result<()> {
+    if !dir.exists() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            collect_tables_recursive(&path, parent_pkg, out)?;
+        } else if file_type.is_file() && is_table_ext(&path) {
+            insert_table(&path, parent_pkg, out);
+        }
+    }
+    Ok(())
 }
 
 /// Classify a single artifact by comparing `parent_artifact` to `replay_artifact`.
@@ -206,44 +270,51 @@ fn classify_single_artifact(
         };
     }
 
-    // AcknowledgedNonDeterminism: differs but a known non-determinism
-    // source is declared in the parent's determinism shim.
+    // SemanticEquivalent: numeric cells within per-modality bounds. Checked
+    // BEFORE AcknowledgedNonDeterminism on purpose: a within-band reproduction
+    // is a NON-divergent outcome (spec §5.6, "byte_identical / semantic_equivalent
+    // / unavailable are non-divergent and need no ack") and must not be relabeled
+    // as a divergent acknowledged outcome merely because the parent shim happens
+    // to document a non-determinism source. The default is the historical ±5%
+    // relative band.
+    match check_semantic_equivalence(&parent_bytes, &replay_bytes, bounds) {
+        Ok(true) => {
+            return ArtifactClassification {
+                artifact_path: rel_path.to_string(),
+                bucket: ReexecutionBucket::SemanticEquivalent,
+                reason: Some(format!(
+                    "numeric columns within per-modality bounds (rel {:.3}, abs {:.4})",
+                    bounds.relative_tolerance, bounds.absolute_tolerance
+                )),
+            };
+        }
+        // Diverges beyond the band, or is not numerically comparable: fall
+        // through to the acknowledged-source / hard-failure decision.
+        Ok(false) | Err(_) => {}
+    }
+
+    // AcknowledgedNonDeterminism: diverges beyond the semantic band but a known
+    // non-determinism source is declared in the parent's determinism shim.
     if let Some(shim) = shim {
         if has_acknowledged_nondeterminism(shim) {
             return ArtifactClassification {
                 artifact_path: rel_path.to_string(),
                 bucket: ReexecutionBucket::AcknowledgedNonDeterminism,
                 reason: Some(
-                    "differs but non-determinism source documented in determinism-shim.json"
+                    "differs beyond semantic bounds but a non-determinism source is documented in determinism-shim.json"
                         .to_string(),
                 ),
             };
         }
     }
 
-    // SemanticEquivalent: per-modality bounds (the generic_omics /
-    // default fallback reproduces the historical ±5% relative band).
-    match check_semantic_equivalence(&parent_bytes, &replay_bytes, bounds) {
-        Ok(true) => ArtifactClassification {
-            artifact_path: rel_path.to_string(),
-            bucket: ReexecutionBucket::SemanticEquivalent,
-            reason: Some(format!(
-                "numeric columns within per-modality bounds (rel {:.3}, abs {:.4})",
-                bounds.relative_tolerance, bounds.absolute_tolerance
-            )),
-        },
-        Ok(false) => ArtifactClassification {
-            artifact_path: rel_path.to_string(),
-            bucket: ReexecutionBucket::Failed,
-            reason: Some(
-                "numeric divergence exceeds per-modality semantic-equivalence bounds".to_string(),
-            ),
-        },
-        Err(e) => ArtifactClassification {
-            artifact_path: rel_path.to_string(),
-            bucket: ReexecutionBucket::Failed,
-            reason: Some(format!("semantic equivalence check error: {e}")),
-        },
+    // Failed: diverges beyond bounds with no acknowledged non-determinism source.
+    ArtifactClassification {
+        artifact_path: rel_path.to_string(),
+        bucket: ReexecutionBucket::Failed,
+        reason: Some(
+            "numeric divergence exceeds per-modality semantic-equivalence bounds with no acknowledged non-determinism source".to_string(),
+        ),
     }
 }
 
@@ -330,4 +401,227 @@ fn load_determinism_shim(
     };
     let bytes = fs::read(&path).ok()?;
     serde_json::from_slice(&bytes).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::reexecution_bounds::ModalityBounds;
+
+    /// Helper: write a file, creating parent dirs as needed.
+    fn write_file(path: &Path, contents: &str) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("create parent dirs for test fixture");
+        }
+        fs::write(path, contents).expect("write test fixture file");
+    }
+
+    /// Locate the single artifact classification matching `rel_path`.
+    fn classification_for<'a>(
+        report: &'a ReexecutionReport,
+        rel_path: &str,
+    ) -> &'a ArtifactClassification {
+        report
+            .per_artifact
+            .iter()
+            .find(|ac| ac.artifact_path == rel_path)
+            .unwrap_or_else(|| panic!("no classification for {rel_path} in {report:?}"))
+    }
+
+    #[test]
+    fn runtime_outputs_tables_are_compared() {
+        let parent = tempfile::tempdir().expect("parent tempdir");
+        let replay = tempfile::tempdir().expect("replay tempdir");
+        let rel = "runtime/outputs/differential_expression/de_results.tsv";
+        let body = "gene\tlog2fc\tpadj\nGENE1\t1.5\t0.01\nGENE2\t-2.0\t0.04\n";
+        write_file(&parent.path().join(rel), body);
+        // Byte-identical replay copy.
+        write_file(&replay.path().join(rel), body);
+
+        let report = classify_reexecution(
+            parent.path(),
+            replay.path(),
+            None,
+            ModalityBounds::default(),
+        )
+        .expect("classify_reexecution must succeed");
+
+        assert!(
+            !report.per_artifact.is_empty(),
+            "runtime/outputs tables must be compared, got empty report: {report:?}"
+        );
+        let ac = classification_for(&report, rel);
+        assert_eq!(
+            ac.bucket,
+            ReexecutionBucket::ByteIdentical,
+            "identical runtime/outputs table must classify ByteIdentical, got {:?}",
+            ac.bucket
+        );
+    }
+
+    #[test]
+    fn semantic_equivalent_within_band() {
+        let parent = tempfile::tempdir().expect("parent tempdir");
+        let replay = tempfile::tempdir().expect("replay tempdir");
+        let rel = "runtime/outputs/differential_expression/de_results.tsv";
+        // Parent value 100.0; replay value 102.0 → 2% change, inside the
+        // default ±5% relative band but not byte-identical.
+        write_file(
+            &parent.path().join(rel),
+            "gene\tlog2fc\nGENE1\t100.0\n",
+        );
+        write_file(
+            &replay.path().join(rel),
+            "gene\tlog2fc\nGENE1\t102.0\n",
+        );
+
+        let report = classify_reexecution(
+            parent.path(),
+            replay.path(),
+            None,
+            ModalityBounds::default(),
+        )
+        .expect("classify_reexecution must succeed");
+
+        let ac = classification_for(&report, rel);
+        assert_eq!(
+            ac.bucket,
+            ReexecutionBucket::SemanticEquivalent,
+            "within-band numeric change must classify SemanticEquivalent, got {:?} ({:?})",
+            ac.bucket,
+            ac.reason
+        );
+    }
+
+    // Shim JSON that triggers `has_acknowledged_nondeterminism`
+    // (random_seed: null, PYTHONHASHSEED not captured) — mirrors the deposited
+    // Himes package's determinism-shim.json structure so it deserializes.
+    const ACK_SHIM_JSON: &str = "{\"schema_version\":\"1\",\"env_capture\":{\"captured_env_vars\":[\"LANG\"],\"redacted_env_vars\":[]},\"seed_policy\":{\"random_seed\":null,\"seed_source\":\"process-default\"},\"temp_path_policy\":{\"strategy\":\"stable-by-task-id\",\"root\":\"runtime/scratch\"},\"locale\":\"en_US.UTF-8\",\"timezone\":\"UTC\",\"ablation_engaged\":false}";
+
+    #[test]
+    fn semantic_equivalent_beats_acknowledged_when_shim_present() {
+        // Regression: a within-band reproduction must classify SemanticEquivalent
+        // even when the parent's determinism shim documents a non-determinism
+        // source. Previously the shim short-circuited every non-identical table
+        // to AcknowledgedNonDeterminism before the semantic check could run.
+        let parent = tempfile::tempdir().expect("parent tempdir");
+        let replay = tempfile::tempdir().expect("replay tempdir");
+        let rel = "runtime/outputs/differential_expression/de_results.tsv";
+        write_file(&parent.path().join(rel), "gene\tlog2fc\nGENE1\t100.0\n");
+        write_file(&replay.path().join(rel), "gene\tlog2fc\nGENE1\t102.0\n"); // 2%, in band
+        write_file(&parent.path().join("runtime/determinism-shim.json"), ACK_SHIM_JSON);
+
+        let report =
+            classify_reexecution(parent.path(), replay.path(), None, ModalityBounds::default())
+                .expect("classify_reexecution must succeed");
+        let ac = classification_for(&report, rel);
+        assert_eq!(
+            ac.bucket,
+            ReexecutionBucket::SemanticEquivalent,
+            "within-band change must be SemanticEquivalent even with a non-determinism shim, got {:?} ({:?})",
+            ac.bucket,
+            ac.reason
+        );
+    }
+
+    #[test]
+    fn out_of_band_with_shim_is_acknowledged() {
+        // Negative: beyond the semantic band, a documented non-determinism
+        // source still yields AcknowledgedNonDeterminism (fallback preserved).
+        let parent = tempfile::tempdir().expect("parent tempdir");
+        let replay = tempfile::tempdir().expect("replay tempdir");
+        let rel = "runtime/outputs/pathway_enrichment/enrichment.tsv";
+        write_file(&parent.path().join(rel), "pathway\tnes\nP1\t1.0\n");
+        write_file(&replay.path().join(rel), "pathway\tnes\nP1\t2.0\n"); // 100%, out of band
+        write_file(&parent.path().join("runtime/determinism-shim.json"), ACK_SHIM_JSON);
+
+        let report =
+            classify_reexecution(parent.path(), replay.path(), None, ModalityBounds::default())
+                .expect("classify_reexecution must succeed");
+        let ac = classification_for(&report, rel);
+        assert_eq!(
+            ac.bucket,
+            ReexecutionBucket::AcknowledgedNonDeterminism,
+            "out-of-band change with a non-determinism shim must be Acknowledged, got {:?}",
+            ac.bucket
+        );
+    }
+
+    #[test]
+    fn replay_missing_table_is_unavailable() {
+        let parent = tempfile::tempdir().expect("parent tempdir");
+        let replay = tempfile::tempdir().expect("replay tempdir");
+        let rel = "runtime/outputs/differential_expression/de_results.tsv";
+        write_file(
+            &parent.path().join(rel),
+            "gene\tlog2fc\nGENE1\t1.0\n",
+        );
+        // Replay deliberately lacks the file.
+
+        let report = classify_reexecution(
+            parent.path(),
+            replay.path(),
+            None,
+            ModalityBounds::default(),
+        )
+        .expect("classify_reexecution must succeed");
+
+        let ac = classification_for(&report, rel);
+        assert_eq!(
+            ac.bucket,
+            ReexecutionBucket::Unavailable,
+            "missing replay table must classify Unavailable, got {:?}",
+            ac.bucket
+        );
+    }
+
+    #[test]
+    fn legacy_results_tables_still_scanned() {
+        let parent = tempfile::tempdir().expect("parent tempdir");
+        let replay = tempfile::tempdir().expect("replay tempdir");
+        let rel = "results/tables/x.tsv";
+        let body = "gene\tvalue\nGENE1\t42\n";
+        write_file(&parent.path().join(rel), body);
+        write_file(&replay.path().join(rel), body);
+
+        let report = classify_reexecution(
+            parent.path(),
+            replay.path(),
+            None,
+            ModalityBounds::default(),
+        )
+        .expect("classify_reexecution must succeed");
+
+        assert!(
+            !report.per_artifact.is_empty(),
+            "legacy results/tables must still be scanned, got empty report: {report:?}"
+        );
+        let ac = classification_for(&report, rel);
+        assert_eq!(
+            ac.bucket,
+            ReexecutionBucket::ByteIdentical,
+            "identical legacy table must classify ByteIdentical, got {:?}",
+            ac.bucket
+        );
+    }
+
+    #[test]
+    fn no_tables_anywhere_is_empty() {
+        let parent = tempfile::tempdir().expect("parent tempdir");
+        let replay = tempfile::tempdir().expect("replay tempdir");
+        // Neither runtime/outputs nor results/tables exists.
+
+        let report = classify_reexecution(
+            parent.path(),
+            replay.path(),
+            None,
+            ModalityBounds::default(),
+        )
+        .expect("classify_reexecution must succeed");
+
+        assert!(
+            report.per_artifact.is_empty(),
+            "no tables anywhere must yield empty per_artifact, got {report:?}"
+        );
+    }
 }

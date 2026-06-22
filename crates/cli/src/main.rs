@@ -13,6 +13,9 @@ mod migrate_sessions;
 // Phase 5 — `repair` subcommand. Drives the iterative repair loop over an
 // emitted package and surfaces the verdict + review list.
 mod repair;
+// `reexec` subcommand. Standalone re-execution equivalence classification
+// over a parent/replay package pair.
+mod reexec;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -146,6 +149,11 @@ enum Commands {
     /// directives re-run the harness; otherwise they are routed to offline
     /// review. Exit code is non-zero only on a `Failing` verdict.
     Repair(repair::RepairArgs),
+    /// Classify re-execution equivalence between a parent package and a
+    /// replay package: compare their result tables and write
+    /// `runtime/reexecution.json`. Exit code is non-zero when nothing was
+    /// compared or any artifact failed / was unavailable.
+    Reexec(reexec::ReexecArgs),
 }
 
 #[derive(Clone, Debug, clap::ValueEnum)]
@@ -202,6 +210,9 @@ fn main() -> Result<()> {
         }
         Commands::Repair(args) => {
             repair::run(args)?;
+        }
+        Commands::Reexec(args) => {
+            reexec::run(args)?;
         }
     }
     Ok(())
