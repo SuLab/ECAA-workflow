@@ -1066,10 +1066,13 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
         let linear_fold_hits = scan_linear_fold_positions(trimmed);
         let contract = classify_contract(trimmed);
 
-        // For a literature-grounded sentence, capture the cited PMIDs once; each
-        // entity then becomes a finding_id the verifier resolves against
-        // claims_evidence_matrix.csv. Non-literature contracts carry no PMIDs.
-        let cited_pmids: Vec<u64> = if contract == ClaimContract::LiteratureGrounded {
+        // For a literature-grounded sentence, capture every cited PMID WITH its
+        // byte position, so each entity can be bound only to the PMID(s) in its
+        // OWN proximate citation span — never the sentence-wide cross-product
+        // (see `bind_pmids_for_entity`). Each entity then becomes a finding_id
+        // the verifier resolves against claims_evidence_matrix.csv.
+        // Non-literature contracts carry no PMIDs.
+        let pmid_hits: Vec<(usize, u64)> = if contract == ClaimContract::LiteratureGrounded {
             PMID_CITATION_RE
                 .find_iter(trimmed)
                 .filter_map(|m| {
@@ -1079,6 +1082,7 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
                         .collect::<String>()
                         .parse::<u64>()
                         .ok()
+                        .map(|pmid| (m.start(), pmid))
                 })
                 .collect()
         } else {
@@ -1125,7 +1129,11 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
             let literature_evidence = if contract == ClaimContract::LiteratureGrounded {
                 Some(LiteratureEvidence {
                     finding_id: ent_name.clone(),
-                    cited_pmids: cited_pmids.clone(),
+                    cited_pmids: bind_pmids_for_entity(
+                        entity_index,
+                        &entity_positions,
+                        &pmid_hits,
+                    ),
                 })
             } else {
                 None
@@ -1700,6 +1708,60 @@ fn bind_fold_for_entity(
         .iter()
         .find(|(fp, _)| *fp >= entity_pos && next_entity_pos.is_none_or(|n| *fp < n))
         .map(|(_, v)| *v)
+}
+
+/// Bind the cited PMID(s) to ONE entity by its OWN proximate citation span, not
+/// the sentence-wide cross-product. In a multi-gene literature sentence
+/// ("KLF15 (PMID a), CRISPLD2 (PMID b), IRS2 and MFGE8 (PMID c)") the prior
+/// "every PMID × every gene" binding fabricated KLF15↔b, CRISPLD2↔a, … pairings
+/// that then failed the evidence matrix as false Mismatches.
+///
+/// Rule: a gene is bound to the PMID(s) that fall in `[entity_pos,
+/// next_entity_pos)` — its local trailing parenthetical. When that local window
+/// is EMPTY (two genes sharing one trailing parenthetical, as "IRS2 and MFGE8
+/// (PMID c)" leaves IRS2 with no PMID before MFGE8), the gene INHERITS the local
+/// PMIDs of the next forward gene that has one — the shared trailing citation.
+///
+/// `entity_index` indexes `entity_positions` (position-sorted, aligned with the
+/// extraction loop). `pmid_hits` is `(byte_pos, pmid)`, position-sorted. The
+/// single-gene single-PMID case is unchanged: one entity, the PMID falls after
+/// it, the local window captures it.
+fn bind_pmids_for_entity(
+    entity_index: usize,
+    entity_positions: &[usize],
+    pmid_hits: &[(usize, u64)],
+) -> Vec<u64> {
+    if pmid_hits.is_empty() {
+        return Vec::new();
+    }
+    // Local span `[start, end)` for the gene at `entity_index`: from its own
+    // mention up to (but excluding) the next gene mention. The last gene's span
+    // runs to the end of the sentence (no upper bound).
+    let local = |idx: usize| -> Vec<u64> {
+        let start = entity_positions[idx];
+        let end = entity_positions.get(idx + 1).copied();
+        pmid_hits
+            .iter()
+            .filter(|(p, _)| *p >= start && end.is_none_or(|e| *p < e))
+            .map(|(_, pmid)| *pmid)
+            .collect()
+    };
+
+    let own = local(entity_index);
+    if !own.is_empty() {
+        return own;
+    }
+    // No PMID in this gene's own span: it shares the next forward gene's
+    // trailing parenthetical (e.g. "IRS2 and MFGE8 (PMID c)" → IRS2 inherits
+    // MFGE8's PMID). Scan forward to the first gene that has a local PMID and
+    // borrow its span. Falls through to empty if none follows.
+    for idx in (entity_index + 1)..entity_positions.len() {
+        let shared = local(idx);
+        if !shared.is_empty() {
+            return shared;
+        }
+    }
+    Vec::new()
 }
 
 fn bind_slot_index(
@@ -2495,6 +2557,65 @@ mod tests {
         let old = r#"{"entity":"ACAN","excerpt":"ACAN was upregulated"}"#;
         let claim: Claim = serde_json::from_str(old).unwrap();
         assert!(claim.literature_evidence.is_none());
+    }
+
+    /// Unit test for the per-gene PMID binding. Models the byte positions of
+    /// "KLF15 (PMID a), CRISPLD2 (PMID b), IRS2 and MFGE8 (PMID c)" so the
+    /// helper is checked in isolation from entity extraction: each gene binds
+    /// ONLY the PMID in its own proximate span, and a gene with an empty local
+    /// span (IRS2) inherits the next forward gene's shared trailing PMID — never
+    /// the sentence-wide cross-product.
+    #[test]
+    fn bind_pmids_for_entity_is_per_gene_not_cross_product() {
+        // entity_positions: KLF15=0, CRISPLD2=20, IRS2=40, MFGE8=60
+        let entity_positions = vec![0usize, 20, 40, 60];
+        // pmid_hits (pos, pmid): KLF15's a at 7, CRISPLD2's b at 30, the shared
+        // trailing c at 70 (after MFGE8, in IRS2's-and-MFGE8's shared group).
+        let pmid_hits = vec![(7usize, 1001u64), (30, 1002), (70, 1003)];
+
+        assert_eq!(bind_pmids_for_entity(0, &entity_positions, &pmid_hits), vec![1001], "KLF15 → own PMID only");
+        assert_eq!(bind_pmids_for_entity(1, &entity_positions, &pmid_hits), vec![1002], "CRISPLD2 → own PMID only");
+        // IRS2 has no PMID in [40,60); it inherits MFGE8's trailing PMID.
+        assert_eq!(bind_pmids_for_entity(2, &entity_positions, &pmid_hits), vec![1003], "IRS2 → shared trailing PMID");
+        assert_eq!(bind_pmids_for_entity(3, &entity_positions, &pmid_hits), vec![1003], "MFGE8 → trailing PMID");
+
+        // No PMIDs at all → empty (single-gene prose-only literature claim).
+        assert!(bind_pmids_for_entity(0, &[0], &[]).is_empty());
+        // Single gene, single PMID after it → that PMID (regression guard).
+        assert_eq!(bind_pmids_for_entity(0, &[0], &[(5, 42)]), vec![42]);
+    }
+
+    /// Sentence-level: the exact multi-gene concordance sentence, extracted with
+    /// the production `^PMID$` entity-exclude pattern, yields one claim per gene
+    /// each carrying ONLY its own proximate PMID (no cross-association).
+    #[test]
+    fn multi_gene_literature_sentence_binds_per_gene_pmids() {
+        let mut policy = policy_json();
+        // Production excludes the literal "PMID" token from entity hits.
+        policy["verifiableEntities"]["entityNameExcludePatterns"] = json!(["^PMID$"]);
+        let cfg = ExtractorConfig::from_policy(&policy).unwrap();
+
+        let sentence = "Same-direction concordant genes (4): KLF15 (PMID 28375666, \
+            \"directly induced by glucocorticoids\"), CRISPLD2 (PMID 24926665, \
+            \"dexamethasone treatment significantly increased CRISPLD2 mRNA\"), \
+            IRS2 and MFGE8 (PMID 28375666).";
+        let claims = extract_claims(sentence, &cfg);
+
+        let pmids = |gene: &str| -> Vec<u64> {
+            claims
+                .iter()
+                .find(|c| c.entity == gene)
+                .unwrap_or_else(|| panic!("no claim for {gene}; got {claims:?}"))
+                .literature_evidence
+                .as_ref()
+                .unwrap()
+                .cited_pmids
+                .clone()
+        };
+        assert_eq!(pmids("KLF15"), vec![28375666]);
+        assert_eq!(pmids("CRISPLD2"), vec![24926665]);
+        assert_eq!(pmids("IRS2"), vec![28375666]);
+        assert_eq!(pmids("MFGE8"), vec![28375666]);
     }
 
     #[test]

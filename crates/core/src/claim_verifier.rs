@@ -38,6 +38,17 @@ use crate::claim_extractor::{Claim, Direction, ExtractorConfig};
 static RANK_TOP_N_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"\btop[\s-](\d+)\b").expect("static regex"));
 
+/// Floor for the SOFT top-N threshold (a vague "one of the top" claim with no
+/// explicit number). A soft claim never resolves to fewer than this many rows,
+/// so a small table still admits a reasonable "one of the top" set.
+const DEFAULT_SOFT_FLOOR: usize = 10;
+
+/// Fraction of the ranked-row count a SOFT top-N claim is allowed to span (top
+/// 1%). For a large table this dominates the floor — e.g. 22,369 ranked genes →
+/// `ceil(0.01 × 22_369) = 224`, so a gene at rank 31 ("the top 0.14%") honestly
+/// counts as "one of the top DE genes" while a rank-5,000 gene does not.
+const SOFT_TOP_PERCENTILE: f64 = 0.01;
+
 /// Canonical normalization for string-equality / substring tests
 /// between narrative text and table cells: Unicode NFC composition
 /// followed by ASCII-strict casefold. The combination keeps composed
@@ -92,6 +103,28 @@ fn id_namespace(token: &str) -> &'static str {
 /// ("Adipogenesis", "Apoptosis") with multi-word ones, so the FIRST row is
 /// not a reliable witness — we must scan a window.
 const NAMESPACE_SAMPLE_ROWS: usize = 32;
+
+/// Lowercased phrases by which a narrative POSITIVELY asserts agreement with
+/// prior literature. A literature-grounded claim only contradicts the matrix
+/// when it asserts concordance against a flag that says otherwise; a neutral
+/// or faithful-discordance mention carries none of these cues and is not a
+/// fabricated-concordance contradiction. Shared by the `opposite_direction`
+/// and `no_prior_finding` branches of `verify_literature_grounded_at` so the
+/// concordance test is applied symmetrically.
+const AGREEMENT_CUES: &[&str] = &[
+    "concordant",
+    "consistent with prior",
+    "consistent with previous",
+    "in agreement with",
+    "agrees with prior",
+    "as previously reported",
+    "as previously shown",
+    "confirms prior",
+    "confirms previous",
+    "replicates prior",
+    "in line with prior",
+    "matches prior",
+];
 
 /// The id-namespace of a TABLE's entity column, classified from a sampled
 /// window of rows rather than the first row alone.
@@ -1085,8 +1118,19 @@ fn verify_thresholded(
 /// Checks whether the entity appears in the top-N rows of the source table
 /// when ranked by absolute effect size descending — recomputed here rather
 /// than trusting the table's physical row order, which may be sorted by
-/// p-value, gene name, or anything else. When the claim excerpt doesn't name
-/// an explicit N, uses a generous default of 10.
+/// p-value, gene name, or anything else.
+///
+/// Two flavours of "top-N" claim are distinguished by whether the excerpt names
+/// an explicit number:
+/// * EXPLICIT ("in the top 5", "one of the top 20") → that exact N is used.
+/// * SOFT (vague superlative, no number: "one of the top DE genes", "among the
+///   strongest") → a GENEROUS threshold that scales with table size,
+///   `max(DEFAULT_SOFT_FLOOR, ceil(SOFT_TOP_PERCENTILE × n_ranked_rows))`. A
+///   strict N=10 over-flags a correct vague claim on a large table: in the
+///   Himes package CRISPLD2 ranks 31 of 22,369 tested genes (the top 0.14%), so
+///   "one of the top DE genes" is accurate, yet a top-10 cutoff called it a
+///   Mismatch. The percentile floor (224 rows there) verifies it while a
+///   genuinely low-ranked gene called "one of the top" still Mismatches.
 fn verify_rank_top_n(
     claim: &Claim,
     index: &TableIndex,
@@ -1107,14 +1151,16 @@ fn verify_rank_top_n(
         Err(status) => return status,
     };
 
-    // Parse an explicit N from the excerpt ("top-10", "top 5", etc.).
-    let n: usize = {
-        let re = &*RANK_TOP_N_RE;
-        re.captures(&claim.excerpt.to_lowercase())
-            .and_then(|c| c.get(1))
-            .and_then(|m| m.as_str().parse().ok())
-            .unwrap_or(10)
-    };
+    // Parse an explicit N from the excerpt ("top-10", "top 5", etc.). `Some(n)`
+    // marks an EXPLICIT "top N" claim (the narrative named the number); `None`
+    // marks a SOFT claim (vague "one of the top" with no number). The two get
+    // different thresholds below — explicit uses N verbatim, soft scales with
+    // table size — so the presence of a captured digit IS the soft/explicit
+    // marker, recovered losslessly from the excerpt the claim already carries.
+    let explicit_n: Option<usize> = RANK_TOP_N_RE
+        .captures(&claim.excerpt.to_lowercase())
+        .and_then(|c| c.get(1))
+        .and_then(|m| m.as_str().parse().ok());
 
     // Locate the claimed entity's row. If it isn't in the table at all, the
     // top-N question is unverifiable rather than a fabrication mismatch.
@@ -1192,6 +1238,22 @@ fn verify_rank_top_n(
             ),
         };
     }
+
+    // Resolve the membership cutoff. An EXPLICIT "top N" claim uses that exact N
+    // verbatim — the narrative committed to a number, so we hold it to it. A
+    // SOFT claim (no number) uses a generous threshold that scales with the
+    // ranked-row count: `max(DEFAULT_SOFT_FLOOR, ceil(SOFT_TOP_PERCENTILE × n))`.
+    // `n_ranked_rows` is exactly the set being ranked here (rows with a usable
+    // numeric effect size), so the percentile tracks the real table size.
+    let n_ranked_rows = ranked.len();
+    let n = match explicit_n {
+        Some(explicit) => explicit,
+        None => {
+            let percentile_rows =
+                (SOFT_TOP_PERCENTILE * n_ranked_rows as f64).ceil() as usize;
+            DEFAULT_SOFT_FLOOR.max(percentile_rows)
+        }
+    };
 
     // total_cmp is a genuine total order over all f64 (NaN included), so the
     // sort never panics even if a non-finite value slips through; the entity
@@ -2839,11 +2901,20 @@ fn verify_literature_grounded_at(
         };
     }
 
-    // Any matched row asserting opposite-direction prior literature contradicts
-    // a concordance claim → Mismatch.
+    // A matched row flagged `opposite_direction` only CONTRADICTS the narrative
+    // when the narrative positively asserts concordance with prior work — a
+    // fabricated concordance. Gated on the same `AGREEMENT_CUES` as the
+    // `no_prior_finding` branch below: a faithful description of the discordance
+    // (e.g. "...showing a small, non-significant fold change in a discordant
+    // direction in these data") or a neutral citation carries no cue and AGREES
+    // with the matrix, so it falls through to be credited as a genuine
+    // adjudication record (the same handling `same_direction` gets).
     if matched
         .iter()
         .any(|r| r.concordance_flag == "opposite_direction")
+        && AGREEMENT_CUES
+            .iter()
+            .any(|c| claim.excerpt.to_lowercase().contains(c))
     {
         return ClaimStatus::Mismatch {
             detail: format!(
@@ -2861,20 +2932,6 @@ fn verify_literature_grounded_at(
     // faithful "no prior work" statement is never flagged.
     if matched.iter().any(|r| r.concordance_flag == "no_prior_finding") {
         let lower = claim.excerpt.to_lowercase();
-        const AGREEMENT_CUES: &[&str] = &[
-            "concordant",
-            "consistent with prior",
-            "consistent with previous",
-            "in agreement with",
-            "agrees with prior",
-            "as previously reported",
-            "as previously shown",
-            "confirms prior",
-            "confirms previous",
-            "replicates prior",
-            "in line with prior",
-            "matches prior",
-        ];
         if AGREEMENT_CUES.iter().any(|c| lower.contains(c)) {
             return ClaimStatus::Mismatch {
                 detail: format!(
@@ -2887,12 +2944,20 @@ fn verify_literature_grounded_at(
 
     // A matched row carrying one of these concordance flags is a genuine
     // verification record: the contextualize step adjudicated the finding
-    // against prior work. `opposite_direction` is intentionally absent (it is
-    // already returned as a Mismatch above), and `no_prior_finding` is treated
-    // as a (neutral) adjudication so a faithful "no prior work" claim — which
-    // reached here precisely because it carries NO fabricated-concordance cue —
-    // is not stranded as Unverifiable.
-    const RECOGNIZED_FLAGS: &[&str] = &["same_direction", "unverifiable", "no_prior_finding"];
+    // against prior work. `opposite_direction` is included here too: a row
+    // reaches this point only when the narrative did NOT assert concordance
+    // (the gated Mismatch above did not fire), so a faithful discordance
+    // description or a neutral mention is a genuine adjudication record, not a
+    // contradiction. `no_prior_finding` is likewise treated as a (neutral)
+    // adjudication so a faithful "no prior work" claim — which reached here
+    // precisely because it carries NO fabricated-concordance cue — is not
+    // stranded as Unverifiable.
+    const RECOGNIZED_FLAGS: &[&str] = &[
+        "same_direction",
+        "opposite_direction",
+        "unverifiable",
+        "no_prior_finding",
+    ];
 
     // Every narrative-cited PMID must appear in the matrix's supporting set.
     let mut supporting: std::collections::BTreeSet<u64> = std::collections::BTreeSet::new();
@@ -5939,6 +6004,114 @@ mod tests {
         );
     }
 
+    /// Build a DE table whose `n_rows` genes are ranked by |log2FC| descending:
+    /// row `i` (0-based) is gene `Gi` with `|log2FC| = (n_rows - i) * 0.001`, so
+    /// `G0` is rank 1 and `G{n_rows-1}` is rank `n_rows`. The named `verb` is
+    /// just used to seed a deterministic effect-size spread. Returns the TSV.
+    fn ranked_de_table(n_rows: usize) -> String {
+        let mut body = String::from("gene\tlog2FC\tpadj\n");
+        for i in 0..n_rows {
+            // Strictly decreasing |log2FC|; positive so direction is "up".
+            let mag = (n_rows - i) as f64 * 0.001;
+            body.push_str(&format!("G{i}\t{mag:.5}\t0.01\n"));
+        }
+        body
+    }
+
+    /// SOFT top-N (the false positive being fixed): a vague "one of the top DE
+    /// genes" claim with NO explicit number, naming a gene at rank ~31 in a
+    /// ~3,200-row table. Rank 31 is OUTSIDE the strict top-10 (which the old
+    /// code used) but well INSIDE the top 1% (`ceil(0.01 × 3200) = 32`), so the
+    /// generous percentile floor must now Verify it. This mirrors the executed
+    /// Himes package, where CRISPLD2 ranks 31 of 22,369 tested genes.
+    #[test]
+    fn soft_top_n_high_ranked_gene_verifies() {
+        use crate::claim_contract::ClaimContract;
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        // 3,200 ranked rows → soft floor = max(10, ceil(0.01*3200)) = 32.
+        // G30 is the 31st row → rank 31: outside top-10, inside top-32.
+        write_table(tmp.path(), "de_s1.tsv", &ranked_de_table(3200));
+        let claims = extract_claims("G30 is one of the top DE genes (Table S1).", &cfg);
+        let g30 = claims.iter().find(|c| c.entity == "G30").unwrap();
+        assert_eq!(
+            g30.contract,
+            ClaimContract::RankTopN,
+            "a hedged `one of the top` with no number must route to RankTopN"
+        );
+        let report = verify_claims(&claims, tmp.path(), &cfg);
+        let v = report
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "G30")
+            .unwrap();
+        assert!(
+            matches!(v.status, ClaimStatus::Verified),
+            "G30 at rank 31 of 3,200 (top 1%) called `one of the top` must Verify under the percentile floor, got {:?}",
+            v.status
+        );
+    }
+
+    /// SOFT top-N genuine overclaim: the same ~3,200-row table, but the named
+    /// gene sits at rank 100 — well OUTSIDE the top 1% cutoff (32). A vague "one
+    /// of the top" claim about a genuinely low-ranked gene must still Mismatch;
+    /// the percentile relaxation does not wave low ranks through.
+    #[test]
+    fn soft_top_n_genuine_overclaim_still_mismatches() {
+        use crate::claim_contract::ClaimContract;
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        // Same 3,200-row table; soft floor = 32. G99 is rank 100 → outside it.
+        write_table(tmp.path(), "de_s1.tsv", &ranked_de_table(3200));
+        let claims = extract_claims("G99 is one of the top DE genes (Table S1).", &cfg);
+        let g99 = claims.iter().find(|c| c.entity == "G99").unwrap();
+        assert_eq!(g99.contract, ClaimContract::RankTopN);
+        let report = verify_claims(&claims, tmp.path(), &cfg);
+        let v = report
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "G99")
+            .unwrap();
+        assert!(
+            matches!(v.status, ClaimStatus::Mismatch { .. }),
+            "G99 at rank 100 of 3,200 (beyond the top 1%) called `one of the top` must still Mismatch, got {:?}",
+            v.status
+        );
+    }
+
+    /// EXPLICIT "top N" is NOT relaxed: a claim that names a number ("in the top
+    /// 5") holds the entity to that exact N. The percentile floor applies ONLY
+    /// to soft, no-number claims. Here G7 is rank 8 — outside the explicit top
+    /// 5 — and must Mismatch even on a table large enough that the soft floor
+    /// (which an explicit claim must NOT use) would have admitted it.
+    #[test]
+    fn explicit_top_n_unchanged() {
+        use crate::claim_contract::ClaimContract;
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        // 3,200 rows → soft floor would be 32, which WOULD admit rank 8; the
+        // explicit "top 5" must override that and reject rank 8.
+        write_table(tmp.path(), "de_s1.tsv", &ranked_de_table(3200));
+        let claims = extract_claims("G7 is in the top 5 hits (Table S1).", &cfg);
+        let g7 = claims.iter().find(|c| c.entity == "G7").unwrap();
+        assert_eq!(
+            g7.contract,
+            ClaimContract::RankTopN,
+            "an explicit `top 5` must route to RankTopN"
+        );
+        let report = verify_claims(&claims, tmp.path(), &cfg);
+        let v = report
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "G7")
+            .unwrap();
+        assert!(
+            matches!(v.status, ClaimStatus::Mismatch { .. }),
+            "G7 at rank 8 vs an EXPLICIT top 5 must Mismatch (explicit N is not relaxed), got {:?}",
+            v.status
+        );
+    }
+
     /// Direction cross-check: an "upregulated" claim on a row whose observed
     /// effect size is exactly 0.0 must NOT be confirmed — zero change agrees
     /// with neither Up nor Down. Guards against the `obs >= 0.0 => Up` bug.
@@ -7176,6 +7349,99 @@ mod tests {
         );
     }
 
+    /// (C-twin) The real false positive from the executed Himes package: the
+    /// reporting narrative FAITHFULLY describes an opposite-direction finding
+    /// ("...showing small, non-significant fold change in a discordant direction
+    /// in these data") and AGREES with the matrix's `opposite_direction` flag.
+    /// A faithful discordance description carries no agreement cue → it is a
+    /// genuine adjudication record → Verified, NOT a Mismatch.
+    #[test]
+    fn opposite_direction_faithful_discordance_description_verifies() {
+        let cfg = ExtractorConfig::from_policy(&lit_policy_min1()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_lit_matrix(
+            tmp.path(),
+            "finding_id,entity,entity_kind,pmid,evidence_quote,concordance_flag\n\
+             RAMP1,RAMP1,gene,28375666,\"putative anti-inflammatory GR-occupancy target\",opposite_direction\n",
+        );
+        let status = verify_literature_grounded_at(
+            &lit_claim_for(
+                "RAMP1",
+                "RAMP1",
+                vec![28375666],
+                "RAMP1 (PMID 28375666) - listed as a putative anti-inflammatory \
+                 GR-occupancy target in that publication but showing small, \
+                 non-significant fold change in a discordant direction in these data",
+            ),
+            tmp.path(),
+            &cfg,
+        );
+        assert!(
+            matches!(status, ClaimStatus::Verified),
+            "a faithful opposite-direction discordance description (no concordance \
+             assertion) agrees with the matrix and must Verify, got {status:?}"
+        );
+    }
+
+    /// (C-twin) A neutral citation that merely reports the prior finding, with
+    /// no agreement cue, over an `opposite_direction` row must NOT be a Mismatch
+    /// — it carries no fabricated concordance, so it is a genuine adjudication
+    /// record → Verified.
+    #[test]
+    fn opposite_direction_neutral_mention_verifies() {
+        let cfg = ExtractorConfig::from_policy(&lit_policy_min1()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_lit_matrix(
+            tmp.path(),
+            "finding_id,entity,entity_kind,pmid,evidence_quote,concordance_flag\n\
+             RAMP1,RAMP1,gene,28375666,\"GR-occupancy target\",opposite_direction\n",
+        );
+        let status = verify_literature_grounded_at(
+            &lit_claim_for(
+                "RAMP1",
+                "RAMP1",
+                vec![28375666],
+                "RAMP1 was reported as a GR-occupancy target (PMID 28375666)",
+            ),
+            tmp.path(),
+            &cfg,
+        );
+        assert!(
+            matches!(status, ClaimStatus::Verified),
+            "a neutral opposite_direction citation with no agreement cue must Verify, got {status:?}"
+        );
+    }
+
+    /// (C-twin) Explicit guard for the contradiction the gate must still catch:
+    /// the narrative POSITIVELY asserts concordance ("...is concordant with...")
+    /// while the matrix records `opposite_direction` → fabricated concordance →
+    /// Mismatch. Mirrors `emitted_header_opposite_direction_still_mismatches`
+    /// for clarity now that the branch is gated.
+    #[test]
+    fn opposite_direction_asserted_concordance_still_mismatches() {
+        let cfg = ExtractorConfig::from_policy(&lit_policy_min1()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_lit_matrix(
+            tmp.path(),
+            "finding_id,entity,entity_kind,pmid,evidence_quote,concordance_flag\n\
+             RAMP1,RAMP1,gene,28375666,\"GR-occupancy target\",opposite_direction\n",
+        );
+        let status = verify_literature_grounded_at(
+            &lit_claim_for(
+                "RAMP1",
+                "RAMP1",
+                vec![28375666],
+                "RAMP1 is concordant with the prior reports",
+            ),
+            tmp.path(),
+            &cfg,
+        );
+        assert!(
+            matches!(status, ClaimStatus::Mismatch { .. }),
+            "asserted concordance vs an opposite_direction row must Mismatch, got {status:?}"
+        );
+    }
+
     /// (D) Emitted header + `no_prior_finding` + an agreement cue in the
     /// excerpt → fabricated concordance → still a Mismatch (VF-15a survives the
     /// new column shape).
@@ -7314,6 +7580,153 @@ mod tests {
             matches!(verdicts[3].status, ClaimStatus::Mismatch { .. }),
             "an opposite-direction Mismatch on a verified pair must NOT be demoted, got {:?}",
             verdicts[3].status
+        );
+    }
+
+    // ── Multi-gene per-gene PMID binding (extractor cross-product fix) ────────
+    //
+    // The audited package's final_report.md sentence lists four concordant
+    // genes, each with its OWN parenthetical PMID:
+    //   "Same-direction concordant genes (4): KLF15 (PMID 28375666, …),
+    //    CRISPLD2 (PMID 24926665, …), IRS2 and MFGE8 (PMID 28375666)."
+    // The matrix is CORRECT (KLF15→28375666, CRISPLD2→24926665, IRS2→28375666,
+    // MFGE8→28375666). The narrative is CORRECT. But the prior extractor bound
+    // EVERY PMID in the sentence to EVERY gene (the cross-product), fabricating
+    // KLF15↔24926665 and CRISPLD2↔28375666, which then failed the matrix as 12
+    // false "narrative cites PMID X but the matrix has no such supporting row"
+    // Mismatches. The fix binds each gene only to the PMID(s) in its own
+    // proximate citation span.
+
+    /// Build a config from the REAL `interpretation-policy.json` (so `PMID` is
+    /// excluded as an entity and "induced" is an up-word, exactly as the
+    /// executed package), with literatureGrounding minPapers/minSources=1 so a
+    /// single supporting PMID can reach Verified.
+    fn real_lit_cfg() -> ExtractorConfig {
+        let config_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("config");
+        let policy_path = config_dir
+            .join("downstream-policy")
+            .join("interpretation-policy.json");
+        let mut policy: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&policy_path).unwrap()).unwrap();
+        policy["verifiableEntities"]["literatureGrounding"] =
+            json!({"minPapers": 1, "minSources": 1});
+        ExtractorConfig::from_policy(&policy).unwrap()
+    }
+
+    /// (A) The exact four-gene concordance sentence, end-to-end: each gene binds
+    /// ONLY its own parenthetical PMID — KLF15→28375666 (not 24926665),
+    /// CRISPLD2→24926665, IRS2 & MFGE8→the shared trailing 28375666 — and all
+    /// four VERIFY against the matrix with NO cross-pairing Mismatch emitted.
+    #[test]
+    fn multi_gene_sentence_binds_each_gene_to_its_own_pmid_and_all_verify() {
+        let cfg = real_lit_cfg();
+        let tmp = tempdir().unwrap();
+        write_lit_matrix(
+            tmp.path(),
+            "finding_id,entity,entity_kind,pmid,evidence_quote,concordance_flag\n\
+             ENSG00000163884,KLF15,gene,28375666,\"directly induced by glucocorticoids\",same_direction\n\
+             ENSG00000103196,CRISPLD2,gene,24926665,\"dexamethasone increased CRISPLD2 mRNA\",same_direction\n\
+             ENSG00000185950,IRS2,gene,28375666,\"glucocorticoid target\",same_direction\n\
+             ENSG00000140545,MFGE8,gene,28375666,\"glucocorticoid target\",same_direction\n",
+        );
+
+        let sentence = "Same-direction concordant genes (4): KLF15 (PMID 28375666, \
+            \"directly induced by glucocorticoids\"), CRISPLD2 (PMID 24926665, \
+            \"dexamethasone treatment significantly increased CRISPLD2 mRNA\"), \
+            IRS2 and MFGE8 (PMID 28375666).";
+        let claims = extract_claims(sentence, &cfg);
+
+        // Per-gene binding: each gene carries ONLY its own proximate PMID, never
+        // the cross-product.
+        let pmids_of = |gene: &str| -> Vec<u64> {
+            let c = claims
+                .iter()
+                .find(|c| c.entity == gene)
+                .unwrap_or_else(|| panic!("no claim extracted for {gene}; got {claims:?}"));
+            c.literature_evidence
+                .as_ref()
+                .unwrap_or_else(|| panic!("{gene} carries no literature_evidence"))
+                .cited_pmids
+                .clone()
+        };
+        assert_eq!(pmids_of("KLF15"), vec![28375666], "KLF15 must bind ONLY its own PMID");
+        assert_eq!(pmids_of("CRISPLD2"), vec![24926665], "CRISPLD2 must bind ONLY its own PMID");
+        assert_eq!(pmids_of("IRS2"), vec![28375666], "IRS2 inherits the shared trailing PMID");
+        assert_eq!(pmids_of("MFGE8"), vec![28375666], "MFGE8 binds its trailing-parenthetical PMID");
+        // The cross-association is gone: no gene carries another gene's PMID.
+        assert!(!pmids_of("KLF15").contains(&24926665), "KLF15 must NOT carry CRISPLD2's PMID");
+        assert!(!pmids_of("CRISPLD2").contains(&28375666), "CRISPLD2 must NOT carry the others' PMID");
+
+        // End-to-end: all four VERIFY, zero Mismatch.
+        for gene in ["KLF15", "CRISPLD2", "IRS2", "MFGE8"] {
+            let claim = claims.iter().find(|c| c.entity == gene).unwrap();
+            let status = verify_literature_grounded_at(claim, tmp.path(), &cfg);
+            assert!(
+                matches!(status, ClaimStatus::Verified),
+                "{gene} must VERIFY (no cross-pairing Mismatch), got {status:?}"
+            );
+        }
+    }
+
+    /// (B) Real-error-still-caught: the narrowing must not blanket-pass. A
+    /// single-gene sentence "FOO (PMID 11111111)" against a matrix that backs
+    /// FOO with a DIFFERENT PMID (22222222) is a genuinely wrong cite → Mismatch.
+    #[test]
+    fn genuinely_wrong_cite_still_mismatches() {
+        let cfg = real_lit_cfg();
+        let tmp = tempdir().unwrap();
+        write_lit_matrix(
+            tmp.path(),
+            "finding_id,entity,entity_kind,pmid,evidence_quote,concordance_flag\n\
+             ENSGFOO,FOO,gene,22222222,\"prior work\",same_direction\n",
+        );
+        let claims = extract_claims("FOO is concordant with prior work (PMID 11111111).", &cfg);
+        let foo = claims
+            .iter()
+            .find(|c| c.entity == "FOO")
+            .unwrap_or_else(|| panic!("no FOO claim; got {claims:?}"));
+        assert_eq!(
+            foo.literature_evidence.as_ref().unwrap().cited_pmids,
+            vec![11111111],
+            "FOO binds its own (wrong) cited PMID"
+        );
+        let status = verify_literature_grounded_at(foo, tmp.path(), &cfg);
+        assert!(
+            matches!(status, ClaimStatus::Mismatch { .. }),
+            "a genuinely wrong cite must still Mismatch, got {status:?}"
+        );
+    }
+
+    /// (C) Single-gene single-PMID regression: the common faithful shape still
+    /// Verifies. "BAR was induced (PMID 33333333)" with matrix BAR→33333333.
+    #[test]
+    fn single_gene_single_pmid_still_verifies() {
+        let cfg = real_lit_cfg();
+        let tmp = tempdir().unwrap();
+        write_lit_matrix(
+            tmp.path(),
+            "finding_id,entity,entity_kind,pmid,evidence_quote,concordance_flag\n\
+             ENSGBAR,BAR,gene,33333333,\"BAR was induced\",same_direction\n",
+        );
+        let claims = extract_claims("BAR was induced as previously reported (PMID 33333333).", &cfg);
+        let bar = claims
+            .iter()
+            .find(|c| c.entity == "BAR")
+            .unwrap_or_else(|| panic!("no BAR claim; got {claims:?}"));
+        assert_eq!(
+            bar.literature_evidence.as_ref().unwrap().cited_pmids,
+            vec![33333333],
+            "single-gene single-PMID binding unchanged"
+        );
+        let status = verify_literature_grounded_at(bar, tmp.path(), &cfg);
+        assert!(
+            matches!(status, ClaimStatus::Verified),
+            "single-gene single-PMID faithful claim must Verify, got {status:?}"
         );
     }
 
