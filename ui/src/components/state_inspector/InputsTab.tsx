@@ -4,9 +4,11 @@
 // 1. Path reference: SME types/pastes a server-local directory path,
 // clicks Validate; the server walks + hashes and persists into
 // Session.inputs. Allowlist enforced server-side via ECAA_INPUT_ROOTS.
-// 2. Upload (phase E placeholder): drag/drop UI is wired but the
-// actual chunked upload backend is stubbed (returns 501). The UI
-// surfaces the "coming soon" copy until phase E ships.
+// 2. Chunked upload: the file-picker/drag-drop panel uploads the file
+// in 8 MiB chunks (Content-Range) via uploadInputFile and seals it with
+// finalizeUpload; the server validates ranges, verifies the sha256, and
+// atomically promotes the assembled file into Session.inputs. Fully
+// wired end-to-end (no stub) — see crates/server/src/chat_routes/inputs/upload.rs.
 //
 // The Inputs list shows registered sources with size + file count, and
 // a Remove button that calls DELETE /inputs/:input_id (does not delete
