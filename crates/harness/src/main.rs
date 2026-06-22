@@ -4165,6 +4165,25 @@ fn run_loop(
                 );
             }
 
+            // Offline end-of-run repair pass (default OFF; `ECAA_AUTO_REPAIR`).
+            // This is the loop-exit convergence point reached by BOTH run paths:
+            // the standalone/CLI run (`progress.is_none()`, just self-finalized
+            // above) AND the session/web-UI run where the server spawned this
+            // harness with `--session-id` (`progress.is_some()`, finalized
+            // incrementally server-side). The harness is the execution engine on
+            // both, and the repair loop re-runs `finalize_package` internally and
+            // is idempotent, so running it here once is correct regardless of
+            // session — gated solely by `ECAA_AUTO_REPAIR`, independent of the
+            // `progress` gate above. Strictly best-effort: every Err/panic inside
+            // is caught + logged, the run outcome is unchanged, and it fires
+            // exactly once (the standalone finalize above no longer triggers it).
+            if ecaa_workflow_harness::end_of_run_finalize::auto_repair_enabled() {
+                ecaa_workflow_harness::end_of_run_finalize::run_auto_repair_best_effort(
+                    path,
+                    &finalize_config_dir,
+                );
+            }
+
             if let Some(ref pc) = progress {
                 pc.execution_finished();
             }

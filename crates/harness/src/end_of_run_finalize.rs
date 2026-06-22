@@ -26,6 +26,37 @@ use ecaa_workflow_core::finalize::{
 use ecaa_workflow_core::project_class::ProjectClass;
 use std::path::{Path, PathBuf};
 
+/// Env var that turns the offline end-of-run repair loop ON. Default OFF.
+///
+/// When truthy, [`run_auto_repair_best_effort`] runs the OFFLINE repair loop
+/// once at the harness loop-exit convergence point — on BOTH the standalone/CLI
+/// run and the session/web-UI run (the server spawns this harness as the
+/// execution engine on both). It applies deterministic prose/manifest repairs
+/// (e.g. prose-vs-table counts re-synced, BagIt manifests re-sealed) and routes
+/// any agentic / offline-unverifiable gap to the signed review list
+/// (`runtime/repair-status.json` + `runtime/repair-requests.jsonl`). It NEVER
+/// re-executes an agent at end-of-run — agentic auto-repair stays the manual
+/// `ecaa-workflow repair --agent` path.
+pub const ENV_AUTO_REPAIR: &str = "ECAA_AUTO_REPAIR";
+
+/// Whether the offline end-of-run repair loop is enabled. Default OFF — only the
+/// canonical truthy table (`1` / `true` / `yes` / `on` / `t` / `y`,
+/// case-insensitive, trimmed; identical to
+/// [`crate::validation_recovery::recovery_enabled`] and `core::config`'s
+/// `parse_bool`) enables it, so a typo never silently runs a post-finalize
+/// repair pass.
+pub fn auto_repair_enabled() -> bool {
+    matches!(
+        std::env::var(ENV_AUTO_REPAIR)
+            .ok()
+            .as_deref()
+            .map(str::trim)
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
+        Some("1") | Some("true") | Some("yes") | Some("on") | Some("t") | Some("y")
+    )
+}
+
 /// Stage stems that mark a run as confirmatory (DE / differential-accessibility
 /// / variant-calling / a clinical primary-endpoint). A package whose DAG names
 /// any of these is treated as confirmatory for the finalize call. Pre-Task-5
@@ -227,6 +258,71 @@ pub fn finalize_completed_package(package_root: &Path, config_dir: &Path) {
         }
         Err(e) => {
             tracing::warn!(target: "harness-finalize", error = %e, "package finalize failed");
+        }
+    }
+}
+
+/// Run the OFFLINE repair loop once at end-of-run, strictly best-effort.
+///
+/// Called from the harness loop-exit convergence point (`main.rs`, the
+/// `after.is_complete()` block) on BOTH run paths — the standalone/CLI run
+/// (`progress.is_none()`) and the session/web-UI run where the server spawned
+/// this harness with `--session-id` (`progress.is_some()`). The harness is the
+/// execution engine on both paths, and the repair loop is self-sufficient:
+/// [`run_repair_loop`] → `assess_package` re-runs `finalize_package` internally
+/// and is idempotent, so it is correct to run here regardless of session. On the
+/// session path this only ADDS repair (the server's incremental finalize never
+/// repairs) and the idempotent re-finalize does not conflict with it. It is
+/// gated solely by [`auto_repair_enabled`] (default OFF), independent of the
+/// `progress` gate that scopes the standalone end-of-run finalize.
+///
+/// Uses [`ecaa_workflow_core::repair_loop::ReviewRoutingRunner`] — the offline
+/// default: it applies deterministic prose/manifest repairs (prose-vs-table
+/// counts, manifest re-seal) and ROUTES any agentic / offline-unverifiable gap
+/// to the signed review list (`runtime/repair-status.json` +
+/// `runtime/repair-requests.jsonl`) rather than re-executing an agent. AGENTIC
+/// auto-repair deliberately stays the MANUAL `ecaa-workflow repair --agent`
+/// path: running an agentic runner at end-of-run would re-enter the execution
+/// loop, which the end-of-run hook must not do.
+///
+/// Every failure mode is swallowed here so the caller's run outcome is
+/// untouched:
+/// * a returned `Err` is logged at `warn` and dropped;
+/// * a `panic!` inside the loop is caught via [`std::panic::catch_unwind`],
+///   logged, and dropped.
+pub fn run_auto_repair_best_effort(package_root: &Path, config_dir: &Path) {
+    use ecaa_workflow_core::repair_loop::{run_repair_loop, ReviewRoutingRunner};
+
+    // `catch_unwind` needs `UnwindSafe`; `&Path` is unwind-safe, and the
+    // closure borrows only references. A panic across this boundary cannot
+    // corrupt shared state because the repair loop owns its own on-disk writes.
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        run_repair_loop(package_root, config_dir, &ReviewRoutingRunner)
+    }));
+
+    match outcome {
+        Ok(Ok(status)) => {
+            tracing::info!(
+                target: "harness-auto-repair",
+                verdict = ?status.verdict,
+                rounds = status.rounds,
+                review_items = status.review.len(),
+                "offline end-of-run repair loop finished"
+            );
+        }
+        Ok(Err(e)) => {
+            tracing::warn!(
+                target: "harness-auto-repair",
+                error = %e,
+                "offline end-of-run repair loop failed (continuing — finalize outcome unchanged)"
+            );
+        }
+        Err(_) => {
+            tracing::warn!(
+                target: "harness-auto-repair",
+                "offline end-of-run repair loop panicked (caught — continuing, \
+                 finalize outcome unchanged)"
+            );
         }
     }
 }
