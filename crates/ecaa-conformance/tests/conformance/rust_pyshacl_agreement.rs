@@ -307,6 +307,14 @@ fn pending_one_claim_report() -> ecaa_workflow_core::claim_verifier::ClaimVerifi
                 literature_evidence: None,
                 matched_pvalue_keyword: None,
                 linear_fold: None,
+                aggregate_kind: None,
+                aggregate_column: None,
+                aggregate_rowset: None,
+                aggregate_value: None,
+                collection: None,
+                term: None,
+                keyed_column: None,
+                keyed_value: None,
             },
             // Projects to `status: "pending"` with empty supported_by →
             // satisfies ClaimCompletenessShape AND leaves Inv 5 (no

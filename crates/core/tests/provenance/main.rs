@@ -18,6 +18,7 @@ mod recall_coverage_invariant;
 mod recall_end_to_end;
 mod reexecution_classifier;
 mod replay_provenance;
+mod ro_crate_date_consistency;
 mod signed_sink_invariants;
 mod signed_sink_loader;
 mod wrroc_v05_fixtures;

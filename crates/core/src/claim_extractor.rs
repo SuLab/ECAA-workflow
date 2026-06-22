@@ -80,17 +80,41 @@ static RANK_CLASSIFIER_RE: LazyLock<Regex> = LazyLock::new(|| {
         .expect("static regex")
 });
 
-/// A1/A3 — superlative / ordinal-extreme detector for `classify_contract`.
-/// Matches an extreme word WITHOUT a numeric rank ("the strongest enrichment",
-/// "the most-downregulated gene", "lowest padj", "top-ranked by NES"). A digit
-/// rank ("top-10") is handled by [`RANK_CLASSIFIER_RE`] and routes to
-/// `RankTopN` instead, so this pattern is deliberately digit-free. Routing to
-/// `ExtremeValue` requires BOTH this token AND a named column token (checked
-/// separately by [`EXTREME_COLUMN_RE`]) so a bare "the most important pathway"
-/// with no checkable column stays in a lower-specificity class.
-static SUPERLATIVE_RE: LazyLock<Regex> = LazyLock::new(|| {
+/// A3 — EXPLICIT single-argmax superlative detector for `classify_contract`.
+/// Matches a superlative that asserts the named entity IS the unique extreme of
+/// a column ("the highest log2FC", "lowest padj", "the most downregulated gene",
+/// "top-ranked by NES", "the #1 gene"). A claim matching this routes to
+/// `ExtremeValue`, whose verifier enforces strict argmax/argmin equality.
+///
+/// A digit rank ("top-10") is handled by [`RANK_CLASSIFIER_RE`] and routes to
+/// `RankTopN`, so this pattern is deliberately free of multi-digit ranks. A
+/// HEDGED membership phrase ("a top gene", "one of the top", "among the top",
+/// "one of the most…") is a top-N MEMBERSHIP assertion, NOT a single-argmax
+/// claim, and is matched separately by [`SOFT_TOPN_RE`] so it is NOT swept into
+/// the strict-equality `ExtremeValue` path. Routing to `ExtremeValue` requires
+/// BOTH this token AND a named column token (checked separately by
+/// [`EXTREME_COLUMN_RE`]) so a bare "the most important pathway" with no
+/// checkable column stays in a lower-specificity class.
+static EXPLICIT_SUPERLATIVE_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"(?i)\b(highest|lowest|most|least|largest|smallest|strongest|weakest|maximal|minimal|top[\s-]?(?:ranked|most|scoring)?|bottom[\s-]?(?:ranked|most)?)\b",
+        r"(?i)\b(highest|lowest|most|least|largest|smallest|strongest|weakest|maximal|minimal|greatest|maximum|minimum|top[\s-](?:ranked|scoring)|top-?1|#1|the most|the least|top-ranked)\b",
+    )
+    .expect("static regex")
+});
+
+/// A3 — HEDGED top-N MEMBERSHIP detector for `classify_contract`. Matches a
+/// "soft" superlative that asserts the entity is AMONG the leaders, not the
+/// single extreme: "a top DE gene", "one of the top genes", "among the top by
+/// log2FC", "one of the most upregulated", "among the strongest". Such a claim
+/// routes to `RankTopN` (membership in the top N by |effect size|), NOT to the
+/// strict-equality `ExtremeValue` path — so an honest "CRISPLD2 is one of the
+/// top DE genes" is not flagged as a false max-assertion. Checked BEFORE the
+/// explicit superlative in `classify_contract` because a soft phrase
+/// ("the most" inside "one of the most") would otherwise also satisfy the
+/// explicit pattern.
+static SOFT_TOPN_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)\b(a top|one of the top|among the top|one of the (?:most|highest|largest|strongest)|among the (?:most|highest|largest|strongest))\b",
     )
     .expect("static regex")
 });
@@ -239,6 +263,38 @@ pub enum Direction {
     Down,
 }
 
+/// The aggregate statistic a [`ClaimContract::QuantileOfColumn`] claim asserts
+/// over a column: the median (the 50th-percentile order statistic) or the
+/// arithmetic mean. The verifier recomputes the named statistic from the cited
+/// column over the claimed row set and compares it within tolerance.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, schemars::JsonSchema,
+)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum QuantileKind {
+    /// The median (50th-percentile) of the column.
+    Median,
+    /// The arithmetic mean of the column.
+    Mean,
+}
+
+/// Which row SET a [`ClaimContract::QuantileOfColumn`] aggregate is computed
+/// over. "tested genes" restricts to rows whose adjusted p-value is present
+/// (non-NA) — the DE convention for the set of genes that survived independent
+/// filtering — whereas an unqualified aggregate is over every row.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, schemars::JsonSchema,
+)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum QuantileRowSet {
+    /// Every data row in the cited column.
+    AllRows,
+    /// Only rows with a non-NA adjusted p-value ("tested genes").
+    TestedGenes,
+}
+
 /// Literature-support evidence attached to a [`ClaimContract::LiteratureGrounded`]
 /// claim: the upstream finding the narrative is grounding and the PMIDs the
 /// narrative cites for it. The verifier cross-checks these against the
@@ -311,6 +367,46 @@ pub struct Claim {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub linear_fold: Option<f64>,
+    /// The aggregate kind for a [`ClaimContract::QuantileOfColumn`] claim
+    /// (median/mean). `None` for every other contract class. (Phase C)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub aggregate_kind: Option<QuantileKind>,
+    /// The COLUMN the quantile of a [`ClaimContract::QuantileOfColumn`] claim is
+    /// taken over (e.g. `baseMean`). `None` for every other contract class.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub aggregate_column: Option<String>,
+    /// The ROW SET a [`ClaimContract::QuantileOfColumn`] aggregate is computed
+    /// over (all rows vs tested genes). `None` for every other contract class.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub aggregate_rowset: Option<QuantileRowSet>,
+    /// The asserted aggregate VALUE for a [`ClaimContract::QuantileOfColumn`]
+    /// claim, parsed from the sentence. `None` for every other contract class.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub aggregate_value: Option<f64>,
+    /// The COLLECTION key (database name: `KEGG`/`Reactome`/`GO`/…) for a
+    /// [`ClaimContract::KeyedTableCell`] claim. `None` for every other class.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub collection: Option<String>,
+    /// The TERM key (set/pathway name: `Autophagy`/…) for a
+    /// [`ClaimContract::KeyedTableCell`] claim. `None` for every other class.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub term: Option<String>,
+    /// The statistic COLUMN (`NES`/`adj_p_value`/…) addressed by a
+    /// [`ClaimContract::KeyedTableCell`] claim. `None` for every other class.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub keyed_column: Option<String>,
+    /// The asserted VALUE for a [`ClaimContract::KeyedTableCell`] claim, parsed
+    /// from the sentence. `None` for every other contract class.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub keyed_value: Option<f64>,
 }
 
 /// Policy-driven extractor configuration. Parsed once from the
@@ -596,12 +692,41 @@ pub fn classify_contract(sentence: &str) -> ClaimContract {
     // threshold-keyword detector below. Requires both a superlative token and a
     // named column so a bare "the most important pathway" stays lower-specificity.
     let has_explicit_threshold_comparator = lower.contains('<') || lower.contains('≤');
+    // A HEDGED top-N membership phrase ("one of the top DE genes", "among the
+    // strongest") asserts membership in the top N, NOT that the entity is the
+    // single argmax/argmin. It must route to RankTopN (membership) and NEVER to
+    // ExtremeValue, or an honest "X is one of the top genes" is flagged as a
+    // false max-assertion. Checked first because the soft phrase "the most"
+    // inside "one of the most" would otherwise also satisfy the explicit
+    // superlative below.
+    if !has_explicit_threshold_comparator && SOFT_TOPN_RE.is_match(&lower) {
+        return ClaimContract::RankTopN;
+    }
     if !has_explicit_threshold_comparator
         && !RANK_CLASSIFIER_RE.is_match(&lower)
-        && SUPERLATIVE_RE.is_match(&lower)
+        && EXPLICIT_SUPERLATIVE_RE.is_match(&lower)
         && EXTREME_COLUMN_RE.is_match(&lower)
     {
         return ClaimContract::ExtremeValue;
+    }
+
+    // Phase C — composite-key enrichment cell ("KEGG Autophagy GSEA padj
+    // 2.98e-04"). Checked BEFORE the threshold-keyword branch below: the
+    // statistic token (`padj`) is also a threshold keyword, so without this
+    // precedence the sentence would route to ThresholdedDeOrEnrichment and its
+    // single-entity verifier would collapse the duplicated-term rows
+    // (KEGG vs Reactome "Autophagy") to the first one — the very mislook this
+    // contract exists to prevent. Requires the full collection+term+stat+value
+    // shape, so an ordinary "padj < 0.05" assertion is untouched.
+    if detect_keyed_table_cell(sentence).is_some() {
+        return ClaimContract::KeyedTableCell;
+    }
+
+    // Phase C — quantile of a column ("median baseMean (tested genes) =
+    // 100.94"). A bare aggregate carries no threshold keyword, but it can carry
+    // "fold change" / comparison cues, so route it here before those branches.
+    if detect_quantile_of_column(sentence).is_some() {
+        return ClaimContract::QuantileOfColumn;
     }
 
     // Thresholded DE / enrichment: an explicit threshold comparison or a
@@ -829,6 +954,63 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
             continue;
         }
 
+        // Phase C — derived-statistic claims (quantile-of-column, composite-key
+        // enrichment cell) are SENTENCE-level: their subject is a column
+        // aggregate or a collection/term pair, NOT a gene-symbol entity, so they
+        // are emitted here (before the entity scan, which would otherwise drop
+        // the whole sentence when it contains no matching entity token — e.g.
+        // "median baseMean of tested genes is 263.14"). A detected sentence
+        // yields exactly ONE derived claim and is NOT re-mined per entity, so an
+        // incidental token in the sentence does not spawn duplicate keyed/
+        // quantile claims under the same sentence-level contract.
+        let source_table = scan_table_reference(trimmed);
+        if let Some(q) = detect_quantile_of_column(trimmed) {
+            out.push(Claim {
+                entity: q.column.clone(),
+                direction: None,
+                effect_size: None,
+                pvalue: None,
+                source_table: source_table.clone(),
+                excerpt: trimmed.to_string(),
+                contract: ClaimContract::QuantileOfColumn,
+                literature_evidence: None,
+                matched_pvalue_keyword: None,
+                linear_fold: None,
+                aggregate_kind: Some(q.kind),
+                aggregate_column: Some(q.column),
+                aggregate_rowset: Some(q.rowset),
+                aggregate_value: Some(q.value),
+                collection: None,
+                term: None,
+                keyed_column: None,
+                keyed_value: None,
+            });
+            continue;
+        }
+        if let Some(k) = detect_keyed_table_cell(trimmed) {
+            out.push(Claim {
+                entity: format!("{} / {}", k.collection, k.term),
+                direction: None,
+                effect_size: None,
+                pvalue: None,
+                source_table: source_table.clone(),
+                excerpt: trimmed.to_string(),
+                contract: ClaimContract::KeyedTableCell,
+                literature_evidence: None,
+                matched_pvalue_keyword: None,
+                linear_fold: None,
+                aggregate_kind: None,
+                aggregate_column: None,
+                aggregate_rowset: None,
+                aggregate_value: None,
+                collection: Some(k.collection),
+                term: Some(k.term),
+                keyed_column: Some(k.column),
+                keyed_value: Some(k.value),
+            });
+            continue;
+        }
+
         // Every entity-pattern match in the sentence, with their byte
         // offsets so "nearest direction" is deterministic. Matches whose
         // full text satisfies any `entity_exclude_patterns` pattern are
@@ -882,7 +1064,6 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
         let effect_size_hits = scan_effect_size_positions(trimmed, &regex_cache);
         let pvalue_hits = scan_pvalue_positions(trimmed, &regex_cache);
         let linear_fold_hits = scan_linear_fold_positions(trimmed);
-        let source_table = scan_table_reference(trimmed);
         let contract = classify_contract(trimmed);
 
         // For a literature-grounded sentence, capture the cited PMIDs once; each
@@ -960,11 +1141,93 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
                 literature_evidence,
                 matched_pvalue_keyword,
                 linear_fold,
+                aggregate_kind: None,
+                aggregate_column: None,
+                aggregate_rowset: None,
+                aggregate_value: None,
+                collection: None,
+                term: None,
+                keyed_column: None,
+                keyed_value: None,
             });
         }
     }
 
     out
+}
+
+/// Parsed metadata for a [`ClaimContract::QuantileOfColumn`] sentence.
+struct QuantileMeta {
+    kind: QuantileKind,
+    column: String,
+    rowset: QuantileRowSet,
+    value: f64,
+}
+
+/// Parsed metadata for a [`ClaimContract::KeyedTableCell`] sentence.
+struct KeyedCellMeta {
+    collection: String,
+    term: String,
+    column: String,
+    value: f64,
+}
+
+/// "median|mean ... <column> ... = <value>" detector. Captures the aggregate
+/// kind, the column it is taken over, the row set ("tested genes" → tested,
+/// else all rows), and the asserted value. Anchored on a "median"/"mean" cue
+/// FOLLOWED by a column token so an unrelated sentence with a stray "mean" does
+/// not match. Returns `None` when no quantile shape is present. (Phase C)
+fn detect_quantile_of_column(sentence: &str) -> Option<QuantileMeta> {
+    let canon = canonicalize_scientific(sentence);
+    let caps = QUANTILE_RE.captures(&canon)?;
+    let kind = match caps.get(1)?.as_str().to_ascii_lowercase().as_str() {
+        "median" => QuantileKind::Median,
+        _ => QuantileKind::Mean,
+    };
+    let column = caps.get(2)?.as_str().trim().to_string();
+    let value = caps.get(3)?.as_str().parse::<f64>().ok()?;
+    // "tested genes" (or "tested" qualifier) restricts to non-NA-padj rows; an
+    // unqualified aggregate is over every row.
+    let lower = canon.to_ascii_lowercase();
+    let rowset = if lower.contains("tested gene") || lower.contains("tested-gene") {
+        QuantileRowSet::TestedGenes
+    } else {
+        QuantileRowSet::AllRows
+    };
+    Some(QuantileMeta {
+        kind,
+        column,
+        rowset,
+        value,
+    })
+}
+
+/// "<COLLECTION> <TERM> ... <NES|padj|adj_p_value> ... = <value>" detector for a
+/// composite-key enrichment cell ("KEGG Autophagy GSEA padj 2.98e-04"). Captures
+/// the collection (database) token, the term (set/pathway) token, the statistic
+/// column, and the asserted value. Returns `None` when the sentence is not a
+/// keyed-cell shape. (Phase C)
+fn detect_keyed_table_cell(sentence: &str) -> Option<KeyedCellMeta> {
+    let canon = canonicalize_scientific(sentence);
+    let caps = KEYED_CELL_RE.captures(&canon)?;
+    let collection = caps.get(1)?.as_str().trim().to_string();
+    let term = caps.get(2)?.as_str().trim().to_string();
+    let column_raw = caps.get(3)?.as_str().trim().to_ascii_lowercase();
+    // Canonicalize the asserted statistic column to a table-header form the
+    // verifier's column resolver understands: "padj"/"adj. p" → adj_p_value;
+    // "nes" stays nes.
+    let column = if column_raw.starts_with("nes") {
+        "nes".to_string()
+    } else {
+        "adj_p_value".to_string()
+    };
+    let value = caps.get(4)?.as_str().parse::<f64>().ok()?;
+    Some(KeyedCellMeta {
+        collection,
+        term,
+        column,
+        value,
+    })
 }
 
 /// Extract claims from GitHub-flavored markdown tables embedded in `text`.
@@ -1210,6 +1473,14 @@ fn claim_from_table_row(
         literature_evidence: None,
         matched_pvalue_keyword: None,
         linear_fold: None,
+                aggregate_kind: None,
+                aggregate_column: None,
+                aggregate_rowset: None,
+                aggregate_value: None,
+                collection: None,
+                term: None,
+                keyed_column: None,
+                keyed_value: None,
     })
 }
 
@@ -1552,6 +1823,32 @@ static SCI_NOTATION_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// — is never captured (its "2" is preceded by the letter 'g'). (VF-4)
 static LINEAR_FOLD_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)(?:^|[^a-z0-9.])(\d+(?:\.\d+)?)[\s-]*fold").expect("static regex")
+});
+
+/// Phase C — "median|mean <column> (… qualifier …) = <value>" detector. The
+/// column token is a single identifier (`baseMean`, `log2FoldChange`); any
+/// "(tested genes)" qualifier between the column and the `=`/`of`/`is` separator
+/// is tolerated and consumed without being captured as the column. The value is
+/// a signed decimal with optional exponent.
+static QUANTILE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)\b(median|mean)\b(?:\s+(?:of|for|across|over)\s+the?)?\s+([A-Za-z][A-Za-z0-9_]*)\b(?:[^=:]*?)(?:[=:]|\bis\b|\bof\b|\bwas\b)\s*(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)",
+    )
+    .expect("static regex")
+});
+
+/// Phase C — composite-key enrichment cell detector:
+/// "<COLLECTION> <TERM> … <NES|padj|adj p value|q value> … <value>". The
+/// collection is a known database token; the term is the set/pathway name (a
+/// single capitalized token here — multi-word terms are not the faithful-twin
+/// shape). The statistic keyword and the value may be separated by an optional
+/// `=`/`:`/`of`/whitespace. The value is a signed decimal with optional
+/// exponent (so "2.98e-04" parses).
+static KEYED_CELL_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)\b(KEGG|Reactome|GO|MSigDB|Hallmark|WikiPathways|BioCarta|PID)\b\s+([A-Z][A-Za-z0-9_-]*)\b[^=:]*?\b(NES|padj|adj[\s._-]*p(?:[\s._-]*value)?|q[\s._-]*value|fdr)\b(?:\s*[=:of]*\s*)(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)",
+    )
+    .expect("static regex")
 });
 
 /// Canonicalize the Unicode scientific-notation polish that real reports
@@ -2150,6 +2447,14 @@ mod tests {
             }),
             matched_pvalue_keyword: None,
             linear_fold: None,
+                aggregate_kind: None,
+                aggregate_column: None,
+                aggregate_rowset: None,
+                aggregate_value: None,
+                collection: None,
+                term: None,
+                keyed_column: None,
+                keyed_value: None,
         };
         let json = serde_json::to_string(&claim).unwrap();
         assert!(json.contains("\"literature_evidence\""), "{json}");
@@ -2172,6 +2477,14 @@ mod tests {
             literature_evidence: None,
             matched_pvalue_keyword: None,
             linear_fold: None,
+                aggregate_kind: None,
+                aggregate_column: None,
+                aggregate_rowset: None,
+                aggregate_value: None,
+                collection: None,
+                term: None,
+                keyed_column: None,
+                keyed_value: None,
         };
         let bare_json = serde_json::to_string(&bare).unwrap();
         assert!(!bare_json.contains("literature_evidence"), "{bare_json}");

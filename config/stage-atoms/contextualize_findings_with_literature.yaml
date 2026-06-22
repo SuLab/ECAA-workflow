@@ -91,6 +91,7 @@ validators:
   - redistributable_or_marked
   - claim_row_has_finding_id
   - concordance_flag_in_closed_set
+  - direction_supported_by_quote
   - gene_symbol_ensembl_consistent
 figure_exempt:
   reason: "Structured-text outputs only."

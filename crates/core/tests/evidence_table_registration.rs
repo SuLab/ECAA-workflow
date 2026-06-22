@@ -72,6 +72,14 @@ fn persist_verified_table_claim(root: &Path, task: &str, table: &str, w: &AuditW
         literature_evidence: None,
         matched_pvalue_keyword: None,
         linear_fold: None,
+                aggregate_kind: None,
+                aggregate_column: None,
+                aggregate_rowset: None,
+                aggregate_value: None,
+                collection: None,
+                term: None,
+                keyed_column: None,
+                keyed_value: None,
     };
     let rep = ClaimVerificationReport {
         n_checked: 1,
@@ -422,6 +430,14 @@ fn backfilled_claim_supported_by_resolves_to_real_graph_node_and_text_populated(
         literature_evidence: None,
         matched_pvalue_keyword: None,
         linear_fold: None,
+                aggregate_kind: None,
+                aggregate_column: None,
+                aggregate_rowset: None,
+                aggregate_value: None,
+                collection: None,
+                term: None,
+                keyed_column: None,
+                keyed_value: None,
     };
     let rep = ClaimVerificationReport {
         n_checked: 1,

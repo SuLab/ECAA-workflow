@@ -76,6 +76,61 @@ impl Clock for FrozenClock {
     }
 }
 
+/// Lower bound of the genuine run window: `2026-01-01T00:00:00Z`. The
+/// project's deterministic epoch base. A run epoch (or a root
+/// `dateCreated`) below this is not a plausible run time.
+pub const RUN_EPOCH_BASE: i64 = 1_767_225_600; // 2026-01-01T00:00:00Z
+
+/// Upper bound of the genuine run window: `2031-01-01T00:00:00Z` — five
+/// years past the epoch base. The run epoch a deterministic clock anchors
+/// to must fall inside `[RUN_EPOCH_BASE, RUN_WINDOW_END)`; a
+/// `SOURCE_DATE_EPOCH` outside this window (e.g. the 2061 values the hash
+/// projection can emit) is not a real run date and is clamped to the floor
+/// by [`run_epoch_clock_from`].
+pub const RUN_WINDOW_END: i64 = 1_924_992_000; // 2031-01-01T00:00:00Z
+
+/// Deterministic `Clock` anchored to the genuine RUN epoch
+/// (`SOURCE_DATE_EPOCH`), NOT to the opaque hash projection.
+///
+/// `SOURCE_DATE_EPOCH` is the run-level Unix timestamp the harness
+/// captures once at startup and threads identically to every task (see
+/// [`crate::determinism_seeds`]); `bagit.rs` already pins `Bagging-Date`
+/// to this run epoch rather than to [`deterministic_emit_time`], which
+/// can map uniformly into `[2026, 2076)` and land decades in the future
+/// (e.g. 2061). Anchoring `ro-crate-metadata.json::dateCreated` here too
+/// keeps the root date CONSISTENT with `Bagging-Date` and inside the run
+/// window.
+///
+/// Resolution order:
+/// - `SOURCE_DATE_EPOCH` set to an in-window integer → that instant.
+/// - unset, unparseable, or out of `[RUN_EPOCH_BASE, RUN_WINDOW_END)` →
+///   the [`RUN_EPOCH_BASE`] floor (the same `2026-01-01` base
+///   `FrozenClock::default()` / the emit `Bagging-Date` pin use), so the
+///   emit byte-baseline is unchanged when no run epoch is present.
+///
+/// Determinism is preserved: the value is a pure function of the run
+/// epoch (or the constant floor), so two emits of the same run are
+/// byte-identical.
+pub fn run_epoch_clock() -> FrozenClock {
+    run_epoch_clock_from(std::env::var("SOURCE_DATE_EPOCH").ok().as_deref())
+}
+
+/// Core of [`run_epoch_clock`], parameterized on the raw
+/// `SOURCE_DATE_EPOCH` value so it is testable without mutating process
+/// env. See [`run_epoch_clock`] for the resolution order.
+pub fn run_epoch_clock_from(source_date_epoch: Option<&str>) -> FrozenClock {
+    let secs = source_date_epoch
+        .and_then(|s| s.trim().parse::<i64>().ok())
+        .filter(|&s| s >= RUN_EPOCH_BASE && s < RUN_WINDOW_END)
+        .unwrap_or(RUN_EPOCH_BASE);
+    FrozenClock {
+        at: Utc
+            .timestamp_opt(secs, 0)
+            .single()
+            .expect("RUN_EPOCH_BASE..RUN_WINDOW_END is a valid timestamp range"),
+    }
+}
+
 /// Derive a deterministic emit-time from a 32-byte content hash.
 ///
 /// The output is a valid RFC-3339 timestamp in the range

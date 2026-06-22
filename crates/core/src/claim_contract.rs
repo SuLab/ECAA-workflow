@@ -35,6 +35,24 @@ pub enum ClaimContract {
     /// direction (highest/largest/strongest → argmax; lowest/least/smallest/
     /// weakest → argmin).
     ExtremeValue,
+    /// A per-row cell addressed by a COMPOSITE key — a collection/database
+    /// column AND a term column — rather than a single entity ("KEGG Autophagy
+    /// GSEA padj = 2.98e-04", "Reactome Apoptosis NES = 1.7"). A single
+    /// collection name (e.g. "Autophagy") can recur across collections (KEGG vs
+    /// Reactome) with DIFFERENT statistics, so the single-entity
+    /// [`Self::NumericTableLookup`] path — which collapses duplicate entity keys
+    /// to the first row — cannot disambiguate it. Verified by a LINEAR SCAN that
+    /// matches BOTH the collection column AND the term column, then compares the
+    /// named statistic column (`NES`/`adj_p_value`/…) within tolerance.
+    KeyedTableCell,
+    /// A QUANTILE (median/mean) OF A COLUMN over a row SET ("median baseMean of
+    /// tested genes = 263.14", "mean log2FC = 0.3"). The asserted value is not a
+    /// single cell but a statistic RECOMPUTED from the cited column over the
+    /// correct row subset (e.g. "tested genes" = rows with a non-NA adjusted
+    /// p-value), so it is invisible to the single-cell
+    /// [`Self::NumericTableLookup`] path. Verified by recomputing the quantile
+    /// from the cited table over that row set and comparing within tolerance.
+    QuantileOfColumn,
 }
 
 impl ClaimContract {

@@ -260,6 +260,17 @@ fn literature_obligations() -> Vec<ValidationObligation> {
             reference: Some("claims_evidence_matrix.csv".into()),
         },
         ValidationObligation {
+            id: "direction_supported_by_quote".into(),
+            kind: "literature_integrity".into(),
+            statement: "Every row whose concordance_flag is same_direction or \
+                        opposite_direction carries an evidence_quote that contains a \
+                        directional cue (increase/decrease/up/down/induce/repress/...); \
+                        a directionless quote mandates unverifiable per the atom \
+                        claim_boundary."
+                .into(),
+            reference: Some("prior_claims_matrix.csv|claims_evidence_matrix.csv".into()),
+        },
+        ValidationObligation {
             id: "claim_support_satisfied".into(),
             kind: "literature_integrity".into(),
             statement: "A default/recommended candidate (tier == defaultRecommended, or — \
@@ -394,6 +405,7 @@ mod tests {
                 "redistributable_or_marked",
                 "claim_row_has_finding_id",
                 "concordance_flag_in_closed_set",
+                "direction_supported_by_quote",
                 "claim_support_satisfied",
                 "doc_page_matches_tool",
                 "gene_symbol_ensembl_consistent",

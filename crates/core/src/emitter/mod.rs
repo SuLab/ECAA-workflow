@@ -536,9 +536,9 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
     // helper (amendments add a full UpdateAction, branches add only
     // wasDerivedFrom + parent dataset entry).
     let parent_link = config.amend_from.and_then(read_parent_link);
-    // `FrozenClock` derived from the intake hash so every BagIt-manifest
-    // artifact (amendment-lineage.json, ro-crate-metadata.json::dateCreated)
-    // is byte-identical across re-emissions of the same intake.
+    // `FrozenClock` derived from the intake hash so the amendment-lineage
+    // artifact (`amendment-lineage.json::created_at`) is byte-identical
+    // across re-emissions of the same intake.
     let emit_clock = frozen_clock_from_intake(&config.classification.intake_text);
 
     if let Some(ctx) = config.amend_context {
@@ -546,8 +546,17 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
             .context("emitting amendment-lineage policy")?;
     }
 
+    // `dateCreated` is anchored to the genuine RUN epoch (`SOURCE_DATE_EPOCH`,
+    // via `run_epoch_clock`), NOT to `emit_clock` — the intake-hash projection
+    // (`deterministic_emit_time`) maps uniformly across `[2026, 2076)` and can
+    // land decades in the future (e.g. 2061), which is not a real run date.
+    // The run epoch is the same value `bagit.rs` pins `Bagging-Date` to, so the
+    // root `dateCreated` and `Bagging-Date` agree; when no run epoch is present
+    // `run_epoch_clock` falls back to the `2026-01-01` base and the emit
+    // byte-baseline is unchanged.
+    let date_clock = crate::clock::run_epoch_clock();
     let mut ro_crate_meta =
-        ro_crate::build_metadata(config.dag, config.classification, &emit_clock);
+        ro_crate::build_metadata(config.dag, config.classification, &date_clock);
     // Maturity stamp: when the chosen archetype is experimental
     // (scaffolded / not-production-validated), record that on the root
     // Dataset so a reviewer sees it. Deterministic (no wall-clock) and a

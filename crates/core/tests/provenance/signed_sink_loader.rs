@@ -22,6 +22,14 @@ fn report() -> ClaimVerificationReport {
         literature_evidence: None,
         matched_pvalue_keyword: None,
         linear_fold: None,
+                aggregate_kind: None,
+                aggregate_column: None,
+                aggregate_rowset: None,
+                aggregate_value: None,
+                collection: None,
+                term: None,
+                keyed_column: None,
+                keyed_value: None,
     };
     ClaimVerificationReport {
         n_checked: 1,
@@ -91,6 +99,14 @@ fn two_claim_report() -> ClaimVerificationReport {
         literature_evidence: None,
         matched_pvalue_keyword: None,
         linear_fold: None,
+                aggregate_kind: None,
+                aggregate_column: None,
+                aggregate_rowset: None,
+                aggregate_value: None,
+                collection: None,
+                term: None,
+                keyed_column: None,
+                keyed_value: None,
     };
     let v = |entity: &str| ClaimVerdict {
         claim: mk(entity),

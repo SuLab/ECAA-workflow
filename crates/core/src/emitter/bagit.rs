@@ -132,10 +132,14 @@ pub(super) fn write_bagit_manifest_with_mode(
     // RFC 8493 §2.2.2 — `Bagging-Date` is human-meaningful.
     //
     // At EMIT we are writing the byte-reproducible skeleton (outputs don't
-    // exist yet), so the date must be deterministic from intake — NOT the
-    // wall clock and NOT the opaque hash-derived `emit_clock` (which can map
-    // into the far future, e.g. 2061). We pin it to the stable EPOCH_2026
-    // base so two emits of the same intake are byte-identical.
+    // exist yet), so the date must be deterministic — NOT the wall clock and
+    // NOT the opaque hash-derived `emit_clock` (which can map into the far
+    // future, e.g. 2061). We anchor it to the genuine RUN epoch
+    // (`SOURCE_DATE_EPOCH`, via `run_epoch_clock`), the same run-level value
+    // `ro-crate-metadata.json::dateCreated` is anchored to, so the two are
+    // CONSISTENT. When no run epoch is present `run_epoch_clock` falls back
+    // to the stable `2026-01-01` base, so two emits of the same run stay
+    // byte-identical and the prior baseline is preserved.
     //
     // At RESEAL (post-execution finalize) the package is NO LONGER part of
     // the byte-reproducibility baseline — it is the at-rest record of an
@@ -146,15 +150,12 @@ pub(super) fn write_bagit_manifest_with_mode(
     let bagging_date = match mode {
         SealMode::Emit => {
             use crate::clock::Clock as _;
-            crate::clock::FrozenClock::default()
+            crate::clock::run_epoch_clock()
                 .now()
                 .format("%Y-%m-%d")
                 .to_string()
         }
-        SealMode::Reseal => {
-            use crate::clock::Clock as _;
-            clock.now().format("%Y-%m-%d").to_string()
-        }
+        SealMode::Reseal => clock.now().format("%Y-%m-%d").to_string(),
     };
     let bag_info = format!(
         "Source-Organization: Scripps Research\n\

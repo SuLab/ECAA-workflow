@@ -63,7 +63,10 @@ claims:
     tolerance: 0.05
   - id: "05-depmap-ccle-rnaseq-claim-011"
     text: "Pathway alteration matrix: 13 canonical pathways, median R = 0.75 between cell lines and tumors"
-    contract: numeric_table_lookup
+    # Phase C: the verifiable derived statistic in this sentence is the median
+    # of the correlation column R (= 0.75), so the most specific contract is
+    # quantile_of_column, which the auto-classifier now recognizes.
+    contract: quantile_of_column
     source_table: "results/tables/drug_response.csv"
     expected_value: 13
     tolerance: 0.1

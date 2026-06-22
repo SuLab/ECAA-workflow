@@ -2,6 +2,8 @@
 import type { ClaimContract } from "./ClaimContract";
 import type { Direction } from "./Direction";
 import type { LiteratureEvidence } from "./LiteratureEvidence";
+import type { QuantileKind } from "./QuantileKind";
+import type { QuantileRowSet } from "./QuantileRowSet";
 
 /**
  * One extracted narrative claim. Fields beyond `entity` and `excerpt`
@@ -65,4 +67,44 @@ matched_pvalue_keyword?: string,
  * Always a positive fold (>1×); direction is left to the direction/sign
  * checks. `None` when no linear-fold phrase was found. (VF-4)
  */
-linear_fold?: number, };
+linear_fold?: number, 
+/**
+ * The aggregate kind for a [`ClaimContract::QuantileOfColumn`] claim
+ * (median/mean). `None` for every other contract class. (Phase C)
+ */
+aggregate_kind?: QuantileKind, 
+/**
+ * The COLUMN the quantile of a [`ClaimContract::QuantileOfColumn`] claim is
+ * taken over (e.g. `baseMean`). `None` for every other contract class.
+ */
+aggregate_column?: string, 
+/**
+ * The ROW SET a [`ClaimContract::QuantileOfColumn`] aggregate is computed
+ * over (all rows vs tested genes). `None` for every other contract class.
+ */
+aggregate_rowset?: QuantileRowSet, 
+/**
+ * The asserted aggregate VALUE for a [`ClaimContract::QuantileOfColumn`]
+ * claim, parsed from the sentence. `None` for every other contract class.
+ */
+aggregate_value?: number, 
+/**
+ * The COLLECTION key (database name: `KEGG`/`Reactome`/`GO`/…) for a
+ * [`ClaimContract::KeyedTableCell`] claim. `None` for every other class.
+ */
+collection?: string, 
+/**
+ * The TERM key (set/pathway name: `Autophagy`/…) for a
+ * [`ClaimContract::KeyedTableCell`] claim. `None` for every other class.
+ */
+term?: string, 
+/**
+ * The statistic COLUMN (`NES`/`adj_p_value`/…) addressed by a
+ * [`ClaimContract::KeyedTableCell`] claim. `None` for every other class.
+ */
+keyed_column?: string, 
+/**
+ * The asserted VALUE for a [`ClaimContract::KeyedTableCell`] claim, parsed
+ * from the sentence. `None` for every other contract class.
+ */
+keyed_value?: number, };

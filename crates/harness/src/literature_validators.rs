@@ -1246,6 +1246,121 @@ pub fn run_concordance_flag_in_closed_set(
 }
 
 // ============================================================================
+// Runner 5b: direction_supported_by_quote (downstream only)
+// ============================================================================
+
+/// Directional cue substrings. A concordance direction (same_direction /
+/// opposite_direction) is only supportable when the cited evidence_quote
+/// itself states a direction. The atom claim_boundary
+/// (config/stage-atoms/contextualize_findings_with_literature.yaml) is
+/// explicit: same/opposite require the prior's effect direction; a quote that
+/// names no direction mandates `unverifiable`. Matched against the
+/// `collapse_whitespace_lowercase_v1`-normalized quote, so every needle here is
+/// lowercase. Substrings (not whole words) so morphological variants are
+/// covered: `induc` matches induced/induces/induction; `repress` matches
+/// repressed/repression; `upregulat`/`downregulat` match the -e/-ed/-ion forms;
+/// `elevat`/`reduc` match elevated/elevation/reduced/reduction.
+const DIRECTIONAL_CUES: &[&str] = &[
+    "increase",
+    "decrease",
+    "induc",
+    "repress",
+    "elevat",
+    "reduc",
+    "higher",
+    "lower",
+    "upregulat",
+    "downregulat",
+    "up-regulat",
+    "down-regulat",
+    "overexpress",
+    "underexpress",
+    "enrich",
+    "deplet",
+    "suppress",
+    "activat",
+    "inhibit",
+    "gain",
+    "loss",
+    "positively correlat",
+    "negatively correlat",
+];
+
+/// A directional concordance flag — `same_direction` / `opposite_direction` —
+/// asserts that the prior literature reports a direction matching (or opposing)
+/// this dataset's effect sign. That assertion is only supported when the cited
+/// `evidence_quote` actually states a direction.
+fn flag_asserts_direction(flag: Option<&str>) -> bool {
+    matches!(flag, Some("same_direction") | Some("opposite_direction"))
+}
+
+/// True iff the normalized quote contains any directional cue. The standalone
+/// tokens `up` / `down` are matched as whole words (space-or-edge delimited) so
+/// they don't spuriously fire inside unrelated words (e.g. "upstream",
+/// "downstream", "boundary"); the morphological stems above use plain
+/// containment.
+fn quote_states_direction(normalized_quote: &str) -> bool {
+    if DIRECTIONAL_CUES.iter().any(|c| normalized_quote.contains(c)) {
+        return true;
+    }
+    // Whole-word `up` / `down` (the bare directional adverbs). Split on spaces;
+    // the quote is already whitespace-collapsed and lowercased.
+    normalized_quote
+        .split(' ')
+        .any(|w| w == "up" || w == "down")
+}
+
+/// Validates that every row carrying a directional concordance flag
+/// (`same_direction` / `opposite_direction`) cites an `evidence_quote` that
+/// itself states a direction. This enforces the atom claim_boundary: the
+/// concordance-matrix builder assigns same/opposite from THIS dataset's log2FC
+/// sign, and nothing else stops it from doing so when the quote names no
+/// direction (the circular IRS2/MFGE8 "replication" assigned from a directionless
+/// panel-membership quote). A directional flag backed by a directionless quote
+/// is an unsupported claim and the row fails with
+/// `DirectionNotSupportedByQuote`.
+///
+/// Non-asserting rows (`no_prior_finding` / `unverifiable`) are NOT subject to
+/// the check — they make no directional claim, which is exactly the verdict the
+/// boundary mandates for a directionless quote.
+pub fn run_direction_supported_by_quote(
+    csv_path: &Path,
+    _manifest_path: &Path,
+) -> Result<(), (u64, ValidationFailureCause)> {
+    let artifact = csv_path
+        .file_name()
+        .map(|f| f.to_string_lossy().to_string())
+        .unwrap_or_else(|| csv_path.to_string_lossy().to_string());
+    let rows = load_rows(csv_path).map_err(|_| {
+        (
+            0,
+            ValidationFailureCause::LiteratureClaim {
+                row_index: 0,
+                artifact: artifact.clone(),
+                kind: LiteratureClaimFailureKind::EvidenceArtifactMissing,
+            },
+        )
+    })?;
+    for (i, row) in rows.iter().enumerate() {
+        if !flag_asserts_direction(row.concordance_flag.as_deref()) {
+            continue;
+        }
+        let normalized_quote = collapse_whitespace_lowercase_v1(&row.evidence_quote);
+        if !quote_states_direction(&normalized_quote) {
+            return Err((
+                i as u64,
+                ValidationFailureCause::LiteratureClaim {
+                    row_index: i as u64,
+                    artifact,
+                    kind: LiteratureClaimFailureKind::DirectionNotSupportedByQuote,
+                },
+            ));
+        }
+    }
+    Ok(())
+}
+
+// ============================================================================
 // Runner 6: claim_support_satisfied
 // ============================================================================
 
@@ -2110,6 +2225,18 @@ impl ValidatorRunner for ConcordanceFlagInClosedSetRunner {
     }
 }
 
+/// `ValidatorRunner` wrapping `run_direction_supported_by_quote` for the
+/// `direction_supported_by_quote` obligation.
+pub struct DirectionSupportedByQuoteRunner;
+impl ValidatorRunner for DirectionSupportedByQuoteRunner {
+    fn obligation_id(&self) -> &'static str {
+        "direction_supported_by_quote"
+    }
+    fn run(&self, artifact_path: &Path) -> ValidatorOutcome {
+        runner_dispatch(artifact_path, false, run_direction_supported_by_quote)
+    }
+}
+
 /// Trait-wrapped runners for the literature obligations. Used by
 /// `ValidatorRunner` for the `gene_symbol_ensembl_consistent` obligation
 /// (Workstream B). Unlike the other literature runners, the underlying check
@@ -2151,6 +2278,7 @@ pub fn literature_runners() -> Vec<Box<dyn ValidatorRunner>> {
         Box::new(RedistributableOrMarkedRunner),
         Box::new(ClaimRowHasFindingIdRunner),
         Box::new(ConcordanceFlagInClosedSetRunner),
+        Box::new(DirectionSupportedByQuoteRunner),
         Box::new(ClaimSupportSatisfiedRunner),
         Box::new(DocPageMatchesToolRunner),
         Box::new(GeneSymbolEnsemblConsistentRunner),
@@ -2665,6 +2793,97 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    // ---- direction_supported_by_quote (FAITHFUL TWINS) ----
+    // The concordance-matrix builder assigns same/opposite_direction from THIS
+    // dataset's log2FC sign even when the cited quote names no direction. The
+    // atom claim_boundary mandates `unverifiable` for a directionless quote;
+    // this validator enforces it. The header below is the contextualize
+    // claims_evidence_matrix shape (concordance_flag + evidence_quote).
+    const DIR_HDR: &str = "finding_id,entity,entity_kind,prior_pmids,concordance_flag,evidence_quote,evidence_quote_offset,source_kind,source_hash,retrieval_ts,redistributable,verified";
+
+    fn write_dir_row(dir: &TempDir, flag: &str, quote: &str) -> std::path::PathBuf {
+        let csv = dir.path().join("claims_evidence_matrix.csv");
+        // Quote is CSV-quoted so embedded commas/spaces survive the parse.
+        write(
+            &csv,
+            &format!(
+                "{DIR_HDR}\nIRS2_finding,IRS2,gene,12345678,{flag},\"{quote}\",0,pmc_oa_full_text,sha256:abc,2026-05-14T00:00:00Z,true,true\n"
+            ),
+        );
+        csv
+    }
+
+    #[test]
+    fn direction_supported_when_quote_states_direction() {
+        // (a) FAITHFUL TWIN — genuinely-correct claim still PASSES: a
+        // same_direction row whose quote names a direction ("dexamethasone
+        // increased X") is supported and must pass.
+        let dir = TempDir::new().unwrap();
+        let manifest = dir.path().join("evidence/manifest.json"); // unused by this runner
+        let csv = write_dir_row(
+            &dir,
+            "same_direction",
+            "dexamethasone increased IRS2 expression in airway smooth muscle",
+        );
+        assert!(
+            run_direction_supported_by_quote(&csv, &manifest).is_ok(),
+            "a directional quote must support a same_direction flag"
+        );
+        // opposite_direction, decrease cue.
+        let csv = write_dir_row(
+            &dir,
+            "opposite_direction",
+            "the treatment reduced MFGE8 levels relative to control",
+        );
+        assert!(run_direction_supported_by_quote(&csv, &manifest).is_ok());
+    }
+
+    #[test]
+    fn direction_not_supported_when_quote_is_directionless() {
+        // (b) FAITHFUL TWIN — the IRS2/MFGE8 case: a same_direction flag whose
+        // quote is mere panel membership ("the panel included IRS2, APPL2,
+        // RAMP1, MFGE8") states NO direction, so the row must FAIL with
+        // DirectionNotSupportedByQuote (a genuine error of this class is caught).
+        let dir = TempDir::new().unwrap();
+        let manifest = dir.path().join("evidence/manifest.json");
+        let csv = write_dir_row(
+            &dir,
+            "same_direction",
+            "the panel included IRS2, APPL2, RAMP1, MFGE8",
+        );
+        let err = run_direction_supported_by_quote(&csv, &manifest).unwrap_err();
+        assert!(matches!(
+            err.1,
+            ValidationFailureCause::LiteratureClaim {
+                kind: LiteratureClaimFailureKind::DirectionNotSupportedByQuote,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn direction_check_skips_unverifiable_row() {
+        // (c) FAITHFUL TWIN — a non-asserting row is NOT subject to the check:
+        // an `unverifiable` row with the SAME directionless quote makes no
+        // directional claim (exactly the verdict the boundary mandates) and
+        // must PASS. This proves the validator gates the direction assertion,
+        // not the quote text.
+        let dir = TempDir::new().unwrap();
+        let manifest = dir.path().join("evidence/manifest.json");
+        let csv = write_dir_row(
+            &dir,
+            "unverifiable",
+            "the panel included IRS2, APPL2, RAMP1, MFGE8",
+        );
+        assert!(
+            run_direction_supported_by_quote(&csv, &manifest).is_ok(),
+            "an unverifiable row asserts no direction and is not subject to the check"
+        );
+        // no_prior_finding likewise asserts nothing — passes regardless of quote.
+        let csv = write_dir_row(&dir, "no_prior_finding", "");
+        assert!(run_direction_supported_by_quote(&csv, &manifest).is_ok());
     }
 
     #[test]

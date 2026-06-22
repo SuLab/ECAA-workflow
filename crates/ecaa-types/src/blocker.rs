@@ -55,6 +55,13 @@ pub enum LiteratureClaimFailureKind {
     RedistributableTagInconsistent,
     FindingIdOrphan,
     InvalidConcordanceFlag,
+    /// A row carries a directional concordance flag (same_direction /
+    /// opposite_direction) but its `evidence_quote` states no direction.
+    /// The atom claim_boundary mandates `unverifiable` when the prior's quote
+    /// does not specify a direction; a directional flag assigned from this
+    /// dataset's effect sign alone — with no directional cue in the cited quote
+    /// — is an unsupported (circular) concordance claim.
+    DirectionNotSupportedByQuote,
     /// A non-PMID locator (DOI / arXiv / URL) failed to resolve or its
     /// stored snapshot is missing from the evidence manifest / on disk.
     SourceUnresolvable,
