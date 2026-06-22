@@ -48,13 +48,21 @@ pub fn run_loop(
     let mut prev_ids: Option<BTreeSet<String>> = None;
     let mut rounds: usize = 0;
 
+    // Failure ids for which a routed-to-review repair-log line has already been
+    // written, so a failure that persists across many rounds is accounted for
+    // exactly once (not re-logged every assess).
+    let mut review_logged: BTreeSet<String> = BTreeSet::new();
+
     // The final failure set, carried out of the loop for status synthesis.
     let mut last_fs = FailureSet::default();
 
     for _round in 0..GLOBAL_ROUND_CAP {
         let mut fs = assess();
 
-        // Re-apply carried retry counts; mark over-budget Open failures InReview.
+        // Re-apply carried retry counts; mark over-budget Open failures (and
+        // budget-0 ReviewRequired failures) InReview. Each such routing gets a
+        // repair-log line exactly once (deduped by id) so every review item is
+        // accounted for in provenance, not just those an executor attempted.
         for f in fs.0.iter_mut() {
             if let Some(&rc) = retry_count.get(&f.id) {
                 f.retry_count = rc;
@@ -63,6 +71,13 @@ pub fn run_loop(
                 && f.retry_count >= default_budget(f.class)
             {
                 f.status = FailureStatus::InReview;
+                log_routed_to_review(
+                    root,
+                    rounds,
+                    f,
+                    &mut review_logged,
+                    "over budget" ,
+                );
             }
         }
 
@@ -111,6 +126,21 @@ pub fn run_loop(
                     "applied",
                     format!("deterministic={deterministic}: {note}"),
                 ),
+                RepairOutcome::PartiallyApplied {
+                    deterministic,
+                    note,
+                    residual,
+                } => {
+                    // Real work was done but the failure is NOT closed. It will
+                    // re-surface on the next assess and, once over budget, route
+                    // to review. Log the partial outcome and its residual here.
+                    (
+                        "partial",
+                        format!(
+                            "deterministic={deterministic}: {note}; residual: {residual}"
+                        ),
+                    )
+                }
                 RepairOutcome::NeedsAgent(directive) => {
                     // Route the agentic need; surfaced for review if offline.
                     let routed = runner.rerun(root, directive);
@@ -174,9 +204,13 @@ pub fn run_loop(
     }
 
     // Post-loop: mark any remaining Open failure as InReview, then synthesize.
+    // Log each one routed to review (deduped) so the repair-log accounts for
+    // every review item even when the loop exited via the oscillation/round cap
+    // before the failure went over budget.
     for f in last_fs.0.iter_mut() {
         if f.status == FailureStatus::Open {
             f.status = FailureStatus::InReview;
+            log_routed_to_review(root, rounds, f, &mut review_logged, "loop exhausted");
         }
     }
     let status = from_final(&last_fs, rounds, FAILING_THRESHOLD);
@@ -188,6 +222,30 @@ pub fn run_loop(
 /// caller observes (the loop already converged in memory).
 fn persist_status(status: &RepairStatus, root: &Path) {
     let _ = status.persist(root);
+}
+
+/// Append a repair-log line for a failure routed to human review, exactly once
+/// per failure id (`logged` is the dedupe set across the whole loop). `why` is a
+/// short reason ("over budget", "loop exhausted") folded into the note.
+fn log_routed_to_review(
+    root: &Path,
+    round: usize,
+    f: &super::failure::Failure,
+    logged: &mut BTreeSet<String>,
+    why: &str,
+) {
+    if !logged.insert(f.id.clone()) {
+        return;
+    }
+    let log = RepairLogEntry {
+        round,
+        failure_id: f.id.clone(),
+        class: serde_class(f.class),
+        outcome: "routed_to_review".to_string(),
+        note: format!("routed to review ({why}): {}", f.subject),
+    };
+    // Provenance is best-effort; a log write failure must not abort the loop.
+    let _ = append_repair_log(root, &log);
 }
 
 /// Stable string tag for a class, matching its serde snake_case rendering.
@@ -261,6 +319,43 @@ mod tests {
                 note: "always-apply".to_string(),
             }
         }
+    }
+
+    /// Executor that always reports `PartiallyApplied` for a fixed class: real
+    /// work was done but the failure is not closed (mirrors the substrate case).
+    struct PartialExec {
+        class: RepairClass,
+    }
+    impl Executor for PartialExec {
+        fn class(&self) -> RepairClass {
+            self.class
+        }
+        fn repair(
+            &self,
+            _f: &Failure,
+            _pkg: &Path,
+            _config_dir: &Path,
+            _runner: &dyn TaskRunner,
+        ) -> RepairOutcome {
+            RepairOutcome::PartiallyApplied {
+                deterministic: true,
+                note: "did the real re-seal".to_string(),
+                residual: "validator offline".to_string(),
+            }
+        }
+    }
+
+    /// Read all repair-log entries from `<root>/runtime/repair-log.jsonl`.
+    fn read_repair_log(root: &Path) -> Vec<RepairLogEntry> {
+        let path = root.join("runtime").join("repair-log.jsonl");
+        let Ok(contents) = std::fs::read_to_string(&path) else {
+            return Vec::new();
+        };
+        contents
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| serde_json::from_str(l).expect("repair-log line parses"))
+            .collect()
     }
 
     /// Executor that always reports `NeedsAgent` for a fixed class.
@@ -505,6 +600,137 @@ mod tests {
         assert!(
             status.rounds <= GLOBAL_ROUND_CAP,
             "must terminate within the round cap"
+        );
+    }
+
+    /// (5) D1 twin: a ConformanceFix that returns `PartiallyApplied` must NOT be
+    /// counted as resolved — the failure stays in review. A sibling
+    /// ConformanceFix that returns `Applied` (ordinary drift, modelled by
+    /// `AlwaysApply`) DOES resolve. The same class, same loop, two outcomes:
+    /// proves PartiallyApplied is not silently promoted to resolved.
+    #[test]
+    fn partially_applied_stays_in_review_while_applied_resolves() {
+        // (a) PartiallyApplied: failure persists Open across assesses (the work
+        // never closes it), so it must route to review.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path();
+        let mut assess = || {
+            FailureSet(vec![mk(
+                RepairClass::ConformanceFix,
+                "substrate_validity",
+                FailureStatus::Open,
+            )])
+        };
+        let reg = registry_with(vec![Box::new(PartialExec {
+            class: RepairClass::ConformanceFix,
+        })]);
+        let status = run_loop(root, root, &mut assess, &reg, &NoRunner);
+        assert_eq!(
+            status.verdict,
+            RepairVerdict::MostlyPassing,
+            "an unresolved PartiallyApplied failure must end MostlyPassing, got {status:?}"
+        );
+        assert_eq!(
+            status.review.len(),
+            1,
+            "the partially-applied failure must remain a review item, got {:?}",
+            status.review
+        );
+        assert_eq!(
+            status.review[0].failure.subject, "substrate_validity",
+            "the substrate failure must be the review item"
+        );
+
+        // (b) Applied: an ordinary ConformanceFix that the next assess shows
+        // Resolved fully passes — the resolvable path is intact.
+        let tmp2 = tempfile::tempdir().expect("tempdir");
+        let root2 = tmp2.path();
+        let calls = Cell::new(0usize);
+        let mut assess2 = || {
+            let n = calls.get();
+            calls.set(n + 1);
+            let status = if n == 0 {
+                FailureStatus::Open
+            } else {
+                FailureStatus::Resolved
+            };
+            FailureSet(vec![mk(RepairClass::ConformanceFix, "table_drift", status)])
+        };
+        let reg2 = registry_with(vec![Box::new(AlwaysApply {
+            class: RepairClass::ConformanceFix,
+        })]);
+        let status2 = run_loop(root2, root2, &mut assess2, &reg2, &NoRunner);
+        assert_eq!(
+            status2.verdict,
+            RepairVerdict::FullyPassing,
+            "an ordinary ConformanceFix that resolves must end FullyPassing, got {status2:?}"
+        );
+        assert!(
+            status2.review.is_empty(),
+            "no review items for a resolved ConformanceFix, got {:?}",
+            status2.review
+        );
+    }
+
+    /// (6) D2 twin: a loop that produces N review items must write a repair-log
+    /// line accounting for ALL of them, including a ReviewRequired failure (no
+    /// executor ever attempts it) and a PartiallyApplied failure (an executor
+    /// did real work but could not close it). Every review item's id must appear
+    /// in a `routed_to_review` log line.
+    #[test]
+    fn every_review_item_gets_a_repair_log_line() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path();
+        let mut assess = || {
+            FailureSet(vec![
+                // ReviewRequired: budget 0, never attempted by any executor.
+                mk(RepairClass::ReviewRequired, "needs_human", FailureStatus::Open),
+                // PartiallyApplied: attempted, real work, never closes.
+                mk(RepairClass::ConformanceFix, "substrate_validity", FailureStatus::Open),
+            ])
+        };
+        let reg = registry_with(vec![Box::new(PartialExec {
+            class: RepairClass::ConformanceFix,
+        })]);
+        let status = run_loop(root, root, &mut assess, &reg, &NoRunner);
+
+        // Both failures are unresolved review items.
+        assert_eq!(
+            status.review.len(),
+            2,
+            "both failures must be review items, got {:?}",
+            status.review
+        );
+
+        let log = read_repair_log(root);
+        let routed: BTreeSet<String> = log
+            .iter()
+            .filter(|e| e.outcome == "routed_to_review")
+            .map(|e| e.failure_id.clone())
+            .collect();
+        // Every review item id must be accounted for by a routed_to_review line.
+        for item in &status.review {
+            assert!(
+                routed.contains(&item.failure.id),
+                "review item {:?} must have a routed_to_review repair-log line; log={:?}",
+                item.failure.subject,
+                log
+            );
+        }
+        assert_eq!(
+            routed.len(),
+            status.review.len(),
+            "exactly one routed_to_review line per review item (deduped), got {:?}",
+            log
+        );
+
+        // The PartiallyApplied failure must ALSO have produced a `partial` line
+        // recording the real work that was attempted (not only the review line).
+        let partial = mk(RepairClass::ConformanceFix, "substrate_validity", FailureStatus::Open);
+        assert!(
+            log.iter()
+                .any(|e| e.outcome == "partial" && e.failure_id == partial.id),
+            "the substrate failure must have a `partial` repair-log line, got {log:?}"
         );
     }
 }

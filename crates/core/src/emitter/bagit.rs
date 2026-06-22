@@ -6,8 +6,18 @@
 //! sidecars are excluded because they're intentionally not part of
 //! the byte-reproducibility baseline.
 //!
-//! The package is RFC 8493 BagIt-spec-compliant. Three tag files
-//! sit alongside `manifest-sha512.txt`:
+//! The package follows the RFC 8493 BagIt tag-file CONVENTIONS but is
+//! NOT a fully RFC 8493-conformant bag: the payload is manifested at the
+//! package root rather than under a `data/` payload directory (RFC 8493
+//! §2.1.2 requires the payload to live in `data/`). Relocating the
+//! payload under `data/` would break every reader of the flat package
+//! layout (`runtime/outputs/`, `inputs/`, `evidence/`), the RO-Crate
+//! `@id` paths, the WRROC `mainEntity` paths, and the conformance
+//! fixtures, so it is DEFERRED rather than faked. What IS provided to
+//! spec: SHA-512 payload manifest with a correct Payload-Oxum, and the
+//! three tag files below.
+//!
+//! Three tag files sit alongside `manifest-sha512.txt`:
 //! - `bagit.txt`  declares BagIt version + tag-file encoding,
 //! - `bag-info.txt` carries Source-Organization, External-Description,
 //!   Bagging-Date (from the `&dyn Clock` so emits stay byte-identical),
@@ -18,6 +28,24 @@
 
 use anyhow::{anyhow, Context, Result};
 use rayon::prelude::*;
+
+/// Directory names that hold version-control internals or build/runtime
+/// caches: their contents are transient (and, for `.git`, often thousands
+/// of loose objects/refs) and must never be checksummed into the payload
+/// manifest. A directory whose FINAL path component is one of these is
+/// skipped at any depth, by both the Emit and Reseal walks. Skipping these
+/// keeps the manifest a description of the package payload — not of a
+/// checked-out VCS working copy that happens to sit under the package root.
+const VCS_TRANSIENT_DIRS: &[&str] = &[
+    ".git",
+    ".hg",
+    ".svn",
+    ".bzr",
+    "CVS",
+    "node_modules",
+    "__pycache__",
+    ".ipynb_checkpoints",
+];
 
 /// Whether the manifest is being written at emit time (skeleton — outputs
 /// don't exist yet) or re-sealed after execution (outputs ARE part of the
@@ -101,19 +129,32 @@ pub(super) fn write_bagit_manifest_with_mode(
     let bagit_path = dir.join("bagit.txt");
     std::fs::write(&bagit_path, bagit_txt).context("writing bagit.txt")?;
 
-    // RFC 8493 §2.2.2 — `Bagging-Date` is human-meaningful, so it must NOT
-    // reuse the opaque hash-derived emit clock (which can map into the far
-    // future, e.g. 2061). Pin it to the stable EPOCH_2026 base
-    // (`FrozenClock::default`) so it is (a) byte-identical across two emits
-    // of the same intake AND across emit-vs-reseal, and (b) a defensible
-    // date. `clock` is retained for signature stability with the reseal path.
-    let _ = clock;
-    let bagging_date = {
-        use crate::clock::Clock as _;
-        crate::clock::FrozenClock::default()
-            .now()
-            .format("%Y-%m-%d")
-            .to_string()
+    // RFC 8493 §2.2.2 — `Bagging-Date` is human-meaningful.
+    //
+    // At EMIT we are writing the byte-reproducible skeleton (outputs don't
+    // exist yet), so the date must be deterministic from intake — NOT the
+    // wall clock and NOT the opaque hash-derived `emit_clock` (which can map
+    // into the far future, e.g. 2061). We pin it to the stable EPOCH_2026
+    // base so two emits of the same intake are byte-identical.
+    //
+    // At RESEAL (post-execution finalize) the package is NO LONGER part of
+    // the byte-reproducibility baseline — it is the at-rest record of an
+    // actual run — and the caller already threads the REAL run clock
+    // (`finalize.rs` / conformance repair pass `WallClock`). C2: use that
+    // real clock here so the finalized bag carries the genuine run date
+    // rather than a frozen 2026-01-01 placeholder.
+    let bagging_date = match mode {
+        SealMode::Emit => {
+            use crate::clock::Clock as _;
+            crate::clock::FrozenClock::default()
+                .now()
+                .format("%Y-%m-%d")
+                .to_string()
+        }
+        SealMode::Reseal => {
+            use crate::clock::Clock as _;
+            clock.now().format("%Y-%m-%d").to_string()
+        }
     };
     let bag_info = format!(
         "Source-Organization: Scripps Research\n\
@@ -300,6 +341,19 @@ fn walk_for_manifest(
             continue;
         }
         if path.is_dir() {
+            // C1 — skip VCS internals + build/runtime caches at ANY depth.
+            // Their contents are transient and (for `.git`) can be thousands
+            // of loose objects, none of which belong in the payload manifest.
+            // Match on the directory's FINAL component so a `.git` nested
+            // arbitrarily deep is still excluded.
+            let is_transient = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|name| VCS_TRANSIENT_DIRS.contains(&name))
+                .unwrap_or(false);
+            if is_transient {
+                continue;
+            }
             walk_for_manifest(root, &path, mode, out)?;
         } else if path.is_file() {
             out.push(rel);
@@ -375,6 +429,96 @@ mod tests {
         assert!(reseal_m.contains("runtime/outputs/de/de_results.tsv"), "reseal must include outputs");
     }
 
+    /// C1 twin — the manifest walk must EXCLUDE VCS internals
+    /// (`.git/`) and build/runtime caches (`node_modules/`) at any
+    /// depth while still hashing a real payload file, the Payload-Oxum
+    /// must count only the real payload, and a tampered payload file
+    /// must STILL break sha512 verification (the integrity guarantee is
+    /// preserved, not weakened, by the exclusion).
+    #[test]
+    fn manifest_excludes_vcs_transient_dirs_but_hashes_payload() {
+        let tmp = tempfile::tempdir().unwrap();
+        // A real payload file that MUST be manifested.
+        std::fs::write(tmp.path().join("payload.txt"), b"real payload\n").unwrap();
+        // VCS internals at top level + nested deep — both must be skipped.
+        std::fs::create_dir_all(tmp.path().join(".git/refs/heads")).unwrap();
+        std::fs::write(tmp.path().join(".git/HEAD"), b"ref: refs/heads/main\n").unwrap();
+        std::fs::write(tmp.path().join(".git/refs/heads/main"), b"deadbeef\n").unwrap();
+        std::fs::create_dir_all(tmp.path().join("runtime/outputs/de/node_modules/pkg")).unwrap();
+        std::fs::write(
+            tmp.path().join("runtime/outputs/de/node_modules/pkg/index.js"),
+            b"module.exports = {}\n",
+        )
+        .unwrap();
+        // A nested __pycache__ to prove final-component matching at depth.
+        std::fs::create_dir_all(tmp.path().join("runtime/outputs/de/__pycache__")).unwrap();
+        std::fs::write(
+            tmp.path().join("runtime/outputs/de/__pycache__/m.pyc"),
+            b"\x00\x01",
+        )
+        .unwrap();
+        // A real output file alongside the cache so reseal still hashes it.
+        std::fs::write(
+            tmp.path().join("runtime/outputs/de/de_results.tsv"),
+            b"gene\tpadj\n",
+        )
+        .unwrap();
+        let clk = crate::clock::FrozenClock::default();
+
+        write_bagit_manifest_with_mode(tmp.path(), &clk, SealMode::Reseal).unwrap();
+        let manifest =
+            std::fs::read_to_string(tmp.path().join("manifest-sha512.txt")).unwrap();
+
+        assert!(
+            manifest.contains("payload.txt"),
+            "real payload must be manifested:\n{manifest}"
+        );
+        assert!(
+            manifest.contains("runtime/outputs/de/de_results.tsv"),
+            "real output must be manifested on reseal:\n{manifest}"
+        );
+        assert!(
+            !manifest.contains(".git/"),
+            ".git internals must be excluded:\n{manifest}"
+        );
+        assert!(
+            !manifest.contains("node_modules"),
+            "node_modules must be excluded:\n{manifest}"
+        );
+        assert!(
+            !manifest.contains("__pycache__"),
+            "__pycache__ must be excluded:\n{manifest}"
+        );
+
+        // Payload-Oxum must count ONLY the two real payload files
+        // (payload.txt = 13 bytes, de_results.tsv = 10 bytes), stream
+        // count 2 — never the excluded VCS/cache files.
+        let info = std::fs::read_to_string(tmp.path().join("bag-info.txt")).unwrap();
+        assert!(
+            info.contains("Payload-Oxum: 23.2"),
+            "Payload-Oxum must count only real payload (23 octets / 2 streams):\n{info}"
+        );
+
+        // Integrity is PRESERVED: tampering with a manifested payload
+        // file makes the recorded sha512 no longer match the file on disk.
+        let before = {
+            let line = manifest
+                .lines()
+                .find(|l| l.ends_with("payload.txt"))
+                .expect("payload.txt line present");
+            line.split_whitespace().next().unwrap().to_string()
+        };
+        std::fs::write(tmp.path().join("payload.txt"), b"TAMPERED\n").unwrap();
+        let after = stream_sha512_hex(&tmp.path().join("payload.txt")).unwrap();
+        assert_ne!(
+            before, after,
+            "tampering a manifested payload file must change its sha512 (verification still breaks)"
+        );
+    }
+
+    /// At EMIT the bag is the byte-reproducible skeleton, so Bagging-Date
+    /// must stay pinned to the EPOCH_2026 base and must NOT leak the
+    /// hash-derived far-future emit clock.
     #[test]
     fn bagging_date_is_pinned_not_hash_derived() {
         let tmp = tempfile::tempdir().unwrap();
@@ -391,6 +535,37 @@ mod tests {
         assert!(
             info.contains("Bagging-Date: 2026-01-01"),
             "expected pinned date, got:\n{info}"
+        );
+    }
+
+    /// C2 twin — at RESEAL (post-execution finalize) the package is the
+    /// at-rest record of a real run, no longer on the byte-repro
+    /// baseline, and the caller threads the REAL run clock. Bagging-Date
+    /// must then be the genuine run date, NOT the frozen 2026-01-01
+    /// placeholder. (The reseal callers — finalize.rs / conformance
+    /// repair — pass `WallClock`; here we pass a fixed real-ish date so
+    /// the assertion is deterministic.)
+    #[test]
+    fn reseal_bagging_date_is_real_run_date_not_pinned() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("a.txt"), b"hi").unwrap();
+        // 2026-06-21T00:00:00Z — a plausible real run date distinct from
+        // the EPOCH_2026 (2026-01-01) pin, so a regression that reverts to
+        // the pin is caught.
+        let run_clock = crate::clock::FrozenClock {
+            at: chrono::TimeZone::timestamp_opt(&chrono::Utc, 1_782_000_000, 0)
+                .single()
+                .unwrap(),
+        };
+        write_bagit_manifest_with_mode(tmp.path(), &run_clock, SealMode::Reseal).unwrap();
+        let info = std::fs::read_to_string(tmp.path().join("bag-info.txt")).unwrap();
+        assert!(
+            info.contains("Bagging-Date: 2026-06-21"),
+            "reseal must stamp the real run date, got:\n{info}"
+        );
+        assert!(
+            !info.contains("Bagging-Date: 2026-01-01"),
+            "reseal must NOT reuse the EPOCH_2026 emit pin:\n{info}"
         );
     }
 }

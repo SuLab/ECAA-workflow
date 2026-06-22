@@ -78,6 +78,7 @@ fn persist_verified_table_claim(root: &Path, task: &str, table: &str, w: &AuditW
         n_verified: 1,
         n_mismatch: 0,
         n_unverifiable: 0,
+        n_pending: 0,
         n_suspicious: 0,
         verdicts: vec![ClaimVerdict {
             claim,
@@ -392,5 +393,152 @@ fn finalize_backfills_claim_nodes_into_graph_from_signed_sink() {
         has_supported_by_edge,
         "@graph must carry a supported_by edge from the Claim to a V table entity; \
          @graph=\n{graph:#?}"
+    );
+}
+
+/// FAITHFUL TWIN (B2): after the C-subgraph back-fill, the embedded `Claim`
+/// node's `supported_by` `@id` must reference the REAL registered output File
+/// entity (the table's `@id`), which is itself a node in the SAME `@graph` — not
+/// a synthetic `V:<basename>` handle that resolves to nothing. The Claim text is
+/// no longer empty either: it carries the recorded excerpt / matched entity.
+#[test]
+fn backfilled_claim_supported_by_resolves_to_real_graph_node_and_text_populated() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let task = "differential_expression";
+    let table = "differential_expression.tsv";
+    write_production_shaped_package(root, table, task);
+
+    let w = AuditWriter::for_session();
+    // A claim with a real excerpt so we can assert the node text populates.
+    let claim = Claim {
+        entity: "TGFB1".into(),
+        direction: None,
+        effect_size: None,
+        pvalue: None,
+        source_table: Some(table.into()),
+        excerpt: "TGFB1 is strongly upregulated in the treated cohort.".into(),
+        contract: ClaimContract::NumericTableLookup,
+        literature_evidence: None,
+        matched_pvalue_keyword: None,
+        linear_fold: None,
+    };
+    let rep = ClaimVerificationReport {
+        n_checked: 1,
+        n_verified: 1,
+        n_mismatch: 0,
+        n_unverifiable: 0,
+        n_pending: 0,
+        n_suspicious: 0,
+        verdicts: vec![ClaimVerdict {
+            claim,
+            status: ClaimStatus::Verified,
+            strength: ClaimStrength::default(),
+        }],
+        runtime_decision_log_path: None,
+    };
+    persist_signed_verdicts(root, task, &rep, None, &w).unwrap();
+
+    let clock = ecaa_workflow_core::clock::WallClock;
+    ecaa_workflow_core::ro_crate::finalize_evidence_registration_with_verifier(root, &clock, Some(&w))
+        .unwrap();
+
+    let doc: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("ro-crate-metadata.json")).unwrap()).unwrap();
+    let graph = doc["@graph"].as_array().unwrap();
+
+    let node_ids: std::collections::BTreeSet<&str> = graph
+        .iter()
+        .filter_map(|e| e["@id"].as_str())
+        .collect();
+
+    let claim_node = graph
+        .iter()
+        .find(|e| e["@type"] == json!("Claim"))
+        .unwrap_or_else(|| panic!("@graph must carry a Claim node; @graph=\n{graph:#?}"));
+
+    // Text is populated from the recorded excerpt (no longer the empty default).
+    assert_eq!(
+        claim_node["text"],
+        json!("TGFB1 is strongly upregulated in the treated cohort."),
+        "embedded Claim text must carry the recorded excerpt, not the empty default"
+    );
+
+    // Every supported_by @id resolves to a REAL @graph node (the registered
+    // output File), so the embedded edge is not dangling.
+    let refs = claim_node["supported_by"]
+        .as_array()
+        .unwrap_or_else(|| panic!("Claim node must carry a supported_by array; node={claim_node:#?}"));
+    assert!(!refs.is_empty(), "supported_by must be non-empty for a verified claim");
+    for r in refs {
+        let target = r["@id"]
+            .as_str()
+            .unwrap_or_else(|| panic!("supported_by entry must be {{@id}}; got {r}"));
+        assert!(
+            node_ids.contains(target),
+            "supported_by @id {target} must resolve to a real @graph node; \
+             node_ids={node_ids:?}"
+        );
+        // And it must be the REAL output File path, not a synthetic V: handle.
+        assert!(
+            target.starts_with("runtime/outputs/"),
+            "supported_by must reference the real registered File @id, not a V: handle; got {target}"
+        );
+    }
+
+    // The integrity invariant agrees: it passes when the embedded ref resolves.
+    let (status, detail) = cross_graph_status(root, &w);
+    assert_eq!(
+        status,
+        InvariantStatus::Pass,
+        "resolved embedded supported_by must pass cross_graph_integrity; detail={detail:?}"
+    );
+}
+
+/// FAITHFUL TWIN (B2): a DANGLING embedded `Claim.supported_by` `@id` — one that
+/// names no `@graph` node — MUST FAIL `cross_graph_integrity`. This proves the
+/// invariant ACTUALLY validates embedded referential integrity (the gap the
+/// task closes): before the fix an embedded dangling id passed unchecked.
+#[test]
+fn dangling_embedded_claim_supported_by_fails_cross_graph_integrity() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let task = "differential_expression";
+    let table = "differential_expression.tsv";
+    write_production_shaped_package(root, table, task);
+
+    // Register the real table so the package has at least one resolvable output.
+    ecaa_workflow_core::ro_crate::register_produced_output_tables(root).unwrap();
+
+    // Hand-inject an embedded Claim node whose supported_by names a NON-EXISTENT
+    // output File — exactly the dangling-id shape the projector must never emit,
+    // and which the invariant must now catch.
+    let descriptor = root.join("ro-crate-metadata.json");
+    let mut doc: serde_json::Value =
+        serde_json::from_slice(&fs::read(&descriptor).unwrap()).unwrap();
+    doc["@graph"].as_array_mut().unwrap().push(json!({
+        "@id": "C:differential_expression_claim-0",
+        "@type": "Claim",
+        "status": "verified",
+        "text": "TGFB1 upregulated",
+        "supported_by": [{ "@id": "runtime/outputs/differential_expression/DOES_NOT_EXIST.tsv" }]
+    }));
+    fs::write(&descriptor, serde_json::to_vec_pretty(&doc).unwrap()).unwrap();
+
+    // A signed sink must exist for cross_graph to load claims; persist a verdict
+    // (its own supported_by resolves — the FAILURE comes from the embedded node).
+    let w = AuditWriter::for_session();
+    persist_verified_table_claim(root, task, table, &w);
+
+    let (status, detail) = cross_graph_status(root, &w);
+    assert_eq!(
+        status,
+        InvariantStatus::Fail,
+        "a dangling embedded Claim supported_by @id must FAIL cross_graph_integrity"
+    );
+    let detail = detail.unwrap_or_default();
+    assert!(
+        detail.contains("DOES_NOT_EXIST.tsv"),
+        "the failure detail must name the dangling embedded reference; got: {detail}"
     );
 }

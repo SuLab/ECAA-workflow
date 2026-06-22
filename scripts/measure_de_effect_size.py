@@ -238,7 +238,7 @@ def compute_metrics(rows, effect_idx, info_idx, top_k=TOP_K):
         When information_column_recorded is False the assertion is `when`-gated
         away, so this value is irrelevant; it is recorded as the neutral,
         non-failing sentinel 1.0 and the gate (not this value) skips the check.
-      top_effect_k / significant_feature_count: informational only.
+      top_effect_k / tested_feature_count: informational only.
     """
     # Parse (|effect|, info) pairs, dropping rows where either is unparseable.
     pairs = []
@@ -273,7 +273,7 @@ def compute_metrics(rows, effect_idx, info_idx, top_k=TOP_K):
             "information_column_recorded": False,
             "top_effect_abundance_ratio": 1.0,
             "top_effect_k": int(top_k),
-            "significant_feature_count": len(pairs),
+            "tested_feature_count": len(pairs),
         }
 
     set_info_sorted = sorted(info for (_eff, info) in tested)
@@ -286,7 +286,7 @@ def compute_metrics(rows, effect_idx, info_idx, top_k=TOP_K):
             "information_column_recorded": True,
             "top_effect_abundance_ratio": 1.0,
             "top_effect_k": int(top_k),
-            "significant_feature_count": len(tested),
+            "tested_feature_count": len(tested),
         }
 
     # The agent's own top-K by |effect| (descending). Stable order: |effect|
@@ -300,7 +300,7 @@ def compute_metrics(rows, effect_idx, info_idx, top_k=TOP_K):
         "information_column_recorded": True,
         "top_effect_abundance_ratio": float(ratio),
         "top_effect_k": int(top_k),
-        "significant_feature_count": len(tested),
+        "tested_feature_count": len(tested),
     }
 
 
@@ -365,7 +365,7 @@ def main(argv=None):
             "information_column_recorded": False,
             "top_effect_abundance_ratio": 1.0,
             "top_effect_k": int(TOP_K),
-            "significant_feature_count": 0,
+            "tested_feature_count": 0,
             "r_squared_column_recorded": False,
             "sample_size_column_recorded": False,
         }
@@ -384,7 +384,7 @@ def main(argv=None):
             "information_column_recorded": False,
             "top_effect_abundance_ratio": 1.0,
             "top_effect_k": int(TOP_K),
-            "significant_feature_count": 0,
+            "tested_feature_count": 0,
         }
         result.update(completeness)
         result["narrative_text"] = _fold_narrative_text(args.out)

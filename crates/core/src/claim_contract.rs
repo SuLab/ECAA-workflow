@@ -27,6 +27,14 @@ pub enum ClaimContract {
     /// `claims_evidence_matrix.csv` PMID-anchored prior-work rows rather than
     /// a numeric result table.
     LiteratureGrounded,
+    /// Ordinal / superlative extreme claim WITHOUT an explicit rank digit
+    /// ("the strongest enrichment", "the most-downregulated gene by log2FC",
+    /// "TP53 had the lowest padj"). Distinct from [`Self::RankTopN`], which
+    /// requires a numeric rank ("top-10"). Verified by confirming the named
+    /// entity is the actual argmax/argmin of the cited column for the stated
+    /// direction (highest/largest/strongest → argmax; lowest/least/smallest/
+    /// weakest → argmin).
+    ExtremeValue,
 }
 
 impl ClaimContract {

@@ -28,6 +28,7 @@ fn report() -> ClaimVerificationReport {
         n_verified: 1,
         n_mismatch: 0,
         n_unverifiable: 0,
+        n_pending: 0,
         n_suspicious: 0,
         verdicts: vec![ClaimVerdict {
             claim: c,
@@ -101,6 +102,7 @@ fn two_claim_report() -> ClaimVerificationReport {
         n_verified: 2,
         n_mismatch: 0,
         n_unverifiable: 0,
+        n_pending: 0,
         n_suspicious: 0,
         verdicts: vec![v("TP53"), v("IL6")],
         runtime_decision_log_path: None,

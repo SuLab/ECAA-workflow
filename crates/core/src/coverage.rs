@@ -176,9 +176,13 @@ pub fn reconcile_coverage_scoped(
             }
             let candidate = match &v.status {
                 ClaimStatus::Verified => EntityCoverage::Addressed,
-                ClaimStatus::Mismatch { .. } | ClaimStatus::Unverifiable { .. } => {
-                    EntityCoverage::Unverifiable
-                }
+                // Pending (never adjudicated) maps to the same coverage outcome
+                // as Unverifiable (checked-but-undeterminable): neither is
+                // Addressed, so splitting the status enum cannot inflate the
+                // recall/coverage floor.
+                ClaimStatus::Mismatch { .. }
+                | ClaimStatus::Unverifiable { .. }
+                | ClaimStatus::Pending { .. } => EntityCoverage::Unverifiable,
                 // Suspicious is soft/review-required — it must NOT register as a
                 // recall gap (which would hard-fail claim_completeness). A claim
                 // flagged Suspicious did address the entity (it named it with a

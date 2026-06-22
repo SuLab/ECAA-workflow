@@ -727,15 +727,19 @@ fn stamp_dispatch_identity(
 fn stamp_determinism_env(
     env: &mut std::collections::BTreeMap<String, String>,
     dispatch: Option<&PickedDispatch>,
+    run_source_date_epoch: u64,
     enabled: bool,
 ) {
     if !enabled {
         return;
     }
     let Some(dispatch) = dispatch else { return };
+    // C2 — SOURCE_DATE_EPOCH comes from the RUN-level epoch (identical for
+    // every task), NOT the per-task `dispatch.epoch` counter. The run id is
+    // still threaded for seed identity but no longer perturbs the epoch.
     let seeds = ecaa_workflow_core::determinism_seeds::seed_env_from_dispatch(
         &dispatch.harness_run_id,
-        dispatch.epoch,
+        run_source_date_epoch,
     );
     for (k, v) in seeds {
         env.entry(k).or_insert(v);
@@ -1809,6 +1813,15 @@ fn main() -> Result<()> {
         watchdog_tx,
     );
 
+    // C2 — capture ONE run-stable SOURCE_DATE_EPOCH for the whole run,
+    // here at harness startup (next to harness_run_id) rather than per
+    // task. Read from the same `clock` threaded into run_loop so tests
+    // (FrozenClock) stay deterministic and production gets the real run
+    // date. Every task in this run stamps this identical value, so the
+    // emitted package carries a single, defensible build date instead of
+    // one distinct SOURCE_DATE_EPOCH per dispatched task.
+    let run_source_date_epoch: u64 = clock.now().timestamp().max(0) as u64;
+
     let run_result = run_loop(
         &args,
         &executor,
@@ -1818,6 +1831,7 @@ fn main() -> Result<()> {
         &watchdog_rx,
         &harness_run_id,
         &mut dispatch_epoch,
+        run_source_date_epoch,
         &clock,
     );
 
@@ -2049,6 +2063,9 @@ fn run_loop(
     watchdog_rx: &mpsc::Receiver<WatchdogEvent>,
     harness_run_id: &str,
     dispatch_epoch: &mut u64,
+    // Run-stable SOURCE_DATE_EPOCH captured once at harness startup;
+    // stamped identically for every task (C2 run-level determinism).
+    run_source_date_epoch: u64,
     clock: &dyn Clock,
 ) -> Result<()> {
     let path = Path::new(&args.package);
@@ -3126,6 +3143,7 @@ fn run_loop(
                         stamp_determinism_env(
                             &mut env,
                             dispatch_by_task.get(id),
+                            run_source_date_epoch,
                             ecaa_workflow_core::determinism_seeds::seeds_enabled(
                                 std::env::var("ECAA_DETERMINISM_SEEDS").ok().as_deref(),
                             ),
@@ -3147,6 +3165,7 @@ fn run_loop(
                         stamp_determinism_env(
                             &mut env,
                             dispatch_by_task.get(id),
+                            run_source_date_epoch,
                             ecaa_workflow_core::determinism_seeds::seeds_enabled(
                                 std::env::var("ECAA_DETERMINISM_SEEDS").ok().as_deref(),
                             ),
@@ -8463,16 +8482,51 @@ mod read_dag_tests {
             harness_run_id: "run-det".into(),
             epoch: 3,
         };
+        let run_epoch = 1_767_225_600u64;
         let mut env: std::collections::BTreeMap<String, String> = Default::default();
         // Force-enable regardless of the ambient env in CI.
-        stamp_determinism_env(&mut env, Some(&dispatch), true);
+        stamp_determinism_env(&mut env, Some(&dispatch), run_epoch, true);
         assert_eq!(env.get("PYTHONHASHSEED").map(String::as_str), Some("0"));
         assert_eq!(env.get("LANG").map(String::as_str), Some("C.UTF-8"));
         assert!(env.contains_key("SOURCE_DATE_EPOCH"));
         // Disabled => no keys stamped.
         let mut env_off: std::collections::BTreeMap<String, String> = Default::default();
-        stamp_determinism_env(&mut env_off, Some(&dispatch), false);
+        stamp_determinism_env(&mut env_off, Some(&dispatch), run_epoch, false);
         assert!(env_off.is_empty(), "disabled knob must stamp nothing");
+    }
+
+    /// C2 twin (harness seam) — two tasks with DIFFERENT per-task
+    /// dispatch `epoch`s, stamped under the SAME run epoch, must receive
+    /// the SAME `SOURCE_DATE_EPOCH`, and it must equal the run epoch.
+    /// Before the fix the per-task `dispatch.epoch` fed the value and
+    /// these diverged (the 22-distinct-values bug).
+    #[test]
+    fn stamp_determinism_env_source_date_epoch_is_run_stable_across_tasks() {
+        let run_epoch = 1_767_225_600u64;
+        let task_a = PickedDispatch {
+            task_id: "a".into(),
+            harness_run_id: "run-det".into(),
+            epoch: 1,
+        };
+        let task_b = PickedDispatch {
+            task_id: "b".into(),
+            harness_run_id: "run-det".into(),
+            epoch: 22,
+        };
+        let mut env_a: std::collections::BTreeMap<String, String> = Default::default();
+        let mut env_b: std::collections::BTreeMap<String, String> = Default::default();
+        stamp_determinism_env(&mut env_a, Some(&task_a), run_epoch, true);
+        stamp_determinism_env(&mut env_b, Some(&task_b), run_epoch, true);
+        assert_eq!(
+            env_a.get("SOURCE_DATE_EPOCH"),
+            env_b.get("SOURCE_DATE_EPOCH"),
+            "tasks 1 and 22 of the same run must share SOURCE_DATE_EPOCH"
+        );
+        assert_eq!(
+            env_a.get("SOURCE_DATE_EPOCH").map(String::as_str),
+            Some("1767225600"),
+            "SOURCE_DATE_EPOCH must be the run epoch verbatim"
+        );
     }
 
     #[test]

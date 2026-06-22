@@ -16,6 +16,18 @@ pub enum RepairOutcome {
         /// Human-readable description of the change.
         note: String,
     },
+    /// Some real, deterministic work was done, but the failure is NOT fully
+    /// resolved: a residual obstacle remains that this executor cannot close
+    /// (e.g. an offline-only validator). The driver MUST route this to review
+    /// rather than counting it as resolved.
+    PartiallyApplied {
+        /// Whether the work that *was* done was mechanical (no agent).
+        deterministic: bool,
+        /// Human-readable description of the work that was applied.
+        note: String,
+        /// The residual obstacle that keeps the failure unresolved.
+        residual: String,
+    },
     /// The repair requires an agent re-run; carries the directive to route.
     NeedsAgent(RepairDirective),
     /// The failure could not be repaired; carries the reason.

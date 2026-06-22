@@ -142,9 +142,10 @@ mod tests {
         let report = task_dir.join("report.md");
         std::fs::write(&report, b"original narrative\n").expect("write report");
 
-        // A FROZEN result table sitting right next to the narrative (anti-gaming
-        // faithful twin): it must NOT be captured and must survive byte-identical
-        // even though we mutate it after the snapshot.
+        // A FROZEN result table sitting right next to the narrative (the
+        // faithful twin whose bytes must never change): it must NOT be captured
+        // and must survive byte-identical even though we mutate it after the
+        // snapshot.
         let result_table = task_dir.join("de.tsv");
         let frozen_bytes = b"gene\tlog2fc\nCRISPLD2\t-2.1\n";
         std::fs::write(&result_table, frozen_bytes).expect("write table");
@@ -188,7 +189,7 @@ mod tests {
         assert_ne!(
             table_now.as_slice(),
             frozen_bytes.as_slice(),
-            "anti-gaming: if rollback had captured de.tsv it would equal the original bytes"
+            "frozen-table integrity: if rollback had captured de.tsv it would equal the original bytes"
         );
 
         // The root RO-Crate is restored too.

@@ -146,6 +146,14 @@ pub fn verify_task_with_context(
         report.push(v);
     }
 
+    // 2b. (A4) Structured summary counts — `result.json`'s `n_up_fdr05` /
+    //     `n_down_fdr05` directional DE split. Nothing else recomputes these,
+    //     so an up/down split error slips through. Recompute from
+    //     `de_results.tsv` and fold in a real Mismatch on any disagreement.
+    for v in crate::claim_verifier::verify_structured_counts(package_root, &cfg) {
+        report.push(v);
+    }
+
     // NOTE (C3 reverted): we deliberately do NOT mine raw result-table rows
     // (`de_results.tsv` etc.) as claims. Doing so emits one claim per row and
     // then "verifies" each row against the very table it was read from — a
@@ -371,6 +379,37 @@ pub fn finalize_task(
             ) {
                 if let Ok(bytes) = serde_json::to_vec_pretty(&doc) {
                     let _ = std::fs::write(root.join("runtime/audit-proof-report.json"), bytes);
+                }
+
+                // Re-inject the just-recomputed verdicts as embedded
+                // `InvariantVerdict` `@graph` nodes so the descriptor's embedded
+                // verdicts EQUAL the authoritative at-rest report. Without this,
+                // the embedded nodes stay frozen at their emit-time values
+                // (computed before execution, the signed sink, and table
+                // registration existed) and silently disagree with
+                // `runtime/audit-proof-report.json`. The descriptor is a
+                // manifested file, so the re-seal below covers the mutation.
+                // `project_audit_proof_jsonld` reads the report's JSON Value
+                // (`verdicts[]`), so serialize the typed report once.
+                let report_value = serde_json::to_value(&doc).unwrap_or(serde_json::Value::Null);
+                if let Err(e) =
+                    crate::ro_crate::reinject_audit_proof_verdicts(root, &report_value)
+                {
+                    tracing::warn!(
+                        target: "ecaa::finalize",
+                        error = %e,
+                        task_id,
+                        "audit-proof verdict re-injection into descriptor failed"
+                    );
+                } else if let Err(e) =
+                    crate::emitter::regenerate_bagit_manifest(root, &WallClock)
+                {
+                    tracing::warn!(
+                        target: "ecaa::finalize",
+                        error = %e,
+                        task_id,
+                        "BagIt manifest re-seal after verdict re-injection failed"
+                    );
                 }
             }
         }

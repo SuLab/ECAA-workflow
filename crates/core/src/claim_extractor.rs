@@ -80,6 +80,32 @@ static RANK_CLASSIFIER_RE: LazyLock<Regex> = LazyLock::new(|| {
         .expect("static regex")
 });
 
+/// A1/A3 — superlative / ordinal-extreme detector for `classify_contract`.
+/// Matches an extreme word WITHOUT a numeric rank ("the strongest enrichment",
+/// "the most-downregulated gene", "lowest padj", "top-ranked by NES"). A digit
+/// rank ("top-10") is handled by [`RANK_CLASSIFIER_RE`] and routes to
+/// `RankTopN` instead, so this pattern is deliberately digit-free. Routing to
+/// `ExtremeValue` requires BOTH this token AND a named column token (checked
+/// separately by [`EXTREME_COLUMN_RE`]) so a bare "the most important pathway"
+/// with no checkable column stays in a lower-specificity class.
+static SUPERLATIVE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)\b(highest|lowest|most|least|largest|smallest|strongest|weakest|maximal|minimal|top[\s-]?(?:ranked|most|scoring)?|bottom[\s-]?(?:ranked|most)?)\b",
+    )
+    .expect("static regex")
+});
+
+/// A named result COLUMN token a superlative can be checked against (NES,
+/// log2FC, padj, p-value, …). An extreme claim only routes to `ExtremeValue`
+/// when it names one of these, so the verifier knows which column to take the
+/// argmax/argmin of.
+static EXTREME_COLUMN_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)\b(nes|log2[\s_-]?fc|log[\s_-]?fold[\s_-]?change|logfc|fold[\s-]?change|padj|p[\s_-]?adj|fdr|q[\s_-]?value|qvalue|p[\s_-]?value|pvalue|effect[\s-]?size|enrichment[\s-]?score|abundance)\b",
+    )
+    .expect("static regex")
+});
+
 /// Static regex for `classify_contract`'s time-series detector. Hoisted
 /// for the same reason as `RANK_CLASSIFIER_RE`.
 static TIME_SERIES_RE: LazyLock<Regex> = LazyLock::new(|| {
@@ -561,6 +587,23 @@ fn read_string_list(v: &Value, key: &str) -> Result<Vec<String>> {
 pub fn classify_contract(sentence: &str) -> ClaimContract {
     let lower = sentence.to_lowercase();
 
+    // A3 — ordinal / superlative extreme ("the lowest padj", "the most
+    // downregulated gene by log2FC") WITHOUT an explicit numeric rank digit
+    // (which routes to RankTopN) and WITHOUT an explicit numeric threshold
+    // comparator (a real "padj < 0.05" assertion stays ThresholdedDeOrEnrichment
+    // — it is a checkable threshold, not an argmax/argmin). Checked first so a
+    // bare column name in a superlative ("lowest padj") is not swallowed by the
+    // threshold-keyword detector below. Requires both a superlative token and a
+    // named column so a bare "the most important pathway" stays lower-specificity.
+    let has_explicit_threshold_comparator = lower.contains('<') || lower.contains('≤');
+    if !has_explicit_threshold_comparator
+        && !RANK_CLASSIFIER_RE.is_match(&lower)
+        && SUPERLATIVE_RE.is_match(&lower)
+        && EXTREME_COLUMN_RE.is_match(&lower)
+    {
+        return ClaimContract::ExtremeValue;
+    }
+
     // Thresholded DE / enrichment: an explicit threshold comparison or a
     // significance ASSERTION.
     let threshold_keywords = [
@@ -655,7 +698,8 @@ pub fn classify_contract(sentence: &str) -> ClaimContract {
         return ClaimContract::LiteratureGrounded;
     }
 
-    // Rank / top-N membership.
+    // Rank / top-N membership (explicit numeric rank, e.g. "top-10").
+    // (Digit-free superlatives were already routed to ExtremeValue at the top.)
     if RANK_CLASSIFIER_RE.is_match(&lower) {
         return ClaimContract::RankTopN;
     }

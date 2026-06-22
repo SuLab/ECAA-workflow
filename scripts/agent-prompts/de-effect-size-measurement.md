@@ -14,7 +14,7 @@ python3 lib/measure_de_effect_size.py \
 
 The script emits `information_column_recorded` and
 `top_effect_abundance_ratio` into result.json (plus informational
-`top_effect_k` and `significant_feature_count`). It ALSO emits two
+`top_effect_k` and `tested_feature_count`). It ALSO emits two
 report-completeness presence flags — `r_squared_column_recorded` and
 `sample_size_column_recorded` — set true only when your OWN results table
 records a model-fit / variance-explained column or a per-row sample-size column

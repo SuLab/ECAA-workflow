@@ -17,11 +17,14 @@
 //! It does **NOT** repair WRROC / substrate conformance. Offline, the WRROC
 //! validator is a Noop, so `substrate_validity` stays `Unverified` regardless of
 //! what this executor does. A real conformance defect against the WRROC profile
-//! is not something a deterministic metadata re-seal can close, so those cases
-//! are intentionally left to route to human review rather than being silently
-//! marked `Applied`. This executor's `Applied` outcome asserts only that table
-//! registration and manifest sealing were brought back into agreement with the
-//! on-disk outputs — not that the package is WRROC-valid.
+//! is not something a deterministic metadata re-seal can close, so a
+//! `substrate_validity` failure still gets the real re-register + re-seal work
+//! but is reported as [`RepairOutcome::PartiallyApplied`] with a residual note
+//! — the driver keeps it `InReview` rather than counting it resolved. Ordinary
+//! table-registration drift, by contrast, is closed and reported `Applied`.
+//! This executor's `Applied` outcome asserts only that table registration and
+//! manifest sealing were brought back into agreement with the on-disk outputs
+//! — not that the package is WRROC-valid.
 
 use std::path::Path;
 
@@ -43,7 +46,7 @@ impl Executor for ConformanceFix {
 
     fn repair(
         &self,
-        _f: &Failure,
+        f: &Failure,
         pkg: &Path,
         _config_dir: &Path,
         _runner: &dyn TaskRunner,
@@ -69,9 +72,29 @@ impl Executor for ConformanceFix {
             ));
         }
 
+        let note = format!("re-registered {n} tables + re-sealed manifests");
+
+        // A `substrate_validity` failure is dispatched here because the WRROC
+        // re-seal is a *necessary* step, but it is NOT sufficient: substrate
+        // validity is established by the runcrate profile validator, which is
+        // offline here (the in-process validator is a Noop, so the verdict
+        // stays Unverified after the re-seal). The deterministic work above is
+        // real and idempotent, but it cannot close this failure — report it as
+        // partially applied so the driver keeps it InReview rather than marking
+        // it resolved.
+        if f.subject == "substrate_validity" {
+            return RepairOutcome::PartiallyApplied {
+                deterministic: true,
+                note,
+                residual: "substrate_validity stays Unverified after re-seal: \
+runcrate WRROC profile validation is offline and cannot be run here"
+                    .to_string(),
+            };
+        }
+
         RepairOutcome::Applied {
             deterministic: true,
-            note: format!("re-registered {n} tables + re-sealed manifests"),
+            note,
         }
     }
 }
@@ -175,6 +198,11 @@ mod tests {
             RepairOutcome::NeedsAgent(d) => {
                 panic!("deterministic ConformanceFix must not request an agent: {d:?}");
             }
+            RepairOutcome::PartiallyApplied { residual, .. } => {
+                panic!(
+                    "ordinary table-registration drift must fully apply, not partially: {residual:?}"
+                );
+            }
         }
 
         // Frozen-table invariant: the produced result bytes must never be
@@ -183,6 +211,85 @@ mod tests {
         assert_eq!(
             after, de_bytes,
             "ConformanceFix must not mutate frozen result-table bytes"
+        );
+    }
+
+    /// D1 twin: ORDINARY table-registration drift (subject is not
+    /// `substrate_validity`) returns `Applied` — the resolvable path is
+    /// preserved. The substrate case (next test) is the only one that degrades
+    /// to `PartiallyApplied`, so this proves the new variant did not swallow the
+    /// genuinely-resolvable case.
+    #[test]
+    fn ordinary_registration_drift_returns_applied() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let pkg = dir.path();
+        build_minimal_package(pkg);
+
+        let f = Failure::new(
+            FailureSource::InvariantFailure("table_registration".to_string()),
+            RepairClass::ConformanceFix,
+            "de",
+            "runtime/outputs/de/de.tsv",
+            "produced table not registered in descriptor",
+        );
+
+        let outcome = ConformanceFix.repair(&f, pkg, pkg, &UnusedRunner);
+        assert!(
+            matches!(outcome, RepairOutcome::Applied { deterministic: true, .. }),
+            "ordinary registration drift must resolve as deterministic Applied, got {outcome:?}"
+        );
+    }
+
+    /// D1 twin: a `substrate_validity` failure still does the REAL work
+    /// (register + re-seal) but returns `PartiallyApplied` with a non-empty
+    /// residual, because the offline WRROC validator cannot establish substrate
+    /// validity. This is the root-cause fix: the executor no longer claims
+    /// `Applied` for a failure it cannot actually close.
+    #[test]
+    fn substrate_validity_returns_partially_applied_with_residual() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let pkg = dir.path();
+        let de_bytes = build_minimal_package(pkg);
+        let de_path = pkg.join("runtime").join("outputs").join("de").join("de.tsv");
+
+        let f = Failure::new(
+            FailureSource::InvariantFailure("substrate_validity".to_string()),
+            RepairClass::ConformanceFix,
+            "audit",
+            "substrate_validity",
+            "no WRROC policy applied; verdict Unverified",
+        );
+
+        let outcome = ConformanceFix.repair(&f, pkg, pkg, &UnusedRunner);
+        match &outcome {
+            RepairOutcome::PartiallyApplied {
+                deterministic,
+                note,
+                residual,
+            } => {
+                assert!(
+                    *deterministic,
+                    "the work that was applied is deterministic, got {outcome:?}"
+                );
+                assert!(
+                    note.contains("re-sealed manifests"),
+                    "the partial note must describe the real re-seal work, got {note:?}"
+                );
+                assert!(
+                    residual.contains("substrate_validity") && residual.contains("runcrate"),
+                    "residual must name the unresolved substrate obstacle, got {residual:?}"
+                );
+            }
+            other => panic!(
+                "substrate_validity must degrade to PartiallyApplied, got {other:?}"
+            ),
+        }
+
+        // The real work must still not have touched the frozen result bytes.
+        let after = fs::read(&de_path).expect("read de.tsv after repair");
+        assert_eq!(
+            after, de_bytes,
+            "substrate PartiallyApplied must not mutate frozen result-table bytes"
         );
     }
 

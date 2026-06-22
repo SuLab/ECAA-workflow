@@ -57,10 +57,14 @@ Write everything under `runtime/outputs/$ECAA_TASK_ID/`:
    `axis, candidate_method, source_ref_kind, source_ref, source_class,
    evidence_role, evidence_quote, evidence_quote_offset, source_kind,
    source_hash, retrieval_ts, redistributable, verified` (plus optional
-   `version_context`). `source_hash` is `sha256:<hex>`. `verified` is `true`
-   only when `evidence_quote` substring-matches the stored snapshot after the
-   `collapse_whitespace_lowercase_v1` normalization (collapse runs of
-   whitespace to one space, lowercase, trim). Mark `verified=false` on any
+   `version_context`). `source_hash` is `sha256:<hex>`. `verified` is a
+   **quote-presence check only**: it is `true` only when `evidence_quote`
+   substring-matches the stored snapshot (the full source text, e.g. the whole
+   abstract) after the `collapse_whitespace_lowercase_v1` normalization
+   (collapse runs of whitespace to one space, lowercase, trim). It confirms the
+   quote was copied verbatim from the source; it does **NOT** assess whether the
+   source supports a downstream claim or the directionality of any effect. Mark
+   `verified=false` on any
    quote that does not match — never fabricate a match.
 2. **`method_landscape.json`** — the same content as a JSON object keyed by
    axis, for the UI and the downstream loader.

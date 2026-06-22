@@ -262,6 +262,7 @@ mod signed_sink_wiring_tests {
             n_verified: 1,
             n_mismatch: 0,
             n_unverifiable: 0,
+            n_pending: 0,
             n_suspicious: 0,
             verdicts: vec![ClaimVerdict {
                 claim: c,

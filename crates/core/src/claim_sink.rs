@@ -50,6 +50,10 @@ pub fn project_verdict_rows(report: &ClaimVerificationReport, task_id: &str) -> 
                     ("verified", supported)
                 }
                 ClaimStatus::Unverifiable { .. } => ("pending", Vec::new()),
+                // Never-adjudicated claims project the same way as
+                // checked-but-undeterminable ones: a non-verified, non-blocking
+                // "pending" audit-proof row carrying no supported_by evidence.
+                ClaimStatus::Pending { .. } => ("pending", Vec::new()),
                 ClaimStatus::Mismatch { .. } => ("mismatch", Vec::new()),
                 // Soft/review-required: carries the cited table it was checked
                 // against (the entity was absent from it), so the audit-proof
@@ -64,10 +68,23 @@ pub fn project_verdict_rows(report: &ClaimVerificationReport, task_id: &str) -> 
                     ("suspicious", supported)
                 }
             };
+            // Carry the claim's human-readable text (`excerpt`, falling back to
+            // the matched `entity` when the excerpt is empty) and the matched
+            // `entity` onto the projected row. The C-subgraph projector reads
+            // `text` to populate the embedded `Claim` node — without it the
+            // node text was always empty. These are verbatim recorded claim
+            // fields, never derived/invented.
+            let text = if v.claim.excerpt.trim().is_empty() {
+                v.claim.entity.clone()
+            } else {
+                v.claim.excerpt.clone()
+            };
             json!({
                 "claim_id": format!("{task_id}#claim-{i}"),
                 "status": status,
                 "supported_by": supported_by,
+                "text": text,
+                "entity": v.claim.entity,
             })
         })
         .collect()
@@ -106,6 +123,7 @@ pub fn build_sink_doc(
         "n_verified": if ablated { 0 } else { report.n_verified },
         "n_mismatch": if ablated { 0 } else { report.n_mismatch },
         "n_unverifiable": if ablated { 0 } else { report.n_unverifiable },
+        "n_pending": if ablated { 0 } else { report.n_pending },
         "n_suspicious": if ablated { 0 } else { report.n_suspicious },
         "verdicts": if ablated { Vec::new() } else { project_verdict_rows(report, task_id) },
     });
@@ -365,6 +383,7 @@ mod tests {
             n_verified: 1,
             n_mismatch: 0,
             n_unverifiable: 0,
+            n_pending: 0,
             n_suspicious: 0,
             verdicts: vec![verdict(
                 claim("TP53", Some("results/tables/de.csv")),
@@ -386,6 +405,7 @@ mod tests {
             n_verified: 0,
             n_mismatch: 0,
             n_unverifiable: 1,
+            n_pending: 0,
             n_suspicious: 0,
             verdicts: vec![verdict(
                 claim("BRCA1", None),
@@ -407,6 +427,7 @@ mod tests {
             n_verified: 0,
             n_mismatch: 1,
             n_unverifiable: 0,
+            n_pending: 0,
             n_suspicious: 0,
             verdicts: vec![verdict(
                 claim("IL6", Some("results/tables/de.csv")),
@@ -428,6 +449,7 @@ mod tests {
             n_verified: 1,
             n_mismatch: 1,
             n_unverifiable: 0,
+            n_pending: 0,
             n_suspicious: 0,
             verdicts: vec![
                 verdict(
@@ -489,6 +511,7 @@ mod tests {
             n_verified: 1,
             n_mismatch: 0,
             n_unverifiable: 0,
+            n_pending: 0,
             n_suspicious: 0,
             verdicts: vec![verdict(
                 claim("TP53", Some("results/tables/de.csv")),
@@ -528,6 +551,7 @@ mod tests {
             n_verified: matches!(status, ClaimStatus::Verified) as usize,
             n_mismatch: matches!(status, ClaimStatus::Mismatch { .. }) as usize,
             n_unverifiable: matches!(status, ClaimStatus::Unverifiable { .. }) as usize,
+            n_pending: matches!(status, ClaimStatus::Pending { .. }) as usize,
             n_suspicious: matches!(status, ClaimStatus::Suspicious { .. }) as usize,
             verdicts: vec![verdict(claim(entity, Some("results/tables/de.csv")), status)],
             runtime_decision_log_path: None,
@@ -573,6 +597,7 @@ mod tests {
             n_verified: 2,
             n_mismatch: 0,
             n_unverifiable: 0,
+            n_pending: 0,
             n_suspicious: 0,
             verdicts: vec![
                 verdict(
@@ -633,6 +658,7 @@ mod tests {
             n_verified: 1,
             n_mismatch: 0,
             n_unverifiable: 0,
+            n_pending: 0,
             n_suspicious: 0,
             verdicts: vec![verdict(
                 claim(entity, Some("results/tables/de.csv")),
@@ -727,6 +753,7 @@ mod tests {
             n_verified: 1,
             n_mismatch: 0,
             n_unverifiable: 0,
+            n_pending: 0,
             n_suspicious: 0,
             verdicts: vec![verdict(
                 claim("TP53", Some("results/tables/de.csv")),

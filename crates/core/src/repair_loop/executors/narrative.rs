@@ -281,7 +281,7 @@ mod tests {
         let table_after = fs::read(&table).expect("read table after");
         assert_eq!(
             table_before, table_after,
-            "the frozen result table must be byte-for-byte unchanged (anti-gaming)"
+            "the frozen result table must be byte-for-byte unchanged"
         );
     }
 

@@ -20,6 +20,36 @@ fn edam_iri(local_id: &str) -> String {
     format!("https://edamontology.org/{}", local_id.replace(':', "_"))
 }
 
+/// Build a first-class `CreativeWork` profile entity for a normative
+/// `conformsTo` IRI from [`ecaa_workflow_types::consts::REQUIRED_PROFILE_IRIS`].
+///
+/// The `version` is the IRI's trailing path segment with any leading `v`
+/// stripped (`…/1.1` → `1.1`, `…/v0.2` → `0.2`); the `name` is a stable
+/// human-readable label keyed off the IRI so the descriptor's `conformsTo`
+/// references resolve to a named, versioned node instead of dangling. No value
+/// is fabricated — `version` derives solely from the IRI the spec already pins.
+fn profile_entity(iri: &str) -> Value {
+    let last = iri.rsplit('/').next().unwrap_or(iri);
+    let version = last.strip_prefix('v').unwrap_or(last);
+    let name = match iri {
+        "https://w3id.org/ro/crate/1.1" => "RO-Crate",
+        "https://w3id.org/workflowhub/workflow-ro-crate/1.0" => "Workflow RO-Crate Profile",
+        "https://w3id.org/ro/wfrun/process/0.5" => "Process Run Crate Profile",
+        "https://w3id.org/ro/wfrun/workflow/0.5" => "Workflow Run Crate Profile",
+        "https://w3id.org/ro/wfrun/provenance/0.5" => "Provenance Run Crate Profile",
+        "https://w3id.org/ecaa/v0.2" => "ECAA Conformance Profile",
+        // Unknown IRI (should never happen given the closed const set): fall
+        // back to the IRI itself as the name rather than inventing a label.
+        other => other,
+    };
+    json!({
+        "@id": iri,
+        "@type": "CreativeWork",
+        "name": name,
+        "version": version,
+    })
+}
+
 /// Build the complete ro-crate-metadata.json JSON-LD graph.
 ///
 /// When `dag.run_id` is `Some`, the root Dataset entity includes a
@@ -76,6 +106,19 @@ pub fn build_metadata(
                 "description": &classification.intake_text,
                 "dateCreated": clock.now_rfc3339(),
                 "license": "https://www.apache.org/licenses/LICENSE-2.0",
+                // The root Dataset declares the full normative profile set
+                // (§4.3) — base RO-Crate 1.1, WorkflowHub workflow-ro-crate
+                // 1.0, the three WRROC v0.5 Tier-3 profiles, and ECAA v0.2 —
+                // mirroring the metadata descriptor's `conformsTo` so an
+                // RO-Crate validator that profiles off `./` (the Workflow Run
+                // Crate validators do) sees the same declared profiles as one
+                // reading the descriptor. Each IRI is also emitted as a
+                // first-class `CreativeWork` profile entity below so the
+                // reference resolves rather than dangling.
+                "conformsTo": ecaa_workflow_types::consts::REQUIRED_PROFILE_IRIS
+                    .iter()
+                    .map(|iri| json!({"@id": iri}))
+                    .collect::<Vec<_>>(),
                 "hasPart": [
                     {"@id": "WORKFLOW.json"},
                     {"@id": "PROMPT.md"},
@@ -267,6 +310,16 @@ pub fn build_metadata(
             "encodingFormat": "application/json"
         }),
     ];
+
+    // Profile entities. Each `conformsTo` IRI declared on `ro-crate-metadata.json`
+    // and on the root `./` Dataset is emitted as a first-class `CreativeWork`
+    // so the reference resolves to a named, versioned entity rather than a bare
+    // `{@id}` dangling ref. Name + version are parsed deterministically from the
+    // IRI's trailing version segment (`…/1.1`, `…/0.5`, `…/v0.2`); no value is
+    // invented beyond what the IRI itself encodes.
+    for iri in ecaa_workflow_types::consts::REQUIRED_PROFILE_IRIS {
+        graph.push(profile_entity(iri));
+    }
 
     // Organism taxon entities
     for org in &classification.organisms {
@@ -597,6 +650,31 @@ pub fn append_prov_entities(metadata: &mut Value, prov_activities: Vec<Value>) -
 /// re-injection keeps `ro-crate-metadata.json` byte-reproducible. Idempotent:
 /// nodes whose `@id` already exists in `@graph` are replaced, not duplicated,
 /// so a second emit / a conversation-path re-emit converges.
+/// Re-inject the at-rest audit-proof `report`'s projected `InvariantVerdict`
+/// nodes into the on-disk descriptor at `root`, so the descriptor's embedded
+/// verdicts EQUAL the authoritative `runtime/audit-proof-report.json`.
+///
+/// Runs POST-EXECUTION, AFTER finalize regenerates the report. The emit-time
+/// embedded verdicts were computed before execution / the signed sink / table
+/// registration, so they drift from the recomputed report; this idempotent
+/// re-injection (replace-by-`@id`) reconciles them. No-op `Ok(())` when the
+/// descriptor is absent or the report carries no verdicts. The caller re-seals
+/// the BagIt manifest afterward (the descriptor is a manifested file).
+pub fn reinject_audit_proof_verdicts(
+    root: &std::path::Path,
+    report: &Value,
+) -> Result<()> {
+    let descriptor = root.join("ro-crate-metadata.json");
+    let Ok(bytes) = std::fs::read(&descriptor) else {
+        return Ok(());
+    };
+    let mut doc: Value = serde_json::from_slice(&bytes)?;
+    inject_audit_proof_verdict_nodes(&mut doc, report)?;
+    let serialized = serde_json::to_vec_pretty(&doc)?;
+    crate::fs_helpers::atomic_write_bytes_sync(&descriptor, &serialized)?;
+    Ok(())
+}
+
 pub fn inject_audit_proof_verdict_nodes(metadata: &mut Value, report: &Value) -> Result<()> {
     let nodes = crate::emitter::ecaa_projection::project_audit_proof_jsonld(report);
     if nodes.is_empty() {
@@ -618,6 +696,73 @@ pub fn inject_audit_proof_verdict_nodes(metadata: &mut Value, report: &Value) ->
         }
     }
     Ok(())
+}
+
+/// Build a real executor agent entity for a CreateAction from the task's
+/// recorded [`crate::container_state::ContainerState`].
+///
+/// The executor identity recorded at run time is the container that ran the
+/// agent: its resolved `image` (`image:tag` / `image@sha256:digest`), the
+/// `runtime` that ran it (docker/podman/apptainer), and the `backend`
+/// (aws/slurm/local). We surface that as a `SoftwareApplication` agent keyed on
+/// a deterministic `@id` derived from the recorded image so two finalizes of the
+/// same package produce byte-identical nodes. Only recorded values populate the
+/// entity — nothing is invented.
+///
+/// Returns `None` when the sidecar carries NO executor identity at all (image,
+/// runtime, and backend all empty); the caller then omits the `agent` edge
+/// rather than attaching a placeholder. (A real `endTime` may still be emitted
+/// from `ended_at` in that case.)
+fn executor_agent_entity(state: &crate::container_state::ContainerState) -> Option<Value> {
+    let image = state.image.trim();
+    let runtime = state.runtime.trim();
+    let backend = state.backend.trim();
+    if image.is_empty() && runtime.is_empty() && backend.is_empty() {
+        return None;
+    }
+    // Deterministic, grapheme-safe local id from the recorded image (its most
+    // specific identity); fall back to the runtime/backend when no image was
+    // recorded.
+    let key = if !image.is_empty() {
+        image
+    } else if !runtime.is_empty() {
+        runtime
+    } else {
+        backend
+    };
+    let local: String = key
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let mut agent = json!({
+        "@id": format!("#executor/{local}"),
+        "@type": "SoftwareApplication",
+        "name": if image.is_empty() {
+            format!("Execution agent ({})", if runtime.is_empty() { backend } else { runtime })
+        } else {
+            format!("Execution agent — {image}")
+        },
+    });
+    let obj = agent.as_object_mut().expect("agent is an object literal");
+    if !image.is_empty() {
+        obj.insert("softwareVersion".to_string(), json!(image));
+    }
+    if !runtime.is_empty() {
+        obj.insert("runtimePlatform".to_string(), json!(runtime));
+    }
+    if !backend.is_empty() {
+        obj.insert(
+            "additionalProperty".to_string(),
+            json!([{ "@type": "PropertyValue", "name": "backend", "value": backend }]),
+        );
+    }
+    Some(agent)
 }
 
 /// Register produced result tables as Evidence (V) `@graph` entities.
@@ -708,6 +853,26 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
     }
     rels.sort();
 
+    // Per-task produced-file index, keyed on the bare task token. Used to
+    // resolve a downstream `CreateAction.object` (PROV `used`) to the CONCRETE
+    // input File `@id`s — the upstream task's produced output tables — rather
+    // than only the abstract `#step-<source>` reference. Built solely from the
+    // discovered `rels`, so every resolved input is a real registered output
+    // entity; never an invented path.
+    let mut task_outputs: std::collections::BTreeMap<String, Vec<String>> =
+        std::collections::BTreeMap::new();
+    for rel in &rels {
+        if let Some((task, _)) = rel
+            .strip_prefix("runtime/outputs/")
+            .and_then(|r| r.split_once('/'))
+        {
+            task_outputs
+                .entry(task.to_string())
+                .or_default()
+                .push(rel.clone());
+        }
+    }
+
     let mut new_parts: Vec<Value> = Vec::new();
     // Retrospective per-output PROV: one WRROC `CreateAction` per produced
     // table, accumulated here and appended AFTER the output nodes so the graph
@@ -716,6 +881,10 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
     // `result` is the output, `instrument` is the producing step, and `object`
     // (PROV `used`) is the task's input step(s).
     let mut new_actions: Vec<Value> = Vec::new();
+    // Executor agent entities referenced by the CreateActions' `agent` edge,
+    // de-duplicated by `@id` (many tasks may share one container image →
+    // executor). Appended after the actions so the graph stays append-stable.
+    let mut new_agents: Vec<Value> = Vec::new();
     for rel in &rels {
         if existing.contains(rel) {
             continue;
@@ -744,22 +913,74 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
             "wasGeneratedBy": {"@id": action_id.clone()},
         }));
         // Input step ids derived from the task's ParameterConnection edges
-        // (sorted; empty when the task has no inbound connection).
+        // (sorted; empty when the task has no inbound connection). Each input
+        // step is resolved to the CONCRETE input File `@id`s it feeds in — the
+        // upstream task's produced output tables — falling back to the bare
+        // `#step-<source>` reference when that upstream produced no registered
+        // table (so the dependency is never dropped). PROV `used` (`object`)
+        // then names real File entities, not only abstract HowToSteps.
         let object: Vec<Value> = task_inputs
             .get(task)
-            .map(|ins| ins.iter().map(|id| json!({"@id": id})).collect())
+            .map(|ins| {
+                ins.iter()
+                    .flat_map(|step| {
+                        let src_task = step.strip_prefix("#step-").unwrap_or(step);
+                        match task_outputs.get(src_task) {
+                            Some(files) if !files.is_empty() => {
+                                files.iter().map(|f| json!({"@id": f})).collect::<Vec<_>>()
+                            }
+                            // No registered upstream output File: keep the step
+                            // reference rather than inventing a file path.
+                            _ => vec![json!({"@id": step})],
+                        }
+                    })
+                    .collect()
+            })
             .unwrap_or_default();
-        new_actions.push(json!({
+        // Real recorded executor + endTime from this task's
+        // `runtime/outputs/<task>/.container-state.json`, when present. The
+        // sidecar records `ended_at` (→ `endTime`) and the executor identity
+        // (image / runtime / backend); there is NO recorded start timestamp, so
+        // `startTime` is honestly omitted (see the module deferred note). When
+        // the sidecar is absent or malformed, agent + endTime are omitted —
+        // never fabricated.
+        let task_dir = outputs_root.join(task);
+        let cstate = crate::container_state::ContainerState::read_from_task_dir(&task_dir)
+            .ok()
+            .flatten();
+        let mut action = json!({
             "@id": action_id,
             "@type": ["CreateAction", "prov:Activity"],
             "name": format!("Production of {file} by stage '{task}'."),
             "instrument": {"@id": format!("#step-{task}")},
             "result": {"@id": rel},
             "object": object,
-        }));
+        });
+        if let Some(state) = &cstate {
+            if !state.ended_at.is_empty() {
+                action["endTime"] = json!(state.ended_at);
+            }
+            if let Some(agent) = executor_agent_entity(state) {
+                let agent_id = agent
+                    .get("@id")
+                    .and_then(Value::as_str)
+                    .expect("executor agent entity carries @id")
+                    .to_string();
+                action["agent"] = json!({"@id": agent_id});
+                let already = graph
+                    .iter()
+                    .chain(new_agents.iter())
+                    .any(|e| e.get("@id").and_then(Value::as_str) == Some(agent_id.as_str()));
+                if !already {
+                    new_agents.push(agent);
+                }
+            }
+        }
+        new_actions.push(action);
         new_parts.push(json!({"@id": rel}));
     }
     graph.extend(new_actions);
+    graph.extend(new_agents);
 
     let added = new_parts.len();
     if added == 0 {
@@ -1091,6 +1312,101 @@ mod tests {
         // per-step instrument both come from edam_operation).
         assert_eq!(edam_ids.iter().filter(|i| topic_re.is_match(i)).count(), 1);
         assert_eq!(edam_ids.iter().filter(|i| op_re.is_match(i)).count(), 2);
+    }
+
+    /// B1: the metadata descriptor AND the root `./` Dataset both declare the
+    /// full normative `conformsTo` profile set, and every declared profile IRI
+    /// resolves to a first-class `CreativeWork` profile entity (name + version)
+    /// in the `@graph` — no bare dangling `{@id}` ref.
+    #[test]
+    fn root_dataset_conforms_to_and_profile_entities_resolve() {
+        let dag = one_task_dag();
+        let classification = ClassificationResult {
+            domain: "genomics".into(),
+            workflow_description: "test workflow".into(),
+            intake_text: "test intake".into(),
+            edam_topic: "topic:3673".into(),
+            edam_operation: "operation:3223".into(),
+            ..Default::default()
+        };
+        let metadata = build_metadata(&dag, &classification, &FrozenClock::default());
+        let graph = metadata["@graph"].as_array().expect("@graph array");
+
+        // Root `./` carries conformsTo equal to the const profile set.
+        let root = graph
+            .iter()
+            .find(|e| e["@id"].as_str() == Some("./"))
+            .expect("root ./ Dataset present");
+        let declared: Vec<&str> = root["conformsTo"]
+            .as_array()
+            .expect("root conformsTo is an array")
+            .iter()
+            .filter_map(|c| c["@id"].as_str())
+            .collect();
+        for iri in ecaa_workflow_types::consts::REQUIRED_PROFILE_IRIS {
+            assert!(
+                declared.contains(iri),
+                "root ./ conformsTo must declare {iri}; got {declared:?}"
+            );
+            // Each declared profile resolves to a CreativeWork entity carrying a
+            // name + version.
+            let entity = graph
+                .iter()
+                .find(|e| e["@id"].as_str() == Some(iri))
+                .unwrap_or_else(|| panic!("profile IRI {iri} must resolve to a @graph entity"));
+            assert_eq!(
+                entity["@type"].as_str(),
+                Some("CreativeWork"),
+                "profile entity {iri} must be a CreativeWork"
+            );
+            assert!(
+                entity["name"].as_str().is_some_and(|s| !s.is_empty()),
+                "profile entity {iri} must carry a non-empty name"
+            );
+            assert!(
+                entity["version"].as_str().is_some_and(|s| !s.is_empty()),
+                "profile entity {iri} must carry a non-empty version"
+            );
+        }
+    }
+
+    /// B1: `executor_agent_entity` is built only from RECORDED container-state
+    /// fields, and returns `None` when no executor identity was recorded
+    /// (honest omission rather than a fabricated placeholder).
+    #[test]
+    fn executor_agent_entity_uses_recorded_fields_only() {
+        let state = crate::container_state::ContainerState {
+            task_id: "differential_expression".into(),
+            exit_code: 0,
+            image: "ghcr.io/scripps/scripps-bio-base:1.4.4".into(),
+            runtime: "docker".into(),
+            session_id: "s".into(),
+            backend: "aws".into(),
+            ended_at: "2026-05-05T12:34:56Z".into(),
+        };
+        let agent = executor_agent_entity(&state).expect("recorded executor yields an agent");
+        assert_eq!(agent["@type"].as_str(), Some("SoftwareApplication"));
+        assert_eq!(
+            agent["softwareVersion"].as_str(),
+            Some("ghcr.io/scripps/scripps-bio-base:1.4.4"),
+            "softwareVersion must be the recorded image verbatim"
+        );
+        assert_eq!(agent["runtimePlatform"].as_str(), Some("docker"));
+
+        // No recorded identity at all → None (honest omission).
+        let empty = crate::container_state::ContainerState {
+            task_id: "t".into(),
+            exit_code: 0,
+            image: String::new(),
+            runtime: String::new(),
+            session_id: String::new(),
+            backend: String::new(),
+            ended_at: String::new(),
+        };
+        assert!(
+            executor_agent_entity(&empty).is_none(),
+            "no recorded executor identity must yield None, not a placeholder agent"
+        );
     }
 
     /// Recursively gather every `@id` value whose string points at

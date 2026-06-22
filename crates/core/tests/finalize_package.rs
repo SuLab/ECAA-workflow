@@ -220,3 +220,203 @@ fn finalize_emits_per_output_was_generated_by_create_action() {
         "CreateAction.object must reference the task input #step-data_import; got {object_ids:?}"
     );
 }
+
+/// Locate the CreateAction node that produced the differential_expression
+/// output table in a finalized package descriptor.
+fn de_output_create_action(root: &Path) -> Value {
+    let descriptor = root.join("ro-crate-metadata.json");
+    let doc: Value = serde_json::from_str(&std::fs::read_to_string(&descriptor).unwrap()).unwrap();
+    let graph = doc["@graph"].as_array().expect("@graph array").clone();
+    let output_id = "runtime/outputs/differential_expression/de_results.tsv";
+    let output_node = graph
+        .iter()
+        .find(|e| e["@id"].as_str() == Some(output_id))
+        .unwrap_or_else(|| panic!("produced output {output_id} must be a @graph node"));
+    let action_ref = output_node["wasGeneratedBy"]["@id"].as_str().unwrap();
+    graph
+        .iter()
+        .find(|e| e["@id"].as_str() == Some(action_ref))
+        .cloned()
+        .unwrap_or_else(|| panic!("CreateAction {action_ref} must exist"))
+}
+
+/// FAITHFUL TWIN (B1): when the task carries a `.container-state.json` recording
+/// a real `ended_at` and executor image, the produced output's `CreateAction`
+/// carries THAT EXACT `endTime`, a real `agent` referencing an executor entity
+/// built from the recorded image, and that executor entity is itself a node in
+/// the `@graph`. Only recorded values appear — and there is no recorded
+/// `startTime`, so it is honestly omitted.
+#[test]
+fn finalize_create_action_uses_recorded_container_state_agent_and_end_time() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/finalize-min-pkg");
+    let config_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config");
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("pkg");
+    copy_tree(&fixture, &root);
+
+    // Write a recorded container-state sidecar for the producing task BEFORE
+    // finalize, with a known ended_at + executor image.
+    let ended_at = "2026-05-05T12:34:56Z";
+    let image = "ghcr.io/scripps/scripps-bio-base:1.4.4";
+    let task_dir = root.join("runtime/outputs/differential_expression");
+    std::fs::create_dir_all(&task_dir).unwrap();
+    std::fs::write(
+        task_dir.join(".container-state.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "task_id": "differential_expression",
+            "exit_code": 0,
+            "image": image,
+            "runtime": "docker",
+            "session_id": "s-1",
+            "backend": "aws",
+            "ended_at": ended_at
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let secret = [7u8; 32];
+    ecaa_workflow_core::finalize::finalize_package(
+        &root,
+        &config_dir,
+        ecaa_workflow_core::project_class::ProjectClass::default(),
+        &[],
+        true,
+        Some(&secret),
+    )
+    .expect("finalize_package");
+
+    let action = de_output_create_action(&root);
+
+    // endTime is the EXACT recorded ended_at.
+    assert_eq!(
+        action["endTime"].as_str(),
+        Some(ended_at),
+        "CreateAction.endTime must be the recorded .container-state.json ended_at; action={action:#?}"
+    );
+    // No fabricated startTime (the sidecar records none).
+    assert!(
+        action.get("startTime").is_none(),
+        "CreateAction.startTime must be omitted (no recorded start timestamp); action={action:#?}"
+    );
+    // agent references a real executor entity present in the @graph.
+    let agent_id = action["agent"]["@id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("CreateAction must carry agent.@id; action={action:#?}"));
+    let descriptor = root.join("ro-crate-metadata.json");
+    let doc: Value = serde_json::from_str(&std::fs::read_to_string(&descriptor).unwrap()).unwrap();
+    let graph = doc["@graph"].as_array().unwrap();
+    let agent_node = graph
+        .iter()
+        .find(|e| e["@id"].as_str() == Some(agent_id))
+        .unwrap_or_else(|| panic!("agent entity {agent_id} must exist in @graph"));
+    assert_eq!(
+        agent_node["softwareVersion"].as_str(),
+        Some(image),
+        "the executor agent entity must record the real container image; node={agent_node:#?}"
+    );
+}
+
+/// FAITHFUL TWIN (B1): with NO `.container-state.json` (the default fixture
+/// shape), the CreateAction honestly OMITS `agent` and `endTime` rather than
+/// fabricating them — provenance never invents a time or executor.
+#[test]
+fn finalize_create_action_omits_agent_and_end_time_when_no_container_state() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/finalize-min-pkg");
+    let config_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config");
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("pkg");
+    copy_tree(&fixture, &root);
+
+    let secret = [7u8; 32];
+    ecaa_workflow_core::finalize::finalize_package(
+        &root,
+        &config_dir,
+        ecaa_workflow_core::project_class::ProjectClass::default(),
+        &[],
+        true,
+        Some(&secret),
+    )
+    .expect("finalize_package");
+
+    let action = de_output_create_action(&root);
+    assert!(
+        action.get("agent").is_none(),
+        "absent .container-state.json must yield no fabricated agent; action={action:#?}"
+    );
+    assert!(
+        action.get("endTime").is_none(),
+        "absent .container-state.json must yield no fabricated endTime; action={action:#?}"
+    );
+}
+
+/// FAITHFUL TWIN (B2): after a full finalize, every embedded `InvariantVerdict`
+/// node in the descriptor `@graph` EQUALS the authoritative status in the at-rest
+/// `runtime/audit-proof-report.json`. The re-injection reconciles the emit-time
+/// embedded verdicts with the post-exec recomputed report so the two never
+/// silently disagree.
+#[test]
+fn finalize_embedded_invariant_verdicts_equal_at_rest_report() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/finalize-min-pkg");
+    let config_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config");
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("pkg");
+    copy_tree(&fixture, &root);
+
+    let secret = [7u8; 32];
+    ecaa_workflow_core::finalize::finalize_package(
+        &root,
+        &config_dir,
+        ecaa_workflow_core::project_class::ProjectClass::default(),
+        &[],
+        true,
+        Some(&secret),
+    )
+    .expect("finalize_package");
+
+    // Authoritative report: invariant_id -> status.
+    let report: Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join("runtime/audit-proof-report.json")).unwrap(),
+    )
+    .unwrap();
+    let mut report_status: std::collections::BTreeMap<String, String> =
+        std::collections::BTreeMap::new();
+    for v in report["verdicts"].as_array().expect("report verdicts") {
+        let id = v["id"].as_str().expect("verdict id").to_string();
+        let status = v["status"].as_str().expect("verdict status").to_string();
+        report_status.insert(id, status);
+    }
+    assert!(
+        !report_status.is_empty(),
+        "the at-rest report must carry verdicts to compare against"
+    );
+
+    // Embedded InvariantVerdict nodes in the descriptor.
+    let doc: Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join("ro-crate-metadata.json")).unwrap(),
+    )
+    .unwrap();
+    let graph = doc["@graph"].as_array().unwrap();
+    let mut embedded_seen = 0;
+    for node in graph {
+        if node["@type"].as_str() != Some("InvariantVerdict") {
+            continue;
+        }
+        embedded_seen += 1;
+        let inv = node["invariant_id"].as_str().expect("embedded invariant_id");
+        let verdict = node["verdict"].as_str().expect("embedded verdict");
+        let authoritative = report_status
+            .get(inv)
+            .unwrap_or_else(|| panic!("embedded verdict {inv} has no at-rest counterpart"));
+        assert_eq!(
+            verdict, authoritative,
+            "embedded InvariantVerdict {inv} = {verdict} must EQUAL at-rest report status {authoritative}"
+        );
+    }
+    assert_eq!(
+        embedded_seen,
+        report_status.len(),
+        "every at-rest verdict must have a reconciled embedded node"
+    );
+}
+

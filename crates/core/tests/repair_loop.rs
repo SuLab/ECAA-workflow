@@ -1,4 +1,4 @@
-//! End-to-end + anti-gaming integration coverage for the repair loop.
+//! End-to-end + frozen-table-integrity integration coverage for the repair loop.
 //!
 //! These tests construct a realistic fixture package on disk and drive the
 //! *real* executor registry ([`driver::default_registry`]) through the loop's
@@ -10,7 +10,7 @@
 //! without the heavyweight, non-hermetic `finalize_package` + `audit_proof`
 //! pipeline that `assess_package` would otherwise run.
 //!
-//! Anti-gaming invariant under test: the narrative prose is corrected toward the
+//! Invariant under test: the narrative prose is corrected toward the
 //! frozen table value, while the frozen table itself is left byte-for-byte
 //! identical. The corrector NEVER edits the source of truth to silence a claim.
 
@@ -155,8 +155,8 @@ fn narrative_failure(status: FailureStatus) -> Failure {
 }
 
 /// (a) End-to-end: the real NarrativeCorrection executor corrects the prose
-/// count toward the frozen table value, leaves the table byte-identical
-/// (anti-gaming), and a `runtime/repair-status.json` is written.
+/// count toward the frozen table value, leaves the table byte-identical,
+/// and a `runtime/repair-status.json` is written.
 #[test]
 fn end_to_end_corrects_narrative_and_freezes_table() {
     let tmp = tempfile::tempdir().expect("tempdir");
@@ -200,11 +200,11 @@ fn end_to_end_corrects_narrative_and_freezes_table() {
         "the stale claimed count (9) must be gone, got: {report_after}"
     );
 
-    // Anti-gaming: the frozen result table is byte-for-byte unchanged.
+    // Frozen-table integrity: the frozen result table is byte-for-byte unchanged.
     let table_after = std::fs::read(&table).expect("read frozen table after");
     assert_eq!(
         table_before, table_after,
-        "the frozen result table must be byte-for-byte identical (anti-gaming): \
+        "the frozen result table must be byte-for-byte identical: \
          the corrector edits prose, never the source-of-truth table"
     );
 
@@ -298,8 +298,8 @@ fn review_required_situation_routes_to_review_list() {
         status.rounds
     );
 
-    // Faithful twin / anti-gaming: a review-only situation must touch NOTHING on
-    // the writable surface — neither the narrative nor the frozen table.
+    // Faithful twin / frozen-table integrity: a review-only situation must touch
+    // NOTHING on the writable surface — neither the narrative nor the frozen table.
     let table_after = std::fs::read(&table).expect("read table after");
     assert_eq!(
         table_before, table_after,

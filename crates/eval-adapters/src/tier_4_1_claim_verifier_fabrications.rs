@@ -289,6 +289,7 @@ fn status_label(status: &ecaa_workflow_core::claim_verifier::ClaimStatus) -> &'s
         ClaimStatus::Verified => "verified",
         ClaimStatus::Mismatch { .. } => "mismatch",
         ClaimStatus::Unverifiable { .. } => "unverifiable",
+        ClaimStatus::Pending { .. } => "pending",
         ClaimStatus::Suspicious { .. } => "suspicious",
     }
 }

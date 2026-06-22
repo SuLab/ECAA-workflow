@@ -91,6 +91,17 @@ fn str_field<'a>(row: &'a Value, key: &str) -> Option<&'a str> {
     row.get(key).and_then(Value::as_str)
 }
 
+/// True when an RO-Crate `@graph` entity is a `Claim` node (its `@type` is, or
+/// includes, `"Claim"`). The embedded Claim nodes carry the `supported_by`
+/// references whose referential integrity is validated above.
+fn entity_is_claim(entity: &Value) -> bool {
+    match entity.get("@type") {
+        Some(Value::String(s)) => s == "Claim",
+        Some(Value::Array(a)) => a.iter().any(|t| t.as_str() == Some("Claim")),
+        _ => false,
+    }
+}
+
 /// Build the per-sub-graph local-node-id registry from the sidecars. Ids are
 /// sanitized so they compare equal to a sanitized reference local part.
 fn collect_node_ids(pkg: &LoadedPackage) -> BTreeMap<char, BTreeSet<String>> {
@@ -307,6 +318,46 @@ pub fn check_cross_graph_integrity(pkg: &LoadedPackage) -> InvariantVerdict {
             n_inspected += 1;
             if !known_edges.contains(eid) {
                 violators.push(format!("assumption edge_id: {eid}"));
+            }
+        }
+    }
+
+    // Embedded RO-Crate `@graph` referential integrity: every `supported_by`
+    // `@id` carried on an embedded `Claim` node MUST resolve to a real `@graph`
+    // node `@id`. This closes a real gap — the C→V pass above validates the
+    // SIDECAR verdict rows, but the injected `@graph` `Claim` nodes
+    // (`ecaa_projection::project_claim_jsonld`) carry their OWN folded
+    // `supported_by` references, and a dangling one (a `V:<basename>` handle with
+    // no matching node, or a path that names no registered output File) used to
+    // pass unchecked. `pkg.output_entities` is the full `@graph` (every entity
+    // with an `@id`), so we build the node-id set once and resolve each embedded
+    // Claim's `supported_by` against it. A reference resolving to no `@graph`
+    // node FAILS the invariant.
+    let graph_ids: BTreeSet<&str> = pkg
+        .output_entities
+        .iter()
+        .filter_map(|e| e.get("@id").and_then(Value::as_str))
+        .collect();
+    for entity in &pkg.output_entities {
+        if !entity_is_claim(entity) {
+            continue;
+        }
+        let Some(refs) = entity.get("supported_by").and_then(Value::as_array) else {
+            continue;
+        };
+        for r in refs {
+            // Each fold is `{ "@id": "<ref>" }`; tolerate a bare string too.
+            let target = r
+                .get("@id")
+                .and_then(Value::as_str)
+                .or_else(|| r.as_str());
+            let Some(target) = target else { continue };
+            n_inspected += 1;
+            if !graph_ids.contains(target) {
+                let claim_id = entity.get("@id").and_then(Value::as_str).unwrap_or("?");
+                violators.push(format!(
+                    "embedded Claim {claim_id} supported_by dangling @id: {target}"
+                ));
             }
         }
     }

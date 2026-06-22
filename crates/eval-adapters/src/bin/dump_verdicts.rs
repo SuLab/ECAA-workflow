@@ -33,6 +33,7 @@ fn main() -> Result<()> {
             ClaimStatus::Verified => "VERIFIED",
             ClaimStatus::Mismatch { .. } => "MISMATCH",
             ClaimStatus::Unverifiable { .. } => "UNVERIF ",
+            ClaimStatus::Pending { .. } => "PENDING ",
             ClaimStatus::Suspicious { .. } => "SUSPECT ",
         };
         println!(

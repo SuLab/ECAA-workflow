@@ -188,6 +188,131 @@ class PrimaryLiteratureFetchTest(unittest.TestCase):
                 self.assertEqual(r["verified"], "true")
 
 
+    def test_snapshot_stores_full_abstract_not_just_first_sentence(self):
+        """ROOT-FIX faithful twin: the snapshot bytes (sha256_binary) must be
+        the FULL abstract, not the ~topic-first-sentence evidence_quote. A
+        multi-sentence abstract is stubbed; the stored snapshot must equal the
+        whole abstract (and be strictly longer than the first sentence). A
+        quote genuinely absent from the abstract must report not-present
+        (verified=false) — the quote-presence check is real, not rubber-stamped.
+        """
+        import tempfile
+
+        first_sentence = (
+            "MaxQuant enables high peptide identification rates."
+        )
+        rest = (
+            " It provides individualized ppb-range mass accuracies as a "
+            "function of peptide mass and elution time, and proteome-wide "
+            "protein quantification by delayed normalization and maximal "
+            "peptide ratio extraction across many samples."
+        )
+        full_abstract = first_sentence + rest
+        # Sanity: the helper's quote IS only the first sentence, so the full
+        # abstract is strictly longer — this is the exact gap the fix closes.
+        self.assertEqual(alf._pubmed_evidence_quote(full_abstract), first_sentence)
+        self.assertGreater(len(full_abstract), len(first_sentence))
+
+        def fake_get_json(url, host, allowed_hosts):
+            assert "esearch" in url
+            return {"esearchresult": {"idlist": ["19029910"]}}
+
+        def fake_get_text(url, host, allowed_hosts):
+            assert "efetch" in url
+            return (
+                '<?xml version="1.0"?><PubmedArticleSet><PubmedArticle>'
+                "<MedlineCitation><PMID>19029910</PMID><Article>"
+                "<ArticleTitle>MaxQuant</ArticleTitle>"
+                f"<Abstract><AbstractText>{full_abstract}</AbstractText>"
+                "</Abstract></Article></MedlineCitation>"
+                "</PubmedArticle></PubmedArticleSet>"
+            )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            out.mkdir()
+            alf._http_get_json = fake_get_json
+            alf._http_get_text = fake_get_text
+            alf.fetch_for_axis(
+                out_dir=str(out),
+                axis="peptide_search",
+                query="MaxQuant peptide identification",
+                classes=["primary_literature"],
+                routes={"primary_literature": {"hosts": ["eutils.ncbi.nlm.nih.gov"]}},
+            )
+
+            manifest = _read_manifest(out)
+            entries = [e for e in manifest["entries"] if e.get("pmid") == "19029910"]
+            self.assertEqual(len(entries), 1)
+            e = entries[0]
+            snap = (out / "evidence" / e["path"]).read_bytes()
+            # The snapshot bytes ARE the full abstract, not the topic sentence.
+            self.assertEqual(snap.decode("utf-8"), full_abstract)
+            self.assertGreater(len(snap), len(first_sentence.encode("utf-8")))
+            self.assertEqual(hashlib.sha256(snap).hexdigest(), e["sha256_binary"])
+            self.assertEqual(int(e["bytes"]), len(full_abstract.encode("utf-8")))
+
+            # The verbatim first-sentence quote IS present in the full snapshot.
+            rows = _read_csv_rows(out)
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["verified"], "true")
+            self.assertIn(rows[0]["evidence_quote"], full_abstract)
+
+    def test_quote_absent_from_abstract_reports_not_present(self):
+        """Faithful twin (negative): a finding whose verbatim quote does NOT
+        occur in its snapshotted abstract must NOT be marked verified. Proves
+        the quote-presence check still genuinely rejects a non-matching quote
+        rather than rubber-stamping every row."""
+        import tempfile
+
+        abstract = (
+            "Salmon quantifies transcript abundance from RNA-seq reads using "
+            "a dual-phase inference procedure."
+        )
+        # Inject a finding whose quote is absent from the abstract by stubbing
+        # the quote-picker for this one record.
+        orig_quote = alf._pubmed_evidence_quote
+        try:
+            alf._pubmed_evidence_quote = lambda _a: "this phrase is not in the abstract"
+
+            def fake_get_json(url, host, allowed_hosts):
+                return {"esearchresult": {"idlist": ["30940177"]}}
+
+            def fake_get_text(url, host, allowed_hosts):
+                return (
+                    '<?xml version="1.0"?><PubmedArticleSet><PubmedArticle>'
+                    "<MedlineCitation><PMID>30940177</PMID><Article>"
+                    "<ArticleTitle>Salmon</ArticleTitle>"
+                    f"<Abstract><AbstractText>{abstract}</AbstractText>"
+                    "</Abstract></Article></MedlineCitation>"
+                    "</PubmedArticle></PubmedArticleSet>"
+                )
+
+            with tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / "out"
+                out.mkdir()
+                alf._http_get_json = fake_get_json
+                alf._http_get_text = fake_get_text
+                alf.fetch_for_axis(
+                    out_dir=str(out),
+                    axis="quant",
+                    query="Salmon RNA-seq quantification",
+                    classes=["primary_literature"],
+                    routes={"primary_literature": {"hosts": ["eutils.ncbi.nlm.nih.gov"]}},
+                )
+                rows = _read_csv_rows(out)
+                self.assertEqual(len(rows), 1)
+                # Quote absent from the (full) snapshot -> not present.
+                self.assertEqual(rows[0]["verified"], "false")
+                # ...but the snapshot still faithfully stores the full abstract.
+                manifest = _read_manifest(out)
+                e = next(x for x in manifest["entries"] if x.get("pmid") == "30940177")
+                snap = (out / "evidence" / e["path"]).read_bytes()
+                self.assertEqual(snap.decode("utf-8"), abstract)
+        finally:
+            alf._pubmed_evidence_quote = orig_quote
+
+
     def test_candidate_override_groups_pmids_under_one_method(self):
         """With an explicit candidate, every retrieved PMID is tagged with that
         method (not the paper title) so corroboration (≥2 distinct PMIDs per

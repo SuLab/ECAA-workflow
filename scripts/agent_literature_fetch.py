@@ -423,7 +423,13 @@ def _pubmed_extract_abstract(xml: str) -> Tuple[str, str, str]:
 def _pubmed_evidence_quote(abstract: str) -> str:
     """Pick a verbatim quote from an abstract: the first sentence (capped),
     falling back to the whole abstract. Returned VERBATIM so the downstream
-    substring-verify against the stored snapshot is exact."""
+    quote-presence check against the stored snapshot is exact.
+
+    NOTE: the quote is a SHORT verbatim excerpt used only for the
+    quote-presence check; the snapshot stored to disk is the FULL abstract
+    (see the payload-snapshot site), not this excerpt. The quote-presence
+    check confirms the excerpt was copied verbatim from the source — it does
+    NOT assess whether the source supports a claim or its directionality."""
     abstract = abstract.strip()
     if not abstract:
         return ""
@@ -443,7 +449,9 @@ def _fetch_primary_literature(query: str, route: Dict[str, Any]) -> List[Dict[st
     the harness literature validators resolve against (run_pmid_resolves keys
     the manifest by singular pmid; the redistributable gate accepts
     `pubmed_abstract` as public-domain-fair-use). The snapshot bytes ARE the
-    extracted abstract text, so the evidence_quote substring-verify is exact.
+    FULL extracted abstract text (carried as `_extracted`), so the
+    evidence_quote quote-presence check is exact and the stored snapshot is a
+    faithful record of the whole abstract — not just its topic sentence.
 
     Best-effort and bounded: at most `retmax` PMIDs; a record with no abstract
     or a malformed efetch response is skipped (a transport failure propagates
@@ -485,8 +493,9 @@ def _fetch_primary_literature(query: str, route: Dict[str, Any]) -> List[Dict[st
                 "source_ref": got_pmid or pmid,
                 "pmid": got_pmid or pmid,
                 "source_kind": "pubmed_abstract",
-                # snapshot bytes = the extracted abstract; quote is verbatim
-                # within it, so substring-verify is exact.
+                # snapshot bytes = the FULL extracted abstract (`_extracted`);
+                # `quote` is a short verbatim excerpt within it, so the
+                # quote-presence check is exact.
                 "quote": quote,
                 "_extracted": abstract,
             }
@@ -635,13 +644,18 @@ def fetch_for_axis(
             # single-PMID candidate and no axis ever carries a valid default.
             if candidate:
                 f["candidate"] = candidate
-            # Snapshot bytes: tool-doc keeps the raw HTML; index hits store
-            # the reconstructed quote text (the verbatim evidence) so the
-            # substring-verify is exact and reproducible.
+            # Snapshot bytes: tool-doc keeps the raw HTML; index hits store the
+            # FULL extracted source text (`_extracted`, e.g. the whole PubMed
+            # abstract) when present, so the snapshot is a faithful record of
+            # the source rather than a ~100-byte topic sentence. The
+            # quote-presence check below substring-matches the verbatim quote
+            # against this full text, so it stays exact and reproducible. Only
+            # when a finding carries no `_extracted` (e.g. a curated baseline
+            # row whose quote IS its whole text) do we fall back to the quote.
             if cls == "tool_documentation":
                 payload = f["_raw"].encode("utf-8")
             else:
-                payload = f["quote"].encode("utf-8")
+                payload = f.get("_extracted", f["quote"]).encode("utf-8")
 
             if cap is not None and ev_used + len(payload) > cap:
                 truncated = True
@@ -653,15 +667,21 @@ def fetch_for_axis(
             ts = _utc_now_iso()
             qid = _next_query_id(manifest)
 
-            # verified := quote substring-matches the source's EXTRACTED text
-            # after collapse_whitespace_lowercase_v1 normalization. For index
-            # hits the binary payload IS the extracted text; for tool-doc
-            # pages the binary is raw HTML, so verify against the stripped
+            # quote_present := the verbatim quote substring-matches the
+            # source's EXTRACTED text after collapse_whitespace_lowercase_v1
+            # normalization. This is a QUOTE-PRESENCE check only: it confirms
+            # the quote was copied verbatim from the snapshotted source. It does
+            # NOT assess whether the source SUPPORTS a downstream claim, nor the
+            # DIRECTIONALITY of any effect. For literature/index hits the
+            # snapshot binary now holds the FULL extracted text (`_extracted`),
+            # so the quote is matched against the whole abstract; for tool-doc
+            # pages the binary is raw HTML, so we verify against the stripped
             # text (`_extracted`).
             extracted_src = f.get("_extracted", payload.decode("utf-8", errors="replace"))
             snap_norm = normalize_text(extracted_src)
             quote_norm = normalize_text(f["quote"])
-            verified = bool(quote_norm) and quote_norm in snap_norm
+            quote_present = bool(quote_norm) and quote_norm in snap_norm
+            verified = quote_present
             offset = snap_norm.find(quote_norm) if verified else 0
 
             extracted_sha = hashlib.sha256(snap_norm.encode("utf-8")).hexdigest()

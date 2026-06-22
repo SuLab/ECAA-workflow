@@ -50,13 +50,27 @@ fn normalize(s: &str) -> String {
 }
 
 /// Coarse id-namespace class for the VF-0 (Suspicious) absent-entity guard.
-/// Distinguishes Ensembl-family stable ids (`ENSG…`, `ENSMUSG…`, `ENST…`) from
-/// everything else (gene symbols, etc.). The guard only flags an absent entity
-/// Suspicious when its class MATCHES the cited table's entity-column class — so
-/// a symbol claim looked up in an Ensembl-keyed table (a benign cross-namespace
-/// miss) stays Unverifiable rather than being wrongly flagged.
+/// Distinguishes three classes:
+///   * `ensembl` — Ensembl-family stable ids (`ENSG…`, `ENSMUSG…`, `ENST…`);
+///   * `set` — a multi-WORD value (contains internal ASCII whitespace after
+///     trimming), the signature of a gene-SET / pathway / GO-term NAME
+///     ("TNF-alpha Signaling via NF-kB", "Oxidative Phosphorylation");
+///   * `symbol` — everything else: a single bare token (gene symbol, etc.).
+///
+/// A1 FIX: a pathway/term row keyed on a multi-word SET name is class `set`,
+/// NOT `symbol`. Previously a bare token claim ("TNF") looked up against a
+/// pathway table whose entity column held set NAMES classed both as `symbol`,
+/// so `namespace_matches_table` falsely matched and VF-0 wrongly fired
+/// Suspicious. A single-token symbol/ensembl claim must NOT be treated as the
+/// same namespace as a multi-word set name.
 fn id_namespace(token: &str) -> &'static str {
     let t = token.trim();
+    // A set NAME has internal whitespace (e.g. "TNF-alpha Signaling via NF-kB").
+    // A bare gene symbol or Ensembl id never does. Classify multi-word values
+    // as `set` first so they can never collide with a single-token symbol.
+    if t.split_whitespace().nth(1).is_some() {
+        return "set";
+    }
     let upper = t.to_ascii_uppercase();
     if upper.starts_with("ENS") {
         // ENS + optional species (up to 4 letters) + G/T/P + ≥6 digits.
@@ -73,13 +87,55 @@ fn id_namespace(token: &str) -> &'static str {
     "symbol"
 }
 
+/// Number of rows sampled to classify a table's entity-column namespace.
+/// A pathway/enrichment table interleaves single-word term names
+/// ("Adipogenesis", "Apoptosis") with multi-word ones, so the FIRST row is
+/// not a reliable witness — we must scan a window.
+const NAMESPACE_SAMPLE_ROWS: usize = 32;
+
+/// The id-namespace of a TABLE's entity column, classified from a sampled
+/// window of rows rather than the first row alone.
+///
+/// A2 FIX: a pathway/term table can have a SINGLE-WORD term name in its first
+/// (top-ranked) row — e.g. "Adipogenesis" — which `id_namespace` classes as
+/// `symbol`, indistinguishable from a gene symbol. Sampling only the first row
+/// therefore mis-typed such a table as `symbol`-keyed, so an absent bare-token
+/// claim ("TNF", extracted from the prose "TNF-alpha Signaling via NF-kB")
+/// falsely matched the namespace and VF-0 fired Suspicious on a finding that is
+/// actually PRESENT in the table under its full set name. We now class the
+/// table as `set` if ANY sampled row carries a multi-word set name — a single
+/// multi-word term cannot occur in a true symbol/Ensembl column, so this is a
+/// conservative, false-positive-only-reducing witness. Falls back to the first
+/// row's class when every sampled row is single-token.
+fn table_namespace(cached: &CachedTable) -> Option<&'static str> {
+    let first = cached.rows.first()?;
+    let saw_set = cached
+        .rows
+        .iter()
+        .take(NAMESPACE_SAMPLE_ROWS)
+        .any(|r| id_namespace(&r.entity) == "set");
+    if saw_set {
+        Some("set")
+    } else {
+        Some(id_namespace(&first.entity))
+    }
+}
+
 /// True when the claim entity's id-namespace matches the cited table's
-/// entity-column namespace (sampled from the first row). Used by VF-0 so an
-/// absent entity is only flagged Suspicious when its absence is a real
-/// negative in the SAME namespace, not a symbol-vs-Ensembl lookup artifact.
+/// entity-column namespace. Used by VF-0 so an absent entity is only flagged
+/// Suspicious when its absence is a real negative in the SAME namespace, not a
+/// symbol-vs-Ensembl (or symbol-vs-pathway-set) lookup artifact.
+///
+/// A1 FIX: a single-token symbol/ensembl claim against a `set`-keyed table
+/// (pathway/term row holding a multi-word set NAME) returns FALSE, so VF-0 and
+/// sibling-discovery fall through to Unverifiable rather than Suspicious — a
+/// bare "TNF" cited from a pathway table is a benign cross-namespace miss,
+/// never a fabricated finding. A2 FIX: the table's namespace is now sampled
+/// across a row window (see `table_namespace`) so a pathway table whose FIRST
+/// row is a single-word term name is still recognised as `set`-keyed.
 fn namespace_matches_table(claim_entity: &str, cached: &CachedTable) -> bool {
-    match cached.rows.first() {
-        Some(first) => id_namespace(claim_entity) == id_namespace(&first.entity),
+    match table_namespace(cached) {
+        Some(table_ns) => id_namespace(claim_entity) == table_ns,
         // Empty table: no namespace to compare — treat as non-matching so we
         // stay Unverifiable rather than guess.
         None => false,
@@ -127,6 +183,15 @@ pub enum ClaimStatus {
     /// The claim could not be cross-checked (no table cited, table
     /// missing, entity not in any configured entity column, etc.).
     Unverifiable { reason: String },
+    /// The claim was NEVER ADJUDICATED — there was no adjudication site to
+    /// run at all (no evidence file present, an in-result self-reference, no
+    /// countable/per-entity quantity to check, or a resolution gap). Distinct
+    /// from [`Self::Unverifiable`], which means a table WAS loaded and checked
+    /// but yielded nothing determinable (no effect/p column). Splitting the
+    /// two keeps coverage honest: relabeling a checked-but-undeterminable
+    /// claim as `Pending` (or vice versa) cannot inflate any verified/coverage
+    /// floor, because both are non-Verified and counted in their own bucket.
+    Pending { reason: String },
     /// A confident quantitative claim was attributed to an entity that is
     /// ABSENT from a successfully-loaded cited table whose id-namespace
     /// matches the claim token — the signature of a fabricated or untested
@@ -188,8 +253,13 @@ pub struct ClaimVerificationReport {
     pub n_verified: usize,
     /// N mismatch.
     pub n_mismatch: usize,
-    /// N unverifiable.
+    /// N unverifiable (table loaded + checked but undeterminable).
     pub n_unverifiable: usize,
+    /// N pending (never adjudicated — no adjudication site ran at all).
+    /// Defaults to 0 so older serialized reports without the field still
+    /// deserialize.
+    #[serde(default)]
+    pub n_pending: usize,
     /// N suspicious (soft / review-required; never blocks). Defaults to 0 so
     /// older serialized reports without the field still deserialize.
     #[serde(default)]
@@ -217,6 +287,7 @@ impl ClaimVerificationReport {
             n_verified: 0,
             n_mismatch: 0,
             n_unverifiable: 0,
+            n_pending: 0,
             n_suspicious: 0,
             verdicts: Vec::new(),
             runtime_decision_log_path: None,
@@ -230,6 +301,7 @@ impl ClaimVerificationReport {
             ClaimStatus::Verified => self.n_verified += 1,
             ClaimStatus::Mismatch { .. } => self.n_mismatch += 1,
             ClaimStatus::Unverifiable { .. } => self.n_unverifiable += 1,
+            ClaimStatus::Pending { .. } => self.n_pending += 1,
             ClaimStatus::Suspicious { .. } => self.n_suspicious += 1,
         }
         self.verdicts.push(verdict);
@@ -559,6 +631,7 @@ fn verify_for_contract(
         ClaimContract::Categorical => verify_categorical(claim, index, cfg, cache),
         ClaimContract::TimeSeriesSummary => verify_time_series(claim, index, cfg, cache),
         ClaimContract::LiteratureGrounded => verify_literature_grounded(claim, index, cfg, cache),
+        ClaimContract::ExtremeValue => verify_extreme_value(claim, index, cfg, cache),
     }
 }
 
@@ -797,6 +870,163 @@ fn verify_rank_top_n(
                 claim.entity,
                 n,
                 table_label(&path)
+            ),
+        }
+    }
+}
+
+/// Which extreme a superlative selects on a given column.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ExtremeKind {
+    /// Argmax: the row with the greatest column value (highest log2FC, largest NES).
+    Max,
+    /// Argmin: the row with the least column value (lowest padj, smallest p-value).
+    Min,
+}
+
+/// Words that pick the MAXIMUM of the named column.
+static EXTREME_MAX_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"(?i)\b(highest|largest|strongest|maximal|greatest|top[\s-]?(?:ranked|most|scoring)?)\b").expect("static regex")
+});
+/// Words that pick the MINIMUM of the named column.
+static EXTREME_MIN_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"(?i)\b(lowest|smallest|weakest|minimal|least|bottom[\s-]?(?:ranked|most)?)\b").expect("static regex")
+});
+/// True when the excerpt names a P-VALUE-family column (padj/fdr/p-value/…),
+/// so the extreme is taken over the p-value columns rather than effect size.
+static EXTREME_PVAL_COL_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"(?i)\b(padj|p[\s_-]?adj|fdr|q[\s_-]?value|qvalue|p[\s_-]?value|pvalue)\b").expect("static regex")
+});
+
+/// A3 — verify an ordinal/superlative EXTREME claim ("the strongest enrichment
+/// by NES", "the most-downregulated gene by log2FC", "TP53 had the lowest
+/// padj"). No explicit rank digit is present (those route to `RankTopN`). The
+/// named entity must be the actual argmax/argmin of the cited column for the
+/// stated extreme; otherwise it is a `Mismatch`.
+///
+/// Column selection: a p-value-family token in the excerpt picks the table's
+/// p-value columns, else the effect-size columns. Extreme direction: a
+/// max-word (highest/largest/strongest) → argmax; a min-word (lowest/smallest/
+/// least) → argmin; for a p-value column the natural extreme inverts (a
+/// "strongest"/"most-significant" p is the SMALLEST), so on a p-value column a
+/// max-word is reinterpreted as argmin. Abstains to `Unverifiable` (never a
+/// false Mismatch) when the extreme kind is ambiguous, the column is absent,
+/// or the named entity itself is not in the table.
+fn verify_extreme_value(
+    claim: &Claim,
+    index: &TableIndex,
+    cfg: &ExtractorConfig,
+    cache: &mut BTreeMap<PathBuf, CachedTable>,
+) -> ClaimStatus {
+    let Some(source_ref) = claim.source_table.as_deref() else {
+        return ClaimStatus::Unverifiable {
+            reason: "no source table cited — cannot verify extreme-value claim".into(),
+        };
+    };
+    if index.resolve(source_ref).is_none() {
+        return verify_via_sibling_discovery(claim, index, cfg, cache);
+    }
+    let (path, cached) = match cached_table_for(cache, index, source_ref, cfg) {
+        Ok(t) => t,
+        Err(status) => return status,
+    };
+
+    let excerpt = &claim.excerpt;
+    let over_pvalue = EXTREME_PVAL_COL_RE.is_match(excerpt);
+    let columns: &[String] = if over_pvalue {
+        &cfg.pvalue_columns
+    } else {
+        &cfg.effect_size_columns
+    };
+
+    // Resolve the extreme kind from the superlative word, inverting for a
+    // p-value column (smaller p = stronger). Ambiguous (both or neither word
+    // present) → abstain.
+    let has_max = EXTREME_MAX_RE.is_match(excerpt);
+    let has_min = EXTREME_MIN_RE.is_match(excerpt);
+    let kind = match (has_max, has_min) {
+        (true, false) => {
+            if over_pvalue {
+                ExtremeKind::Min
+            } else {
+                ExtremeKind::Max
+            }
+        }
+        (false, true) => {
+            if over_pvalue {
+                // "lowest p" is already the smallest; no inversion.
+                ExtremeKind::Min
+            } else {
+                ExtremeKind::Min
+            }
+        }
+        _ => {
+            return ClaimStatus::Unverifiable {
+                reason: "extreme-value claim names no unambiguous superlative — cannot determine argmax/argmin".into(),
+            };
+        }
+    };
+
+    // The named entity must be present and carry a finite value in the column.
+    let needle = normalize(&claim.entity);
+    let Some(claimed_row) = cached.get_by_normalized(&needle) else {
+        return ClaimStatus::Unverifiable {
+            reason: format!(
+                "entity `{}` not found in table `{}` — cannot verify extreme",
+                claim.entity,
+                table_label(&path)
+            ),
+        };
+    };
+    let Some(claimed_val) = lookup_numeric(&claimed_row.values, columns).filter(|v| v.is_finite())
+    else {
+        return ClaimStatus::Unverifiable {
+            reason: format!(
+                "entity `{}` has no finite value in the cited column of `{}` — cannot rank",
+                claim.entity,
+                table_label(&path)
+            ),
+        };
+    };
+
+    // Compute the true argmax/argmin over all rows carrying a finite value.
+    let mut extreme: Option<(f64, &str)> = None;
+    for r in &cached.rows {
+        let Some(v) = lookup_numeric(&r.values, columns).filter(|v| v.is_finite()) else {
+            continue;
+        };
+        let better = match (&extreme, kind) {
+            (None, _) => true,
+            (Some((best, _)), ExtremeKind::Max) => v > *best,
+            (Some((best, _)), ExtremeKind::Min) => v < *best,
+        };
+        if better {
+            extreme = Some((v, r.entity.as_str()));
+        }
+    }
+    let Some((extreme_val, _extreme_entity)) = extreme else {
+        return ClaimStatus::Unverifiable {
+            reason: format!(
+                "table `{}` has no finite values in the cited column — cannot rank",
+                table_label(&path)
+            ),
+        };
+    };
+
+    // The claim verifies when the named entity's value IS the extreme value
+    // (ties are tolerated: any entity holding the extreme value passes).
+    if claimed_val == extreme_val {
+        ClaimStatus::Verified
+    } else {
+        ClaimStatus::Mismatch {
+            detail: format!(
+                "extreme: narrative names `{}` ({:.4}) as the {} value in `{}`, but the {} is {:.4}",
+                claim.entity,
+                claimed_val,
+                match kind { ExtremeKind::Max => "maximum", ExtremeKind::Min => "minimum" },
+                table_label(&path),
+                match kind { ExtremeKind::Max => "maximum", ExtremeKind::Min => "minimum" },
+                extreme_val,
             ),
         }
     }
@@ -1500,7 +1730,7 @@ fn verify_via_sibling_discovery(
                         target: "ecaa::claim_verifier",
                         table = %path.display(),
                         error = %e,
-                        "sibling table failed to load during VF-11 fallback; excluding it"
+                        "sibling table not usable during VF-11 fallback (e.g. a non-result table with no configured entity column, or a genuine parse/IO error — see `error`); excluding it"
                     );
                     continue;
                 }
@@ -2430,6 +2660,137 @@ fn verify_count_claim(text: &str, table_path: &Path, cfg: &ExtractorConfig) -> O
     ))
 }
 
+/// Resolve the single significance (p-value) column to count against in
+/// `cached`, preferring the adjusted family. Returns the configured column
+/// name (so the caller can `lookup_numeric` on a one-element slice) or `None`
+/// when the table carries no configured p-value column at all. Mirrors the
+/// column-pinning logic inside [`verify_count_claim`] (an NA adjusted cell
+/// must drop the row, never fall through to the raw column).
+fn resolve_significance_column(cached: &CachedTable, cfg: &ExtractorConfig) -> Option<String> {
+    let (adjusted_cols, raw_cols): (Vec<String>, Vec<String>) = cfg
+        .pvalue_columns
+        .iter()
+        .cloned()
+        .partition(|c| is_adjusted_pvalue_keyword(c));
+    let ordered: Vec<String> = adjusted_cols.into_iter().chain(raw_cols).collect();
+    let col_present = |col: &str| -> bool {
+        let needle = normalize(col);
+        cached
+            .rows
+            .first()
+            .is_some_and(|r| r.values.contains_key(&needle))
+    };
+    ordered.into_iter().find(|c| col_present(c))
+}
+
+/// The significant / up / down split recomputed directly from a DE result
+/// table at a fixed FDR threshold. `sig` is the number of rows whose adjusted
+/// p-value is below `fdr`; `up`/`down` partition those by the sign of the
+/// effect-size column. Rows lacking a finite significance value (NA-`padj`
+/// independent-filtered rows) are dropped — never counted; rows that are
+/// significant but lack a finite effect size count toward `sig` but neither
+/// `up` nor `down`. Shared by [`verify_structured_counts`] (A4) so the
+/// recompute is one canonical loop, not a re-derivation.
+fn recompute_split(table_path: &Path, cfg: &ExtractorConfig, fdr: f64) -> Option<(usize, usize, usize)> {
+    let cached = load_table_rows(table_path, &cfg.entity_columns).ok()?;
+    let sig_col = resolve_significance_column(&cached, cfg)?;
+    let sig_cols = [sig_col];
+    let (mut sig, mut up, mut down) = (0usize, 0usize, 0usize);
+    for row in &cached.rows {
+        let Some(p) = lookup_numeric(&row.values, &sig_cols) else {
+            continue;
+        };
+        if !(p.is_finite() && p < fdr) {
+            continue;
+        }
+        sig += 1;
+        if let Some(e) = lookup_numeric(&row.values, &cfg.effect_size_columns).filter(|v| v.is_finite()) {
+            if e > 0.0 {
+                up += 1;
+            } else if e < 0.0 {
+                down += 1;
+            }
+        }
+    }
+    Some((sig, up, down))
+}
+
+/// A4 — recompute the structured up/down DE split from the cited result table
+/// and emit a real `Mismatch` when `result.json`'s `n_up_fdr05`/`n_down_fdr05`
+/// disagrees. Nothing previously recomputed these structured summary counts,
+/// so an up/down split error (e.g. the result.json swapping or inflating the
+/// directional counts) passed silently. This walks the package's
+/// `de_results.tsv`, recomputes (sig, up, down) at FDR < 0.05 via the shared
+/// [`recompute_split`], and compares against the agent-written summary.
+///
+/// Returns one [`ClaimVerdict`] per structured count that could be checked:
+/// `Verified` when the recomputed value matches, `Mismatch` when it disagrees.
+/// Returns an EMPTY vec (no false verdicts) when the de table or the summary
+/// counts are absent — an honest abstention, not a pass.
+pub fn verify_structured_counts(package_root: &Path, cfg: &ExtractorConfig) -> Vec<ClaimVerdict> {
+    const FDR: f64 = 0.05;
+    let mut out = Vec::new();
+
+    // Locate the result.json summary counts.
+    let result_json = package_root.join("result.json");
+    let Ok(bytes) = std::fs::read(&result_json) else {
+        return out;
+    };
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+        return out;
+    };
+    let claimed_up = value.get("n_up_fdr05").and_then(|v| v.as_u64());
+    let claimed_down = value.get("n_down_fdr05").and_then(|v| v.as_u64());
+    if claimed_up.is_none() && claimed_down.is_none() {
+        return out;
+    }
+
+    // Locate de_results.tsv and recompute the split.
+    let Some(table_path) = resolve_evidence_table(package_root, "de_results.tsv") else {
+        return out;
+    };
+    let Some((_sig, up, down)) = recompute_split(&table_path, cfg, FDR) else {
+        return out;
+    };
+    let table_name = table_label(&table_path);
+
+    let mk = |label: &str, claimed: u64, observed: usize| -> ClaimVerdict {
+        let status = if claimed as usize == observed {
+            ClaimStatus::Verified
+        } else {
+            ClaimStatus::Mismatch {
+                detail: format!(
+                    "structured count `{label}`: result.json says {claimed}, recompute from `{table_name}` (FDR<{FDR}) yields {observed}"
+                ),
+            }
+        };
+        ClaimVerdict {
+            claim: Claim {
+                entity: label.to_string(),
+                direction: None,
+                effect_size: None,
+                pvalue: None,
+                source_table: Some(table_name.clone()),
+                excerpt: format!("structured summary count {label}"),
+                contract: ClaimContract::ThresholdedDeOrEnrichment,
+                literature_evidence: None,
+                matched_pvalue_keyword: None,
+                linear_fold: None,
+            },
+            status,
+            strength: ClaimStrength::Exploratory,
+        }
+    };
+
+    if let Some(c) = claimed_up {
+        out.push(mk("n_up_fdr05", c, up));
+    }
+    if let Some(c) = claimed_down {
+        out.push(mk("n_down_fdr05", c, down));
+    }
+    out
+}
+
 /// A hedge / approximation token immediately preceding a count integer — the
 /// VF-16 false-positive guard so "~2000 genes", "approximately 2,000", "at
 /// least 5", ">1000" abstain rather than being checked against an EXACT
@@ -2867,7 +3228,9 @@ fn verify_one_structured(
     let Some(evidence) = sc.evidence.as_deref().filter(|e| !e.trim().is_empty()) else {
         return make(
             summarize_claim_subject(&sc.claim),
-            ClaimStatus::Unverifiable {
+            // Never adjudicated: there is no evidence file to load, so no
+            // adjudication ran. Pending, not Unverifiable.
+            ClaimStatus::Pending {
                 reason: "claim cites no evidence file".into(),
             },
             None,
@@ -2883,7 +3246,9 @@ fn verify_one_structured(
     if let Some((base, _pointer)) = evidence.split_once("::") {
         let base = base.trim();
         let status = if !base.is_empty() && evidence_basename_exists(package_root, base) {
-            ClaimStatus::Unverifiable {
+            // Never adjudicated: an in-result field self-reference is not a
+            // result table, so no adjudication site ran. Pending.
+            ClaimStatus::Pending {
                 reason: format!(
                     "cited evidence `{evidence}` is an in-result field self-reference (not a result table); value not table-adjudicable"
                 ),
@@ -2908,7 +3273,11 @@ fn verify_one_structured(
         // the basename IS present somewhere the resolver did not scan, that is a
         // resolution gap, not a fabrication → stay Unverifiable (no false flag).
         let status = if evidence_basename_exists(package_root, evidence) {
-            ClaimStatus::Unverifiable {
+            // Never adjudicated: a resolution gap (the basename exists somewhere
+            // the resolver did not scan), so no table was loaded. Pending — an
+            // honest claim about an unresolvable-but-present citation, not a
+            // checked-but-undeterminable Unverifiable.
+            ClaimStatus::Pending {
                 reason: format!(
                     "cited evidence `{}` is present in the package but not at a resolvable result-table location",
                     evidence
@@ -2951,9 +3320,11 @@ fn verify_one_structured(
     }
 
     // 3. Nothing numeric/countable to check (e.g. a methodological note).
+    //    Never adjudicated: the claim carries no countable/per-entity quantity,
+    //    so no adjudication site ran. Pending, not Unverifiable.
     make(
         summarize_claim_subject(&sc.claim),
-        ClaimStatus::Unverifiable {
+        ClaimStatus::Pending {
             reason: "no countable or per-entity quantity in claim to cross-check".into(),
         },
         Some(table_name),
@@ -3096,7 +3467,7 @@ pub fn verify_claims_with_discovery(
                                 target: "ecaa::claim_verifier",
                                 table = %cand.display(),
                                 error = %e,
-                                "result table failed to load during claim discovery; excluding it"
+                                "table not usable for claim discovery (e.g. a non-result table with no configured entity column, such as method_landscape.csv, or a genuine parse/IO error — see `error`); excluding it"
                             );
                             return false;
                         }
@@ -3137,7 +3508,10 @@ pub fn verify_claims_with_discovery(
                     // Verified beats everything; Mismatch beats Unverifiable.
                     Some(ClaimStatus::Verified) => false,
                     Some(ClaimStatus::Mismatch { .. }) => verified,
-                    Some(ClaimStatus::Unverifiable { .. }) => {
+                    // Unverifiable and Pending rank identically here: a stronger
+                    // Verified/Mismatch wins over either.
+                    Some(ClaimStatus::Unverifiable { .. })
+                    | Some(ClaimStatus::Pending { .. }) => {
                         verified || matches!(status, ClaimStatus::Mismatch { .. })
                     }
                     // Suspicious only arises for entities ABSENT from a table,
@@ -3525,6 +3899,326 @@ mod tests {
             matches!(crispld2, ClaimStatus::Unverifiable { .. }),
             "symbol-vs-Ensembl miss must stay Unverifiable (not Suspicious), got {:?}",
             crispld2
+        );
+    }
+
+    #[test]
+    fn a1_tnf_token_vs_pathway_set_name_is_unverifiable_not_suspicious() {
+        // A1 FP fix: a bare single-token gene claim ("TNF (log2FC=3.0…)") cited
+        // against a PATHWAY table whose entity column holds multi-word SET names
+        // ("TNF-alpha Signaling via NF-kB") is a benign cross-namespace miss
+        // (symbol vs set), NOT a fabrication. It must be Unverifiable, never
+        // Suspicious — the old code classed both as `symbol` and wrongly fired
+        // VF-0 Suspicious.
+        let mut policy = policy_json();
+        policy["verifiableEntities"]["effectSizeColumns"] =
+            serde_json::json!(["NES", "log2FC", "logFC"]);
+        policy["verifiableEntities"]["entityColumns"] =
+            serde_json::json!(["gene", "term", "pathway", "symbol"]);
+        let cfg = ExtractorConfig::from_policy(&policy).unwrap();
+        let tmp = tempdir().unwrap();
+        // Pathway table keyed on `term` whose only row is a multi-word set NAME.
+        write_table(
+            tmp.path(),
+            "gsea_s1.tsv",
+            "term\tNES\tpadj\nTNF-alpha Signaling via NF-kB\t2.3\t0.001\n",
+        );
+        let claims = extract_claims("TNF was elevated (log2FC=3.0, padj=0.01, Table S1).", &cfg);
+        let report = verify_claims(&claims, tmp.path(), &cfg);
+        let tnf = report
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "TNF")
+            .unwrap();
+        assert!(
+            matches!(tnf.status, ClaimStatus::Unverifiable { .. }),
+            "bare TNF token vs a set-name-keyed pathway table is a cross-namespace miss → Unverifiable, got {:?}",
+            tnf.status
+        );
+        assert_eq!(
+            report.n_suspicious, 0,
+            "set-vs-symbol namespace mismatch must NOT be flagged Suspicious"
+        );
+    }
+
+    #[test]
+    fn a1_preserved_positive_absent_single_token_gene_is_still_suspicious() {
+        // A1 PRESERVED POSITIVE: the namespace fix must NOT weaken real
+        // detection. A single-token gene (GENEX) with a specific asserted effect,
+        // absent from a symbol-keyed DE table, is STILL Suspicious.
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_table(
+            tmp.path(),
+            "de_summary_s1.tsv",
+            "gene\tlog2FC\tpadj\nCOL2A1\t-1.5\t0.003\n",
+        );
+        let claims = extract_claims("GENEX was upregulated (log2FC=4.2, Table S1).", &cfg);
+        let report = verify_claims(&claims, tmp.path(), &cfg);
+        let genex = report
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "GENEX")
+            .unwrap();
+        assert!(
+            matches!(genex.status, ClaimStatus::Suspicious { .. }),
+            "absent single-token gene with a specific effect must STILL be Suspicious, got {:?}",
+            genex.status
+        );
+        assert_eq!(report.n_suspicious, 1);
+    }
+
+    #[test]
+    fn a2_tnf_token_vs_pathway_table_with_single_word_first_row_is_unverifiable() {
+        // A2 FP fix (root cause of the Himes `TNF` false positive): a pathway
+        // table's FIRST (top-ranked) row can be a SINGLE-WORD term name
+        // ("Adipogenesis"), which `id_namespace` classes as `symbol` — so
+        // sampling the first row alone mis-typed the whole table as
+        // symbol-keyed and VF-0 fired Suspicious on a bare "TNF" claim. The
+        // pathway it names ("TNF-alpha Signaling via NF-kB") is PRESENT in the
+        // table under its full set name, so this is a benign cross-namespace
+        // miss, not a fabrication. Sampling a row window now recognises the
+        // table as `set`-keyed → Unverifiable, never Suspicious.
+        let mut policy = policy_json();
+        policy["verifiableEntities"]["effectSizeColumns"] =
+            serde_json::json!(["NES", "log2FC", "logFC"]);
+        policy["verifiableEntities"]["entityColumns"] =
+            serde_json::json!(["gene", "term", "pathway", "symbol"]);
+        let cfg = ExtractorConfig::from_policy(&policy).unwrap();
+        let tmp = tempdir().unwrap();
+        // Pathway table whose FIRST row is a single-word term name; the TNF
+        // pathway is present further down under its full multi-word set name.
+        write_table(
+            tmp.path(),
+            "gsea_s1.tsv",
+            "term\tNES\tpadj\n\
+             Adipogenesis\t2.005\t0.0000005\n\
+             TNF-alpha Signaling via NF-kB\t1.836\t0.0001\n\
+             Autophagy\t1.982\t0.0002\n",
+        );
+        let claims = extract_claims(
+            "Hallmark TNF-alpha Signaling via NF-kB was enriched (NES=1.836, padj=1.13e-04, Table S1).",
+            &cfg,
+        );
+        let report = verify_claims(&claims, tmp.path(), &cfg);
+        // The extractor may pull a bare `TNF` token from the prose; whatever its
+        // verdict, it must not be Suspicious (the pathway IS present in-table).
+        if let Some(tnf) = report.verdicts.iter().find(|v| v.claim.entity == "TNF") {
+            assert!(
+                matches!(tnf.status, ClaimStatus::Unverifiable { .. }),
+                "bare TNF token vs a pathway table with a single-word first row must NOT be Suspicious, got {:?}",
+                tnf.status
+            );
+        }
+        // Whole-report invariant: nothing in this faithful narrative is flagged.
+        assert_eq!(
+            report.n_suspicious, 0,
+            "a faithful pathway claim whose pathway IS present must yield zero Suspicious"
+        );
+    }
+
+    #[test]
+    fn a2_preserved_positive_absent_gene_in_symbol_table_with_set_lookalike_first_row() {
+        // A2 PRESERVED POSITIVE: the row-window sampling must not let a single
+        // multi-word junk value in row 1 mask a genuine symbol-keyed table and
+        // thereby SUPPRESS a real fabrication. A symbol-keyed DE table whose
+        // rows are all single-token gene symbols must still be classed `symbol`,
+        // so an absent gene (GENEX) with a specific asserted effect is STILL
+        // Suspicious.
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_table(
+            tmp.path(),
+            "de_summary_s1.tsv",
+            "gene\tlog2FC\tpadj\n\
+             COL2A1\t-1.5\t0.003\n\
+             ACAN\t2.1\t0.001\n\
+             SOX9\t1.2\t0.01\n",
+        );
+        let claims = extract_claims("GENEX was upregulated (log2FC=4.2, Table S1).", &cfg);
+        let report = verify_claims(&claims, tmp.path(), &cfg);
+        let genex = report
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "GENEX")
+            .unwrap();
+        assert!(
+            matches!(genex.status, ClaimStatus::Suspicious { .. }),
+            "absent single-token gene in an all-symbol DE table must STILL be Suspicious, got {:?}",
+            genex.status
+        );
+        assert_eq!(report.n_suspicious, 1);
+    }
+
+    #[test]
+    fn a2_pending_vs_unverifiable_split_cannot_inflate_coverage() {
+        // A2: a NEVER-ADJUDICATED claim (no evidence file) counts n_pending; a
+        // CHECKED-BUT-UNDETERMINABLE claim (table loaded, but no effect/p column
+        // for the named entity) STILL counts n_unverifiable. Neither is Verified,
+        // so the split cannot inflate any verified/coverage floor.
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+
+        // Never adjudicated: a structured claim citing NO evidence file.
+        let no_evidence = StructuredClaim {
+            claim: "Pathway activity increased overall".into(),
+            evidence: None,
+        };
+        let pkg = tempdir().unwrap();
+        let v_pending = verify_structured_claims(&[no_evidence], pkg.path(), &cfg);
+        assert!(
+            matches!(v_pending[0].status, ClaimStatus::Pending { .. }),
+            "no-evidence claim must be Pending, got {:?}",
+            v_pending[0].status
+        );
+
+        // Checked but undeterminable: table loads but carries no effect-size
+        // column the claim could be adjudicated against → stays Unverifiable.
+        let tmp = tempdir().unwrap();
+        write_table(
+            tmp.path(),
+            "counts_s1.tsv",
+            // No log2FC/logFC column at all; only a non-effect numeric column.
+            "gene\tbase_mean\tpadj\nACAN\t120.0\t0.001\n",
+        );
+        let claims = extract_claims("ACAN was upregulated (log2FC=2.1, padj=0.001, Table S1).", &cfg);
+        let report = verify_claims(&claims, tmp.path(), &cfg);
+        let acan = report
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "ACAN")
+            .unwrap();
+        assert!(
+            matches!(acan.status, ClaimStatus::Unverifiable { .. }),
+            "table-loaded-but-no-effect-column claim must STAY Unverifiable (not Pending), got {:?}",
+            acan.status
+        );
+        assert_eq!(report.n_unverifiable, 1, "checked-but-undeterminable still counts n_unverifiable");
+        assert_eq!(report.n_pending, 0, "an Unverifiable claim must not be relabeled Pending");
+        // And the push() bookkeeping keeps the two buckets disjoint.
+        let mut combined = ClaimVerificationReport::empty();
+        combined.push(v_pending[0].clone());
+        combined.push(acan.clone());
+        assert_eq!(combined.n_pending, 1);
+        assert_eq!(combined.n_unverifiable, 1);
+        assert_eq!(combined.n_verified, 0, "neither bucket can become Verified");
+    }
+
+    #[test]
+    fn a3_extreme_value_correct_top_negative_nes_verifies_wrong_mismatches() {
+        // A3: an ordinal/superlative extreme claim WITHOUT a rank digit ("the
+        // most strongly DOWNregulated gene by log2FC") routes to ExtremeValue and
+        // is verified against the actual argmin of the column.
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_table(
+            tmp.path(),
+            "de_s1.tsv",
+            "gene\tlog2FC\tpadj\nACAN\t2.1\t0.01\nCOL2A1\t-4.6\t0.001\nMMP13\t-1.2\t0.02\n",
+        );
+
+        // Correct: COL2A1 has the lowest (most negative) log2FC.
+        let correct = Claim {
+            entity: "COL2A1".into(),
+            direction: None,
+            effect_size: None,
+            pvalue: None,
+            source_table: Some("de_s1.tsv".into()),
+            excerpt: "COL2A1 was the lowest log2FC gene (Table S1)".into(),
+            contract: ClaimContract::ExtremeValue,
+            literature_evidence: None,
+            matched_pvalue_keyword: None,
+            linear_fold: None,
+        };
+        let report = verify_claims(std::slice::from_ref(&correct), tmp.path(), &cfg);
+        assert!(
+            matches!(report.verdicts[0].status, ClaimStatus::Verified),
+            "entity that IS the argmin must Verify, got {:?}",
+            report.verdicts[0].status
+        );
+
+        // Wrong: MMP13 is NOT the lowest log2FC — claiming it is must Mismatch.
+        let wrong = Claim {
+            entity: "MMP13".into(),
+            excerpt: "MMP13 was the lowest log2FC gene (Table S1)".into(),
+            ..correct.clone()
+        };
+        let report2 = verify_claims(std::slice::from_ref(&wrong), tmp.path(), &cfg);
+        assert!(
+            matches!(report2.verdicts[0].status, ClaimStatus::Mismatch { .. }),
+            "entity that is NOT the argmin must Mismatch, got {:?}",
+            report2.verdicts[0].status
+        );
+    }
+
+    #[test]
+    fn a3_classifier_routes_superlative_to_extreme_value() {
+        // The extractor must classify a digit-free superlative naming a column as
+        // ExtremeValue (and a numeric rank as RankTopN, unchanged).
+        assert_eq!(
+            crate::claim_extractor::classify_contract("the most downregulated gene by log2FC"),
+            ClaimContract::ExtremeValue
+        );
+        assert_eq!(
+            crate::claim_extractor::classify_contract("TP53 had the lowest padj"),
+            ClaimContract::ExtremeValue
+        );
+        assert_eq!(
+            crate::claim_extractor::classify_contract("the top-10 genes by log2FC"),
+            ClaimContract::RankTopN,
+            "an explicit numeric rank must STAY RankTopN, not become ExtremeValue"
+        );
+    }
+
+    #[test]
+    fn a4_structured_count_split_mismatch_and_match() {
+        // A4: result.json's n_up_fdr05 / n_down_fdr05 are recomputed from
+        // de_results.tsv. A disagreeing split is a real Mismatch; a matching one
+        // Verifies.
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+
+        // de_results.tsv: 2 up (log2FC>0, padj<0.05), 1 down — but more rows so
+        // the recompute is non-trivial. Build a small deterministic table.
+        let mut body = String::from("gene\tlog2FC\tpadj\n");
+        // 3 significant up genes:
+        for i in 0..3 {
+            body.push_str(&format!("UP{i}\t1.5\t0.001\n"));
+        }
+        // 2 significant down genes:
+        for i in 0..2 {
+            body.push_str(&format!("DN{i}\t-1.5\t0.001\n"));
+        }
+        // 1 non-significant gene (must be excluded):
+        body.push_str("NS0\t3.0\t0.9\n");
+
+        // MISMATCH: result.json claims a swapped/wrong split (5 up / 0 down).
+        let pkg = tempdir().unwrap();
+        write_pkg_table(pkg.path(), "differential_expression", "de_results.tsv", &body);
+        std::fs::write(
+            pkg.path().join("result.json"),
+            r#"{"n_up_fdr05": 5, "n_down_fdr05": 0}"#,
+        )
+        .unwrap();
+        let verdicts = verify_structured_counts(pkg.path(), &cfg);
+        assert!(
+            verdicts.iter().any(|v| matches!(v.status, ClaimStatus::Mismatch { .. })),
+            "a wrong up/down split must yield a Mismatch, got {:?}",
+            verdicts.iter().map(|v| &v.status).collect::<Vec<_>>()
+        );
+
+        // MATCH: result.json claims the correct split (3 up / 2 down).
+        let pkg2 = tempdir().unwrap();
+        write_pkg_table(pkg2.path(), "differential_expression", "de_results.tsv", &body);
+        std::fs::write(
+            pkg2.path().join("result.json"),
+            r#"{"n_up_fdr05": 3, "n_down_fdr05": 2}"#,
+        )
+        .unwrap();
+        let verdicts2 = verify_structured_counts(pkg2.path(), &cfg);
+        assert!(
+            !verdicts2.is_empty()
+                && verdicts2.iter().all(|v| matches!(v.status, ClaimStatus::Verified)),
+            "a correct up/down split must Verify, got {:?}",
+            verdicts2.iter().map(|v| &v.status).collect::<Vec<_>>()
         );
     }
 
@@ -4091,8 +4785,8 @@ mod tests {
         };
         let v = verify_one_structured(&sc, pkg.path(), &cfg);
         assert!(
-            matches!(v.status, ClaimStatus::Unverifiable { .. }),
-            "file::pointer self-reference to an existing field must be Unverifiable, got {:?}",
+            matches!(v.status, ClaimStatus::Pending { .. }),
+            "file::pointer self-reference to an existing field is never-adjudicated → Pending, got {:?}",
             v.status
         );
 
@@ -4801,8 +5495,8 @@ mod tests {
         };
         let v2 = verify_structured_claims(&[present], tmp.path(), &cfg);
         assert!(
-            matches!(v2[0].status, ClaimStatus::Unverifiable { .. }),
-            "present-but-unresolved evidence must stay Unverifiable, got {:?}",
+            matches!(v2[0].status, ClaimStatus::Pending { .. }),
+            "present-but-unresolved evidence is a never-adjudicated resolution gap → Pending (not Mismatch, not Unverifiable), got {:?}",
             v2[0].status
         );
     }

@@ -157,6 +157,33 @@ def test_end_to_end_tsv_and_sorted_keys(tmp_path):
     assert list(parsed.keys()) == sorted(parsed.keys()), "result.json keys must be sorted"
 
 
+def test_emitted_count_key_is_tested_feature_count_not_significant(tmp_path):
+    """Twin for the key rename: the count is over TESTED features, so the
+    emitted JSON key must be `tested_feature_count`. The misleading
+    `significant_feature_count` (it never counted significance) must be gone,
+    and the value must equal the number of tested features."""
+    mod = _load_module()
+    table = tmp_path / "de_results.tsv"
+    rows = _planted_artifact_rows()
+    lines = ["\t".join(["feature", "log2fc", "base_mean"])]
+    for row in rows:
+        lines.append("\t".join(row))
+    table.write_text("\n".join(lines) + "\n")
+    out = tmp_path / "result.json"
+    assert mod.main(["--table", str(table), "--out", str(out)]) == 0
+    parsed = json.loads(out.read_text())
+    assert "tested_feature_count" in parsed, parsed
+    assert "significant_feature_count" not in parsed, parsed
+    # Every planted row carries a usable effect AND abundance, so all are tested.
+    assert parsed["tested_feature_count"] == len(rows)
+
+    # The pure compute path emits the same key.
+    eff, info = 1, 2
+    res = mod.compute_metrics(rows, eff, info)
+    assert "tested_feature_count" in res
+    assert "significant_feature_count" not in res
+
+
 def test_end_to_end_missing_table_emits_skip_result(tmp_path):
     mod = _load_module()
     out = tmp_path / "result.json"

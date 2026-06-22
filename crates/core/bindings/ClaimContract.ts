@@ -3,4 +3,4 @@
 /**
  * ClaimContract discriminant.
  */
-export type ClaimContract = "numeric_table_lookup" | "thresholded_de_or_enrichment" | "rank_top_n" | "group_comparison" | "categorical" | "time_series_summary" | "literature_grounded";
+export type ClaimContract = "numeric_table_lookup" | "thresholded_de_or_enrichment" | "rank_top_n" | "group_comparison" | "categorical" | "time_series_summary" | "literature_grounded" | "extreme_value";

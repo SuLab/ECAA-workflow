@@ -494,9 +494,18 @@ fn project_claim_subgraph(pkg: &LoadedPackage) -> Vec<Value> {
             .map(sanitize_id)
             .unwrap_or_else(|| format!("claim_{idx:03}"));
         let status = map_claim_status(v.get("status").and_then(Value::as_str).unwrap_or("pending"));
+        // Claim text from the projected row: `text` (the claim excerpt / matched
+        // entity, populated by `claim_sink::project_verdict_rows`), falling back
+        // to a legacy `narrative_text` field, then the matched `entity`. The
+        // node text is no longer always empty — it carries the recorded claim
+        // sentence so the embedded `Claim` is self-describing.
         let text = v
-            .get("narrative_text")
+            .get("text")
             .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .or_else(|| v.get("narrative_text").and_then(Value::as_str))
+            .filter(|s| !s.is_empty())
+            .or_else(|| v.get("entity").and_then(Value::as_str))
             .unwrap_or_default();
         let node = SpecNode::new(&id, SpecNodeType::Claim)
             .with_prop("text", json!(text))
@@ -814,9 +823,17 @@ pub fn project_audit_proof_jsonld(report: &Value) -> Vec<Value> {
 /// { "@id": "C:differential_expression_claim-0",
 ///   "@type": "Claim",
 ///   "status": "verified",
-///   "text": "",
-///   "supported_by": [ { "@id": "V:differential_expression_tsv" } ] }
+///   "text": "CRISPLD2 is downregulated …",
+///   "supported_by": [ { "@id": "runtime/outputs/de/de_results.tsv" } ] }
 /// ```
+///
+/// The folded `supported_by` references the REAL registered File `@id` (the
+/// verdict's recorded `supported_by` path), NOT a synthetic `V:<basename>`
+/// handle — so the edge resolves to the actual
+/// [`crate::ro_crate::register_produced_output_tables`] output entity in the
+/// SAME `@graph` (closing the dangling-id defect). A reference that carries no
+/// resolvable real-path form (none recorded) is dropped rather than emitted as a
+/// dangle.
 ///
 /// Deterministic: node `@id`s derive from the verdict `claim_id`; no wall-clock
 /// value enters, so re-injection keeps `ro-crate-metadata.json` reproducible.
@@ -825,12 +842,13 @@ pub fn project_claim_jsonld(claims: &Value) -> Vec<Value> {
         claims: Some(claims.clone()),
         ..LoadedPackage::default()
     };
-    // Reuse the canonical projector. It returns interleaved spec node values
-    // (`{id, type, props}`) and spec edge values (`{source_id, target_id,
-    // predicate}`); fold the edges onto their source node.
+    // Reuse the canonical projector for the NODE shape (claim_id sanitization,
+    // text/status props). Its `V:`-tagged supported_by EDGES are NOT folded
+    // here — instead the real-path `supported_by` is folded from the raw
+    // verdict rows below, so the embedded edge points at the registered File
+    // `@id` rather than a synthetic `V:` handle.
     let spec = project_claim_subgraph(&pkg);
     let mut nodes: std::collections::BTreeMap<String, Value> = std::collections::BTreeMap::new();
-    let mut edges: Vec<(String, String, String)> = Vec::new();
     for item in spec {
         if let (Some(id), Some(ty)) = (
             item.get("id").and_then(Value::as_str),
@@ -845,27 +863,45 @@ pub fn project_claim_jsonld(claims: &Value) -> Vec<Value> {
                 }
             }
             nodes.insert(id.to_string(), node);
-        } else if let (Some(src), Some(tgt), Some(pred)) = (
-            item.get("source_id").and_then(Value::as_str),
-            item.get("target_id").and_then(Value::as_str),
-            item.get("predicate").and_then(Value::as_str),
-        ) {
-            edges.push((src.to_string(), tgt.to_string(), pred.to_string()));
         }
+        // Spec edges are intentionally ignored here (see above).
     }
-    // Fold each edge onto its source node as a JSON-LD object reference under
-    // the predicate key (e.g. `supported_by: [{ "@id": "V:…" }]`).
-    for (src, tgt, pred) in edges {
-        let Some(node) = nodes.get_mut(&src) else {
-            continue;
-        };
-        let arr = node
-            .as_object_mut()
-            .expect("node is an object literal")
-            .entry(pred)
-            .or_insert_with(|| Value::Array(Vec::new()));
-        if let Some(a) = arr.as_array_mut() {
-            a.push(json!({ "@id": tgt }));
+    // Fold each verdict's REAL-path `supported_by` onto its Claim node. The node
+    // `@id` is `C:<sanitize(claim_id)>` — the exact id `project_claim_subgraph`
+    // assigns — so this re-keys deterministically. The folded `@id` is the
+    // recorded `supported_by` path verbatim (the registered File entity's
+    // `@id`); a prefix-tagged or empty reference is skipped (no real File to
+    // resolve to), never emitted as a dangle.
+    if let Some(verdicts) = claims.get("verdicts").and_then(Value::as_array) {
+        for (idx, v) in verdicts.iter().enumerate() {
+            let claim_id = v
+                .get("claim_id")
+                .and_then(Value::as_str)
+                .map(sanitize_id)
+                .unwrap_or_else(|| format!("claim_{idx:03}"));
+            let node_id = format!("C:{claim_id}");
+            let Some(node) = nodes.get_mut(&node_id) else {
+                continue;
+            };
+            let Some(refs) = v.get("supported_by").and_then(Value::as_array) else {
+                continue;
+            };
+            for r in refs.iter().filter_map(Value::as_str) {
+                // Only real File-path references are folded. A `<letter>:<id>`
+                // prefix-tagged value or empty string has no registered File
+                // entity to point at, so it is dropped (not dangled).
+                if r.is_empty() || is_prefix_tagged(r) {
+                    continue;
+                }
+                let arr = node
+                    .as_object_mut()
+                    .expect("node is an object literal")
+                    .entry(SpecPredicate::SupportedBy.as_str())
+                    .or_insert_with(|| Value::Array(Vec::new()));
+                if let Some(a) = arr.as_array_mut() {
+                    a.push(json!({ "@id": r }));
+                }
+            }
         }
     }
     nodes.into_values().collect()
