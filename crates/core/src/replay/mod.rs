@@ -5,3 +5,516 @@ pub mod reverify;
 pub mod script_runner;
 pub mod select;
 pub use report::{ReplayReport, ReplayVerdict, ReverifyResult, ReexecuteResult, VerifierDiff, SkippedStage, compute_verdict};
+
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+
+use crate::reexecution::{classify_reexecution, ReexecutionBucket};
+use crate::reexecution_bounds::ModalityBounds;
+use crate::replay::env_provision::{ExecEnv, ProvisionOpts};
+use crate::replay::reverify::reverify;
+use crate::replay::script_runner::stage_and_run;
+use crate::replay::select::select_compute_tasks;
+
+// ---------------------------------------------------------------------------
+// Public API — consumed by the CLI (Task 7)
+// ---------------------------------------------------------------------------
+
+/// Which stage(s) to run during a replay.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Tier {
+    /// Run only the deterministic verifiers (Tier 1: re-verify).
+    Verify,
+    /// Run only the compute re-execution (Tier 2: re-execute).
+    Execute,
+    /// Run both stages.
+    All,
+}
+
+/// Options for `run_replay`.
+pub struct ReplayOptions {
+    /// Which tier(s) to execute.
+    pub tier: Tier,
+    /// Scratch directory for re-execution staging. A fresh `tempdir` is
+    /// created when `None`.
+    pub scratch_dir: Option<PathBuf>,
+    /// Path to a `ModalityBoundsProvider` directory (`config/reexecution-bounds/`)
+    /// used to resolve per-modality tolerances. When `None`, `ModalityBounds::default()`
+    /// (the historical ±5% relative band) is used for all artifacts.
+    pub bounds: Option<PathBuf>,
+    /// Allow rebuilding the container image from a Dockerfile when the
+    /// recorded digest is unavailable.
+    pub allow_rebuild: bool,
+    /// The ECAA spec version this build of the reader implements. Used to
+    /// distinguish real tampering (reader_matches_writer=true) from version
+    /// drift (reader_matches_writer=false) in the re-verify result.
+    pub reader_version: String,
+}
+
+// ---------------------------------------------------------------------------
+// Orchestrator
+// ---------------------------------------------------------------------------
+
+/// Re-verify and/or re-execute a downloaded ECAA package.
+///
+/// # recorded_root
+/// The "recorded root" is the absolute path that was embedded in the
+/// package's compute scripts when the original execution ran.  We read it
+/// from the first task's `runtime/outputs/<task>/determinism-env.json`
+/// `pkg_root` field.  If that field is absent (the field was not emitted by
+/// older writers), we fall back to the package's own canonical absolute path.
+/// The fallback is safe because `stage_and_run` guards against an empty
+/// `recorded_root` (it would corrupt scripts via unbounded `str::replace`).
+///
+/// # ok:false → Failed reconciliation
+/// `classify_reexecution` compares table files on disk: a task that ran but
+/// failed will produce no replay file, so the comparator would classify it
+/// `Unavailable` (not `Failed`).  We override `Unavailable` → `Failed` for
+/// any artifact whose task ran and exited with `ok: false`.  The mapping is:
+/// `artifact_path` has the form `runtime/outputs/<task_id>/…`; we extract
+/// `<task_id>` as the 3rd path component (index 2) of the forward-slash split,
+/// then check whether that task_id appears in the set of failed tasks.
+pub fn run_replay(pkg: &Path, opts: &ReplayOptions) -> anyhow::Result<ReplayReport> {
+    // Resolve package IRI + reader/min-reader metadata from the recorded
+    // audit-proof report if present; fall back to sensible defaults.
+    let (package_iri, min_reader_version) = read_package_meta(pkg);
+
+    let mut report = ReplayReport {
+        schema_version: "0.1".to_string(),
+        package_iri,
+        reader_version: opts.reader_version.clone(),
+        min_reader_version,
+        reverify: None,
+        reexecute: None,
+        skipped: vec![],
+        verdict: crate::replay::report::ReplayVerdict::Pass,
+    };
+
+    // ── Tier 1: re-verify ────────────────────────────────────────────────────
+    if matches!(opts.tier, Tier::Verify | Tier::All) {
+        let rv = reverify(pkg, &opts.reader_version)?;
+        report.reverify = Some(rv);
+    }
+
+    // ── Tier 2: re-execute ───────────────────────────────────────────────────
+    if matches!(opts.tier, Tier::Execute | Tier::All) {
+        let (tasks, skipped) = select_compute_tasks(pkg)?;
+        report.skipped = skipped;
+
+        // Provision an execution environment with real system probes.
+        let env = provision_env(pkg, opts.allow_rebuild);
+        let unprovisionable = matches!(env, ExecEnv::None);
+
+        // Allocate scratch: caller-supplied or a fresh directory under the
+        // system temp root (named with a UUID for uniqueness).
+        let scratch: PathBuf;
+        if let Some(ref sd) = opts.scratch_dir {
+            scratch = sd.clone();
+            std::fs::create_dir_all(&scratch).map_err(|e| {
+                anyhow::anyhow!("could not create scratch dir {}: {e}", scratch.display())
+            })?;
+        } else {
+            let id = uuid::Uuid::new_v4();
+            scratch = std::env::temp_dir().join(format!("ecaa-replay-{}", id));
+            std::fs::create_dir_all(&scratch).map_err(|e| {
+                anyhow::anyhow!("could not create scratch dir {}: {e}", scratch.display())
+            })?;
+        };
+
+        // Read topological order from runtime/execution-order.json.
+        let order = read_execution_order(pkg);
+
+        // Determine the recorded root and the recorded environment.
+        let (recorded_root, recorded_env) = read_recorded_env(pkg);
+
+        // Run the tasks.
+        let outcomes = stage_and_run(pkg, &scratch, &tasks, &order, &env, &recorded_root, &recorded_env)?;
+
+        // Determine bounds: caller-supplied directory or the generic default.
+        let bounds = match &opts.bounds {
+            Some(dir) => {
+                let provider = crate::reexecution_bounds::ModalityBoundsProvider::from_dir(dir);
+                provider.bounds_for("") // returns default for unknown modality
+            }
+            None => ModalityBounds::default(),
+        };
+
+        // Run the comparator: parent=pkg, replay=scratch.
+        let shim_path = pkg.join("runtime/determinism-shim.json");
+        let policy_path = if shim_path.exists() { Some(shim_path.as_path()) } else { None };
+        let mut reexec_report = classify_reexecution(pkg, &scratch, policy_path, bounds)?;
+
+        // ── ok:false → Failed reconciliation ────────────────────────────────
+        // Build the set of task_ids that ran and failed.
+        let failed_task_ids: std::collections::BTreeSet<String> = outcomes
+            .iter()
+            .filter(|o| !o.ok)
+            .map(|o| o.task_id.clone())
+            .collect();
+
+        if !failed_task_ids.is_empty() {
+            for ac in &mut reexec_report.per_artifact {
+                if ac.bucket == ReexecutionBucket::Unavailable {
+                    // Extract task_id from `runtime/outputs/<task_id>/…`.
+                    // artifact_path is relative to pkg, forward-slash separated.
+                    if let Some(task_id) = extract_task_id_from_artifact_path(&ac.artifact_path) {
+                        if failed_task_ids.contains(task_id) {
+                            ac.bucket = ReexecutionBucket::Failed;
+                            ac.reason = Some(format!(
+                                "task '{task_id}' ran and exited with ok:false; \
+                                 classified Failed rather than Unavailable"
+                            ));
+                        }
+                    }
+                }
+            }
+            // Re-finalize bucket_counts after overrides.
+            reexec_report = re_finalize(reexec_report);
+        }
+
+        report.reexecute = Some(crate::replay::report::ReexecuteResult {
+            env_tier: env.tier_name().to_string(),
+            report: reexec_report,
+            unprovisionable,
+        });
+    }
+
+    // Compute the final verdict.
+    report.verdict = compute_verdict(&report);
+
+    Ok(report)
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/// Return `true` when `docker` is on the PATH.
+fn which_docker() -> bool {
+    std::process::Command::new("which")
+        .arg("docker")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Return `true` when `conda` is on the PATH.
+fn which_conda() -> bool {
+    std::process::Command::new("which")
+        .arg("conda")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Provision an execution environment with real system probes.
+fn provision_env(pkg: &Path, allow_rebuild: bool) -> ExecEnv {
+    let opts = ProvisionOpts {
+        allow_rebuild,
+        docker_probe: which_docker,
+        conda_probe: which_conda,
+    };
+    crate::replay::env_provision::provision(pkg, &opts)
+}
+
+/// Read `runtime/execution-order.json` and return the task ids in topo order.
+/// Returns an empty Vec if the file is absent or malformed.
+///
+/// The file shape is: `{ "order": [ { "index": N, "task_id": "…", … }, … ] }`.
+fn read_execution_order(pkg: &Path) -> Vec<String> {
+    let path = pkg.join("runtime/execution-order.json");
+    let Ok(raw) = std::fs::read_to_string(&path) else { return vec![]; };
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) else { return vec![]; };
+    let Some(arr) = val.get("order").and_then(|v| v.as_array()) else { return vec![]; };
+    arr.iter()
+        .filter_map(|entry| entry.get("task_id")?.as_str().map(str::to_owned))
+        .collect()
+}
+
+/// Read the recorded execution environment from the first task that has a
+/// `determinism-env.json`. Returns `(recorded_root, recorded_env_vars)`.
+///
+/// The `pkg_root` field in the determinism-env.json is the absolute path
+/// where the package originally ran. We use that as `recorded_root` so that
+/// `stage_and_run` can rewrite embedded paths in staged scripts. When
+/// absent, we fall back to the package's own canonical absolute path.
+///
+/// `recorded_env` is built from `captured_env_vars` + determinism-pinning
+/// keys (`SOURCE_DATE_EPOCH`, `PYTHONHASHSEED`, `LC_ALL`, `TZ`) present in
+/// the sidecar.
+fn read_recorded_env(pkg: &Path) -> (String, BTreeMap<String, String>) {
+    let outputs = pkg.join("runtime/outputs");
+    let mut env: BTreeMap<String, String> = BTreeMap::new();
+    let mut recorded_root = String::new();
+
+    // Walk runtime/outputs/ in lexicographic order to find the first
+    // determinism-env.json.
+    if let Ok(entries) = std::fs::read_dir(&outputs) {
+        let mut dirs: Vec<_> = entries
+            .flatten()
+            .filter(|e| e.path().is_dir())
+            .collect();
+        dirs.sort_by_key(|e| e.file_name());
+
+        for dir in dirs {
+            let det_env_path = dir.path().join("determinism-env.json");
+            if !det_env_path.exists() { continue; }
+            let Ok(raw) = std::fs::read_to_string(&det_env_path) else { continue; };
+            let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) else { continue; };
+
+            // recorded_root from `pkg_root` field.
+            if let Some(root) = val.get("pkg_root").and_then(|v| v.as_str()) {
+                if !root.is_empty() {
+                    recorded_root = root.to_owned();
+                }
+            }
+
+            // Determinism-pinning vars: SOURCE_DATE_EPOCH, PYTHONHASHSEED, LC_ALL, TZ, LANG.
+            for key in &["source_date_epoch", "pythonhashseed", "lc_all", "tz", "lang"] {
+                let env_key = key.to_ascii_uppercase();
+                // `lc_all` → `LC_ALL`, `tz` → `TZ`, etc.
+                let env_key = if *key == "lc_all" { "LC_ALL".to_string() }
+                              else { env_key };
+                if let Some(v) = val.get(key).and_then(|v| v.as_str()) {
+                    if !v.is_empty() {
+                        env.insert(env_key, v.to_owned());
+                    }
+                }
+            }
+            break; // first task is enough
+        }
+    }
+
+    // Fallback: use the package's own canonical absolute path as recorded_root.
+    if recorded_root.is_empty() {
+        recorded_root = pkg
+            .canonicalize()
+            .unwrap_or_else(|_| pkg.to_path_buf())
+            .display()
+            .to_string();
+    }
+
+    (recorded_root, env)
+}
+
+/// Read package metadata (`package_iri`, `min_reader_version`) from
+/// `runtime/audit-proof-report.json` when available.
+fn read_package_meta(pkg: &Path) -> (String, Option<String>) {
+    let path = pkg.join("runtime/audit-proof-report.json");
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return ("ro-crate-metadata.json".to_string(), None);
+    };
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return ("ro-crate-metadata.json".to_string(), None);
+    };
+    let iri = val.get("package_iri")
+        .and_then(|v| v.as_str())
+        .unwrap_or("ro-crate-metadata.json")
+        .to_string();
+    let min_rv = val.get("min_reader_version")
+        .and_then(|v| v.as_str())
+        .map(str::to_owned);
+    (iri, min_rv)
+}
+
+/// Extract the task_id component from an artifact_path of the form
+/// `runtime/outputs/<task_id>/…`.  Returns `None` for paths that don't
+/// match this shape.
+fn extract_task_id_from_artifact_path(artifact_path: &str) -> Option<&str> {
+    // artifact_path is relative, forward-slash separated.
+    let mut parts = artifact_path.splitn(4, '/');
+    // parts[0] = "runtime", parts[1] = "outputs", parts[2] = <task_id>
+    let p0 = parts.next()?;
+    let p1 = parts.next()?;
+    let task_id = parts.next()?;
+    if p0 == "runtime" && p1 == "outputs" && !task_id.is_empty() {
+        Some(task_id)
+    } else {
+        None
+    }
+}
+
+/// Re-finalize `bucket_counts` after manual bucket overrides.
+///
+/// `ReexecutionReport` does not expose `finalize_counts` publicly, so we
+/// recompute the map directly here.
+fn re_finalize(mut report: crate::reexecution::ReexecutionReport) -> crate::reexecution::ReexecutionReport {
+    report.bucket_counts.clear();
+    for ac in &report.per_artifact {
+        let key = serde_json::to_value(&ac.bucket)
+            .ok()
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
+            .unwrap_or_else(|| "unknown".to_string());
+        *report.bucket_counts.entry(key).or_insert(0) += 1;
+    }
+    report
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::Path;
+
+    /// Recursively copy `src` into `dst`.
+    fn copy_dir_all(src: &Path, dst: &Path) -> anyhow::Result<()> {
+        fs::create_dir_all(dst)?;
+        for entry in fs::read_dir(src)? {
+            let entry = entry?;
+            let ty = entry.file_type()?;
+            let dest = dst.join(entry.file_name());
+            if ty.is_dir() {
+                copy_dir_all(&entry.path(), &dest)?;
+            } else {
+                fs::copy(&entry.path(), &dest)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Copy the named conformance fixture into `dst`.
+    fn copy_fixture(name: &str, dst: &Path) {
+        let fixtures_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../ecaa-conformance/tests/fixtures")
+            .join(name);
+        copy_dir_all(&fixtures_root, dst).expect("copy_fixture");
+    }
+
+    /// Write a synthetic `runtime/audit-proof-report.json` with the given
+    /// `(id, status)` pairs and `ecaa_version = "0.2"`.
+    fn write_recorded_audit(pkg: &Path, verdicts: &[(&str, &str)]) {
+        let runtime = pkg.join("runtime");
+        fs::create_dir_all(&runtime).unwrap();
+        let verdict_arr: Vec<serde_json::Value> = verdicts
+            .iter()
+            .map(|(id, status)| {
+                serde_json::json!({
+                    "id": id,
+                    "status": status,
+                    "detail": null,
+                    "n_inspected": 0,
+                    "n_violations": 0
+                })
+            })
+            .collect();
+        let report = serde_json::json!({
+            "schema_version": "0.1",
+            "ecaa_version": "0.2",
+            "min_reader_version": "0.2",
+            "evaluator": {
+                "impl": "ecaa-workflow-audit-proof",
+                "version": "0.1.0",
+                "policy": "warn-only"
+            },
+            "verdicts": verdict_arr
+        });
+        fs::write(
+            runtime.join("audit-proof-report.json"),
+            serde_json::to_string_pretty(&report).unwrap(),
+        )
+        .unwrap();
+    }
+
+    /// Patch an existing `runtime/claim-verification.json` to add summary
+    /// count fields that match the actual verdicts array.  This ensures that
+    /// the re-verify claim-verification check sees no divergence.
+    ///
+    /// Must be called AFTER `copy_fixture` so the verdicts (including their
+    /// `supported_by` entries) are already present.
+    fn patch_claim_verification_summary(pkg: &Path) {
+        let path = pkg.join("runtime/claim-verification.json");
+        let raw = fs::read_to_string(&path).expect("claim-verification.json must exist");
+        let mut cv: serde_json::Value =
+            serde_json::from_str(&raw).expect("claim-verification.json must be valid JSON");
+
+        let Some(verdicts) = cv.get("verdicts").and_then(|v| v.as_array()).cloned() else {
+            return;
+        };
+
+        let n_checked = verdicts.len() as u64;
+        let n_mismatch = verdicts
+            .iter()
+            .filter(|v| v.get("status").and_then(|s| s.as_str()) == Some("mismatch"))
+            .count() as u64;
+        let n_suspicious = verdicts
+            .iter()
+            .filter(|v| v.get("status").and_then(|s| s.as_str()) == Some("suspicious"))
+            .count() as u64;
+        let n_verified = verdicts
+            .iter()
+            .filter(|v| v.get("status").and_then(|s| s.as_str()) == Some("verified"))
+            .count() as u64;
+
+        let obj = cv.as_object_mut().expect("claim-verification must be an object");
+        obj.insert("n_mismatch".to_string(), serde_json::json!(n_mismatch));
+        obj.insert("n_suspicious".to_string(), serde_json::json!(n_suspicious));
+        obj.insert("n_verified".to_string(), serde_json::json!(n_verified));
+        obj.insert("n_checked".to_string(), serde_json::json!(n_checked));
+
+        fs::write(&path, serde_json::to_string_pretty(&cv).unwrap()).unwrap();
+    }
+
+    /// `run_replay` with tier=Verify on the `cross-graph-ok` fixture with a
+    /// matching recorded audit-proof report → verdict == Pass.
+    ///
+    /// This is the integration test specified in the task brief (Task 6 TDD).
+    #[test]
+    fn run_replay_verify_tier_cross_graph_ok_passes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+
+        // Copy the cross-graph-ok fixture (has a clean ro-crate-metadata.json).
+        copy_fixture("cross-graph-ok", pkg);
+
+        // Write a recorded audit-proof report that says cross_graph_integrity
+        // passed.  The fresh re-run on this clean fixture will also produce
+        // pass, so the check must be non-divergent.
+        write_recorded_audit(pkg, &[("cross_graph_integrity", "pass")]);
+
+        // Patch claim-verification.json to add summary count fields that
+        // match the verdicts already present (preserving `supported_by` so
+        // the cross_graph_integrity fresh check still sees the reference and
+        // returns `pass` rather than `unverified`).
+        patch_claim_verification_summary(pkg);
+
+        let opts = ReplayOptions {
+            tier: Tier::Verify,
+            scratch_dir: None,
+            bounds: None,
+            allow_rebuild: false,
+            reader_version: "0.2".to_string(),
+        };
+
+        let report = run_replay(pkg, &opts).expect("run_replay must not error");
+        assert_eq!(
+            report.verdict,
+            crate::replay::report::ReplayVerdict::Pass,
+            "tier=Verify on cross-graph-ok with matching recorded report must yield Pass; \
+             report={report:?}"
+        );
+        // Sanity: reverify was populated, reexecute was not.
+        assert!(report.reverify.is_some(), "reverify must be Some for Tier::Verify");
+        assert!(report.reexecute.is_none(), "reexecute must be None for Tier::Verify");
+    }
+
+    /// Helper to verify extract_task_id_from_artifact_path.
+    #[test]
+    fn extract_task_id_roundtrip() {
+        assert_eq!(
+            extract_task_id_from_artifact_path("runtime/outputs/differential_expression/de_results.tsv"),
+            Some("differential_expression")
+        );
+        assert_eq!(
+            extract_task_id_from_artifact_path("results/tables/de.tsv"),
+            None
+        );
+        assert_eq!(
+            extract_task_id_from_artifact_path("runtime/outputs/"),
+            None
+        );
+    }
+}
