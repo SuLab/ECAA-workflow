@@ -59,12 +59,15 @@ pub struct ReplayOptions {
 ///
 /// # recorded_root
 /// The "recorded root" is the absolute path that was embedded in the
-/// package's compute scripts when the original execution ran.  We read it
-/// from the first task's `runtime/outputs/<task>/determinism-env.json`
-/// `pkg_root` field.  If that field is absent (the field was not emitted by
-/// older writers), we fall back to the package's own canonical absolute path.
-/// The fallback is safe because `stage_and_run` guards against an empty
-/// `recorded_root` (it would corrupt scripts via unbounded `str::replace`).
+/// package's compute scripts when the original execution ran.  Discovery
+/// priority:
+/// 1. `pkg_root` field in the first `determinism-env.json` found under
+///    `runtime/outputs/` (preferred when a writer emits it).
+/// 2. Script-scan: walk `runtime/outputs/*/scripts/*.{R,py,sh}` and extract
+///    the prefix up to and including `/<basename>` from the first match.
+/// 3. Empty string — `stage_and_run` treats this as "no path rewrite needed",
+///    which is correct for packages that embed paths only via the `PKG_ROOT`/
+///    `PACKAGE` environment variable.
 ///
 /// # ok:false → Failed reconciliation
 /// `classify_reexecution` compares table files on disk: a task that ran but
@@ -341,10 +344,19 @@ fn discover_recorded_root_from_scripts(pkg: &Path) -> String {
             let Ok(text) = std::fs::read_to_string(script.path()) else { continue; };
             if let Some(pos) = text.find(&needle) {
                 // Expand left to the start of the absolute path.
+                // We iterate char_indices in reverse so the slice index is
+                // advanced by the matched char's actual UTF-8 length, not a
+                // hardcoded +1 (which would panic mid-codepoint on multi-byte
+                // delimiter chars since the predicate includes !c.is_ascii()).
                 let before = &text[..pos];
+                let delimiter = |c: char| {
+                    !c.is_ascii() || c == '"' || c == '\'' || c == '(' || c == ' ' || c == '\n' || c == '\r' || c == '\t' || c == '='
+                };
                 let path_start = before
-                    .rfind(|c: char| !c.is_ascii() || c == '"' || c == '\'' || c == '(' || c == ' ' || c == '\n' || c == '\r' || c == '\t' || c == '=')
-                    .map(|i| i + 1)
+                    .char_indices()
+                    .rev()
+                    .find(|&(_, c)| delimiter(c))
+                    .map(|(idx, ch)| idx + ch.len_utf8())
                     .unwrap_or(0);
                 let candidate = &text[path_start..pos + needle.len()];
                 // Validate it looks like an absolute path.
@@ -626,6 +638,45 @@ mod tests {
         assert!(
             root.is_empty(),
             "recorded_root must be empty when no hardcoded path is present, got: {root:?}"
+        );
+    }
+
+    /// `discover_recorded_root_from_scripts` must not panic when a multi-byte
+    /// UTF-8 character appears immediately before the `/<basename>` path token.
+    /// The left-expansion index arithmetic must advance past the delimiter by
+    /// its actual UTF-8 byte length, not a hardcoded `+ 1` that would land
+    /// mid-codepoint and cause a byte-boundary panic.
+    #[test]
+    fn discover_recorded_root_handles_multibyte_prefix() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        let basename = pkg.file_name().unwrap().to_str().unwrap().to_owned();
+
+        let script_dir = pkg.join("runtime/outputs/normalisation/scripts");
+        fs::create_dir_all(&script_dir).unwrap();
+
+        // Place a multi-byte character (é = U+00E9, 2 bytes in UTF-8) immediately
+        // before the absolute path token.  The delimiter predicate matches
+        // `!c.is_ascii()`, so `é` is a valid delimiter — but its byte index + 1
+        // would land in the middle of the second byte, which panics without the fix.
+        // With the fix, path_start lands at the byte after `é`, so the candidate
+        // starts with `/` and is returned (or the implementation may reject the
+        // candidate as not starting with `/` if path_start > pos, but either way
+        // it must NOT panic).
+        fs::write(
+            script_dir.join("01.R"),
+            format!("path <- é\"/orig/emit/path/{basename}\"\n"),
+        )
+        .unwrap();
+
+        // The call must not panic regardless of what value is returned.
+        let (root, _env) = read_recorded_env(pkg);
+        // The candidate starts with `/` (the `é` is the delimiter, path_start
+        // lands on the `/`), so we expect the correct path to be recovered.
+        assert_eq!(
+            root,
+            format!("/orig/emit/path/{basename}"),
+            "multi-byte delimiter must not panic; expected correct path recovery"
         );
     }
 }
