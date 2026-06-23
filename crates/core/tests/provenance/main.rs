@@ -2,6 +2,7 @@
 // tests/*.rs files into one target to cut link time. Each module is a
 // verbatim relocation; #[test] behavior is unchanged.
 mod agent_brief_claims_contract;
+mod fair_completeness_e2e;
 mod audit_proof_invariants;
 mod audit_proof_loader;
 mod audit_proof_orchestrator;
