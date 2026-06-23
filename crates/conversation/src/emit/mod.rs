@@ -17,6 +17,12 @@ mod audit_log;
 mod cross_version_diff;
 mod decision_substrate_writer;
 mod model_policy_sidecar;
+/// Re-exports `render_ro_crate_preview` + `write_ro_crate_preview` from
+/// `ecaa_workflow_core::preview`. The implementation (pure function, no
+/// HashMap, no clock/RNG) lives in core so it can be called from
+/// `finalize_evidence_registration_with_verifier` as the last step before
+/// the BagIt reseal.
+pub mod preview;
 mod ro_crate;
 pub mod sidecars;
 mod sme_intake_methods;

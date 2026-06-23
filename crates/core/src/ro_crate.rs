@@ -1547,6 +1547,93 @@ pub fn register_content_integrity(package_root: &std::path::Path) -> std::io::Re
     Ok(annotated)
 }
 
+/// Register `ro-crate-preview.html` as a `["File","CreativeWork"]` `@graph`
+/// entity and link it from the root `hasPart`. Idempotent: a second call with
+/// the entity already present is a no-op (returns `Ok(0)`). No-op when the
+/// descriptor is absent or unparseable.
+///
+/// NOTE: This function does NOT skip when `ro-crate-preview.html` does not yet
+/// exist on disk — the entity is registered first so the descriptor that the
+/// preview embeds already includes the preview entity. The file itself is
+/// written immediately after by [`render_and_write_preview`].
+fn register_preview_entity(package_root: &std::path::Path) -> std::io::Result<usize> {
+    const PREVIEW_ID: &str = "ro-crate-preview.html";
+    let descriptor = package_root.join("ro-crate-metadata.json");
+    let Ok(bytes) = std::fs::read(&descriptor) else {
+        return Ok(0);
+    };
+    let Ok(mut doc) = serde_json::from_slice::<Value>(&bytes) else {
+        return Ok(0);
+    };
+    let Some(graph) = doc.get_mut("@graph").and_then(Value::as_array_mut) else {
+        return Ok(0);
+    };
+
+    // Idempotent guard: already registered → no-op.
+    if graph
+        .iter()
+        .any(|e| e.get("@id").and_then(Value::as_str) == Some(PREVIEW_ID))
+    {
+        return Ok(0);
+    }
+
+    graph.push(json!({
+        "@id": PREVIEW_ID,
+        "@type": ["File", "CreativeWork"],
+        "name": "RO-Crate preview — human-readable rendering",
+        "description": "Static HTML rendering of the root Dataset entity. Embeds the \
+                        RO-Crate JSON-LD in a typed application/ld+json block per the \
+                        RO-Crate 1.1 specification §10. Zero executable JavaScript.",
+        "encodingFormat": "text/html",
+        "about": {"@id": "./"},
+    }));
+
+    // Link from root Dataset `hasPart`.
+    if let Some(root) = graph
+        .iter_mut()
+        .find(|e| e.get("@id").and_then(Value::as_str) == Some("./"))
+    {
+        if let Some(obj) = root.as_object_mut() {
+            let slot = obj
+                .entry("hasPart")
+                .or_insert_with(|| Value::Array(Vec::new()));
+            if let Some(arr) = slot.as_array_mut() {
+                let already = arr
+                    .iter()
+                    .any(|p| p.get("@id").and_then(Value::as_str) == Some(PREVIEW_ID));
+                if !already {
+                    arr.push(json!({"@id": PREVIEW_ID}));
+                }
+            }
+        }
+    }
+
+    crate::fs_helpers::atomic_write_bytes_sync(
+        &descriptor,
+        &serde_json::to_vec_pretty(&doc)?,
+    )?;
+    Ok(1)
+}
+
+/// Read the current (FINAL) `ro-crate-metadata.json`, render a deterministic
+/// HTML preview embedding those exact bytes, and write it to
+/// `ro-crate-preview.html`. No-op (returns `Ok(())`) when the descriptor is
+/// absent or unparseable.
+///
+/// Determinism: delegates to [`crate::preview::render_ro_crate_preview`] which
+/// is a pure function of the `Value` — no clock, no RNG, no HashMap, no host
+/// paths.
+fn render_and_write_preview(package_root: &std::path::Path) -> std::io::Result<()> {
+    let descriptor = package_root.join("ro-crate-metadata.json");
+    let Ok(bytes) = std::fs::read(&descriptor) else {
+        return Ok(());
+    };
+    let Ok(metadata) = serde_json::from_slice::<Value>(&bytes) else {
+        return Ok(());
+    };
+    crate::preview::write_ro_crate_preview(package_root, &metadata)
+}
+
 /// Post-execution finalize: register agent-produced result tables as V `@graph`
 /// entities ([`register_produced_output_tables`]) and then re-seal the BagIt
 /// payload manifest ([`crate::emitter::regenerate_bagit_manifest`]).
@@ -1656,6 +1743,41 @@ pub fn finalize_evidence_registration_with_verifier(
             target: "ecaa::ro_crate",
             error = %e,
             "content integrity annotation failed"
+        );
+    }
+    // ── ro-crate-preview.html (LAST step before re-seal) ─────────────────────
+    //
+    // Ordering rationale (controller override): the preview embeds the
+    // RO-Crate JSON-LD in its `<head>` (spec MUST), so it must embed the
+    // FINAL metadata — after all @graph mutations (reexec-sidecars,
+    // software-deps, content-integrity) have been applied.
+    //
+    // Step 1: Register `ro-crate-preview.html` as a ["File","CreativeWork"]
+    //         entity in the @graph + link from root `hasPart`, then
+    //         re-write the descriptor so the preview entity itself is part
+    //         of the canonical metadata.
+    //
+    // Step 2: Read back the freshly-serialized descriptor (now including the
+    //         preview entity) and render+write `ro-crate-preview.html` so
+    //         the embedded JSON-LD is byte-identical to the descriptor.
+    //
+    // The preview File entity does NOT carry contentSize/sha512 (same
+    // treatment as the descriptor itself — both are integrity-covered by the
+    // BagIt manifest at reseal). Best-effort: a failure must not abort the
+    // re-seal.
+    if let Err(e) = register_preview_entity(root) {
+        tracing::warn!(
+            target: "ecaa::ro_crate",
+            error = %e,
+            "ro-crate-preview.html entity registration failed"
+        );
+    }
+    // Step 2: render + write, embedding the FINAL descriptor bytes.
+    if let Err(e) = render_and_write_preview(root) {
+        tracing::warn!(
+            target: "ecaa::ro_crate",
+            error = %e,
+            "ro-crate-preview.html render/write failed"
         );
     }
     crate::emitter::regenerate_bagit_manifest(root, clock).map_err(std::io::Error::other)?;
@@ -2340,5 +2462,131 @@ mod tests {
             .filter_map(|r| r["@id"].as_str())
             .collect();
         assert!(reqs.contains(&"#dep/r/edgeR"), "edgeR linked via softwareRequirements");
+    }
+
+    /// Task 5: `finalize_evidence_registration_with_verifier` writes
+    /// `ro-crate-preview.html` AND registers it in the `@graph` as a
+    /// `["File","CreativeWork"]` entity linked from root `hasPart`.
+    ///
+    /// Verifies the controller ordering: preview registration → render/write →
+    /// then BagIt reseal. After finalize, both the file on disk AND the `@graph`
+    /// entity must be present.
+    #[test]
+    fn finalize_writes_preview_html_and_registers_it_in_graph() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+
+        // Minimal emit-style directory so finalize can run end-to-end.
+        // We need: ro-crate-metadata.json, bagit.txt, a payload file,
+        // manifest-sha512.txt. The emitter's regenerate_bagit_manifest
+        // writes manifest-sha512.txt; we just need the descriptor + payload.
+        std::fs::write(root.join("WORKFLOW.json"), b"{\"version\":\"1.0\"}").unwrap();
+        let descriptor = serde_json::json!({
+            "@context": "https://w3id.org/ro/crate/1.1/context",
+            "@graph": [
+                {
+                    "@id": "ro-crate-metadata.json",
+                    "@type": "CreativeWork",
+                    "conformsTo": [{"@id": "https://w3id.org/ro/crate/1.1"}],
+                    "about": {"@id": "./"}
+                },
+                {
+                    "@id": "./",
+                    "@type": "Dataset",
+                    "name": "Test package for preview",
+                    "description": "Finalize test",
+                    "conformsTo": [{"@id": "https://w3id.org/ro/crate/1.1"}],
+                    "hasPart": [{"@id": "WORKFLOW.json"}]
+                },
+                {
+                    "@id": "WORKFLOW.json",
+                    "@type": ["File", "ComputationalWorkflow"],
+                    "name": "Workflow"
+                }
+            ]
+        });
+        std::fs::write(
+            root.join("ro-crate-metadata.json"),
+            serde_json::to_vec_pretty(&descriptor).unwrap(),
+        )
+        .unwrap();
+
+        // Write the minimal BagIt tag files so regenerate_bagit_manifest has
+        // something to work with.
+        std::fs::write(root.join("bagit.txt"), b"BagIt-Version: 1.0\nTag-File-Character-Encoding: UTF-8\n").unwrap();
+        std::fs::write(root.join("manifest-sha512.txt"), b"").unwrap();
+
+        let clock = crate::clock::FrozenClock::default();
+        finalize_evidence_registration_with_verifier(root, &clock, None).unwrap();
+
+        // 1. `ro-crate-preview.html` must exist on disk.
+        let preview_path = root.join("ro-crate-preview.html");
+        assert!(preview_path.exists(), "ro-crate-preview.html must be written by finalize");
+
+        // 2. The preview must be valid HTML with the JSON-LD embed.
+        let preview_html = std::fs::read_to_string(&preview_path).unwrap();
+        assert!(preview_html.starts_with("<!DOCTYPE html>"), "valid HTML5 doctype");
+        assert!(
+            preview_html.contains("<script type=\"application/ld+json\">"),
+            "JSON-LD head embed (spec MUST)"
+        );
+        assert!(
+            preview_html.contains("Test package for preview"),
+            "root name rendered in body"
+        );
+        assert!(
+            !preview_html.to_lowercase().contains("<script>"),
+            "no executable JS in preview"
+        );
+
+        // 3. `ro-crate-preview.html` must be registered in the @graph.
+        let final_meta: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(root.join("ro-crate-metadata.json")).unwrap(),
+        )
+        .unwrap();
+        let graph = final_meta["@graph"].as_array().unwrap();
+
+        let preview_entity = graph
+            .iter()
+            .find(|e| e.get("@id").and_then(|v| v.as_str()) == Some("ro-crate-preview.html"))
+            .expect("ro-crate-preview.html entity must be in @graph");
+        let types: Vec<&str> = match &preview_entity["@type"] {
+            serde_json::Value::Array(a) => a.iter().filter_map(|v| v.as_str()).collect(),
+            serde_json::Value::String(s) => vec![s.as_str()],
+            _ => vec![],
+        };
+        assert!(
+            types.contains(&"File") && types.contains(&"CreativeWork"),
+            "preview entity must be typed [\"File\",\"CreativeWork\"]; got {types:?}"
+        );
+
+        // 4. Linked from root `hasPart`.
+        let root_entity = graph.iter().find(|e| e["@id"] == "./").unwrap();
+        let part_ids: Vec<&str> = root_entity["hasPart"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|p| p["@id"].as_str())
+            .collect();
+        assert!(
+            part_ids.contains(&"ro-crate-preview.html"),
+            "ro-crate-preview.html must be in root hasPart; got {part_ids:?}"
+        );
+
+        // 5. Idempotent: second call keeps the entity exactly once in @graph.
+        finalize_evidence_registration_with_verifier(root, &clock, None).unwrap();
+        let final_meta2: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(root.join("ro-crate-metadata.json")).unwrap(),
+        )
+        .unwrap();
+        let graph2 = final_meta2["@graph"].as_array().unwrap();
+        let preview_count = graph2
+            .iter()
+            .filter(|e| e.get("@id").and_then(|v| v.as_str()) == Some("ro-crate-preview.html"))
+            .count();
+        assert_eq!(
+            preview_count, 1,
+            "ro-crate-preview.html entity must appear exactly once in @graph (idempotent)"
+        );
     }
 }

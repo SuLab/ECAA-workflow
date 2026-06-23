@@ -134,6 +134,9 @@ pub mod modality_bounds;
 pub mod modality_registry;
 pub mod ontology_scope;
 pub mod plot_affordance;
+/// Deterministic zero-JS `ro-crate-preview.html` renderer. Pure function of
+/// the `@graph`; no clock, no RNG, no HashMap, no host paths.
+pub mod preview;
 pub mod policy_context;
 pub mod policy_schema;
 pub mod population_coverage;
