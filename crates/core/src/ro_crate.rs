@@ -1407,6 +1407,110 @@ fn collect_output_tables(dir: &std::path::Path, rel_prefix: &str, out: &mut Vec<
     }
 }
 
+/// Project pinned dependencies from `runtime/dependency-lock.json` into one
+/// `SoftwareApplication` `@graph` node per package (deterministic `@id` of the
+/// form `#dep/<ecosystem>/<name>`), then link all new nodes from the
+/// `ComputationalWorkflow` entity's `softwareRequirements` array.
+///
+/// `softwareVersion` is set to the `resolved` exact version when present, the
+/// `requested` range otherwise; omitted when both are absent. Ecosystems are
+/// iterated in fixed alphabetical order (conda, python, r) for determinism.
+/// Idempotent: skips any `@id` already present in the graph; returns 0 on the
+/// second run. No-op (Ok(0)) when the lock file or descriptor is absent/unparseable.
+/// Never fabricates a package not in the lock.
+pub fn register_software_dependencies(
+    package_root: &std::path::Path,
+) -> std::io::Result<usize> {
+    let lock_path = package_root.join("runtime/dependency-lock.json");
+    let Ok(lock_bytes) = std::fs::read(&lock_path) else {
+        return Ok(0);
+    };
+    let Ok(lock) = serde_json::from_slice::<Value>(&lock_bytes) else {
+        return Ok(0);
+    };
+    let descriptor = package_root.join("ro-crate-metadata.json");
+    let Ok(bytes) = std::fs::read(&descriptor) else {
+        return Ok(0);
+    };
+    let Ok(mut doc) = serde_json::from_slice::<Value>(&bytes) else {
+        return Ok(0);
+    };
+    let Some(graph) = doc.get_mut("@graph").and_then(Value::as_array_mut) else {
+        return Ok(0);
+    };
+    // Collect existing @ids so we can skip duplicates (idempotency).
+    let existing: std::collections::BTreeSet<String> = graph
+        .iter()
+        .filter_map(|e| e.get("@id").and_then(Value::as_str).map(String::from))
+        .collect();
+
+    let mut new_nodes: Vec<Value> = Vec::new();
+    let mut req_ids: Vec<Value> = Vec::new();
+    // Iterate ecosystems in fixed sorted order for deterministic output.
+    for eco in ["conda", "python", "r"] {
+        let Some(arr) = lock.get(eco).and_then(Value::as_array) else {
+            continue;
+        };
+        for pkg in arr {
+            let Some(name) = pkg.get("name").and_then(Value::as_str) else {
+                continue;
+            };
+            let id = format!("#dep/{eco}/{name}");
+            if existing.contains(&id) {
+                continue;
+            }
+            // Prefer resolved (runtime exact) over requested (spec range).
+            let version = pkg
+                .get("resolved")
+                .and_then(Value::as_str)
+                .or_else(|| pkg.get("requested").and_then(Value::as_str));
+            let mut node = json!({
+                "@id": id,
+                "@type": "SoftwareApplication",
+                "name": name,
+                "applicationCategory": eco,
+            });
+            if let Some(v) = version {
+                node["softwareVersion"] = json!(v);
+            }
+            new_nodes.push(node);
+            req_ids.push(json!({"@id": id}));
+        }
+    }
+
+    let added = new_nodes.len();
+    if added == 0 {
+        return Ok(0);
+    }
+    for node in new_nodes {
+        graph.push(node);
+    }
+
+    // Link new nodes from the ComputationalWorkflow entity's softwareRequirements.
+    if let Some(wf) = graph.iter_mut().find(|e| {
+        matches!(
+            e.get("@type"),
+            Some(Value::Array(a)) if a.iter().any(|v| v.as_str() == Some("ComputationalWorkflow"))
+        )
+    }) {
+        if let Some(obj) = wf.as_object_mut() {
+            let slot = obj
+                .entry("softwareRequirements")
+                .or_insert_with(|| json!([]));
+            if let Some(arr) = slot.as_array_mut() {
+                for r in &req_ids {
+                    if !arr.iter().any(|e| e.get("@id") == r.get("@id")) {
+                        arr.push(r.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    crate::fs_helpers::atomic_write_bytes_sync(&descriptor, &serde_json::to_vec_pretty(&doc)?)?;
+    Ok(added)
+}
+
 /// Annotate every `File` `@graph` entity whose `@id` resolves to a payload file
 /// with `contentSize` (bytes) + `sha512` (hex). Excludes the metadata descriptor
 /// (`ro-crate-metadata.json`) and BagIt tag files (cannot self-hash). Finalize-
@@ -1529,6 +1633,19 @@ pub fn finalize_evidence_registration_with_verifier(
                 "C-subgraph back-fill from signed sink failed"
             );
         }
+    }
+    // Enumerate pinned dependencies from runtime/dependency-lock.json as
+    // SoftwareApplication @graph entities, linked from the ComputationalWorkflow
+    // via softwareRequirements. Run BEFORE register_content_integrity so the new
+    // SoftwareApplication nodes (non-File typed) are not hash-annotated; they
+    // must exist before the integrity pass so the descriptor written here is the
+    // one hashed into the regenerated manifest. Best-effort.
+    if let Err(e) = register_software_dependencies(root) {
+        tracing::warn!(
+            target: "ecaa::ro_crate",
+            error = %e,
+            "software dependency registration failed"
+        );
     }
     // Annotate @graph File entities with contentSize + sha512. Best-effort:
     // a failure must not abort the re-seal.
@@ -2099,5 +2216,76 @@ mod tests {
         // idempotent
         let n2 = register_reexecutability_sidecars(dir.path()).unwrap();
         assert_eq!(n2, 0, "second run adds nothing");
+    }
+
+    #[test]
+    fn software_dependencies_registered_from_lock_with_versions() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("runtime")).unwrap();
+        std::fs::write(
+            dir.path().join("runtime/dependency-lock.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "schema_version": "1",
+                "r": [{"name": "DESeq2", "requested": ">=1.40", "resolved": "1.40.2"}],
+                "python": [{"name": "scanpy"}],
+                "conda": []
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("ro-crate-metadata.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "@context": "https://w3id.org/ro/crate/1.1/context",
+                "@graph": [
+                    {"@id": "ro-crate-metadata.json", "@type": "CreativeWork", "about": {"@id": "./"}},
+                    {"@id": "./", "@type": "Dataset", "hasPart": []},
+                    {"@id": "WORKFLOW.json", "@type": ["File", "ComputationalWorkflow"], "name": "wf"}
+                ]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let n = register_software_dependencies(dir.path()).unwrap();
+        assert_eq!(n, 2, "DESeq2 + scanpy registered");
+
+        let doc: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(dir.path().join("ro-crate-metadata.json")).unwrap(),
+        )
+        .unwrap();
+        let g = doc["@graph"].as_array().unwrap();
+
+        // DESeq2 entity uses resolved version
+        let deseq = g
+            .iter()
+            .find(|e| e.get("name").and_then(|v| v.as_str()) == Some("DESeq2"))
+            .unwrap();
+        assert_eq!(deseq["@type"], "SoftwareApplication");
+        assert_eq!(deseq["softwareVersion"], "1.40.2", "resolved preferred over requested");
+        assert_eq!(deseq["applicationCategory"], "r");
+
+        // scanpy has no requested/resolved — no softwareVersion field
+        let scanpy = g
+            .iter()
+            .find(|e| e.get("name").and_then(|v| v.as_str()) == Some("scanpy"))
+            .unwrap();
+        assert_eq!(scanpy["@type"], "SoftwareApplication");
+        assert!(scanpy.get("softwareVersion").is_none(), "no version when both absent");
+
+        // workflow links them via softwareRequirements
+        let wf = g.iter().find(|e| e["@id"] == "WORKFLOW.json").unwrap();
+        let reqs: Vec<&str> = wf["softwareRequirements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|r| r["@id"].as_str())
+            .collect();
+        assert_eq!(reqs.len(), 2);
+        assert!(reqs.contains(&"#dep/r/DESeq2"));
+        assert!(reqs.contains(&"#dep/python/scanpy"));
+
+        // idempotent: second run adds 0
+        assert_eq!(register_software_dependencies(dir.path()).unwrap(), 0);
     }
 }
