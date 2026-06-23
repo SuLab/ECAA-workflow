@@ -68,6 +68,12 @@ pub struct RunOutcome {
 /// # Agent-free guarantee
 /// No script whose name matches a known agent entrypoint (see `AGENT_ENTRYPOINTS`)
 /// is ever executed.  Such scripts are skipped and their task is marked `ok: false`.
+///
+/// # Per-task error isolation
+/// A missing scripts directory, copy failure, unknown interpreter, or spawn
+/// failure for one task yields `RunOutcome { ok: false, stderr: <reason> }` and
+/// the run continues to the next task.  Only a failure that makes continuing
+/// impossible (e.g. cannot create the scratch root) is returned as `Err`.
 pub fn stage_and_run(
     pkg: &Path,
     scratch: &Path,
@@ -109,7 +115,8 @@ pub fn stage_and_run(
     let mut outcomes: Vec<RunOutcome> = Vec::with_capacity(task_order.len());
 
     for task in task_order {
-        let outcome = run_task(task, pkg, scratch, &run_env, &scratch_root, env, recorded_root)?;
+        // Per-task errors do NOT abort the whole run — they become ok:false outcomes.
+        let outcome = run_task(task, pkg, scratch, &run_env, &scratch_root, env, recorded_root);
         outcomes.push(outcome);
     }
 
@@ -120,7 +127,9 @@ pub fn stage_and_run(
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/// Stage and run a single task.
+/// Stage and run a single task.  Always returns a `RunOutcome` — errors that
+/// are local to this task (missing scripts dir, unknown interpreter, spawn
+/// failure) are captured as `ok: false` rather than propagated.
 fn run_task(
     task: &ComputeTask,
     pkg: &Path,
@@ -129,13 +138,20 @@ fn run_task(
     scratch_root: &str,
     env: &ExecEnv,
     recorded_root: &str,
-) -> io::Result<RunOutcome> {
+) -> RunOutcome {
     // Mirror scripts into scratch.
     let staged_scripts_dir = scratch
         .join("runtime/outputs")
         .join(&task.task_id)
         .join("scripts");
-    std::fs::create_dir_all(&staged_scripts_dir)?;
+
+    if let Err(e) = std::fs::create_dir_all(&staged_scripts_dir) {
+        return RunOutcome {
+            task_id: task.task_id.clone(),
+            ok: false,
+            stderr: format!("could not create staged scripts dir: {e}"),
+        };
+    }
 
     // Enumerate source scripts in sorted order (deterministic within task).
     let src_scripts_dir = pkg
@@ -143,21 +159,36 @@ fn run_task(
         .join(&task.task_id)
         .join("scripts");
 
-    let mut scripts: Vec<PathBuf> = std::fs::read_dir(&src_scripts_dir)?
+    let read_dir = match std::fs::read_dir(&src_scripts_dir) {
+        Ok(rd) => rd,
+        Err(e) => {
+            return RunOutcome {
+                task_id: task.task_id.clone(),
+                ok: false,
+                stderr: format!(
+                    "could not read scripts dir {}: {e}",
+                    src_scripts_dir.display()
+                ),
+            };
+        }
+    };
+
+    // Collect all regular files (not directories); skip none by extension.
+    let mut scripts: Vec<PathBuf> = read_dir
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .filter(|p| {
-            p.extension()
-                .and_then(|e| e.to_str())
-                .map(|ext| matches!(ext, "R" | "py" | "sh"))
-                .unwrap_or(false)
-        })
+        .filter(|p| p.is_file())
         .collect();
     scripts.sort();
 
     // Also create the output directory for the task so scripts can write there.
-    let task_out_dir = scratch.join("runtime/outputs").join(&task.task_id);
-    std::fs::create_dir_all(&task_out_dir)?;
+    if let Err(e) = std::fs::create_dir_all(scratch.join("runtime/outputs").join(&task.task_id)) {
+        return RunOutcome {
+            task_id: task.task_id.clone(),
+            ok: false,
+            stderr: format!("could not create task output dir: {e}"),
+        };
+    }
 
     let mut task_ok = true;
     let mut task_stderr = String::new();
@@ -166,7 +197,7 @@ fn run_task(
         let script_name = src_script.file_name().unwrap();
         let staged_script = staged_scripts_dir.join(script_name);
 
-        // Agent-free guard: refuse agent entrypoints.
+        // Agent-free guard: refuse agent entrypoints (checked before dispatch).
         if is_agent_script(src_script) {
             task_ok = false;
             task_stderr.push_str(&format!(
@@ -177,15 +208,71 @@ fn run_task(
         }
 
         // Copy and rewrite the script.
-        let content = std::fs::read(src_script)?;
+        let content = match std::fs::read(src_script) {
+            Ok(c) => c,
+            Err(e) => {
+                task_ok = false;
+                task_stderr.push_str(&format!(
+                    "could not read {}: {e}\n",
+                    src_script.display()
+                ));
+                continue;
+            }
+        };
         let content_str = String::from_utf8_lossy(&content);
-        let rewritten = content_str.replace(recorded_root, scratch_root);
-        std::fs::write(&staged_script, rewritten.as_bytes())?;
+        // Guard against empty recorded_root: replacing "" inserts scratch_root
+        // between every character.  If recorded_root is empty, leave content
+        // unchanged.
+        let rewritten: std::borrow::Cow<str> = if recorded_root.is_empty() {
+            content_str
+        } else {
+            std::borrow::Cow::Owned(content_str.replace(recorded_root, scratch_root))
+        };
+
+        if let Err(e) = std::fs::write(&staged_script, rewritten.as_bytes()) {
+            task_ok = false;
+            task_stderr.push_str(&format!(
+                "could not write staged script {}: {e}\n",
+                staged_script.display()
+            ));
+            continue;
+        }
+
         // Ensure the staged script is executable.
-        set_executable(&staged_script)?;
+        if let Err(e) = set_executable(&staged_script) {
+            task_ok = false;
+            task_stderr.push_str(&format!(
+                "could not set executable on {}: {e}\n",
+                staged_script.display()
+            ));
+            continue;
+        }
 
         // Run via the execution environment.
-        let output = env.run_script(&staged_script, run_env, scratch)?;
+        let output = match env.run_script(&staged_script, run_env, scratch) {
+            Ok(o) => o,
+            Err(e) => {
+                // Determine whether the extension is unknown or the spawn itself failed.
+                let ext = src_script
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("");
+                let reason = if ext.is_empty() {
+                    format!(
+                        "cannot dispatch extensionless script {}: {e}\n",
+                        src_script.display()
+                    )
+                } else {
+                    format!(
+                        "cannot dispatch script {} (extension={ext:?}): {e}\n",
+                        src_script.display()
+                    )
+                };
+                task_ok = false;
+                task_stderr.push_str(&reason);
+                continue;
+            }
+        };
         let script_stderr = String::from_utf8_lossy(&output.stderr).to_string();
         task_stderr.push_str(&script_stderr);
         if !output.status.success() {
@@ -193,11 +280,11 @@ fn run_task(
         }
     }
 
-    Ok(RunOutcome {
+    RunOutcome {
         task_id: task.task_id.clone(),
         ok: task_ok,
         stderr: task_stderr,
-    })
+    }
 }
 
 /// Recursively copy a directory tree from `src` to `dst`.
@@ -462,5 +549,141 @@ mod tests {
         let log_content = std::fs::read_to_string(&log).unwrap_or_default();
         let lines: Vec<&str> = log_content.lines().collect();
         assert_eq!(lines, vec!["task_b", "task_a"], "wrong order: {:?}", lines);
+    }
+
+    /// Important 2 — empty `recorded_root` must leave staged content unchanged.
+    /// `str::replace("")` inserts the replacement between every character.
+    /// The guard must prevent that corruption.
+    #[test]
+    fn empty_recorded_root_leaves_content_unchanged() {
+        let pkg_tmp = tempdir().unwrap();
+        let scratch_tmp = tempdir().unwrap();
+        let pkg = pkg_tmp.path();
+        let scratch = scratch_tmp.path();
+
+        let scripts_dir = pkg.join("runtime/outputs/task_empty_root/scripts");
+        std::fs::create_dir_all(&scripts_dir).unwrap();
+        std::fs::write(
+            pkg.join("runtime/outputs/task_empty_root/results.tsv"),
+            "x\n",
+        )
+        .unwrap();
+
+        let original_content = "#!/usr/bin/env bash\necho hello\n";
+        std::fs::write(scripts_dir.join("run.sh"), original_content).unwrap();
+
+        let task = ComputeTask {
+            task_id: "task_empty_root".to_string(),
+            scripts_dir: scripts_dir.clone(),
+            result_tables: vec!["results.tsv".to_string()],
+        };
+
+        // Pass empty recorded_root — must NOT corrupt the script.
+        let outcomes = stage_and_run(
+            pkg,
+            scratch,
+            &[task],
+            &[],
+            &shell_env(),
+            "",  // empty recorded_root
+            &BTreeMap::new(),
+        )
+        .unwrap();
+
+        assert_eq!(outcomes.len(), 1);
+        let outcome = &outcomes[0];
+        // Script should execute successfully.
+        assert!(outcome.ok, "task should succeed; stderr: {}", outcome.stderr);
+
+        // Staged content must be byte-for-byte identical to original.
+        let staged = scratch
+            .join("runtime/outputs/task_empty_root/scripts/run.sh");
+        let staged_content = std::fs::read_to_string(&staged).unwrap();
+        assert_eq!(
+            staged_content, original_content,
+            "empty recorded_root must leave staged content unchanged; got:\n{}",
+            staged_content
+        );
+    }
+
+    /// Important 3 — a missing scripts dir for task 1 must NOT abort task 2.
+    /// Task 1 yields ok:false; task 2 still runs and yields ok:true.
+    #[test]
+    fn missing_scripts_dir_does_not_abort_subsequent_tasks() {
+        let pkg_tmp = tempdir().unwrap();
+        let scratch_tmp = tempdir().unwrap();
+        let pkg = pkg_tmp.path();
+        let scratch = scratch_tmp.path();
+
+        // task_missing: scripts dir intentionally absent.
+        std::fs::write(
+            {
+                let d = pkg.join("runtime/outputs/task_missing");
+                std::fs::create_dir_all(&d).unwrap();
+                d.join("results.tsv")
+            },
+            "x\n",
+        )
+        .unwrap();
+        // Do NOT create scripts/ for task_missing.
+
+        // task_ok: has a valid script.
+        let scripts_dir_ok = pkg.join("runtime/outputs/task_ok/scripts");
+        std::fs::create_dir_all(&scripts_dir_ok).unwrap();
+        std::fs::write(
+            pkg.join("runtime/outputs/task_ok/results.tsv"),
+            "x\n",
+        )
+        .unwrap();
+        std::fs::write(
+            scripts_dir_ok.join("01.sh"),
+            "#!/usr/bin/env bash\necho ok\n",
+        )
+        .unwrap();
+
+        let tasks = vec![
+            ComputeTask {
+                task_id: "task_missing".to_string(),
+                scripts_dir: pkg.join("runtime/outputs/task_missing/scripts"),
+                result_tables: vec!["results.tsv".to_string()],
+            },
+            ComputeTask {
+                task_id: "task_ok".to_string(),
+                scripts_dir: scripts_dir_ok.clone(),
+                result_tables: vec!["results.tsv".to_string()],
+            },
+        ];
+
+        let outcomes = stage_and_run(
+            pkg,
+            scratch,
+            &tasks,
+            &[],
+            &shell_env(),
+            "/irrelevant",
+            &BTreeMap::new(),
+        )
+        .unwrap();
+
+        assert_eq!(outcomes.len(), 2);
+
+        let first = &outcomes[0];
+        assert_eq!(first.task_id, "task_missing");
+        assert!(
+            !first.ok,
+            "task_missing should be ok:false due to missing scripts dir"
+        );
+        assert!(
+            !first.stderr.is_empty(),
+            "task_missing stderr should explain the failure"
+        );
+
+        let second = &outcomes[1];
+        assert_eq!(second.task_id, "task_ok");
+        assert!(
+            second.ok,
+            "task_ok should still succeed after task_missing failed; stderr: {}",
+            second.stderr
+        );
     }
 }
