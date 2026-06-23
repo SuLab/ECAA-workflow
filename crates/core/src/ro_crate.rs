@@ -1589,6 +1589,57 @@ mod tests {
         }
     }
 
+    /// Guard: README.md must remain a first-class `File` entity in the `@graph`
+    /// and must be listed in the root `./` `hasPart` array.  This is a
+    /// characterisation/regression test — it must PASS immediately because the
+    /// behaviour already exists (ro_crate.rs:195-202, hasPart :119).
+    #[test]
+    fn readme_is_registered_as_file_and_linked_from_haspart() {
+        let dag = one_task_dag();
+        let classification = ClassificationResult {
+            domain: "genomics".into(),
+            workflow_description: "test workflow".into(),
+            intake_text: "test intake".into(),
+            edam_topic: "topic:3673".into(),
+            edam_operation: "operation:3223".into(),
+            ..Default::default()
+        };
+        let metadata = build_metadata(&dag, &classification, &FrozenClock::default());
+        let graph = metadata["@graph"].as_array().expect("@graph array");
+
+        // The README.md File entity must exist in the graph.
+        let readme = graph
+            .iter()
+            .find(|e| e["@id"] == "README.md")
+            .expect("README.md File entity must be present in @graph");
+
+        // Its @type must include "File" (may be a string or an array).
+        let types: Vec<&str> = match &readme["@type"] {
+            serde_json::Value::String(s) => vec![s.as_str()],
+            serde_json::Value::Array(a) => {
+                a.iter().filter_map(|v| v.as_str()).collect()
+            }
+            _ => vec![],
+        };
+        assert!(types.contains(&"File"), "README.md must be typed as File; got {types:?}");
+
+        // The root Dataset's hasPart must reference README.md.
+        let root = graph
+            .iter()
+            .find(|e| e["@id"] == "./")
+            .expect("root ./ Dataset must be present");
+        let part_ids: Vec<&str> = root["hasPart"]
+            .as_array()
+            .expect("root hasPart must be an array")
+            .iter()
+            .filter_map(|p| p["@id"].as_str())
+            .collect();
+        assert!(
+            part_ids.contains(&"README.md"),
+            "README.md must be linked from root ./ hasPart; got {part_ids:?}"
+        );
+    }
+
     /// B1: `executor_agent_entity` is built only from RECORDED container-state
     /// fields, and returns `None` when no executor identity was recorded
     /// (honest omission rather than a fabricated placeholder).
