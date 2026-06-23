@@ -139,7 +139,7 @@ pub(crate) fn run(args: ReplayArgs) -> Result<()> {
         ReplayVerdict::Pass => Ok(()),
         ReplayVerdict::Partial if !args.strict => Ok(()),
         ReplayVerdict::Partial => Err(anyhow::anyhow!(
-            "replay: PARTIAL verdict (re-run with --strict suppressed to allow partial)"
+            "replay: PARTIAL verdict — omit --strict to treat PARTIAL as success"
         )),
         ReplayVerdict::Fail => Err(anyhow::anyhow!("replay: FAIL verdict")),
     }

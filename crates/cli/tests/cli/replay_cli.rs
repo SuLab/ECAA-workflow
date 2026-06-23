@@ -150,16 +150,90 @@ fn replay_verify_tier_cross_graph_ok_exits_zero_with_pass_verdict() {
     );
 }
 
+/// Write a recorded `audit-proof-report.json` whose `ecaa_version` is set to
+/// a value guaranteed to differ from the CLI's reader version
+/// (`env!("CARGO_PKG_VERSION")`). Combined with the `cross-graph-dangling`
+/// fixture (whose fresh re-verify yields `cross_graph_integrity: fail` while
+/// the recorded report claims `pass`), this produces:
+///   divergence=true + reader_matches_writer=false
+///   → `compute_verdict` → Partial (not Fail)
+///
+/// The test drives TWO invocations:
+///   1. `replay <pkg> --tier verify`            → exit 0   (Partial is OK)
+///   2. `replay <pkg> --tier verify --strict`   → non-zero (Partial is Fail under --strict)
 #[test]
 fn replay_strict_flag_makes_partial_exit_nonzero() {
-    // A package dir that is empty (no ro-crate-metadata.json, no audit-proof-report)
-    // but passes verify because there's nothing to diverge. We can't trivially
-    // force a Partial without a more elaborate fixture, so we test that --strict
-    // is accepted and the flag appears in help.
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let pkg = tmp.path().join("cross-graph-dangling");
+    std::fs::create_dir_all(&pkg).expect("mkdir pkg");
+
+    // Copy the dangling fixture — fresh re-verify will detect the dangle and
+    // report cross_graph_integrity=fail.
+    copy_fixture("cross-graph-dangling", &pkg);
+    patch_claim_verification_summary(&pkg);
+
+    // Write a recorded audit that (a) claims cross_graph_integrity=pass
+    // (causing divergence) and (b) uses a version string that cannot match
+    // the CLI's own CARGO_PKG_VERSION, so reader_matches_writer=false.
+    // divergence + !reader_matches_writer → Partial per compute_verdict.
+    let runtime = pkg.join("runtime");
+    std::fs::create_dir_all(&runtime).expect("create runtime dir");
+    let mismatched_version = "0.0.0-version-mismatch-fixture";
+    let recorded = serde_json::json!({
+        "schema_version": "0.1",
+        "ecaa_version": mismatched_version,
+        "min_reader_version": mismatched_version,
+        "evaluator": {
+            "impl": "ecaa-workflow-audit-proof",
+            "version": "0.1.0",
+            "policy": "warn-only"
+        },
+        "verdicts": [
+            {
+                "id": "cross_graph_integrity",
+                "status": "pass",
+                "detail": null,
+                "n_inspected": 0,
+                "n_violations": 0
+            }
+        ]
+    });
+    std::fs::write(
+        runtime.join("audit-proof-report.json"),
+        serde_json::to_string_pretty(&recorded).unwrap(),
+    )
+    .expect("write audit-proof-report.json");
+
+    let json_out = tmp.path().join("replay-report-partial.json");
+
+    // Without --strict: Partial → exit 0.
     Command::cargo_bin("ecaa-workflow")
         .expect("cargo bin ecaa-workflow")
-        .args(["replay", "--help"])
+        .args([
+            "replay",
+            pkg.to_str().unwrap(),
+            "--tier",
+            "verify",
+            "--json",
+            json_out.to_str().unwrap(),
+        ])
         .assert()
-        .success()
-        .stdout(str::contains("--strict"));
+        .success();
+
+    let raw = std::fs::read_to_string(&json_out)
+        .unwrap_or_else(|e| panic!("read replay-report-partial.json: {e}"));
+    let json: serde_json::Value =
+        serde_json::from_str(&raw).expect("replay-report-partial.json must be valid JSON");
+    assert_eq!(
+        json.get("verdict").and_then(|v| v.as_str()),
+        Some("partial"),
+        "version-mismatch divergence must yield partial verdict; got: {raw}"
+    );
+
+    // With --strict: Partial → non-zero exit.
+    Command::cargo_bin("ecaa-workflow")
+        .expect("cargo bin ecaa-workflow")
+        .args(["replay", pkg.to_str().unwrap(), "--tier", "verify", "--strict"])
+        .assert()
+        .failure();
 }
