@@ -115,14 +115,20 @@ pub fn select_compute_tasks(
             continue;
         }
 
-        let tables: Vec<String> = std::fs::read_dir(&task_path)
-            .map(|r| {
-                r.filter_map(|f| f.ok())
-                    .map(|f| f.file_name().to_string_lossy().to_string())
-                    .filter(|n| n.ends_with(".tsv") || n.ends_with(".csv"))
-                    .collect()
-            })
-            .unwrap_or_default();
+        // Finding 3: differentiate an unreadable output dir from "no table".
+        // We propagate the error via `?` so the caller knows something is wrong
+        // with the filesystem rather than silently treating it as "no table".
+        // This is safe: `read_dir` failing here means we cannot enumerate
+        // outputs at all — surfacing the error is more conservative than
+        // silently skipping a task that may actually be selectable.
+        let mut tables: Vec<String> = std::fs::read_dir(&task_path)?
+            .filter_map(|f| f.ok())
+            .map(|f| f.file_name().to_string_lossy().to_string())
+            .filter(|n| n.ends_with(".tsv") || n.ends_with(".csv"))
+            .collect();
+
+        // Finding 4: sort for reproducible downstream iteration.
+        tables.sort();
 
         if tables.is_empty() {
             skipped.push(SkippedStage {
@@ -145,34 +151,100 @@ pub fn select_compute_tasks(
 mod tests {
     use super::*;
 
+    /// Helper: create a task directory under `root/runtime/outputs/<id>`.
+    /// If `script` is true, adds `scripts/01.R`. If `table` is Some, writes
+    /// that filename directly under the task dir.
+    fn mk(root: &Path, id: &str, script: bool, table: Option<&str>) {
+        let d = root.join("runtime/outputs").join(id);
+        if script {
+            std::fs::create_dir_all(d.join("scripts")).unwrap();
+            std::fs::write(d.join("scripts/01.R"), "1\n").unwrap();
+        }
+        std::fs::create_dir_all(&d).unwrap();
+        if let Some(t) = table {
+            std::fs::write(d.join(t), "a\tb\n").unwrap();
+        }
+    }
+
     #[test]
     fn selects_compute_excludes_validate_literature_reporting() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
-        let mk = |id: &str, script: bool, table: Option<&str>| {
-            let d = root.join("runtime/outputs").join(id);
-            if script {
-                std::fs::create_dir_all(d.join("scripts")).unwrap();
-                std::fs::write(d.join("scripts/01.R"), "1\n").unwrap();
-            }
-            std::fs::create_dir_all(&d).unwrap();
-            if let Some(t) = table {
-                std::fs::write(d.join(t), "a\tb\n").unwrap();
-            }
-        };
-        mk("differential_expression", true, Some("de_results.tsv"));
-        mk("validate_differential_expression", true, Some("checks.tsv"));
-        mk("contextualize_findings_with_literature", true, Some("matrix.csv"));
-        mk("reporting", true, None);
+        mk(root, "differential_expression", true, Some("de_results.tsv"));
+        mk(root, "validate_differential_expression", true, Some("checks.tsv"));
+        mk(root, "contextualize_findings_with_literature", true, Some("matrix.csv"));
+        mk(root, "reporting", true, None);
 
         let (sel, skipped) = select_compute_tasks(root).unwrap();
         assert_eq!(
             sel.iter().map(|t| t.task_id.as_str()).collect::<Vec<_>>(),
             ["differential_expression"]
         );
-        let sk: Vec<_> = skipped.iter().map(|s| s.task.as_str()).collect();
-        assert!(sk.contains(&"validate_differential_expression"));
-        assert!(sk.contains(&"contextualize_findings_with_literature"));
-        assert!(sk.contains(&"reporting"));
+        let sk_ids: Vec<_> = skipped.iter().map(|s| s.task.as_str()).collect();
+        assert!(sk_ids.contains(&"validate_differential_expression"));
+        assert!(sk_ids.contains(&"contextualize_findings_with_literature"));
+        assert!(sk_ids.contains(&"reporting"));
+
+        // Finding 5: assert the skip reason for the reporting case.
+        let reporting_reason = skipped
+            .iter()
+            .find(|s| s.task == "reporting")
+            .map(|s| s.reason.as_str())
+            .unwrap_or("");
+        assert_eq!(reporting_reason, "reporting stage",
+            "reporting task should carry the reporting-exclusion reason, not '{}'",
+            reporting_reason);
+    }
+
+    // Finding 1: shim exclusion path must be exercised.
+    // Creates a task that would otherwise be selected (script + de_results.tsv)
+    // and declares it in a determinism-shim.json; asserts it is excluded with
+    // a reason that mentions the shim file.
+    #[test]
+    fn shim_exclusion_takes_priority() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        mk(root, "differential_expression", true, Some("de_results.tsv"));
+
+        // Write the shim declaring differential_expression non-deterministic.
+        let shim_dir = root.join("runtime");
+        std::fs::create_dir_all(&shim_dir).unwrap();
+        std::fs::write(
+            shim_dir.join("determinism-shim.json"),
+            r#"{"non_deterministic_stages":["differential_expression"]}"#,
+        )
+        .unwrap();
+
+        let (sel, skipped) = select_compute_tasks(root).unwrap();
+        assert!(sel.is_empty(), "shim-excluded task must not be selected");
+        assert_eq!(skipped.len(), 1);
+        assert_eq!(skipped[0].task, "differential_expression");
+        assert!(
+            skipped[0].reason.contains("determinism-shim"),
+            "skip reason should mention the shim file, got: '{}'",
+            skipped[0].reason
+        );
+    }
+
+    // Finding 2: "no result table" skip path for a non-excluded task.
+    // `reporting` in the main test hits the *exclusion* branch, so we need a
+    // task with a non-excluded name (compute_something) that has a script but
+    // no .tsv/.csv to reach the no-table branch.
+    #[test]
+    fn no_result_table_skips_non_excluded_task() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        // script present, no table → should land in skipped with "no result table produced"
+        mk(root, "compute_something", true, None);
+
+        let (sel, skipped) = select_compute_tasks(root).unwrap();
+        assert!(sel.is_empty(), "task with no table must not be selected");
+        assert_eq!(skipped.len(), 1);
+        assert_eq!(skipped[0].task, "compute_something");
+        assert_eq!(
+            skipped[0].reason, "no result table produced",
+            "expected 'no result table produced', got: '{}'",
+            skipped[0].reason
+        );
     }
 }
