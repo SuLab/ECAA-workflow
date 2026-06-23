@@ -156,6 +156,10 @@ pub async fn seed_session_with_completed_task(
                     container: None,
                     source_atom_id: None,
                     safety: Default::default(),
+                    inputs: Vec::new(),
+                    outputs: Vec::new(),
+                    edam_operation: None,
+                    execution_index: None,
                 },
             );
             s.dag = Some(DAG {
@@ -166,6 +170,7 @@ pub async fn seed_session_with_completed_task(
                 tasks,
                 reverse_deps: std::collections::BTreeMap::new(),
                 run_id: None,
+                execution_order: Vec::new(),
             });
             s.emitted_package_path = package_root.clone();
             Ok(())

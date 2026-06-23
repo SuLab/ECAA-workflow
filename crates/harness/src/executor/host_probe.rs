@@ -571,6 +571,10 @@ mod tests {
             container: None,
             source_atom_id: None,
             safety: Default::default(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            edam_operation: None,
+            execution_index: None,
         }
     }
 
@@ -833,6 +837,7 @@ mod tests {
             tasks,
             reverse_deps: BTreeMap::new(),
             run_id: None,
+            execution_order: Vec::new(),
         };
 
         let req = resolve_high_water_for(pkg.path(), &dag, "vc");

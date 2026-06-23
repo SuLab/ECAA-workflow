@@ -39,6 +39,10 @@ fn task_with(provisioning: ProvisioningPolicy, atom_id: &str) -> Task {
             provisioning,
             controlled_access: false,
         },
+        inputs: Vec::new(),
+        outputs: Vec::new(),
+        edam_operation: None,
+        execution_index: None,
     }
 }
 

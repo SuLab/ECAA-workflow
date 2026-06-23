@@ -28,6 +28,10 @@ fn pending_task(deps: Vec<&str>) -> Task {
         container: None,
         source_atom_id: None,
         safety: Default::default(),
+        inputs: Vec::new(),
+        outputs: Vec::new(),
+        edam_operation: None,
+        execution_index: None,
     }
 }
 
@@ -43,6 +47,7 @@ fn make_dag(tasks: Vec<(&str, Task)>) -> DAG {
             .collect(),
         reverse_deps: BTreeMap::new(),
         run_id: None,
+        execution_order: Vec::new(),
     };
     dag.rebuild_reverse_deps();
     dag

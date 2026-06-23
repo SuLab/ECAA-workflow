@@ -61,6 +61,10 @@ fn task_with_safety(safety: SafetyPolicy, source_atom_id: &str) -> Task {
         container: None,
         source_atom_id: Some(source_atom_id.into()),
         safety,
+        inputs: Vec::new(),
+        outputs: Vec::new(),
+        edam_operation: None,
+        execution_index: None,
     }
 }
 

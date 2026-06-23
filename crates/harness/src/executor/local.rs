@@ -1980,6 +1980,10 @@ mod tests {
             container: None,
             source_atom_id: None,
             safety: Default::default(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            edam_operation: None,
+            execution_index: None,
         }
     }
 
@@ -2017,6 +2021,7 @@ mod tests {
             tasks: std::collections::BTreeMap::new(),
             reverse_deps: std::collections::BTreeMap::new(),
             run_id: None,
+            execution_order: Vec::new(),
         };
         let cfg = PilotConfig {
             enabled: false,
@@ -2065,6 +2070,10 @@ mod tests {
                 container: None,
                 source_atom_id: None,
                 safety: Default::default(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+                edam_operation: None,
+                execution_index: None,
             },
         );
         tasks.insert(
@@ -2085,6 +2094,10 @@ mod tests {
                 container: None,
                 source_atom_id: None,
                 safety: Default::default(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+                edam_operation: None,
+                execution_index: None,
             },
         );
         let dag = DAG {
@@ -2095,6 +2108,7 @@ mod tests {
             tasks,
             reverse_deps: std::collections::BTreeMap::new(),
             run_id: None,
+            execution_order: Vec::new(),
         };
         let cfg = PilotConfig {
             enabled: true,
@@ -2603,6 +2617,10 @@ mod tests {
             container: None,
             source_atom_id: source_atom_id.map(|s| s.to_string()),
             safety: Default::default(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            edam_operation: None,
+            execution_index: None,
         }
     }
 
@@ -2645,6 +2663,7 @@ mod tests {
             tasks,
             reverse_deps: std::collections::BTreeMap::new(),
             run_id: None,
+            execution_order: Vec::new(),
         };
 
         let pkg_str = pkg.path().to_string_lossy().to_string();
@@ -2730,6 +2749,7 @@ mod tests {
             tasks,
             reverse_deps: std::collections::BTreeMap::new(),
             run_id: None,
+            execution_order: Vec::new(),
         };
 
         let pkg_str = pkg.path().to_string_lossy().to_string();
@@ -2783,6 +2803,7 @@ mod tests {
             tasks,
             reverse_deps: std::collections::BTreeMap::new(),
             run_id: None,
+            execution_order: Vec::new(),
         };
 
         let pkg_str = pkg.path().to_string_lossy().to_string();

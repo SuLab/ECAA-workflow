@@ -236,6 +236,10 @@ mod tests {
             container: None,
             source_atom_id: None,
             safety: SafetyPolicy::default(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            edam_operation: None,
+            execution_index: None,
         }
     }
 
@@ -248,6 +252,7 @@ mod tests {
             tasks,
             run_id: None,
             reverse_deps: BTreeMap::new(),
+            execution_order: Vec::new(),
         }
     }
 

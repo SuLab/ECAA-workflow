@@ -150,6 +150,7 @@ mod tests {
             tasks: Default::default(),
             reverse_deps: Default::default(),
             run_id: None,
+            execution_order: Vec::new(),
         }
     }
 

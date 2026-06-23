@@ -353,6 +353,10 @@ mod tests {
                 container: None,
                 source_atom_id: None,
                 safety: Default::default(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+                edam_operation: None,
+                execution_index: None,
             },
         );
         DAG {
@@ -363,6 +367,7 @@ mod tests {
             tasks,
             reverse_deps: BT::new(),
             run_id: None,
+            execution_order: Vec::new(),
         }
     }
 

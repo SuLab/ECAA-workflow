@@ -45,6 +45,10 @@ fn task_from_atom(atom: &AtomDefinition) -> Task {
         container: None,
         source_atom_id: Some(atom.id.clone()),
         safety: atom.safety.clone(),
+        inputs: Vec::new(),
+        outputs: Vec::new(),
+        edam_operation: None,
+        execution_index: None,
     }
 }
 

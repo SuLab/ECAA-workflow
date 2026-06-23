@@ -577,6 +577,7 @@ mod controlled_access_gate_tests {
             tasks: std::collections::BTreeMap::new(),
             reverse_deps: std::collections::BTreeMap::new(),
             run_id: None,
+            execution_order: Vec::new(),
         };
         let mut task = Task {
             kind: TaskKind::Computation,
@@ -593,6 +594,10 @@ mod controlled_access_gate_tests {
             container: None,
             source_atom_id: Some("controlled_access_data_acquisition".into()),
             safety: Default::default(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            edam_operation: None,
+            execution_index: None,
         };
         task.safety.controlled_access = true;
         dag.tasks.insert("ca1".into(), task);
@@ -6217,6 +6222,7 @@ mod write_dag_tests {
             tasks: std::collections::BTreeMap::new(),
             reverse_deps: std::collections::BTreeMap::new(),
             run_id: None,
+            execution_order: Vec::new(),
         };
         dag.tasks.insert(
             "compute".into(),
@@ -6238,6 +6244,10 @@ mod write_dag_tests {
                 container: None,
                 source_atom_id: None,
                 safety: Default::default(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+                edam_operation: None,
+                execution_index: None,
             },
         );
         dag
@@ -6302,6 +6312,10 @@ mod write_dag_tests {
                 container: None,
                 source_atom_id: None,
                 safety: Default::default(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+                edam_operation: None,
+                execution_index: None,
             },
         );
         write_dag(pkg, &baseline).unwrap();
@@ -6353,6 +6367,7 @@ mod write_dag_tests {
             tasks: std::collections::BTreeMap::new(),
             reverse_deps: std::collections::BTreeMap::new(),
             run_id: None,
+            execution_order: Vec::new(),
         };
         dag.tasks.insert(
             "t".into(),
@@ -6371,6 +6386,10 @@ mod write_dag_tests {
                 container: None,
                 source_atom_id: None,
                 safety: Default::default(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+                edam_operation: None,
+                execution_index: None,
             },
         );
         write_dag(pkg, &dag).unwrap();
@@ -6402,6 +6421,7 @@ mod write_dag_tests {
             tasks: std::collections::BTreeMap::new(),
             reverse_deps: std::collections::BTreeMap::new(),
             run_id: None,
+            execution_order: Vec::new(),
         };
         dag.tasks.insert(
             "a".into(),
@@ -6420,6 +6440,10 @@ mod write_dag_tests {
                 container: None,
                 source_atom_id: None,
                 safety: Default::default(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+                edam_operation: None,
+                execution_index: None,
             },
         );
         write_dag(pkg, &dag).unwrap();
@@ -6566,6 +6590,10 @@ mod read_dag_tests {
                 container: None,
                 source_atom_id: None,
                 safety: Default::default(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+                edam_operation: None,
+                execution_index: None,
             },
         );
         tasks.insert(
@@ -6588,6 +6616,10 @@ mod read_dag_tests {
                 container: None,
                 source_atom_id: None,
                 safety: Default::default(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+                edam_operation: None,
+                execution_index: None,
             },
         );
         let mut dag = DAG {
@@ -6598,6 +6630,7 @@ mod read_dag_tests {
             tasks,
             reverse_deps: std::collections::BTreeMap::new(),
             run_id: None,
+            execution_order: Vec::new(),
         };
         let violations = enforce_validation_contract(pkg, &mut dag).unwrap();
         assert_eq!(violations.len(), 1);
@@ -6676,6 +6709,10 @@ mod read_dag_tests {
                 container: None,
                 source_atom_id: None,
                 safety: Default::default(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+                edam_operation: None,
+                execution_index: None,
             },
         );
         let dag = DAG {
@@ -6686,6 +6723,7 @@ mod read_dag_tests {
             tasks,
             reverse_deps: std::collections::BTreeMap::new(),
             run_id: None,
+            execution_order: Vec::new(),
         };
         let signals = collect_validation_failure_signals(pkg, &dag);
         let vc = signals
@@ -6763,6 +6801,10 @@ mod read_dag_tests {
                 container: None,
                 source_atom_id: None,
                 safety: Default::default(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+                edam_operation: None,
+                execution_index: None,
             },
         );
         let dag = DAG {
@@ -6773,6 +6815,7 @@ mod read_dag_tests {
             tasks,
             reverse_deps: std::collections::BTreeMap::new(),
             run_id: None,
+            execution_order: Vec::new(),
         };
         let signals = collect_validation_failure_signals(pkg, &dag);
         assert!(
@@ -6877,6 +6920,10 @@ mod read_dag_tests {
                 container: None,
                 source_atom_id: None,
                 safety: Default::default(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+                edam_operation: None,
+                execution_index: None,
             },
         );
         tasks.insert(
@@ -6898,6 +6945,10 @@ mod read_dag_tests {
                 container: None,
                 source_atom_id: None,
                 safety: Default::default(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+                edam_operation: None,
+                execution_index: None,
             },
         );
         let mut dag = DAG {
@@ -6908,6 +6959,7 @@ mod read_dag_tests {
             tasks,
             reverse_deps: std::collections::BTreeMap::new(),
             run_id: None,
+            execution_order: Vec::new(),
         };
         let violations = enforce_validation_contract(pkg, &mut dag).unwrap();
         assert_eq!(violations.len(), 1, "exactly the DE stage violates");
@@ -6990,6 +7042,10 @@ mod read_dag_tests {
             container: None,
             source_atom_id: None,
             safety: Default::default(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            edam_operation: None,
+            execution_index: None,
         };
         let mut tasks: std::collections::BTreeMap<TaskId, Task> = std::collections::BTreeMap::new();
         tasks.insert("variant_calling".into(), mk(TaskKind::Computation, vec![]));
@@ -7005,6 +7061,7 @@ mod read_dag_tests {
             tasks,
             reverse_deps: std::collections::BTreeMap::new(),
             run_id: None,
+            execution_order: Vec::new(),
         };
         (tmp, pkg, dag)
     }
@@ -7206,6 +7263,10 @@ mod read_dag_tests {
                 container: None,
                 source_atom_id: None,
                 safety: Default::default(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+                edam_operation: None,
+                execution_index: None,
             },
         );
         let mut dag = DAG {
@@ -7216,6 +7277,7 @@ mod read_dag_tests {
             tasks,
             reverse_deps: std::collections::BTreeMap::new(),
             run_id: None,
+            execution_order: Vec::new(),
         };
         let violations = enforce_validation_contract(pkg, &mut dag).unwrap();
         assert!(
@@ -7282,6 +7344,10 @@ mod read_dag_tests {
                 container: None,
                 source_atom_id: None,
                 safety: Default::default(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+                edam_operation: None,
+                execution_index: None,
             },
         );
         // validate_qc exists but is still Pending — the OLD validate-gated loop
@@ -7303,6 +7369,10 @@ mod read_dag_tests {
                 container: None,
                 source_atom_id: None,
                 safety: Default::default(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+                edam_operation: None,
+                execution_index: None,
             },
         );
         let mut dag = DAG {
@@ -7313,6 +7383,7 @@ mod read_dag_tests {
             tasks,
             reverse_deps: std::collections::BTreeMap::new(),
             run_id: None,
+            execution_order: Vec::new(),
         };
         let violations = enforce_validation_contract(pkg, &mut dag).unwrap();
         assert_eq!(violations.len(), 1, "parent stage must be enforced before validator completes");
@@ -7372,6 +7443,10 @@ mod read_dag_tests {
                 container: None,
                 source_atom_id: None,
                 safety: Default::default(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+                edam_operation: None,
+                execution_index: None,
             },
         );
         tasks.insert(
@@ -7394,6 +7469,10 @@ mod read_dag_tests {
                 container: None,
                 source_atom_id: None,
                 safety: Default::default(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+                edam_operation: None,
+                execution_index: None,
             },
         );
         let mut dag = DAG {
@@ -7404,6 +7483,7 @@ mod read_dag_tests {
             tasks,
             reverse_deps: std::collections::BTreeMap::new(),
             run_id: None,
+            execution_order: Vec::new(),
         };
         let violations = enforce_validation_contract(pkg, &mut dag).unwrap();
         assert!(violations.is_empty());
@@ -8408,6 +8488,7 @@ mod read_dag_tests {
             tasks: std::collections::BTreeMap::new(),
             reverse_deps: std::collections::BTreeMap::new(),
             run_id: None,
+            execution_order: Vec::new(),
         };
         dag.tasks.insert(
             "compute".into(),
@@ -8426,6 +8507,10 @@ mod read_dag_tests {
                 container: None,
                 source_atom_id: None,
                 safety: Default::default(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+                edam_operation: None,
+                execution_index: None,
             },
         );
         dag
@@ -8919,6 +9004,10 @@ mod settle_tests {
                 container: None,
                 source_atom_id: None,
                 safety: Default::default(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+                edam_operation: None,
+                execution_index: None,
             },
         )
     }
@@ -8936,6 +9025,7 @@ mod settle_tests {
             tasks: t,
             reverse_deps: BTreeMap::new(),
             run_id: None,
+            execution_order: Vec::new(),
         }
     }
 
@@ -9241,6 +9331,10 @@ mod watchdog_event_relevance_tests {
             container: None,
             source_atom_id: None,
             safety: Default::default(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            edam_operation: None,
+            execution_index: None,
         }
     }
 
@@ -9255,6 +9349,7 @@ mod watchdog_event_relevance_tests {
             tasks,
             reverse_deps: BTreeMap::new(),
             run_id: None,
+            execution_order: Vec::new(),
         };
         write_dag(pkg, &dag).unwrap();
     }
@@ -9397,6 +9492,10 @@ mod amend_cancel_tests {
             container: None,
             source_atom_id: None,
             safety: Default::default(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            edam_operation: None,
+            execution_index: None,
         }
     }
 
@@ -9413,6 +9512,7 @@ mod amend_cancel_tests {
             tasks: map,
             reverse_deps: BTreeMap::new(),
             run_id: None,
+            execution_order: Vec::new(),
         }
     }
 

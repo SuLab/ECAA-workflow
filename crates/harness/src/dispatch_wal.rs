@@ -595,6 +595,10 @@ mod tests {
             container: None,
             source_atom_id: None,
             safety: Default::default(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            edam_operation: None,
+            execution_index: None,
         }
     }
 
@@ -657,6 +661,7 @@ mod tests {
             },
             reverse_deps: BTreeMap::new(),
             run_id: None,
+            execution_order: Vec::new(),
         };
         let future = chrono::Utc::now() + chrono::Duration::hours(1);
         let records = vec![DispatchRecord {
@@ -699,6 +704,7 @@ mod tests {
             },
             reverse_deps: BTreeMap::new(),
             run_id: None,
+            execution_order: Vec::new(),
         };
         let records = vec![DispatchRecord {
             schema_version: dispatch_wal_schema_version(),
@@ -759,6 +765,7 @@ mod tests {
             },
             reverse_deps: BTreeMap::new(),
             run_id: None,
+            execution_order: Vec::new(),
         };
         let records = vec![DispatchRecord {
             schema_version: dispatch_wal_schema_version(),
@@ -802,6 +809,7 @@ mod tests {
             },
             reverse_deps: BTreeMap::new(),
             run_id: None,
+            execution_order: Vec::new(),
         };
         let records = vec![DispatchRecord {
             schema_version: dispatch_wal_schema_version(),
@@ -968,6 +976,7 @@ mod tests {
             },
             reverse_deps: BTreeMap::new(),
             run_id: None,
+            execution_order: Vec::new(),
         };
         let records = vec![DispatchRecord {
             schema_version: dispatch_wal_schema_version(),
@@ -1029,6 +1038,7 @@ mod tests {
             },
             reverse_deps: BTreeMap::new(),
             run_id: None,
+            execution_order: Vec::new(),
         };
         let past = chrono::Utc::now() - chrono::Duration::hours(2);
         let records = vec![DispatchRecord {
@@ -1108,6 +1118,7 @@ mod tests {
             },
             reverse_deps: BTreeMap::new(),
             run_id: None,
+            execution_order: Vec::new(),
         };
         let past = chrono::Utc::now() - chrono::Duration::hours(2);
         let records = vec![DispatchRecord {
@@ -1197,6 +1208,7 @@ mod tests {
             },
             reverse_deps: BTreeMap::new(),
             run_id: None,
+            execution_order: Vec::new(),
         };
         let mut dag_after = dag_before.clone();
 

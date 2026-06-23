@@ -51,6 +51,10 @@ fn two_task_dag() -> DAG {
             container: None,
             source_atom_id: Some("data_acquisition_geo".into()),
             safety: Default::default(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            edam_operation: None,
+            execution_index: None,
         },
     );
     tasks.insert(
@@ -70,6 +74,10 @@ fn two_task_dag() -> DAG {
             container: None,
             source_atom_id: Some("preprocessing_qc".into()),
             safety: Default::default(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            edam_operation: None,
+            execution_index: None,
         },
     );
     let mut dag = DAG {
@@ -80,6 +88,7 @@ fn two_task_dag() -> DAG {
         tasks,
         reverse_deps: BTreeMap::new(),
         run_id: None,
+        execution_order: Vec::new(),
     };
     dag.rebuild_reverse_deps();
     dag

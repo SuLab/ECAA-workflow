@@ -19,6 +19,7 @@ fn fixture_dag() -> DAG {
         tasks: BTreeMap::new(),
         reverse_deps: BTreeMap::new(),
         run_id: None,
+        execution_order: Vec::new(),
     }
 }
 

@@ -979,6 +979,10 @@ mod safety_tests {
             container: None,
             source_atom_id: Some("test_atom".into()),
             safety,
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            edam_operation: None,
+            execution_index: None,
         }
     }
 

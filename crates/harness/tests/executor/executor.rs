@@ -115,6 +115,10 @@ fn local_executor_is_task_stale_matches_timestamp_threshold() {
         container: None,
         source_atom_id: None,
         safety: Default::default(),
+        inputs: Vec::new(),
+        outputs: Vec::new(),
+        edam_operation: None,
+        execution_index: None,
     };
     let now = chrono::Utc::now().timestamp() as u64;
     assert!(
@@ -356,6 +360,10 @@ fn seed_ready_dag(pkg: &Path, task_id: &str) {
             container: None,
             source_atom_id: None,
             safety: Default::default(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            edam_operation: None,
+            execution_index: None,
         },
     );
     let dag = DAG {
@@ -366,6 +374,7 @@ fn seed_ready_dag(pkg: &Path, task_id: &str) {
         tasks,
         reverse_deps: std::collections::BTreeMap::new(),
         run_id: None,
+        execution_order: Vec::new(),
     };
     std::fs::create_dir_all(pkg).unwrap();
     std::fs::write(
@@ -666,6 +675,10 @@ fn is_task_stale_false_for_fresh_running_task() {
         container: None,
         source_atom_id: None,
         safety: Default::default(),
+        inputs: Vec::new(),
+        outputs: Vec::new(),
+        edam_operation: None,
+        execution_index: None,
     };
     let now = chrono::Utc::now().timestamp() as u64;
     assert!(
@@ -726,6 +739,10 @@ fn is_task_stale_true_when_ssm_reports_no_invocation() {
         container: None,
         source_atom_id: None,
         safety: Default::default(),
+        inputs: Vec::new(),
+        outputs: Vec::new(),
+        edam_operation: None,
+        execution_index: None,
     };
     let now = chrono::Utc::now().timestamp() as u64;
     assert!(
@@ -783,6 +800,10 @@ fn is_task_stale_false_when_ssm_reports_success() {
         container: None,
         source_atom_id: None,
         safety: Default::default(),
+        inputs: Vec::new(),
+        outputs: Vec::new(),
+        edam_operation: None,
+        execution_index: None,
     };
     let now = chrono::Utc::now().timestamp() as u64;
     assert!(
@@ -862,6 +883,10 @@ fn is_task_stale_honors_per_stage_ssm_timeout_override() {
         container: None,
         source_atom_id: None,
         safety: Default::default(),
+        inputs: Vec::new(),
+        outputs: Vec::new(),
+        edam_operation: None,
+        execution_index: None,
     };
     let now = chrono::Utc::now().timestamp() as u64;
     assert!(
@@ -920,6 +945,10 @@ fn is_task_stale_uses_env_ssm_timeout_when_no_profile_override() {
         container: None,
         source_atom_id: None,
         safety: Default::default(),
+        inputs: Vec::new(),
+        outputs: Vec::new(),
+        edam_operation: None,
+        execution_index: None,
     };
     let now = chrono::Utc::now().timestamp() as u64;
     assert!(

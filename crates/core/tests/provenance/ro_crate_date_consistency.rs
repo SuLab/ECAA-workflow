@@ -67,6 +67,7 @@ fn one_task_dag() -> DAG {
         tasks,
         reverse_deps: BTreeMap::new(),
         run_id: None,
+        execution_order: Vec::new(),
     };
     dag.rebuild_reverse_deps();
     dag

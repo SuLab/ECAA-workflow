@@ -524,6 +524,10 @@ fn pilot_ready_task(stage: &str) -> DagTask {
         container: None,
         source_atom_id: None,
         safety: Default::default(),
+        inputs: Vec::new(),
+        outputs: Vec::new(),
+        edam_operation: None,
+        execution_index: None,
     }
 }
 
@@ -550,6 +554,7 @@ fn pilot_dag() -> DAG {
         tasks: t,
         reverse_deps: std::collections::BTreeMap::new(),
         run_id: None,
+        execution_order: Vec::new(),
     }
 }
 
@@ -567,6 +572,7 @@ fn single_stage_dag(stage: &str) -> DAG {
         tasks: t,
         reverse_deps: std::collections::BTreeMap::new(),
         run_id: None,
+        execution_order: Vec::new(),
     }
 }
 
@@ -1065,6 +1071,10 @@ fn is_task_stale_caches_ssm_result_within_ttl() {
         container: None,
         source_atom_id: None,
         safety: Default::default(),
+        inputs: Vec::new(),
+        outputs: Vec::new(),
+        edam_operation: None,
+        execution_index: None,
     };
     let now_secs = chrono::Utc::now().timestamp() as u64;
 
@@ -1123,6 +1133,10 @@ fn invalidate_ssm_stale_cache_forces_requery() {
         container: None,
         source_atom_id: None,
         safety: Default::default(),
+        inputs: Vec::new(),
+        outputs: Vec::new(),
+        edam_operation: None,
+        execution_index: None,
     };
     let now_secs = chrono::Utc::now().timestamp() as u64;
 

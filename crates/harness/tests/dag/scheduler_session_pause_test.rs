@@ -39,6 +39,10 @@ fn make_task(id: &str, state: TaskState, depends_on: Vec<&str>) -> (TaskId, Task
             container: None,
             source_atom_id: None,
             safety: Default::default(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            edam_operation: None,
+            execution_index: None,
         },
     )
 }
@@ -56,6 +60,7 @@ fn build_dag(tasks: Vec<(TaskId, Task)>) -> DAG {
         tasks: map,
         reverse_deps: BTreeMap::new(),
         run_id: None,
+        execution_order: Vec::new(),
     };
     dag.rebuild_reverse_deps();
     dag

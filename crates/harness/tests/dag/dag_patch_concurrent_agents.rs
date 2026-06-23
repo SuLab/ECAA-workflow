@@ -45,6 +45,10 @@ fn make_running_task(task_id: &str) -> Task {
         container: None,
         source_atom_id: None,
         safety: Default::default(),
+        inputs: Vec::new(),
+        outputs: Vec::new(),
+        edam_operation: None,
+        execution_index: None,
     }
 }
 
@@ -63,6 +67,7 @@ fn seed_workflow(dir: &Path, task_ids: &[&str]) {
         tasks,
         reverse_deps: BTreeMap::new(),
         run_id: None,
+        execution_order: Vec::new(),
     };
     std::fs::write(
         dir.join("WORKFLOW.json"),
