@@ -88,11 +88,13 @@ pub fn stage_and_run(
     let mut run_env = recorded_env.clone();
     run_env.insert("PKG_ROOT".to_string(), scratch_root.clone());
 
-    // Stage the shared inputs subtree once (idempotent).
-    let inputs_src = pkg.join("runtime/outputs/data_acquisition/data/inputs");
-    let inputs_dst = scratch.join("runtime/outputs/data_acquisition/data/inputs");
-    if inputs_src.is_dir() {
-        copy_dir_all(&inputs_src, &inputs_dst)?;
+    // Stage the entire data_acquisition/data/ subtree once (idempotent).
+    // The input directory label is chosen by the package author (e.g. "himes-inputs/",
+    // "inputs/", etc.); copying the whole data/ tree preserves whatever label(s) exist.
+    let data_src = pkg.join("runtime/outputs/data_acquisition/data");
+    let data_dst = scratch.join("runtime/outputs/data_acquisition/data");
+    if data_src.is_dir() {
+        copy_dir_all(&data_src, &data_dst)?;
     }
 
     // Resolve run order: tasks listed in `order` first (in that order), then
@@ -694,6 +696,86 @@ mod tests {
             second.ok,
             "task_ok should still succeed after task_missing failed; stderr: {}",
             second.stderr
+        );
+    }
+
+    /// A non-"inputs" input label (e.g. "my-inputs") under data_acquisition/data/
+    /// must be staged to scratch so the compute script can find its counts file.
+    /// Regression: the old code hardcoded "inputs/" and silently skipped any other
+    /// label, causing Tier-2 re-execution to fail for packages like Himes.
+    #[test]
+    fn custom_input_label_subtree_is_staged() {
+        let pkg_tmp = tempdir().unwrap();
+        let scratch_tmp = tempdir().unwrap();
+        let pkg = pkg_tmp.path();
+        let scratch = scratch_tmp.path();
+
+        // Build a fake package with a custom label "my-inputs" (not "inputs").
+        let custom_label = "my-inputs";
+        let data_dir = pkg
+            .join("runtime/outputs/data_acquisition/data")
+            .join(custom_label);
+        std::fs::create_dir_all(&data_dir).unwrap();
+        std::fs::write(data_dir.join("counts.tsv"), "gene\tcount\nGENE1\t42\n").unwrap();
+
+        // Build a compute task whose script asserts the counts file exists under PKG_ROOT.
+        let scripts_dir = pkg.join("runtime/outputs/differential_expression/scripts");
+        std::fs::create_dir_all(&scripts_dir).unwrap();
+        std::fs::write(
+            pkg.join("runtime/outputs/differential_expression/de_results.tsv"),
+            "gene\tpadj\n",
+        )
+        .unwrap();
+
+        // The script checks the file exists and exits non-zero if it doesn't.
+        let script_content = format!(
+            "#!/usr/bin/env bash\n\
+             set -e\n\
+             counts=\"$PKG_ROOT/runtime/outputs/data_acquisition/data/{custom_label}/counts.tsv\"\n\
+             if [ ! -f \"$counts\" ]; then\n\
+               echo \"MISSING: $counts\" >&2\n\
+               exit 1\n\
+             fi\n\
+             mkdir -p \"$PKG_ROOT/runtime/outputs/differential_expression\"\n\
+             echo ok > \"$PKG_ROOT/runtime/outputs/differential_expression/done.txt\"\n"
+        );
+        std::fs::write(scripts_dir.join("01.sh"), &script_content).unwrap();
+
+        let task = ComputeTask {
+            task_id: "differential_expression".to_string(),
+            scripts_dir: scripts_dir.clone(),
+            result_tables: vec!["de_results.tsv".to_string()],
+        };
+
+        let outcomes = stage_and_run(
+            pkg,
+            scratch,
+            &[task],
+            &[],
+            &shell_env(),
+            "/irrelevant",
+            &BTreeMap::new(),
+        )
+        .unwrap();
+
+        assert_eq!(outcomes.len(), 1);
+        let outcome = &outcomes[0];
+
+        // The counts file must have been staged to scratch.
+        let staged_counts = scratch
+            .join("runtime/outputs/data_acquisition/data")
+            .join(custom_label)
+            .join("counts.tsv");
+        assert!(
+            staged_counts.exists(),
+            "counts.tsv under custom label '{custom_label}' must be staged to scratch"
+        );
+
+        // The compute task must have run successfully (found its input file).
+        assert!(
+            outcome.ok,
+            "task should succeed when custom-label inputs are staged; stderr: {}",
+            outcome.stderr
         );
     }
 
