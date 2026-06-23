@@ -475,6 +475,75 @@ fn spec_scripts_dir() -> Option<std::path::PathBuf> {
 /// wire shape (`{status, details|reason}`). Missing python / missing deps
 /// map to `unavailable`, never `fail`, so the product build never hard-fails
 /// for want of an optional toolchain.
+/// Default wall-clock cap for an external validator subprocess. Generous —
+/// a healthy SHACL/OWL run is ~1-2s; the cap exists only so a hung pyshacl /
+/// HermiT can never wedge `emit_package` indefinitely, not to bound a normal
+/// run. Override with `ECAA_VALIDATOR_TIMEOUT_SECS`.
+const DEFAULT_VALIDATOR_TIMEOUT_SECS: u64 = 120;
+
+/// Resolve the per-validator subprocess timeout from
+/// `ECAA_VALIDATOR_TIMEOUT_SECS` (positive integer seconds); unset/zero/
+/// non-numeric falls back to [`DEFAULT_VALIDATOR_TIMEOUT_SECS`].
+fn validator_timeout() -> std::time::Duration {
+    let secs = std::env::var("ECAA_VALIDATOR_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(DEFAULT_VALIDATOR_TIMEOUT_SECS);
+    std::time::Duration::from_secs(secs)
+}
+
+/// Spawn `python3 <script_path> <args>`, capture stdout+stderr, and kill the
+/// child if it has not exited within `timeout`. stdout/stderr are drained on
+/// dedicated threads so a chatty validator can never fill the pipe buffer and
+/// deadlock the wait. `Instant` is a monotonic timeout clock (NOT an emitted
+/// timestamp), so it does not affect package determinism. Returns
+/// `Ok((None, ..))` when the child was killed on timeout, `Ok((Some(status), ..))`
+/// otherwise.
+#[allow(clippy::type_complexity)]
+fn run_python_capped(
+    script_path: &Path,
+    args: &[&str],
+    timeout: std::time::Duration,
+) -> std::io::Result<(Option<std::process::ExitStatus>, Vec<u8>, Vec<u8>)> {
+    use std::io::Read;
+    let mut child = std::process::Command::new("python3")
+        .arg(script_path)
+        .args(args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    let mut out_pipe = child.stdout.take().expect("stdout was piped");
+    let mut err_pipe = child.stderr.take().expect("stderr was piped");
+    let out_t = std::thread::spawn(move || {
+        let mut b = Vec::new();
+        let _ = out_pipe.read_to_end(&mut b);
+        b
+    });
+    let err_t = std::thread::spawn(move || {
+        let mut b = Vec::new();
+        let _ = err_pipe.read_to_end(&mut b);
+        b
+    });
+    let deadline = std::time::Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait()? {
+            Some(st) => break Some(st),
+            None => {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    break None;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+        }
+    };
+    let stdout = out_t.join().unwrap_or_default();
+    let stderr = err_t.join().unwrap_or_default();
+    Ok((status, stdout, stderr))
+}
+
 fn run_python_validator(label: &str, script: &str, args: &[&str], scripts_dir: &Path) -> Value {
     let script_path = scripts_dir.join(script);
     if !script_path.exists() {
@@ -494,12 +563,9 @@ fn run_python_validator(label: &str, script: &str, args: &[&str], scripts_dir: &
             "reason": "python3 not on PATH",
         });
     }
-    let output = std::process::Command::new("python3")
-        .arg(&script_path)
-        .args(args)
-        .output();
-    let out = match output {
-        Ok(o) => o,
+    let timeout = validator_timeout();
+    let (status, stdout_bytes, stderr_bytes) = match run_python_capped(&script_path, args, timeout) {
+        Ok(triple) => triple,
         Err(e) => {
             return json!({
                 "status": "error",
@@ -507,13 +573,25 @@ fn run_python_validator(label: &str, script: &str, args: &[&str], scripts_dir: &
             });
         }
     };
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    if out.status.success() {
+    let stdout = String::from_utf8_lossy(&stdout_bytes);
+    let stderr = String::from_utf8_lossy(&stderr_bytes);
+    let Some(status) = status else {
+        // A hung validator must never wedge emit_package. Treat a timeout
+        // like a missing toolchain — `unavailable` (non-blocking), so a
+        // stuck pyshacl/HermiT degrades gracefully instead of hanging emit.
+        return json!({
+            "status": "unavailable",
+            "reason": format!(
+                "{label} timed out after {}s and was killed (raise ECAA_VALIDATOR_TIMEOUT_SECS if intentional)",
+                timeout.as_secs()
+            ),
+        });
+    };
+    if status.success() {
         return json!({ "status": "pass", "details": stdout.trim() });
     }
     // exit 2 (or a ModuleNotFoundError) is the scripts' "deps missing" signal.
-    if out.status.code() == Some(2)
+    if status.code() == Some(2)
         || stderr.contains("ModuleNotFoundError")
         || stdout.contains("ModuleNotFoundError")
     {
@@ -526,7 +604,7 @@ fn run_python_validator(label: &str, script: &str, args: &[&str], scripts_dir: &
     }
     json!({
         "status": "fail",
-        "details": format!("exit {}: {} {}", out.status.code().unwrap_or(-1), stdout.trim(), stderr.trim()),
+        "details": format!("exit {}: {} {}", status.code().unwrap_or(-1), stdout.trim(), stderr.trim()),
     })
 }
 
@@ -538,10 +616,19 @@ fn run_python_validator(label: &str, script: &str, args: &[&str], scripts_dir: &
 fn run_external_validators(output_dir: &Path) -> Value {
     let pkg_arg = output_dir.to_str().unwrap_or(".");
     let (shacl, owl) = match spec_scripts_dir() {
-        Some(dir) => (
-            run_python_validator("shacl_projection", "project_package.py", &[pkg_arg], &dir),
-            run_python_validator("owl_consistency", "owl_consistency.py", &[pkg_arg], &dir),
-        ),
+        // The SHACL and OWL validators are independent subprocesses; run them
+        // concurrently so emit pays max(shacl, owl) instead of their sum
+        // (~halves the conformance-mode validation latency).
+        Some(dir) => std::thread::scope(|s| {
+            let shacl_handle = s.spawn(|| {
+                run_python_validator("shacl_projection", "project_package.py", &[pkg_arg], &dir)
+            });
+            let owl = run_python_validator("owl_consistency", "owl_consistency.py", &[pkg_arg], &dir);
+            let shacl = shacl_handle.join().unwrap_or_else(|_| {
+                json!({ "status": "error", "reason": "shacl_projection validator thread panicked" })
+            });
+            (shacl, owl)
+        }),
         None => {
             let reason = json!({
                 "status": "unavailable",
@@ -768,4 +855,52 @@ fn write_pretty_json<T: serde::Serialize + ?Sized>(path: &Path, value: &T) -> Re
     }
     crate::fs_helpers::atomic_write_bytes_sync(path, &bytes)
         .with_context(|| format!("writing {}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn python3_available() -> bool {
+        std::process::Command::new("python3")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+
+    #[test]
+    fn run_python_capped_kills_a_hung_validator() {
+        if !python3_available() {
+            eprintln!("SKIP run_python_capped_kills_a_hung_validator: python3 not on PATH");
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("hang.py");
+        std::fs::write(&script, "import time\ntime.sleep(60)\n").unwrap();
+        let start = std::time::Instant::now();
+        let (status, _out, _err) =
+            run_python_capped(&script, &[], std::time::Duration::from_millis(300)).unwrap();
+        let elapsed = start.elapsed();
+        assert!(status.is_none(), "a hung validator must be killed (got {status:?})");
+        assert!(
+            elapsed < std::time::Duration::from_secs(10),
+            "kill should be prompt, took {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn run_python_capped_captures_output_of_a_fast_script() {
+        if !python3_available() {
+            eprintln!("SKIP run_python_capped_captures_output_of_a_fast_script: python3 not on PATH");
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("ok.py");
+        std::fs::write(&script, "print('hello-capped')\n").unwrap();
+        let (status, out, _err) =
+            run_python_capped(&script, &[], std::time::Duration::from_secs(30)).unwrap();
+        assert!(status.expect("should exit").success());
+        assert!(String::from_utf8_lossy(&out).contains("hello-capped"));
+    }
 }
