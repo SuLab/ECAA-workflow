@@ -1,4 +1,5 @@
 //! Agent-free replay: re-verify + re-execute a downloaded ECAA package.
+pub mod env_provision;
 pub mod report;
 pub mod reverify;
 pub mod select;
