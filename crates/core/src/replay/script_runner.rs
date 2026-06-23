@@ -54,16 +54,16 @@ pub struct RunOutcome {
 /// Stage, path-rewrite, and run a set of compute tasks inside a scratch tree.
 ///
 /// # Parameters
-/// - `pkg`           — root of the downloaded ECAA package.
-/// - `scratch`       — empty (or pre-existing) scratch directory; output tree is
-///                     written here.
-/// - `tasks`         — tasks to run (from `select::select_compute_tasks`).
-/// - `order`         — task ids in topological dependency order.  Tasks not
-///                     listed run after, in their original stable order.
-/// - `env`           — execution environment (from `env_provision::provision`).
+/// - `pkg` — root of the downloaded ECAA package.
+/// - `scratch` — empty (or pre-existing) scratch directory; output tree is
+///   written here.
+/// - `tasks` — tasks to run (from `select::select_compute_tasks`).
+/// - `order` — task ids in topological dependency order.  Tasks not
+///   listed run after, in their original stable order.
+/// - `env` — execution environment (from `env_provision::provision`).
 /// - `recorded_root` — the absolute path recorded inside the package's scripts
-///                     (i.e. where the package was originally executed).
-/// - `recorded_env`  — environment variables captured at record time.
+///   (i.e. where the package was originally executed).
+/// - `recorded_env` — environment variables captured at record time.
 ///
 /// # Agent-free guarantee
 /// No script whose name matches a known agent entrypoint (see `AGENT_ENTRYPOINTS`)

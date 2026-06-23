@@ -40,6 +40,7 @@ New entries go at the top. One bullet per user-visible change.
 
 ### Deferred
 - **Annotated walkthrough screenshot** (`docs/images/sme-walkthrough-overview.png`) — requires running the UI in a browser and capturing a labelled reference frame. Defer until the next UI pass; not blocking since the split-pane layout is self-documenting and every labelled surface is also described in `sme-user-guide.md`.
+- **Replay portable-scripts rewrite (follow-up).** The replay runner currently rewrites recorded-root → scratch paths because saved scripts mix `PKG_ROOT`-relative, hardcoded-absolute-package-path, and `__file__`-relative conventions. The durable fix is to make the agent-facing script contract emit only `PKG_ROOT`-relative paths so packages replay without any path rewriting (this also shrinks the contract-checker surface). No behavior change to ship now; tracked here as a follow-up for the next agent-contract iteration.
 
 ### Removed
 - **Composer v1/v2/v3 retired.** v4 (proof-carrying planner) is now the sole planner: the legacy `backward_chain_compose` engine and legacy dispatch paths were removed. `ECAA_COMPOSER` and `Session::composer_version` are retained as compatibility shims — every value (incl. legacy `legacy`/`archetypes`/`backward-chain`) resolves to v4, with a `tracing::warn!` on legacy values. Old session files load unchanged; already-emitted packages are unaffected.
