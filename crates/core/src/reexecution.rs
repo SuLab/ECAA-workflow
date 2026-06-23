@@ -72,7 +72,7 @@ impl ReexecutionReport {
 
     /// Recompute `bucket_counts` from `per_artifact`. Called internally after
     /// classification is complete.
-    fn finalize_counts(&mut self) {
+    pub(crate) fn finalize_counts(&mut self) {
         self.bucket_counts.clear();
         for ac in &self.per_artifact {
             let key = serde_json::to_value(&ac.bucket)
@@ -277,21 +277,18 @@ fn classify_single_artifact(
     // as a divergent acknowledged outcome merely because the parent shim happens
     // to document a non-determinism source. The default is the historical ±5%
     // relative band.
-    match check_semantic_equivalence(&parent_bytes, &replay_bytes, bounds) {
-        Ok(true) => {
-            return ArtifactClassification {
-                artifact_path: rel_path.to_string(),
-                bucket: ReexecutionBucket::SemanticEquivalent,
-                reason: Some(format!(
-                    "numeric columns within per-modality bounds (rel {:.3}, abs {:.4})",
-                    bounds.relative_tolerance, bounds.absolute_tolerance
-                )),
-            };
-        }
-        // Diverges beyond the band, or is not numerically comparable: fall
-        // through to the acknowledged-source / hard-failure decision.
-        Ok(false) | Err(_) => {}
+    if let Ok(true) = check_semantic_equivalence(&parent_bytes, &replay_bytes, bounds) {
+        return ArtifactClassification {
+            artifact_path: rel_path.to_string(),
+            bucket: ReexecutionBucket::SemanticEquivalent,
+            reason: Some(format!(
+                "numeric columns within per-modality bounds (rel {:.3}, abs {:.4})",
+                bounds.relative_tolerance, bounds.absolute_tolerance
+            )),
+        };
     }
+    // Diverges beyond the band, or is not numerically comparable: fall
+    // through to the acknowledged-source / hard-failure decision.
 
     // AcknowledgedNonDeterminism: diverges beyond the semantic band but a known
     // non-determinism source is declared in the parent's determinism shim.

@@ -20,6 +20,10 @@ mod repair;
 // `reexec` subcommand. Standalone re-execution equivalence classification
 // over a parent/replay package pair.
 mod reexec;
+// `replay` subcommand. Agent-free re-verify + re-execute of a downloaded
+// ECAA package: re-runs recorded verdicts offline and re-executes
+// deterministic compute in a tiered container/host environment.
+mod replay;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -158,6 +162,11 @@ enum Commands {
     /// `runtime/reexecution.json`. Exit code is non-zero when nothing was
     /// compared or any artifact failed / was unavailable.
     Reexec(reexec::ReexecArgs),
+    /// Re-verify a downloaded package's recorded verdicts (offline) and
+    /// re-execute its deterministic compute (tiered container/host env) to
+    /// confirm result tables reproduce — agent-free; PASS/PARTIAL/FAIL
+    /// verdict + exit code. `--strict` makes PARTIAL non-zero.
+    Replay(replay::ReplayArgs),
     /// Export a clean, deposit-ready `.zip` of a completed package: copy
     /// the tier A+B audit/review/deposit + re-execution surface into a
     /// scratch tree, re-seal the BagIt manifest + RO-Crate, strip `.git`,
@@ -223,6 +232,9 @@ fn main() -> Result<()> {
         }
         Commands::Reexec(args) => {
             reexec::run(args)?;
+        }
+        Commands::Replay(args) => {
+            replay::run(args)?;
         }
         Commands::Export(args) => {
             export::run(args)?;

@@ -1,0 +1,74 @@
+{
+  "schema_version": "0.1",
+  "package_iri": "ro-crate-metadata.json",
+  "reader_version": "0.2",
+  "min_reader_version": "0.2",
+  "reverify": {
+    "checks": [
+      {
+        "check": "audit_proof.claim_completeness",
+        "recorded": "pass",
+        "fresh": "pass",
+        "diverged": false
+      },
+      {
+        "check": "audit_proof.decision_justification",
+        "recorded": "pass",
+        "fresh": "pass",
+        "diverged": false
+      },
+      {
+        "check": "audit_proof.evidence_coverage",
+        "recorded": "warn",
+        "fresh": "warn",
+        "diverged": false
+      },
+      {
+        "check": "audit_proof.equivalence_failure",
+        "recorded": "unverified",
+        "fresh": "unverified",
+        "diverged": false
+      },
+      {
+        "check": "audit_proof.cross_graph_integrity",
+        "recorded": "pass",
+        "fresh": "pass",
+        "diverged": false
+      },
+      {
+        "check": "audit_proof.substrate_validity",
+        "recorded": "unverified",
+        "fresh": "unverified",
+        "diverged": false
+      },
+      {
+        "check": "claim_verification.n_mismatch",
+        "recorded": 0,
+        "fresh": 0,
+        "diverged": false
+      },
+      {
+        "check": "claim_verification.n_suspicious",
+        "recorded": 0,
+        "fresh": 0,
+        "diverged": false
+      },
+      {
+        "check": "claim_verification.n_verified",
+        "recorded": 90,
+        "fresh": 90,
+        "diverged": false
+      },
+      {
+        "check": "claim_verification.n_checked",
+        "recorded": 122,
+        "fresh": 122,
+        "diverged": false
+      }
+    ],
+    "reader_matches_writer": true
+  },
+  "reexecute": null,
+  "skipped": [],
+  "verdict": "pass"
+}

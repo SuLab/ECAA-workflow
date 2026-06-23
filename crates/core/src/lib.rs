@@ -160,6 +160,7 @@ pub mod repair;
 /// per-class repairs, and routes agentic needs to review. Distinct from
 /// the V4 DAG `repair` registry above.
 pub mod repair_loop;
+pub mod replay;
 pub mod retrieval_routes;
 /// Ro crate module.
 pub mod ro_crate;

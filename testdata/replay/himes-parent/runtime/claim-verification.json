@@ -1,0 +1,1044 @@
+{
+  "n_checked": 122,
+  "n_mismatch": 0,
+  "n_suspicious": 0,
+  "n_unverifiable": 32,
+  "n_verified": 90,
+  "schema_version": "1",
+  "verdicts": [
+    {
+      "claim_id": "review_prior_work#claim-0",
+      "entity": "CRISPLD2",
+      "status": "pending",
+      "supported_by": [],
+      "text": "**PMID 24926665** is the source dataset paper: Himes et al. (2014), \"RNA-Seq transcriptome profiling identifies CRISPLD2 as a glucocorticoid responsive gene that modulates cytokine function in airway smooth muscle cells,\" *PLOS ONE*"
+    },
+    {
+      "claim_id": "review_prior_work#claim-1",
+      "entity": "PLOS",
+      "status": "pending",
+      "supported_by": [],
+      "text": "**PMID 24926665** is the source dataset paper: Himes et al. (2014), \"RNA-Seq transcriptome profiling identifies CRISPLD2 as a glucocorticoid responsive gene that modulates cytokine function in airway smooth muscle cells,\" *PLOS ONE*"
+    },
+    {
+      "claim_id": "review_prior_work#claim-2",
+      "entity": "ONE",
+      "status": "pending",
+      "supported_by": [],
+      "text": "**PMID 24926665** is the source dataset paper: Himes et al. (2014), \"RNA-Seq transcriptome profiling identifies CRISPLD2 as a glucocorticoid responsive gene that modulates cytokine function in airway smooth muscle cells,\" *PLOS ONE*"
+    },
+    {
+      "claim_id": "review_prior_work#claim-3",
+      "entity": "NLM",
+      "status": "pending",
+      "supported_by": [],
+      "text": "US-Government work (NCBI/NLM)"
+    },
+    {
+      "claim_id": "review_prior_work#claim-4",
+      "entity": "PDF",
+      "status": "pending",
+      "supported_by": [],
+      "text": "No tool-documentation or locally-stored PDF"
+    },
+    {
+      "claim_id": "differential_expression#claim-0",
+      "entity": "ENSG00000152583",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/differential_expression/de_results.tsv"
+      ],
+      "text": "The top gene by adjusted p-value is ENSG00000152583 (log2FC = 4.31, padj ≈ 3.7e-132), followed by ENSG00000165995 (log2FC = 3.19, padj ≈ 6.6e-131)"
+    },
+    {
+      "claim_id": "differential_expression#claim-1",
+      "entity": "ENSG00000165995",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/differential_expression/de_results.tsv"
+      ],
+      "text": "The top gene by adjusted p-value is ENSG00000152583 (log2FC = 4.31, padj ≈ 3.7e-132), followed by ENSG00000165995 (log2FC = 3.19, padj ≈ 6.6e-131)"
+    },
+    {
+      "claim_id": "differential_expression#claim-2",
+      "entity": "count:samples",
+      "status": "pending",
+      "supported_by": [],
+      "text": "Size factors (median-of-ratios normalization) ranged from 0.67 to 1.40 across samples, reflecting expected library-size differences"
+    },
+    {
+      "claim_id": "differential_expression#claim-3",
+      "entity": "4028 genes are differentially expressed at padj < 0",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/differential_expression/de_results.tsv"
+      ],
+      "text": "4028 genes are differentially expressed at padj < 0.05 between dexamethasone-treated and untreated ASM cells (2211 up, 1817 down) using DESeq2 with design ~ cell + dex and normal-prior LFC shrinkage"
+    },
+    {
+      "claim_id": "differential_expression#claim-4",
+      "entity": "ENSG00000152583",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/differential_expression/de_results.tsv"
+      ],
+      "text": "ENSG00000152583 is the top DE gene by adjusted p-value (log2FC=4.31, padj~3.7e-132), strongly associated with dexamethasone treatment"
+    },
+    {
+      "claim_id": "differential_expression#claim-5",
+      "entity": "33469 of 63677 genes had non-zero counts and were tested",
+      "status": "pending",
+      "supported_by": [],
+      "text": "33469 of 63677 genes had non-zero counts and were tested; 16687 were filtered by independent filtering (mean count < 7)"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-0",
+      "entity": "SHA",
+      "status": "pending",
+      "supported_by": [],
+      "text": "**Snapshot SHA-256**: `84c21d2fd1d32f25aa844203feb19f7b75fe77c39db1fb3c527977a08b10ee17`"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-1",
+      "entity": "CRISPLD2",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes cited**: CRISPLD2, DUSP1, KLF15, PER1, TSC22D3, CCDC69"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-2",
+      "entity": "DUSP1",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes cited**: CRISPLD2, DUSP1, KLF15, PER1, TSC22D3, CCDC69"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-3",
+      "entity": "KLF15",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes cited**: CRISPLD2, DUSP1, KLF15, PER1, TSC22D3, CCDC69"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-4",
+      "entity": "PER1",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes cited**: CRISPLD2, DUSP1, KLF15, PER1, TSC22D3, CCDC69"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-5",
+      "entity": "TSC22D3",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes cited**: CRISPLD2, DUSP1, KLF15, PER1, TSC22D3, CCDC69"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-6",
+      "entity": "CCDC69",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes cited**: CRISPLD2, DUSP1, KLF15, PER1, TSC22D3, CCDC69"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-7",
+      "entity": "CRISPLD2",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "- CRISPLD2 (direction=up): *\"dexamethasone treatment significantly increased CRISPLD2 mRNA and protein expression in ASM cells\"*"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-8",
+      "entity": "DUSP1",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "- DUSP1, KLF15, PER1, TSC22D3, CCDC69 (direction=unspecified): *\"we identified 316 differentially expressed genes, including both well known (DUSP1, KLF15, PER1, TSC22D3) and less investigated (C7, CCDC69, CRISPLD2) glucocorticoid-responsive genes\"*"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-9",
+      "entity": "KLF15",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "- DUSP1, KLF15, PER1, TSC22D3, CCDC69 (direction=unspecified): *\"we identified 316 differentially expressed genes, including both well known (DUSP1, KLF15, PER1, TSC22D3) and less investigated (C7, CCDC69, CRISPLD2) glucocorticoid-responsive genes\"*"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-10",
+      "entity": "PER1",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "- DUSP1, KLF15, PER1, TSC22D3, CCDC69 (direction=unspecified): *\"we identified 316 differentially expressed genes, including both well known (DUSP1, KLF15, PER1, TSC22D3) and less investigated (C7, CCDC69, CRISPLD2) glucocorticoid-responsive genes\"*"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-11",
+      "entity": "TSC22D3",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "- DUSP1, KLF15, PER1, TSC22D3, CCDC69 (direction=unspecified): *\"we identified 316 differentially expressed genes, including both well known (DUSP1, KLF15, PER1, TSC22D3) and less investigated (C7, CCDC69, CRISPLD2) glucocorticoid-responsive genes\"*"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-12",
+      "entity": "CCDC69",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "- DUSP1, KLF15, PER1, TSC22D3, CCDC69 (direction=unspecified): *\"we identified 316 differentially expressed genes, including both well known (DUSP1, KLF15, PER1, TSC22D3) and less investigated (C7, CCDC69, CRISPLD2) glucocorticoid-responsive genes\"*"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-13",
+      "entity": "C7",
+      "status": "pending",
+      "supported_by": [],
+      "text": "- DUSP1, KLF15, PER1, TSC22D3, CCDC69 (direction=unspecified): *\"we identified 316 differentially expressed genes, including both well known (DUSP1, KLF15, PER1, TSC22D3) and less investigated (C7, CCDC69, CRISPLD2) glucocorticoid-responsive genes\"*"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-14",
+      "entity": "CRISPLD2",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "- DUSP1, KLF15, PER1, TSC22D3, CCDC69 (direction=unspecified): *\"we identified 316 differentially expressed genes, including both well known (DUSP1, KLF15, PER1, TSC22D3) and less investigated (C7, CCDC69, CRISPLD2) glucocorticoid-responsive genes\"*"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-15",
+      "entity": "DUSP1",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "Note: The listing of DUSP1, KLF15, PER1, TSC22D3, CCDC69 as \"glucocorticoid-responsive\" without explicit up/down direction in the abstract → concordance = **unverifiable** for those genes"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-16",
+      "entity": "KLF15",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "Note: The listing of DUSP1, KLF15, PER1, TSC22D3, CCDC69 as \"glucocorticoid-responsive\" without explicit up/down direction in the abstract → concordance = **unverifiable** for those genes"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-17",
+      "entity": "PER1",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "Note: The listing of DUSP1, KLF15, PER1, TSC22D3, CCDC69 as \"glucocorticoid-responsive\" without explicit up/down direction in the abstract → concordance = **unverifiable** for those genes"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-18",
+      "entity": "TSC22D3",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "Note: The listing of DUSP1, KLF15, PER1, TSC22D3, CCDC69 as \"glucocorticoid-responsive\" without explicit up/down direction in the abstract → concordance = **unverifiable** for those genes"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-19",
+      "entity": "CCDC69",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "Note: The listing of DUSP1, KLF15, PER1, TSC22D3, CCDC69 as \"glucocorticoid-responsive\" without explicit up/down direction in the abstract → concordance = **unverifiable** for those genes"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-20",
+      "entity": "SHA",
+      "status": "pending",
+      "supported_by": [],
+      "text": "**Snapshot SHA-256**: `45ef74662d2115e8843142011db9fa46bda0ca302f8b91f9febae10c26acc94a`"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-21",
+      "entity": "KLF15",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes cited**: KLF15, IRS2, APPL2, RAMP1, MFGE8, IL11, LIF"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-22",
+      "entity": "IRS2",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes cited**: KLF15, IRS2, APPL2, RAMP1, MFGE8, IL11, LIF"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-23",
+      "entity": "APPL2",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes cited**: KLF15, IRS2, APPL2, RAMP1, MFGE8, IL11, LIF"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-24",
+      "entity": "RAMP1",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes cited**: KLF15, IRS2, APPL2, RAMP1, MFGE8, IL11, LIF"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-25",
+      "entity": "MFGE8",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes cited**: KLF15, IRS2, APPL2, RAMP1, MFGE8, IL11, LIF"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-26",
+      "entity": "IL11",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes cited**: KLF15, IRS2, APPL2, RAMP1, MFGE8, IL11, LIF"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-27",
+      "entity": "LIF",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes cited**: KLF15, IRS2, APPL2, RAMP1, MFGE8, IL11, LIF"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-28",
+      "entity": "KLF15",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "- KLF15 (direction=up): *\"the transcription factor, Krüppel-like factor 15 (KLF15), is directly induced by glucocorticoids in primary human ASM\"*"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-29",
+      "entity": "IRS2",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "- IRS2, APPL2, RAMP1, MFGE8 (direction=up): *\"Genes with inducible GR occupancy and putative antiinflammatory properties included IRS2, APPL2, RAMP1, and MFGE8\"*"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-30",
+      "entity": "APPL2",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "- IRS2, APPL2, RAMP1, MFGE8 (direction=up): *\"Genes with inducible GR occupancy and putative antiinflammatory properties included IRS2, APPL2, RAMP1, and MFGE8\"*"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-31",
+      "entity": "RAMP1",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "- IRS2, APPL2, RAMP1, MFGE8 (direction=up): *\"Genes with inducible GR occupancy and putative antiinflammatory properties included IRS2, APPL2, RAMP1, and MFGE8\"*"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-32",
+      "entity": "MFGE8",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "- IRS2, APPL2, RAMP1, MFGE8 (direction=up): *\"Genes with inducible GR occupancy and putative antiinflammatory properties included IRS2, APPL2, RAMP1, and MFGE8\"*"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-33",
+      "entity": "IL11",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "- IL11, LIF (direction=down): *\"we also observed GR occupancy in the absence of supplemental ligand, including robust GR binding peaks within the IL11 and LIF loci"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-34",
+      "entity": "LIF",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "- IL11, LIF (direction=down): *\"we also observed GR occupancy in the absence of supplemental ligand, including robust GR binding peaks within the IL11 and LIF loci"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-35",
+      "entity": "II",
+      "status": "pending",
+      "supported_by": [],
+      "text": "Detection of antibody-GR complexes at these areas was abrogated by dexamethasone treatment in association with reduced RNA polymerase II occupancy\"*"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-36",
+      "entity": "SHA",
+      "status": "pending",
+      "supported_by": [],
+      "text": "**Snapshot SHA-256**: `bd06ddeeb9cb24b5a13e39baa91fe3cb1489164b66a5255a62b3ac8fd3bd719a`"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-37",
+      "entity": "TSC22D3",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes cited**: TSC22D3 (GILZ)"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-38",
+      "entity": "GILZ",
+      "status": "pending",
+      "supported_by": [],
+      "text": "**Genes cited**: TSC22D3 (GILZ)"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-39",
+      "entity": "TSC22D3",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "- TSC22D3 (direction=up): *\"genes that were induced...by dexamethasone (GILZ) only\"*"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-40",
+      "entity": "GILZ",
+      "status": "pending",
+      "supported_by": [],
+      "text": "- TSC22D3 (direction=up): *\"genes that were induced...by dexamethasone (GILZ) only\"*"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-41",
+      "entity": "CRISPLD2",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "Note: CRISPLD2, SOCS3, CD200 from this abstract were listed as induced by Bay 60-6583 only (not by dexamethasone alone) → excluded from directional claims"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-42",
+      "entity": "SOCS3",
+      "status": "pending",
+      "supported_by": [],
+      "text": "Note: CRISPLD2, SOCS3, CD200 from this abstract were listed as induced by Bay 60-6583 only (not by dexamethasone alone) → excluded from directional claims"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-43",
+      "entity": "CD200",
+      "status": "pending",
+      "supported_by": [],
+      "text": "Note: CRISPLD2, SOCS3, CD200 from this abstract were listed as induced by Bay 60-6583 only (not by dexamethasone alone) → excluded from directional claims"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-44",
+      "entity": "RGS2",
+      "status": "pending",
+      "supported_by": [],
+      "text": "RGS2 and TTP were listed as cooperatively/additively induced by Bay60+DEX combination → direction for DEX alone was unverifiable → excluded"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-45",
+      "entity": "TTP",
+      "status": "pending",
+      "supported_by": [],
+      "text": "RGS2 and TTP were listed as cooperatively/additively induced by Bay60+DEX combination → direction for DEX alone was unverifiable → excluded"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-46",
+      "entity": "SHA",
+      "status": "pending",
+      "supported_by": [],
+      "text": "**Snapshot SHA-256**: `4bb8f558d3240d72d59f72d6cfa322fd322918cdeba7ba12cf659bd65fed2014`"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-47",
+      "entity": "CXCL1",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes cited**: CXCL1"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-48",
+      "entity": "CXCL1",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "- CXCL1 (direction=down): *\"DEX treatment was able to reduce the expression of neutrophil-mobilizing CXCL1 and CXCL2 in lung tissue\"*"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-49",
+      "entity": "CXCL2",
+      "status": "pending",
+      "supported_by": [],
+      "text": "- CXCL1 (direction=down): *\"DEX treatment was able to reduce the expression of neutrophil-mobilizing CXCL1 and CXCL2 in lung tissue\"*"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-50",
+      "entity": "CSF3",
+      "status": "pending",
+      "supported_by": [],
+      "text": "Note: CSF3 (direction=up, \"CSF3 expression was upregulated by DEX treatment\") and CXCL2 (direction=down) were absent from the DE analysis (low counts, not tested) → excluded from matrix"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-51",
+      "entity": "CXCL2",
+      "status": "pending",
+      "supported_by": [],
+      "text": "Note: CSF3 (direction=up, \"CSF3 expression was upregulated by DEX treatment\") and CXCL2 (direction=down) were absent from the DE analysis (low counts, not tested) → excluded from matrix"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-52",
+      "entity": "SHA",
+      "status": "pending",
+      "supported_by": [],
+      "text": "**Snapshot SHA-256**: `9d6450861379418be051a01e5393311fba14a5da12540851569c836159e976fe`"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-53",
+      "entity": "KLF15",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes cited**: KLF15"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-54",
+      "entity": "KLF15",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "- KLF15 (direction=unspecified): *\"One GR-regulated gene, the transcription factor, Kruppel-like factor 15 (Klf15), was already known to modulate vascular smooth and cardiac muscle function\"*"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-55",
+      "entity": "KLF15",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "Note: No explicit up/down direction for KLF15 in this abstract → concordance = **unverifiable**"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-56",
+      "entity": "SHA",
+      "status": "pending",
+      "supported_by": [],
+      "text": "**Snapshot SHA-256**: `6fe44b9a0854141228332851d590a43917393adc920fa1b7dada1c917bf2adcb`"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-57",
+      "entity": "PVT1",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes cited**: PVT1"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-58",
+      "entity": "PVT1",
+      "status": "pending",
+      "supported_by": [],
+      "text": "- PVT1 (direction=unspecified): *\"the expression of only one lncRNA (PVT1) is decreased in patients with corticosteroid-sensitive nonsevere asthma and increased in patients with corticosteroid-insensitive severe asthma\"*"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-59",
+      "entity": "KLF15",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Rows with prior evidence**: 17 rows across 14 genes (3 genes have multiple PMID rows: KLF15 * 3 PMIDs, TSC22D3 * 2 PMIDs)"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-60",
+      "entity": "TSC22D3",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Rows with prior evidence**: 17 rows across 14 genes (3 genes have multiple PMID rows: KLF15 * 3 PMIDs, TSC22D3 * 2 PMIDs)"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-61",
+      "entity": "CRISPLD2",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes with same_direction**: CRISPLD2, LIF, MFGE8, TSC22D3, KLF15, IRS2, APPL2"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-62",
+      "entity": "LIF",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes with same_direction**: CRISPLD2, LIF, MFGE8, TSC22D3, KLF15, IRS2, APPL2"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-63",
+      "entity": "MFGE8",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes with same_direction**: CRISPLD2, LIF, MFGE8, TSC22D3, KLF15, IRS2, APPL2"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-64",
+      "entity": "TSC22D3",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes with same_direction**: CRISPLD2, LIF, MFGE8, TSC22D3, KLF15, IRS2, APPL2"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-65",
+      "entity": "KLF15",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes with same_direction**: CRISPLD2, LIF, MFGE8, TSC22D3, KLF15, IRS2, APPL2"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-66",
+      "entity": "IRS2",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes with same_direction**: CRISPLD2, LIF, MFGE8, TSC22D3, KLF15, IRS2, APPL2"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-67",
+      "entity": "APPL2",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes with same_direction**: CRISPLD2, LIF, MFGE8, TSC22D3, KLF15, IRS2, APPL2"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-68",
+      "entity": "IL11",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes with opposite_direction**: IL11, RAMP1, CXCL1"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-69",
+      "entity": "RAMP1",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes with opposite_direction**: IL11, RAMP1, CXCL1"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-70",
+      "entity": "CXCL1",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes with opposite_direction**: IL11, RAMP1, CXCL1"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-71",
+      "entity": "DUSP1",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes unverifiable**: DUSP1, KLF15 (from 24926665, 21257922), PER1, TSC22D3 (from 24926665), CCDC69, PVT1"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-72",
+      "entity": "KLF15",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes unverifiable**: DUSP1, KLF15 (from 24926665, 21257922), PER1, TSC22D3 (from 24926665), CCDC69, PVT1"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-73",
+      "entity": "PER1",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes unverifiable**: DUSP1, KLF15 (from 24926665, 21257922), PER1, TSC22D3 (from 24926665), CCDC69, PVT1"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-74",
+      "entity": "TSC22D3",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes unverifiable**: DUSP1, KLF15 (from 24926665, 21257922), PER1, TSC22D3 (from 24926665), CCDC69, PVT1"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-75",
+      "entity": "CCDC69",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes unverifiable**: DUSP1, KLF15 (from 24926665, 21257922), PER1, TSC22D3 (from 24926665), CCDC69, PVT1"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-76",
+      "entity": "PVT1",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "**Genes unverifiable**: DUSP1, KLF15 (from 24926665, 21257922), PER1, TSC22D3 (from 24926665), CCDC69, PVT1"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-77",
+      "entity": "count:genes",
+      "status": "pending",
+      "supported_by": [],
+      "text": "- DUSP1, KLF15, PER1, TSC22D3, CCDC69 (direction=unspecified): *\"we identified 316 differentially expressed genes, including both well known (DUSP1, KLF15, PER1, TSC22D3) and less investigated (C7, CCDC69, CRISPLD2) glucocorticoid-responsive genes\"*"
+    },
+    {
+      "claim_id": "contextualize_findings_with_literature#claim-78",
+      "entity": "count:genes",
+      "status": "pending",
+      "supported_by": [],
+      "text": "**Rows with prior evidence**: 17 rows across 14 genes (3 genes have multiple PMID rows: KLF15 * 3 PMIDs, TSC22D3 * 2 PMIDs)"
+    },
+    {
+      "claim_id": "reporting#claim-0",
+      "entity": "II",
+      "status": "pending",
+      "supported_by": [],
+      "text": "Detection of antibody-GR complexes at these areas was abrogated by dexamethasone treatment in association with reduced RNA polymerase II occupancy |"
+    },
+    {
+      "claim_id": "reporting#claim-1",
+      "entity": "II",
+      "status": "pending",
+      "supported_by": [],
+      "text": "Detection of antibody-GR complexes at these areas was abrogated by dexamethasone treatment in association with reduced RNA polymerase II occupancy |"
+    },
+    {
+      "claim_id": "reporting#claim-2",
+      "entity": "ENSG00000152583",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/differential_expression/de_results.tsv"
+      ],
+      "text": "| ENSG00000152583 |     4.31 | 3.73e-132 |"
+    },
+    {
+      "claim_id": "reporting#claim-3",
+      "entity": "ENSG00000165995",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/differential_expression/de_results.tsv"
+      ],
+      "text": "| ENSG00000165995 |     3.19 | 6.58e-131 |"
+    },
+    {
+      "claim_id": "reporting#claim-4",
+      "entity": "ENSG00000120129",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/differential_expression/de_results.tsv"
+      ],
+      "text": "| ENSG00000120129 |     2.87 | 2.05e-126 |"
+    },
+    {
+      "claim_id": "reporting#claim-5",
+      "entity": "ENSG00000101347",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/differential_expression/de_results.tsv"
+      ],
+      "text": "| ENSG00000101347 |     3.62 | 4.02e-126 |"
+    },
+    {
+      "claim_id": "reporting#claim-6",
+      "entity": "ENSG00000189221",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/differential_expression/de_results.tsv"
+      ],
+      "text": "| ENSG00000189221 |     3.23 | 3.69e-120 |"
+    },
+    {
+      "claim_id": "reporting#claim-7",
+      "entity": "ENSG00000211445",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/differential_expression/de_results.tsv"
+      ],
+      "text": "| ENSG00000211445 |     3.55 | 1.29e-108 |"
+    },
+    {
+      "claim_id": "reporting#claim-8",
+      "entity": "ENSG00000157214",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/differential_expression/de_results.tsv"
+      ],
+      "text": "| ENSG00000157214 |     1.95 | 1.38e-103 |"
+    },
+    {
+      "claim_id": "reporting#claim-9",
+      "entity": "ENSG00000162614",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/differential_expression/de_results.tsv"
+      ],
+      "text": "| ENSG00000162614 |     2    | 2.78e-100 |"
+    },
+    {
+      "claim_id": "reporting#claim-10",
+      "entity": "ENSG00000125148",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/differential_expression/de_results.tsv"
+      ],
+      "text": "| ENSG00000125148 |     2.17 | 5.41e-94  |"
+    },
+    {
+      "claim_id": "reporting#claim-11",
+      "entity": "ENSG00000154734",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/differential_expression/de_results.tsv"
+      ],
+      "text": "| ENSG00000154734 |     2.29 | 5.47e-88  |"
+    },
+    {
+      "claim_id": "reporting#claim-12",
+      "entity": "IL11",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "| IL11     | opposite_direction |   0.113  | 0.82      |     2.84e+07 | we also observed GR occupancy in the absence of supplemental ligand, including robust GR binding peaks within the IL11 and LIF loci. Detection of antibody-GR complexes at these areas was abrogated by dexamethasone treatment in association with reduced RNA polymerase II occupancy |"
+    },
+    {
+      "claim_id": "reporting#claim-13",
+      "entity": "RAMP1",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "| RAMP1    | opposite_direction |  -0.187  | 0.49      |     2.84e+07 | Genes with inducible GR occupancy and putative antiinflammatory properties included IRS2, APPL2, RAMP1, and MFGE8                                                                                                                                                                       |"
+    },
+    {
+      "claim_id": "reporting#claim-14",
+      "entity": "CXCL1",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "| CXCL1    | opposite_direction |   0.777  | 0.163     |     3.21e+07 | DEX treatment was able to reduce the expression of neutrophil-mobilizing CXCL1 and CXCL2 in lung tissue                                                                                                                                                                                 |"
+    },
+    {
+      "claim_id": "reporting#claim-15",
+      "entity": "APPL2",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "| APPL2    | same_direction     |   0.0789 | 0.548     |     2.84e+07 | Genes with inducible GR occupancy and putative antiinflammatory properties included IRS2, APPL2, RAMP1, and MFGE8                                                                                                                                                                       |"
+    },
+    {
+      "claim_id": "reporting#claim-16",
+      "entity": "CRISPLD2",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "| CRISPLD2 | same_direction     |   2.5    | 4.4e-46   |     2.49e+07 | dexamethasone treatment significantly increased CRISPLD2 mRNA and protein expression in ASM cells                                                                                                                                                                                       |"
+    },
+    {
+      "claim_id": "reporting#claim-17",
+      "entity": "IRS2",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "| IRS2     | same_direction     |   2.03   | 6.05e-38  |     2.84e+07 | Genes with inducible GR occupancy and putative antiinflammatory properties included IRS2, APPL2, RAMP1, and MFGE8                                                                                                                                                                       |"
+    },
+    {
+      "claim_id": "reporting#claim-18",
+      "entity": "LIF",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "| LIF      | same_direction     |  -2.27   | 4.89e-20  |     2.84e+07 | we also observed GR occupancy in the absence of supplemental ligand, including robust GR binding peaks within the IL11 and LIF loci. Detection of antibody-GR complexes at these areas was abrogated by dexamethasone treatment in association with reduced RNA polymerase II occupancy |"
+    },
+    {
+      "claim_id": "reporting#claim-19",
+      "entity": "MFGE8",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "| MFGE8    | same_direction     |   1.09   | 1.42e-27  |     2.84e+07 | Genes with inducible GR occupancy and putative antiinflammatory properties included IRS2, APPL2, RAMP1, and MFGE8                                                                                                                                                                       |"
+    },
+    {
+      "claim_id": "reporting#claim-20",
+      "entity": "TSC22D3",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "| TSC22D3  | same_direction     |   2.69   | 3.23e-19  |     2.38e+07 | genes that were induced...by dexamethasone (GILZ) only                                                                                                                                                                                                                                  |"
+    },
+    {
+      "claim_id": "reporting#claim-21",
+      "entity": "KLF15",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "| KLF15    | same_direction     |   4.07   | 2.33e-77  |     2.84e+07 | the transcription factor, Krüppel-like factor 15 (KLF15), is directly induced by glucocorticoids in primary human ASM                                                                                                                                                                   |"
+    },
+    {
+      "claim_id": "reporting#claim-22",
+      "entity": "PER1",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "| PER1     | unverifiable       |   3.04   | 2.54e-81  |     2.49e+07 | we identified 316 differentially expressed genes, including both well known (DUSP1, KLF15, PER1, TSC22D3) and less investigated (C7, CCDC69, CRISPLD2) glucocorticoid-responsive genes                                                                                                  |"
+    },
+    {
+      "claim_id": "reporting#claim-23",
+      "entity": "TSC22D3",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "| TSC22D3  | unverifiable       |   2.69   | 3.23e-19  |     2.49e+07 | we identified 316 differentially expressed genes, including both well known (DUSP1, KLF15, PER1, TSC22D3) and less investigated (C7, CCDC69, CRISPLD2) glucocorticoid-responsive genes                                                                                                  |"
+    },
+    {
+      "claim_id": "reporting#claim-24",
+      "entity": "KLF15",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "| KLF15    | unverifiable       |   4.07   | 2.33e-77  |     2.13e+07 | One GR-regulated gene, the transcription factor, Kruppel-like factor 15 (Klf15), was already known to modulate vascular smooth and cardiac muscle function                                                                                                                              |"
+    },
+    {
+      "claim_id": "reporting#claim-25",
+      "entity": "CCDC69",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "| CCDC69   | unverifiable       |   2.78   | 3.34e-70  |     2.49e+07 | we identified 316 differentially expressed genes, including both well known (DUSP1, KLF15, PER1, TSC22D3) and less investigated (C7, CCDC69, CRISPLD2) glucocorticoid-responsive genes                                                                                                  |"
+    },
+    {
+      "claim_id": "reporting#claim-26",
+      "entity": "DUSP1",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "| DUSP1    | unverifiable       |   2.87   | 2.05e-126 |     2.49e+07 | we identified 316 differentially expressed genes, including both well known (DUSP1, KLF15, PER1, TSC22D3) and less investigated (C7, CCDC69, CRISPLD2) glucocorticoid-responsive genes                                                                                                  |"
+    },
+    {
+      "claim_id": "reporting#claim-27",
+      "entity": "KLF15",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "| KLF15    | unverifiable       |   4.07   | 2.33e-77  |     2.49e+07 | we identified 316 differentially expressed genes, including both well known (DUSP1, KLF15, PER1, TSC22D3) and less investigated (C7, CCDC69, CRISPLD2) glucocorticoid-responsive genes                                                                                                  |"
+    },
+    {
+      "claim_id": "reporting#claim-28",
+      "entity": "PVT1",
+      "status": "verified",
+      "supported_by": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "text": "| PVT1     | unverifiable       |   0.084  | 0.871     |     2.75e+07 | the expression of only one lncRNA (PVT1) is decreased in patients with corticosteroid-sensitive nonsevere asthma and increased in patients with corticosteroid-insensitive severe asthma                                                                                                |"
+    },
+    {
+      "claim_id": "reporting#claim-29",
+      "entity": "count:genes",
+      "status": "pending",
+      "supported_by": [],
+      "text": "### Top 10 genes by adjusted p-value"
+    },
+    {
+      "claim_id": "reporting#claim-30",
+      "entity": "count:genes",
+      "status": "pending",
+      "supported_by": [],
+      "text": "Cross-referenced 14 DE-table genes against prior evidence from"
+    },
+    {
+      "claim_id": "reporting#claim-31",
+      "entity": "count:cell",
+      "status": "pending",
+      "supported_by": [],
+      "text": "gene expression in the Himes et al. 2014 ASM cell-line dataset"
+    }
+  ]
+}
