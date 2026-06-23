@@ -122,6 +122,74 @@ impl ExecEnv {
         }
     }
 
+    /// Build the full argument vector (program + args) for running `script`
+    /// inside this execution environment.
+    ///
+    /// The returned vector's first element is the program to spawn; subsequent
+    /// elements are its arguments. This is a pure function — it inspects no
+    /// filesystem state and spawns nothing — making it fully unit-testable.
+    ///
+    /// Returns `Err` for `ExecEnv::None` or an unrecognised script extension.
+    pub fn build_command(
+        &self,
+        script: &Path,
+        env: &BTreeMap<String, String>,
+        cwd: &Path,
+    ) -> io::Result<Vec<String>> {
+        let interp = interpreter_for(script)?;
+        let script_str = script.display().to_string();
+        let cwd_str = cwd.display().to_string();
+
+        match self {
+            ExecEnv::Container { digest } | ExecEnv::RebuiltImage { tag: digest } => {
+                let mut args = vec![
+                    "docker".to_string(),
+                    "run".to_string(),
+                    "--rm".to_string(),
+                    "-v".to_string(),
+                    format!("{cwd_str}:{cwd_str}"),
+                    "-w".to_string(),
+                    cwd_str,
+                ];
+                for (k, v) in env {
+                    args.push("--env".to_string());
+                    args.push(format!("{k}={v}"));
+                }
+                args.push(digest.clone());
+                args.push(interp.to_string());
+                args.push(script_str);
+                Ok(args)
+            }
+
+            ExecEnv::HostConda { prefix } => {
+                // `--no-capture-output` prevents conda ≥ 4.9 from buffering the
+                // child's stdout/stderr into its own wrapper, ensuring the
+                // `Output` returned to the caller contains the interpreter's
+                // actual output (especially stderr, needed for failed-run
+                // diagnosis).
+                let mut args = vec![
+                    "conda".to_string(),
+                    "run".to_string(),
+                    "--no-capture-output".to_string(),
+                    "-p".to_string(),
+                    prefix.display().to_string(),
+                    "env".to_string(),
+                ];
+                for (k, v) in env {
+                    args.push(format!("{k}={v}"));
+                }
+                args.push(interp.to_string());
+                args.push(script_str);
+                Ok(args)
+            }
+
+            ExecEnv::None => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "no execution environment available (ExecEnv::None)",
+            )),
+        }
+    }
+
     /// Run `script` inside this execution environment.
     ///
     /// - `env` — key/value pairs to inject (recorded `captured_env_vars` +
@@ -140,62 +208,16 @@ impl ExecEnv {
         env: &BTreeMap<String, String>,
         cwd: &Path,
     ) -> io::Result<Output> {
-        let interp = interpreter_for(script)?;
-
-        match self {
-            ExecEnv::Container { digest } => {
-                let mut cmd = Command::new("docker");
-                cmd.arg("run").arg("--rm");
-                // Mount the working directory at the same path inside the container.
-                cmd.arg("-v").arg(format!("{}:{}", cwd.display(), cwd.display()));
-                cmd.arg("-w").arg(cwd);
-                for (k, v) in env {
-                    cmd.arg("--env").arg(format!("{k}={v}"));
-                }
-                cmd.arg(digest);
-                cmd.arg(interp);
-                cmd.arg(script);
-                cmd.output()
-            }
-
-            ExecEnv::RebuiltImage { tag } => {
-                let mut cmd = Command::new("docker");
-                cmd.arg("run").arg("--rm");
-                cmd.arg("-v").arg(format!("{}:{}", cwd.display(), cwd.display()));
-                cmd.arg("-w").arg(cwd);
-                for (k, v) in env {
-                    cmd.arg("--env").arg(format!("{k}={v}"));
-                }
-                cmd.arg(tag);
-                cmd.arg(interp);
-                cmd.arg(script);
-                cmd.output()
-            }
-
-            ExecEnv::HostConda { prefix } => {
-                // Use `conda run -p <prefix> env K=V ... <interp> <script>` so
-                // that the recorded env vars are guaranteed set for the
-                // interpreter regardless of conda version or activation-hook
-                // behaviour.  `env` (from coreutils) is always present inside
-                // any conda environment and sets variables immediately before
-                // exec'ing the interpreter.
-                let mut cmd = Command::new("conda");
-                cmd.arg("run").arg("-p").arg(prefix);
-                cmd.arg("env");
-                for (k, v) in env {
-                    cmd.arg(format!("{k}={v}"));
-                }
-                cmd.arg(interp);
-                cmd.arg(script);
-                cmd.current_dir(cwd);
-                cmd.output()
-            }
-
-            ExecEnv::None => Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "no execution environment available (ExecEnv::None)",
-            )),
-        }
+        let argv = self.build_command(script, env, cwd)?;
+        // argv[0] is the program; argv[1..] are its arguments.
+        let (program, args) = argv.split_first().expect("build_command returns non-empty vec");
+        let mut cmd = Command::new(program);
+        cmd.args(args);
+        // For HostConda, conda run manages the working directory via `-p`; for
+        // docker, it is set inside the container via `-w`. For safety we also
+        // set the process cwd to match in both cases.
+        cmd.current_dir(cwd);
+        cmd.output()
     }
 }
 
@@ -514,5 +536,137 @@ mod tests {
             err.to_string().contains("txt"),
             "error message should name the offending extension; got: {err}"
         );
+    }
+
+    // ---- build_command arg-vector tests ----
+
+    /// HostConda with sorted env vars produces the expected argument vector,
+    /// including `--no-capture-output` immediately after `run`.
+    #[test]
+    fn build_command_host_conda_arg_vector() {
+        let prefix = PathBuf::from("/opt/conda/envs/ecaa-replay");
+        let env_obj = ExecEnv::HostConda { prefix: prefix.clone() };
+        let mut env = BTreeMap::new();
+        env.insert("TZ".to_string(), "UTC".to_string());
+        env.insert("LC_ALL".to_string(), "C.UTF-8".to_string());
+        let script = Path::new("/work/analysis.R");
+        let cwd = Path::new("/work");
+
+        let argv = env_obj.build_command(script, &env, cwd).unwrap();
+
+        // BTreeMap iterates in sorted key order: LC_ALL before TZ.
+        assert_eq!(
+            argv,
+            vec![
+                "conda",
+                "run",
+                "--no-capture-output",
+                "-p",
+                "/opt/conda/envs/ecaa-replay",
+                "env",
+                "LC_ALL=C.UTF-8",
+                "TZ=UTC",
+                "Rscript",
+                "/work/analysis.R",
+            ]
+        );
+    }
+
+    /// Container variant produces the expected docker arg vector.
+    #[test]
+    fn build_command_container_arg_vector() {
+        let digest = "sha256:abc123".to_string();
+        let env_obj = ExecEnv::Container { digest: digest.clone() };
+        let mut env = BTreeMap::new();
+        env.insert("SOURCE_DATE_EPOCH".to_string(), "1000000".to_string());
+        env.insert("PYTHONHASHSEED".to_string(), "0".to_string());
+        let script = Path::new("/data/run.py");
+        let cwd = Path::new("/data");
+
+        let argv = env_obj.build_command(script, &env, cwd).unwrap();
+
+        // BTreeMap sorted: PYTHONHASHSEED before SOURCE_DATE_EPOCH.
+        assert_eq!(
+            argv,
+            vec![
+                "docker",
+                "run",
+                "--rm",
+                "-v",
+                "/data:/data",
+                "-w",
+                "/data",
+                "--env",
+                "PYTHONHASHSEED=0",
+                "--env",
+                "SOURCE_DATE_EPOCH=1000000",
+                "sha256:abc123",
+                "python3",
+                "/data/run.py",
+            ]
+        );
+    }
+
+    /// RebuiltImage variant produces the same docker structure as Container
+    /// (same code path), verified here with a .sh script → bash interpreter.
+    #[test]
+    fn build_command_rebuilt_image_arg_vector() {
+        let tag = "ecaa-replay:mypkg".to_string();
+        let env_obj = ExecEnv::RebuiltImage { tag: tag.clone() };
+        let env: BTreeMap<String, String> = BTreeMap::new();
+        let script = Path::new("/scripts/setup.sh");
+        let cwd = Path::new("/scripts");
+
+        let argv = env_obj.build_command(script, &env, cwd).unwrap();
+
+        assert_eq!(
+            argv,
+            vec![
+                "docker",
+                "run",
+                "--rm",
+                "-v",
+                "/scripts:/scripts",
+                "-w",
+                "/scripts",
+                "ecaa-replay:mypkg",
+                "bash",
+                "/scripts/setup.sh",
+            ]
+        );
+    }
+
+    /// build_command returns Err for ExecEnv::None.
+    #[test]
+    fn build_command_none_returns_error() {
+        let script = Path::new("/work/run.R");
+        let cwd = Path::new("/work");
+        let result = ExecEnv::None.build_command(script, &BTreeMap::new(), cwd);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::Unsupported);
+    }
+
+    /// Interpreter dispatch within build_command: .R → Rscript, .py → python3,
+    /// .sh → bash (spot-checked via HostConda to keep it concise).
+    #[test]
+    fn build_command_interpreter_dispatch_by_extension() {
+        let prefix = PathBuf::from("/env");
+        let env: BTreeMap<String, String> = BTreeMap::new();
+        let cwd = Path::new("/w");
+
+        let r_argv = ExecEnv::HostConda { prefix: prefix.clone() }
+            .build_command(Path::new("/w/a.R"), &env, cwd)
+            .unwrap();
+        assert_eq!(r_argv[r_argv.len() - 2], "Rscript");
+
+        let py_argv = ExecEnv::HostConda { prefix: prefix.clone() }
+            .build_command(Path::new("/w/b.py"), &env, cwd)
+            .unwrap();
+        assert_eq!(py_argv[py_argv.len() - 2], "python3");
+
+        let sh_argv = ExecEnv::HostConda { prefix: prefix.clone() }
+            .build_command(Path::new("/w/c.sh"), &env, cwd)
+            .unwrap();
+        assert_eq!(sh_argv[sh_argv.len() - 2], "bash");
     }
 }
