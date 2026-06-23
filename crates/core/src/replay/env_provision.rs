@@ -75,7 +75,9 @@ pub fn provision(pkg: &Path, opts: &ProvisionOpts) -> ExecEnv {
     }
 
     // --- Tier 2: Rebuilt image ---
-    if opts.allow_rebuild {
+    // Rebuilding produces an image that must be run via `docker run`, so Docker
+    // must be available — mirror the same guard used in Tier 1.
+    if opts.allow_rebuild && (opts.docker_probe)() {
         if let Some(dockerfile) = find_build_spec(pkg, first_task_dir.as_deref()) {
             let tag = format!(
                 "ecaa-replay:{}",
@@ -171,15 +173,20 @@ impl ExecEnv {
             }
 
             ExecEnv::HostConda { prefix } => {
+                // Use `conda run -p <prefix> env K=V ... <interp> <script>` so
+                // that the recorded env vars are guaranteed set for the
+                // interpreter regardless of conda version or activation-hook
+                // behaviour.  `env` (from coreutils) is always present inside
+                // any conda environment and sets variables immediately before
+                // exec'ing the interpreter.
                 let mut cmd = Command::new("conda");
                 cmd.arg("run").arg("-p").arg(prefix);
+                cmd.arg("env");
+                for (k, v) in env {
+                    cmd.arg(format!("{k}={v}"));
+                }
                 cmd.arg(interp);
                 cmd.arg(script);
-                // Inject env vars as process environment for the conda run.
-                // conda run inherits the parent env; we set additional vars.
-                for (k, v) in env {
-                    cmd.env(k, v);
-                }
                 cmd.current_dir(cwd);
                 cmd.output()
             }
@@ -240,7 +247,7 @@ fn find_build_spec(pkg: &Path, task_dir: Option<&Path>) -> Option<PathBuf> {
     if df.exists() {
         return Some(df);
     }
-    Option::None
+    None
 }
 
 /// Return the interpreter string for a script based on file extension.
@@ -414,7 +421,8 @@ mod tests {
 
     // ---- Tier 2 (RebuiltImage) tests ----
 
-    /// allow_rebuild=true + Dockerfile at package root → RebuiltImage.
+    /// allow_rebuild=true + docker_probe=true + Dockerfile at package root + empty
+    /// digest → falls through Tier 1 and selects RebuiltImage.
     #[test]
     fn provision_rebuilt_when_dockerfile_present() {
         let tmp = tempfile::tempdir().unwrap();
@@ -424,13 +432,36 @@ mod tests {
 
         let opts = ProvisionOpts {
             allow_rebuild: true,
-            docker_probe: || false, // docker probe off → skip Tier 1
+            docker_probe: || true, // Docker required for RebuiltImage (Tier 2 guard)
             conda_probe: || false,
         };
         let env = provision(tmp.path(), &opts);
         assert!(
             matches!(env, ExecEnv::RebuiltImage { .. }),
             "expected RebuiltImage, got {:?}",
+            env
+        );
+        assert_eq!(env.tier_name(), "rebuilt");
+    }
+
+    /// docker_probe=true + empty digest + allow_rebuild=true + Dockerfile present
+    /// → falls through Tier 1 (empty digest) and selects RebuiltImage (Tier 2).
+    /// This also validates that the docker_probe guard on Tier 2 is satisfied.
+    #[test]
+    fn provision_rebuilt_when_docker_available_and_digest_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_det_env(tmp.path(), "differential_expression", ""); // empty digest → skip Tier 1
+        fs::write(tmp.path().join("Dockerfile"), "FROM ubuntu:22.04\n").unwrap();
+
+        let opts = ProvisionOpts {
+            allow_rebuild: true,
+            docker_probe: || true, // Docker present — required for Tier 2
+            conda_probe: || false,
+        };
+        let env = provision(tmp.path(), &opts);
+        assert!(
+            matches!(env, ExecEnv::RebuiltImage { .. }),
+            "expected RebuiltImage (Tier 2) with docker_probe=true and empty digest, got {:?}",
             env
         );
         assert_eq!(env.tier_name(), "rebuilt");
@@ -478,6 +509,10 @@ mod tests {
         assert_eq!(interpreter_for(Path::new("foo.R")).unwrap(), "Rscript");
         assert_eq!(interpreter_for(Path::new("foo.py")).unwrap(), "python3");
         assert_eq!(interpreter_for(Path::new("foo.sh")).unwrap(), "bash");
-        assert!(interpreter_for(Path::new("foo.txt")).is_err());
+        let err = interpreter_for(Path::new("foo.txt")).unwrap_err();
+        assert!(
+            err.to_string().contains("txt"),
+            "error message should name the offending extension; got: {err}"
+        );
     }
 }
