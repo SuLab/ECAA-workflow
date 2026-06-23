@@ -97,11 +97,43 @@ pub fn reverify(pkg: &Path, reader_version: &str) -> anyhow::Result<ReverifyResu
                     recorded: rec_status.clone(),
                     fresh: fresh_status,
                     diverged,
+                    note: None,
                 });
             }
             // If the recorded report does not mention this id, skip: a new
             // invariant added after the package was emitted is not a tamper
             // signal.
+        }
+        // Emit a non-diverged diff for each invariant id that appears in the
+        // recorded report but was NOT emitted by the fresh run. This is
+        // asymmetric with the fresh-only skip above: a fresh-only id means a
+        // new invariant was added after the package was written (expected
+        // growth, not a tamper signal). A recorded-only id means the current
+        // reader version no longer emits that invariant — version drift, not
+        // suppression of evidence — so we surface it for transparency but do
+        // not set diverged=true.
+        let fresh_ids: std::collections::HashSet<String> = fresh_report
+            .verdicts
+            .iter()
+            .filter_map(|v| {
+                serde_json::to_value(v.id)
+                    .ok()
+                    .and_then(|val| val.as_str().map(str::to_owned))
+            })
+            .collect();
+        for (id_str, rec_status) in &recorded_verdicts {
+            if !fresh_ids.contains(id_str) {
+                checks.push(VerifierDiff {
+                    check: format!("audit_proof.{id_str}"),
+                    recorded: rec_status.clone(),
+                    fresh: serde_json::Value::Null,
+                    diverged: false,
+                    note: Some(
+                        "invariant present in recorded report but not emitted by this reader version (drift)"
+                            .to_string(),
+                    ),
+                });
+            }
         }
     } else {
         // No recorded report: nothing to compare.
@@ -111,6 +143,7 @@ pub fn reverify(pkg: &Path, reader_version: &str) -> anyhow::Result<ReverifyResu
             recorded: serde_json::Value::Null,
             fresh: serde_json::Value::Null,
             diverged: false,
+            note: Some("recorded file absent; nothing to compare".to_string()),
         });
     }
 
@@ -124,17 +157,21 @@ pub fn reverify(pkg: &Path, reader_version: &str) -> anyhow::Result<ReverifyResu
         let cv: serde_json::Value = serde_json::from_str(&raw)
             .with_context(|| format!("parsing claim-verification: {}", cv_path.display()))?;
 
-        // Derive n_mismatch and n_suspicious from the on-disk verdict rows —
-        // this is cheaper and offline. Each verdict has `"status": "mismatch"`
-        // (or `"suspicious"`, `"verified"`, etc.) serialized by ClaimStatus's
-        // snake_case tag. We count and compare against the recorded header
-        // fields (defaulting to 0 if absent, e.g. older on-disk formats that
-        // embed only the verdicts array without summary fields).
-        let (fresh_mismatch, fresh_suspicious) = count_verdict_statuses(&cv);
+        // Derive n_mismatch, n_suspicious, n_verified, and n_checked from the
+        // on-disk verdict rows — this is cheaper and offline. Each verdict has
+        // `"status": "mismatch"` (or `"suspicious"`, `"verified"`, etc.)
+        // serialized by ClaimStatus's snake_case tag. We count and compare
+        // against the recorded header fields (defaulting to 0 if absent, e.g.
+        // older on-disk formats that embed only the verdicts array without
+        // summary fields).
+        let (fresh_mismatch, fresh_suspicious, fresh_verified, fresh_checked) =
+            count_verdict_statuses(&cv);
 
         for (field, fresh_count) in [
             ("n_mismatch", fresh_mismatch),
             ("n_suspicious", fresh_suspicious),
+            ("n_verified", fresh_verified),
+            ("n_checked", fresh_checked),
         ] {
             let recorded_count = cv
                 .get(field)
@@ -143,12 +180,13 @@ pub fn reverify(pkg: &Path, reader_version: &str) -> anyhow::Result<ReverifyResu
             let fresh_val = serde_json::Value::Number(fresh_count.into());
             let recorded_val =
                 serde_json::Value::Number(serde_json::Number::from(recorded_count));
-            let diverged = recorded_count != fresh_count as u64;
+            let diverged = recorded_count != fresh_count;
             checks.push(VerifierDiff {
                 check: format!("claim_verification.{field}"),
                 recorded: recorded_val,
                 fresh: fresh_val,
                 diverged,
+                note: None,
             });
         }
     } else {
@@ -157,6 +195,7 @@ pub fn reverify(pkg: &Path, reader_version: &str) -> anyhow::Result<ReverifyResu
             recorded: serde_json::Value::Null,
             fresh: serde_json::Value::Null,
             diverged: false,
+            note: Some("recorded file absent; nothing to compare".to_string()),
         });
     }
 
@@ -173,26 +212,29 @@ pub fn reverify(pkg: &Path, reader_version: &str) -> anyhow::Result<ReverifyResu
     })
 }
 
-/// Count `"mismatch"` and `"suspicious"` status values in the `verdicts`
-/// array of a `claim-verification.json` value. Returns `(n_mismatch,
-/// n_suspicious)`.
+/// Count `"mismatch"`, `"suspicious"`, `"verified"`, and total verdict rows
+/// in the `verdicts` array of a `claim-verification.json` value. Returns
+/// `(n_mismatch, n_suspicious, n_verified, n_checked)`.
 ///
 /// The status field is a `serde(tag = "status", rename_all = "snake_case")`
 /// enum, so it serializes as a JSON string within the object.
-fn count_verdict_statuses(cv: &serde_json::Value) -> (u64, u64) {
+fn count_verdict_statuses(cv: &serde_json::Value) -> (u64, u64, u64, u64) {
     let Some(verdicts) = cv.get("verdicts").and_then(|v| v.as_array()) else {
-        return (0, 0);
+        return (0, 0, 0, 0);
     };
     let mut n_mismatch: u64 = 0;
     let mut n_suspicious: u64 = 0;
+    let mut n_verified: u64 = 0;
     for verdict in verdicts {
         match verdict.get("status").and_then(|s| s.as_str()) {
             Some("mismatch") => n_mismatch += 1,
             Some("suspicious") => n_suspicious += 1,
+            Some("verified") => n_verified += 1,
             _ => {}
         }
     }
-    (n_mismatch, n_suspicious)
+    let n_checked = verdicts.len() as u64;
+    (n_mismatch, n_suspicious, n_verified, n_checked)
 }
 
 #[cfg(test)]
@@ -289,5 +331,63 @@ mod tests {
             .find(|c| c.check.contains("cross_graph_integrity"))
             .unwrap();
         assert!(!c.diverged);
+    }
+
+    /// An empty tempdir has neither `runtime/audit-proof-report.json` nor
+    /// `runtime/claim-verification.json`. Both diffs must have recorded=Null,
+    /// diverged=false, and a non-empty note.
+    #[test]
+    fn reverify_missing_recorded_files_produces_null_diffs_with_note() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Write the minimal ro-crate-metadata.json so audit-proof can run.
+        let meta = serde_json::json!({
+            "@context": "https://w3id.org/ro/crate/1.1/context",
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "@type": "CreativeWork",
+                 "conformsTo": {"@id": "https://w3id.org/ro/crate/1.1"},
+                 "about": {"@id": "./"}},
+                {"@id": "./", "@type": "Dataset"}
+            ]
+        });
+        fs::write(
+            tmp.path().join("ro-crate-metadata.json"),
+            serde_json::to_string_pretty(&meta).unwrap(),
+        )
+        .unwrap();
+
+        let res = reverify(tmp.path(), "0.2").unwrap();
+
+        let audit_diff = res.checks.iter().find(|c| c.check == "audit_proof").unwrap();
+        assert_eq!(audit_diff.recorded, serde_json::Value::Null, "audit_proof recorded must be Null");
+        assert!(!audit_diff.diverged, "audit_proof must not diverge when file absent");
+        assert!(
+            audit_diff.note.as_deref().unwrap_or("").contains("absent"),
+            "audit_proof note must mention absent"
+        );
+
+        let cv_diff = res.checks.iter().find(|c| c.check == "claim_verification").unwrap();
+        assert_eq!(cv_diff.recorded, serde_json::Value::Null, "claim_verification recorded must be Null");
+        assert!(!cv_diff.diverged, "claim_verification must not diverge when file absent");
+        assert!(
+            cv_diff.note.as_deref().unwrap_or("").contains("absent"),
+            "claim_verification note must mention absent"
+        );
+    }
+
+    /// reader_version matching the recorded ecaa_version → reader_matches_writer=true;
+    /// a different reader_version → reader_matches_writer=false.
+    #[test]
+    fn reverify_reader_matches_writer_flag() {
+        let tmp = tempfile::tempdir().unwrap();
+        copy_fixture("cross-graph-ok", tmp.path());
+        write_recorded_audit(tmp.path(), &[("cross_graph_integrity", "pass")]);
+
+        // Matching version — recorded ecaa_version is "0.2" (set by write_recorded_audit).
+        let res_match = reverify(tmp.path(), "0.2").unwrap();
+        assert!(res_match.reader_matches_writer, "version 0.2 must match writer 0.2");
+
+        // Mismatching version.
+        let res_mismatch = reverify(tmp.path(), "0.3").unwrap();
+        assert!(!res_mismatch.reader_matches_writer, "version 0.3 must not match writer 0.2");
     }
 }

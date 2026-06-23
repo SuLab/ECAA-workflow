@@ -6,8 +6,14 @@ use crate::reexecution::{ReexecutionReport, ReexecutionBucket};
 pub enum ReplayVerdict { Pass, Partial, Fail }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VerifierDiff { pub check: String, pub recorded: serde_json::Value,
-    pub fresh: serde_json::Value, pub diverged: bool }
+pub struct VerifierDiff {
+    pub check: String,
+    pub recorded: serde_json::Value,
+    pub fresh: serde_json::Value,
+    pub diverged: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReverifyResult { pub checks: Vec<VerifierDiff>, pub reader_matches_writer: bool }
@@ -71,7 +77,7 @@ mod tests {
         let mut r = base();
         r.reverify = Some(ReverifyResult { reader_matches_writer: true, checks: vec![
             VerifierDiff { check: "claim_verification".into(), recorded: serde_json::json!(0),
-                fresh: serde_json::json!(0), diverged: false }]});
+                fresh: serde_json::json!(0), diverged: false, note: None }]});
         let mut rep = ReexecutionReport::empty("0.1");
         rep.per_artifact.push(ArtifactClassification { artifact_path: "a.tsv".into(),
             bucket: ReexecutionBucket::ByteIdentical, reason: None });
@@ -84,7 +90,7 @@ mod tests {
         let mut r = base();
         r.reverify = Some(ReverifyResult { reader_matches_writer: true, checks: vec![
             VerifierDiff { check: "audit_proof.cross_graph_integrity".into(),
-                recorded: serde_json::json!("pass"), fresh: serde_json::json!("fail"), diverged: true }]});
+                recorded: serde_json::json!("pass"), fresh: serde_json::json!("fail"), diverged: true, note: None }]});
         assert_eq!(compute_verdict(&r), ReplayVerdict::Fail);
     }
 
@@ -93,7 +99,7 @@ mod tests {
         let mut r = base();
         r.reverify = Some(ReverifyResult { reader_matches_writer: false, checks: vec![
             VerifierDiff { check: "claim_verification".into(), recorded: serde_json::json!(24),
-                fresh: serde_json::json!(90), diverged: true }]});
+                fresh: serde_json::json!(90), diverged: true, note: None }]});
         assert_eq!(compute_verdict(&r), ReplayVerdict::Partial);
     }
 
