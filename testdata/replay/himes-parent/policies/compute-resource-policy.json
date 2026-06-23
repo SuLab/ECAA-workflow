@@ -1,0 +1,663 @@
+{
+  "default": {
+    "description": "Unknown-stage fallback",
+    "notes": "Conservative default for unknown stage classes.",
+    "requirements": {
+      "memory_gb": 8,
+      "storage_gb": 50,
+      "vcpus": 2
+    }
+  },
+  "method_overrides": {
+    "alphafold": {
+      "applies_to": [
+        "structural_modeling"
+      ],
+      "notes": "AlphaFold needs A100-class GPU memory. Storage for MSA databases.",
+      "requires": {
+        "gpu": {
+          "count": 1,
+          "kind": "nvidia-a100"
+        },
+        "memory_gb": 128,
+        "storage_gb": 500,
+        "vcpus": 16
+      }
+    },
+    "deepvariant": {
+      "applies_to": [
+        "variant_calling"
+      ],
+      "notes": "DeepVariant is GPU-accelerated; CPU-only fallback is ~10x slower.",
+      "requires": {
+        "gpu": {
+          "count": 1,
+          "kind": "nvidia-l4"
+        },
+        "memory_gb": 64,
+        "vcpus": 8
+      }
+    },
+    "star-2pass": {
+      "applies_to": [
+        "alignment_quantification"
+      ],
+      "notes": "STAR 2-pass needs the full genome index in memory.",
+      "requires": {
+        "memory_gb": 64
+      }
+    }
+  },
+  "profiles": {
+    "aggregator": {
+      "description": "Fan-in / merge / per-sample concatenation barriers",
+      "notes": "I/O-bound on artifact concatenation; minimal compute.",
+      "requirements": {
+        "memory_gb": 16,
+        "storage_gb": 100,
+        "vcpus": 2
+      }
+    },
+    "alignment": {
+      "description": "Generic alignment (umbrella class — `alignment_quantification` is the production form for short-read RNA-seq; this row covers ATAC, ChIP, methylation, long-read)",
+      "notes": "CPU-bound on minimap2 / bowtie2 / bwa-mem2; per-method overrides below adjust memory.",
+      "requirements": {
+        "memory_gb": 32,
+        "storage_gb": 500,
+        "vcpus": 16
+      }
+    },
+    "alignment_quantification": {
+      "description": "STAR, HISAT2, Salmon, featureCounts — memory-intensive",
+      "env_overrides_template": {
+        "MKL_NUM_THREADS": "${recommended_threads}",
+        "NUMEXPR_NUM_THREADS": "${recommended_threads}",
+        "OMP_NUM_THREADS": "${recommended_threads}",
+        "OPENBLAS_NUM_THREADS": "${recommended_threads}"
+      },
+      "notes": "STAR 2-pass needs 32 GB for human genome index alone. Memory-optimized family. Bump to 128 GB for large genomes.\n",
+      "requirements": {
+        "memory_gb": 64,
+        "storage_gb": 200,
+        "vcpus": 8
+      },
+      "scaling_factors": [
+        {
+          "above": {
+            "memory_gb": 128
+          },
+          "dimension": "genome_size",
+          "threshold_gb": 3
+        },
+        {
+          "dimension": "sample_count",
+          "per_unit_storage_gb": 20
+        }
+      ],
+      "ssm_timeout_secs": 7200,
+      "tool_thread_curves": {
+        "bwa": 8,
+        "bwa_mem2": 8,
+        "featurecounts": 8,
+        "hisat2": 8,
+        "salmon": 8,
+        "samtools_sort": 4,
+        "star": 16
+      }
+    },
+    "analysis": {
+      "description": "Generic downstream-analysis stage (umbrella for class-less analytical steps)",
+      "notes": "Conservative CPU shape; concrete classes (DE, clustering, etc.) have dedicated profiles.",
+      "requirements": {
+        "memory_gb": 16,
+        "storage_gb": 50,
+        "vcpus": 4
+      }
+    },
+    "batch_correction": {
+      "description": "Harmony / scVI / Combat — memory-intensive on cell-level data",
+      "notes": "scVI uses GPU when present; Harmony/Combat are CPU-only.",
+      "requirements": {
+        "memory_gb": 64,
+        "storage_gb": 100,
+        "vcpus": 8
+      },
+      "scaling_factors": [
+        {
+          "above": {
+            "memory_gb": 192
+          },
+          "dimension": "cell_count",
+          "threshold": 500000
+        }
+      ],
+      "tool_thread_curves": {
+        "combat": 4,
+        "harmony": 8,
+        "scvi": 8
+      }
+    },
+    "benchmarking": {
+      "description": "GIAB / SVdb / DREAM-style benchmark scoring",
+      "notes": "CPU-bound on hap.py / vcfeval; storage for truth-set + query VCF.",
+      "requirements": {
+        "memory_gb": 16,
+        "storage_gb": 100,
+        "vcpus": 4
+      }
+    },
+    "biological_interpretation": {
+      "description": "Narrative + LLM cross-check; mostly read-only on results",
+      "notes": "No heavy compute; runs the claim_extractor + claim_verifier pipeline.",
+      "requirements": {
+        "memory_gb": 8,
+        "storage_gb": 20,
+        "vcpus": 2
+      }
+    },
+    "cell_communication": {
+      "description": "CellChat / LIANA / NicheNet ligand-receptor inference",
+      "notes": "CPU-bound R/Python; memory grows with cell count × ligand-receptor pair count.",
+      "requirements": {
+        "memory_gb": 32,
+        "storage_gb": 50,
+        "vcpus": 8
+      }
+    },
+    "cell_type_annotation": {
+      "description": "Marker-based / reference-based cell-type assignment",
+      "notes": "scanpy.tl.rank_genes_groups + reference-mapping (azimuth, scANVI).",
+      "requirements": {
+        "memory_gb": 16,
+        "storage_gb": 50,
+        "vcpus": 4
+      },
+      "scaling_factors": [
+        {
+          "above": {
+            "memory_gb": 64
+          },
+          "dimension": "cell_count",
+          "threshold": 500000
+        }
+      ]
+    },
+    "clinical_trial": {
+      "description": "Umbrella class for clinical-trial taxonomy stages — mapped to trial_* sub-profiles when stage_class lands more specifically",
+      "notes": "CPU-bound; trial-specific sub-profiles (`trial_population_definition`, `trial_primary_endpoint`, `trial_safety_analysis`) override when matched.",
+      "requirements": {
+        "memory_gb": 16,
+        "storage_gb": 50,
+        "vcpus": 4
+      }
+    },
+    "clustering": {
+      "description": "Leiden/Louvain clustering, UMAP — memory for large cell counts",
+      "notes": "scanpy/Seurat neighbor graph is O(n) memory. Scale for >500k cells.",
+      "requirements": {
+        "memory_gb": 64,
+        "storage_gb": 100,
+        "vcpus": 8
+      },
+      "scaling_factors": [
+        {
+          "above": {
+            "memory_gb": 128
+          },
+          "dimension": "cell_count",
+          "threshold": 500000
+        }
+      ]
+    },
+    "colocalization": {
+      "description": "coloc / FastEnloc / SuSiE / fine-mapping",
+      "notes": "Per-locus credible-set computation; embarrassingly parallel.",
+      "requirements": {
+        "memory_gb": 16,
+        "storage_gb": 50,
+        "vcpus": 4
+      }
+    },
+    "data_acquisition": {
+      "default_container": {
+        "image": "ghcr.io/scripps/scripps-bio-base",
+        "tag": "0.1.0"
+      },
+      "description": "Download from repositories — network-bound, low compute",
+      "notes": "Network-bound. Burstable family preferred. Scale storage, not compute.",
+      "requirements": {
+        "memory_gb": 4,
+        "storage_gb": 100,
+        "vcpus": 2
+      },
+      "scaling_factors": [
+        {
+          "dimension": "sample_count",
+          "per_unit_storage_gb": 10
+        }
+      ]
+    },
+    "deconvolution": {
+      "description": "Bulk → cell-type-fraction deconvolution (CIBERSORTx, MuSiC, BayesPrism)",
+      "notes": "CPU-bound; memory scales with reference single-cell atlas size. BayesPrism + CIBERSORTx have ≥32 GB recommendations.",
+      "requirements": {
+        "memory_gb": 32,
+        "storage_gb": 50,
+        "vcpus": 8
+      }
+    },
+    "differential_expression": {
+      "description": "DESeq2, edgeR, limma — single-threaded R, moderate memory",
+      "notes": "Similar to normalization. DESeq2 fitType=parametric is memory-bound.",
+      "requirements": {
+        "memory_gb": 32,
+        "storage_gb": 50,
+        "vcpus": 4
+      }
+    },
+    "differential_transcript_usage": {
+      "description": "DRIMSeq / DEXSeq / IsoformSwitchAnalyzeR transcript-usage testing",
+      "notes": "CPU-bound; scales with isoform count × sample count.",
+      "requirements": {
+        "memory_gb": 32,
+        "storage_gb": 50,
+        "vcpus": 8
+      }
+    },
+    "dimensionality_reduction": {
+      "description": "PCA / UMAP / t-SNE / scvi-latent extraction",
+      "notes": "Memory scales with cell count × feature count; mostly CPU-bound.",
+      "requirements": {
+        "memory_gb": 32,
+        "storage_gb": 50,
+        "vcpus": 4
+      },
+      "tool_thread_curves": {
+        "pca": 4,
+        "tsne": 4,
+        "umap": 4
+      }
+    },
+    "diversity_analysis": {
+      "description": "alpha/beta diversity, ordination — pandas + scikit-bio",
+      "notes": "CPU-bound; small data.",
+      "requirements": {
+        "memory_gb": 16,
+        "storage_gb": 20,
+        "vcpus": 4
+      }
+    },
+    "forecast_modeling": {
+      "description": "ARIMA / Prophet / NeuralProphet / TimesNet model fit",
+      "notes": "Per-series fits parallelize; deep models benefit from GPU.",
+      "requirements": {
+        "memory_gb": 16,
+        "storage_gb": 20,
+        "vcpus": 4
+      }
+    },
+    "gwas_summary_harmonization": {
+      "description": "Strand-flip / allele-coding / liftover summary stats",
+      "notes": "I/O-bound; pandas / DuckDB on tabular files.",
+      "requirements": {
+        "memory_gb": 16,
+        "storage_gb": 100,
+        "vcpus": 2
+      }
+    },
+    "harmonization": {
+      "description": "Cross-study metadata + count-matrix harmonization (umbrella class)",
+      "notes": "CPU-bound; storage scales with cohort size. `metadata_harmonization` sub-profile covers the per-study metadata path.",
+      "requirements": {
+        "memory_gb": 16,
+        "storage_gb": 100,
+        "vcpus": 4
+      }
+    },
+    "integration": {
+      "description": "Cross-sample integration (CCA / Harmony / scVI)",
+      "notes": "Same as batch_correction shape but typically runs on integrated AnnData rather than per-sample.",
+      "requirements": {
+        "memory_gb": 64,
+        "storage_gb": 100,
+        "vcpus": 8
+      },
+      "scaling_factors": [
+        {
+          "above": {
+            "memory_gb": 192
+          },
+          "dimension": "cell_count",
+          "threshold": 1000000
+        }
+      ]
+    },
+    "interpretation": {
+      "description": "Biological interpretation umbrella (claim drafting, ontology lookup, narrative synthesis)",
+      "notes": "CPU-bound; ontology (GO/KEGG/Reactome) lookup tables + narrative drafting. Falls into `biological_interpretation` when matched specifically.",
+      "requirements": {
+        "memory_gb": 16,
+        "storage_gb": 50,
+        "vcpus": 4
+      }
+    },
+    "isoform_calling": {
+      "description": "FLAIR / IsoQuant / TALON long-read isoforms",
+      "notes": "Long-read bound on alignment + read-cluster discovery.",
+      "requirements": {
+        "memory_gb": 32,
+        "storage_gb": 200,
+        "vcpus": 8
+      }
+    },
+    "locus_definition": {
+      "description": "GWAS locus definition (P+T clumping, FUMA / MAGMA-style window calls, cojo-slct)",
+      "notes": "CPU-bound; scales with GWAS variant count. PLINK clumping is single-threaded.",
+      "requirements": {
+        "memory_gb": 16,
+        "storage_gb": 50,
+        "vcpus": 4
+      }
+    },
+    "metadata_harmonization": {
+      "description": "Per-sample metadata harmonization (canonical TSV with condition / age / grade)",
+      "notes": "CPU-bound; small data. Spec-required stage in single-cell + bulk taxonomies.",
+      "requirements": {
+        "memory_gb": 8,
+        "storage_gb": 20,
+        "vcpus": 2
+      }
+    },
+    "ms_raw_conversion": {
+      "description": "ThermoRawFileParser / MSConvert vendor-format conversion",
+      "notes": "I/O-bound on raw-file parsing.",
+      "requirements": {
+        "memory_gb": 16,
+        "storage_gb": 200,
+        "vcpus": 4
+      }
+    },
+    "normalization": {
+      "description": "DESeq2 VST, TMM — single-threaded R, moderate memory",
+      "notes": "R is single-threaded for most normalization. Memory matters more than cores.",
+      "requirements": {
+        "memory_gb": 32,
+        "storage_gb": 50,
+        "vcpus": 4
+      }
+    },
+    "pathway_enrichment": {
+      "description": "fgsea / gprofiler / Reactome enrichment",
+      "notes": "I/O bound on database fetch; minimal compute.",
+      "requirements": {
+        "memory_gb": 8,
+        "storage_gb": 20,
+        "vcpus": 2
+      }
+    },
+    "peak_calling": {
+      "description": "MACS3 / Peakzilla / Genrich peak detection",
+      "notes": "I/O-bound on BAM scan; CPU-bound on peak detection.",
+      "requirements": {
+        "memory_gb": 16,
+        "storage_gb": 100,
+        "vcpus": 4
+      },
+      "tool_thread_curves": {
+        "genrich": 8,
+        "macs3": 4
+      }
+    },
+    "peptide_search": {
+      "description": "MaxQuant / FragPipe / Comet peptide identification",
+      "notes": "Search-engine grunt work; CPU-bound, scales with thread count.",
+      "requirements": {
+        "memory_gb": 64,
+        "storage_gb": 200,
+        "vcpus": 16
+      },
+      "scaling_factors": [
+        {
+          "dimension": "sample_count",
+          "max_vcpus": 64,
+          "per_unit_vcpus": 1
+        }
+      ],
+      "tool_thread_curves": {
+        "comet": 8,
+        "fragpipe": 16,
+        "maxquant": 16
+      }
+    },
+    "preprocessing_qc": {
+      "description": "FastQC, MultiQC, trimming — lightweight per-sample",
+      "env_overrides_template": {
+        "MKL_NUM_THREADS": "${recommended_threads}",
+        "NUMEXPR_NUM_THREADS": "${recommended_threads}",
+        "OMP_NUM_THREADS": "${recommended_threads}",
+        "OPENBLAS_NUM_THREADS": "${recommended_threads}"
+      },
+      "notes": "CPU-bound but lightweight. Compute-optimized family.",
+      "requirements": {
+        "memory_gb": 8,
+        "storage_gb": 50,
+        "vcpus": 4
+      },
+      "scaling_factors": [
+        {
+          "dimension": "sample_count",
+          "max_vcpus": 16,
+          "per_unit_vcpus": 0.5
+        }
+      ],
+      "tool_thread_curves": {
+        "cutadapt": 4,
+        "fastqc": 4,
+        "multiqc": 1,
+        "trim_galore": 4
+      }
+    },
+    "protein_quantification": {
+      "description": "DIA-NN / FragPipe-DIA / iBAQ rollups",
+      "notes": "DIA-NN is GPU-aware for some steps; default CPU path.",
+      "requirements": {
+        "memory_gb": 32,
+        "storage_gb": 100,
+        "vcpus": 8
+      }
+    },
+    "quantification": {
+      "description": "Read → feature quantification (Salmon / kallisto / featureCounts / featureCounts-multi)",
+      "notes": "CPU-bound; memory grows with transcriptome index size (Salmon ~12 GB on Ensembl human v115).",
+      "requirements": {
+        "memory_gb": 16,
+        "storage_gb": 200,
+        "vcpus": 8
+      }
+    },
+    "reporting": {
+      "description": "Final-report HTML / PDF / dashboard composition",
+      "notes": "CPU-bound; small data. Quarto / RMarkdown / MultiQC.",
+      "requirements": {
+        "memory_gb": 8,
+        "storage_gb": 20,
+        "vcpus": 2
+      }
+    },
+    "review": {
+      "description": "SME review — no compute needed",
+      "notes": "Review tasks are human-assigned. No instance needed.",
+      "requirements": null
+    },
+    "sensitivity_comparison": {
+      "description": "Per-method sensitivity sweep + winner-selection scaffolding",
+      "notes": "CPU-bound; the scaffolding stage itself is light — the per-method runs use the underlying class's profile.",
+      "requirements": {
+        "memory_gb": 8,
+        "storage_gb": 20,
+        "vcpus": 2
+      }
+    },
+    "spatial_clustering": {
+      "description": "Squidpy / Banksy / spatial neighborhood analysis",
+      "notes": "Memory scales with spot/cell count × feature count.",
+      "requirements": {
+        "memory_gb": 64,
+        "storage_gb": 50,
+        "vcpus": 8
+      }
+    },
+    "spatially_variable_genes": {
+      "description": "SpatialDE / Sepal / SpatialPCA-style spatially-variable-gene tests",
+      "notes": "CPU-bound; memory scales with spot count × gene count.",
+      "requirements": {
+        "memory_gb": 32,
+        "storage_gb": 50,
+        "vcpus": 8
+      }
+    },
+    "taxonomic_classification": {
+      "description": "Kraken2 / Centrifuge / Bracken classification",
+      "notes": "Memory dominated by reference DB load (Kraken2 standard ≈ 50 GB).",
+      "requirements": {
+        "memory_gb": 64,
+        "storage_gb": 200,
+        "vcpus": 8
+      },
+      "scaling_factors": [
+        {
+          "dimension": "sample_count",
+          "max_vcpus": 32,
+          "per_unit_vcpus": 1
+        }
+      ]
+    },
+    "time_series_decomposition": {
+      "description": "STL / X-13ARIMA-SEATS seasonal-trend decomposition",
+      "notes": "Lightweight; statsmodels-backed.",
+      "requirements": {
+        "memory_gb": 8,
+        "storage_gb": 20,
+        "vcpus": 2
+      }
+    },
+    "time_series_forecast": {
+      "description": "Time-series forecasting (SARIMA / ETS / Prophet)",
+      "notes": "CPU-bound R/Python; minimal storage.",
+      "requirements": {
+        "memory_gb": 16,
+        "storage_gb": 50,
+        "vcpus": 4
+      }
+    },
+    "tissue_prioritization": {
+      "description": "MAGMA-style gene-tissue prioritization (FUMA / GTEx-aware)",
+      "notes": "CPU-bound; reference tissue panel sets memory floor.",
+      "requirements": {
+        "memory_gb": 16,
+        "storage_gb": 50,
+        "vcpus": 4
+      }
+    },
+    "trajectory": {
+      "description": "Pseudotime / trajectory inference (Monocle3, Slingshot, scFates, Chronocell)",
+      "notes": "CPU-bound; trajectory-graph construction scales with cell count. Pseudotime claims have no field-consensus ground truth (Round-2 §3.10).",
+      "requirements": {
+        "memory_gb": 32,
+        "storage_gb": 50,
+        "vcpus": 8
+      }
+    },
+    "trial_population_definition": {
+      "description": "ITT / mITT / per-protocol cohort construction",
+      "notes": "Pure pandas / arrow joins; CPU-bound, fast.",
+      "requirements": {
+        "memory_gb": 8,
+        "storage_gb": 20,
+        "vcpus": 2
+      }
+    },
+    "trial_primary_endpoint": {
+      "description": "Primary endpoint estimand evaluation (MMRM / CMH / KM)",
+      "notes": "R/Python statistical packages; CPU-bound.",
+      "requirements": {
+        "memory_gb": 16,
+        "storage_gb": 20,
+        "vcpus": 4
+      }
+    },
+    "trial_safety_analysis": {
+      "description": "Adverse event tabulation + descriptive statistics",
+      "notes": "Tabulation + summary statistics; CPU-bound, small data.",
+      "requirements": {
+        "memory_gb": 8,
+        "storage_gb": 20,
+        "vcpus": 2
+      }
+    },
+    "variant_annotation": {
+      "description": "VEP / ANNOVAR / SnpEff functional annotation",
+      "notes": "Database fetch; offline-cached database is preferred.",
+      "requirements": {
+        "memory_gb": 8,
+        "storage_gb": 100,
+        "vcpus": 2
+      }
+    },
+    "variant_calling": {
+      "description": "GATK, bcftools, DeepVariant — compute + memory intensive",
+      "env_overrides_template": {
+        "MKL_NUM_THREADS": "${recommended_threads}",
+        "NUMEXPR_NUM_THREADS": "${recommended_threads}",
+        "OMP_NUM_THREADS": "${recommended_threads}",
+        "OPENBLAS_NUM_THREADS": "${recommended_threads}"
+      },
+      "notes": "GATK HaplotypeCaller is both CPU and memory hungry.",
+      "phase_thread_counts": {
+        "deepvariant": {
+          "call_variants": 1,
+          "make_examples": 16,
+          "postprocess_variants": 4
+        }
+      },
+      "requirements": {
+        "memory_gb": 64,
+        "storage_gb": 300,
+        "vcpus": 8
+      },
+      "scaling_factors": [
+        {
+          "above": {
+            "memory_gb": 128
+          },
+          "dimension": "genome_size",
+          "threshold_gb": 3
+        },
+        {
+          "above": {
+            "memory_gb": 128,
+            "vcpus": 16
+          },
+          "dimension": "coverage_depth",
+          "threshold": 50
+        }
+      ],
+      "ssm_timeout_secs": 14400,
+      "tool_thread_curves": {
+        "bcftools": 4,
+        "deepvariant": 16,
+        "gatk_haplotypecaller": 8,
+        "samtools_sort": 4
+      }
+    },
+    "variant_filtering": {
+      "description": "VEP / SnpEff / hard-filter expressions on VCF",
+      "notes": "Annotation-database fetch dominates; minimal compute.",
+      "requirements": {
+        "memory_gb": 8,
+        "storage_gb": 50,
+        "vcpus": 2
+      }
+    }
+  }
+}

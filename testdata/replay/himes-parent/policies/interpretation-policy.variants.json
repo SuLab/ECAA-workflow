@@ -1,0 +1,58 @@
+{
+  "schemaVersion": "1.1",
+  "note": "Variant/GWAS overlay: rsID/gene entities, odds-ratio (ratio-scale, VF-19 pivot-at-1.0) and beta (log-scale) effect columns, genome-wide significance. Only the verifiableEntities block is read by ExtractorConfig::from_policy; overlay values replace the base field-by-field. entityNameExcludePatterns drops the OR/RR/HR/SNP acronyms so they are not mis-read as gene entities.",
+  "verifiableEntities": {
+    "enabled": true,
+    "entityNamePatterns": [
+      "(?i)\\brs\\d+\\b",
+      "[A-Z][A-Z0-9]{1,}"
+    ],
+    "entityNameExcludePatterns": [
+      "(?i)^(or|rr|hr|snp|gwas|qtl|maf|eqtl|ld|af|ci)$"
+    ],
+    "directionVocab": {
+      "up": [
+        "increased",
+        "higher",
+        "risk-increasing",
+        "positively associated",
+        "enriched"
+      ],
+      "down": [
+        "decreased",
+        "lower",
+        "protective",
+        "risk-reducing",
+        "negatively associated"
+      ]
+    },
+    "effectSizeColumns": [
+      "odds_ratio",
+      "OR",
+      "beta",
+      "effect",
+      "log_odds",
+      "log2FC"
+    ],
+    "entityColumns": [
+      "variant",
+      "rsid",
+      "snp",
+      "marker",
+      "gene",
+      "locus"
+    ],
+    "pvalueColumns": [
+      "pvalue",
+      "p_value",
+      "p",
+      "fdr",
+      "padj",
+      "q_value"
+    ],
+    "tolerance": {
+      "log2FcAbsoluteDelta": 0.05,
+      "pvalueRelativeDelta": 0.1
+    }
+  }
+}

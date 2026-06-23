@@ -17,6 +17,7 @@ mod provenance_tiers;
 mod recall_coverage_invariant;
 mod recall_end_to_end;
 mod reexecution_classifier;
+mod replay_himes;
 mod replay_provenance;
 mod ro_crate_date_consistency;
 mod signed_sink_invariants;

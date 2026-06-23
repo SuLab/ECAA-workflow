@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "1.0",
+  "targetFilesFloor": [
+    "PRIOR_WORK_REVIEW.md",
+    "LITERATURE_SEARCH_PROTOCOL.md",
+    "CITATION_VERIFICATION_REPORT.md",
+    "EVIDENCE_SYNTHESIS.md",
+    "CLAIMS_EVIDENCE_MATRIX.csv"
+  ],
+  "outstandingRequirements": [
+    {
+      "id": "publication_prior_work_resolution",
+      "text": "Resolve closest prior work, contradictory evidence, and claim novelty before publication-ready promotion.",
+      "whenPublicationScopeExternal": true,
+      "whenBoundedEvidenceSeeking": false,
+      "whenOpenEndedBrowsingDefault": false
+    },
+    {
+      "id": "bounded_or_publication_runtime_logging",
+      "text": "Bounded runtime evidence seeking must stay within approved published-research and textbook routes, with rationale logged for every runtime choice.",
+      "whenPublicationScopeExternal": true,
+      "whenBoundedEvidenceSeeking": true,
+      "whenOpenEndedBrowsingDefault": false
+    },
+    {
+      "id": "open_ended_authoritative_comparison",
+      "text": "Open-ended browsing is allowed by default. Prefer official sources for defaults and versions, compare against benchmarks or primary literature, and log every consulted source before promoting claims.",
+      "whenPublicationScopeExternal": false,
+      "whenBoundedEvidenceSeeking": false,
+      "whenOpenEndedBrowsingDefault": true
+    }
+  ]
+}

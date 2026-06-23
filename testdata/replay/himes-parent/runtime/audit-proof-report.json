@@ -1,0 +1,56 @@
+{
+  "schema_version": "0.1",
+  "ecaa_version": "0.2",
+  "min_reader_version": "0.2",
+  "package_iri": "ro-crate-metadata.json",
+  "evaluated_at": "2026-06-23T17:40:17.487500689+00:00",
+  "evaluator": {
+    "impl": "ecaa-workflow-audit-proof",
+    "version": "0.1.0",
+    "policy": "warn-only"
+  },
+  "verdicts": [
+    {
+      "id": "claim_completeness",
+      "status": "pass",
+      "detail": null,
+      "n_inspected": 122,
+      "n_violations": 0
+    },
+    {
+      "id": "decision_justification",
+      "status": "pass",
+      "detail": null,
+      "n_inspected": 2,
+      "n_violations": 0
+    },
+    {
+      "id": "evidence_coverage",
+      "status": "warn",
+      "detail": "22 output(s) not referenced and not marked unused: runtime/outputs/data_acquisition/cohort_manifest.tsv, runtime/outputs/data_acquisition/data/himes-inputs/counts.tsv, runtime/outputs/data_acquisition/data/himes-inputs/samples.csv, runtime/outputs/data_acquisition/figures/samples_per_study.png, runtime/outputs/differential_expression/figures/top_features_heatmap.png, runtime/outputs/differential_expression/figures/volcano.png, runtime/outputs/differential_expression/intermediates/size_factors.tsv, runtime/outputs/final_reporting/figures/summary_dashboard.png, runtime/outputs/normalisation/figures/hvg_count_bar.png, runtime/outputs/normalisation/figures/mean_variance.png, runtime/outputs/normalisation/hvg_list.tsv, runtime/outputs/normalisation/mean_variance.tsv, runtime/outputs/normalisation/vst_matrix.tsv, runtime/outputs/qc_preprocessing/figures/per_sample_metric_bar.png, runtime/outputs/qc_preprocessing/figures/per_sample_metric_violin.png, runtime/outputs/qc_preprocessing/figures/qc_summary_bar.png, runtime/outputs/qc_preprocessing/qc_metrics.tsv, runtime/outputs/reporting/figures/concordance_heatmap.png, runtime/outputs/reporting/figures/pathway_overlap_bar.png, runtime/outputs/review_prior_work/method_landscape.csv, runtime/outputs/review_prior_work/prior_claims_matrix.csv, runtime/outputs/survey_method_landscape/method_landscape.csv",
+      "n_inspected": 24,
+      "n_violations": 22
+    },
+    {
+      "id": "equivalence_failure",
+      "status": "unverified",
+      "detail": "no re-execution performed (Q absent)",
+      "n_inspected": 0,
+      "n_violations": 0
+    },
+    {
+      "id": "cross_graph_integrity",
+      "status": "pass",
+      "detail": null,
+      "n_inspected": 180,
+      "n_violations": 0
+    },
+    {
+      "id": "substrate_validity",
+      "status": "unverified",
+      "detail": "runcrate not run",
+      "n_inspected": 1,
+      "n_violations": 0
+    }
+  ]
+}

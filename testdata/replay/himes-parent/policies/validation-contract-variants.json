@@ -1,0 +1,179 @@
+{
+  "contract_id": "validation-contract-variants",
+  "description": "Domain-correctness assertions for the variant-calling taxonomy (mtDNA + germline/somatic SNV/indel) — a single contract carried by the shared variant_calling_germline archetype. Assertions split by goal-applicability: GOAL-AGNOSTIC checks (a VCF exists, sample count recorded, AF in the unit interval, filtered≤called, sample count consistent across stages) are always-on and `required`; mtDNA-HETEROPLASMY-SPECIFIC checks (per-sample count in the mtDNA range, low-AF het-band nonempty, no sub-noise-floor over-calls) carry a `when` gate on /is_mtdna so they apply ONLY to mitochondrial call sets and are SKIPPED for nuclear germline/somatic calling (whose AF spectra cluster at 0.5/1.0 and whose per-sample counts run 10^4–10^6). /is_mtdna is computed by the containerized AF-spectrum measurement from the VCF's CHROM contigs — reference-fixed, so the gate is non-gameable by the agent. A universal (un-gated) `is_mtdna_recorded` assertion on each stage closes the gate's fail-open: it fails-closed when /is_mtdna is absent, so a partial/tampered result.json cannot skip the heteroplasmy checks by omitting the gate field. The heteroplasmy catches are enforced at BOTH variant_calling (catch a caller miss before downstream runs) and variant_filtering (catch a filter-stage drop). Thresholds are operator-authored reference bounds, never handed to the execution agent (method neutrality): each assertion recomputes statistics from the agent's emitted result.json and compares against the bound. Goal-driven and SME-overridable — an SME may widen or tighten any reference bound; the harness never instructs the agent which threshold to apply.",
+  "version": "1.3.0",
+  "stages": {
+    "variant_calling": {
+      "assertions": [
+        {
+          "id": "variant_calling.vcf_present",
+          "description": "A called VCF must exist (searched recursively: agents commonly place per-sample VCFs in a vcf/ subdirectory).",
+          "assertion_type": "artifact_glob_any",
+          "target": "runtime/outputs/variant_calling/**/*.vcf*",
+          "severity": "required"
+        },
+        {
+          "id": "variant_calling.sample_count_recorded",
+          "description": "§3.2 precondition: result.json must record how many samples were called so downstream sample-count consistency can be checked.",
+          "assertion_type": "numeric_threshold",
+          "target": "runtime/outputs/variant_calling/result.json",
+          "check": { "json_pointer": "/n_samples", "op": "gte", "value": 1.0 },
+          "severity": "required"
+        },
+        {
+          "id": "variant_calling.is_mtdna_recorded",
+          "description": "Universal (un-gated) guard that closes the het-check fail-open: /is_mtdna must resolve to a typed JSON boolean whenever this stage completes, so a hand-edited or partial result.json cannot DODGE the mtDNA-gated heteroplasmy checks (het_tail_band_nonempty / no_sub_noise_floor_calls / the per-sample count range) by simply omitting /is_mtdna — their `when` gate would otherwise be unsatisfied and the check skipped (skip-as-pass). A typed `json_pointer_is_bool` check (not a raw-bytes substring) is required because a substring match would be satisfied by any incidental occurrence of the field name in a note/string (e.g. {\"is_mtdna_note\":\"...is_mtdna...\"}) while /is_mtdna never resolves to a bool. is_mtdna is emitted by the containerized AF-spectrum measurement (reference-driven from the VCF's CHROM contigs, non-gameable); its absence or a non-bool value means the measurement did not run or the record was tampered with → fail-closed (block) rather than silently skip the het checks.",
+          "assertion_type": "json_pointer_is_bool",
+          "target": "runtime/outputs/variant_calling/result.json",
+          "check": { "json_pointer": "/is_mtdna" },
+          "severity": "required"
+        },
+        {
+          "id": "variant_calling.af_spectrum_well_formed",
+          "description": "§3.1 mtDNA AF spectrum well-formedness: called allele frequencies must lie in the unit interval (p95 <= 1.0). NOTE: a prior `median <= 0.5` ('right-skewed') bound was REMOVED here AND in the harness VariantAfSpectrumPlausibleRunner — mtDNA called against the rCRS reference is HOMOPLASMY-DOMINATED (the pinned Nekrutenko ground-truth answer key has a pooled AF median of 0.9972, asserted reproducibly by scripts/eval/tests/test_nekrutenko_gt_af_spectrum.py), so a low-median rule rejected biologically-correct call sets that match the truth set. The heteroplasmy goal is enforced by het_tail_band_nonempty + no_sub_noise_floor_calls, not by a median bound.",
+          "assertion_type": "numeric_distribution",
+          "target": "runtime/outputs/variant_calling/result.json",
+          "check": { "json_pointer": "/af_values", "stat": "p95", "op": "lte", "value": 1.0 },
+          "severity": "required"
+        },
+        {
+          "id": "variant_calling.variant_count_per_sample_in_range",
+          "description": "§3.1 mtDNA: per-sample variant counts must fall in a plausible mtDNA reference range; values far outside flag a reference-genome or pipeline error. /variant_count_per_sample is an ARRAY of per-sample counts (a single-element pooled array when the VCF has no FORMAT sample columns); each element is checked. Reference [5, 500] with 10% band padding — operator-authored, SME-overridable. GATED on /is_mtdna: this mtDNA-tuned range does NOT apply to nuclear germline/somatic calling (whose per-sample counts run 10^4–10^6 through the same shared archetype); the contig is reference-fixed, so the gate is non-gameable.",
+          "assertion_type": "reference_range_outlier",
+          "target": "runtime/outputs/variant_calling/result.json",
+          "check": {
+            "json_pointer": "/variant_count_per_sample",
+            "reference_min": 5.0,
+            "reference_max": 500.0,
+            "tolerance": 0.1
+          },
+          "when": { "json_pointer": "/is_mtdna", "equals": true },
+          "severity": "required"
+        },
+        {
+          "id": "variant_calling.het_tail_band_nonempty",
+          "description": "Heteroplasmy goal (design §3.1), enforced at the CALLING stage so a caller that never emits a low-AF heteroplasmic variant is caught before filtering/annotation runs — the eval-losing under-call was a caller miss, which a filter-stage check can only detect one stage too late. The low-AF band [noise_floor=0.01, homoplasmy_cutoff=0.5] must contain ≥1 called variant. low_af_band_count is computed by the containerized AF-spectrum measurement from the called VCF; band edges are operator-authored, never handed to the agent. GATED on /is_mtdna: nuclear germline AF clusters at 0.5/1.0 (AC/AN) with an empty [0.01,0.5) band, so this would false-fail germline — it applies only to mtDNA call sets.",
+          "assertion_type": "numeric_threshold",
+          "target": "runtime/outputs/variant_calling/result.json",
+          "check": { "json_pointer": "/low_af_band_count", "op": "gte", "value": 1.0 },
+          "when": { "json_pointer": "/is_mtdna", "equals": true },
+          "severity": "required"
+        },
+        {
+          "id": "variant_calling.no_sub_noise_floor_calls",
+          "description": "Heteroplasmy goal (design §3.1), enforced at the CALLING stage: no called variant may sit below the AF noise floor (0.01) — a call at AF<0.01 is an over-call (e.g. the AF=0.0016 artifact). sub_noise_floor_count is computed by the containerized AF-spectrum measurement from the called VCF. GATED on /is_mtdna: deep somatic/ctDNA assays legitimately report sub-1% VAF, so this floor applies only to mtDNA call sets (SME-overridable).",
+          "assertion_type": "numeric_threshold",
+          "target": "runtime/outputs/variant_calling/result.json",
+          "check": { "json_pointer": "/sub_noise_floor_count", "op": "lte", "value": 0.0 },
+          "when": { "json_pointer": "/is_mtdna", "equals": true },
+          "severity": "required"
+        },
+        {
+          "id": "variant_calling.positive_control_recovered",
+          "description": "§3.4 (recommended): when a positive-control locus is configured, it must be among the called variants. Always-evaluated advisory: absent a configured control (no /controls/positive_called) this records a non-blocking miss.",
+          "assertion_type": "positive_control_present",
+          "target": "runtime/outputs/variant_calling/result.json",
+          "check": { "json_pointer": "/controls/positive_called" },
+          "severity": "recommended"
+        },
+        {
+          "id": "variant_calling.positive_control_recovered_when_configured",
+          "description": "§3.4 operative upgrade: when a positive-control locus is DECLARED for this scenario (/controls/positive_configured == true), recovering it becomes REQUIRED — a configured positive control that is not among the called variants is a hard failure (a true positive was missed). GATED on /controls/positive_configured so it is SKIPPED (never blocks) for the common no-control case. NOTE: fully operative once the scenario declares the control locus and the agent records /controls/{positive_configured,positive_called}; until that input-plumbing lands this assertion is inert (the gate is unmet), so it is forward-safe — see docs/known-limitations.md.",
+          "assertion_type": "positive_control_present",
+          "target": "runtime/outputs/variant_calling/result.json",
+          "check": { "json_pointer": "/controls/positive_called" },
+          "when": { "json_pointer": "/controls/positive_configured", "equals": true },
+          "severity": "required"
+        },
+        {
+          "id": "variant_calling.negative_control_clean",
+          "description": "§3.5 (recommended): a configured negative-control locus must NOT be called (no false positive).",
+          "assertion_type": "negative_control_present",
+          "target": "runtime/outputs/variant_calling/result.json",
+          "check": { "json_pointer": "/controls/negative_called" },
+          "severity": "recommended"
+        }
+      ]
+    },
+    "variant_filtering": {
+      "assertions": [
+        {
+          "id": "variant_filtering.is_mtdna_recorded",
+          "description": "Universal (un-gated) guard mirroring variant_calling.is_mtdna_recorded: /is_mtdna must resolve to a typed JSON boolean so the post-filter heteroplasmy checks (het_tail_band_nonempty / no_sub_noise_floor_calls / per-sample range) cannot be skipped via an omitted or non-bool gate field. A typed `json_pointer_is_bool` check (not a substring) prevents an incidental field-name occurrence from satisfying the guard. Reference-driven, fail-closed on absence or non-bool.",
+          "assertion_type": "json_pointer_is_bool",
+          "target": "runtime/outputs/variant_filtering/result.json",
+          "check": { "json_pointer": "/is_mtdna" },
+          "severity": "required"
+        },
+        {
+          "id": "variant_filtering.filtered_le_called",
+          "description": "§3.2 cross-stage invariant: the surviving (filtered) variant count must not exceed the upstream called count — filtering removes, never adds.",
+          "assertion_type": "cross_stage_output_comparison",
+          "target": "runtime/outputs/variant_filtering/result.json",
+          "check": {
+            "this_pointer": "/variant_count",
+            "upstream_task": "variant_calling",
+            "upstream_file": "result.json",
+            "upstream_pointer": "/variant_count",
+            "op": "lte"
+          },
+          "severity": "required"
+        },
+        {
+          "id": "variant_filtering.sample_count_consistent",
+          "description": "§3.2 cross-stage invariant: the filtered VCF's sample count must equal the called VCF's sample count — filtering must not drop or add samples.",
+          "assertion_type": "cross_stage_output_comparison",
+          "target": "runtime/outputs/variant_filtering/result.json",
+          "check": {
+            "this_pointer": "/n_samples",
+            "upstream_task": "variant_calling",
+            "upstream_file": "result.json",
+            "upstream_pointer": "/n_samples",
+            "op": "eq"
+          },
+          "severity": "required"
+        },
+        {
+          "id": "variant_filtering.post_filter_variant_count_per_sample_in_range",
+          "description": "§3.1 mtDNA: post-filter per-sample variant counts must remain in a plausible mtDNA reference range. /variant_count_per_sample is an ARRAY of per-sample counts (a single-element pooled array when the VCF has no FORMAT sample columns); each element is checked. Reference [1, 500] with 10% band padding — operator-authored, SME-overridable. GATED on /is_mtdna: nuclear germline/somatic per-sample counts (10^4–10^6) flow through the same shared archetype and must not be held to the mtDNA range.",
+          "assertion_type": "reference_range_outlier",
+          "target": "runtime/outputs/variant_filtering/result.json",
+          "check": {
+            "json_pointer": "/variant_count_per_sample",
+            "reference_min": 1.0,
+            "reference_max": 500.0,
+            "tolerance": 0.1
+          },
+          "when": { "json_pointer": "/is_mtdna", "equals": true },
+          "severity": "required"
+        },
+        {
+          "id": "variant_filtering.post_filter_af_spectrum_bounded",
+          "description": "§3.3 (recommended): the post-filter AF spectrum should remain bounded for mtDNA; a p95 above 1.0 flags a malformed AF column. Recommended, not blocking.",
+          "assertion_type": "numeric_distribution",
+          "target": "runtime/outputs/variant_filtering/result.json",
+          "check": { "json_pointer": "/af_values", "stat": "p95", "op": "lte", "value": 1.0 },
+          "severity": "recommended"
+        },
+        {
+          "id": "variant_filtering.het_tail_band_nonempty",
+          "description": "Heteroplasmy goal (design §3.1): the low-AF heteroplasmic band [noise_floor=0.01, homoplasmy_cutoff=0.5] must contain at least one surviving variant. An empty band means a heteroplasmic call was dropped (the under-call that lost the Nekrutenko eval). low_af_band_count is computed by the containerized AF-spectrum measurement (WS-C) from the post-filter VCF; the band edges are operator-authored reference bounds never handed to the agent. GATED on /is_mtdna: nuclear germline AF clusters at 0.5/1.0 with an empty [0.01,0.5) band, so this would false-fail correct germline output through the shared archetype — it applies only to mtDNA call sets.",
+          "assertion_type": "numeric_threshold",
+          "target": "runtime/outputs/variant_filtering/result.json",
+          "check": { "json_pointer": "/low_af_band_count", "op": "gte", "value": 1.0 },
+          "when": { "json_pointer": "/is_mtdna", "equals": true },
+          "severity": "required"
+        },
+        {
+          "id": "variant_filtering.no_sub_noise_floor_calls",
+          "description": "Heteroplasmy goal (design §3.1): no surviving variant may sit below the AF noise floor (0.01) — a call at AF<0.01 is an over-call (e.g. the AF=0.0016 artifact). sub_noise_floor_count is computed by the containerized AF-spectrum measurement (WS-C) from the post-filter VCF. GATED on /is_mtdna: deep somatic/ctDNA assays legitimately report sub-1% VAF, so this floor applies only to mtDNA call sets (SME-overridable).",
+          "assertion_type": "numeric_threshold",
+          "target": "runtime/outputs/variant_filtering/result.json",
+          "check": { "json_pointer": "/sub_noise_floor_count", "op": "lte", "value": 0.0 },
+          "when": { "json_pointer": "/is_mtdna", "equals": true },
+          "severity": "required"
+        }
+      ]
+    }
+  }
+}
