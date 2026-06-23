@@ -185,6 +185,8 @@ fn emit_package_writes_ecaa_runtime_artifacts() {
         "runtime/security-policy.json",
         "runtime/audit-proof-report.json",
         "runtime/validation-summary.json",
+        "runtime/EXECUTION-ORDER.md",
+        "runtime/execution-order.json",
     ] {
         assert!(tmp.path().join(rel).exists(), "{rel}");
     }

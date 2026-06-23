@@ -1083,6 +1083,30 @@ mod tests {
 
         // Workflow id propagates.
         assert_eq!(dag.workflow_id, "test-composition");
+
+        // The builder populates the additive execution-order projection:
+        // a non-empty topological order containing every task, and a
+        // per-task execution_index matching its position.
+        assert!(!dag.execution_order.is_empty());
+        assert_eq!(dag.execution_order.len(), dag.tasks.len());
+        let import_idx = dag
+            .execution_order
+            .iter()
+            .position(|t| t.as_str() == "import_data")
+            .expect("import_data in execution_order");
+        let de_idx = dag
+            .execution_order
+            .iter()
+            .position(|t| t.as_str() == "differential_expression")
+            .expect("differential_expression in execution_order");
+        assert!(
+            import_idx < de_idx,
+            "dependency must precede dependent in execution_order"
+        );
+        assert_eq!(
+            dag.tasks.get("import_data").unwrap().execution_index,
+            Some(import_idx as u32),
+        );
     }
 
     /// The composition emit path must gate on `validate_dag_typed`, not the

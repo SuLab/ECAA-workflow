@@ -81,9 +81,12 @@ fn default_dag_schema_version() -> semver::Version {
 }
 
 /// Deterministic topological order of task ids (execution order). Graph
-/// nodes are inserted in `BTreeMap` (lexicographic) order so the
-/// tie-break among parallel-ready tasks is stable; the result is
-/// byte-reproducible. Returns an empty `Vec` if the graph has a cycle —
+/// nodes are inserted in `BTreeMap` (lexicographic) order, so among
+/// parallel-ready tasks petgraph's `toposort` breaks ties in a stable,
+/// implementation-defined way (NOT necessarily lexicographic — petgraph
+/// emits a valid order whose tie direction is its own traversal detail).
+/// The result is byte-reproducible for a given dependency graph +
+/// petgraph version. Returns an empty `Vec` if the graph has a cycle —
 /// callers populate this only after `validate_dag*` has proven
 /// acyclicity, so an empty result there is impossible in practice.
 pub fn topo_order_ids(dag: &DAG) -> Vec<TaskId> {

@@ -413,7 +413,16 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
     // reverse-maps never scan them) let a human tell the order of
     // execution from disk. Written before the BagIt manifest seal so
     // they are hashed deterministically.
-    let exec_order = crate::dag::topo_order_ids(config.dag);
+    // Source the index from the DAG's already-populated `execution_order`
+    // (the field serialized into WORKFLOW.json) so the index files can
+    // never disagree with it. Fall back to a fresh topo sort if a caller
+    // handed emit_package a DAG that did not go through a builder
+    // (`execution_order` empty) — the index stays correct either way.
+    let exec_order: Vec<crate::ids::TaskId> = if config.dag.execution_order.is_empty() {
+        crate::dag::topo_order_ids(config.dag)
+    } else {
+        config.dag.execution_order.clone()
+    };
     crate::fs_helpers::atomic_write_bytes_sync(
         &dir.join("runtime/EXECUTION-ORDER.md"),
         render_execution_order_md(&exec_order).as_bytes(),
