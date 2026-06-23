@@ -1487,11 +1487,13 @@ pub fn register_software_dependencies(
     }
 
     // Link new nodes from the ComputationalWorkflow entity's softwareRequirements.
+    // @type may be a plain string or an array — handle both.
     if let Some(wf) = graph.iter_mut().find(|e| {
-        matches!(
-            e.get("@type"),
-            Some(Value::Array(a)) if a.iter().any(|v| v.as_str() == Some("ComputationalWorkflow"))
-        )
+        match e.get("@type") {
+            Some(Value::String(s)) => s == "ComputationalWorkflow",
+            Some(Value::Array(a)) => a.iter().any(|v| v.as_str() == Some("ComputationalWorkflow")),
+            _ => false,
+        }
     }) {
         if let Some(obj) = wf.as_object_mut() {
             let slot = obj
@@ -2287,5 +2289,56 @@ mod tests {
 
         // idempotent: second run adds 0
         assert_eq!(register_software_dependencies(dir.path()).unwrap(), 0);
+    }
+
+    #[test]
+    fn software_dependencies_linked_when_workflow_type_is_plain_string() {
+        // Regression: @type as a plain string "ComputationalWorkflow" (not an array)
+        // must still receive the softwareRequirements link.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("runtime")).unwrap();
+        std::fs::write(
+            dir.path().join("runtime/dependency-lock.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "schema_version": "1",
+                "r": [{"name": "edgeR", "resolved": "3.44.0"}],
+                "python": [],
+                "conda": []
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("ro-crate-metadata.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "@context": "https://w3id.org/ro/crate/1.1/context",
+                "@graph": [
+                    {"@id": "ro-crate-metadata.json", "@type": "CreativeWork", "about": {"@id": "./"}},
+                    {"@id": "./", "@type": "Dataset", "hasPart": []},
+                    {"@id": "WORKFLOW.json", "@type": "ComputationalWorkflow", "name": "wf-string-type"}
+                ]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let n = register_software_dependencies(dir.path()).unwrap();
+        assert_eq!(n, 1, "edgeR registered");
+
+        let doc: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(dir.path().join("ro-crate-metadata.json")).unwrap(),
+        )
+        .unwrap();
+        let g = doc["@graph"].as_array().unwrap();
+
+        // The workflow entity must carry softwareRequirements even with string @type
+        let wf = g.iter().find(|e| e["@id"] == "WORKFLOW.json").unwrap();
+        let reqs: Vec<&str> = wf["softwareRequirements"]
+            .as_array()
+            .expect("softwareRequirements must be present when @type is a plain string")
+            .iter()
+            .filter_map(|r| r["@id"].as_str())
+            .collect();
+        assert!(reqs.contains(&"#dep/r/edgeR"), "edgeR linked via softwareRequirements");
     }
 }
