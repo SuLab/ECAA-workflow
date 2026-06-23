@@ -31,6 +31,10 @@ pub enum ExecEnv {
     HostConda { prefix: PathBuf },
     /// No suitable environment found; re-execution is unavailable.
     None,
+    /// Test-only variant: run `bash <script>` directly on the host shell.
+    /// Gated by `#[cfg(test)]`; never present in production builds.
+    #[cfg(test)]
+    Shell,
 }
 
 /// Options that control and instrument the provisioning decision.
@@ -119,6 +123,8 @@ impl ExecEnv {
             ExecEnv::RebuiltImage { .. } => "rebuilt",
             ExecEnv::HostConda { .. } => "host",
             ExecEnv::None => "none",
+            #[cfg(test)]
+            ExecEnv::Shell => "shell",
         }
     }
 
@@ -187,6 +193,19 @@ impl ExecEnv {
                 io::ErrorKind::Unsupported,
                 "no execution environment available (ExecEnv::None)",
             )),
+
+            #[cfg(test)]
+            ExecEnv::Shell => {
+                // Test-only: run the script directly via `bash`.
+                // Env vars are passed as `KEY=VALUE` prefix args to `env`.
+                let mut args = vec!["env".to_string()];
+                for (k, v) in env {
+                    args.push(format!("{k}={v}"));
+                }
+                args.push("bash".to_string());
+                args.push(script_str);
+                Ok(args)
+            }
         }
     }
 

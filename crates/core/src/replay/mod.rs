@@ -2,5 +2,6 @@
 pub mod env_provision;
 pub mod report;
 pub mod reverify;
+pub mod script_runner;
 pub mod select;
 pub use report::{ReplayReport, ReplayVerdict, ReverifyResult, ReexecuteResult, VerifierDiff, SkippedStage, compute_verdict};
