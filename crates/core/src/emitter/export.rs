@@ -22,9 +22,10 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DepositTier {
     /// Keep (everything else): result tables, `*.md` reports, `figures/`,
-    /// `view_data/`, `evidence/` snapshots, verdict + provenance JSON/JSONL,
-    /// per-task result/spec/validation JSON, `policies/`, `lib/`, crate
-    /// substrate (`ro-crate-metadata.json`, `WORKFLOW.json`, `bagit.txt`, …).
+    /// `evidence/` snapshots, verdict + provenance JSON/JSONL, per-task
+    /// result/spec/validation JSON, `policies/`, `lib/`, crate substrate
+    /// (`ro-crate-metadata.json`, `WORKFLOW.json`, `bagit.txt`, …).
+    /// (`view_data/` is Tier C — a regenerable UI projection, dropped.)
     A,
     /// Keep (re-execution): anything under `…/scripts/`, `env.lock`,
     /// `agent-code.json`, `runtime/plotting{,_r}/*`, `inputs/*`, `counts.tsv`,
@@ -93,6 +94,13 @@ pub(crate) fn classify(rel: &Path) -> DepositTier {
     }
 
     // --- Tier C — drop (operational) -------------------------------------
+    // `view_data/` holds UI-render JSON projections of the result tables
+    // (e.g. `view_data/mean_variance.json` is a plot-ready re-encoding of
+    // `mean_variance.tsv`). It is read only by the live server Dashboard,
+    // is NOT a registered RO-Crate `@id`, and is not consumed by
+    // re-execution — so it is operational bloat for a deposit. The
+    // human-readable `.tsv`/`.csv` source of truth and the rendered
+    // `figures/` are kept; the regenerable JSON projection is dropped.
     if basename.ends_with(".log")
         || basename == ".heartbeat"
         || basename == ".container-state.json"
@@ -100,6 +108,7 @@ pub(crate) fn classify(rel: &Path) -> DepositTier {
         || basename == "state.patch.applied.json"
         || basename == ".blas-probe.json"
         || basename == ".sme-auto-approve-discoveries"
+        || has_component("view_data")
     {
         return DepositTier::C;
     }
@@ -405,6 +414,10 @@ mod tests {
                 DepositTier::A,
             ),
             ("runtime/outputs/x/agent-claude.log", DepositTier::C),
+            // `view_data/` is a regenerable UI projection of the result tables
+            // — Tier C, dropped from deposits (not RO-Crate-registered, not a
+            // re-execution input).
+            ("runtime/outputs/x/view_data/mean_variance.json", DepositTier::C),
             ("runtime/cache/conda-envs/e/f", DepositTier::E),
             ("runtime/r-libs/DESeq2/DESCRIPTION", DepositTier::E),
             ("runtime/outputs/x/scripts/01.R", DepositTier::B),

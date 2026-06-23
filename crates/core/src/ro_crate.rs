@@ -116,6 +116,7 @@ pub fn build_metadata(
                     .map(|iri| json!({"@id": iri}))
                     .collect::<Vec<_>>(),
                 "hasPart": [
+                    {"@id": "README.md"},
                     {"@id": "WORKFLOW.json"},
                     {"@id": "PROMPT.md"},
                     {"@id": "CONTEXT.md"},
@@ -191,6 +192,14 @@ pub fn build_metadata(
             "description": "The domain expert who resolved discovery decisions during intake chat, prior to agent execution."
         }),
         // File entities
+        json!({
+            "@id": "README.md",
+            "@type": "File",
+            "name": "Package README — human landing page",
+            "description": "Human-readable entry point: what was asked, where the answer lands, a map of the package, and the re-run command.",
+            "encodingFormat": "text/markdown",
+            "about": {"@id": "./"}
+        }),
         json!({
             "@id": "PROMPT.md",
             "@type": "File",
@@ -986,6 +995,223 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
     Ok(added)
 }
 
+/// Register the agent-written narrative report documents
+/// (`runtime/outputs/<task>/*.md` — `report.md`, `final_report.md`,
+/// `summary.md`, the literature protocols/verification reports) as
+/// `CreativeWork` File entities in the RO-Crate `@graph`, linked from the
+/// root Dataset's `hasPart`. Without this the human-readable answer is on
+/// disk but absent from the provenance graph, so a curator or RO-Crate tool
+/// following `ro-crate-metadata.json` never reaches it.
+///
+/// `mainEntity` (the workflow) is deliberately left unchanged so the package
+/// stays a valid Workflow-Run-Crate. Idempotent: an `@id` already present is
+/// skipped, so re-running after further task completions never duplicates.
+/// Deterministic order (tasks then files sorted). Returns the count of
+/// newly-registered reports; a no-op `Ok(0)` when there is no descriptor, no
+/// `runtime/outputs/`, or every report is already registered.
+pub fn register_report_documents(package_root: &std::path::Path) -> std::io::Result<usize> {
+    let descriptor = package_root.join("ro-crate-metadata.json");
+    let Ok(bytes) = std::fs::read(&descriptor) else {
+        return Ok(0);
+    };
+    let Ok(mut doc) = serde_json::from_slice::<Value>(&bytes) else {
+        return Ok(0);
+    };
+    let Some(graph) = doc.get_mut("@graph").and_then(Value::as_array_mut) else {
+        return Ok(0);
+    };
+    let existing: std::collections::BTreeSet<String> = graph
+        .iter()
+        .filter_map(|e| e.get("@id").and_then(Value::as_str).map(String::from))
+        .collect();
+
+    // Discover top-level `*.md` reports per task dir, deterministically ordered.
+    let outputs_root = package_root.join("runtime").join("outputs");
+    let mut rels: Vec<String> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&outputs_root) {
+        let mut task_dirs: Vec<std::path::PathBuf> = entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_dir())
+            .collect();
+        task_dirs.sort();
+        for task_dir in task_dirs {
+            let task = task_dir
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+            if task.is_empty() {
+                continue;
+            }
+            if let Ok(files) = std::fs::read_dir(&task_dir) {
+                let mut names: Vec<String> = files
+                    .flatten()
+                    .map(|e| e.path())
+                    .filter(|p| {
+                        p.is_file()
+                            && p.extension().and_then(|s| s.to_str()) == Some("md")
+                    })
+                    .filter_map(|p| {
+                        p.file_name().and_then(|s| s.to_str()).map(String::from)
+                    })
+                    .collect();
+                names.sort();
+                for name in names {
+                    rels.push(format!("runtime/outputs/{task}/{name}"));
+                }
+            }
+        }
+    }
+    rels.sort();
+
+    let mut new_parts: Vec<Value> = Vec::new();
+    for rel in &rels {
+        if existing.contains(rel) {
+            continue;
+        }
+        let (task, file) = rel
+            .strip_prefix("runtime/outputs/")
+            .and_then(|r| r.split_once('/'))
+            .unwrap_or(("", rel.as_str()));
+        graph.push(json!({
+            "@id": rel,
+            "@type": ["File", "CreativeWork"],
+            "name": format!("{task} — {file}"),
+            "description": format!("Narrative report produced by stage '{task}'."),
+            "encodingFormat": "text/markdown",
+            "schema:about": {"@id": format!("#step-{task}")},
+        }));
+        new_parts.push(json!({"@id": rel}));
+    }
+    let added = new_parts.len();
+    if added == 0 {
+        return Ok(0);
+    }
+
+    // Link from the root Dataset's `hasPart` — the canonical RO-Crate 1.1
+    // composition edge: these reports ARE files in the crate, so a walker
+    // following `hasPart` reaches the human narrative. (`mainEntity` stays the
+    // workflow; we deliberately do NOT use `mentions`, which would imply the
+    // crate merely references an external work rather than containing it.)
+    if let Some(root) = graph
+        .iter_mut()
+        .find(|e| e.get("@id").and_then(Value::as_str) == Some("./"))
+    {
+        if let Some(obj) = root.as_object_mut() {
+            let slot = obj
+                .entry("hasPart")
+                .or_insert_with(|| Value::Array(Vec::new()));
+            if let Some(arr) = slot.as_array_mut() {
+                for part in &new_parts {
+                    let pid = part.get("@id");
+                    if !arr.iter().any(|e| e.get("@id") == pid) {
+                        arr.push(part.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    let serialized = serde_json::to_vec_pretty(&doc)?;
+    crate::fs_helpers::atomic_write_bytes_sync(&descriptor, &serialized)?;
+    Ok(added)
+}
+
+/// Render a human-readable `SNAPSHOTS.md` at the package root from the
+/// per-task literature `evidence/manifest.json` files. Each row maps an
+/// opaque content-addressed snapshot hash to its source (PMID / kind / role /
+/// step), so a reviewer can audit the literature grounding without opening
+/// every snapshot blob under `runtime/outputs/<step>/evidence/snapshots/`.
+///
+/// Deterministic (sorted rows). No-op `Ok(())` when no evidence manifests
+/// exist, so non-literature packages emit nothing.
+pub fn render_snapshots_md(package_root: &std::path::Path) -> std::io::Result<()> {
+    let outputs_root = package_root.join("runtime").join("outputs");
+    // (step, source, kind, class, role, snapshot_hash)
+    let mut rows: Vec<(String, String, String, String, String, String)> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&outputs_root) {
+        let mut task_dirs: Vec<std::path::PathBuf> = entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_dir())
+            .collect();
+        task_dirs.sort();
+        for task_dir in task_dirs {
+            let task = task_dir
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+            let manifest = task_dir.join("evidence").join("manifest.json");
+            let Ok(bytes) = std::fs::read(&manifest) else {
+                continue;
+            };
+            let Ok(doc) = serde_json::from_slice::<Value>(&bytes) else {
+                continue;
+            };
+            let Some(entries) = doc.get("entries").and_then(Value::as_array) else {
+                continue;
+            };
+            for e in entries {
+                let path = e.get("path").and_then(Value::as_str).unwrap_or("");
+                let hash = path.rsplit('/').next().unwrap_or(path).to_string();
+                let kind = e.get("source_kind").and_then(Value::as_str).unwrap_or("");
+                let sref = e.get("source_ref").and_then(Value::as_str).unwrap_or("");
+                let sref_kind = e
+                    .get("source_ref_kind")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let class = e.get("source_class").and_then(Value::as_str).unwrap_or("");
+                let role = e
+                    .get("evidence_role")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let source = if sref.is_empty() {
+                    "—".to_string()
+                } else if sref_kind.is_empty() {
+                    sref.to_string()
+                } else {
+                    format!("{sref_kind}:{sref}")
+                };
+                rows.push((
+                    task.clone(),
+                    source,
+                    kind.to_string(),
+                    class.to_string(),
+                    role.to_string(),
+                    hash,
+                ));
+            }
+        }
+    }
+    if rows.is_empty() {
+        return Ok(());
+    }
+    rows.sort();
+    let mut md = String::from(
+        "# Literature evidence snapshots\n\n\
+Human-readable index of the content-addressed literature snapshots stored under \
+`runtime/outputs/<step>/evidence/snapshots/`. Each row maps an opaque snapshot hash to \
+its source so a reviewer can audit the literature grounding without opening every blob. \
+Verify any snapshot with `sha256sum`.\n\n\
+| Step | Source | Kind | Class | Role | Snapshot (sha256) |\n\
+|---|---|---|---|---|---|\n",
+    );
+    for (task, source, kind, class, role, hash) in &rows {
+        let short = if hash.len() > 16 {
+            format!("{}…", &hash[..16])
+        } else {
+            hash.clone()
+        };
+        md.push_str(&format!(
+            "| {task} | {source} | {kind} | {class} | {role} | `{short}` |\n"
+        ));
+    }
+    crate::fs_helpers::atomic_write_bytes_sync(&package_root.join("SNAPSHOTS.md"), md.as_bytes())?;
+    Ok(())
+}
+
 /// Map each workflow task to the sorted set of input step `@id`s feeding it,
 /// read off the `ParameterConnection` entities already in the `@graph`.
 ///
@@ -1113,6 +1339,25 @@ pub fn finalize_evidence_registration_with_verifier(
     verifier: Option<&crate::audit_writer::AuditWriter>,
 ) -> std::io::Result<usize> {
     let added = register_produced_output_tables(root)?;
+    // Surface the human-readable narrative reports in the provenance graph and
+    // index the literature snapshots. Both are additive + best-effort: a
+    // failure must not abort the register + re-seal (the manifest must still
+    // reconcile). Run BEFORE the re-seal so the updated descriptor +
+    // SNAPSHOTS.md are hashed into the regenerated manifest.
+    if let Err(e) = register_report_documents(root) {
+        tracing::warn!(
+            target: "ecaa::ro_crate",
+            error = %e,
+            "narrative-report registration failed"
+        );
+    }
+    if let Err(e) = render_snapshots_md(root) {
+        tracing::warn!(
+            target: "ecaa::ro_crate",
+            error = %e,
+            "SNAPSHOTS.md render failed"
+        );
+    }
     if let Some(verifier) = verifier {
         if let Err(e) = backfill_claim_subgraph(root, verifier) {
             // Best-effort: a back-fill failure must not abort the
@@ -1404,5 +1649,143 @@ mod tests {
             }
             _ => {}
         }
+    }
+
+    /// A production-shaped descriptor that registers a figure but NOT the
+    /// narrative report, plus report `*.md` files on disk under two task dirs.
+    fn write_package_with_reports(root: &std::path::Path) {
+        let graph = json!({
+            "@context": "https://w3id.org/ro/crate/1.1/context",
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "@type": "CreativeWork", "about": {"@id": "./"}},
+                {"@id": "./", "@type": "Dataset", "hasPart": []},
+            ]
+        });
+        std::fs::write(
+            root.join("ro-crate-metadata.json"),
+            serde_json::to_vec_pretty(&graph).unwrap(),
+        )
+        .unwrap();
+        for (task, file) in [
+            ("final_reporting", "final_report.md"),
+            ("reporting", "report.md"),
+            ("differential_expression", "summary.md"),
+        ] {
+            let dir = root.join(format!("runtime/outputs/{task}"));
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join(file), "# narrative\n").unwrap();
+            // A non-md sibling must NOT be registered as a report.
+            std::fs::write(dir.join("table.tsv"), "a\tb\n").unwrap();
+        }
+    }
+
+    #[test]
+    fn register_report_documents_links_narrative_into_graph_and_is_idempotent() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        write_package_with_reports(root);
+
+        let added = register_report_documents(root).unwrap();
+        assert_eq!(added, 3, "the three narrative .md reports are registered");
+
+        let doc: Value =
+            serde_json::from_slice(&std::fs::read(root.join("ro-crate-metadata.json")).unwrap())
+                .unwrap();
+        let graph = doc["@graph"].as_array().unwrap();
+
+        // Each report is a File + CreativeWork node, about its producing step,
+        // markdown-typed.
+        let rep = graph
+            .iter()
+            .find(|e| e["@id"].as_str() == Some("runtime/outputs/final_reporting/final_report.md"))
+            .expect("final_report.md registered");
+        let types: Vec<&str> = rep["@type"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+        assert!(types.contains(&"File") && types.contains(&"CreativeWork"));
+        assert_eq!(rep["encodingFormat"].as_str(), Some("text/markdown"));
+        assert_eq!(
+            rep["schema:about"]["@id"].as_str(),
+            Some("#step-final_reporting")
+        );
+
+        // The non-md sibling is NOT registered.
+        assert!(
+            !graph
+                .iter()
+                .any(|e| e["@id"].as_str() == Some("runtime/outputs/reporting/table.tsv")),
+            "non-md siblings must not be registered as reports"
+        );
+
+        // Linked from root hasPart (the canonical RO-Crate composition edge).
+        let root_node = graph.iter().find(|e| e["@id"].as_str() == Some("./")).unwrap();
+        let part_ids: Vec<&str> = root_node["hasPart"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|p| p["@id"].as_str())
+            .collect();
+        assert!(
+            part_ids.contains(&"runtime/outputs/reporting/report.md"),
+            "root hasPart links the report"
+        );
+        // `mentions` is deliberately NOT used (reports are part of the crate,
+        // not external works it references).
+        assert!(
+            root_node.get("mentions").is_none(),
+            "report registration must not add a `mentions` edge"
+        );
+
+        // Idempotent: a second pass adds nothing and does not duplicate.
+        assert_eq!(register_report_documents(root).unwrap(), 0);
+        let doc2: Value =
+            serde_json::from_slice(&std::fs::read(root.join("ro-crate-metadata.json")).unwrap())
+                .unwrap();
+        let count = doc2["@graph"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e["@id"].as_str() == Some("runtime/outputs/reporting/report.md"))
+            .count();
+        assert_eq!(count, 1, "no duplicate report nodes after re-run");
+    }
+
+    #[test]
+    fn render_snapshots_md_indexes_literature_evidence() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        let ev = root.join("runtime/outputs/review_prior_work/evidence");
+        std::fs::create_dir_all(&ev).unwrap();
+        let manifest = json!({
+            "schema_version": 2,
+            "entries": [
+                {
+                    "source_kind": "pubmed_abstract",
+                    "source_ref_kind": "pmid",
+                    "source_ref": "24926665",
+                    "source_class": "primary_literature",
+                    "evidence_role": "recommendation_or_benchmark",
+                    "path": "snapshots/84c21d2fd1d32f25aa844203feb19f7b75fe77c39db1fb3c527977a08b10ee17"
+                }
+            ]
+        });
+        std::fs::write(ev.join("manifest.json"), serde_json::to_vec(&manifest).unwrap()).unwrap();
+
+        render_snapshots_md(root).unwrap();
+        let md = std::fs::read_to_string(root.join("SNAPSHOTS.md")).unwrap();
+        assert!(md.contains("# Literature evidence snapshots"));
+        assert!(md.contains("review_prior_work"), "step column");
+        assert!(md.contains("pmid:24926665"), "source column");
+        assert!(md.contains("primary_literature"), "class column");
+        // The hash is truncated to a 16-char prefix with an ellipsis.
+        assert!(md.contains("`84c21d2fd1d32f25…`"), "truncated sha256");
+    }
+
+    #[test]
+    fn render_snapshots_md_is_noop_without_evidence() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        render_snapshots_md(tmp.path()).unwrap();
+        assert!(
+            !tmp.path().join("SNAPSHOTS.md").exists(),
+            "no SNAPSHOTS.md when there is no literature evidence"
+        );
     }
 }

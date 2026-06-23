@@ -63,6 +63,9 @@ expression: value
       "description": "single cell scRNA-seq from human IVD samples comparing degenerated and healthy single cell scRNA-seq from human IVD samples comparing degenerated and healthy",
       "hasPart": [
         {
+          "@id": "README.md"
+        },
+        {
           "@id": "WORKFLOW.json"
         },
         {
@@ -384,6 +387,16 @@ expression: value
       "@type": "Role",
       "description": "The domain expert who resolved discovery decisions during intake chat, prior to agent execution.",
       "name": "Subject Matter Expert (intake)"
+    },
+    {
+      "@id": "README.md",
+      "@type": "File",
+      "about": {
+        "@id": "./"
+      },
+      "description": "Human-readable entry point: what was asked, where the answer lands, a map of the package, and the re-run command.",
+      "encodingFormat": "text/markdown",
+      "name": "Package README — human landing page"
     },
     {
       "@id": "PROMPT.md",

@@ -13,6 +13,52 @@ fn execution_order_md_is_nn_prefixed_and_ordered() {
     assert!(md.find("00  data_acquisition").unwrap() < md.find("01  alignment").unwrap());
 }
 
+#[test]
+fn readme_is_human_landing_page() {
+    let dag = rnaseq_dag();
+    let clf = test_classification();
+    let readme = render_readme(&dag, &clf, Some("Find DE genes: treated vs control"));
+    // Title from the domain, objective verbatim, the section scaffold, the
+    // pointers to the index + the front-door metadata, and the re-run command —
+    // the things a reviewer needs first.
+    assert!(
+        readme.starts_with("# computational biology — ECAA analysis package"),
+        "title from domain"
+    );
+    assert!(readme.contains("Find DE genes: treated vs control"), "objective verbatim");
+    assert!(readme.contains("## 1. The answer"));
+    assert!(readme.contains("runtime/EXECUTION-ORDER.md"), "points at the order index");
+    assert!(readme.contains("ro-crate-metadata.json"), "names the front-door metadata");
+    assert!(
+        readme.contains("ecaa-workflow-harness --package ."),
+        "gives the re-run command"
+    );
+    // The step count is the DAG task count, in two places (intro + section 2).
+    assert!(readme.contains(&format!("the {} steps in dependency", dag.tasks.len())));
+    // The "answer" section points only at true report terminals — NOT the
+    // self-describing validate_*/discover_* companions.
+    if dag.tasks.keys().any(|t| t.as_str().starts_with("validate_")) {
+        assert!(
+            !readme.contains("runtime/outputs/validate_"),
+            "validate_* companions must not appear in the answer section"
+        );
+    }
+    // Deterministic: identical inputs render byte-identical output.
+    assert_eq!(
+        readme,
+        render_readme(&dag, &clf, Some("Find DE genes: treated vs control"))
+    );
+}
+
+#[test]
+fn readme_objective_falls_back_to_description() {
+    let dag = rnaseq_dag();
+    let clf = test_classification();
+    // No SME objective → the workflow description carries the "what was asked".
+    let readme = render_readme(&dag, &clf, None);
+    assert!(readme.contains("Bulk RNA-seq differential expression analysis"));
+}
+
 /// Phase B4 — synthesize a representative DAG for emitter tests
 /// without loading a legacy taxonomy YAML. Uses the v4 composer
 /// against `config/archetypes/` (canonical post-B4 source of truth).
@@ -124,6 +170,7 @@ fn emit_creates_required_files() {
     .expect("emit should succeed");
 
     assert!(tmp.path().join("WORKFLOW.json").exists(), "WORKFLOW.json");
+    assert!(tmp.path().join("README.md").exists(), "README.md");
     assert!(tmp.path().join("PROMPT.md").exists(), "PROMPT.md");
     assert!(tmp.path().join("CONTEXT.md").exists(), "CONTEXT.md");
     assert!(

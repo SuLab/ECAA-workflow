@@ -29,6 +29,100 @@ pub(crate) fn render_execution_order_md(order: &[crate::ids::TaskId]) -> String 
     md
 }
 
+/// Render the root `README.md` — the human landing page for a package.
+/// Pure, deterministic, no IO and no clock: title from the classification,
+/// the SME objective verbatim, the step count, and a map of where the
+/// answer + the opaque support files live. This is the single highest
+/// readability-gain artifact: a reviewer opening the package reads this
+/// first instead of guessing among ~400 files. Written at emit BEFORE the
+/// BagIt seal so it is hashed into the manifest. The per-step results and
+/// reports it points at are produced later, when the package is executed.
+pub(crate) fn render_readme(
+    dag: &DAG,
+    classification: &ClassificationResult,
+    objective: Option<&str>,
+) -> String {
+    let title = if !classification.domain.is_empty() {
+        classification.domain.as_str()
+    } else if !classification.modality.is_empty() {
+        classification.modality.as_str()
+    } else {
+        "ECAA analysis"
+    };
+    let objective_line = objective
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| classification.workflow_description.as_str());
+    let objective_line = if objective_line.is_empty() {
+        "_(no objective recorded)_"
+    } else {
+        objective_line
+    };
+
+    // Reporting terminals — where the human-facing answer lands after
+    // execution. The `_reporting` suffix match excludes the self-describing
+    // `validate_*` / `discover_*` companions (builder taxonomy convention):
+    // they validate or scout a reporting stage, they don't produce the report.
+    let mut report_ids: Vec<&str> = dag
+        .tasks
+        .keys()
+        .map(|t| t.as_str())
+        .filter(|id| {
+            !id.starts_with("validate_")
+                && !id.starts_with("discover_")
+                && (*id == "reporting" || *id == "final_reporting" || id.ends_with("_reporting"))
+        })
+        .collect();
+    report_ids.sort_unstable();
+    let answer_block = if report_ids.is_empty() {
+        "_This workflow has no dedicated reporting step; per-step results are under `runtime/outputs/<step>/`._\n".to_string()
+    } else {
+        report_ids
+            .iter()
+            .map(|id| {
+                format!(
+                    "- [`runtime/outputs/{id}/`](runtime/outputs/{id}/) — the narrative report (`report.md` / `final_report.md`) plus its figures and tables.\n"
+                )
+            })
+            .collect::<String>()
+    };
+
+    let n = dag.tasks.len();
+    format!(
+        "# {title} — ECAA analysis package\n\n\
+**What was asked:** {objective_line}\n\n\
+This is a self-contained, re-executable [RO-Crate](https://www.researchobject.org/ro-crate/) \
++ [BagIt](https://www.rfc-editor.org/rfc/rfc8493) package emitted by the ECAA compiler. It \
+bundles the analysis plan, the agent-executed code, every result table and figure, and a \
+complete provenance trail. **You do not need to read every file** — start here.\n\n\
+## 1. The answer\n\n\
+{answer_block}\n\
+## 2. The order things ran\n\n\
+See [`runtime/EXECUTION-ORDER.md`](runtime/EXECUTION-ORDER.md) — the {n} steps in dependency \
+(execution) order. Each step's outputs live under `runtime/outputs/<step_id>/` (the folder \
+name is the step id).\n\n\
+## 3. Where everything is\n\n\
+| Path | What it is |\n\
+|---|---|\n\
+| `WORKFLOW.json` | The task DAG — the machine-readable plan, with per-task EDAM input/output types and execution order. |\n\
+| `runtime/outputs/<step>/` | Per-step results: tables, `figures/`, `agent-code.json`, logs. |\n\
+| `runtime/outputs/<step>/report.md` | Human narrative for reporting steps. |\n\
+| `ro-crate-metadata.json` | RO-Crate / Workflow-Run-Crate provenance metadata — the front door for RO-Crate tooling. |\n\
+| `package.ttl` | The same provenance as an RDF graph, for machine validation (SHACL / OWL-DL). |\n\
+| `manifest-sha512.txt`, `tagmanifest-sha512.txt` | BagIt checksums — verify integrity with `bagit.py --validate .`. |\n\
+| `runtime/proofs.jsonl`, `decisions.jsonl`, `assumptions.jsonl`, `verifier-decisions.jsonl` | Provenance sidecars: typed-edge proofs, SME/agent decisions, assumptions, and the verification trace. |\n\
+| `CONTEXT.md`, `PROMPT.md`, `AGENT-EXECUTOR.md` | The brief the execution agent ran against. |\n\
+| `SNAPSHOTS.md` | Index of the literature-evidence snapshots (written after execution, when any exist). |\n\
+| `lib/`, `runtime/plotting/`, `runtime/plotting_r/` | The plotting library used to render the figures. |\n\n\
+## 4. Re-run it\n\n\
+```\n\
+ecaa-workflow-harness --package . --agent claude\n\
+```\n\n\
+_Generated deterministically by the ECAA compiler from the workflow plan. The per-step results \
+and reports referenced above are produced when the package is executed._\n",
+    )
+}
+
 mod amendment;
 mod bagit;
 mod copy_libs;
@@ -491,6 +585,12 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
     );
     crate::fs_helpers::atomic_write_bytes_sync(&dir.join("PROMPT.md"), prompt_payload.as_bytes())
         .context("writing PROMPT.md")?;
+
+    // Root README — the human landing page. Deterministic; written before
+    // the BagIt seal so it is hashed into the manifest.
+    let readme_payload = render_readme(config.dag, config.classification, config.objective);
+    crate::fs_helpers::atomic_write_bytes_sync(&dir.join("README.md"), readme_payload.as_bytes())
+        .context("writing README.md")?;
 
     // Token-reduction tactic #3: ship an executor-focused brief into every
     // package; the executor agent reads this instead of the contributor-

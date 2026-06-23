@@ -166,10 +166,15 @@ fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<()> {
             Some(n) => n.to_owned(),
             None => continue,
         };
-        // Skip test artifacts + __pycache__ — keep the emitted tree
-        // minimal so the package stays reproducible.
+        // Skip test artifacts + __pycache__ / .pytest_cache — keep the emitted
+        // tree minimal so the package stays reproducible (stray pytest tooling
+        // state must never leak into an emitted package).
         let name_str = name.to_string_lossy();
-        if name_str == "__pycache__" || name_str == "tests" || name_str.ends_with(".pyc") {
+        if name_str == "__pycache__"
+            || name_str == ".pytest_cache"
+            || name_str == "tests"
+            || name_str.ends_with(".pyc")
+        {
             continue;
         }
         let dest_path = dest.join(&name);
@@ -183,4 +188,39 @@ fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::copy_dir_recursive;
+    use tempfile::TempDir;
+
+    #[test]
+    fn copy_dir_recursive_skips_test_and_cache_artifacts() {
+        let src = TempDir::new().unwrap();
+        let dst = TempDir::new().unwrap();
+        let s = src.path();
+        // Keepers.
+        std::fs::write(s.join("core.py"), "x").unwrap();
+        std::fs::create_dir_all(s.join("stages")).unwrap();
+        std::fs::write(s.join("stages/de.py"), "y").unwrap();
+        // Skips: pytest tooling state must never leak into an emitted package.
+        std::fs::create_dir_all(s.join("__pycache__")).unwrap();
+        std::fs::write(s.join("__pycache__/core.cpython-311.pyc"), "b").unwrap();
+        std::fs::create_dir_all(s.join(".pytest_cache/v/cache")).unwrap();
+        std::fs::write(s.join(".pytest_cache/v/cache/lastfailed"), "{}").unwrap();
+        std::fs::create_dir_all(s.join("tests")).unwrap();
+        std::fs::write(s.join("tests/test_core.py"), "t").unwrap();
+        std::fs::write(s.join("stale.pyc"), "p").unwrap();
+
+        let d = dst.path().join("out");
+        copy_dir_recursive(s, &d).unwrap();
+
+        assert!(d.join("core.py").exists(), "real source copied");
+        assert!(d.join("stages/de.py").exists(), "nested source copied");
+        assert!(!d.join("__pycache__").exists(), "__pycache__ skipped");
+        assert!(!d.join(".pytest_cache").exists(), ".pytest_cache skipped");
+        assert!(!d.join("tests").exists(), "tests/ skipped");
+        assert!(!d.join("stale.pyc").exists(), "*.pyc skipped");
+    }
 }
