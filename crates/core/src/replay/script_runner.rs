@@ -181,6 +181,16 @@ fn run_task(
         .collect();
     scripts.sort();
 
+    // A task with no runnable scripts is a vacuous success that would mislead
+    // the comparator into treating a re-execution of nothing as successful.
+    if scripts.is_empty() {
+        return RunOutcome {
+            task_id: task.task_id.clone(),
+            ok: false,
+            stderr: "no runnable scripts found".to_string(),
+        };
+    }
+
     // Also create the output directory for the task so scripts can write there.
     if let Err(e) = std::fs::create_dir_all(scratch.join("runtime/outputs").join(&task.task_id)) {
         return RunOutcome {
@@ -684,6 +694,55 @@ mod tests {
             second.ok,
             "task_ok should still succeed after task_missing failed; stderr: {}",
             second.stderr
+        );
+    }
+
+    /// A task whose `scripts/` directory exists but contains no files must
+    /// yield `ok: false` with a non-empty stderr reason.  An empty scripts dir
+    /// is not a legitimate execution and must never be treated as success.
+    #[test]
+    fn zero_script_task_is_not_ok() {
+        let pkg_tmp = tempdir().unwrap();
+        let scratch_tmp = tempdir().unwrap();
+        let pkg = pkg_tmp.path();
+        let scratch = scratch_tmp.path();
+
+        // Create the scripts dir but leave it empty.
+        let scripts_dir = pkg.join("runtime/outputs/empty_task/scripts");
+        std::fs::create_dir_all(&scripts_dir).unwrap();
+        std::fs::write(
+            pkg.join("runtime/outputs/empty_task/results.tsv"),
+            "x\n",
+        )
+        .unwrap();
+
+        let task = ComputeTask {
+            task_id: "empty_task".to_string(),
+            scripts_dir: scripts_dir.clone(),
+            result_tables: vec!["results.tsv".to_string()],
+        };
+
+        let outcomes = stage_and_run(
+            pkg,
+            scratch,
+            &[task],
+            &[],
+            &shell_env(),
+            "/irrelevant",
+            &BTreeMap::new(),
+        )
+        .unwrap();
+
+        assert_eq!(outcomes.len(), 1);
+        let outcome = &outcomes[0];
+        assert_eq!(outcome.task_id, "empty_task");
+        assert!(
+            !outcome.ok,
+            "a task with zero runnable scripts must not be ok"
+        );
+        assert!(
+            !outcome.stderr.is_empty(),
+            "stderr must contain a reason; got empty string"
         );
     }
 }
