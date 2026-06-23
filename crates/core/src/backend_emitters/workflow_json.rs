@@ -214,6 +214,7 @@ pub fn lower_to_workflow_json(
         workflow_id: dag.id.clone(),
         current_task: None,
         tasks,
+        execution_order: Vec::new(),
         reverse_deps: BTreeMap::new(),
         run_id: None,
     };
@@ -334,6 +335,10 @@ fn repair_orphan_analytical_strands(tasks: &mut BTreeMap<TaskId, Task>) {
             container: None,
             source_atom_id: Some("final_reporting".to_string()),
             safety: crate::atom::SafetyPolicy::default(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            edam_operation: None,
+            execution_index: None,
         };
         tasks.insert(TaskId::from("final_reporting"), synth);
         TaskId::from("final_reporting")
@@ -609,7 +614,39 @@ fn lower_task(node: &TaskNode, depends_on: Vec<TaskId>) -> Result<Task, EmitErro
             .and_then(|v| v.as_str())
             .map(|s| s.to_string()),
         safety: node.safety.clone(),
+        // Additive EDAM projection: surface the node's port data/format
+        // IRIs + the atom's operation IRI into WORKFLOW.json. Read by no
+        // execution path; purely presentational. Deterministic (preserves
+        // port order; SemanticType/attributes are byte-stable).
+        inputs: port_edam(&node.inputs),
+        outputs: port_edam(&node.outputs),
+        edam_operation: node
+            .attributes
+            .get("edam_operation")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string()),
+        execution_index: None,
     })
+}
+
+/// Project a node's `PortContract`s into the slim `PortEdam` records
+/// surfaced into `WORKFLOW.json`. Only real EDAM ontology IRIs are
+/// carried (opaque / local-extension ports yield `edam_data: None`).
+/// Deterministic: preserves port order.
+fn port_edam(ports: &[crate::workflow_contracts::port::PortContract]) -> Vec<crate::dag::PortEdam> {
+    use crate::workflow_contracts::semantic_type::SemanticType;
+    ports
+        .iter()
+        .map(|p| crate::dag::PortEdam {
+            name: p.name.clone(),
+            edam_data: match &p.semantic_type {
+                SemanticType::OntologyTerm { iri, .. } => Some(iri.clone()),
+                _ => None,
+            },
+            edam_format: p.physical_format.as_ref().map(|f| f.iri.clone()),
+        })
+        .collect()
 }
 
 fn lower_task_kind(role: &str, node: &TaskNode) -> TaskKind {
@@ -1046,6 +1083,34 @@ mod tests {
     }
 
     #[test]
+    fn lower_task_surfaces_port_edam_and_operation() {
+        use crate::workflow_contracts::port::PortContract;
+        let mut node = quantify_node();
+        node.inputs = vec![PortContract::from_edam("counts", Some("data:3917"), None)];
+        node.outputs = vec![PortContract::from_edam(
+            "de",
+            Some("data:3754"),
+            Some("format:3475"),
+        )];
+        node.attributes.insert(
+            "edam_operation".into(),
+            serde_json::Value::String("operation:3223".into()),
+        );
+        let task = lower_task(&node, vec![]).unwrap();
+        assert_eq!(
+            task.inputs,
+            vec![crate::dag::PortEdam {
+                name: "counts".into(),
+                edam_data: Some("data:3917".into()),
+                edam_format: None,
+            }]
+        );
+        assert_eq!(task.outputs[0].edam_data.as_deref(), Some("data:3754"));
+        assert_eq!(task.outputs[0].edam_format.as_deref(), Some("format:3475"));
+        assert_eq!(task.edam_operation.as_deref(), Some("operation:3223"));
+    }
+
+    #[test]
     fn lowering_produces_expected_tasks() {
         let dag = simple_dag();
         let result = lower_to_workflow_json(&dag, &EmitContext::defaults()).unwrap();
@@ -1114,6 +1179,10 @@ mod tests {
             container: None,
             source_atom_id: None,
             safety: crate::atom::SafetyPolicy::default(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            edam_operation: None,
+            execution_index: None,
         }
     }
 

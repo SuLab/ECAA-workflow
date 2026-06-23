@@ -13,6 +13,22 @@ use tracing::instrument;
 /// oriented host CLAUDE.md (39 KB).
 const AGENT_EXECUTOR_BRIEF: &str = include_str!("../../templates/AGENT-EXECUTOR.md");
 
+/// Render the human-readable `runtime/EXECUTION-ORDER.md` body from a
+/// topological task order. Pure, deterministic, no IO. Folder names
+/// shown are the unchanged `runtime/outputs/<task_id>/` paths — this is
+/// an index, not a rename.
+pub(crate) fn render_execution_order_md(order: &[crate::ids::TaskId]) -> String {
+    let mut md = String::from(
+        "# Execution order\n\nTasks in dependency (execution) order. \
+         Real outputs live under `runtime/outputs/<task_id>/` — the \
+         folder names are the task ids (unchanged).\n\n",
+    );
+    for (i, id) in order.iter().enumerate() {
+        md.push_str(&format!("{:02}  {}  runtime/outputs/{}/\n", i, id, id));
+    }
+    md
+}
+
 mod amendment;
 mod bagit;
 mod copy_libs;
@@ -390,6 +406,36 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
         workflow_payload.as_bytes(),
     )
     .context("writing WORKFLOW.json")?;
+
+    // Human-readable execution-order index (additive; never read by
+    // execution). Folder names under runtime/outputs/ stay == task_id;
+    // these two files (outside runtime/outputs/ so the read_dir
+    // reverse-maps never scan them) let a human tell the order of
+    // execution from disk. Written before the BagIt manifest seal so
+    // they are hashed deterministically.
+    let exec_order = crate::dag::topo_order_ids(config.dag);
+    crate::fs_helpers::atomic_write_bytes_sync(
+        &dir.join("runtime/EXECUTION-ORDER.md"),
+        render_execution_order_md(&exec_order).as_bytes(),
+    )
+    .context("writing runtime/EXECUTION-ORDER.md")?;
+    let exec_json = serde_json::json!({
+        "workflow_id": config.dag.workflow_id,
+        "order": exec_order
+            .iter()
+            .enumerate()
+            .map(|(i, id)| serde_json::json!({
+                "index": i,
+                "task_id": id,
+                "output_dir": format!("runtime/outputs/{}/", id),
+            }))
+            .collect::<Vec<_>>(),
+    });
+    crate::fs_helpers::atomic_write_bytes_sync(
+        &dir.join("runtime/execution-order.json"),
+        &serde_json::to_vec_pretty(&exec_json).context("serializing execution-order.json")?,
+    )
+    .context("writing runtime/execution-order.json")?;
 
     // W1 — additive D.2 companion. Reconstruct a WorkflowDag from the
     // lowered DAG (port info degrades to "out"/"in" on this path — the

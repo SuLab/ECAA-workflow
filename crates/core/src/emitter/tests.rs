@@ -4,6 +4,15 @@ use crate::ids::TaskId;
 use std::collections::BTreeMap;
 use tempfile::TempDir;
 
+#[test]
+fn execution_order_md_is_nn_prefixed_and_ordered() {
+    let order = vec![TaskId::from("data_acquisition"), TaskId::from("alignment")];
+    let md = render_execution_order_md(&order);
+    assert!(md.contains("00  data_acquisition  runtime/outputs/data_acquisition/"));
+    assert!(md.contains("01  alignment  runtime/outputs/alignment/"));
+    assert!(md.find("00  data_acquisition").unwrap() < md.find("01  alignment").unwrap());
+}
+
 /// Phase B4 — synthesize a representative DAG for emitter tests
 /// without loading a legacy taxonomy YAML. Uses the v4 composer
 /// against `config/archetypes/` (canonical post-B4 source of truth).
@@ -860,6 +869,10 @@ fn emit_ro_crate_registers_required_figures_as_image_objects() {
             container: None,
             source_atom_id: None,
             safety: Default::default(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            edam_operation: None,
+            execution_index: None,
         },
     );
     let dag = DAG {
@@ -870,6 +883,7 @@ fn emit_ro_crate_registers_required_figures_as_image_objects() {
         tasks,
         reverse_deps: BTreeMap::new(),
         run_id: None,
+        execution_order: Vec::new(),
     };
     let clf = ClassificationResult {
         intake_text: "t".to_string(),

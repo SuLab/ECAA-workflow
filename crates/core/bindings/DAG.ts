@@ -32,4 +32,14 @@ tasks: { [key in TaskId]?: Task },
  * first emission — re-emission of an amendment retains the parent's
  * `run_id` so the lineage chain is traceable by id.
  */
-run_id?: string, };
+run_id?: string, 
+/**
+ * Human-facing execution order (topological): a dependency-ordered
+ * list of task ids so a reader of `WORKFLOW.json` can tell the order
+ * of execution without tracing edges. NOT read by the scheduler
+ * (which dispatches from `depends_on`+state); purely presentational.
+ * Empty (serde-default) on DAGs that have not been through
+ * [`DAG::populate_execution_order`]. Excluded from `PartialEq` (a
+ * derived projection, like `reverse_deps`).
+ */
+execution_order: Array<TaskId>, };

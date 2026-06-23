@@ -1,12 +1,8 @@
 use crate::classify::ClassificationResult;
 use crate::clock::Clock;
 use crate::dag::{TaskKind, TaskState, DAG};
-use crate::ids::TaskId;
 use anyhow::Result;
-use petgraph::algo::toposort;
-use petgraph::graph::DiGraph;
 use serde_json::{json, Value};
-use std::collections::HashMap;
 
 /// Build a dereferenceable EDAM ontology IRI from a CURIE-style local id.
 ///
@@ -66,7 +62,7 @@ pub fn build_metadata(
     classification: &ClassificationResult,
     clock: &dyn Clock,
 ) -> Value {
-    let topo_order = compute_topo_order(dag);
+    let topo_order = crate::dag::topo_order_ids(dag);
 
     let mut graph: Vec<Value> = vec![
         // RO-Crate metadata descriptor.
@@ -340,7 +336,7 @@ pub fn build_metadata(
     let mut sme_actions: Vec<Value> = Vec::new();
 
     for (i, id) in topo_order.iter().enumerate() {
-        let task = &dag.tasks[*id];
+        let task = &dag.tasks[id];
         let mut step = json!({
             "@id": format!("#step-{}", id),
             "@type": "HowToStep",
@@ -591,29 +587,6 @@ pub fn p_plan_entity(plan_id: &str, archetype_id: Option<&str>, rationale: &str)
         "matchedArchetype": archetype_id,
         "rationale": rationale,
     })
-}
-
-/// Compute topological order of tasks for correct HowToStep position assignment.
-/// BTreeMap iteration is lexicographic — we need execution order.
-/// Returns Err if cycles exist (should have been caught by validate_dag).
-fn compute_topo_order(dag: &DAG) -> Vec<&TaskId> {
-    let mut g: DiGraph<&TaskId, ()> = DiGraph::new();
-    let idx: HashMap<&TaskId, _> = dag.tasks.keys().map(|id| (id, g.add_node(id))).collect();
-
-    for (id, task) in &dag.tasks {
-        for dep in &task.depends_on {
-            if let (Some(&from), Some(&to)) = (idx.get(dep), idx.get(id)) {
-                g.add_edge(from, to, ());
-            }
-        }
-    }
-
-    // DAG was validated cycle-free at build time; unwrap is safe
-    toposort(&g, None)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|n| *g.node_weight(n).unwrap())
-        .collect()
 }
 
 fn task_kind_label(kind: &TaskKind) -> &'static str {
@@ -1250,7 +1223,7 @@ mod tests {
         }))
         .expect("minimal task deserializes");
         let mut tasks = std::collections::BTreeMap::new();
-        tasks.insert(TaskId::from("t1"), task);
+        tasks.insert(crate::ids::TaskId::from("t1"), task);
         let mut dag = DAG {
             version: "1.0".into(),
             schema_version: crate::dag::current_dag_schema_version(),
@@ -1259,6 +1232,7 @@ mod tests {
             tasks,
             run_id: None,
             reverse_deps: std::collections::BTreeMap::new(),
+            execution_order: Vec::new(),
         };
         dag.rebuild_reverse_deps();
         dag

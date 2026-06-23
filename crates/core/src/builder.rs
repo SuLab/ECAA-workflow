@@ -188,6 +188,7 @@ pub fn build_dag_from_workflow_dag(
     dag.workflow_id = workflow_id.to_string();
     crate::dag::validate_dag_typed(&dag)
         .map_err(|e| anyhow::anyhow!("Phase 16 lowered DAG failed validation: {}", e))?;
+    dag.populate_execution_order();
     Ok(dag)
 }
 
@@ -244,6 +245,7 @@ pub fn build_dag_from_composition(
         workflow_id: workflow_id.to_string(),
         current_task: None,
         tasks,
+        execution_order: Vec::new(),
         reverse_deps: BTreeMap::new(),
         run_id: None,
     };
@@ -261,6 +263,7 @@ pub fn build_dag_from_composition(
         .map_err(anyhow::Error::from)
         .context("DAG validation failed after composition build")?;
 
+    dag.populate_execution_order();
     Ok(dag)
 }
 
@@ -468,6 +471,10 @@ fn emit_stage(stage: &StageSpec, tasks: &mut BTreeMap<TaskId, Task>) -> Result<(
                 container: None,
                 source_atom_id: None,
                 safety: Default::default(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+                edam_operation: None,
+                execution_index: None,
             },
         );
         return Ok(());
@@ -512,6 +519,10 @@ fn emit_stage(stage: &StageSpec, tasks: &mut BTreeMap<TaskId, Task>) -> Result<(
                 container: None,
                 source_atom_id: None,
                 safety: Default::default(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+                edam_operation: None,
+                execution_index: None,
             },
         );
         let mut deps: Vec<TaskId> = stage
@@ -576,6 +587,10 @@ fn emit_stage(stage: &StageSpec, tasks: &mut BTreeMap<TaskId, Task>) -> Result<(
             container: None,
             source_atom_id: None,
             safety: Default::default(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            edam_operation: None,
+            execution_index: None,
         },
     );
 
@@ -611,6 +626,10 @@ fn emit_stage(stage: &StageSpec, tasks: &mut BTreeMap<TaskId, Task>) -> Result<(
                     container: None,
                     source_atom_id: None,
                     safety: Default::default(),
+                    inputs: Vec::new(),
+                    outputs: Vec::new(),
+                    edam_operation: None,
+                    execution_index: None,
                 },
             );
         }
@@ -654,6 +673,10 @@ fn emit_fan_out_stage(stage: &StageSpec, tasks: &mut BTreeMap<TaskId, Task>) {
             container: None,
             source_atom_id: None,
             safety: Default::default(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            edam_operation: None,
+            execution_index: None,
         },
     );
 
@@ -682,6 +705,10 @@ fn emit_fan_out_stage(stage: &StageSpec, tasks: &mut BTreeMap<TaskId, Task>) {
             container: None,
             source_atom_id: None,
             safety: Default::default(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            edam_operation: None,
+            execution_index: None,
         },
     );
 
@@ -706,6 +733,10 @@ fn emit_fan_out_stage(stage: &StageSpec, tasks: &mut BTreeMap<TaskId, Task>) {
             container: None,
             source_atom_id: None,
             safety: Default::default(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            edam_operation: None,
+            execution_index: None,
         },
     );
 
@@ -729,6 +760,10 @@ fn emit_fan_out_stage(stage: &StageSpec, tasks: &mut BTreeMap<TaskId, Task>) {
             container: None,
             source_atom_id: None,
             safety: Default::default(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            edam_operation: None,
+            execution_index: None,
         },
     );
 }
@@ -786,6 +821,10 @@ fn emit_iterate_stage(stage: &StageSpec, tasks: &mut BTreeMap<TaskId, Task>) {
             container: None,
             source_atom_id: None,
             safety: Default::default(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            edam_operation: None,
+            execution_index: None,
         },
     );
 
@@ -817,6 +856,10 @@ fn emit_iterate_stage(stage: &StageSpec, tasks: &mut BTreeMap<TaskId, Task>) {
             container: None,
             source_atom_id: None,
             safety: Default::default(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            edam_operation: None,
+            execution_index: None,
         },
     );
 
@@ -848,6 +891,10 @@ fn emit_iterate_stage(stage: &StageSpec, tasks: &mut BTreeMap<TaskId, Task>) {
             container: None,
             source_atom_id: None,
             safety: Default::default(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            edam_operation: None,
+            execution_index: None,
         },
     );
 
@@ -875,6 +922,10 @@ fn emit_iterate_stage(stage: &StageSpec, tasks: &mut BTreeMap<TaskId, Task>) {
             container: None,
             source_atom_id: None,
             safety: Default::default(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            edam_operation: None,
+            execution_index: None,
         },
     );
 }

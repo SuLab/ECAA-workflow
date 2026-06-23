@@ -49,6 +49,15 @@ pub struct DAG {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub run_id: Option<String>,
+    /// Human-facing execution order (topological): a dependency-ordered
+    /// list of task ids so a reader of `WORKFLOW.json` can tell the order
+    /// of execution without tracing edges. NOT read by the scheduler
+    /// (which dispatches from `depends_on`+state); purely presentational.
+    /// Empty (serde-default) on DAGs that have not been through
+    /// [`DAG::populate_execution_order`]. Excluded from `PartialEq` (a
+    /// derived projection, like `reverse_deps`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub execution_order: Vec<TaskId>,
     /// `task_id → dependents` adjacency, derived from
     /// `tasks[*].depends_on`. Not serialized (would bloat WORKFLOW.json
     /// without being authoritative), not exposed over ts-rs. Populated
@@ -71,6 +80,29 @@ fn default_dag_schema_version() -> semver::Version {
     current_dag_schema_version()
 }
 
+/// Deterministic topological order of task ids (execution order). Graph
+/// nodes are inserted in `BTreeMap` (lexicographic) order so the
+/// tie-break among parallel-ready tasks is stable; the result is
+/// byte-reproducible. Returns an empty `Vec` if the graph has a cycle —
+/// callers populate this only after `validate_dag*` has proven
+/// acyclicity, so an empty result there is impossible in practice.
+pub fn topo_order_ids(dag: &DAG) -> Vec<TaskId> {
+    let mut g: DiGraph<&TaskId, ()> = DiGraph::new();
+    let idx: BTreeMap<&TaskId, _> = dag.tasks.keys().map(|id| (id, g.add_node(id))).collect();
+    for (id, task) in &dag.tasks {
+        for dep in &task.depends_on {
+            if let (Some(&from), Some(&to)) = (idx.get(dep), idx.get(id)) {
+                g.add_edge(from, to, ());
+            }
+        }
+    }
+    toposort(&g, None)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|n| (*g.node_weight(n).unwrap()).clone())
+        .collect()
+}
+
 // PartialEq compares only authoritative fields. The `reverse_deps` cache is
 // derived from `tasks` and may be empty (post-deserialize) or populated; two
 // DAGs with identical tasks must compare equal regardless of cache state.
@@ -84,6 +116,26 @@ impl PartialEq for DAG {
             && self.tasks == other.tasks
             && self.run_id == other.run_id
     }
+}
+
+/// Slim per-port EDAM projection surfaced into `WORKFLOW.json`. Carries
+/// only the ontology data IRI + physical format IRI from a
+/// `PortContract`; the full contract stays in the proof-carrying IR and
+/// `runtime/proofs.jsonl`. Additive and presentational — no execution
+/// path reads it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, schemars::JsonSchema)]
+#[ts(export)]
+pub struct PortEdam {
+    /// Port name (stable within the task).
+    pub name: String,
+    /// EDAM data-class IRI (e.g. `data:3754`). `None` for opaque ports.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub edam_data: Option<String>,
+    /// EDAM format IRI (e.g. `format:3475`). `None` when unspecified.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub edam_format: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, schemars::JsonSchema)]
@@ -154,6 +206,28 @@ pub struct Task {
     /// from the source atom at emit time.
     #[serde(default, skip_serializing_if = "crate::atom::SafetyPolicy::is_default")]
     pub safety: crate::atom::SafetyPolicy,
+    /// Per-port EDAM input types (additive projection of the source
+    /// atom's input ports). Empty when the task has no typed input ports
+    /// (aggregators, some synthesized companions). Presentational only —
+    /// no execution path reads it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inputs: Vec<PortEdam>,
+    /// Per-port EDAM output types (additive projection). Same discipline
+    /// as `inputs`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub outputs: Vec<PortEdam>,
+    /// EDAM operation IRI for the task's source atom (e.g.
+    /// `operation:3223`). `None` when the atom declared none. Additive,
+    /// presentational.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edam_operation: Option<String>,
+    /// 0-based position in the deterministic topological execution
+    /// order. Additive, presentational — drives only the human-facing
+    /// "Step NN" surfaces, never dispatch. `None` until
+    /// [`DAG::populate_execution_order`] runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub execution_index: Option<u32>,
 }
 
 /// DAG-side copy of a required-artifact declaration. Populated by the
@@ -1140,6 +1214,22 @@ impl DAG {
         self.reverse_deps = reverse;
     }
 
+    /// Populate the additive, presentational execution-order projection:
+    /// the top-level `execution_order` list and each task's
+    /// `execution_index`. Pure function of `depends_on` topology,
+    /// computed from the deterministic [`topo_order_ids`]. Idempotent.
+    /// Does NOT affect readiness or dispatch (the scheduler walks the
+    /// `BTreeMap` by id and decides from `depends_on`+state).
+    pub fn populate_execution_order(&mut self) {
+        let order = topo_order_ids(self);
+        for (i, id) in order.iter().enumerate() {
+            if let Some(t) = self.tasks.get_mut(id) {
+                t.execution_index = Some(i as u32);
+            }
+        }
+        self.execution_order = order;
+    }
+
     /// Reset Running tasks older than `timeout_secs` back to Ready.
     pub fn recover_stale_running(&mut self, timeout_secs: u64) {
         let now = chrono::Utc::now();
@@ -1680,6 +1770,55 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
 
+    #[test]
+    fn task_additive_fields_round_trip_and_back_compat() {
+        // Empty additive fields are omitted (byte-identical to today's emit).
+        let t = pending_task(vec![]);
+        let v = serde_json::to_value(&t).unwrap();
+        assert!(v.get("inputs").is_none());
+        assert!(v.get("outputs").is_none());
+        assert!(v.get("edam_operation").is_none());
+        assert!(v.get("execution_index").is_none());
+        // An old-shape object (lacking the new keys) still deserializes.
+        let t2: Task = serde_json::from_value(v).unwrap();
+        assert_eq!(t2.inputs, t.inputs);
+        assert_eq!(t2.execution_index, t.execution_index);
+    }
+
+    #[test]
+    fn topo_order_ids_is_dependency_ordered_and_deterministic() {
+        let dag = make_dag(vec![
+            ("c", pending_task(vec!["b"])),
+            ("b", pending_task(vec!["a"])),
+            ("a", pending_task(vec![])),
+            ("z", pending_task(vec![])), // parallel leaf
+        ]);
+        let order = topo_order_ids(&dag);
+        let pos = |id: &str| order.iter().position(|t| t.as_str() == id).unwrap();
+        assert!(pos("a") < pos("b"));
+        assert!(pos("b") < pos("c"));
+        assert_eq!(order, topo_order_ids(&dag), "must be deterministic");
+        assert_eq!(order.len(), 4);
+    }
+
+    #[test]
+    fn populate_execution_order_sets_topo_order_and_indices() {
+        let mut dag = make_dag(vec![
+            ("b", pending_task(vec!["a"])),
+            ("a", pending_task(vec![])),
+        ]);
+        dag.populate_execution_order();
+        assert_eq!(
+            dag.execution_order,
+            vec![TaskId::from("a"), TaskId::from("b")]
+        );
+        assert_eq!(dag.tasks["a"].execution_index, Some(0));
+        assert_eq!(dag.tasks["b"].execution_index, Some(1));
+        // Idempotent.
+        dag.populate_execution_order();
+        assert_eq!(dag.tasks["b"].execution_index, Some(1));
+    }
+
     fn make_dag(tasks: Vec<(&str, Task)>) -> DAG {
         let mut dag = DAG {
             version: "1.0".into(),
@@ -1690,6 +1829,7 @@ mod tests {
                 .into_iter()
                 .map(|(k, v)| (TaskId::from(k), v))
                 .collect(),
+            execution_order: Vec::new(),
             reverse_deps: BTreeMap::new(),
             run_id: None,
         };
@@ -1714,6 +1854,10 @@ mod tests {
             container: None,
             source_atom_id: None,
             safety: Default::default(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            edam_operation: None,
+            execution_index: None,
         }
     }
 
@@ -1734,6 +1878,10 @@ mod tests {
             container: None,
             source_atom_id: None,
             safety: Default::default(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            edam_operation: None,
+            execution_index: None,
         }
     }
 
@@ -1975,6 +2123,10 @@ mod tests {
                     container: None,
                     source_atom_id: None,
                     safety: Default::default(),
+                    inputs: Vec::new(),
+                    outputs: Vec::new(),
+                    edam_operation: None,
+                    execution_index: None,
                 },
             ),
         ]);
@@ -2001,6 +2153,10 @@ mod tests {
             container: None,
             source_atom_id: None,
             safety: Default::default(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            edam_operation: None,
+            execution_index: None,
         };
         let json = serde_json::to_string(&task).unwrap();
         let back: Task = serde_json::from_str(&json).unwrap();
@@ -2033,6 +2189,10 @@ mod tests {
                 container: None,
                 source_atom_id: None,
                 safety: Default::default(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+                edam_operation: None,
+                execution_index: None,
             };
             let json = serde_json::to_string(&task).unwrap();
             let back: Task = serde_json::from_str(&json).unwrap();
@@ -2296,6 +2456,10 @@ mod tests {
                     container: None,
                     source_atom_id: None,
                     safety: Default::default(),
+                    inputs: Vec::new(),
+                    outputs: Vec::new(),
+                    edam_operation: None,
+                    execution_index: None,
                 },
             ),
         ]);
@@ -2335,6 +2499,10 @@ mod tests {
                     container: None,
                     source_atom_id: None,
                     safety: Default::default(),
+                    inputs: Vec::new(),
+                    outputs: Vec::new(),
+                    edam_operation: None,
+                    execution_index: None,
                 },
             ),
         ]);
@@ -2366,6 +2534,10 @@ mod tests {
                     container: None,
                     source_atom_id: None,
                     safety: Default::default(),
+                    inputs: Vec::new(),
+                    outputs: Vec::new(),
+                    edam_operation: None,
+                    execution_index: None,
                 },
             ),
         ]);
@@ -2595,6 +2767,7 @@ mod tests {
             tasks: BTreeMap::new(),
             reverse_deps: BTreeMap::new(),
             run_id: None,
+            execution_order: Vec::new(),
         };
         dag.insert_task("only".into(), pending_task(vec![]));
         assert!(dag.tasks.contains_key("only"));
@@ -2675,6 +2848,10 @@ mod tests {
                 container: None,
                 source_atom_id: None,
                 safety: Default::default(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+                edam_operation: None,
+                execution_index: None,
             },
         )]);
         dag.recover_stale_running(300);
@@ -2703,6 +2880,10 @@ mod tests {
                     container: None,
                     source_atom_id: None,
                     safety: Default::default(),
+                    inputs: Vec::new(),
+                    outputs: Vec::new(),
+                    edam_operation: None,
+                    execution_index: None,
                 },
             ),
             (
@@ -2728,6 +2909,10 @@ mod tests {
                     container: None,
                     source_atom_id: None,
                     safety: Default::default(),
+                    inputs: Vec::new(),
+                    outputs: Vec::new(),
+                    edam_operation: None,
+                    execution_index: None,
                 },
             ),
         ]);
