@@ -59,6 +59,27 @@ if records_seen and len(projected) == 0:
     )
     sys.exit(1)
 
+# Content-addressed cache (opt-in via ECAA_SPEC_CACHE_DIR): the expensive
+# pyshacl.validate over (ABox + ontology + shapes) is a deterministic function
+# of those inputs, so an identical re-validation replays the cached verdict and
+# skips both the ~0.8s pyshacl run and the ~40ms Turtle parses. Disabled ⇒
+# every call below is a no-op and the output/timing are unchanged.
+from _cache import enabled as _cache_enabled, validation_key, lookup, store  # noqa: E402
+
+_cache_on = _cache_enabled()
+_source_files = [
+    spec_dir / "ecaa-v0.2.shacl.ttl",
+    spec_dir / "ecaa-v0.2.ttl",
+    spec_dir / "registration" / "ecaa-skos-schemes.ttl",
+    spec_dir / "registration" / "ecaa-profiles.ttl",
+]
+_cache_key = validation_key("shacl", projected, _source_files) if _cache_on else None
+_cached = lookup(_cache_key)
+if _cached is not None:
+    sys.stdout.write(_cached["output"])
+    print("shacl_projection: cache HIT (skipped pyshacl)", file=sys.stderr)
+    sys.exit(_cached["exit_code"])
+
 # Load ontology (inference graph).
 onto = Graph()
 onto.parse(spec_dir / "ecaa-v0.2.ttl", format="turtle")
@@ -138,9 +159,10 @@ violated_shapes = set()
 for result in report_graph.subjects(RDF.type, _sh("ValidationResult")):
     for src in report_graph.objects(result, _sh("sourceShape")):
         violated_shapes.add(_local_name(src))
+out_lines = []
 for shape in sorted(declared_shapes):
     verdict = "FAIL" if shape in violated_shapes else "PASS"
-    print(f"SHACL-INVARIANT: {shape}={verdict}")
+    out_lines.append(f"SHACL-INVARIANT: {shape}={verdict}")
 
 # Two conformsTo tiers (registration/ecaa-profiles.ttl), graded by per-result
 # sh:resultSeverity — purely additive lines that do NOT affect the global
@@ -162,10 +184,17 @@ for result in report_graph.subjects(RDF.type, _sh("ValidationResult")):
     # No explicit severity on a result ⇒ SHACL default sh:Violation.
     if (not sevs) or (violation_severity in sevs):
         has_violation = True
-print(f"SHACL-TIER: substrate-hygiene={'FAIL' if has_violation else 'PASS'}")
-print(f"SHACL-TIER: apparatus={'FAIL' if has_any_result else 'PASS'}")
+out_lines.append(f"SHACL-TIER: substrate-hygiene={'FAIL' if has_violation else 'PASS'}")
+out_lines.append(f"SHACL-TIER: apparatus={'FAIL' if has_any_result else 'PASS'}")
+out_lines.append(f"SHACL conformance: {'PASS' if conforms else 'FAIL'}")
 
-print(f"SHACL conformance: {'PASS' if conforms else 'FAIL'}")
+# Emit the verdict block in one write so the cached replay is byte-identical to
+# a live run, then persist it (no-op when caching is disabled).
+output = "\n".join(out_lines) + "\n"
+exit_code = 0
 if not conforms:
-    print(report)
-    sys.exit(1)
+    output += f"{report}\n"
+    exit_code = 1
+sys.stdout.write(output)
+store(_cache_key, exit_code, output)
+sys.exit(exit_code)

@@ -64,6 +64,24 @@ if pkg_dir is not None:
         f"(combined: {len(g)}, +{len(g) - before})"
     )
 
+# Content-addressed cache (opt-in via ECAA_SPEC_CACHE_DIR): HermiT
+# (sync_reasoner) is the ~1s cost and is a deterministic function of
+# (ontology + ABox), so an identical re-check replays the cached "OK" verdict
+# and skips the JVM/HermiT round-trip. Only SUCCESS is cached — an
+# inconsistency is rare and re-run live so its diagnostics stay fresh.
+# Disabled ⇒ every call here is a no-op.
+from _cache import enabled as _cache_enabled, validation_key, lookup, store  # noqa: E402
+
+_cache_on = _cache_enabled()
+_kind = "owl" if pkg_dir is not None else "owl-static"
+_abox_for_key = abox if pkg_dir is not None else None
+_cache_key = validation_key(_kind, _abox_for_key, [ttl_path]) if _cache_on else None
+_cached = lookup(_cache_key)
+if _cached is not None:
+    sys.stdout.write(_cached["output"])
+    print("owl_consistency: cache HIT (skipped HermiT)", file=sys.stderr)
+    sys.exit(_cached["exit_code"])
+
 # Round-trip the combined graph TTL/ABox → RDF/XML for owlready2 consumption.
 with tempfile.NamedTemporaryFile(suffix=".owl", delete=False, mode="wb") as tmp:
     tmp.write(g.serialize(format="xml").encode())
@@ -74,12 +92,14 @@ try:
     with onto:
         sync_reasoner(infer_property_values=True)
     scope = "ontology + package ABox" if pkg_dir is not None else "ecaa-v0.2.ttl"
-    print(
+    output = (
         f"OK: {scope} is OWL-DL-satisfiable "
         f"({len(list(onto.classes()))} classes, "
         f"{len(list(onto.object_properties()))} object properties, "
-        f"{len(list(onto.individuals()))} named individuals)"
+        f"{len(list(onto.individuals()))} named individuals)\n"
     )
+    sys.stdout.write(output)
+    store(_cache_key, 0, output)
 except OwlReadyInconsistentOntologyError as e:
     scope = "ontology + package ABox" if pkg_dir is not None else "ontology"
     print(f"FAIL: {scope} is inconsistent: {e}", file=sys.stderr)
