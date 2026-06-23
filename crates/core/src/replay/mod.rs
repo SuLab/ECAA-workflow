@@ -36,7 +36,7 @@ pub struct ReplayOptions {
     /// Which tier(s) to execute.
     pub tier: Tier,
     /// Scratch directory for re-execution staging. A fresh `tempdir` is
-    /// created when `None`.
+    /// created when `None`. The caller owns cleanup of any supplied directory.
     pub scratch_dir: Option<PathBuf>,
     /// Path to a `ModalityBoundsProvider` directory (`config/reexecution-bounds/`)
     /// used to resolve per-modality tolerances. When `None`, `ModalityBounds::default()`
@@ -134,7 +134,8 @@ pub fn run_replay(pkg: &Path, opts: &ReplayOptions) -> anyhow::Result<ReplayRepo
         let bounds = match &opts.bounds {
             Some(dir) => {
                 let provider = crate::reexecution_bounds::ModalityBoundsProvider::from_dir(dir);
-                provider.bounds_for("") // returns default for unknown modality
+                let modality = pkg_modality(pkg);
+                provider.bounds_for(&modality)
             }
             None => ModalityBounds::default(),
         };
@@ -169,7 +170,7 @@ pub fn run_replay(pkg: &Path, opts: &ReplayOptions) -> anyhow::Result<ReplayRepo
                 }
             }
             // Re-finalize bucket_counts after overrides.
-            reexec_report = re_finalize(reexec_report);
+            reexec_report.finalize_counts();
         }
 
         report.reexecute = Some(crate::replay::report::ReexecuteResult {
@@ -234,21 +235,28 @@ fn read_execution_order(pkg: &Path) -> Vec<String> {
 /// Read the recorded execution environment from the first task that has a
 /// `determinism-env.json`. Returns `(recorded_root, recorded_env_vars)`.
 ///
-/// The `pkg_root` field in the determinism-env.json is the absolute path
-/// where the package originally ran. We use that as `recorded_root` so that
-/// `stage_and_run` can rewrite embedded paths in staged scripts. When
-/// absent, we fall back to the package's own canonical absolute path.
+/// `recorded_root` is the absolute path embedded in the package's compute
+/// scripts at emit time. Discovery order:
+/// 1. `pkg_root` field in the first `determinism-env.json` found (if a future
+///    writer emits it, prefer it).
+/// 2. Script-scan: walk `runtime/outputs/*/scripts/*.{R,py,sh}` in sorted
+///    order; the first file containing `/<basename>` (where `basename` is the
+///    package directory's own basename) yields the prefix up to and including
+///    `/<basename>` as `recorded_root`.
+/// 3. Empty string — `stage_and_run` treats this as "no path rewrite needed",
+///    which is correct for packages that rely solely on the `PKG_ROOT`/`PACKAGE`
+///    environment variable.
 ///
-/// `recorded_env` is built from `captured_env_vars` + determinism-pinning
-/// keys (`SOURCE_DATE_EPOCH`, `PYTHONHASHSEED`, `LC_ALL`, `TZ`) present in
-/// the sidecar.
-fn read_recorded_env(pkg: &Path) -> (String, BTreeMap<String, String>) {
+/// `recorded_env` is built from determinism-pinning keys
+/// (`SOURCE_DATE_EPOCH`, `PYTHONHASHSEED`, `LC_ALL`, `TZ`, `LANG`) present
+/// in the sidecar.
+pub(crate) fn read_recorded_env(pkg: &Path) -> (String, BTreeMap<String, String>) {
     let outputs = pkg.join("runtime/outputs");
     let mut env: BTreeMap<String, String> = BTreeMap::new();
     let mut recorded_root = String::new();
 
     // Walk runtime/outputs/ in lexicographic order to find the first
-    // determinism-env.json.
+    // determinism-env.json and collect determinism-pinning vars.
     if let Ok(entries) = std::fs::read_dir(&outputs) {
         let mut dirs: Vec<_> = entries
             .flatten()
@@ -262,7 +270,7 @@ fn read_recorded_env(pkg: &Path) -> (String, BTreeMap<String, String>) {
             let Ok(raw) = std::fs::read_to_string(&det_env_path) else { continue; };
             let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) else { continue; };
 
-            // recorded_root from `pkg_root` field.
+            // Source 1: `pkg_root` field (preferred when present).
             if let Some(root) = val.get("pkg_root").and_then(|v| v.as_str()) {
                 if !root.is_empty() {
                     recorded_root = root.to_owned();
@@ -271,10 +279,8 @@ fn read_recorded_env(pkg: &Path) -> (String, BTreeMap<String, String>) {
 
             // Determinism-pinning vars: SOURCE_DATE_EPOCH, PYTHONHASHSEED, LC_ALL, TZ, LANG.
             for key in &["source_date_epoch", "pythonhashseed", "lc_all", "tz", "lang"] {
-                let env_key = key.to_ascii_uppercase();
-                // `lc_all` → `LC_ALL`, `tz` → `TZ`, etc.
                 let env_key = if *key == "lc_all" { "LC_ALL".to_string() }
-                              else { env_key };
+                              else { key.to_ascii_uppercase() };
                 if let Some(v) = val.get(key).and_then(|v| v.as_str()) {
                     if !v.is_empty() {
                         env.insert(env_key, v.to_owned());
@@ -285,16 +291,72 @@ fn read_recorded_env(pkg: &Path) -> (String, BTreeMap<String, String>) {
         }
     }
 
-    // Fallback: use the package's own canonical absolute path as recorded_root.
+    // Source 2: script-scan (when pkg_root field was absent).
     if recorded_root.is_empty() {
-        recorded_root = pkg
-            .canonicalize()
-            .unwrap_or_else(|_| pkg.to_path_buf())
-            .display()
-            .to_string();
+        recorded_root = discover_recorded_root_from_scripts(pkg);
     }
 
+    // Source 3: empty — no rewrite needed.
+
     (recorded_root, env)
+}
+
+/// Scan compute scripts (`runtime/outputs/*/scripts/*.{R,py,sh}`) for an
+/// absolute path containing `/<basename>`, and return the prefix up to and
+/// including that component.  Returns an empty string when no such path is
+/// found (packages that use `PKG_ROOT`/`PACKAGE` env instead of hardcoded paths).
+fn discover_recorded_root_from_scripts(pkg: &Path) -> String {
+    let basename = match pkg.file_name().and_then(|n| n.to_str()) {
+        Some(b) if !b.is_empty() => b.to_owned(),
+        _ => return String::new(),
+    };
+    let needle = format!("/{}", basename);
+
+    let outputs = pkg.join("runtime/outputs");
+    let Ok(task_entries) = std::fs::read_dir(&outputs) else { return String::new(); };
+
+    let mut task_dirs: Vec<_> = task_entries
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .collect();
+    task_dirs.sort_by_key(|e| e.file_name());
+
+    for task_dir in task_dirs {
+        let scripts_dir = task_dir.path().join("scripts");
+        let Ok(script_entries) = std::fs::read_dir(&scripts_dir) else { continue; };
+
+        let mut scripts: Vec<_> = script_entries
+            .flatten()
+            .filter(|e| {
+                let p = e.path();
+                matches!(
+                    p.extension().and_then(|x| x.to_str()),
+                    Some("R") | Some("py") | Some("sh")
+                )
+            })
+            .collect();
+        scripts.sort_by_key(|e| e.file_name());
+
+        for script in scripts {
+            let Ok(text) = std::fs::read_to_string(script.path()) else { continue; };
+            if let Some(pos) = text.find(&needle) {
+                // Expand left to the start of the absolute path.
+                let before = &text[..pos];
+                let path_start = before
+                    .rfind(|c: char| !c.is_ascii() || c == '"' || c == '\'' || c == '(' || c == ' ' || c == '\n' || c == '\r' || c == '\t' || c == '=')
+                    .map(|i| i + 1)
+                    .unwrap_or(0);
+                let candidate = &text[path_start..pos + needle.len()];
+                // Validate it looks like an absolute path.
+                if candidate.starts_with('/') {
+                    return candidate.to_owned();
+                }
+            }
+        }
+    }
+
+    tracing::debug!("no hardcoded root found in scripts for package {basename}; no path rewrite will be applied");
+    String::new()
 }
 
 /// Read package metadata (`package_iri`, `min_reader_version`) from
@@ -334,20 +396,20 @@ fn extract_task_id_from_artifact_path(artifact_path: &str) -> Option<&str> {
     }
 }
 
-/// Re-finalize `bucket_counts` after manual bucket overrides.
-///
-/// `ReexecutionReport` does not expose `finalize_counts` publicly, so we
-/// recompute the map directly here.
-fn re_finalize(mut report: crate::reexecution::ReexecutionReport) -> crate::reexecution::ReexecutionReport {
-    report.bucket_counts.clear();
-    for ac in &report.per_artifact {
-        let key = serde_json::to_value(&ac.bucket)
-            .ok()
-            .and_then(|v| v.as_str().map(|s| s.to_string()))
-            .unwrap_or_else(|| "unknown".to_string());
-        *report.bucket_counts.entry(key).or_insert(0) += 1;
+/// Extract the modality from the package directory basename.
+/// Package basenames have the form `<uuid>-<modality>-<timestamp>`.
+/// Returns an empty string when the basename doesn't match this pattern
+/// (the caller falls back to `ModalityBounds::default()`).
+fn pkg_modality(pkg: &Path) -> String {
+    fn inner(pkg: &Path) -> Option<String> {
+        let basename = pkg.file_name()?.to_str()?;
+        // Format: <uuid36>-<modality>-<YYYYMMDDTHHmmss>
+        // 36-char UUID + 1 hyphen = skip first 37 chars.
+        let after_uuid = basename.get(37..)?;
+        let last_hyphen = after_uuid.rfind('-')?;
+        Some(after_uuid[..last_hyphen].to_string())
     }
-    report
+    inner(pkg).unwrap_or_default()
 }
 
 // ---------------------------------------------------------------------------
@@ -515,6 +577,55 @@ mod tests {
         assert_eq!(
             extract_task_id_from_artifact_path("runtime/outputs/"),
             None
+        );
+    }
+
+    /// `read_recorded_env` discovers `recorded_root` from a hardcoded absolute
+    /// path embedded in a compute script when `determinism-env.json` has no
+    /// `pkg_root` field.
+    #[test]
+    fn recorded_root_discovered_from_hardcoded_script() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        let basename = pkg.file_name().unwrap().to_str().unwrap().to_owned();
+
+        // Write a script with a hardcoded absolute path containing the basename.
+        let script_dir = pkg.join("runtime/outputs/normalisation/scripts");
+        fs::create_dir_all(&script_dir).unwrap();
+        fs::write(
+            script_dir.join("01.R"),
+            format!("pkg <- \"/orig/emit/path/{basename}\"\n"),
+        )
+        .unwrap();
+
+        let (root, _env) = read_recorded_env(pkg);
+        assert_eq!(
+            root,
+            format!("/orig/emit/path/{basename}"),
+            "recorded_root must be the emit-time prefix extracted from the script"
+        );
+    }
+
+    /// `read_recorded_env` returns an empty `recorded_root` when no script
+    /// contains a hardcoded absolute path with the package basename.
+    #[test]
+    fn recorded_root_empty_when_no_hardcoded_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+
+        // Script uses only the PKG_ROOT env var — no hardcoded absolute path.
+        let script_dir = pkg.join("runtime/outputs/normalisation/scripts");
+        fs::create_dir_all(&script_dir).unwrap();
+        fs::write(
+            script_dir.join("01.R"),
+            "pkg_root <- Sys.getenv(\"PKG_ROOT\", getwd())\n",
+        )
+        .unwrap();
+
+        let (root, _env) = read_recorded_env(pkg);
+        assert!(
+            root.is_empty(),
+            "recorded_root must be empty when no hardcoded path is present, got: {root:?}"
         );
     }
 }

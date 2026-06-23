@@ -72,7 +72,7 @@ impl ReexecutionReport {
 
     /// Recompute `bucket_counts` from `per_artifact`. Called internally after
     /// classification is complete.
-    fn finalize_counts(&mut self) {
+    pub(crate) fn finalize_counts(&mut self) {
         self.bucket_counts.clear();
         for ac in &self.per_artifact {
             let key = serde_json::to_value(&ac.bucket)
