@@ -1118,6 +1118,121 @@ pub fn register_report_documents(package_root: &std::path::Path) -> std::io::Res
     Ok(added)
 }
 
+/// Register the re-executability + accountability sidecar files that already
+/// exist on disk as first-class `@graph` File/CreativeWork entities, linked
+/// from the root Dataset's `hasPart`. Idempotent; presence-gated. Called from
+/// finalize BEFORE the BagIt re-seal. Never fabricates: only registers files
+/// that actually exist on disk.
+///
+/// Sidecars covered:
+/// - `runtime/dependency-lock.json` — pinned R/Python/conda package versions
+/// - `policies/runtime-prereqs.json` — base image + system/language packages
+/// - `policies/container.json` — container image reference
+/// - `runtime/reexecution.json` — per-artifact reproduction buckets
+/// - `runtime/cost-ledger.jsonl` — per-step resource/cost accounting
+///
+/// Returns the count of newly-added entities (0 on a second/idempotent call).
+pub fn register_reexecutability_sidecars(
+    package_root: &std::path::Path,
+) -> std::io::Result<usize> {
+    // (rel_path, name, description, encodingFormat)
+    const SIDECARS: &[(&str, &str, &str, &str)] = &[
+        (
+            "runtime/dependency-lock.json",
+            "Dependency lock — requested R/Python/conda package versions",
+            "Re-executability signal: the pinned dependency set for the run.",
+            "application/json",
+        ),
+        (
+            "policies/runtime-prereqs.json",
+            "Runtime prerequisites — base image, system + language packages",
+            "Re-executability signal: the runtime environment requirements.",
+            "application/json",
+        ),
+        (
+            "policies/container.json",
+            "Container specification — execution image reference",
+            "Re-executability signal: the container image used for execution.",
+            "application/json",
+        ),
+        (
+            "runtime/reexecution.json",
+            "Re-execution equivalence report — per-artifact reproduction buckets",
+            "Provenance: how re-executed outputs compared to the recorded run.",
+            "application/json",
+        ),
+        (
+            "runtime/cost-ledger.jsonl",
+            "Cost ledger — per-step resource/cost accounting",
+            "Accountability: recorded compute/cost ledger for the run.",
+            "application/jsonl",
+        ),
+    ];
+
+    let descriptor = package_root.join("ro-crate-metadata.json");
+    let Ok(bytes) = std::fs::read(&descriptor) else {
+        return Ok(0);
+    };
+    let Ok(mut doc) = serde_json::from_slice::<Value>(&bytes) else {
+        return Ok(0);
+    };
+    let Some(graph) = doc.get_mut("@graph").and_then(Value::as_array_mut) else {
+        return Ok(0);
+    };
+    let existing: std::collections::BTreeSet<String> = graph
+        .iter()
+        .filter_map(|e| e.get("@id").and_then(Value::as_str).map(String::from))
+        .collect();
+
+    let mut new_parts: Vec<Value> = Vec::new();
+    for (rel, name, desc, fmt) in SIDECARS {
+        if existing.contains(*rel) {
+            continue;
+        }
+        if !package_root.join(rel).exists() {
+            continue;
+        }
+        graph.push(json!({
+            "@id": rel,
+            "@type": ["File", "CreativeWork"],
+            "name": name,
+            "description": desc,
+            "encodingFormat": fmt,
+            "about": {"@id": "./"},
+        }));
+        new_parts.push(json!({"@id": rel}));
+    }
+    let added = new_parts.len();
+    if added == 0 {
+        return Ok(0);
+    }
+
+    // Link from the root Dataset's `hasPart` — the canonical RO-Crate 1.1
+    // composition edge.
+    if let Some(root) = graph
+        .iter_mut()
+        .find(|e| e.get("@id").and_then(Value::as_str) == Some("./"))
+    {
+        if let Some(obj) = root.as_object_mut() {
+            let slot = obj
+                .entry("hasPart")
+                .or_insert_with(|| Value::Array(Vec::new()));
+            if let Some(arr) = slot.as_array_mut() {
+                for part in &new_parts {
+                    let pid = part.get("@id");
+                    if !arr.iter().any(|e| e.get("@id") == pid) {
+                        arr.push(part.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    let serialized = serde_json::to_vec_pretty(&doc)?;
+    crate::fs_helpers::atomic_write_bytes_sync(&descriptor, &serialized)?;
+    Ok(added)
+}
+
 /// Render a human-readable `SNAPSHOTS.md` at the package root from the
 /// per-task literature `evidence/manifest.json` files. Each row maps an
 /// opaque content-addressed snapshot hash to its source (PMID / kind / role /
@@ -1356,6 +1471,18 @@ pub fn finalize_evidence_registration_with_verifier(
             target: "ecaa::ro_crate",
             error = %e,
             "SNAPSHOTS.md render failed"
+        );
+    }
+    // Register re-executability + accountability sidecars (dependency-lock,
+    // runtime-prereqs, container, reexecution, cost-ledger) as first-class
+    // @graph entities. Best-effort: a failure must not abort the re-seal.
+    // Run BEFORE the re-seal so the updated descriptor is hashed into the
+    // regenerated manifest.
+    if let Err(e) = register_reexecutability_sidecars(root) {
+        tracing::warn!(
+            target: "ecaa::ro_crate",
+            error = %e,
+            "reexecutability sidecar registration failed"
         );
     }
     if let Some(verifier) = verifier {
@@ -1838,5 +1965,63 @@ mod tests {
             !tmp.path().join("SNAPSHOTS.md").exists(),
             "no SNAPSHOTS.md when there is no literature evidence"
         );
+    }
+
+    #[test]
+    fn reexecutability_sidecars_register_into_graph_and_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        // minimal descriptor with a root Dataset + empty hasPart
+        std::fs::write(
+            dir.path().join("ro-crate-metadata.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "@context": "https://w3id.org/ro/crate/1.1/context",
+                "@graph": [
+                    {"@id":"ro-crate-metadata.json","@type":"CreativeWork","about":{"@id":"./"}},
+                    {"@id":"./","@type":"Dataset","hasPart":[]}
+                ]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("runtime")).unwrap();
+        std::fs::create_dir_all(dir.path().join("policies")).unwrap();
+        std::fs::write(dir.path().join("runtime/dependency-lock.json"), b"{}").unwrap();
+        std::fs::write(
+            dir.path().join("policies/container.json"),
+            b"{\"image\":\"x\"}",
+        )
+        .unwrap();
+
+        let n = register_reexecutability_sidecars(dir.path()).unwrap();
+        assert!(n >= 2, "registered at least dependency-lock + container");
+
+        let doc: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(dir.path().join("ro-crate-metadata.json")).unwrap(),
+        )
+        .unwrap();
+        let graph = doc["@graph"].as_array().unwrap();
+        let lock = graph
+            .iter()
+            .find(|e| e["@id"] == "runtime/dependency-lock.json")
+            .unwrap();
+        let types: Vec<&str> = lock["@type"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        assert!(types.contains(&"File"));
+        let root = graph.iter().find(|e| e["@id"] == "./").unwrap();
+        let parts: Vec<&str> = root["hasPart"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|p| p["@id"].as_str())
+            .collect();
+        assert!(parts.contains(&"runtime/dependency-lock.json"));
+
+        // idempotent
+        let n2 = register_reexecutability_sidecars(dir.path()).unwrap();
+        assert_eq!(n2, 0, "second run adds nothing");
     }
 }
