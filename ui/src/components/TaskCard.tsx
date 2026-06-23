@@ -213,6 +213,26 @@ export default function TaskCard({
           )}
         </div>
         <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          {!collapsed && task.execution_index != null && (
+            // Human-readable execution-order ordinal (additive, presentational —
+            // sourced from the deterministic topo `execution_index`; never drives
+            // dispatch).
+            <span
+              data-step-index={task.execution_index}
+              title={`Step ${task.execution_index} in execution order`}
+              style={{
+                padding: '1px 5px',
+                background: 'var(--color-surface-2)',
+                borderRadius: 3,
+                color: 'var(--color-text-secondary)',
+                fontSize: '0.62rem',
+                fontWeight: 700,
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              {String(task.execution_index).padStart(2, '0')}
+            </span>
+          )}
           <span
             style={{
               padding: '1px 4px',

@@ -120,8 +120,8 @@ function normalizeManifest(raw: unknown): FiguresManifestShape | null {
  * source of truth: if a stage wrote `figures/manifest.json` with at
  * least one entry, it shows up.
  *
- * Ordering follows DAG topological position (task order from
- * WORKFLOW.json is already dependency-sorted by the builder).
+ * Ordering follows the DAG's `execution_order` (topological) when
+ * present, falling back to alphabetical task id otherwise.
  */
 export function FiguresPane({ sessionId, dag }: Props) {
   // Probe only tasks that could plausibly have written figures —
@@ -135,6 +135,9 @@ export function FiguresPane({ sessionId, dag }: Props) {
   // because the memo re-derives whenever `dag` changes.
   const probedTaskIds = useMemo(() => {
     if (!dag) return [] as string[]
+    // Topological execution order for display; alphabetical fallback when a
+    // package predates `execution_order`.
+    const orderIndex = new Map((dag.execution_order ?? []).map((id, i) => [id, i] as const))
     return Object.entries(dag.tasks)
       .filter(([id, task]) => {
         if (!task) return false
@@ -158,6 +161,7 @@ export function FiguresPane({ sessionId, dag }: Props) {
         )
       })
       .map(([id]) => id)
+      .sort((a, b) => (orderIndex.get(a) ?? 1e9) - (orderIndex.get(b) ?? 1e9))
   }, [dag])
 
   const [byTask, setByTask] = useState<Record<string, FiguresManifestShape | null>>({})

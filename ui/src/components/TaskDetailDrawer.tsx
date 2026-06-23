@@ -467,6 +467,81 @@ export default function TaskDetailDrawer({
               {statusInfo.label}
             </span>
           </div>
+          {(task.execution_index != null ||
+            task.inputs.length > 0 ||
+            task.outputs.length > 0 ||
+            task.edam_operation) && (
+            // Additive, presentational: execution-order ordinal + per-port EDAM
+            // data/operation types. Read-only; never affects execution.
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+              {task.execution_index != null && (
+                <span
+                  title="Execution order"
+                  style={{
+                    padding: '1px 6px',
+                    borderRadius: 3,
+                    background: 'var(--color-surface-2)',
+                    color: 'var(--color-text-secondary)',
+                    fontSize: '0.66rem',
+                    fontWeight: 700,
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
+                  Step {String(task.execution_index).padStart(2, '0')}
+                </span>
+              )}
+              {task.edam_operation && (
+                <span
+                  title="EDAM operation"
+                  style={{
+                    padding: '1px 6px',
+                    borderRadius: 3,
+                    background: 'var(--color-surface-2)',
+                    color: 'var(--color-text-secondary)',
+                    fontSize: '0.66rem',
+                  }}
+                >
+                  {task.edam_operation}
+                </span>
+              )}
+              {task.inputs
+                .filter((p) => p.edam_data)
+                .map((p) => (
+                  <span
+                    key={`in-${p.name}`}
+                    title={`input: ${p.name}`}
+                    style={{
+                      padding: '1px 6px',
+                      borderRadius: 3,
+                      background: 'var(--color-surface-2)',
+                      color: 'var(--color-text-secondary)',
+                      fontSize: '0.66rem',
+                      borderLeft: '2px solid var(--color-info-fg)',
+                    }}
+                  >
+                    in {p.edam_data}
+                  </span>
+                ))}
+              {task.outputs
+                .filter((p) => p.edam_data)
+                .map((p) => (
+                  <span
+                    key={`out-${p.name}`}
+                    title={`output: ${p.name}`}
+                    style={{
+                      padding: '1px 6px',
+                      borderRadius: 3,
+                      background: 'var(--color-surface-2)',
+                      color: 'var(--color-text-secondary)',
+                      fontSize: '0.66rem',
+                      borderLeft: '2px solid var(--color-success-fg)',
+                    }}
+                  >
+                    out {p.edam_data}
+                  </span>
+                ))}
+            </div>
+          )}
         </div>
         <button
           type="button"
