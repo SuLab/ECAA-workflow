@@ -83,10 +83,12 @@ pub fn stage_and_run(
     recorded_root: &str,
     recorded_env: &BTreeMap<String, String>,
 ) -> io::Result<Vec<RunOutcome>> {
-    // Build run environment: recorded vars overridden by PKG_ROOT=scratch.
+    // Build run environment: recorded vars overridden by PKG_ROOT=scratch
+    // and PACKAGE=scratch (real ECAA scripts may read either env var).
     let scratch_root = scratch.display().to_string();
     let mut run_env = recorded_env.clone();
     run_env.insert("PKG_ROOT".to_string(), scratch_root.clone());
+    run_env.insert("PACKAGE".to_string(), scratch_root.clone());
 
     // Stage the entire data_acquisition/data/ subtree once (idempotent).
     // The input directory label is chosen by the package author (e.g. "himes-inputs/",
@@ -776,6 +778,85 @@ mod tests {
             outcome.ok,
             "task should succeed when custom-label inputs are staged; stderr: {}",
             outcome.stderr
+        );
+    }
+
+    /// Important 2 — both `PKG_ROOT` and `PACKAGE` must be injected into the
+    /// run environment and set to the scratch root.  Real ECAA scripts (e.g.
+    /// the Himes DESeq2 script) read `PACKAGE` via `Sys.getenv("PACKAGE", …)`;
+    /// relying on only `PKG_ROOT` leaves that path un-redirected.
+    ///
+    /// The test script writes the values of both variables to separate files
+    /// under the scratch output dir, then we assert both equal the scratch root.
+    #[test]
+    fn both_pkg_root_and_package_are_injected_into_run_env() {
+        let pkg_tmp = tempdir().unwrap();
+        let scratch_tmp = tempdir().unwrap();
+        let pkg = pkg_tmp.path();
+        let scratch = scratch_tmp.path();
+
+        let scripts_dir = pkg.join("runtime/outputs/env_check_task/scripts");
+        std::fs::create_dir_all(&scripts_dir).unwrap();
+        std::fs::write(
+            pkg.join("runtime/outputs/env_check_task/results.tsv"),
+            "x\n",
+        )
+        .unwrap();
+
+        // Script writes $PKG_ROOT and $PACKAGE to separate files so the test
+        // can assert both are set to the scratch root.
+        let script = format!(
+            "#!/usr/bin/env bash\n\
+             set -e\n\
+             mkdir -p \"$PKG_ROOT/runtime/outputs/env_check_task\"\n\
+             echo -n \"$PKG_ROOT\" > \"$PKG_ROOT/runtime/outputs/env_check_task/pkg_root.txt\"\n\
+             echo -n \"$PACKAGE\" > \"$PKG_ROOT/runtime/outputs/env_check_task/package.txt\"\n"
+        );
+        std::fs::write(scripts_dir.join("01.sh"), &script).unwrap();
+
+        let task = ComputeTask {
+            task_id: "env_check_task".to_string(),
+            scripts_dir: scripts_dir.clone(),
+            result_tables: vec!["results.tsv".to_string()],
+        };
+
+        let outcomes = stage_and_run(
+            pkg,
+            scratch,
+            &[task],
+            &[],
+            &shell_env(),
+            "/irrelevant",
+            &BTreeMap::new(),
+        )
+        .unwrap();
+
+        assert_eq!(outcomes.len(), 1);
+        let outcome = &outcomes[0];
+        assert!(
+            outcome.ok,
+            "env_check_task should succeed; stderr: {}",
+            outcome.stderr
+        );
+
+        let scratch_str = scratch.display().to_string();
+
+        let pkg_root_val = std::fs::read_to_string(
+            scratch.join("runtime/outputs/env_check_task/pkg_root.txt"),
+        )
+        .expect("pkg_root.txt must exist");
+        assert_eq!(
+            pkg_root_val, scratch_str,
+            "PKG_ROOT must equal scratch root; got: {pkg_root_val:?}"
+        );
+
+        let package_val = std::fs::read_to_string(
+            scratch.join("runtime/outputs/env_check_task/package.txt"),
+        )
+        .expect("package.txt must exist");
+        assert_eq!(
+            package_val, scratch_str,
+            "PACKAGE must equal scratch root; got: {package_val:?}"
         );
     }
 

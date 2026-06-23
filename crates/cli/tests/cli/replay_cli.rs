@@ -237,3 +237,86 @@ fn replay_strict_flag_makes_partial_exit_nonzero() {
         .assert()
         .failure();
 }
+
+/// Regression test for the `reader_version` fix (Critical 1).
+///
+/// When `reader_version` == the recorded `ecaa_version` (`"0.2"` in both),
+/// `reader_matches_writer` is `true`.  A divergence in that state must produce
+/// a **Fail** verdict (not Partial), so the binary exits NON-ZERO even without
+/// `--strict`.
+///
+/// Setup: the recorded `audit-proof-report.json` **lies** — it claims
+/// `cross_graph_integrity: pass` over a `cross-graph-dangling` fixture body
+/// that causes fresh re-verify to emit `cross_graph_integrity: fail`.
+/// The recorded `ecaa_version` is set to the real spec version `"0.2"` so
+/// `reader_matches_writer` is `true`.  divergence + reader_matches_writer →
+/// Fail (not Partial) per `compute_verdict`.
+#[test]
+fn tamper_detected_when_reader_matches_writer_exits_nonzero() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let pkg = tmp.path().join("cross-graph-dangling-tamper");
+    std::fs::create_dir_all(&pkg).expect("mkdir pkg");
+
+    // Copy the dangling fixture — fresh re-verify detects the dangle and
+    // reports cross_graph_integrity=fail.
+    copy_fixture("cross-graph-dangling", &pkg);
+    patch_claim_verification_summary(&pkg);
+
+    // Write a recorded audit that (a) LIES — claims cross_graph_integrity=pass
+    // (causing divergence) and (b) uses the REAL spec version "0.2", matching
+    // what the CLI now sends as reader_version after the Critical-1 fix.
+    // divergence + reader_matches_writer=true → Fail → non-zero exit.
+    let runtime = pkg.join("runtime");
+    std::fs::create_dir_all(&runtime).expect("create runtime dir");
+    let recorded = serde_json::json!({
+        "schema_version": "0.1",
+        "ecaa_version": "0.2",
+        "min_reader_version": "0.2",
+        "evaluator": {
+            "impl": "ecaa-workflow-audit-proof",
+            "version": "0.1.0",
+            "policy": "warn-only"
+        },
+        "verdicts": [
+            {
+                "id": "cross_graph_integrity",
+                "status": "pass",
+                "detail": null,
+                "n_inspected": 0,
+                "n_violations": 0
+            }
+        ]
+    });
+    std::fs::write(
+        runtime.join("audit-proof-report.json"),
+        serde_json::to_string_pretty(&recorded).unwrap(),
+    )
+    .expect("write audit-proof-report.json");
+
+    let json_out = tmp.path().join("replay-report-fail.json");
+
+    // Without --strict: Fail must still exit non-zero (Fail ≠ Partial).
+    Command::cargo_bin("ecaa-workflow")
+        .expect("cargo bin ecaa-workflow")
+        .args([
+            "replay",
+            pkg.to_str().unwrap(),
+            "--tier",
+            "verify",
+            "--json",
+            json_out.to_str().unwrap(),
+        ])
+        .assert()
+        .failure();
+
+    // Confirm the verdict in the JSON output is "fail".
+    let raw = std::fs::read_to_string(&json_out)
+        .unwrap_or_else(|e| panic!("read replay-report-fail.json: {e}"));
+    let json: serde_json::Value =
+        serde_json::from_str(&raw).expect("replay-report-fail.json must be valid JSON");
+    assert_eq!(
+        json.get("verdict").and_then(|v| v.as_str()),
+        Some("fail"),
+        "tamper with matching version must yield fail verdict; got: {raw}"
+    );
+}

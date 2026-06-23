@@ -20,6 +20,12 @@
 /// `ReplayVerdict::Pass`. The recorded `audit-proof-report.json` was produced
 /// by running the same verifier on the trimmed fixture, so the re-verify diff
 /// must be zero-divergence.
+///
+/// Also compares the stable subset of the report against the committed golden
+/// file (`testdata/replay/himes-golden-report.json`): verdict,
+/// `reader_matches_writer`, all check ids/statuses/diverged flags, and the
+/// per-check recorded/fresh values.  Volatile fields (`evaluated_at`, any
+/// scratch-path fields) are not present in the golden and are ignored.
 #[test]
 fn replay_himes_verify_tier_passes_offline() {
     let pkg = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/replay/himes-parent");
@@ -48,6 +54,76 @@ fn replay_himes_verify_tier_passes_offline() {
         rep.reexecute.is_none(),
         "reexecute must be None for Tier::Verify"
     );
+
+    // ── Golden-report assertion ──────────────────────────────────────────────
+    // Compare the stable subset of the live report against the committed
+    // golden file.  We extract only the fields that are deterministic and
+    // independent of wall-clock time or scratch directory paths.
+    let golden_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../testdata/replay/himes-golden-report.json"
+    );
+    let golden_raw = std::fs::read_to_string(golden_path)
+        .expect("himes-golden-report.json must be readable");
+    let golden: serde_json::Value =
+        serde_json::from_str(&golden_raw).expect("himes-golden-report.json must be valid JSON");
+
+    // Serialize the live report to JSON and parse back so we work with the
+    // same key/value structure as the golden.
+    let live_raw = serde_json::to_string(&rep).expect("rep must serialize to JSON");
+    let live: serde_json::Value =
+        serde_json::from_str(&live_raw).expect("live report must parse back");
+
+    // Assert stable top-level fields.
+    assert_eq!(
+        live.get("verdict"),
+        golden.get("verdict"),
+        "verdict must match golden"
+    );
+    assert_eq!(
+        live.get("reader_version"),
+        golden.get("reader_version"),
+        "reader_version must match golden"
+    );
+
+    // Assert reader_matches_writer.
+    let live_rmw = live
+        .pointer("/reverify/reader_matches_writer")
+        .expect("reverify.reader_matches_writer must be present");
+    let golden_rmw = golden
+        .pointer("/reverify/reader_matches_writer")
+        .expect("golden reverify.reader_matches_writer must be present");
+    assert_eq!(live_rmw, golden_rmw, "reader_matches_writer must match golden");
+
+    // Assert per-check stable fields: check id, recorded, fresh, diverged.
+    let live_checks = live
+        .pointer("/reverify/checks")
+        .and_then(|v| v.as_array())
+        .expect("reverify.checks must be an array");
+    let golden_checks = golden
+        .pointer("/reverify/checks")
+        .and_then(|v| v.as_array())
+        .expect("golden reverify.checks must be an array");
+
+    assert_eq!(
+        live_checks.len(),
+        golden_checks.len(),
+        "check count must match golden: live={} golden={}",
+        live_checks.len(),
+        golden_checks.len()
+    );
+
+    for (i, (live_c, golden_c)) in live_checks.iter().zip(golden_checks.iter()).enumerate() {
+        for field in &["check", "recorded", "fresh", "diverged"] {
+            assert_eq!(
+                live_c.get(field),
+                golden_c.get(field),
+                "check[{i}].{field} must match golden:\n  live   = {:?}\n  golden = {:?}",
+                live_c.get(field),
+                golden_c.get(field)
+            );
+        }
+    }
 }
 
 /// **replay_himes_execute_tier_reproduces_de_table** — CI-gated.

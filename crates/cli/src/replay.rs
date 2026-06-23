@@ -72,7 +72,7 @@ pub(crate) fn run(args: ReplayArgs) -> Result<()> {
         scratch_dir: args.scratch_dir,
         bounds: args.bounds,
         allow_rebuild: args.allow_rebuild,
-        reader_version: env!("CARGO_PKG_VERSION").to_string(),
+        reader_version: ecaa_workflow_types::consts::ECAA_VERSION.to_string(),
     };
 
     let report = run_replay(&args.package, &opts)

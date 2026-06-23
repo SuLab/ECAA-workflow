@@ -17,6 +17,7 @@ path = "src/bin/ecaa-workflow-audit-proof.rs"
 [dependencies]
 ecaa-workflow-core = { version = "0.1", path = "../core" }
 ecaa-workflow-conversation = { version = "0.1", path = "../conversation" }
+ecaa-workflow-types = { version = "0.1", path = "../ecaa-types" }
 # The standalone `ecaa-workflow-audit-proof` binary selects the
 # runcrate-backed WRROC validator (`PythonRuncrateWrrocValidator`) when
 # ECAA_CONFORMANCE_MODE is set. That adapter lives in the harness (it
