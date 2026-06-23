@@ -1407,6 +1407,40 @@ fn collect_output_tables(dir: &std::path::Path, rel_prefix: &str, out: &mut Vec<
     }
 }
 
+/// Annotate every `File` `@graph` entity whose `@id` resolves to a payload file
+/// with `contentSize` (bytes) + `sha512` (hex). Excludes the metadata descriptor
+/// (`ro-crate-metadata.json`) and BagIt tag files (cannot self-hash). Finalize-
+/// time (off the byte-repro baseline); deterministic given fixed payload bytes.
+pub fn register_content_integrity(package_root: &std::path::Path) -> std::io::Result<usize> {
+    let hashes = crate::emitter::bagit::payload_hashes(
+        package_root, crate::emitter::bagit::SealMode::Reseal)?;
+    let descriptor = package_root.join("ro-crate-metadata.json");
+    let Ok(bytes) = std::fs::read(&descriptor) else { return Ok(0); };
+    let Ok(mut doc) = serde_json::from_slice::<Value>(&bytes) else { return Ok(0); };
+    let Some(graph) = doc.get_mut("@graph").and_then(Value::as_array_mut) else { return Ok(0); };
+    let mut annotated = 0usize;
+    for e in graph.iter_mut() {
+        let Some(id) = e.get("@id").and_then(Value::as_str).map(String::from) else { continue };
+        if id == "ro-crate-metadata.json" || id.starts_with("manifest-")
+            || id == "bagit.txt" || id.starts_with('#') || id == "./" { continue; }
+        let is_file = match e.get("@type") {
+            Some(Value::String(s)) => s == "File",
+            Some(Value::Array(a)) => a.iter().any(|v| v.as_str() == Some("File")),
+            _ => false,
+        };
+        if !is_file { continue; }
+        if let Some((hex, size)) = hashes.get(&id) {
+            if let Some(obj) = e.as_object_mut() {
+                obj.insert("contentSize".into(), json!(size));
+                obj.insert("sha512".into(), json!(hex));
+                annotated += 1;
+            }
+        }
+    }
+    crate::fs_helpers::atomic_write_bytes_sync(&descriptor, &serde_json::to_vec_pretty(&doc)?)?;
+    Ok(annotated)
+}
+
 /// Post-execution finalize: register agent-produced result tables as V `@graph`
 /// entities ([`register_produced_output_tables`]) and then re-seal the BagIt
 /// payload manifest ([`crate::emitter::regenerate_bagit_manifest`]).
@@ -1495,6 +1529,15 @@ pub fn finalize_evidence_registration_with_verifier(
                 "C-subgraph back-fill from signed sink failed"
             );
         }
+    }
+    // Annotate @graph File entities with contentSize + sha512. Best-effort:
+    // a failure must not abort the re-seal.
+    if let Err(e) = register_content_integrity(root) {
+        tracing::warn!(
+            target: "ecaa::ro_crate",
+            error = %e,
+            "content integrity annotation failed"
+        );
     }
     crate::emitter::regenerate_bagit_manifest(root, clock).map_err(std::io::Error::other)?;
     Ok(added)
@@ -1965,6 +2008,39 @@ mod tests {
             !tmp.path().join("SNAPSHOTS.md").exists(),
             "no SNAPSHOTS.md when there is no literature evidence"
         );
+    }
+
+    #[test]
+    fn content_integrity_injects_contentsize_and_sha512_idempotently() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("WORKFLOW.json"), b"{\"x\":1}").unwrap();
+        std::fs::write(dir.path().join("ro-crate-metadata.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "@context":"https://w3id.org/ro/crate/1.1/context",
+                "@graph":[
+                  {"@id":"ro-crate-metadata.json","@type":"CreativeWork","about":{"@id":"./"}},
+                  {"@id":"./","@type":"Dataset","hasPart":[{"@id":"WORKFLOW.json"}]},
+                  {"@id":"WORKFLOW.json","@type":["File","ComputationalWorkflow"],"name":"wf"}
+                ]
+            })).unwrap()).unwrap();
+        let n = register_content_integrity(dir.path()).unwrap();
+        assert_eq!(n, 1, "one payload File entity annotated (descriptor excluded)");
+        let doc: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(dir.path().join("ro-crate-metadata.json")).unwrap()).unwrap();
+        let wf = doc["@graph"].as_array().unwrap().iter()
+            .find(|e| e["@id"]=="WORKFLOW.json").unwrap();
+        assert!(wf["contentSize"].as_u64().unwrap() >= 1);
+        assert_eq!(wf["sha512"].as_str().unwrap().len(), 128);
+        // descriptor must NOT carry its own hash (circular)
+        let desc = doc["@graph"].as_array().unwrap().iter()
+            .find(|e| e["@id"]=="ro-crate-metadata.json").unwrap();
+        assert!(desc.get("sha512").is_none());
+        // idempotent: second call returns same count, descriptor bytes unchanged
+        let bytes_before = std::fs::read(dir.path().join("ro-crate-metadata.json")).unwrap();
+        let n2 = register_content_integrity(dir.path()).unwrap();
+        assert_eq!(n2, n, "second run returns same annotated count");
+        let bytes_after = std::fs::read(dir.path().join("ro-crate-metadata.json")).unwrap();
+        assert_eq!(bytes_before, bytes_after, "descriptor is byte-identical after second run");
     }
 
     #[test]

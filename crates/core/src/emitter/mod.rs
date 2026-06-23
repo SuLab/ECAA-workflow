@@ -124,7 +124,7 @@ and reports referenced above are produced when the package is executed._\n",
 }
 
 mod amendment;
-mod bagit;
+pub(crate) mod bagit;
 mod copy_libs;
 mod ecaa;
 mod export;

@@ -52,7 +52,7 @@ const VCS_TRANSIENT_DIRS: &[&str] = &[
 /// at-rest audit surface and must be hashed). Emit keeps `runtime/outputs/`
 /// out so the emit byte-reproducibility baseline is untouched.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum SealMode {  // pub(super) = visible to emitter/mod.rs
+pub(crate) enum SealMode {  // pub(crate) = visible to emitter/mod.rs and ro_crate.rs
     Emit,
     Reseal,
 }
@@ -363,6 +363,26 @@ fn walk_for_manifest(
     Ok(())
 }
 
+/// Reusable: rel-path -> (sha512_hex, size_bytes) for every manifest-eligible
+/// payload file. Shares the walk + streaming hash used by the manifest writer.
+pub(crate) fn payload_hashes(
+    dir: &std::path::Path,
+    mode: SealMode,
+) -> std::io::Result<std::collections::BTreeMap<String, (String, u64)>> {
+    let mut entries = Vec::new();
+    walk_for_manifest(dir, dir, mode, &mut entries)
+        .map_err(std::io::Error::other)?;
+    entries.sort();
+    let mut out = std::collections::BTreeMap::new();
+    for rel in entries {
+        let abs = dir.join(&rel);
+        let hex = stream_sha512_hex(&abs).map_err(std::io::Error::other)?;
+        let size = std::fs::metadata(&abs).map(|m| m.len()).unwrap_or(0);
+        out.insert(rel.to_string_lossy().replace('\\', "/"), (hex, size));
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -537,6 +557,16 @@ mod tests {
             info.contains("Bagging-Date: 2026-01-01"),
             "expected pinned date, got:\n{info}"
         );
+    }
+
+    #[test]
+    fn payload_hashes_returns_sha512_and_size_for_files() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.txt"), b"hello").unwrap();
+        let map = payload_hashes(dir.path(), SealMode::Reseal).unwrap();
+        let (hex, size) = map.get("a.txt").expect("a.txt hashed");
+        assert_eq!(*size, 5);
+        assert_eq!(hex.len(), 128); // sha512 hex
     }
 
     /// C2 twin — at RESEAL (post-execution finalize) the package is the
