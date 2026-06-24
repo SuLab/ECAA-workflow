@@ -160,11 +160,14 @@ fn snapshot_build_then_replay_is_byte_identical() {
         &serde_json::to_string_pretty(&det_env).unwrap(),
     );
 
-    // policies/container.json — declares the snapshot digest so env_provision
-    // can find the container image.
+    // policies/container.json — package-structure completeness fields written
+    // by record_digest.  Note: replay reads `task_container_digest` from
+    // runtime/outputs/<task>/determinism-env.json (written above), NOT from
+    // container.json, so these fields are informational for the package.
     let container_policy = serde_json::json!({
         "schema_version": "1",
-        "container_digest": snapshot_digest,
+        "digest": snapshot_digest,
+        "image": snapshot_digest,
         "allow_rebuild": false,
     });
     write_file(
