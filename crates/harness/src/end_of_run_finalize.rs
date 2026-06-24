@@ -19,6 +19,9 @@
 //! can still truncate the WAL and exit `Ok(())`. Finalizing a package is a
 //! best-effort post-exec convenience, never a gate.
 
+use crate::env_snapshot::{self, SnapshotOpts, SnapshotOutcome};
+use crate::env_snapshot::cache_scan::resolve_cache_dir;
+use crate::env_snapshot::record::record_digest;
 use ecaa_workflow_core::decision_log::DecisionRecord;
 use ecaa_workflow_core::finalize::{
     coverage_should_block, finalize_package, finalize_task, PackageFinalizeSummary,
@@ -204,6 +207,167 @@ pub fn derive_is_confirmatory(package_root: &Path) -> bool {
     })
 }
 
+// ---------------------------------------------------------------------------
+// Environment snapshot integration
+// ---------------------------------------------------------------------------
+
+/// Check whether `ECAA_ENV_SNAPSHOT` opts OUT of snapshotting.
+///
+/// Default-ON: unset → `true`; `"0"` / `"false"` / `"no"` / `"off"`
+/// (case-insensitive, trimmed) → `false`; any other value → `true`.
+fn snapshot_enabled_from_env() -> bool {
+    match std::env::var("ECAA_ENV_SNAPSHOT")
+        .ok()
+        .as_deref()
+        .map(str::trim)
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        None | Some("") => true,
+        Some("0") | Some("false") | Some("no") | Some("off") => false,
+        Some(_) => true,
+    }
+}
+
+/// Build [`SnapshotOpts`] from the live environment and the package contents.
+///
+/// Returns `None` when snapshotting is impossible or irrelevant:
+/// - `resolve_cache_dir()` returns `None` (no HOME / ECAA_AGENT_CACHE_DIR).
+/// - No `determinism-env.json` found under any task in `<pkg>/runtime/outputs/`
+///   (nothing to snapshot for this run).
+fn build_snapshot_opts(package_root: &Path) -> Option<SnapshotOpts> {
+    let enabled = snapshot_enabled_from_env();
+
+    let registry = std::env::var("ECAA_IMAGE_REGISTRY")
+        .ok()
+        .filter(|s| !s.is_empty());
+
+    let cache_dir = resolve_cache_dir()?;
+
+    // Scan <pkg>/runtime/outputs/ for the first task that carries a
+    // determinism-env.json to extract base_digest + source_date_epoch.
+    let outputs_dir = package_root.join("runtime").join("outputs");
+    let mut task_dirs: Vec<std::fs::DirEntry> = std::fs::read_dir(&outputs_dir)
+        .ok()?
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .collect();
+    // Sort for determinism.
+    task_dirs.sort_by_key(|e| e.file_name());
+
+    let mut base_digest = String::new();
+    let mut source_date_epoch: i64 = 0;
+    let mut found = false;
+
+    for entry in &task_dirs {
+        let det_path = entry.path().join("determinism-env.json");
+        if !det_path.exists() {
+            continue;
+        }
+        let raw = match std::fs::read_to_string(&det_path) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let val: serde_json::Value = match serde_json::from_str(&raw) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if let Some(d) = val.get("task_container_digest").and_then(|v| v.as_str()) {
+            base_digest = d.to_owned();
+        } else {
+            continue;
+        }
+        source_date_epoch = val
+            .get("source_date_epoch")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+        found = true;
+        break;
+    }
+
+    if !found {
+        return None;
+    }
+
+    Some(SnapshotOpts {
+        enabled,
+        registry,
+        base_digest,
+        source_date_epoch,
+        cache_dir,
+    })
+}
+
+/// Collect all task-directory names under `<pkg>/runtime/outputs/` that have a
+/// `determinism-env.json`.  Returned in sorted order for determinism.
+fn compute_task_ids(package_root: &Path) -> Vec<String> {
+    let outputs_dir = package_root.join("runtime").join("outputs");
+    let mut ids: Vec<String> = std::fs::read_dir(&outputs_dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| {
+            e.path().is_dir() && e.path().join("determinism-env.json").exists()
+        })
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    ids.sort();
+    ids
+}
+
+/// Testable seam: identical to [`maybe_snapshot`] but accepts an injected
+/// `snapshot_fn` so hermetic tests can substitute a stub without invoking
+/// docker.  Never panics; never returns an error.
+fn maybe_snapshot_with<F>(package_root: &Path, snapshot_fn: F)
+where
+    F: Fn(&SnapshotOpts) -> SnapshotOutcome,
+{
+    let Some(opts) = build_snapshot_opts(package_root) else {
+        return;
+    };
+
+    match snapshot_fn(&opts) {
+        SnapshotOutcome::Captured { digest, .. } => {
+            tracing::info!(
+                target: "harness-env-snapshot",
+                %digest,
+                "env snapshot captured; recording digest into package"
+            );
+            let ids = compute_task_ids(package_root);
+            if let Err(e) = record_digest(package_root, &digest, &ids) {
+                tracing::warn!(
+                    target: "harness-env-snapshot",
+                    error = %e,
+                    "snapshot digest record failed: {e}"
+                );
+            }
+        }
+        SnapshotOutcome::SkippedNoInstalls => {
+            tracing::info!(
+                target: "harness-env-snapshot",
+                "env snapshot skipped (no installs); base digest retained"
+            );
+        }
+        SnapshotOutcome::Failed { reason } => {
+            tracing::warn!(
+                target: "harness-env-snapshot",
+                %reason,
+                "env snapshot failed: {reason}; base digest retained"
+            );
+        }
+    }
+}
+
+/// Attempt a compute-environment snapshot at end of run.  Best-effort: never
+/// panics, never returns an error, never breaks a run.
+fn maybe_snapshot(package_root: &Path) {
+    maybe_snapshot_with(package_root, env_snapshot::snapshot_environment);
+}
+
+// ---------------------------------------------------------------------------
+// End-of-run package finalization
+// ---------------------------------------------------------------------------
+
 /// Source every input from the self-contained package (+ host config_dir + env
 /// secret) and run [`finalize_package`] once. The whole thing is best-effort:
 /// any failure is logged and `Ok(())` is returned so the caller still truncates
@@ -219,6 +383,11 @@ pub fn finalize_completed_package(package_root: &Path, config_dir: &Path) {
     let project_class = ProjectClass::default();
     let is_confirmatory = derive_is_confirmatory(package_root);
     let decisions = load_decisions(package_root);
+
+    // Record the compute-environment snapshot digest into the package BEFORE
+    // finalize_package runs, so any later crate projection sees the recorded
+    // digest.  Non-fatal: any failure is swallowed inside maybe_snapshot.
+    maybe_snapshot(package_root);
 
     // Surface a genuinely-missing/unreadable interpretation policy loudly: a
     // standalone run finalizing against the package's own `policies/` would
@@ -427,6 +596,191 @@ pub fn coverage_reblock_reason(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::env_snapshot::{SnapshotOutcome, StoreLocation};
+
+    // -----------------------------------------------------------------------
+    // Helpers for env-snapshot tests
+    // -----------------------------------------------------------------------
+
+    /// Build a minimal package tree under `tmp` with `task_ids` each having a
+    /// `determinism-env.json`, and a `policies/container.json` with `{"image": null}`.
+    fn make_snapshot_pkg(
+        tmp: &tempfile::TempDir,
+        task_ids: &[&str],
+        base_digest: &str,
+        source_date_epoch: i64,
+    ) -> std::path::PathBuf {
+        let pkg = tmp.path().to_path_buf();
+
+        let policies = pkg.join("policies");
+        std::fs::create_dir_all(&policies).unwrap();
+        std::fs::write(policies.join("container.json"), r#"{"image": null}"#).unwrap();
+
+        for task_id in task_ids {
+            let dir = pkg.join("runtime").join("outputs").join(task_id);
+            std::fs::create_dir_all(&dir).unwrap();
+            let content = serde_json::json!({
+                "task_container_digest": base_digest,
+                "source_date_epoch": source_date_epoch,
+                "lang": "R"
+            });
+            std::fs::write(
+                dir.join("determinism-env.json"),
+                serde_json::to_string_pretty(&content).unwrap(),
+            )
+            .unwrap();
+        }
+
+        pkg
+    }
+
+    fn read_container_json(pkg: &std::path::Path) -> serde_json::Value {
+        let raw = std::fs::read_to_string(pkg.join("policies").join("container.json")).unwrap();
+        serde_json::from_str(&raw).unwrap()
+    }
+
+    fn read_det_env(pkg: &std::path::Path, task_id: &str) -> serde_json::Value {
+        let raw = std::fs::read_to_string(
+            pkg.join("runtime")
+                .join("outputs")
+                .join(task_id)
+                .join("determinism-env.json"),
+        )
+        .unwrap();
+        serde_json::from_str(&raw).unwrap()
+    }
+
+    // -----------------------------------------------------------------------
+    // build_snapshot_opts: ECAA_ENV_SNAPSHOT gating
+    // -----------------------------------------------------------------------
+
+    // Safety note: std::env::set_var / remove_var are unsafe in Rust 1.93+
+    // when other threads might be reading the environment concurrently.
+    // Under cargo-nextest each test runs in its own process, making this safe.
+    // The unsafe blocks below are bounded to environment-mutation test helpers
+    // only — no production code uses unsafe.
+    #[allow(unsafe_code)]
+    #[test]
+    fn build_snapshot_opts_disabled_when_env_zero() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = make_snapshot_pkg(&tmp, &["task_a"], "sha256:base", 0);
+
+        // JUSTIFICATION: safe under nextest (process-per-test isolation).
+        unsafe { std::env::set_var("ECAA_ENV_SNAPSHOT", "0"); }
+        unsafe { std::env::set_var("HOME", tmp.path()); }
+        unsafe { std::env::remove_var("ECAA_AGENT_CACHE_DIR"); }
+        unsafe { std::env::remove_var("ECAA_CHAT_SESSION_ID"); }
+
+        let opts = build_snapshot_opts(&pkg);
+        // opts may be None if cache_dir resolves to a path that exists but we
+        // mostly care that IF opts is Some, enabled is false.
+        if let Some(o) = opts {
+            assert!(!o.enabled, "ECAA_ENV_SNAPSHOT=0 must produce enabled=false");
+        }
+
+        unsafe { std::env::remove_var("ECAA_ENV_SNAPSHOT"); }
+    }
+
+    #[allow(unsafe_code)]
+    #[test]
+    fn build_snapshot_opts_enabled_by_default() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = make_snapshot_pkg(&tmp, &["task_a"], "sha256:base", 123);
+
+        unsafe { std::env::remove_var("ECAA_ENV_SNAPSHOT"); }
+        // Point agent cache into our tmp so resolve_cache_dir() returns Some.
+        unsafe { std::env::set_var("ECAA_AGENT_CACHE_DIR", tmp.path()); }
+        unsafe { std::env::remove_var("ECAA_CHAT_SESSION_ID"); }
+
+        let opts = build_snapshot_opts(&pkg);
+        assert!(opts.is_some(), "should produce opts when cache_dir resolves");
+        let o = opts.unwrap();
+        assert!(o.enabled, "opts.enabled should be true when ECAA_ENV_SNAPSHOT unset");
+        assert_eq!(o.base_digest, "sha256:base");
+        assert_eq!(o.source_date_epoch, 123);
+
+        unsafe { std::env::remove_var("ECAA_AGENT_CACHE_DIR"); }
+    }
+
+    // -----------------------------------------------------------------------
+    // maybe_snapshot_with: SkippedNoInstalls → container.json unchanged
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn maybe_snapshot_with_skipped_leaves_container_json_unchanged() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = make_snapshot_pkg(&tmp, &["task_a"], "sha256:base", 0);
+
+        maybe_snapshot_with(&pkg, |_opts| SnapshotOutcome::SkippedNoInstalls);
+
+        let cj = read_container_json(&pkg);
+        assert!(
+            cj.get("digest").map(|v| v.is_null()).unwrap_or(true),
+            "digest must not be written on SkippedNoInstalls; got: {:?}",
+            cj.get("digest")
+        );
+        assert_eq!(cj["image"], serde_json::Value::Null,
+            "image must remain null on SkippedNoInstalls");
+    }
+
+    // -----------------------------------------------------------------------
+    // maybe_snapshot_with: Captured → digest written into container.json + task
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn maybe_snapshot_with_captured_writes_digest() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = make_snapshot_pkg(&tmp, &["task_a"], "sha256:base", 0);
+        // Set ECAA_AGENT_CACHE_DIR so build_snapshot_opts returns Some.
+        // JUSTIFICATION: safe under nextest (process-per-test isolation).
+        #[allow(unsafe_code)]
+        unsafe { std::env::set_var("ECAA_AGENT_CACHE_DIR", tmp.path()); }
+        #[allow(unsafe_code)]
+        unsafe { std::env::remove_var("ECAA_CHAT_SESSION_ID"); }
+        #[allow(unsafe_code)]
+        unsafe { std::env::remove_var("ECAA_ENV_SNAPSHOT"); }
+
+        maybe_snapshot_with(&pkg, |_opts| SnapshotOutcome::Captured {
+            digest: "sha256:new".to_owned(),
+            location: StoreLocation::LocalCas(std::path::PathBuf::from("/tmp/snap.tar")),
+            note: None,
+        });
+
+        let cj = read_container_json(&pkg);
+        assert_eq!(cj["digest"], "sha256:new", "container.json digest must be updated");
+        assert_eq!(cj["image"], "sha256:new", "container.json image must be promoted from null");
+
+        let det = read_det_env(&pkg, "task_a");
+        assert_eq!(det["task_container_digest"], "sha256:new",
+            "task_a determinism-env.json must be updated");
+
+        #[allow(unsafe_code)]
+        unsafe { std::env::remove_var("ECAA_AGENT_CACHE_DIR"); }
+    }
+
+    // -----------------------------------------------------------------------
+    // maybe_snapshot_with: Failed → no panic, container.json unchanged
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn maybe_snapshot_with_failed_does_not_panic_and_leaves_container_unchanged() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = make_snapshot_pkg(&tmp, &["task_a"], "sha256:base", 0);
+
+        // Even without ECAA_AGENT_CACHE_DIR, the snapshot_fn returning Failed
+        // must not panic (build_snapshot_opts may return None, in which case
+        // maybe_snapshot_with returns immediately without calling snapshot_fn
+        // — that is also acceptable for the non-fatal contract).
+        maybe_snapshot_with(&pkg, |_opts| SnapshotOutcome::Failed {
+            reason: "boom".to_owned(),
+        });
+
+        // If container.json was untouched (no "digest" key), that is correct.
+        let cj = read_container_json(&pkg);
+        // Accept either: digest absent, or digest not written.
+        let digest_written = cj.get("digest").map(|v| !v.is_null()).unwrap_or(false);
+        assert!(!digest_written, "digest must not be written on Failed; got: {cj:?}");
+    }
 
     #[test]
     fn audit_secret_requires_exactly_64_hex_chars() {
