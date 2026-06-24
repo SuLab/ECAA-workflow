@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 pub mod build;
 pub mod cache_scan;
+pub mod record;
 pub mod store;
 
 /// Options controlling whether and where a snapshot is captured.
