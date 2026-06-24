@@ -232,14 +232,17 @@ wedges and burns its whole budget):
   `mamba create -y -n <env> -c conda-forge -c bioconda <pkg>` — NEVER bare
   `mamba install <pkg>` / `conda install <pkg>`. (`pip install` needs no
   such care: it is pre-pointed at a writable user base and works as-is.)
-- **Prefer a pre-built binary over a source compile.** For Bioconductor
-  tools create a fresh env from the bioconda binary
-  (`mamba create -y -n bioc -c conda-forge -c bioconda bioconductor-deseq2`)
-  rather than `BiocManager::install("DESeq2")`, which triggers a 10–30 min
-  Rcpp/C++ compile from source (and that compile can itself fail in the
-  sandbox). When a Bioconductor tool has no usable bioconda binary, fall
-  back to the Python equivalent via `pip install` (e.g. `gseapy` for
-  GSEA / fgsea-style enrichment) — pip installs always succeed here.
+- **Use `ecaa-install bioc <pkg>` for all Bioconductor packages.** It
+  resolves the pre-built bioconda binary into the shared `ecaa-bioc` conda
+  env (no C++ source compile; no 10–30 min wait; no Rcpp build failures).
+  The env is created on first use and reused on subsequent calls. Run your
+  R analysis with `conda run -n ecaa-bioc Rscript <script>`.
+  Only fall back to a Python equivalent (e.g. `pip install gseapy`) when
+  `ecaa-install bioc` itself reports that no bioconda binary exists for the
+  requested package — do NOT substitute a Python equivalent merely because a
+  previous compile attempt failed, since `ecaa-install bioc` no longer
+  source-compiles. Silently substituting a different implementation (e.g.
+  pydeseq2 for DESeq2) can change statistical results without warning.
 - **Run the analysis with the interpreter you installed into.** If you
   install into a conda env, invoke `conda run -n <env> Rscript …` (or that
   env's `python`) so the tool actually resolves — don't install into one

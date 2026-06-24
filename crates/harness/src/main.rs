@@ -6022,6 +6022,217 @@ const METHOD_PROBES: &[(&str, MethodProbe)] = &[
     ("hyprcoloc", MethodProbe::R("hyprcoloc")),
 ];
 
+/// A single probe specification for the batched container-probe script.
+/// Used by `build_probe_script` (pure) and consumed by `run_container_probes`.
+#[derive(Debug, Clone, PartialEq)]
+enum ProbeKind {
+    /// `Rscript -e 'library(<pkg>)'` — key maps to true/false.
+    R(String),
+    /// `python3 -c 'import <module>'` — key maps to true/false.
+    Python(String),
+    /// True if ANY of the listed imports succeeds (logical OR).
+    PythonAny(Vec<String>),
+    /// `cellranger --version` — key maps to the first output line (or empty).
+    Cellranger,
+}
+
+#[derive(Debug, Clone)]
+struct ProbeSpec {
+    /// Output key emitted as `KEY=0|1` (or `CELLRANGER=<ver>`).
+    key: String,
+    kind: ProbeKind,
+}
+
+/// Build the shell script that runs every probe inside a container and
+/// emits one `KEY=0|1` line per boolean probe plus one
+/// `CELLRANGER=<ver-or-empty>` line.  Pure (no I/O) — unit-testable.
+fn build_probe_script(specs: &[ProbeSpec], r_libs_prefix: Option<&str>) -> String {
+    let mut lines: Vec<String> = Vec::with_capacity(specs.len() + 2);
+    lines.push("#!/bin/sh".to_string());
+    lines.push("set -u".to_string());
+    for spec in specs {
+        match &spec.kind {
+            ProbeKind::R(pkg) => {
+                let lib_expr = match r_libs_prefix {
+                    Some(p) => {
+                        let escaped = p.replace('\'', "'\\''");
+                        format!(".libPaths(c('{}', .libPaths())); ", escaped)
+                    }
+                    None => String::new(),
+                };
+                let safe_pkg = pkg.replace('\'', "'\\''");
+                lines.push(format!(
+                    "Rscript -e '{}suppressMessages(library({}))' >/dev/null 2>&1 && echo '{}=1' || echo '{}=0'",
+                    lib_expr, safe_pkg, spec.key, spec.key
+                ));
+            }
+            ProbeKind::Python(module) => {
+                let safe_mod = module.replace('\'', "'\\''");
+                lines.push(format!(
+                    "python3 -c 'import {}' >/dev/null 2>&1 && echo '{}=1' || echo '{}=0'",
+                    safe_mod, spec.key, spec.key
+                ));
+            }
+            ProbeKind::PythonAny(modules) => {
+                // Emit a compound shell OR: try each import; first success wins.
+                let checks: Vec<String> = modules
+                    .iter()
+                    .map(|m| {
+                        let safe = m.replace('\'', "'\\''");
+                        format!("python3 -c 'import {}' >/dev/null 2>&1", safe)
+                    })
+                    .collect();
+                lines.push(format!(
+                    "{{ {}; }} && echo '{}=1' || echo '{}=0'",
+                    checks.join(" || "),
+                    spec.key,
+                    spec.key
+                ));
+            }
+            ProbeKind::Cellranger => {
+                lines.push(format!(
+                    "echo 'CELLRANGER='\"$(cellranger --version 2>/dev/null | head -1)\""
+                ));
+            }
+        }
+    }
+    lines.join("\n")
+}
+
+/// Parse the stdout of the batched probe script into a bool map plus an
+/// optional cellranger version string.  Pure (no I/O) — unit-testable.
+///
+/// Returns `(bool_results, cellranger_version)`.
+fn parse_probe_output(stdout: &str) -> (std::collections::BTreeMap<String, bool>, Option<String>) {
+    let mut bools = std::collections::BTreeMap::new();
+    let mut cellranger: Option<String> = None;
+    for line in stdout.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("CELLRANGER=") {
+            let ver = rest.trim();
+            if !ver.is_empty() {
+                cellranger = Some(ver.to_string());
+            }
+            // empty => cellranger absent => leave None
+        } else if let Some((key, val)) = line.split_once('=') {
+            match val.trim() {
+                "1" => {
+                    bools.insert(key.to_string(), true);
+                }
+                "0" => {
+                    bools.insert(key.to_string(), false);
+                }
+                _ => {} // unexpected — skip
+            }
+        }
+    }
+    (bools, cellranger)
+}
+
+/// Read `<pkg_dir>/policies/container.json` `.image` field (if the file
+/// exists and the field is a non-null string), then fall back to the
+/// `ECAA_DEFAULT_CONTAINER_IMAGE` env var.  Returns `None` when neither
+/// source provides an image.
+fn resolve_probe_image(pkg_dir: &Path) -> Option<String> {
+    // 1. Package-local policy file.
+    let policy = pkg_dir.join("policies/container.json");
+    if policy.is_file() {
+        if let Ok(bytes) = std::fs::read(&policy) {
+            if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                if let Some(img) = v.get("image").and_then(|i| i.as_str()) {
+                    if !img.is_empty() {
+                        return Some(img.to_string());
+                    }
+                }
+            }
+        }
+    }
+    // 2. Process-level default.
+    if let Ok(img) = std::env::var("ECAA_DEFAULT_CONTAINER_IMAGE") {
+        if !img.is_empty() {
+            return Some(img);
+        }
+    }
+    None
+}
+
+/// Run all `specs` as a single batched `docker run` inside `image`.
+/// Returns `(bool_map, cellranger_version)` on success, or an error
+/// string (for logging) on any failure — callers must handle the error
+/// by falling back to host probes.
+fn run_container_probes(
+    specs: &[ProbeSpec],
+    image: &str,
+    r_libs_abs: Option<&Path>,
+) -> Result<(std::collections::BTreeMap<String, bool>, Option<String>), String> {
+    let r_libs_str: Option<String> = r_libs_abs.map(|p| p.display().to_string());
+    let script = build_probe_script(specs, r_libs_str.as_deref());
+
+    let mut cmd = std::process::Command::new("docker");
+    cmd.arg("run").arg("--rm");
+    // Mount the r-libs directory read-only at the same absolute path so
+    // package-local R installs are visible inside the container.
+    if let Some(rlibs) = r_libs_abs {
+        let mount = format!("{}:{}:ro", rlibs.display(), rlibs.display());
+        cmd.args(["-v", &mount]);
+    }
+    cmd.args([image, "bash", "-lc", &script]);
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::piped());
+
+    let child = cmd.spawn().map_err(|e| format!("docker spawn failed: {e}"))?;
+
+    // Enforce a hard timeout to avoid hanging the harness indefinitely.
+    use std::time::{Duration, Instant};
+    let timeout = Duration::from_secs(180);
+    let started = Instant::now();
+    // `wait_with_output` doesn't support a timeout natively; use a
+    // polling loop with a 200 ms sleep cadence as a best-effort guard.
+    // (The alternative — a background thread — adds more complexity than
+    // warranted for a best-effort probe.)
+    let output = {
+        let mut child = child;
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => break child.wait_with_output().map_err(|e| e.to_string())?,
+                Ok(None) => {
+                    if started.elapsed() > timeout {
+                        let _ = child.kill();
+                        return Err("docker run timed out after 180s".to_string());
+                    }
+                    std::thread::sleep(Duration::from_millis(200));
+                }
+                Err(e) => return Err(format!("docker wait error: {e}")),
+            }
+        }
+    };
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "docker run exited {:?}: {}",
+            output.status.code(),
+            stderr.trim()
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let (bools, cellranger) = parse_probe_output(&stdout);
+
+    // Verify we got at least one result line; otherwise something went
+    // wrong silently (wrong image entrypoint, bash not available, etc.).
+    if bools.is_empty() && cellranger.is_none() {
+        return Err(format!(
+            "docker run produced no parseable probe output (stdout: {:?})",
+            &stdout[..stdout.len().min(256)]
+        ));
+    }
+    Ok((bools, cellranger))
+}
+
 /// Env probe — detects spec-relevant environmental
 /// capabilities and writes a structured report the agent reads during
 /// `discover_*` stages. Skips unavailable methods cleanly instead of
@@ -6056,8 +6267,6 @@ fn write_env_capability(pkg_dir: &Path) -> Result<()> {
     // Honor a package-local R user library at runtime/r-libs/ so a
     // package whose agent installed Seurat 5.x into the package
     // doesn't get probed as r_seurat=false on every harness restart.
-    // The path is passed through R_LIBS_USER (also recognised by
-    //.libPaths() as a user-level library prepended to the path).
     let r_libs_path = runtime_dir.join("r-libs");
     let r_libs_user: Option<&Path> = if r_libs_path.is_dir() {
         Some(r_libs_path.as_path())
@@ -6065,22 +6274,77 @@ fn write_env_capability(pkg_dir: &Path) -> Result<()> {
         None
     };
 
-    let r_seurat = probe_r_package("Seurat", r_libs_user);
-    let r_cellchat = probe_r_package("CellChat", r_libs_user);
-    let pyscenic = probe_python_import("pyscenic");
-    let python_lisi = probe_python_import("lisi")
-        || probe_python_import("harmonypy")  // lisi often comes via harmonypy in newer stacks
-        || probe_python_import("scanpy.external.pp.lisi");
-    let cellranger_version = probe_cellranger();
+    // Build the full list of probe specs (capabilities + per-method).
+    // Order: capabilities first, then METHOD_PROBES entries.
+    let mut specs: Vec<ProbeSpec> = vec![
+        ProbeSpec { key: "r_seurat".to_string(),   kind: ProbeKind::R("Seurat".to_string()) },
+        ProbeSpec { key: "r_cellchat".to_string(),  kind: ProbeKind::R("CellChat".to_string()) },
+        ProbeSpec { key: "pyscenic".to_string(),    kind: ProbeKind::Python("pyscenic".to_string()) },
+        ProbeSpec {
+            key: "python_lisi".to_string(),
+            kind: ProbeKind::PythonAny(vec![
+                "lisi".to_string(),
+                "harmonypy".to_string(),
+                "scanpy.external.pp.lisi".to_string(),
+            ]),
+        },
+        ProbeSpec { key: "CELLRANGER".to_string(), kind: ProbeKind::Cellranger },
+    ];
+    for (name, probe) in METHOD_PROBES.iter() {
+        let kind = match probe {
+            MethodProbe::Python(m) => ProbeKind::Python(m.to_string()),
+            MethodProbe::R(pkg)    => ProbeKind::R(pkg.to_string()),
+        };
+        specs.push(ProbeSpec { key: (*name).to_string(), kind });
+    }
 
-    // Per-method probes. BTreeMap so the on-disk JSON is byte-stable
-    // across runs (deterministic-emission contract).
+    // Attempt to probe inside the resolved execution container image.
+    // Fall back to host probes on any failure (no image configured,
+    // docker not available, container exits non-zero, etc.).
+    let probe_image = resolve_probe_image(pkg_dir);
+    let (probe_results, cellranger_version, probe_site) = match &probe_image {
+        Some(image) => {
+            match run_container_probes(&specs, image, r_libs_user) {
+                Ok((bools, cr)) => {
+                    tracing::info!(
+                        image = %image,
+                        "env_capability: probed inside container image"
+                    );
+                    (bools, cr, format!("container:{image}"))
+                }
+                Err(e) => {
+                    tracing::debug!(
+                        error = %e,
+                        image = %image,
+                        "env_capability: container probe failed, falling back to host"
+                    );
+                    let (bools, cr) = run_host_probes(&specs, r_libs_user);
+                    (bools, cr, "host-fallback".to_string())
+                }
+            }
+        }
+        None => {
+            tracing::debug!("env_capability: no container image configured, using host probes");
+            let (bools, cr) = run_host_probes(&specs, r_libs_user);
+            (bools, cr, "host-fallback".to_string())
+        }
+    };
+
+    // Extract capability booleans (default false if a probe line was missing).
+    let get = |key: &str| probe_results.get(key).copied().unwrap_or(false);
+    let r_seurat    = get("r_seurat");
+    let r_cellchat  = get("r_cellchat");
+    let pyscenic    = get("pyscenic");
+    let python_lisi = get("python_lisi");
+
+    // Per-method results. BTreeMap so the on-disk JSON is byte-stable.
     let mut methods = serde_json::Map::new();
     let mut available_count = 0usize;
     for (name, probe) in METHOD_PROBES.iter() {
-        let (available, language, probe_target) = match probe {
-            MethodProbe::Python(module) => (probe_python_import(module), "python", *module),
-            MethodProbe::R(pkg) => (probe_r_package(pkg, r_libs_user), "r", *pkg),
+        let available = probe_results.get(*name).copied().unwrap_or(false);
+        let (language, probe_target) = match probe {
+            MethodProbe::Python(m) => ("python", *m),
+            MethodProbe::R(pkg)    => ("r",      *pkg),
         };
         if available {
             available_count += 1;
@@ -6099,6 +6363,7 @@ fn write_env_capability(pkg_dir: &Path) -> Result<()> {
         "probed_at": ecaa_workflow_core::time_helpers::now_rfc3339(),
         "harness_version": env!("CARGO_PKG_VERSION"),
         "host_os": std::env::consts::OS,
+        "probe_site": probe_site,
         // Standardized execution-environment contract for the bio-min
         // container. Declared (not probed) so the agent uses the canonical
         // interpreters + install verb + renderer instead of discovering them
@@ -6113,7 +6378,7 @@ fn write_env_capability(pkg_dir: &Path) -> Result<()> {
             },
             "r": {
                 "interpreter": "Rscript",
-                "note": "`Rscript` on PATH is the R interpreter for this image. Install extra R packages with `ecaa-install r|bioc` so they land in the user library appended to the base .libPaths() — base graphics (cairo/ragg) stay importable. Do NOT create an isolated R/conda env, which drops base packages."
+                "note": "`Rscript` on PATH is the R interpreter for this image. Install extra CRAN packages with `ecaa-install r` (into the user library, base graphics preserved). Install Bioconductor packages with `ecaa-install bioc`, which resolves the pre-built bioconda binary into the shared `ecaa-bioc` conda env (the base /opt/conda is read-only); run that compute via `conda run -n ecaa-bioc Rscript …`."
             },
             "compute_language": "Python and R are both first-class compute interpreters here; neither is privileged. Choose whichever fits the method — the choice does not affect figures (a fixed post-compute step renders those from your tables).",
             "figure_rendering": {
@@ -6124,7 +6389,7 @@ fn write_env_capability(pkg_dir: &Path) -> Result<()> {
             "install": {
                 "command": "ecaa-install <ecosystem> <pkg>...",
                 "ecosystems": ["py", "r", "bioc"],
-                "note": "Standard install verb on PATH. Routes py->pip, r->install.packages, bioc->BiocManager, into the shared per-session cache and the canonical env. Use it instead of raw pip/conda/mamba/BiocManager so installs are cached, reused across tasks, and never shadow base packages."
+                "note": "Standard install verb on PATH. Routes py->pip, r->install.packages, bioc->bioconda binary into the shared `ecaa-bioc` conda env, into the shared per-session cache and the canonical env. Use it instead of raw pip/conda/mamba/BiocManager so installs are cached, reused across tasks, and never shadow base packages."
             }
         },
         "capabilities": {
@@ -6141,7 +6406,7 @@ fn write_env_capability(pkg_dir: &Path) -> Result<()> {
     std::fs::write(&path, serde_json::to_string_pretty(&report)?)
         .with_context(|| format!("writing {}", path.display()))?;
     println!(
-        "  {} env_capability probe: R+Seurat={} R+CellChat={} pySCENIC={} lisi={} cellranger={} methods={}/{} available",
+        "  {} env_capability probe: R+Seurat={} R+CellChat={} pySCENIC={} lisi={} cellranger={} methods={}/{} available [{}]",
         "✓".green(),
         r_seurat,
         r_cellchat,
@@ -6152,8 +6417,38 @@ fn write_env_capability(pkg_dir: &Path) -> Result<()> {
             .unwrap_or_else(|| "none".to_string()),
         available_count,
         METHOD_PROBES.len(),
+        probe_site,
     );
     Ok(())
+}
+
+/// Run all probes on the HOST using the individual per-probe functions.
+/// Returns `(bool_map, cellranger_version)`.  Used as the fallback when
+/// no container image is configured or the container probe fails.
+fn run_host_probes(
+    specs: &[ProbeSpec],
+    r_libs_user: Option<&Path>,
+) -> (std::collections::BTreeMap<String, bool>, Option<String>) {
+    let mut bools = std::collections::BTreeMap::new();
+    let mut cellranger_version: Option<String> = None;
+    for spec in specs {
+        match &spec.kind {
+            ProbeKind::R(pkg) => {
+                bools.insert(spec.key.clone(), probe_r_package(pkg, r_libs_user));
+            }
+            ProbeKind::Python(module) => {
+                bools.insert(spec.key.clone(), probe_python_import(module));
+            }
+            ProbeKind::PythonAny(modules) => {
+                let result = modules.iter().any(|m| probe_python_import(m));
+                bools.insert(spec.key.clone(), result);
+            }
+            ProbeKind::Cellranger => {
+                cellranger_version = probe_cellranger();
+            }
+        }
+    }
+    (bools, cellranger_version)
 }
 
 fn probe_r_package(pkg: &str, r_libs_user: Option<&Path>) -> bool {
@@ -8716,6 +9011,254 @@ mod read_dag_tests {
         write_env_capability(pkg_root).unwrap();
         let out = pkg_root.join("runtime/env_capability.json");
         assert!(out.exists());
+    }
+
+    // ── pure helper unit tests (no docker, no R, no Python) ─────────────
+
+    /// `build_probe_script` for an R probe without r_libs emits a line
+    /// that calls `Rscript` with a plain `suppressMessages(library(...))`.
+    #[test]
+    fn build_probe_script_r_no_rlibs() {
+        let specs = vec![ProbeSpec {
+            key: "deseq2".to_string(),
+            kind: ProbeKind::R("DESeq2".to_string()),
+        }];
+        let script = build_probe_script(&specs, None);
+        assert!(
+            script.contains("Rscript"),
+            "script must invoke Rscript: {script}"
+        );
+        assert!(
+            script.contains("DESeq2"),
+            "script must reference the package name: {script}"
+        );
+        assert!(
+            script.contains("deseq2=1") && script.contains("deseq2=0"),
+            "script must emit key=1 and key=0 branches: {script}"
+        );
+        // With no r_libs prefix, .libPaths is NOT called.
+        assert!(
+            !script.contains(".libPaths(c("),
+            "no r_libs => no .libPaths(...) call: {script}"
+        );
+    }
+
+    /// With an r_libs prefix the generated script prepends it in .libPaths.
+    #[test]
+    fn build_probe_script_r_with_rlibs() {
+        let specs = vec![ProbeSpec {
+            key: "seurat".to_string(),
+            kind: ProbeKind::R("Seurat".to_string()),
+        }];
+        let script = build_probe_script(&specs, Some("/work/pkg/runtime/r-libs"));
+        assert!(
+            script.contains("/work/pkg/runtime/r-libs"),
+            "r_libs path must appear in script: {script}"
+        );
+        assert!(
+            script.contains(".libPaths(c("),
+            "script must call .libPaths to prepend r_libs: {script}"
+        );
+    }
+
+    /// `build_probe_script` for a Python probe emits `python3 -c 'import ...'`.
+    #[test]
+    fn build_probe_script_python() {
+        let specs = vec![ProbeSpec {
+            key: "pyscenic".to_string(),
+            kind: ProbeKind::Python("pyscenic".to_string()),
+        }];
+        let script = build_probe_script(&specs, None);
+        assert!(script.contains("python3"), "must invoke python3: {script}");
+        assert!(
+            script.contains("import pyscenic"),
+            "must import the target module: {script}"
+        );
+        assert!(
+            script.contains("pyscenic=1") && script.contains("pyscenic=0"),
+            "must emit key=1 and key=0 branches: {script}"
+        );
+    }
+
+    /// `build_probe_script` for a `PythonAny` probe OR-chains the imports.
+    #[test]
+    fn build_probe_script_python_any() {
+        let specs = vec![ProbeSpec {
+            key: "python_lisi".to_string(),
+            kind: ProbeKind::PythonAny(vec![
+                "lisi".to_string(),
+                "harmonypy".to_string(),
+                "scanpy.external.pp.lisi".to_string(),
+            ]),
+        }];
+        let script = build_probe_script(&specs, None);
+        // All three imports must appear.
+        for needle in ["import lisi", "import harmonypy", "import scanpy.external.pp.lisi"] {
+            assert!(
+                script.contains(needle),
+                "PythonAny script must contain '{needle}': {script}"
+            );
+        }
+        assert!(
+            script.contains("||"),
+            "PythonAny script must OR-chain imports: {script}"
+        );
+    }
+
+    /// `build_probe_script` for a Cellranger probe emits the version line.
+    #[test]
+    fn build_probe_script_cellranger() {
+        let specs = vec![ProbeSpec {
+            key: "CELLRANGER".to_string(),
+            kind: ProbeKind::Cellranger,
+        }];
+        let script = build_probe_script(&specs, None);
+        assert!(
+            script.contains("cellranger --version"),
+            "must probe cellranger version: {script}"
+        );
+        assert!(
+            script.contains("CELLRANGER="),
+            "must emit CELLRANGER= line: {script}"
+        );
+    }
+
+    /// `parse_probe_output` handles bool `=1`/`=0` lines and the
+    /// `CELLRANGER=` prefix correctly.
+    #[test]
+    fn parse_probe_output_mixed() {
+        let stdout = "deseq2=1\nedger=0\nCELLRANGER=cellranger-7.2.0\npyscenic=1\n";
+        let (bools, cr) = parse_probe_output(stdout);
+        assert_eq!(bools.get("deseq2"), Some(&true));
+        assert_eq!(bools.get("edger"),  Some(&false));
+        assert_eq!(bools.get("pyscenic"), Some(&true));
+        // CELLRANGER should NOT appear in the bool map.
+        assert!(!bools.contains_key("CELLRANGER"));
+        assert_eq!(cr.as_deref(), Some("cellranger-7.2.0"));
+    }
+
+    /// `parse_probe_output` returns `None` for cellranger when the line
+    /// is `CELLRANGER=` (empty, meaning binary absent).
+    #[test]
+    fn parse_probe_output_cellranger_absent() {
+        let stdout = "deseq2=0\nCELLRANGER=\n";
+        let (bools, cr) = parse_probe_output(stdout);
+        assert_eq!(bools.get("deseq2"), Some(&false));
+        assert_eq!(cr, None, "empty CELLRANGER= must yield None");
+    }
+
+    /// `parse_probe_output` tolerates blank lines and unexpected lines.
+    #[test]
+    fn parse_probe_output_tolerates_noise() {
+        let stdout = "\n\ndeseq2=1\n# some unexpected comment\ngarbage line\nedger=0\n";
+        let (bools, cr) = parse_probe_output(stdout);
+        assert_eq!(bools.get("deseq2"), Some(&true));
+        assert_eq!(bools.get("edger"),  Some(&false));
+        assert_eq!(cr, None);
+        // Unexpected lines must not panic, and must not appear in bools.
+        assert!(!bools.contains_key("# some unexpected comment"));
+        assert!(!bools.contains_key("garbage line"));
+    }
+
+    /// `resolve_probe_image` returns `None` when neither the policy file
+    /// nor the env var supplies an image.
+    #[test]
+    fn resolve_probe_image_none_when_no_source() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Write a container.json with null image (the default testdata shape).
+        std::fs::create_dir_all(tmp.path().join("policies")).unwrap();
+        std::fs::write(
+            tmp.path().join("policies/container.json"),
+            r#"{"image": null}"#,
+        )
+        .unwrap();
+        // Ensure the env var is not set in this process.
+        // (We only unset it if it was set; the test is still meaningful
+        // because the policy file returns null.)
+        let _guard = EnvVarGuard::unset("ECAA_DEFAULT_CONTAINER_IMAGE");
+        let result = resolve_probe_image(tmp.path());
+        assert_eq!(result, None);
+    }
+
+    /// `resolve_probe_image` prefers the policy file over the env var.
+    #[test]
+    fn resolve_probe_image_policy_file_wins() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("policies")).unwrap();
+        std::fs::write(
+            tmp.path().join("policies/container.json"),
+            r#"{"image": "ghcr.io/ecaa/bio-min:latest"}"#,
+        )
+        .unwrap();
+        let _guard = EnvVarGuard::set(
+            "ECAA_DEFAULT_CONTAINER_IMAGE",
+            "ghcr.io/ecaa/bio-min:other",
+        );
+        let result = resolve_probe_image(tmp.path());
+        assert_eq!(result.as_deref(), Some("ghcr.io/ecaa/bio-min:latest"));
+    }
+
+    /// `resolve_probe_image` falls back to the env var when the policy
+    /// file has `"image": null`.
+    #[test]
+    fn resolve_probe_image_env_fallback() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("policies")).unwrap();
+        std::fs::write(
+            tmp.path().join("policies/container.json"),
+            r#"{"image": null}"#,
+        )
+        .unwrap();
+        let _guard = EnvVarGuard::set("ECAA_DEFAULT_CONTAINER_IMAGE", "ghcr.io/ecaa/bio-min:env");
+        let result = resolve_probe_image(tmp.path());
+        assert_eq!(result.as_deref(), Some("ghcr.io/ecaa/bio-min:env"));
+    }
+
+    /// `probe_site` field is present in the emitted JSON.
+    #[test]
+    fn env_capability_probe_site_field_present() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_env_capability(tmp.path()).unwrap();
+        let body: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(tmp.path().join("runtime/env_capability.json")).unwrap(),
+        )
+        .unwrap();
+        let site = body
+            .get("probe_site")
+            .expect("probe_site field must be present in env_capability.json")
+            .as_str()
+            .expect("probe_site must be a string");
+        // Without a container image configured this will be "host-fallback".
+        assert!(
+            site == "host-fallback" || site.starts_with("container:"),
+            "probe_site must be 'host-fallback' or 'container:<image>', got: {site}"
+        );
+    }
+
+    /// Helper for temporarily setting / unsetting an env var in tests.
+    struct EnvVarGuard {
+        key: &'static str,
+        original: Option<String>,
+    }
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let original = std::env::var(key).ok();
+            std::env::set_var(key, value);
+            Self { key, original }
+        }
+        fn unset(key: &'static str) -> Self {
+            let original = std::env::var(key).ok();
+            std::env::remove_var(key);
+            Self { key, original }
+        }
+    }
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            match &self.original {
+                Some(v) => std::env::set_var(self.key, v),
+                None    => std::env::remove_var(self.key),
+            }
+        }
     }
 
     #[test]

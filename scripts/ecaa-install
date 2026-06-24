@@ -4,7 +4,9 @@
 # Usage:
 #   ecaa-install py   <pip-pkg>...     # Python via pip (user/site cache)
 #   ecaa-install r    <CRAN-pkg>...    # R via install.packages
-#   ecaa-install bioc <Bioc-pkg>...    # R/Bioconductor via BiocManager
+#   ecaa-install bioc <Bioc-pkg>...    # R/Bioconductor via bioconda binary
+#                                      # (falls back to BiocManager only when
+#                                      #  no bioconda binary exists for a pkg)
 #
 # Why a verb instead of raw pip/conda/mamba/BiocManager:
 #  - ONE method per ecosystem, so installs are deterministic and the
@@ -16,6 +18,9 @@
 #    shipped renderer's graphics backend keeps working — unlike an isolated
 #    conda R env, which silently drops base graphics ("no package 'ragg'").
 #  - Idempotent: already-present packages are skipped fast.
+#  - bioc installs use the pre-built bioconda binary (no C++ source compile)
+#    into the shared 'ecaa-bioc' conda env (CONDA_ENVS_DIRS is already
+#    redirected to a writable cache by the run environment).
 set -uo pipefail
 
 eco="${1:-}"; shift || true
@@ -28,6 +33,18 @@ PY="${ECAA_PY:-python3}"
 RSCRIPT="${ECAA_RSCRIPT:-Rscript}"
 CRAN="${ECAA_CRAN_REPO:-https://cloud.r-project.org}"
 
+# Best-effort path to the runtime install-log (NEVER fails the install).
+# Derive from ECAA_PACKAGE_DIR if set, else from PACKAGE env, else skip.
+_log_install() {
+  local reg="$1" pkg="$2" ver="$3"
+  local logdir="${ECAA_PACKAGE_DIR:-${PACKAGE:-}}"
+  [ -z "$logdir" ] && return 0
+  local logfile="$logdir/runtime/install-log.jsonl"
+  mkdir -p "$(dirname "$logfile")" 2>/dev/null || return 0
+  printf '{"registry":"%s","package":"%s","resolved_version":"%s"}\n' \
+    "$reg" "$pkg" "$ver" >> "$logfile" 2>/dev/null || true
+}
+
 r_vec() { # join args as an R c("a","b") vector
   local out="" a
   for a in "$@"; do out="${out:+$out, }\"$a\""; done
@@ -38,11 +55,19 @@ case "$eco" in
   py|python|pip)
     # PIP_USER + PYTHONUSERBASE + PIP_CACHE_DIR are set by the container, so
     # this lands in the per-session user-site cache and is reused next task.
-    exec "$PY" -m pip install --no-input --disable-pip-version-check "$@"
+    "$PY" -m pip install --no-input --disable-pip-version-check "$@"
+    _pip_exit=$?
+    if [ $_pip_exit -eq 0 ]; then
+      for _pkg in "$@"; do
+        _ver="$("$PY" -m pip show "$_pkg" 2>/dev/null | awk '/^Version:/{print $2}')" || _ver=""
+        _log_install "python" "$_pkg" "${_ver:-}"
+      done
+    fi
+    exit $_pip_exit
     ;;
   r|cran)
     pkgs="$(r_vec "$@")"
-    exec "$RSCRIPT" --no-save -e "
+    "$RSCRIPT" --no-save -e "
       pkgs <- ${pkgs}
       need <- pkgs[!vapply(pkgs, function(p) requireNamespace(p, quietly=TRUE), logical(1))]
       if (length(need)) install.packages(need, repos='${CRAN}', Ncpus=max(1L, parallel::detectCores()))
@@ -50,18 +75,97 @@ case "$eco" in
       if (!all(ok)) { message('ecaa-install: FAILED: ', paste(pkgs[!ok], collapse=', ')); quit(status=1) }
       message('ecaa-install: ok (r): ', paste(pkgs, collapse=', '))
     "
+    _r_exit=$?
+    if [ $_r_exit -eq 0 ]; then
+      for _pkg in "$@"; do
+        _ver="$("$RSCRIPT" --no-save -e "cat(as.character(packageVersion('$_pkg')))" 2>/dev/null)" || _ver=""
+        _log_install "r" "$_pkg" "${_ver:-}"
+      done
+    fi
+    exit $_r_exit
     ;;
   bioc|bioconductor)
-    pkgs="$(r_vec "$@")"
-    exec "$RSCRIPT" --no-save -e "
-      if (!requireNamespace('BiocManager', quietly=TRUE)) install.packages('BiocManager', repos='${CRAN}')
-      pkgs <- ${pkgs}
-      need <- pkgs[!vapply(pkgs, function(p) requireNamespace(p, quietly=TRUE), logical(1))]
-      if (length(need)) BiocManager::install(need, update=FALSE, ask=FALSE, Ncpus=max(1L, parallel::detectCores()))
-      ok <- vapply(pkgs, function(p) requireNamespace(p, quietly=TRUE), logical(1))
-      if (!all(ok)) { message('ecaa-install: FAILED: ', paste(pkgs[!ok], collapse=', ')); quit(status=1) }
-      message('ecaa-install: ok (bioc): ', paste(pkgs, collapse=', '))
-    "
+    # --- primary path: bioconda pre-built binary into shared 'ecaa-bioc' env ---
+    MAMBA="$(command -v mamba 2>/dev/null || command -v conda 2>/dev/null || true)"
+    BIOC_ENV="ecaa-bioc"
+
+    _bioc_failed=()   # pkgs that bioconda couldn't satisfy
+    _bioc_ok=()
+
+    if [ -n "$MAMBA" ]; then
+      # Collect bioconda package names, skip already-installed ones.
+      _conda_pkgs=()
+      for _pkg in "$@"; do
+        _lc="$(printf '%s' "$_pkg" | tr '[:upper:]' '[:lower:]')"
+        _conda_name="bioconductor-${_lc}"
+        # If env exists, check whether the pkg is already present.
+        if "$MAMBA" env list 2>/dev/null | grep -q "^${BIOC_ENV}[[:space:]]"; then
+          if conda list -n "$BIOC_ENV" 2>/dev/null | grep -qi "^${_conda_name}[[:space:]]"; then
+            echo "ecaa-install: already present (bioc/conda): $_pkg"
+            _bioc_ok+=("$_pkg")
+            continue
+          fi
+        fi
+        _conda_pkgs+=("$_conda_name")
+      done
+
+      if [ "${#_conda_pkgs[@]}" -gt 0 ]; then
+        if "$MAMBA" env list 2>/dev/null | grep -q "^${BIOC_ENV}[[:space:]]"; then
+          # Env exists — install into it.
+          "$MAMBA" install -y -n "$BIOC_ENV" -c conda-forge -c bioconda "${_conda_pkgs[@]}"
+          _conda_exit=$?
+        else
+          # Env does not exist yet — create it.
+          "$MAMBA" create -y -n "$BIOC_ENV" -c conda-forge -c bioconda "${_conda_pkgs[@]}"
+          _conda_exit=$?
+        fi
+
+        if [ $_conda_exit -ne 0 ]; then
+          # Bioconda install failed — all requested pkgs fall through to BiocManager.
+          echo "ecaa-install: bioconda install failed (exit $_conda_exit); falling back to BiocManager for: $*" >&2
+          _bioc_failed=("$@")
+        else
+          # Record successes and print usage hints.
+          for _pkg in "$@"; do
+            _lc="$(printf '%s' "$_pkg" | tr '[:upper:]' '[:lower:]')"
+            _conda_name="bioconductor-${_lc}"
+            _ver="$(conda list -n "$BIOC_ENV" 2>/dev/null | awk -v p="$_conda_name" 'tolower($1)==p{print $2}' | head -1)" || _ver=""
+            echo "ecaa-install: ok (bioc): ${_pkg} → conda env '${BIOC_ENV}'; run R with: conda run -n ${BIOC_ENV} Rscript <script>"
+            _log_install "conda" "$_pkg" "${_ver:-}"
+            _bioc_ok+=("$_pkg")
+          done
+        fi
+      fi
+    else
+      # No mamba/conda available at all — fall through to BiocManager for everything.
+      echo "ecaa-install: mamba/conda not found; falling back to BiocManager for: $*" >&2
+      _bioc_failed=("$@")
+    fi
+
+    # --- fallback path: BiocManager source-install for pkgs bioconda couldn't satisfy ---
+    if [ "${#_bioc_failed[@]}" -gt 0 ]; then
+      pkgs="$(r_vec "${_bioc_failed[@]}")"
+      "$RSCRIPT" --no-save -e "
+        if (!requireNamespace('BiocManager', quietly=TRUE)) install.packages('BiocManager', repos='${CRAN}')
+        pkgs <- ${pkgs}
+        need <- pkgs[!vapply(pkgs, function(p) requireNamespace(p, quietly=TRUE), logical(1))]
+        if (length(need)) BiocManager::install(need, update=FALSE, ask=FALSE, Ncpus=max(1L, parallel::detectCores()))
+        ok <- vapply(pkgs, function(p) requireNamespace(p, quietly=TRUE), logical(1))
+        if (!all(ok)) { message('ecaa-install: FAILED: ', paste(pkgs[!ok], collapse=', ')); quit(status=1) }
+        message('ecaa-install: ok (bioc/BiocManager fallback): ', paste(pkgs, collapse=', '))
+      "
+      _biocmgr_exit=$?
+      if [ $_biocmgr_exit -eq 0 ]; then
+        for _pkg in "${_bioc_failed[@]}"; do
+          _ver="$("$RSCRIPT" --no-save -e "cat(as.character(packageVersion('$_pkg')))" 2>/dev/null)" || _ver=""
+          _log_install "conda" "$_pkg" "${_ver:-}"
+        done
+      fi
+      exit $_biocmgr_exit
+    fi
+
+    # All pkgs satisfied via bioconda.
+    exit 0
     ;;
   *)
     echo "ecaa-install: unknown ecosystem '$eco' (expected py|r|bioc)" >&2
