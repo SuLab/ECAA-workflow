@@ -89,6 +89,24 @@ case "$eco" in
     MAMBA="$(command -v mamba 2>/dev/null || command -v conda 2>/dev/null || true)"
     BIOC_ENV="ecaa-bioc"
 
+    # Robust existence check for the shared bioc env. Newer mamba/conda
+    # `env list` prints a `Name/Active/Path` header and INDENTS env rows
+    # (`  ecaa-bioc   /path`), so the old `grep "^ecaa-bioc[[:space:]]"`
+    # (anchored, no leading space) never matched — making every call think the
+    # env was absent and run a DESTRUCTIVE `mamba create` that wiped previously
+    # installed packages (e.g. DESeq2 clobbered by a later org.Hs.eg.db install;
+    # the 2026-06-24 replay regression). Take the first field of each row and
+    # match the env name exactly; also accept a direct prefix-dir hit.
+    _bioc_env_exists() {
+      "$MAMBA" env list 2>/dev/null | awk '{print $1}' | grep -qx "$BIOC_ENV" && return 0
+      _old_ifs="$IFS"; IFS=':'
+      for _d in ${CONDA_ENVS_DIRS:-}; do
+        if [ -n "$_d" ] && [ -d "$_d/$BIOC_ENV" ]; then IFS="$_old_ifs"; return 0; fi
+      done
+      IFS="$_old_ifs"
+      return 1
+    }
+
     _bioc_failed=()   # pkgs that bioconda couldn't satisfy
     _bioc_ok=()
 
@@ -99,7 +117,7 @@ case "$eco" in
         _lc="$(printf '%s' "$_pkg" | tr '[:upper:]' '[:lower:]')"
         _conda_name="bioconductor-${_lc}"
         # If env exists, check whether the pkg is already present.
-        if "$MAMBA" env list 2>/dev/null | grep -q "^${BIOC_ENV}[[:space:]]"; then
+        if _bioc_env_exists; then
           if conda list -n "$BIOC_ENV" 2>/dev/null | grep -qi "^${_conda_name}[[:space:]]"; then
             echo "ecaa-install: already present (bioc/conda): $_pkg"
             _bioc_ok+=("$_pkg")
@@ -110,8 +128,8 @@ case "$eco" in
       done
 
       if [ "${#_conda_pkgs[@]}" -gt 0 ]; then
-        if "$MAMBA" env list 2>/dev/null | grep -q "^${BIOC_ENV}[[:space:]]"; then
-          # Env exists — install into it.
+        if _bioc_env_exists; then
+          # Env exists — ADD to it (never recreate: create would wipe DESeq2 etc.).
           "$MAMBA" install -y -n "$BIOC_ENV" -c conda-forge -c bioconda "${_conda_pkgs[@]}"
           _conda_exit=$?
         else
@@ -142,23 +160,46 @@ case "$eco" in
       _bioc_failed=("$@")
     fi
 
-    # --- fallback path: BiocManager source-install for pkgs bioconda couldn't satisfy ---
+    # --- fallback path: BiocManager install INTO the ecaa-bioc conda env ---
+    # Run BiocManager *inside* the env with R_LIBS_USER unset, so packages land
+    # in the env's OWN R library — ABI-matched to the env's R and captured
+    # wholesale by the env-snapshot, so `ecaa-workflow replay` can reproduce the
+    # R compute. A bare `$RSCRIPT` here would install into the external
+    # R_LIBS_USER tree (built by a different R), splitting the stack across two
+    # libraries that the snapshot cannot reassemble — the cause of the
+    # 2026-06-24 replay regression.
     if [ "${#_bioc_failed[@]}" -gt 0 ]; then
+      if [ -z "$MAMBA" ]; then
+        echo "ecaa-install: FAILED (bioc): no mamba/conda available to host env '${BIOC_ENV}' for: $*" >&2
+        exit 1
+      fi
+      # Ensure the env exists with R + BiocManager (fast conda-forge binaries).
+      if _bioc_env_exists; then
+        "$MAMBA" install -y -n "$BIOC_ENV" -c conda-forge r-biocmanager >/dev/null 2>&1 || true
+      else
+        if ! "$MAMBA" create -y -n "$BIOC_ENV" -c conda-forge r-base r-biocmanager; then
+          echo "ecaa-install: FAILED (bioc): could not create env '${BIOC_ENV}'" >&2
+          exit 1
+        fi
+      fi
       pkgs="$(r_vec "${_bioc_failed[@]}")"
-      "$RSCRIPT" --no-save -e "
+      # `env -u R_LIBS_USER` so install targets the env's own site library, not
+      # the external user tree.
+      "$MAMBA" run -n "$BIOC_ENV" env -u R_LIBS_USER Rscript --no-save -e "
         if (!requireNamespace('BiocManager', quietly=TRUE)) install.packages('BiocManager', repos='${CRAN}')
         pkgs <- ${pkgs}
         need <- pkgs[!vapply(pkgs, function(p) requireNamespace(p, quietly=TRUE), logical(1))]
         if (length(need)) BiocManager::install(need, update=FALSE, ask=FALSE, Ncpus=max(1L, parallel::detectCores()))
         ok <- vapply(pkgs, function(p) requireNamespace(p, quietly=TRUE), logical(1))
         if (!all(ok)) { message('ecaa-install: FAILED: ', paste(pkgs[!ok], collapse=', ')); quit(status=1) }
-        message('ecaa-install: ok (bioc/BiocManager fallback): ', paste(pkgs, collapse=', '))
+        message('ecaa-install: ok (bioc/BiocManager-in-env fallback): ', paste(pkgs, collapse=', '))
       "
       _biocmgr_exit=$?
       if [ $_biocmgr_exit -eq 0 ]; then
         for _pkg in "${_bioc_failed[@]}"; do
-          _ver="$("$RSCRIPT" --no-save -e "cat(as.character(packageVersion('$_pkg')))" 2>/dev/null)" || _ver=""
+          _ver="$("$MAMBA" run -n "$BIOC_ENV" env -u R_LIBS_USER Rscript --no-save -e "cat(as.character(packageVersion('$_pkg')))" 2>/dev/null)" || _ver=""
           _log_install "conda" "$_pkg" "${_ver:-}"
+          echo "ecaa-install: ok (bioc): ${_pkg} → conda env '${BIOC_ENV}' R library; run R with: conda run -n ${BIOC_ENV} Rscript <script>"
         done
       fi
       exit $_biocmgr_exit

@@ -19,13 +19,26 @@ use crate::env_snapshot::SnapshotOpts;
 ///
 /// `base_digest` must be a fully-qualified digest (`sha256:<hex>`) so the
 /// layer stack is pinned byte-for-byte.
+///
+/// `r_env_bin`, when present, is the absolute path of a captured conda
+/// environment's `bin/` directory that contains an `Rscript` (the agent's
+/// bioconductor env). Replay re-runs `.R` scripts via a bare `Rscript`
+/// (`script_runner` → `interpreter_for`), NOT the agent's `conda run -n <env>`
+/// wrapper, so unless that bare `Rscript` resolves to the env's R the recorded
+/// R compute (DESeq2/vst) cannot reproduce. We install small wrappers at
+/// `/usr/local/bin/{Rscript,R}` (first on the base PATH) that `exec` the env's
+/// binaries by absolute path — so `argv[0]` stays inside the env and R_HOME is
+/// resolved correctly. Only R is redirected: `python3` is deliberately left as
+/// the base interpreter so the `.py` compute steps keep using `PYTHONUSERBASE`.
 pub fn render_snapshot_dockerfile(
     base_digest: &str,
     conda_envs_abs: &Path,
     r_libs_abs: &Path,
     python_userbase_abs: &Path,
+    r_env_bin: Option<&Path>,
+    base_user: Option<&str>,
 ) -> String {
-    format!(
+    let mut df = format!(
         "FROM {base}\n\
          COPY conda-envs {conda}\n\
          COPY R-libs {rlibs}\n\
@@ -37,7 +50,70 @@ pub fn render_snapshot_dockerfile(
         conda = conda_envs_abs.display(),
         rlibs = r_libs_abs.display(),
         python = python_userbase_abs.display(),
-    )
+    );
+    if let Some(bin) = r_env_bin {
+        // The base image typically runs as a non-root user (e.g. `bio`) and
+        // `/usr/local/bin` is root-owned, so the wrapper write needs root.
+        // Replay overrides the user with `docker run --user`, but we still
+        // restore the recorded base user so the image is otherwise unchanged.
+        df.push_str("USER root\n");
+        // Wrapper (not symlink): exec by the env's absolute path so conda R
+        // resolves R_HOME relative to its real location, not /usr/local/bin.
+        df.push_str(&format!(
+            "RUN printf '#!/bin/sh\\nexec \"{bin}/Rscript\" \"$@\"\\n' > /usr/local/bin/Rscript \\\n\
+             \x20&& printf '#!/bin/sh\\nexec \"{bin}/R\" \"$@\"\\n' > /usr/local/bin/R \\\n\
+             \x20&& chmod +x /usr/local/bin/Rscript /usr/local/bin/R\n",
+            bin = bin.display(),
+        ));
+        if let Some(user) = base_user.filter(|u| !u.is_empty()) {
+            df.push_str(&format!("USER {user}\n"));
+        }
+    }
+    df
+}
+
+/// Inspect the base image's configured `User` so the snapshot can restore it
+/// after the root-only wrapper `RUN` step. Returns `None` when the daemon has
+/// no answer or the field is empty (image defaults to root); the renderer then
+/// emits no restoring `USER`.
+fn resolve_base_user(base: &str) -> Option<String> {
+    let out = Command::new("docker")
+        .args(["image", "inspect", "--format", "{{.Config.User}}", base])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let user = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+    if user.is_empty() {
+        None
+    } else {
+        Some(user)
+    }
+}
+
+/// Find the `bin/` directory of a captured conda environment that provides an
+/// `Rscript`, so the snapshot can route the bare `Rscript` interpreter to the
+/// env's R (see [`render_snapshot_dockerfile`]).
+///
+/// `conda_envs_abs` is the build-context `conda-envs/` directory. We prefer the
+/// `ecaa-install` bioconductor convention env (`ecaa-bioc`); failing that we
+/// take the lexicographically-first env that contains `bin/Rscript`. Returns
+/// `None` when no conda R env was captured (a Python-only run), in which case
+/// no R wrapper is emitted.
+fn find_r_env_bin(conda_envs_abs: &Path) -> Option<PathBuf> {
+    let preferred = conda_envs_abs.join("ecaa-bioc").join("bin");
+    if preferred.join("Rscript").is_file() {
+        return Some(preferred);
+    }
+    let mut candidates: Vec<PathBuf> = std::fs::read_dir(conda_envs_abs)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path().join("bin"))
+        .filter(|bin| bin.join("Rscript").is_file())
+        .collect();
+    candidates.sort();
+    candidates.into_iter().next()
 }
 
 /// Derive the local docker tag for a snapshot image from the base digest.
@@ -168,6 +244,13 @@ pub fn build_image(opts: &SnapshotOpts) -> io::Result<String> {
     // the base image is present locally because the agent's compute just ran
     // in it.
     let from_ref = resolve_base_from_ref(&opts.base_digest);
+    let r_env_bin = find_r_env_bin(&conda_envs_abs);
+    // Only needed when an R wrapper RUN is emitted; inspect the original base.
+    let base_user = if r_env_bin.is_some() {
+        resolve_base_user(&opts.base_digest).or_else(|| resolve_base_user(&from_ref))
+    } else {
+        None
+    };
     {
         let mut f = std::fs::File::create(&dockerfile_path)?;
         let content = render_snapshot_dockerfile(
@@ -175,6 +258,8 @@ pub fn build_image(opts: &SnapshotOpts) -> io::Result<String> {
             &conda_envs_abs,
             &r_libs_abs,
             &python_abs,
+            r_env_bin.as_deref(),
+            base_user.as_deref(),
         );
         f.write_all(content.as_bytes())?;
     }
@@ -491,6 +576,8 @@ mod tests {
             std::path::Path::new("/cache/s1/conda-envs"),
             std::path::Path::new("/cache/s1/R-libs"),
             std::path::Path::new("/cache/s1/python"),
+            None,
+            None,
         );
         assert!(df.contains("FROM sha256:abc"));
         assert!(df.contains("COPY conda-envs /cache/s1/conda-envs"));
@@ -499,6 +586,58 @@ mod tests {
         assert!(df.contains("ENV CONDA_ENVS_DIRS=/cache/s1/conda-envs"));
         assert!(df.contains("ENV R_LIBS_USER=/cache/s1/R-libs"));
         assert!(df.contains("ENV PYTHONUSERBASE=/cache/s1/python"));
+        // No conda R env → no Rscript wrapper, no USER juggling, python untouched.
+        assert!(!df.contains("/usr/local/bin/Rscript"));
+        assert!(!df.contains("USER root"));
+    }
+
+    #[test]
+    fn dockerfile_routes_bare_rscript_to_conda_env_when_present() {
+        // Replay runs `.R` scripts via a bare `Rscript`; when a conda R env was
+        // captured, the snapshot must route that bare Rscript to the env's R so
+        // the recorded DESeq2/vst compute reproduces. python3 must be untouched.
+        let df = render_snapshot_dockerfile(
+            "sha256:abc",
+            std::path::Path::new("/cache/s1/conda-envs"),
+            std::path::Path::new("/cache/s1/R-libs"),
+            std::path::Path::new("/cache/s1/python"),
+            Some(std::path::Path::new("/cache/s1/conda-envs/ecaa-bioc/bin")),
+            Some("bio:bio"),
+        );
+        // Root for the wrapper write into root-owned /usr/local/bin, then the
+        // recorded base user is restored.
+        assert!(df.contains("USER root"));
+        assert!(df.contains("USER bio:bio"));
+        // Wrapper execs the env's Rscript/R by absolute path (R_HOME stays in env).
+        assert!(df.contains("/usr/local/bin/Rscript"));
+        assert!(df.contains("exec \"/cache/s1/conda-envs/ecaa-bioc/bin/Rscript\" \"$@\""));
+        assert!(df.contains("exec \"/cache/s1/conda-envs/ecaa-bioc/bin/R\" \"$@\""));
+        assert!(df.contains("chmod +x /usr/local/bin/Rscript /usr/local/bin/R"));
+        // python3 is deliberately NOT redirected (keeps PYTHONUSERBASE steps working).
+        assert!(!df.contains("/usr/local/bin/python"));
+    }
+
+    #[test]
+    fn find_r_env_bin_prefers_ecaa_bioc_then_falls_back() {
+        let t = tempfile::tempdir().unwrap();
+        let envs = t.path().join("conda-envs");
+        // A non-preferred env with Rscript + the preferred ecaa-bioc env.
+        for (name, has_rscript) in [("aaa-env", true), ("ecaa-bioc", true)] {
+            let bin = envs.join(name).join("bin");
+            std::fs::create_dir_all(&bin).unwrap();
+            if has_rscript {
+                std::fs::write(bin.join("Rscript"), "x").unwrap();
+            }
+        }
+        assert_eq!(find_r_env_bin(&envs), Some(envs.join("ecaa-bioc").join("bin")));
+
+        // Without ecaa-bioc, take the lexicographically-first env with Rscript.
+        std::fs::remove_dir_all(envs.join("ecaa-bioc")).unwrap();
+        assert_eq!(find_r_env_bin(&envs), Some(envs.join("aaa-env").join("bin")));
+
+        // Python-only run (no Rscript anywhere) → None.
+        std::fs::remove_file(envs.join("aaa-env").join("bin").join("Rscript")).unwrap();
+        assert_eq!(find_r_env_bin(&envs), None);
     }
 
     #[test]
