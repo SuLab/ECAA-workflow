@@ -5,6 +5,7 @@
 
 use std::path::PathBuf;
 
+pub mod build;
 pub mod cache_scan;
 
 /// Options controlling whether and where a snapshot is captured.
