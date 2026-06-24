@@ -155,11 +155,34 @@ impl ExecEnv {
                     "-v".to_string(),
                     format!("{cwd_str}:{cwd_str}"),
                     "-w".to_string(),
-                    cwd_str,
+                    cwd_str.clone(),
                 ];
+                // Run as the OWNER of the working dir. The image may default to a
+                // non-root user (e.g. bio-min runs as uid 1001), which cannot
+                // write into the host-owned scratch tree mounted at `cwd` — a
+                // script writing its outputs/progress log then fails with EACCES.
+                // The scratch dir is created by the replay caller as the host
+                // user, so its owner uid:gid is exactly who must run the script.
+                if let Ok(md) = std::fs::metadata(cwd) {
+                    use std::os::unix::fs::MetadataExt;
+                    args.push("--user".to_string());
+                    args.push(format!("{}:{}", md.uid(), md.gid()));
+                }
+                // A host uid with no `/etc/passwd` entry inside the image has no
+                // usable `$HOME`; point it at the writable working dir so tools
+                // that consult `$HOME` (caches, config) do not fail. A recorded
+                // HOME in `env` takes precedence.
+                let mut saw_home = false;
                 for (k, v) in env {
+                    if k == "HOME" {
+                        saw_home = true;
+                    }
                     args.push("--env".to_string());
                     args.push(format!("{k}={v}"));
+                }
+                if !saw_home {
+                    args.push("--env".to_string());
+                    args.push(format!("HOME={cwd_str}"));
                 }
                 args.push(digest.clone());
                 args.push(interp.to_string());
@@ -591,68 +614,75 @@ mod tests {
         );
     }
 
-    /// Container variant produces the expected docker arg vector.
+    /// Container variant produces the expected docker arg vector, including
+    /// `--user <owner>` (so a non-root image default user can write the
+    /// host-owned scratch) and a writable `HOME`.
     #[test]
     fn build_command_container_arg_vector() {
-        let digest = "sha256:abc123".to_string();
-        let env_obj = ExecEnv::Container { digest: digest.clone() };
+        use std::os::unix::fs::MetadataExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let cwd = tmp.path();
+        let cwd_str = cwd.display().to_string();
+        let md = std::fs::metadata(cwd).unwrap();
+        let user = format!("{}:{}", md.uid(), md.gid());
+
+        let env_obj = ExecEnv::Container { digest: "sha256:abc123".to_string() };
         let mut env = BTreeMap::new();
         env.insert("SOURCE_DATE_EPOCH".to_string(), "1000000".to_string());
         env.insert("PYTHONHASHSEED".to_string(), "0".to_string());
-        let script = Path::new("/data/run.py");
-        let cwd = Path::new("/data");
+        let script = cwd.join("run.py");
 
-        let argv = env_obj.build_command(script, &env, cwd).unwrap();
+        let argv = env_obj.build_command(&script, &env, cwd).unwrap();
 
-        // BTreeMap sorted: PYTHONHASHSEED before SOURCE_DATE_EPOCH.
-        assert_eq!(
-            argv,
-            vec![
-                "docker",
-                "run",
-                "--rm",
-                "-v",
-                "/data:/data",
-                "-w",
-                "/data",
-                "--env",
-                "PYTHONHASHSEED=0",
-                "--env",
-                "SOURCE_DATE_EPOCH=1000000",
-                "sha256:abc123",
-                "python3",
-                "/data/run.py",
-            ]
+        assert_eq!(argv[0], "docker");
+        assert_eq!(argv[1], "run");
+        assert_eq!(argv[2], "--rm");
+        assert!(argv
+            .windows(2)
+            .any(|w| w[0] == "-v" && w[1] == format!("{cwd_str}:{cwd_str}")));
+        assert!(argv.windows(2).any(|w| w[0] == "-w" && w[1] == cwd_str));
+        assert!(
+            argv.windows(2).any(|w| w[0] == "--user" && w[1] == user),
+            "container re-exec must run as the working-dir owner: {argv:?}"
         );
+        // BTreeMap sorted: PYTHONHASHSEED before SOURCE_DATE_EPOCH.
+        assert!(argv.contains(&"PYTHONHASHSEED=0".to_string()));
+        assert!(argv.contains(&"SOURCE_DATE_EPOCH=1000000".to_string()));
+        assert!(
+            argv.contains(&format!("HOME={cwd_str}")),
+            "HOME must point at the writable working dir: {argv:?}"
+        );
+        let n = argv.len();
+        assert_eq!(argv[n - 3], "sha256:abc123");
+        assert_eq!(argv[n - 2], "python3");
+        assert_eq!(argv[n - 1], script.display().to_string());
     }
 
     /// RebuiltImage variant produces the same docker structure as Container
     /// (same code path), verified here with a .sh script → bash interpreter.
     #[test]
     fn build_command_rebuilt_image_arg_vector() {
-        let tag = "ecaa-replay:mypkg".to_string();
-        let env_obj = ExecEnv::RebuiltImage { tag: tag.clone() };
+        use std::os::unix::fs::MetadataExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let cwd = tmp.path();
+        let cwd_str = cwd.display().to_string();
+        let md = std::fs::metadata(cwd).unwrap();
+        let user = format!("{}:{}", md.uid(), md.gid());
+
+        let env_obj = ExecEnv::RebuiltImage { tag: "ecaa-replay:mypkg".to_string() };
         let env: BTreeMap<String, String> = BTreeMap::new();
-        let script = Path::new("/scripts/setup.sh");
-        let cwd = Path::new("/scripts");
+        let script = cwd.join("setup.sh");
 
-        let argv = env_obj.build_command(script, &env, cwd).unwrap();
+        let argv = env_obj.build_command(&script, &env, cwd).unwrap();
 
-        assert_eq!(
-            argv,
-            vec![
-                "docker",
-                "run",
-                "--rm",
-                "-v",
-                "/scripts:/scripts",
-                "-w",
-                "/scripts",
-                "ecaa-replay:mypkg",
-                "bash",
-                "/scripts/setup.sh",
-            ]
-        );
+        assert_eq!(argv[0], "docker");
+        assert!(argv.windows(2).any(|w| w[0] == "--user" && w[1] == user));
+        // No HOME in env → re-exec injects HOME pointing at the writable cwd.
+        assert!(argv.contains(&format!("HOME={cwd_str}")));
+        let n = argv.len();
+        assert_eq!(argv[n - 3], "ecaa-replay:mypkg");
+        assert_eq!(argv[n - 2], "bash");
+        assert_eq!(argv[n - 1], script.display().to_string());
     }
 
     /// build_command returns Err for ExecEnv::None.
