@@ -1513,6 +1513,289 @@ pub fn register_software_dependencies(
     Ok(added)
 }
 
+/// Project actually-used analysis tools from per-task `runtime/outputs/*/env.lock`
+/// files into `SoftwareApplication` `@graph` nodes, linked from the
+/// `ComputationalWorkflow` entity's `softwareRequirements` array.
+///
+/// Mirrors [`register_software_dependencies`] in node shape and idempotency contract.
+/// Complements it: `register_software_dependencies` reads the *requested* dependency
+/// lock (`runtime/dependency-lock.json`) which records tools the orchestrator asked
+/// for; this function reads the *recorded* env.lock snapshots which record what was
+/// ACTUALLY installed and used per task — including tools the agent installed at
+/// runtime that never appeared in the declared dependency lock.
+///
+/// ## env.lock line shapes (three parseable forms; everything else is skipped)
+///
+/// 1. **pip pin** `name==version` → eco=`python`
+///    e.g. `pydeseq2==0.5.4`, `gseapy==1.3.0`
+/// 2. **conda pin** `name: version` (value starts with a digit) → eco=`conda`
+///    e.g. `bioconductor-deseq2: 1.50.2`, `r-jsonlite: 2.0.0`
+///    Metadata lines like `conda env: deseq2_vst_env` are excluded because
+///    their value does not start with a digit.
+/// 3. **R sessionInfo "other attached packages"** block → eco=`r`
+///    After a `other attached packages:` header, parse `Name_version` tokens
+///    (often prefixed by `[N]`) until a blank line or the next section header.
+///    e.g. `DESeq2_1.50.2`, `SummarizedExperiment_1.40.0`
+///
+/// ## Dedup + ordering
+/// First occurrence of `(eco, name)` across ALL task env.lock files wins; tasks
+/// are processed in sorted order so the output is deterministic. `@id` scheme:
+/// `#dep/<eco>/<name>` (same namespace as `register_software_dependencies`).
+///
+/// ## Idempotency
+/// Skips any `@id` already present in the `@graph`, so coexists safely with
+/// `register_software_dependencies` and repeated finalize runs.
+///
+/// Returns the count of newly-added nodes. No-op `Ok(0)` when
+/// `runtime/outputs/` is absent, no task dir contains an `env.lock`, or
+/// the descriptor is missing/unparseable.
+pub fn register_software_from_env_locks(
+    package_root: &std::path::Path,
+) -> std::io::Result<usize> {
+    let descriptor = package_root.join("ro-crate-metadata.json");
+    let Ok(bytes) = std::fs::read(&descriptor) else {
+        return Ok(0);
+    };
+    let Ok(mut doc) = serde_json::from_slice::<Value>(&bytes) else {
+        return Ok(0);
+    };
+    let Some(graph) = doc.get_mut("@graph").and_then(Value::as_array_mut) else {
+        return Ok(0);
+    };
+
+    // Collect existing @ids for idempotency check.
+    let existing: std::collections::BTreeSet<String> = graph
+        .iter()
+        .filter_map(|e| e.get("@id").and_then(Value::as_str).map(String::from))
+        .collect();
+
+    // Scan runtime/outputs/<task>/env.lock files in sorted task order.
+    let outputs_root = package_root.join("runtime").join("outputs");
+    let mut task_dirs: Vec<std::path::PathBuf> = match std::fs::read_dir(&outputs_root) {
+        Ok(entries) => entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_dir())
+            .collect(),
+        Err(_) => return Ok(0),
+    };
+    task_dirs.sort();
+
+    // (eco, name) → version — first occurrence across all tasks wins.
+    let mut seen: std::collections::BTreeMap<(String, String), String> =
+        std::collections::BTreeMap::new();
+
+    for task_dir in &task_dirs {
+        let env_lock = task_dir.join("env.lock");
+        let Ok(content) = std::fs::read_to_string(&env_lock) else {
+            continue;
+        };
+        parse_env_lock(&content, &mut seen);
+    }
+
+    if seen.is_empty() {
+        return Ok(0);
+    }
+
+    let mut new_nodes: Vec<Value> = Vec::new();
+    let mut req_ids: Vec<Value> = Vec::new();
+
+    // Emit in deterministic (eco, name) sorted order.
+    for ((eco, name), version) in &seen {
+        let id = format!("#dep/{eco}/{name}");
+        if existing.contains(&id) {
+            continue;
+        }
+        let mut node = json!({
+            "@id": id,
+            "@type": "SoftwareApplication",
+            "name": name,
+            "applicationCategory": eco,
+        });
+        if !version.is_empty() {
+            node["softwareVersion"] = json!(version);
+        }
+        new_nodes.push(node);
+        req_ids.push(json!({"@id": id}));
+    }
+
+    let added = new_nodes.len();
+    if added == 0 {
+        return Ok(0);
+    }
+    for node in new_nodes {
+        graph.push(node);
+    }
+
+    // Link new nodes from the ComputationalWorkflow entity's softwareRequirements.
+    // @type may be a plain string or an array — handle both (same as register_software_dependencies).
+    if let Some(wf) = graph.iter_mut().find(|e| {
+        match e.get("@type") {
+            Some(Value::String(s)) => s == "ComputationalWorkflow",
+            Some(Value::Array(a)) => a.iter().any(|v| v.as_str() == Some("ComputationalWorkflow")),
+            _ => false,
+        }
+    }) {
+        if let Some(obj) = wf.as_object_mut() {
+            let slot = obj
+                .entry("softwareRequirements")
+                .or_insert_with(|| json!([]));
+            if let Some(arr) = slot.as_array_mut() {
+                for r in &req_ids {
+                    if !arr.iter().any(|e| e.get("@id") == r.get("@id")) {
+                        arr.push(r.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    crate::fs_helpers::atomic_write_bytes_sync(&descriptor, &serde_json::to_vec_pretty(&doc)?)?;
+    Ok(added)
+}
+
+/// Parse a single `env.lock` file content and insert discovered `(eco, name) →
+/// version` entries into `seen`. First occurrence wins — callers accumulate
+/// across multiple files by passing the same `seen` map.
+///
+/// Three line shapes are recognised (everything else is silently skipped):
+/// 1. pip pin: `name==version`
+/// 2. conda pin: `name: version` where version starts with a digit
+/// 3. R sessionInfo "other attached packages" block: `Name_version` tokens
+fn parse_env_lock(
+    content: &str,
+    seen: &mut std::collections::BTreeMap<(String, String), String>,
+) {
+    // Compile regexes once per call. The patterns are simple enough that
+    // using regex is not required; we use hand-rolled matching to avoid
+    // adding a dependency and to stay allocation-light.
+    let mut in_other_attached = false;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+
+        // Skip blank lines (also exits the R sessionInfo block).
+        if trimmed.is_empty() {
+            in_other_attached = false;
+            continue;
+        }
+
+        // Skip comment lines.
+        if trimmed.starts_with('#') {
+            continue;
+        }
+
+        // Detect R sessionInfo "other attached packages:" header (case-insensitive).
+        let lower = trimmed.to_ascii_lowercase();
+        if lower.contains("other attached packages:") {
+            in_other_attached = true;
+            // The header line itself may contain package tokens after the colon;
+            // fall through so they are also parsed.
+            // Extract the part after the colon for parsing.
+            if let Some(after) = trimmed.find("packages:").map(|i| &trimmed[i + "packages:".len()..]) {
+                parse_r_session_tokens(after, seen);
+            }
+            continue;
+        }
+
+        // Exit the R sessionInfo block on section headers like
+        // "loaded via a namespace (and not attached):" or other non-package lines.
+        if in_other_attached {
+            if lower.contains("loaded via") || lower.contains("namespace") {
+                in_other_attached = false;
+            } else {
+                // Parse all `Name_version` tokens on this line.
+                parse_r_session_tokens(trimmed, seen);
+                continue;
+            }
+        }
+
+        // pip pin: name==version (no spaces, version starts with digit).
+        if let Some((name_part, ver_part)) = trimmed.split_once("==") {
+            let name = name_part.trim();
+            let version = ver_part.trim().split_whitespace().next().unwrap_or("").trim();
+            // Validate: name is non-empty, name@file:// pip-from-conda artifact is excluded,
+            // version starts with a digit.
+            if !name.is_empty()
+                && !name.contains('@')
+                && !name.contains(' ')
+                && !name.contains(':')
+                && version.starts_with(|c: char| c.is_ascii_digit())
+                && is_valid_pkg_name(name)
+            {
+                seen.entry(("python".to_string(), name.to_string()))
+                    .or_insert_with(|| version.to_string());
+            }
+            continue;
+        }
+
+        // conda pin: name: version (value starts with digit, no == present).
+        if let Some((name_part, ver_part)) = trimmed.split_once(':') {
+            let name = name_part.trim();
+            let version = ver_part.trim().split_whitespace().next().unwrap_or("").trim();
+            if !name.is_empty()
+                && !name.contains(' ')
+                && !name.contains('@')
+                && version.starts_with(|c: char| c.is_ascii_digit())
+                && is_valid_pkg_name(name)
+            {
+                seen.entry(("conda".to_string(), name.to_string()))
+                    .or_insert_with(|| version.to_string());
+            }
+            // Don't `continue` — no further shape matches a line with a bare `:`.
+        }
+    }
+}
+
+/// Parse R sessionInfo package tokens (`Name_version`) from a text fragment.
+/// Tokens match `[A-Za-z][A-Za-z0-9.]+_[0-9][0-9A-Za-z.-]*`.
+/// Handles bracket prefixes like `[1]`, `[2]` and surrounding whitespace.
+fn parse_r_session_tokens(
+    text: &str,
+    seen: &mut std::collections::BTreeMap<(String, String), String>,
+) {
+    // Walk the text, looking for `Name_version` tokens.
+    // We split on whitespace and try each token.
+    for token in text.split_whitespace() {
+        // Strip leading `[N]` bracket annotations.
+        let t = if token.starts_with('[') {
+            if let Some(end) = token.find(']') {
+                &token[end + 1..]
+            } else {
+                token
+            }
+        } else {
+            token
+        };
+        // Match `Name_version`: letter, letters/digits/dots, underscore, version starting with digit.
+        if let Some(under) = t.rfind('_') {
+            let name = &t[..under];
+            let version = &t[under + 1..];
+            if !name.is_empty()
+                && !version.is_empty()
+                && name.starts_with(|c: char| c.is_ascii_alphabetic())
+                && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '.')
+                && version.starts_with(|c: char| c.is_ascii_digit())
+                && version
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
+            {
+                seen.entry(("r".to_string(), name.to_string()))
+                    .or_insert_with(|| version.to_string());
+            }
+        }
+    }
+}
+
+/// Validate that a package name consists only of allowed characters:
+/// alphanumerics, `.`, `_`, `+`, `-` (pip/conda name charset).
+fn is_valid_pkg_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '+' || c == '-')
+}
+
 /// Annotate every `File` `@graph` entity whose `@id` resolves to a payload file
 /// with `contentSize` (bytes) + `sha512` (hex). Excludes the metadata descriptor
 /// (`ro-crate-metadata.json`) and BagIt tag files (cannot self-hash). Finalize-
@@ -1735,6 +2018,16 @@ pub fn finalize_evidence_registration_with_verifier(
             target: "ecaa::ro_crate",
             error = %e,
             "software dependency registration failed"
+        );
+    }
+    // Register tools actually installed per-task, read from per-task env.lock files.
+    // Runs AFTER register_software_dependencies so lock-file entries take precedence
+    // (their @ids are already in the graph; env.lock fills remaining tools). Best-effort.
+    if let Err(e) = register_software_from_env_locks(root) {
+        tracing::warn!(
+            target: "ecaa::ro_crate",
+            error = %e,
+            "env.lock tool registration failed"
         );
     }
     // Annotate @graph File entities with contentSize + sha512. Best-effort:
@@ -2589,5 +2882,292 @@ mod tests {
             preview_count, 1,
             "ro-crate-preview.html entity must appear exactly once in @graph (idempotent)"
         );
+    }
+
+    // ── env.lock parser unit tests ──────────────────────────────────────────
+
+    /// Helper: build a temp package containing env.lock fixtures and a minimal
+    /// ro-crate-metadata.json with a ComputationalWorkflow entity.
+    fn write_env_lock_package(
+        root: &std::path::Path,
+        tasks: &[(&str, &str)], // (task_name, env.lock content)
+    ) {
+        let descriptor = json!({
+            "@context": "https://w3id.org/ro/crate/1.1/context",
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "@type": "CreativeWork", "about": {"@id": "./"}},
+                {"@id": "./", "@type": "Dataset", "hasPart": []},
+                {"@id": "WORKFLOW.json", "@type": ["File", "ComputationalWorkflow"], "name": "wf"}
+            ]
+        });
+        std::fs::write(
+            root.join("ro-crate-metadata.json"),
+            serde_json::to_vec_pretty(&descriptor).unwrap(),
+        )
+        .unwrap();
+        for (task, content) in tasks {
+            let dir = root
+                .join("runtime")
+                .join("outputs")
+                .join(task);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("env.lock"), content).unwrap();
+        }
+    }
+
+    /// Mixed env.lock covering all three line shapes plus noise lines.
+    const MIXED_ENV_LOCK: &str = r#"
+# This file was auto-generated
+conda env: deseq2_vst_env
+channel: bioconda + conda-forge
+Running under: Debian GNU/Linux 12 (bookworm)
+
+bioconductor-deseq2: 1.50.2
+r-jsonlite: 2.0.0
+numpy: 1.26.4
+
+pydeseq2==0.5.4
+gseapy==1.3.0
+name @ file:///opt/conda/pkgs/skipped-1.0.0.tar.bz2
+
+other attached packages:
+[1] DESeq2_1.50.2
+[2] SummarizedExperiment_1.40.0
+[3] Biobase_2.70.0
+
+loaded via a namespace (and not attached):
+[1] GenomicRanges_1.52.0
+"#;
+
+    /// T1: pip, conda, and R sessionInfo tools are all registered with correct
+    /// applicationCategory and softwareVersion.
+    #[test]
+    fn env_lock_registers_all_three_line_shapes() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        write_env_lock_package(root, &[("task1", MIXED_ENV_LOCK)]);
+
+        let n = register_software_from_env_locks(root).unwrap();
+        assert!(n >= 4, "at least pydeseq2, gseapy, bioconductor-deseq2, DESeq2 registered; got {n}");
+
+        let doc: Value = serde_json::from_slice(
+            &std::fs::read(root.join("ro-crate-metadata.json")).unwrap(),
+        )
+        .unwrap();
+        let g = doc["@graph"].as_array().unwrap();
+
+        // pip: pydeseq2
+        let pydeseq = g.iter().find(|e| e["@id"] == "#dep/python/pydeseq2")
+            .expect("pydeseq2 node present");
+        assert_eq!(pydeseq["@type"].as_str(), Some("SoftwareApplication"));
+        assert_eq!(pydeseq["applicationCategory"].as_str(), Some("python"));
+        assert_eq!(pydeseq["softwareVersion"].as_str(), Some("0.5.4"));
+        assert_eq!(pydeseq["name"].as_str(), Some("pydeseq2"));
+
+        // pip: gseapy
+        let gseapy = g.iter().find(|e| e["@id"] == "#dep/python/gseapy")
+            .expect("gseapy node present");
+        assert_eq!(gseapy["applicationCategory"].as_str(), Some("python"));
+        assert_eq!(gseapy["softwareVersion"].as_str(), Some("1.3.0"));
+
+        // conda: bioconductor-deseq2
+        let bdeseq = g.iter().find(|e| e["@id"] == "#dep/conda/bioconductor-deseq2")
+            .expect("bioconductor-deseq2 node present");
+        assert_eq!(bdeseq["applicationCategory"].as_str(), Some("conda"));
+        assert_eq!(bdeseq["softwareVersion"].as_str(), Some("1.50.2"));
+
+        // R sessionInfo: DESeq2
+        let rdeseq = g.iter().find(|e| e["@id"] == "#dep/r/DESeq2")
+            .expect("DESeq2 node present");
+        assert_eq!(rdeseq["applicationCategory"].as_str(), Some("r"));
+        assert_eq!(rdeseq["softwareVersion"].as_str(), Some("1.50.2"));
+    }
+
+    /// T2: Noise lines (@ file://, #comments, conda env:, channel:, Running under:)
+    /// are NOT registered as SoftwareApplication nodes.
+    #[test]
+    fn env_lock_skips_noise_lines() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        write_env_lock_package(root, &[("task1", MIXED_ENV_LOCK)]);
+
+        register_software_from_env_locks(root).unwrap();
+        let doc: Value = serde_json::from_slice(
+            &std::fs::read(root.join("ro-crate-metadata.json")).unwrap(),
+        )
+        .unwrap();
+        let g = doc["@graph"].as_array().unwrap();
+
+        // pip-from-conda artifact must not appear
+        assert!(
+            !g.iter().any(|e| e["name"].as_str() == Some("name")),
+            "pip `name @ file://` artifact must not be registered"
+        );
+        // Conda metadata lines must not appear
+        assert!(
+            !g.iter().any(|e| e["name"].as_str() == Some("conda env")),
+            "`conda env:` metadata line must not be registered"
+        );
+        assert!(
+            !g.iter().any(|e| e["name"].as_str() == Some("channel")),
+            "`channel:` metadata line must not be registered"
+        );
+        assert!(
+            !g.iter().any(|e| {
+                e["name"]
+                    .as_str()
+                    .map(|s| s.starts_with("Running under"))
+                    .unwrap_or(false)
+            }),
+            "`Running under:` line must not be registered"
+        );
+        // Loaded-via-namespace tools must not appear (they are in the filtered section)
+        assert!(
+            !g.iter().any(|e| e["@id"].as_str() == Some("#dep/r/GenomicRanges")),
+            "`loaded via a namespace` tools must not be registered"
+        );
+    }
+
+    /// T3: A tool appearing in two tasks' env.lock files is registered ONCE (dedup).
+    #[test]
+    fn env_lock_deduplicates_across_tasks() {
+        let lock_a = "pydeseq2==0.5.4\ngseapy==1.3.0\n";
+        let lock_b = "pydeseq2==0.5.4\nmatplotlib==3.9.0\n"; // pydeseq2 duplicated
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        write_env_lock_package(
+            root,
+            &[("task_a", lock_a), ("task_b", lock_b)],
+        );
+
+        let n = register_software_from_env_locks(root).unwrap();
+        assert_eq!(n, 3, "pydeseq2 + gseapy + matplotlib = 3, no duplicate");
+
+        let doc: Value = serde_json::from_slice(
+            &std::fs::read(root.join("ro-crate-metadata.json")).unwrap(),
+        )
+        .unwrap();
+        let g = doc["@graph"].as_array().unwrap();
+        let pydeseq_count = g
+            .iter()
+            .filter(|e| e["@id"].as_str() == Some("#dep/python/pydeseq2"))
+            .count();
+        assert_eq!(pydeseq_count, 1, "pydeseq2 registered exactly once");
+    }
+
+    /// T4: Each registered @id is appended to the workflow's softwareRequirements.
+    #[test]
+    fn env_lock_links_into_software_requirements() {
+        let lock = "scipy==1.13.0\nnumpy==1.26.4\n";
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        write_env_lock_package(root, &[("task1", lock)]);
+
+        register_software_from_env_locks(root).unwrap();
+        let doc: Value = serde_json::from_slice(
+            &std::fs::read(root.join("ro-crate-metadata.json")).unwrap(),
+        )
+        .unwrap();
+        let g = doc["@graph"].as_array().unwrap();
+        let wf = g.iter().find(|e| e["@id"] == "WORKFLOW.json").unwrap();
+        let reqs: Vec<&str> = wf["softwareRequirements"]
+            .as_array()
+            .expect("softwareRequirements present")
+            .iter()
+            .filter_map(|r| r["@id"].as_str())
+            .collect();
+        assert!(reqs.contains(&"#dep/python/scipy"), "scipy linked");
+        assert!(reqs.contains(&"#dep/python/numpy"), "numpy linked");
+    }
+
+    /// T5: Idempotent — a second call returns 0 and adds no duplicate nodes.
+    #[test]
+    fn env_lock_registration_is_idempotent() {
+        let lock = "pydeseq2==0.5.4\n";
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        write_env_lock_package(root, &[("task1", lock)]);
+
+        let n1 = register_software_from_env_locks(root).unwrap();
+        assert_eq!(n1, 1);
+
+        let n2 = register_software_from_env_locks(root).unwrap();
+        assert_eq!(n2, 0, "second call must return 0 (idempotent)");
+
+        let doc: Value = serde_json::from_slice(
+            &std::fs::read(root.join("ro-crate-metadata.json")).unwrap(),
+        )
+        .unwrap();
+        let count = doc["@graph"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e["@id"].as_str() == Some("#dep/python/pydeseq2"))
+            .count();
+        assert_eq!(count, 1, "no duplicate pydeseq2 node after second call");
+    }
+
+    /// T6: No env.lock dir → Ok(0), no crash.
+    #[test]
+    fn env_lock_no_dir_returns_zero() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        // Write descriptor only; no runtime/outputs/ at all.
+        let descriptor = json!({
+            "@context": "https://w3id.org/ro/crate/1.1/context",
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "@type": "CreativeWork", "about": {"@id": "./"}},
+                {"@id": "./", "@type": "Dataset", "hasPart": []},
+                {"@id": "WORKFLOW.json", "@type": ["File", "ComputationalWorkflow"], "name": "wf"}
+            ]
+        });
+        std::fs::write(
+            root.join("ro-crate-metadata.json"),
+            serde_json::to_vec_pretty(&descriptor).unwrap(),
+        )
+        .unwrap();
+
+        let n = register_software_from_env_locks(root).unwrap();
+        assert_eq!(n, 0, "no env.lock dir → Ok(0)");
+    }
+
+    /// T7: parse_env_lock — unit-level coverage of the parser helper.
+    #[test]
+    fn parse_env_lock_unit_coverage() {
+        let content = r#"
+# comment line skipped
+conda env: my_env
+channel: bioconda
+Running under: Debian 12
+
+bioconductor-deseq2: 1.50.2
+r-jsonlite: 2.0.0
+pydeseq2==0.5.4
+name @ file:///bad/path==1.0.0
+
+other attached packages:
+[1] DESeq2_1.50.2 SummarizedExperiment_1.40.0
+
+loaded via a namespace (and not attached):
+[1] GenomicRanges_1.52.0
+"#;
+        let mut seen = std::collections::BTreeMap::new();
+        parse_env_lock(content, &mut seen);
+
+        // Expected registrations
+        assert_eq!(seen.get(&("conda".into(), "bioconductor-deseq2".into())).map(String::as_str), Some("1.50.2"));
+        assert_eq!(seen.get(&("conda".into(), "r-jsonlite".into())).map(String::as_str), Some("2.0.0"));
+        assert_eq!(seen.get(&("python".into(), "pydeseq2".into())).map(String::as_str), Some("0.5.4"));
+        assert_eq!(seen.get(&("r".into(), "DESeq2".into())).map(String::as_str), Some("1.50.2"));
+        assert_eq!(seen.get(&("r".into(), "SummarizedExperiment".into())).map(String::as_str), Some("1.40.0"));
+
+        // Must NOT be registered
+        assert!(seen.get(&("conda".into(), "conda env".into())).is_none());
+        assert!(seen.get(&("conda".into(), "channel".into())).is_none());
+        assert!(seen.get(&("python".into(), "name".into())).is_none()); // @ file:// artifact
+        assert!(seen.get(&("r".into(), "GenomicRanges".into())).is_none()); // loaded-via-namespace
     }
 }
