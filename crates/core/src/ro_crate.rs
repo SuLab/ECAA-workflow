@@ -1527,7 +1527,8 @@ pub fn register_content_integrity(package_root: &std::path::Path) -> std::io::Re
     let mut annotated = 0usize;
     for e in graph.iter_mut() {
         let Some(id) = e.get("@id").and_then(Value::as_str).map(String::from) else { continue };
-        if id == "ro-crate-metadata.json" || id.starts_with("manifest-")
+        if id == "ro-crate-metadata.json" || id == "ro-crate-preview.html"
+            || id.starts_with("manifest-")
             || id == "bagit.txt" || id.starts_with('#') || id == "./" { continue; }
         let is_file = match e.get("@type") {
             Some(Value::String(s)) => s == "File",
