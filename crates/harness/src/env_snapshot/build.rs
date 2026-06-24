@@ -158,8 +158,12 @@ fn resolve_digest(tag: &str, registry: Option<&str>) -> io::Result<String> {
         {
             if out.status.success() {
                 let text = String::from_utf8_lossy(&out.stdout);
-                // Extract "digest": "sha256:<hex>" from the config block.
-                if let Some(digest) = extract_json_string_field(&text, "digest") {
+                // Navigate to config.digest, mirroring the shell script's
+                // `d["config"]["digest"]` (scripts/build-bio-min.sh ~line 75).
+                // A multi-platform manifest has a "manifests" array whose
+                // entries each carry a per-platform "digest"; we must skip
+                // those and extract the config-block digest instead.
+                if let Some(digest) = extract_config_digest(&text) {
                     if digest.starts_with("sha256:") {
                         return Ok(digest);
                     }
@@ -191,6 +195,13 @@ fn resolve_digest(tag: &str, registry: Option<&str>) -> io::Result<String> {
     }
 
     // 3. Local image Id (pre-push fallback).
+    //
+    // NOTE: The image Id is a LOCAL content identifier computed by the local
+    // daemon.  It is NOT a registry-pullable content digest — a remote
+    // `docker pull <image>@<Id>` will fail until the image has been pushed
+    // and the registry has issued a proper repo digest.  Callers (Task 4)
+    // must treat a tier-3 result as a same-host-only reference and re-resolve
+    // the digest after the push completes.
     let id_out = Command::new("docker")
         .args(["image", "inspect", "--format", "{{.Id}}", tag])
         .output()?;
@@ -223,9 +234,79 @@ fn extract_json_string_field(json: &str, field: &str) -> Option<String> {
     Some(inner[..end].to_owned())
 }
 
+/// Extract the `config.digest` string from a `docker manifest inspect` JSON
+/// blob, mirroring `d["config"]["digest"]` in `scripts/build-bio-min.sh`.
+///
+/// A multi-platform manifest carries a `"manifests"` array whose entries each
+/// have a `"digest"` field (per-platform manifest digest).  Calling
+/// `extract_json_string_field(..., "digest")` on the full blob would return
+/// the first such entry — wrong for multi-arch images.  This function instead
+/// locates the `"config"` key first and then extracts `"digest"` from the
+/// substring that follows, which corresponds to the image config block.
+fn extract_config_digest(json: &str) -> Option<String> {
+    let config_needle = "\"config\"";
+    let config_pos = json.find(config_needle)?;
+    let after_config = &json[config_pos + config_needle.len()..];
+    extract_json_string_field(after_config, "digest")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Verify that `extract_config_digest` returns the config-block digest and
+    /// not a per-platform manifest digest from a multi-arch manifest list.
+    #[test]
+    fn config_digest_skips_manifest_list_entries() {
+        // Multi-platform shape: "manifests" array entries each carry a
+        // "digest" that is a per-platform manifest digest — NOT what we want.
+        // The "config" block further down carries the image config digest.
+        let multi_platform_json = r#"{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json",
+  "manifests": [
+    {
+      "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+      "size": 948,
+      "digest": "sha256:MANIFEST_NOT_THIS",
+      "platform": { "architecture": "amd64", "os": "linux" }
+    },
+    {
+      "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+      "size": 942,
+      "digest": "sha256:MANIFEST_NOT_THIS_EITHER",
+      "platform": { "architecture": "arm64", "os": "linux" }
+    }
+  ],
+  "config": {
+    "mediaType": "application/vnd.docker.container.image.v1+json",
+    "size": 7023,
+    "digest": "sha256:CONFIG_THIS"
+  }
+}"#;
+        assert_eq!(
+            extract_config_digest(multi_platform_json),
+            Some("sha256:CONFIG_THIS".to_owned()),
+            "multi-platform: should return config.digest, not a manifests-array digest"
+        );
+
+        // Single-platform shape: no "manifests" array; only a "config" block.
+        let single_platform_json = r#"{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+  "config": {
+    "mediaType": "application/vnd.docker.container.image.v1+json",
+    "size": 6791,
+    "digest": "sha256:ONLY"
+  },
+  "layers": []
+}"#;
+        assert_eq!(
+            extract_config_digest(single_platform_json),
+            Some("sha256:ONLY".to_owned()),
+            "single-platform: should return config.digest"
+        );
+    }
 
     #[test]
     fn dockerfile_pins_base_copies_envs_at_same_path_and_sets_env() {
