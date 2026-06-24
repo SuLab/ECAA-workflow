@@ -6,6 +6,7 @@
 //! subprocess path.
 
 pub mod _observability;
+pub mod env_snapshot;
 pub mod cache_eviction;
 pub mod constants;
 pub mod dag_patch;

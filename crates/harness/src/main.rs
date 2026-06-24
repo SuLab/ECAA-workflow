@@ -4155,6 +4155,15 @@ fn run_loop(
                 i + 1
             );
 
+            // Capture the assembled compute environment into a content-addressed
+            // image and record its digest into the package, on BOTH run paths:
+            // the harness is the only component with the assembled conda-envs/
+            // R-libs cache, so the server cannot do this. Re-seals the BagIt
+            // manifest itself after recording the digest so the manifest is
+            // correct on both paths (session path never calls
+            // finalize_completed_package). Gated + non-fatal internally.
+            ecaa_workflow_harness::end_of_run_finalize::maybe_snapshot(path);
+
             // Standalone self-finalization: the server normally finalizes
             // per-task on `task_completed` events, but a no-session run sends
             // none — so finalize the whole package here (verify+sign claims,

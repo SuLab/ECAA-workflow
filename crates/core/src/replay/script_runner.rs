@@ -99,6 +99,15 @@ pub fn stage_and_run(
         copy_dir_all(&data_src, &data_dst)?;
     }
 
+    // Stage the top-level `inputs/` tree (the registered user inputs). Data
+    // ingestion scripts read from `$PACKAGE/inputs/<file>`; without this they
+    // re-execute against a missing path and the task fails.
+    let inputs_src = pkg.join("inputs");
+    let inputs_dst = scratch.join("inputs");
+    if inputs_src.is_dir() {
+        copy_dir_all(&inputs_src, &inputs_dst)?;
+    }
+
     // Resolve run order: tasks listed in `order` first (in that order), then
     // remaining tasks in stable (original slice) order.
     let ordered_ids: Vec<&str> = order.iter().map(|s| s.as_str()).collect();
@@ -196,13 +205,20 @@ fn run_task(
     }
 
     // Also create the output directory for the task so scripts can write there.
-    if let Err(e) = std::fs::create_dir_all(scratch.join("runtime/outputs").join(&task.task_id)) {
+    let scratch_task_dir = scratch.join("runtime/outputs").join(&task.task_id);
+    if let Err(e) = std::fs::create_dir_all(&scratch_task_dir) {
         return RunOutcome {
             task_id: task.task_id.clone(),
             ok: false,
             stderr: format!("could not create task output dir: {e}"),
         };
     }
+
+    // Mirror the recorded task output dir's SUBDIRECTORY tree (dirs only, no
+    // files) into the scratch so a script that writes into a pre-existing
+    // subdir (e.g. `intermediates/`, `figures/`) without creating it first
+    // behaves as it did on the recorded run. Best-effort; idempotent.
+    mirror_subdirs(&pkg.join("runtime/outputs").join(&task.task_id), &scratch_task_dir);
 
     let mut task_ok = true;
     let mut task_stderr = String::new();
@@ -298,6 +314,25 @@ fn run_task(
         task_id: task.task_id.clone(),
         ok: task_ok,
         stderr: task_stderr,
+    }
+}
+
+/// Recreate (empty) every subdirectory of `src` under `dst`, recursively —
+/// directories only, never files. Reproduces the recorded task output
+/// directory layout in the replay scratch so a script that writes into a
+/// pre-existing subdir without `mkdir`-ing it first behaves as it did on the
+/// recorded run. Best-effort: individual failures are ignored, and existing
+/// directories (e.g. already-staged `data/`) are left untouched.
+fn mirror_subdirs(src: &Path, dst: &Path) {
+    let Ok(entries) = std::fs::read_dir(src) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            let sub_dst = dst.join(entry.file_name());
+            let _ = std::fs::create_dir_all(&sub_dst);
+            mirror_subdirs(&entry.path(), &sub_dst);
+        }
     }
 }
 
