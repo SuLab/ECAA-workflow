@@ -29,8 +29,13 @@ use serde_json::Value;
 ///   `<pkg>/runtime/outputs/<id>/determinism-env.json`: overwrites
 ///   `"task_container_digest"` with `digest`, preserving all sibling keys.
 ///
-/// Any file that does not exist is silently skipped — no error is returned.
-/// A compute task whose id is not in `compute_task_ids` is left untouched.
+/// **Best-effort per-task policy for `determinism-env.json`:** a file that is
+/// absent *or* present but unparseable is silently skipped — the loop
+/// continues to the next task rather than aborting.  Only genuine write or
+/// rename failures (disk full, permission denied, etc.) are propagated as
+/// errors, because those reflect environmental problems that should surface.
+/// The `policies/container.json` update is processed once and is not
+/// subject to the per-task skip logic.
 pub fn record_digest(
     pkg: &Path,
     digest: &str,
@@ -43,14 +48,24 @@ pub fn record_digest(
     }
 
     // --- runtime/outputs/<task>/determinism-env.json ---
+    // Best-effort: absent or corrupt files are skipped; only write/rename
+    // failures (real IO errors) are propagated.
     for task_id in compute_task_ids {
         let det_env = pkg
             .join("runtime")
             .join("outputs")
             .join(task_id)
             .join("determinism-env.json");
-        if det_env.exists() {
-            update_determinism_env(&det_env, digest)?;
+        if !det_env.exists() {
+            continue;
+        }
+        match update_determinism_env(&det_env, digest) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::InvalidData => {
+                // Corrupt / non-object JSON — skip this task, keep going.
+                continue;
+            }
+            Err(e) => return Err(e),
         }
     }
 
@@ -289,5 +304,64 @@ mod tests {
         let listed: Vec<String> = vec!["nonexistent_task".into()];
         let result = record_digest(&pkg, "sha256:new", &listed);
         assert!(result.is_ok(), "absent determinism-env.json should not error");
+    }
+
+    #[test]
+    fn overwrites_preexisting_container_digest() {
+        let tmp = TempDir::new().unwrap();
+        let pkg = tmp.path().to_path_buf();
+        let policies = pkg.join("policies");
+        fs::create_dir_all(&policies).unwrap();
+        // container.json already has a digest — record_digest must overwrite it.
+        fs::write(
+            policies.join("container.json"),
+            r#"{"image": null, "digest": "sha256:old"}"#,
+        )
+        .unwrap();
+
+        record_digest(&pkg, "sha256:new", &[]).unwrap();
+
+        let cj = read_json(&pkg.join("policies").join("container.json"));
+        assert_eq!(cj["digest"], "sha256:new", "old digest must be overwritten");
+        // image was null, so it should be promoted to the new digest.
+        assert_eq!(cj["image"], "sha256:new", "null image must be promoted to new digest");
+    }
+
+    #[test]
+    fn corrupt_determinism_env_is_skipped_other_tasks_still_updated() {
+        let tmp = TempDir::new().unwrap();
+        let pkg = make_pkg(&tmp, &["good_task", "corrupt_task"], "sha256:base");
+
+        // Overwrite corrupt_task's determinism-env.json with invalid JSON.
+        let corrupt_path = pkg
+            .join("runtime")
+            .join("outputs")
+            .join("corrupt_task")
+            .join("determinism-env.json");
+        fs::write(&corrupt_path, b"not valid json {{{{").unwrap();
+
+        let listed: Vec<String> = vec!["good_task".into(), "corrupt_task".into()];
+        // Must return Ok — corrupt file is skipped, not propagated.
+        record_digest(&pkg, "sha256:new", &listed).unwrap();
+
+        // good_task was updated.
+        let good = read_json(
+            &pkg.join("runtime")
+                .join("outputs")
+                .join("good_task")
+                .join("determinism-env.json"),
+        );
+        assert_eq!(
+            good["task_container_digest"], "sha256:new",
+            "good_task must be updated despite corrupt sibling"
+        );
+
+        // corrupt_task's file was left as-is (still invalid; read back as raw
+        // bytes to confirm record_digest did not clobber it with valid JSON).
+        let raw = fs::read_to_string(&corrupt_path).unwrap();
+        assert!(
+            raw.contains("not valid json"),
+            "corrupt_task file must not have been overwritten"
+        );
     }
 }
