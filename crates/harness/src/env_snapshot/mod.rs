@@ -8,6 +8,7 @@ use std::path::PathBuf;
 pub mod cache_scan;
 
 /// Options controlling whether and where a snapshot is captured.
+#[derive(Debug, Clone, PartialEq)]
 pub struct SnapshotOpts {
     pub enabled: bool,
     pub registry: Option<String>,
@@ -17,12 +18,14 @@ pub struct SnapshotOpts {
 }
 
 /// Where a captured snapshot was stored.
+#[derive(Debug, Clone, PartialEq)]
 pub enum StoreLocation {
     Registry(String),
     LocalCas(PathBuf),
 }
 
 /// Outcome of a snapshot attempt.
+#[derive(Debug, Clone, PartialEq)]
 pub enum SnapshotOutcome {
     Captured {
         digest: String,

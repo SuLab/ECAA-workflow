@@ -58,6 +58,11 @@ pub fn cache_has_installs(cache_dir: &Path) -> bool {
     }
 
     // pip: any child entry (file or directory) inside pip/ indicates content.
+    // Unlike conda (which has a canonical `bin/`) or R-libs (which has named
+    // package subdirs), pip caches and install trees have no single fixed
+    // sub-structure — layout varies by pip version and invocation flags.
+    // Therefore the presence of *any* content under `pip/` is sufficient
+    // evidence that pip-managed packages have been installed.
     if let Ok(entries) = std::fs::read_dir(cache_dir.join("pip")) {
         for entry in entries.flatten() {
             let _ = entry; // any entry means content is present
@@ -90,6 +95,12 @@ mod tests {
     fn r_libs_package_present_means_installs() {
         let t = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(t.path().join("R-libs/DESeq2/R")).unwrap();
+        assert!(cache_has_installs(t.path()));
+    }
+    #[test]
+    fn pip_content_present_means_installs() {
+        let t = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(t.path().join("pip/site-packages/numpy")).unwrap();
         assert!(cache_has_installs(t.path()));
     }
 }
