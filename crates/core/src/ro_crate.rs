@@ -1118,6 +1118,121 @@ pub fn register_report_documents(package_root: &std::path::Path) -> std::io::Res
     Ok(added)
 }
 
+/// Register the re-executability + accountability sidecar files that already
+/// exist on disk as first-class `@graph` File/CreativeWork entities, linked
+/// from the root Dataset's `hasPart`. Idempotent; presence-gated. Called from
+/// finalize BEFORE the BagIt re-seal. Never fabricates: only registers files
+/// that actually exist on disk.
+///
+/// Sidecars covered:
+/// - `runtime/dependency-lock.json` — pinned R/Python/conda package versions
+/// - `policies/runtime-prereqs.json` — base image + system/language packages
+/// - `policies/container.json` — container image reference
+/// - `runtime/reexecution.json` — per-artifact reproduction buckets
+/// - `runtime/cost-ledger.jsonl` — per-step resource/cost accounting
+///
+/// Returns the count of newly-added entities (0 on a second/idempotent call).
+pub fn register_reexecutability_sidecars(
+    package_root: &std::path::Path,
+) -> std::io::Result<usize> {
+    // (rel_path, name, description, encodingFormat)
+    const SIDECARS: &[(&str, &str, &str, &str)] = &[
+        (
+            "runtime/dependency-lock.json",
+            "Dependency lock — requested R/Python/conda package versions",
+            "Re-executability signal: the pinned dependency set for the run.",
+            "application/json",
+        ),
+        (
+            "policies/runtime-prereqs.json",
+            "Runtime prerequisites — base image, system + language packages",
+            "Re-executability signal: the runtime environment requirements.",
+            "application/json",
+        ),
+        (
+            "policies/container.json",
+            "Container specification — execution image reference",
+            "Re-executability signal: the container image used for execution.",
+            "application/json",
+        ),
+        (
+            "runtime/reexecution.json",
+            "Re-execution equivalence report — per-artifact reproduction buckets",
+            "Provenance: how re-executed outputs compared to the recorded run.",
+            "application/json",
+        ),
+        (
+            "runtime/cost-ledger.jsonl",
+            "Cost ledger — per-step resource/cost accounting",
+            "Accountability: recorded compute/cost ledger for the run.",
+            "application/jsonl",
+        ),
+    ];
+
+    let descriptor = package_root.join("ro-crate-metadata.json");
+    let Ok(bytes) = std::fs::read(&descriptor) else {
+        return Ok(0);
+    };
+    let Ok(mut doc) = serde_json::from_slice::<Value>(&bytes) else {
+        return Ok(0);
+    };
+    let Some(graph) = doc.get_mut("@graph").and_then(Value::as_array_mut) else {
+        return Ok(0);
+    };
+    let existing: std::collections::BTreeSet<String> = graph
+        .iter()
+        .filter_map(|e| e.get("@id").and_then(Value::as_str).map(String::from))
+        .collect();
+
+    let mut new_parts: Vec<Value> = Vec::new();
+    for (rel, name, desc, fmt) in SIDECARS {
+        if existing.contains(*rel) {
+            continue;
+        }
+        if !package_root.join(rel).exists() {
+            continue;
+        }
+        graph.push(json!({
+            "@id": rel,
+            "@type": ["File", "CreativeWork"],
+            "name": name,
+            "description": desc,
+            "encodingFormat": fmt,
+            "about": {"@id": "./"},
+        }));
+        new_parts.push(json!({"@id": rel}));
+    }
+    let added = new_parts.len();
+    if added == 0 {
+        return Ok(0);
+    }
+
+    // Link from the root Dataset's `hasPart` — the canonical RO-Crate 1.1
+    // composition edge.
+    if let Some(root) = graph
+        .iter_mut()
+        .find(|e| e.get("@id").and_then(Value::as_str) == Some("./"))
+    {
+        if let Some(obj) = root.as_object_mut() {
+            let slot = obj
+                .entry("hasPart")
+                .or_insert_with(|| Value::Array(Vec::new()));
+            if let Some(arr) = slot.as_array_mut() {
+                for part in &new_parts {
+                    let pid = part.get("@id");
+                    if !arr.iter().any(|e| e.get("@id") == pid) {
+                        arr.push(part.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    let serialized = serde_json::to_vec_pretty(&doc)?;
+    crate::fs_helpers::atomic_write_bytes_sync(&descriptor, &serialized)?;
+    Ok(added)
+}
+
 /// Render a human-readable `SNAPSHOTS.md` at the package root from the
 /// per-task literature `evidence/manifest.json` files. Each row maps an
 /// opaque content-addressed snapshot hash to its source (PMID / kind / role /
@@ -1292,6 +1407,234 @@ fn collect_output_tables(dir: &std::path::Path, rel_prefix: &str, out: &mut Vec<
     }
 }
 
+/// Project pinned dependencies from `runtime/dependency-lock.json` into one
+/// `SoftwareApplication` `@graph` node per package (deterministic `@id` of the
+/// form `#dep/<ecosystem>/<name>`), then link all new nodes from the
+/// `ComputationalWorkflow` entity's `softwareRequirements` array.
+///
+/// `softwareVersion` is set to the `resolved` exact version when present, the
+/// `requested` range otherwise; omitted when both are absent. Ecosystems are
+/// iterated in fixed alphabetical order (conda, python, r) for determinism.
+/// Idempotent: skips any `@id` already present in the graph; returns 0 on the
+/// second run. No-op (Ok(0)) when the lock file or descriptor is absent/unparseable.
+/// Never fabricates a package not in the lock.
+pub fn register_software_dependencies(
+    package_root: &std::path::Path,
+) -> std::io::Result<usize> {
+    let lock_path = package_root.join("runtime/dependency-lock.json");
+    let Ok(lock_bytes) = std::fs::read(&lock_path) else {
+        return Ok(0);
+    };
+    let Ok(lock) = serde_json::from_slice::<Value>(&lock_bytes) else {
+        return Ok(0);
+    };
+    let descriptor = package_root.join("ro-crate-metadata.json");
+    let Ok(bytes) = std::fs::read(&descriptor) else {
+        return Ok(0);
+    };
+    let Ok(mut doc) = serde_json::from_slice::<Value>(&bytes) else {
+        return Ok(0);
+    };
+    let Some(graph) = doc.get_mut("@graph").and_then(Value::as_array_mut) else {
+        return Ok(0);
+    };
+    // Collect existing @ids so we can skip duplicates (idempotency).
+    let existing: std::collections::BTreeSet<String> = graph
+        .iter()
+        .filter_map(|e| e.get("@id").and_then(Value::as_str).map(String::from))
+        .collect();
+
+    let mut new_nodes: Vec<Value> = Vec::new();
+    let mut req_ids: Vec<Value> = Vec::new();
+    // Iterate ecosystems in fixed sorted order for deterministic output.
+    for eco in ["conda", "python", "r"] {
+        let Some(arr) = lock.get(eco).and_then(Value::as_array) else {
+            continue;
+        };
+        for pkg in arr {
+            let Some(name) = pkg.get("name").and_then(Value::as_str) else {
+                continue;
+            };
+            let id = format!("#dep/{eco}/{name}");
+            if existing.contains(&id) {
+                continue;
+            }
+            // Prefer resolved (runtime exact) over requested (spec range).
+            let version = pkg
+                .get("resolved")
+                .and_then(Value::as_str)
+                .or_else(|| pkg.get("requested").and_then(Value::as_str));
+            let mut node = json!({
+                "@id": id,
+                "@type": "SoftwareApplication",
+                "name": name,
+                "applicationCategory": eco,
+            });
+            if let Some(v) = version {
+                node["softwareVersion"] = json!(v);
+            }
+            new_nodes.push(node);
+            req_ids.push(json!({"@id": id}));
+        }
+    }
+
+    let added = new_nodes.len();
+    if added == 0 {
+        return Ok(0);
+    }
+    for node in new_nodes {
+        graph.push(node);
+    }
+
+    // Link new nodes from the ComputationalWorkflow entity's softwareRequirements.
+    // @type may be a plain string or an array — handle both.
+    if let Some(wf) = graph.iter_mut().find(|e| {
+        match e.get("@type") {
+            Some(Value::String(s)) => s == "ComputationalWorkflow",
+            Some(Value::Array(a)) => a.iter().any(|v| v.as_str() == Some("ComputationalWorkflow")),
+            _ => false,
+        }
+    }) {
+        if let Some(obj) = wf.as_object_mut() {
+            let slot = obj
+                .entry("softwareRequirements")
+                .or_insert_with(|| json!([]));
+            if let Some(arr) = slot.as_array_mut() {
+                for r in &req_ids {
+                    if !arr.iter().any(|e| e.get("@id") == r.get("@id")) {
+                        arr.push(r.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    crate::fs_helpers::atomic_write_bytes_sync(&descriptor, &serde_json::to_vec_pretty(&doc)?)?;
+    Ok(added)
+}
+
+/// Annotate every `File` `@graph` entity whose `@id` resolves to a payload file
+/// with `contentSize` (bytes) + `sha512` (hex). Excludes the metadata descriptor
+/// (`ro-crate-metadata.json`) and BagIt tag files (cannot self-hash). Finalize-
+/// time (off the byte-repro baseline); deterministic given fixed payload bytes.
+pub fn register_content_integrity(package_root: &std::path::Path) -> std::io::Result<usize> {
+    let hashes = crate::emitter::bagit::payload_hashes(
+        package_root, crate::emitter::bagit::SealMode::Reseal)?;
+    let descriptor = package_root.join("ro-crate-metadata.json");
+    let Ok(bytes) = std::fs::read(&descriptor) else { return Ok(0); };
+    let Ok(mut doc) = serde_json::from_slice::<Value>(&bytes) else { return Ok(0); };
+    let Some(graph) = doc.get_mut("@graph").and_then(Value::as_array_mut) else { return Ok(0); };
+    let mut annotated = 0usize;
+    for e in graph.iter_mut() {
+        let Some(id) = e.get("@id").and_then(Value::as_str).map(String::from) else { continue };
+        if id == "ro-crate-metadata.json" || id == "ro-crate-preview.html"
+            || id.starts_with("manifest-")
+            || id == "bagit.txt" || id.starts_with('#') || id == "./" { continue; }
+        let is_file = match e.get("@type") {
+            Some(Value::String(s)) => s == "File",
+            Some(Value::Array(a)) => a.iter().any(|v| v.as_str() == Some("File")),
+            _ => false,
+        };
+        if !is_file { continue; }
+        if let Some((hex, size)) = hashes.get(&id) {
+            if let Some(obj) = e.as_object_mut() {
+                obj.insert("contentSize".into(), json!(size));
+                obj.insert("sha512".into(), json!(hex));
+                annotated += 1;
+            }
+        }
+    }
+    crate::fs_helpers::atomic_write_bytes_sync(&descriptor, &serde_json::to_vec_pretty(&doc)?)?;
+    Ok(annotated)
+}
+
+/// Register `ro-crate-preview.html` as a `["File","CreativeWork"]` `@graph`
+/// entity and link it from the root `hasPart`. Idempotent: a second call with
+/// the entity already present is a no-op (returns `Ok(0)`). No-op when the
+/// descriptor is absent or unparseable.
+///
+/// NOTE: This function does NOT skip when `ro-crate-preview.html` does not yet
+/// exist on disk — the entity is registered first so the descriptor that the
+/// preview embeds already includes the preview entity. The file itself is
+/// written immediately after by [`render_and_write_preview`].
+fn register_preview_entity(package_root: &std::path::Path) -> std::io::Result<usize> {
+    const PREVIEW_ID: &str = "ro-crate-preview.html";
+    let descriptor = package_root.join("ro-crate-metadata.json");
+    let Ok(bytes) = std::fs::read(&descriptor) else {
+        return Ok(0);
+    };
+    let Ok(mut doc) = serde_json::from_slice::<Value>(&bytes) else {
+        return Ok(0);
+    };
+    let Some(graph) = doc.get_mut("@graph").and_then(Value::as_array_mut) else {
+        return Ok(0);
+    };
+
+    // Idempotent guard: already registered → no-op.
+    if graph
+        .iter()
+        .any(|e| e.get("@id").and_then(Value::as_str) == Some(PREVIEW_ID))
+    {
+        return Ok(0);
+    }
+
+    graph.push(json!({
+        "@id": PREVIEW_ID,
+        "@type": ["File", "CreativeWork"],
+        "name": "RO-Crate preview — human-readable rendering",
+        "description": "Static HTML rendering of the root Dataset entity. Embeds the \
+                        RO-Crate JSON-LD in a typed application/ld+json block per the \
+                        RO-Crate 1.1 specification §10. Zero executable JavaScript.",
+        "encodingFormat": "text/html",
+        "about": {"@id": "./"},
+    }));
+
+    // Link from root Dataset `hasPart`.
+    if let Some(root) = graph
+        .iter_mut()
+        .find(|e| e.get("@id").and_then(Value::as_str) == Some("./"))
+    {
+        if let Some(obj) = root.as_object_mut() {
+            let slot = obj
+                .entry("hasPart")
+                .or_insert_with(|| Value::Array(Vec::new()));
+            if let Some(arr) = slot.as_array_mut() {
+                let already = arr
+                    .iter()
+                    .any(|p| p.get("@id").and_then(Value::as_str) == Some(PREVIEW_ID));
+                if !already {
+                    arr.push(json!({"@id": PREVIEW_ID}));
+                }
+            }
+        }
+    }
+
+    crate::fs_helpers::atomic_write_bytes_sync(
+        &descriptor,
+        &serde_json::to_vec_pretty(&doc)?,
+    )?;
+    Ok(1)
+}
+
+/// Read the current (FINAL) `ro-crate-metadata.json`, render a deterministic
+/// HTML preview embedding those exact bytes, and write it to
+/// `ro-crate-preview.html`. No-op (returns `Ok(())`) when the descriptor is
+/// absent or unparseable.
+///
+/// Determinism: delegates to [`crate::preview::render_ro_crate_preview`] which
+/// is a pure function of the `Value` — no clock, no RNG, no HashMap, no host
+/// paths.
+fn render_and_write_preview(package_root: &std::path::Path) -> std::io::Result<()> {
+    let descriptor = package_root.join("ro-crate-metadata.json");
+    let Ok(bytes) = std::fs::read(&descriptor) else {
+        return Ok(());
+    };
+    let Ok(metadata) = serde_json::from_slice::<Value>(&bytes) else {
+        return Ok(());
+    };
+    crate::preview::write_ro_crate_preview(package_root, &metadata)
+}
+
 /// Post-execution finalize: register agent-produced result tables as V `@graph`
 /// entities ([`register_produced_output_tables`]) and then re-seal the BagIt
 /// payload manifest ([`crate::emitter::regenerate_bagit_manifest`]).
@@ -1358,6 +1701,18 @@ pub fn finalize_evidence_registration_with_verifier(
             "SNAPSHOTS.md render failed"
         );
     }
+    // Register re-executability + accountability sidecars (dependency-lock,
+    // runtime-prereqs, container, reexecution, cost-ledger) as first-class
+    // @graph entities. Best-effort: a failure must not abort the re-seal.
+    // Run BEFORE the re-seal so the updated descriptor is hashed into the
+    // regenerated manifest.
+    if let Err(e) = register_reexecutability_sidecars(root) {
+        tracing::warn!(
+            target: "ecaa::ro_crate",
+            error = %e,
+            "reexecutability sidecar registration failed"
+        );
+    }
     if let Some(verifier) = verifier {
         if let Err(e) = backfill_claim_subgraph(root, verifier) {
             // Best-effort: a back-fill failure must not abort the
@@ -1368,6 +1723,63 @@ pub fn finalize_evidence_registration_with_verifier(
                 "C-subgraph back-fill from signed sink failed"
             );
         }
+    }
+    // Enumerate pinned dependencies from runtime/dependency-lock.json as
+    // SoftwareApplication @graph entities, linked from the ComputationalWorkflow
+    // via softwareRequirements. Run BEFORE register_content_integrity so the new
+    // SoftwareApplication nodes (non-File typed) are not hash-annotated; they
+    // must exist before the integrity pass so the descriptor written here is the
+    // one hashed into the regenerated manifest. Best-effort.
+    if let Err(e) = register_software_dependencies(root) {
+        tracing::warn!(
+            target: "ecaa::ro_crate",
+            error = %e,
+            "software dependency registration failed"
+        );
+    }
+    // Annotate @graph File entities with contentSize + sha512. Best-effort:
+    // a failure must not abort the re-seal.
+    if let Err(e) = register_content_integrity(root) {
+        tracing::warn!(
+            target: "ecaa::ro_crate",
+            error = %e,
+            "content integrity annotation failed"
+        );
+    }
+    // ── ro-crate-preview.html (LAST step before re-seal) ─────────────────────
+    //
+    // Ordering rationale (controller override): the preview embeds the
+    // RO-Crate JSON-LD in its `<head>` (spec MUST), so it must embed the
+    // FINAL metadata — after all @graph mutations (reexec-sidecars,
+    // software-deps, content-integrity) have been applied.
+    //
+    // Step 1: Register `ro-crate-preview.html` as a ["File","CreativeWork"]
+    //         entity in the @graph + link from root `hasPart`, then
+    //         re-write the descriptor so the preview entity itself is part
+    //         of the canonical metadata.
+    //
+    // Step 2: Read back the freshly-serialized descriptor (now including the
+    //         preview entity) and render+write `ro-crate-preview.html` so
+    //         the embedded JSON-LD is byte-identical to the descriptor.
+    //
+    // The preview File entity does NOT carry contentSize/sha512 (same
+    // treatment as the descriptor itself — both are integrity-covered by the
+    // BagIt manifest at reseal). Best-effort: a failure must not abort the
+    // re-seal.
+    if let Err(e) = register_preview_entity(root) {
+        tracing::warn!(
+            target: "ecaa::ro_crate",
+            error = %e,
+            "ro-crate-preview.html entity registration failed"
+        );
+    }
+    // Step 2: render + write, embedding the FINAL descriptor bytes.
+    if let Err(e) = render_and_write_preview(root) {
+        tracing::warn!(
+            target: "ecaa::ro_crate",
+            error = %e,
+            "ro-crate-preview.html render/write failed"
+        );
     }
     crate::emitter::regenerate_bagit_manifest(root, clock).map_err(std::io::Error::other)?;
     Ok(added)
@@ -1589,6 +2001,57 @@ mod tests {
         }
     }
 
+    /// Guard: README.md must remain a first-class `File` entity in the `@graph`
+    /// and must be listed in the root `./` `hasPart` array.  This is a
+    /// characterisation/regression test — it must PASS immediately because the
+    /// behaviour already exists (ro_crate.rs:195-202, hasPart :119).
+    #[test]
+    fn readme_is_registered_as_file_and_linked_from_haspart() {
+        let dag = one_task_dag();
+        let classification = ClassificationResult {
+            domain: "genomics".into(),
+            workflow_description: "test workflow".into(),
+            intake_text: "test intake".into(),
+            edam_topic: "topic:3673".into(),
+            edam_operation: "operation:3223".into(),
+            ..Default::default()
+        };
+        let metadata = build_metadata(&dag, &classification, &FrozenClock::default());
+        let graph = metadata["@graph"].as_array().expect("@graph array");
+
+        // The README.md File entity must exist in the graph.
+        let readme = graph
+            .iter()
+            .find(|e| e["@id"] == "README.md")
+            .expect("README.md File entity must be present in @graph");
+
+        // Its @type must include "File" (may be a string or an array).
+        let types: Vec<&str> = match &readme["@type"] {
+            serde_json::Value::String(s) => vec![s.as_str()],
+            serde_json::Value::Array(a) => {
+                a.iter().filter_map(|v| v.as_str()).collect()
+            }
+            _ => vec![],
+        };
+        assert!(types.contains(&"File"), "README.md must be typed as File; got {types:?}");
+
+        // The root Dataset's hasPart must reference README.md.
+        let root = graph
+            .iter()
+            .find(|e| e["@id"] == "./")
+            .expect("root ./ Dataset must be present");
+        let part_ids: Vec<&str> = root["hasPart"]
+            .as_array()
+            .expect("root hasPart must be an array")
+            .iter()
+            .filter_map(|p| p["@id"].as_str())
+            .collect();
+        assert!(
+            part_ids.contains(&"README.md"),
+            "README.md must be linked from root ./ hasPart; got {part_ids:?}"
+        );
+    }
+
     /// B1: `executor_agent_entity` is built only from RECORDED container-state
     /// fields, and returns `None` when no executor identity was recorded
     /// (honest omission rather than a fabricated placeholder).
@@ -1786,6 +2249,345 @@ mod tests {
         assert!(
             !tmp.path().join("SNAPSHOTS.md").exists(),
             "no SNAPSHOTS.md when there is no literature evidence"
+        );
+    }
+
+    #[test]
+    fn content_integrity_injects_contentsize_and_sha512_idempotently() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("WORKFLOW.json"), b"{\"x\":1}").unwrap();
+        std::fs::write(dir.path().join("ro-crate-metadata.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "@context":"https://w3id.org/ro/crate/1.1/context",
+                "@graph":[
+                  {"@id":"ro-crate-metadata.json","@type":"CreativeWork","about":{"@id":"./"}},
+                  {"@id":"./","@type":"Dataset","hasPart":[{"@id":"WORKFLOW.json"}]},
+                  {"@id":"WORKFLOW.json","@type":["File","ComputationalWorkflow"],"name":"wf"}
+                ]
+            })).unwrap()).unwrap();
+        let n = register_content_integrity(dir.path()).unwrap();
+        assert_eq!(n, 1, "one payload File entity annotated (descriptor excluded)");
+        let doc: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(dir.path().join("ro-crate-metadata.json")).unwrap()).unwrap();
+        let wf = doc["@graph"].as_array().unwrap().iter()
+            .find(|e| e["@id"]=="WORKFLOW.json").unwrap();
+        assert!(wf["contentSize"].as_u64().unwrap() >= 1);
+        assert_eq!(wf["sha512"].as_str().unwrap().len(), 128);
+        // descriptor must NOT carry its own hash (circular)
+        let desc = doc["@graph"].as_array().unwrap().iter()
+            .find(|e| e["@id"]=="ro-crate-metadata.json").unwrap();
+        assert!(desc.get("sha512").is_none());
+        // idempotent: second call returns same count, descriptor bytes unchanged
+        let bytes_before = std::fs::read(dir.path().join("ro-crate-metadata.json")).unwrap();
+        let n2 = register_content_integrity(dir.path()).unwrap();
+        assert_eq!(n2, n, "second run returns same annotated count");
+        let bytes_after = std::fs::read(dir.path().join("ro-crate-metadata.json")).unwrap();
+        assert_eq!(bytes_before, bytes_after, "descriptor is byte-identical after second run");
+    }
+
+    #[test]
+    fn reexecutability_sidecars_register_into_graph_and_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        // minimal descriptor with a root Dataset + empty hasPart
+        std::fs::write(
+            dir.path().join("ro-crate-metadata.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "@context": "https://w3id.org/ro/crate/1.1/context",
+                "@graph": [
+                    {"@id":"ro-crate-metadata.json","@type":"CreativeWork","about":{"@id":"./"}},
+                    {"@id":"./","@type":"Dataset","hasPart":[]}
+                ]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("runtime")).unwrap();
+        std::fs::create_dir_all(dir.path().join("policies")).unwrap();
+        std::fs::write(dir.path().join("runtime/dependency-lock.json"), b"{}").unwrap();
+        std::fs::write(
+            dir.path().join("policies/container.json"),
+            b"{\"image\":\"x\"}",
+        )
+        .unwrap();
+
+        let n = register_reexecutability_sidecars(dir.path()).unwrap();
+        assert!(n >= 2, "registered at least dependency-lock + container");
+
+        let doc: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(dir.path().join("ro-crate-metadata.json")).unwrap(),
+        )
+        .unwrap();
+        let graph = doc["@graph"].as_array().unwrap();
+        let lock = graph
+            .iter()
+            .find(|e| e["@id"] == "runtime/dependency-lock.json")
+            .unwrap();
+        let types: Vec<&str> = lock["@type"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        assert!(types.contains(&"File"));
+        let root = graph.iter().find(|e| e["@id"] == "./").unwrap();
+        let parts: Vec<&str> = root["hasPart"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|p| p["@id"].as_str())
+            .collect();
+        assert!(parts.contains(&"runtime/dependency-lock.json"));
+
+        // idempotent
+        let n2 = register_reexecutability_sidecars(dir.path()).unwrap();
+        assert_eq!(n2, 0, "second run adds nothing");
+    }
+
+    #[test]
+    fn software_dependencies_registered_from_lock_with_versions() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("runtime")).unwrap();
+        std::fs::write(
+            dir.path().join("runtime/dependency-lock.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "schema_version": "1",
+                "r": [{"name": "DESeq2", "requested": ">=1.40", "resolved": "1.40.2"}],
+                "python": [{"name": "scanpy"}],
+                "conda": []
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("ro-crate-metadata.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "@context": "https://w3id.org/ro/crate/1.1/context",
+                "@graph": [
+                    {"@id": "ro-crate-metadata.json", "@type": "CreativeWork", "about": {"@id": "./"}},
+                    {"@id": "./", "@type": "Dataset", "hasPart": []},
+                    {"@id": "WORKFLOW.json", "@type": ["File", "ComputationalWorkflow"], "name": "wf"}
+                ]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let n = register_software_dependencies(dir.path()).unwrap();
+        assert_eq!(n, 2, "DESeq2 + scanpy registered");
+
+        let doc: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(dir.path().join("ro-crate-metadata.json")).unwrap(),
+        )
+        .unwrap();
+        let g = doc["@graph"].as_array().unwrap();
+
+        // DESeq2 entity uses resolved version
+        let deseq = g
+            .iter()
+            .find(|e| e.get("name").and_then(|v| v.as_str()) == Some("DESeq2"))
+            .unwrap();
+        assert_eq!(deseq["@type"], "SoftwareApplication");
+        assert_eq!(deseq["softwareVersion"], "1.40.2", "resolved preferred over requested");
+        assert_eq!(deseq["applicationCategory"], "r");
+
+        // scanpy has no requested/resolved — no softwareVersion field
+        let scanpy = g
+            .iter()
+            .find(|e| e.get("name").and_then(|v| v.as_str()) == Some("scanpy"))
+            .unwrap();
+        assert_eq!(scanpy["@type"], "SoftwareApplication");
+        assert!(scanpy.get("softwareVersion").is_none(), "no version when both absent");
+
+        // workflow links them via softwareRequirements
+        let wf = g.iter().find(|e| e["@id"] == "WORKFLOW.json").unwrap();
+        let reqs: Vec<&str> = wf["softwareRequirements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|r| r["@id"].as_str())
+            .collect();
+        assert_eq!(reqs.len(), 2);
+        assert!(reqs.contains(&"#dep/r/DESeq2"));
+        assert!(reqs.contains(&"#dep/python/scanpy"));
+
+        // idempotent: second run adds 0
+        assert_eq!(register_software_dependencies(dir.path()).unwrap(), 0);
+    }
+
+    #[test]
+    fn software_dependencies_linked_when_workflow_type_is_plain_string() {
+        // Regression: @type as a plain string "ComputationalWorkflow" (not an array)
+        // must still receive the softwareRequirements link.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("runtime")).unwrap();
+        std::fs::write(
+            dir.path().join("runtime/dependency-lock.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "schema_version": "1",
+                "r": [{"name": "edgeR", "resolved": "3.44.0"}],
+                "python": [],
+                "conda": []
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("ro-crate-metadata.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "@context": "https://w3id.org/ro/crate/1.1/context",
+                "@graph": [
+                    {"@id": "ro-crate-metadata.json", "@type": "CreativeWork", "about": {"@id": "./"}},
+                    {"@id": "./", "@type": "Dataset", "hasPart": []},
+                    {"@id": "WORKFLOW.json", "@type": "ComputationalWorkflow", "name": "wf-string-type"}
+                ]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let n = register_software_dependencies(dir.path()).unwrap();
+        assert_eq!(n, 1, "edgeR registered");
+
+        let doc: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(dir.path().join("ro-crate-metadata.json")).unwrap(),
+        )
+        .unwrap();
+        let g = doc["@graph"].as_array().unwrap();
+
+        // The workflow entity must carry softwareRequirements even with string @type
+        let wf = g.iter().find(|e| e["@id"] == "WORKFLOW.json").unwrap();
+        let reqs: Vec<&str> = wf["softwareRequirements"]
+            .as_array()
+            .expect("softwareRequirements must be present when @type is a plain string")
+            .iter()
+            .filter_map(|r| r["@id"].as_str())
+            .collect();
+        assert!(reqs.contains(&"#dep/r/edgeR"), "edgeR linked via softwareRequirements");
+    }
+
+    /// Task 5: `finalize_evidence_registration_with_verifier` writes
+    /// `ro-crate-preview.html` AND registers it in the `@graph` as a
+    /// `["File","CreativeWork"]` entity linked from root `hasPart`.
+    ///
+    /// Verifies the controller ordering: preview registration → render/write →
+    /// then BagIt reseal. After finalize, both the file on disk AND the `@graph`
+    /// entity must be present.
+    #[test]
+    fn finalize_writes_preview_html_and_registers_it_in_graph() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+
+        // Minimal emit-style directory so finalize can run end-to-end.
+        // We need: ro-crate-metadata.json, bagit.txt, a payload file,
+        // manifest-sha512.txt. The emitter's regenerate_bagit_manifest
+        // writes manifest-sha512.txt; we just need the descriptor + payload.
+        std::fs::write(root.join("WORKFLOW.json"), b"{\"version\":\"1.0\"}").unwrap();
+        let descriptor = serde_json::json!({
+            "@context": "https://w3id.org/ro/crate/1.1/context",
+            "@graph": [
+                {
+                    "@id": "ro-crate-metadata.json",
+                    "@type": "CreativeWork",
+                    "conformsTo": [{"@id": "https://w3id.org/ro/crate/1.1"}],
+                    "about": {"@id": "./"}
+                },
+                {
+                    "@id": "./",
+                    "@type": "Dataset",
+                    "name": "Test package for preview",
+                    "description": "Finalize test",
+                    "conformsTo": [{"@id": "https://w3id.org/ro/crate/1.1"}],
+                    "hasPart": [{"@id": "WORKFLOW.json"}]
+                },
+                {
+                    "@id": "WORKFLOW.json",
+                    "@type": ["File", "ComputationalWorkflow"],
+                    "name": "Workflow"
+                }
+            ]
+        });
+        std::fs::write(
+            root.join("ro-crate-metadata.json"),
+            serde_json::to_vec_pretty(&descriptor).unwrap(),
+        )
+        .unwrap();
+
+        // Write the minimal BagIt tag files so regenerate_bagit_manifest has
+        // something to work with.
+        std::fs::write(root.join("bagit.txt"), b"BagIt-Version: 1.0\nTag-File-Character-Encoding: UTF-8\n").unwrap();
+        std::fs::write(root.join("manifest-sha512.txt"), b"").unwrap();
+
+        let clock = crate::clock::FrozenClock::default();
+        finalize_evidence_registration_with_verifier(root, &clock, None).unwrap();
+
+        // 1. `ro-crate-preview.html` must exist on disk.
+        let preview_path = root.join("ro-crate-preview.html");
+        assert!(preview_path.exists(), "ro-crate-preview.html must be written by finalize");
+
+        // 2. The preview must be valid HTML with the JSON-LD embed.
+        let preview_html = std::fs::read_to_string(&preview_path).unwrap();
+        assert!(preview_html.starts_with("<!DOCTYPE html>"), "valid HTML5 doctype");
+        assert!(
+            preview_html.contains("<script type=\"application/ld+json\">"),
+            "JSON-LD head embed (spec MUST)"
+        );
+        assert!(
+            preview_html.contains("Test package for preview"),
+            "root name rendered in body"
+        );
+        assert!(
+            !preview_html.to_lowercase().contains("<script>"),
+            "no executable JS in preview"
+        );
+
+        // 3. `ro-crate-preview.html` must be registered in the @graph.
+        let final_meta: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(root.join("ro-crate-metadata.json")).unwrap(),
+        )
+        .unwrap();
+        let graph = final_meta["@graph"].as_array().unwrap();
+
+        let preview_entity = graph
+            .iter()
+            .find(|e| e.get("@id").and_then(|v| v.as_str()) == Some("ro-crate-preview.html"))
+            .expect("ro-crate-preview.html entity must be in @graph");
+        let types: Vec<&str> = match &preview_entity["@type"] {
+            serde_json::Value::Array(a) => a.iter().filter_map(|v| v.as_str()).collect(),
+            serde_json::Value::String(s) => vec![s.as_str()],
+            _ => vec![],
+        };
+        assert!(
+            types.contains(&"File") && types.contains(&"CreativeWork"),
+            "preview entity must be typed [\"File\",\"CreativeWork\"]; got {types:?}"
+        );
+
+        // 4. Linked from root `hasPart`.
+        let root_entity = graph.iter().find(|e| e["@id"] == "./").unwrap();
+        let part_ids: Vec<&str> = root_entity["hasPart"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|p| p["@id"].as_str())
+            .collect();
+        assert!(
+            part_ids.contains(&"ro-crate-preview.html"),
+            "ro-crate-preview.html must be in root hasPart; got {part_ids:?}"
+        );
+
+        // 5. Idempotent: second call keeps the entity exactly once in @graph.
+        finalize_evidence_registration_with_verifier(root, &clock, None).unwrap();
+        let final_meta2: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(root.join("ro-crate-metadata.json")).unwrap(),
+        )
+        .unwrap();
+        let graph2 = final_meta2["@graph"].as_array().unwrap();
+        let preview_count = graph2
+            .iter()
+            .filter(|e| e.get("@id").and_then(|v| v.as_str()) == Some("ro-crate-preview.html"))
+            .count();
+        assert_eq!(
+            preview_count, 1,
+            "ro-crate-preview.html entity must appear exactly once in @graph (idempotent)"
         );
     }
 }
