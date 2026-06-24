@@ -276,6 +276,9 @@ fn extract_config_digest(json: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    // S5.32: workspace lint is `unsafe_code = "deny"`. env mutations in tests
+    // are single-process (nextest isolation); bounded waiver scoped to this mod.
+    #![allow(unsafe_code)]
     use super::*;
 
     /// Verify that `extract_config_digest` returns the config-block digest and
@@ -330,6 +333,59 @@ mod tests {
             Some("sha256:ONLY".to_owned()),
             "single-platform: should return config.digest"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // resolve_buildx_cache_dir tests
+    //
+    // Safety: nextest runs each test in its own process, so mutating process
+    // env vars is sound — no other thread reads the env concurrently.
+    // -----------------------------------------------------------------------
+
+    /// (a) ECAA_BUILDX_CACHE_DIR set → returned verbatim.
+    #[test]
+    fn resolve_buildx_cache_dir_uses_buildx_env_var_when_set() {
+        unsafe {
+            std::env::set_var("ECAA_BUILDX_CACHE_DIR", "/explicit/buildx/cache");
+        }
+        let result = resolve_buildx_cache_dir();
+        unsafe {
+            std::env::remove_var("ECAA_BUILDX_CACHE_DIR");
+        }
+        assert_eq!(result, PathBuf::from("/explicit/buildx/cache"));
+    }
+
+    /// (b) Both ECAA_BUILDX_CACHE_DIR and ECAA_AGENT_CACHE_DIR unset, HOME set
+    ///     → returns <HOME>/.ecaa-workflow/agent-cache/buildkit.
+    #[test]
+    fn resolve_buildx_cache_dir_falls_back_to_home_when_no_env_vars() {
+        unsafe {
+            std::env::remove_var("ECAA_BUILDX_CACHE_DIR");
+            std::env::remove_var("ECAA_AGENT_CACHE_DIR");
+            std::env::set_var("HOME", "/fake/home");
+        }
+        let result = resolve_buildx_cache_dir();
+        unsafe {
+            std::env::remove_var("HOME");
+        }
+        assert_eq!(
+            result,
+            PathBuf::from("/fake/home/.ecaa-workflow/agent-cache/buildkit")
+        );
+    }
+
+    /// (c) ECAA_AGENT_CACHE_DIR set (but not BUILDX) → returns <that>/buildkit.
+    #[test]
+    fn resolve_buildx_cache_dir_uses_agent_cache_dir_with_buildkit_suffix() {
+        unsafe {
+            std::env::remove_var("ECAA_BUILDX_CACHE_DIR");
+            std::env::set_var("ECAA_AGENT_CACHE_DIR", "/agent/cache");
+        }
+        let result = resolve_buildx_cache_dir();
+        unsafe {
+            std::env::remove_var("ECAA_AGENT_CACHE_DIR");
+        }
+        assert_eq!(result, PathBuf::from("/agent/cache/buildkit"));
     }
 
     #[test]

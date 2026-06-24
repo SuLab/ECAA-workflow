@@ -100,6 +100,8 @@ where
     };
 
     // Step 4: derive tag + cache dir (pure helpers — single source of truth).
+    // `tag` is the LOCAL docker tag used for the store call; `digest` (above)
+    // is the immutable content address returned by build.
     let tag = build::snapshot_image_tag(&opts.base_digest);
     let buildx = build::resolve_buildx_cache_dir();
     let plan = store::select_store(opts.registry.as_deref(), &buildx);
@@ -111,7 +113,7 @@ where
             location,
             note: None,
         },
-        Err(push_err) => {
+        Err(store_err) => {
             // Step 6: if the primary plan was a registry push, fall back to
             // local CAS so the snapshot is not silently lost.
             if matches!(plan, store::StorePlan::Push { .. }) {
@@ -121,18 +123,18 @@ where
                         digest,
                         location,
                         note: Some(format!(
-                            "registry push failed ({push_err}); kept local"
+                            "registry push failed ({store_err}); kept local"
                         )),
                     },
                     Err(cas_err) => SnapshotOutcome::Failed {
                         reason: format!(
-                            "registry push failed ({push_err}); local CAS also failed: {cas_err}"
+                            "registry push failed ({store_err}); local fallback failed ({cas_err})"
                         ),
                     },
                 }
             } else {
                 SnapshotOutcome::Failed {
-                    reason: format!("store failed: {push_err}"),
+                    reason: format!("store failed: {store_err}"),
                 }
             }
         }
@@ -147,7 +149,6 @@ where
 mod tests {
     use super::*;
     use std::cell::Cell;
-    use std::path::PathBuf;
     use std::sync::Arc;
     use tempfile::tempdir;
 
