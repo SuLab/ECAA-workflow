@@ -35,6 +35,47 @@ pub fn render_snapshot_dockerfile(
     )
 }
 
+/// Derive the local docker tag for a snapshot image from the base digest.
+///
+/// The tag is `ecaa-snapshot:<short>` where `<short>` is the first 12
+/// characters of the hex portion of `base_digest` (stripping any `sha256:`
+/// prefix).  Falls back to `"ecaa-snapshot:unknown"` when the hex portion is
+/// shorter than 12 characters.
+///
+/// Pure (no side-effects, hermetically testable).
+pub fn snapshot_image_tag(base_digest: &str) -> String {
+    let short = base_digest
+        .trim_start_matches("sha256:")
+        .get(..12)
+        .unwrap_or("unknown");
+    format!("ecaa-snapshot:{short}")
+}
+
+/// Resolve the bounded buildkit cache directory.
+///
+/// Mirrors the env-var chain used in `scripts/build-bio-min.sh` and
+/// `scripts/build-derived-image.sh`:
+///   1. `$ECAA_BUILDX_CACHE_DIR`
+///   2. `$ECAA_AGENT_CACHE_DIR/buildkit`
+///   3. `$HOME/.ecaa-workflow/agent-cache/buildkit`  (else `/tmp/…`)
+///
+/// Pure in the sense that it reads env vars but does not touch the filesystem.
+pub fn resolve_buildx_cache_dir() -> PathBuf {
+    std::env::var_os("ECAA_BUILDX_CACHE_DIR")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("ECAA_AGENT_CACHE_DIR").map(|p| PathBuf::from(p).join("buildkit"))
+        })
+        .unwrap_or_else(|| {
+            std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("/tmp"))
+                .join(".ecaa-workflow")
+                .join("agent-cache")
+                .join("buildkit")
+        })
+}
+
 /// Build a content-addressed snapshot image from the assembled compute
 /// environment cache and return its content digest (`sha256:<hex>`).
 ///
@@ -50,12 +91,7 @@ pub fn render_snapshot_dockerfile(
 /// timestamps are deterministic.
 pub fn build_image(opts: &SnapshotOpts) -> io::Result<String> {
     // Derive a short tag from the base digest to label the local image.
-    let short = opts
-        .base_digest
-        .trim_start_matches("sha256:")
-        .get(..12)
-        .unwrap_or("unknown");
-    let tag = format!("ecaa-snapshot:{short}");
+    let tag = snapshot_image_tag(&opts.base_digest);
 
     let ctx = &opts.cache_dir;
 
@@ -75,19 +111,7 @@ pub fn build_image(opts: &SnapshotOpts) -> io::Result<String> {
 
     // Resolve the bounded buildkit cache directory (same env-var chain as
     // scripts/build-bio-min.sh and scripts/build-derived-image.sh).
-    let cache_dir: PathBuf = std::env::var_os("ECAA_BUILDX_CACHE_DIR")
-        .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("ECAA_AGENT_CACHE_DIR").map(|p| PathBuf::from(p).join("buildkit"))
-        })
-        .unwrap_or_else(|| {
-            std::env::var_os("HOME")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("/tmp"))
-                .join(".ecaa-workflow")
-                .join("agent-cache")
-                .join("buildkit")
-        });
+    let cache_dir: PathBuf = resolve_buildx_cache_dir();
 
     let _ = std::fs::create_dir_all(&cache_dir);
 
@@ -306,6 +330,32 @@ mod tests {
             Some("sha256:ONLY".to_owned()),
             "single-platform: should return config.digest"
         );
+    }
+
+    #[test]
+    fn snapshot_image_tag_strips_prefix_and_takes_12_chars() {
+        // Standard sha256: prefix — first 12 hex chars after the prefix.
+        assert_eq!(
+            snapshot_image_tag("sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"),
+            "ecaa-snapshot:abcdef012345"
+        );
+    }
+
+    #[test]
+    fn snapshot_image_tag_no_prefix_takes_12_chars() {
+        // No sha256: prefix — first 12 chars of the raw string.
+        assert_eq!(
+            snapshot_image_tag("abcdef0123456789"),
+            "ecaa-snapshot:abcdef012345"
+        );
+    }
+
+    #[test]
+    fn snapshot_image_tag_short_input_falls_back_to_unknown() {
+        // Fewer than 12 hex chars after any prefix → "unknown".
+        assert_eq!(snapshot_image_tag("sha256:abc"), "ecaa-snapshot:unknown");
+        assert_eq!(snapshot_image_tag("short"), "ecaa-snapshot:unknown");
+        assert_eq!(snapshot_image_tag(""), "ecaa-snapshot:unknown");
     }
 
     #[test]
