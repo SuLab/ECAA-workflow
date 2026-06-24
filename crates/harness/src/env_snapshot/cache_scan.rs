@@ -28,13 +28,16 @@ pub fn resolve_cache_dir() -> Option<PathBuf> {
 
 /// Return `true` iff the cache directory contains real installed content.
 ///
-/// Checks three subdirectories:
+/// Checks four subdirectories:
 /// - `conda-envs/`: has a real install iff at least one environment subdir
 ///   contains a `bin/` directory.
 /// - `R-libs/`: has a real install iff at least one package subdir exists
 ///   (any child directory of `R-libs/` counts as a package).
 /// - `pip/`: has a real install iff at least one child entry exists (files or
 ///   directories inside `pip/` indicate pip-installed content).
+/// - `python/`: has a real install iff `python/lib/<any>/site-packages/`
+///   exists and contains at least one entry. This covers packages installed
+///   into `PYTHONUSERBASE` via `pip install --user` (e.g. pydeseq2).
 ///
 /// Structural-only directories (i.e., the subdirs exist but are empty) return
 /// `false`.
@@ -70,6 +73,22 @@ pub fn cache_has_installs(cache_dir: &Path) -> bool {
         }
     }
 
+    // python/ (PYTHONUSERBASE): a real install has packages under
+    // python/lib/<python-version>/site-packages/<package>/. Walk two levels:
+    // python/lib/ → version dirs → site-packages/ → check for any entry.
+    let python_lib = cache_dir.join("python").join("lib");
+    if let Ok(ver_entries) = std::fs::read_dir(&python_lib) {
+        for ver_entry in ver_entries.flatten() {
+            let site_packages = ver_entry.path().join("site-packages");
+            if let Ok(pkg_entries) = std::fs::read_dir(&site_packages) {
+                for pkg_entry in pkg_entries.flatten() {
+                    let _ = pkg_entry; // any entry means a package is installed
+                    return true;
+                }
+            }
+        }
+    }
+
     false
 }
 
@@ -101,6 +120,23 @@ mod tests {
     fn pip_content_present_means_installs() {
         let t = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(t.path().join("pip/site-packages/numpy")).unwrap();
+        assert!(cache_has_installs(t.path()));
+    }
+    #[test]
+    fn python_userbase_site_packages_present_means_installs() {
+        // Simulate a run that installed ONLY Python packages via pip --user
+        // (empty conda-envs and R-libs). The python/lib/<ver>/site-packages/
+        // tree must be sufficient to trigger cache_has_installs.
+        let t = tempfile::tempdir().unwrap();
+        // Explicitly create empty conda-envs and R-libs to confirm they don't
+        // trigger the result on their own.
+        std::fs::create_dir_all(t.path().join("conda-envs")).unwrap();
+        std::fs::create_dir_all(t.path().join("R-libs")).unwrap();
+        // Install a package into PYTHONUSERBASE layout.
+        std::fs::create_dir_all(
+            t.path().join("python/lib/python3.11/site-packages/pydeseq2"),
+        )
+        .unwrap();
         assert!(cache_has_installs(t.path()));
     }
 }

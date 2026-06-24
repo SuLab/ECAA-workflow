@@ -9,12 +9,13 @@ use std::process::Command;
 
 use crate::env_snapshot::SnapshotOpts;
 
-/// Render a deterministic Dockerfile that layers the conda + R cache paths
-/// onto the base image at the same absolute paths they occupy at build time.
+/// Render a deterministic Dockerfile that layers the conda, R, and Python
+/// cache paths onto the base image at the same absolute paths they occupy at
+/// build time.
 ///
 /// The Dockerfile uses build-context-relative COPY sources (`conda-envs`,
-/// `R-libs`) so the build context root must be `opts.cache_dir` — its
-/// direct children are `conda-envs/` and `R-libs/`.
+/// `R-libs`, `python`) so the build context root must be `opts.cache_dir` —
+/// its direct children are `conda-envs/`, `R-libs/`, and `python/`.
 ///
 /// `base_digest` must be a fully-qualified digest (`sha256:<hex>`) so the
 /// layer stack is pinned byte-for-byte.
@@ -22,16 +23,20 @@ pub fn render_snapshot_dockerfile(
     base_digest: &str,
     conda_envs_abs: &Path,
     r_libs_abs: &Path,
+    python_userbase_abs: &Path,
 ) -> String {
     format!(
         "FROM {base}\n\
          COPY conda-envs {conda}\n\
          COPY R-libs {rlibs}\n\
+         COPY python {python}\n\
          ENV CONDA_ENVS_DIRS={conda}\n\
-         ENV R_LIBS_USER={rlibs}\n",
+         ENV R_LIBS_USER={rlibs}\n\
+         ENV PYTHONUSERBASE={python}\n",
         base = base_digest,
         conda = conda_envs_abs.display(),
         rlibs = r_libs_abs.display(),
+        python = python_userbase_abs.display(),
     )
 }
 
@@ -49,6 +54,54 @@ pub fn snapshot_image_tag(base_digest: &str) -> String {
         .get(..12)
         .unwrap_or("unknown");
     format!("ecaa-snapshot:{short}")
+}
+
+/// True iff `s` is a bare image content digest (`sha256:<hex>` or a bare
+/// `<hex>`), with no repository or tag.
+///
+/// Such a value is NOT a usable Dockerfile `FROM` reference: buildx resolves it
+/// as `docker.io/library/<s>` and tries to pull. A value carrying a `/` (repo)
+/// or `@` (repo@digest) is already usable and returns false.
+///
+/// Pure (no side-effects, hermetically testable).
+pub fn is_bare_image_digest(s: &str) -> bool {
+    if s.contains('/') || s.contains('@') {
+        return false;
+    }
+    let hex = s.strip_prefix("sha256:").unwrap_or(s);
+    !hex.is_empty() && hex.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// Resolve a recorded base reference into one usable in a Dockerfile `FROM`.
+///
+/// A bare `sha256:<hex>` config digest (what the determinism shim records as a
+/// task's `task_container_digest`) is not FROM-able. When the base is bare, ask
+/// the local daemon for a usable reference, preferring a portable `RepoDigest`
+/// (`repo@sha256:<manifest-digest>`) and falling back to a `RepoTag`. The base
+/// image is present locally (the agent's compute just ran in it). If nothing
+/// resolves, return the input unchanged — the build then fails and the snapshot
+/// degrades to the base digest, per the non-fatal contract.
+fn resolve_base_from_ref(base: &str) -> String {
+    if !is_bare_image_digest(base) {
+        return base.to_owned();
+    }
+    for fmt in [
+        "{{if .RepoDigests}}{{index .RepoDigests 0}}{{end}}",
+        "{{if .RepoTags}}{{index .RepoTags 0}}{{end}}",
+    ] {
+        if let Ok(out) = Command::new("docker")
+            .args(["image", "inspect", "--format", fmt, base])
+            .output()
+        {
+            if out.status.success() {
+                let resolved = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+                if !resolved.is_empty() {
+                    return resolved;
+                }
+            }
+        }
+    }
+    base.to_owned()
 }
 
 /// Resolve the bounded buildkit cache directory.
@@ -98,13 +151,30 @@ pub fn build_image(opts: &SnapshotOpts) -> io::Result<String> {
     // Write the Dockerfile into the build context root.
     let conda_envs_abs = ctx.join("conda-envs");
     let r_libs_abs = ctx.join("R-libs");
+    let python_abs = ctx.join("python");
     let dockerfile_path = ctx.join("Dockerfile.ecaa-snapshot");
+
+    // Defensively ensure all three COPY-source dirs exist in the build context
+    // so `COPY` never fails on a run that used only some toolchains (e.g., a
+    // run that installed only Python packages and never touched conda or R).
+    for d in ["conda-envs", "R-libs", "python"] {
+        let _ = std::fs::create_dir_all(ctx.join(d));
+    }
+
+    // The recorded base is a bare `sha256:<hex>` config digest, which is NOT a
+    // valid Dockerfile FROM: buildx resolves a bare digest as a remote
+    // `docker.io/library/...` repo and tries to pull it. Translate it to a
+    // FROM-able reference (RepoDigest, else RepoTag) via the local daemon —
+    // the base image is present locally because the agent's compute just ran
+    // in it.
+    let from_ref = resolve_base_from_ref(&opts.base_digest);
     {
         let mut f = std::fs::File::create(&dockerfile_path)?;
         let content = render_snapshot_dockerfile(
-            &opts.base_digest,
+            &from_ref,
             &conda_envs_abs,
             &r_libs_abs,
+            &python_abs,
         );
         f.write_all(content.as_bytes())?;
     }
@@ -420,11 +490,35 @@ mod tests {
             "sha256:abc",
             std::path::Path::new("/cache/s1/conda-envs"),
             std::path::Path::new("/cache/s1/R-libs"),
+            std::path::Path::new("/cache/s1/python"),
         );
         assert!(df.contains("FROM sha256:abc"));
         assert!(df.contains("COPY conda-envs /cache/s1/conda-envs"));
         assert!(df.contains("COPY R-libs /cache/s1/R-libs"));
+        assert!(df.contains("COPY python /cache/s1/python"));
         assert!(df.contains("ENV CONDA_ENVS_DIRS=/cache/s1/conda-envs"));
         assert!(df.contains("ENV R_LIBS_USER=/cache/s1/R-libs"));
+        assert!(df.contains("ENV PYTHONUSERBASE=/cache/s1/python"));
+    }
+
+    #[test]
+    fn is_bare_image_digest_classifies_from_references() {
+        // Bare config/content digests — NOT FROM-able (need resolution).
+        assert!(is_bare_image_digest(
+            "sha256:0809cab6067dae3fcef66b2d70685e9ba041ec0597f1d534b6981e40d35d0ef5"
+        ));
+        assert!(is_bare_image_digest(
+            "0809cab6067dae3fcef66b2d70685e9ba041ec0597f1d534b6981e40d35d0ef5"
+        ));
+        // Already-usable FROM references — left untouched.
+        assert!(!is_bare_image_digest("bio-min:local"));
+        assert!(!is_bare_image_digest("bio-min@sha256:0809cab6"));
+        assert!(!is_bare_image_digest(
+            "ghcr.io/scripps/bio-min@sha256:0809cab6"
+        ));
+        assert!(!is_bare_image_digest("ghcr.io/scripps/bio-min:latest"));
+        // Degenerate inputs are not bare digests.
+        assert!(!is_bare_image_digest(""));
+        assert!(!is_bare_image_digest("sha256:"));
     }
 }
