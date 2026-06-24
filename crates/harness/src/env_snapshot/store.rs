@@ -39,7 +39,7 @@ pub fn select_store(registry: Option<&str>, buildx_cache_dir: &Path) -> StorePla
 ///
 /// # Registry path
 ///
-/// Tags `local_tag` to `<registry>:<short-digest>` (first 12 hex chars after
+/// Tags `local_tag` to `<registry>:<full-digest-hex>` (all 64 hex chars after
 /// `sha256:`, or the full token if the prefix is absent), then pushes.
 /// Returns `StoreLocation::Registry("<registry>@<full-digest>")` so that
 /// replay can pull by digest (`docker pull <registry>@sha256:…`).
@@ -64,22 +64,24 @@ pub fn store_image(local_tag: &str, digest: &str, plan: &StorePlan) -> io::Resul
 // ---------------------------------------------------------------------------
 
 fn push_to_registry(local_tag: &str, digest: &str, registry: &str) -> io::Result<StoreLocation> {
-    // Derive a push tag from the digest (first 12 hex chars after "sha256:").
-    let short = short_digest(digest);
-    let remote_ref = format!("{}:{}", registry, short);
+    // Derive a push tag from the full digest hex (all 64 chars after "sha256:").
+    // Using the full hex avoids any collision between digests sharing a short prefix.
+    let full_hex = full_digest_hex(digest);
+    let remote_ref = format!("{}:{}", registry, full_hex);
 
     // Tag local image to the remote ref.
-    let status = Command::new("docker")
+    let out = Command::new("docker")
         .args(["tag", local_tag, &remote_ref])
-        .status()?;
-    if !status.success() {
+        .output()?;
+    if !out.status.success() {
         return Err(io::Error::new(
             io::ErrorKind::Other,
             format!(
-                "docker tag failed (exit {:?}): {} -> {}",
-                status.code(),
+                "docker tag failed (exit {:?}): {} -> {}: {}",
+                out.status.code(),
                 local_tag,
-                remote_ref
+                remote_ref,
+                String::from_utf8_lossy(&out.stderr).trim_end()
             ),
         ));
     }
@@ -115,17 +117,20 @@ fn save_to_cas(local_tag: &str, digest: &str, dir: &Path) -> io::Result<StoreLoc
     let tar_path = dir.join(&filename);
 
     // Export the image to a tar archive.  This is durable across daemon prune.
-    let status = Command::new("docker")
-        .args(["save", local_tag, "-o", &tar_path.to_string_lossy()])
-        .status()?;
-    if !status.success() {
+    // Pass &tar_path directly (AsRef<OsStr>) to avoid corrupting non-UTF-8 paths.
+    let out = Command::new("docker")
+        .args(["save", local_tag, "-o"])
+        .arg(&tar_path)
+        .output()?;
+    if !out.status.success() {
         return Err(io::Error::new(
             io::ErrorKind::Other,
             format!(
-                "docker save failed (exit {:?}): {} -> {}",
-                status.code(),
+                "docker save failed (exit {:?}): {} -> {}: {}",
+                out.status.code(),
                 local_tag,
-                tar_path.display()
+                tar_path.display(),
+                String::from_utf8_lossy(&out.stderr).trim_end()
             ),
         ));
     }
@@ -133,11 +138,10 @@ fn save_to_cas(local_tag: &str, digest: &str, dir: &Path) -> io::Result<StoreLoc
     Ok(StoreLocation::LocalCas(tar_path))
 }
 
-/// Return the first 12 hex characters of a digest, stripping any
-/// `sha256:` prefix.  Falls back to the full string if it is shorter.
-fn short_digest(digest: &str) -> String {
-    let hex = digest.strip_prefix("sha256:").unwrap_or(digest);
-    hex.chars().take(12).collect()
+/// Return the full hex portion of a digest, stripping any `sha256:` prefix.
+/// All 64 hex chars are preserved so that push tags are globally unique.
+fn full_digest_hex(digest: &str) -> &str {
+    digest.strip_prefix("sha256:").unwrap_or(digest)
 }
 
 // ---------------------------------------------------------------------------
@@ -171,5 +175,13 @@ mod tests {
                 dir: PathBuf::from("/tmp/buildx-cache/cas")
             }
         );
+    }
+
+    #[test]
+    fn full_digest_hex_strips_prefix_and_returns_all_64_chars() {
+        let digest = "sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
+        let hex = full_digest_hex(digest);
+        assert_eq!(hex, "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890");
+        assert_eq!(hex.len(), 64);
     }
 }
