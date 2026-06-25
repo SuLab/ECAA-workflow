@@ -17,8 +17,13 @@
 //!
 //! (or the pinned set in `requirements-validator.txt`).
 //!
-//! Positive case: a real emitted descriptor validates with 0 failures
-//! and declares all 6 required profile IRIs.
+//! Positive case: a real emitted-then-FINALIZED (executed) descriptor
+//! validates with 0 failures and declares all 6 required profile IRIs.
+//! `conformsTo` is EXECUTION-AWARE (T6′): a pre-execution PLAN crate declares
+//! only the 3 plan-set profiles, and the three WRROC v0.5 run profiles are
+//! added by the finalize path once real per-output `CreateAction`s exist, so
+//! the positive case registers a produced output table (turning the plan crate
+//! into an executed crate) before validating the all-6 contract.
 //! Negative case: a deliberately non-conformant 4-IRI descriptor (one
 //! required WRROC profile dropped, no ParameterConnection / p-plan:Plan)
 //! MUST yield ≥1 failure — the test that would catch a validator that
@@ -130,6 +135,50 @@ fn emit_real_descriptor(out_dir: &Path) {
     );
     let bytes = serde_json::to_vec_pretty(&metadata).expect("serialize metadata");
     std::fs::write(out_dir.join("ro-crate-metadata.json"), bytes).expect("write descriptor");
+
+    // EXECUTION-AWARE conformsTo (T6′): the descriptor just written is a
+    // PRE-EXECUTION PLAN crate declaring only the 3 plan-set profiles. To
+    // exercise the all-6 executed contract, register a real produced output
+    // table — this appends a retrospective `CreateAction` (a real run action)
+    // and the finalize path then upgrades `conformsTo` to the full executed
+    // set. We add ONE table for each task that has a HowToStep so the produced
+    // output is attributed to a real step.
+    let graph = metadata["@graph"].as_array().expect("@graph array");
+    let step_tasks: Vec<String> = graph
+        .iter()
+        .filter(|e| {
+            matches!(e.get("@type").and_then(|t| t.as_str()), Some("HowToStep"))
+        })
+        .filter_map(|e| {
+            e.get("@id")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.strip_prefix("#step-"))
+                .map(str::to_string)
+        })
+        .collect();
+    // Fall back to a single synthetic task if the DAG produced no steps, so the
+    // finalize path always has at least one produced output to register.
+    let tasks: Vec<String> = if step_tasks.is_empty() {
+        vec!["stage".to_string()]
+    } else {
+        step_tasks
+    };
+    for task in &tasks {
+        let table_dir = out_dir.join("runtime").join("outputs").join(task);
+        std::fs::create_dir_all(&table_dir).expect("create output dir");
+        std::fs::write(
+            table_dir.join("result.tsv"),
+            "gene\tlog2fc\tpadj\nGENE1\t1.0\t0.01\n",
+        )
+        .expect("write output table");
+    }
+    let added = ecaa_workflow_core::ro_crate::register_produced_output_tables(out_dir)
+        .expect("register produced output tables");
+    assert!(
+        added >= 1,
+        "finalize must register >=1 produced output table (real run action) so \
+         conformsTo upgrades to the executed set"
+    );
 }
 
 #[test]
@@ -146,9 +195,12 @@ fn runcrate_validates_emitted_descriptor_with_all_six_iris() {
     }
 
     let dir = tempfile::tempdir().expect("tempdir");
+    // Emits the plan crate AND finalizes it (registers a produced output table),
+    // so the descriptor is an EXECUTED crate carrying real run actions — the
+    // precondition for truthfully declaring the three WRROC v0.5 run profiles.
     emit_real_descriptor(dir.path());
 
-    // 1. The descriptor itself must declare all 6 required profile IRIs.
+    // 1. The executed descriptor must declare all 6 required profile IRIs.
     let raw = std::fs::read_to_string(dir.path().join("ro-crate-metadata.json")).expect("read");
     let metadata: serde_json::Value = serde_json::from_str(&raw).expect("parse");
     let descriptor = metadata["@graph"]

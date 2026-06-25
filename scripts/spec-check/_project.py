@@ -660,6 +660,38 @@ def conforms_to_iris(metadata):
     return out
 
 
+def graph_records_execution(metadata):
+    """Does the RO-Crate `@graph` carry ≥1 REAL executed run `CreateAction`?
+
+    Mirrors the Rust emitter's `graph_has_run_create_action`
+    (`crates/core/src/ro_crate.rs`) byte-for-byte in semantics: a "real run
+    action" is an entity whose `@type` contains `CreateAction` AND that carries
+    an `instrument` with an `@id` — the retrospective per-output actions the
+    finalize path appends. Compile-time SME resolution entities are typed plain
+    `Action` (not `CreateAction`) and are deliberately NOT counted. The
+    presence of a real run `CreateAction` is the truthful precondition for a
+    crate to claim the WRROC run profiles, so the projector uses it to decide
+    whether the synthesized `ecaa:Package` node is a PLAN crate (3 definition
+    profiles required) or an EXECUTED crate (all 6 required) under the
+    execution-aware `SubstrateValidityShape` (Invariant 6).
+    """
+    graph = metadata.get("@graph", []) if isinstance(metadata, dict) else []
+    for entry in graph:
+        if not isinstance(entry, dict):
+            continue
+        t = entry.get("@type")
+        is_create_action = t == "CreateAction" or (
+            isinstance(t, list) and "CreateAction" in t
+        )
+        if not is_create_action:
+            continue
+        instrument = entry.get("instrument")
+        instrument_id = instrument.get("@id") if isinstance(instrument, dict) else None
+        if isinstance(instrument_id, str) and instrument_id:
+            return True
+    return False
+
+
 def _to_rdf(graph, doc, context_label=None):
     """Project one JSON-LD `doc` into `graph`; warn (not raise) on failure.
 
@@ -781,14 +813,33 @@ def project(pkg_dir, log=print):
     # of truth, ro-crate-metadata.json, rather than being hard-coded here.
     if metadata is not None:
         iris = conforms_to_iris(metadata)
+        # EXECUTION-AWARE Invariant 6: stamp `ecaa:recordsExecution` on the
+        # Package node so the (amended) SubstrateValidityShape can branch
+        # plan-vs-executed. Derived from the RO-Crate `@graph` exactly as the
+        # Rust emitter (≥1 real run `CreateAction` with an `instrument`). A plan
+        # crate (false) is held to the 3 definition profiles; an executed crate
+        # (true) is held to all 6. The term is added in a per-node context
+        # override (typed xsd:boolean) so the canonical published context stays
+        # unchanged — `recordsExecution` is a projection sentinel, not an ECAA
+        # closed predicate.
+        records_execution = graph_records_execution(metadata)
+        package_ctx = dict(ctx["@context"])
+        package_ctx["recordsExecution"] = {
+            "@id": "ecaa:recordsExecution",
+            "@type": "http://www.w3.org/2001/XMLSchema#boolean",
+        }
         package_node = {
-            "@context": ctx["@context"],
+            "@context": package_ctx,
             "id": "ecaa:package",
             "type": "Package",
             "conformsTo": iris,
+            "recordsExecution": records_execution,
         }
         if _to_rdf(projected, package_node, context_label="ro-crate-metadata.json") and log is not None:
-            log(f"  package node: ecaa:Package with {len(iris)} conformsTo IRIs")
+            log(
+                f"  package node: ecaa:Package with {len(iris)} conformsTo IRIs "
+                f"(recordsExecution={str(records_execution).lower()})"
+            )
 
         # Single-source E (F11): derive `ecaa:WorkflowStep` focus nodes from the
         # authoritative WRROC @graph + the E sidecar so the

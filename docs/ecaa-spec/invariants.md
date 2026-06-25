@@ -202,20 +202,22 @@ where `cross_graph(e)` is true iff `e.target` is prefixed with a sub-graph lette
 
 ### 6. `substrate_validity`
 
-**One-line statement.** The package loads under WRROC v0.5 Tier-3 readers and passes four post-checks.
+**One-line statement.** The package loads under WRROC v0.5 Tier-3 readers and passes four post-checks; its declared `conformsTo` profiles are EXECUTION-AWARE — a plan crate claims only the profiles a workflow definition truthfully meets, an executed crate additionally claims the WRROC v0.5 run profiles.
 
 **Predicate.**
 
 ```
 package.passes(`runcrate report ≥ 0.5.0` parseability proxy; runcrate ships no `validate` subcommand)
-  ∧ |{iri ∈ package.conformsTo : iri ∈ REQUIRED_PROFILE_IRIS}| = 6
+  ∧ records_execution(package)
+        ? REQUIRED_PROFILE_IRIS ⊆ package.conformsTo            (executed crate: all 6)
+        : PLAN_PROFILE_IRIS     ⊆ package.conformsTo            (plan crate: the 3 definition profiles)
   ∧ ∃ entity ∈ package.@graph : entity.@type ∋ "wfprov:ParameterConnection"
   ∧ ∃ entity ∈ package.@graph : entity.@type ∋ "p-plan:Plan"
   ∧ ∀ sidecar ∈ REQUIRED_SIDECARS :
         sidecar ∈ package.@graph as CreativeWork
 ```
 
-where `REQUIRED_PROFILE_IRIS` is the six-IRI set declared in `v0.2.md` §3 and `REQUIRED_SIDECARS` is the eight-filename set declared in the same section.
+where `records_execution(package)` is true iff `∃ entity ∈ package.@graph : entity.@type ∋ "CreateAction" ∧ entity.instrument` (a real run `CreateAction` carrying an `instrument`); `PLAN_PROFILE_IRIS` is the three definition profiles (RO-Crate 1.1 + WorkflowHub Workflow-RO-Crate 1.0 + ECAA v0.2) and `REQUIRED_PROFILE_IRIS` is the full six-IRI set, both declared in `v0.2.md` §3.1; and `REQUIRED_SIDECARS` is the eight-filename set declared in the same section. The conformsTo conjunct is a ⊆ (superset) floor over the branch the crate's `records_execution` value selects: a plan crate MUST declare ⊇ the 3 definition profiles, an executed crate MUST declare ⊇ all 6, and either MAY declare additional implementation-specific IRIs. The reference emitter is what keeps a plan crate from CLAIMING a WRROC v0.5 run profile it cannot truthfully meet — it emits only `PLAN_PROFILE_IRIS` on a plan crate and adds the run profiles only on execution; the invariant's job is to reject the dangerous direction (UNDER-declaration), so an executed crate that drops any of the 6 fails, and a plan crate that drops any of the 3 fails.
 
 **Inputs.** The package's `ro-crate-metadata.json` and the external `runcrate` tool.
 

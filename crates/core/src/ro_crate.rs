@@ -66,19 +66,21 @@ pub fn build_metadata(
 
     let mut graph: Vec<Value> = vec![
         // RO-Crate metadata descriptor.
-        // `conformsTo` asserts the full normative profile set — base
-        // RO-Crate 1.1, the WorkflowHub workflow-ro-crate 1.0 profile,
-        // the WRROC v0.5 Tier-3 profiles (process / workflow /
-        // provenance), and the ECAA v0.2 profile — built from the single
-        // `REQUIRED_PROFILE_IRIS` source of truth so the descriptor and
-        // the spec-conformance post-checks never drift. The Tier-3 entity
-        // builders (`parameter_connection_entity`, `p_plan_entity`) wire
-        // into `build_metadata` separately; this descriptor declares the
-        // intended profile set, not the per-entity emission.
+        //
+        // EXECUTION-AWARE `conformsTo`: this is the PRE-EXECUTION PLAN crate
+        // (a workflow *definition* with ZERO executed `CreateAction`s), so it
+        // declares ONLY the profiles it truthfully satisfies — base
+        // RO-Crate 1.1, the WorkflowHub workflow-ro-crate 1.0 profile, and the
+        // ECAA v0.2 profile (`PLAN_PROFILE_IRIS`). The three WRROC v0.5 run
+        // profiles (process / workflow / provenance) all document *executed*
+        // runs and require real run actions, so they are NOT claimed here;
+        // the finalize/execution path adds them (`EXECUTED_ADDED_PROFILE_IRIS`)
+        // once retrospective per-output `CreateAction`s are registered. We
+        // never fabricate a run action to make a run profile pass.
         json!({
             "@id": "ro-crate-metadata.json",
             "@type": "CreativeWork",
-            "conformsTo": ecaa_workflow_types::consts::REQUIRED_PROFILE_IRIS
+            "conformsTo": ecaa_workflow_types::consts::PLAN_PROFILE_IRIS
                 .iter()
                 .map(|iri| json!({"@id": iri}))
                 .collect::<Vec<_>>(),
@@ -95,23 +97,25 @@ pub fn build_metadata(
         // FAIR maturity validator scores literal SPDX strings lower
         // than URL-form licenses.
         {
+            let emitted_at = clock.now_rfc3339();
             let mut root = serde_json::json!({
                 "@id": "./",
                 "@type": "Dataset",
                 "name": format!("{} — {}", classification.domain, classification.workflow_description),
                 "description": &classification.intake_text,
-                "dateCreated": clock.now_rfc3339(),
+                "dateCreated": emitted_at.clone(),
+                "datePublished": emitted_at.clone(),
                 "license": "https://www.apache.org/licenses/LICENSE-2.0",
-                // The root Dataset declares the full normative profile set
-                // (§4.3) — base RO-Crate 1.1, WorkflowHub workflow-ro-crate
-                // 1.0, the three WRROC v0.5 Tier-3 profiles, and ECAA v0.2 —
-                // mirroring the metadata descriptor's `conformsTo` so an
-                // RO-Crate validator that profiles off `./` (the Workflow Run
-                // Crate validators do) sees the same declared profiles as one
-                // reading the descriptor. Each IRI is also emitted as a
-                // first-class `CreativeWork` profile entity below so the
-                // reference resolves rather than dangling.
-                "conformsTo": ecaa_workflow_types::consts::REQUIRED_PROFILE_IRIS
+                // The root Dataset mirrors the metadata descriptor's
+                // execution-aware `conformsTo`: the PLAN-crate profile subset
+                // only (base RO-Crate 1.1, WorkflowHub workflow-ro-crate 1.0,
+                // ECAA v0.2), so an RO-Crate validator that profiles off `./`
+                // (the Workflow Run Crate validators do) sees the same
+                // truthfully-declared profiles as one reading the descriptor.
+                // The WRROC run profiles are added to BOTH on finalize. Each
+                // IRI is also emitted as a first-class `CreativeWork` profile
+                // entity below so the reference resolves rather than dangling.
+                "conformsTo": ecaa_workflow_types::consts::PLAN_PROFILE_IRIS
                     .iter()
                     .map(|iri| json!({"@id": iri}))
                     .collect::<Vec<_>>(),
@@ -153,7 +157,7 @@ pub fn build_metadata(
         // ComputationalWorkflow with Bioschemas profile
         json!({
             "@id": "WORKFLOW.json",
-            "@type": ["File", "ComputationalWorkflow"],
+            "@type": ["File", "SoftwareSourceCode", "ComputationalWorkflow"],
             "name": format!("{} DAG", dag.workflow_id),
             "encodingFormat": "application/json",
             "conformsTo": {
@@ -321,8 +325,11 @@ pub fn build_metadata(
     // so the reference resolves to a named, versioned entity rather than a bare
     // `{@id}` dangling ref. Name + version are parsed deterministically from the
     // IRI's trailing version segment (`…/1.1`, `…/0.5`, `…/v0.2`); no value is
-    // invented beyond what the IRI itself encodes.
-    for iri in ecaa_workflow_types::consts::REQUIRED_PROFILE_IRIS {
+    // invented beyond what the IRI itself encodes. Plan-crate only emits the
+    // profiles it actually claims (`PLAN_PROFILE_IRIS`); the finalize/execution
+    // path adds the WRROC run-profile entities alongside their `conformsTo`
+    // references once real run actions exist.
+    for iri in ecaa_workflow_types::consts::PLAN_PROFILE_IRIS {
         graph.push(profile_entity(iri));
     }
 
@@ -488,7 +495,23 @@ pub fn build_metadata(
             // 0.5.0, StreamFlow ≥ 0.2.0.dev10, nf-prov ≥ 1.4.0); ROCs
             // emitted with explicit ParameterConnection / p-plan entities
             // (S6.14 follow-up) will validate against the Tier-3 schema.
-            "https://w3id.org/ro/terms/workflow-run"
+            "https://w3id.org/ro/terms/workflow-run",
+            // Inline term-map for extension keys emitted by this crate that
+            // are not defined by either upstream context URL.  Without these
+            // definitions the JSON-LD compaction step used by roc-validator's
+            // "Validation of the compaction format of the file descriptor"
+            // REQUIRED check fails.  Map each bare key to its canonical IRI:
+            //   - wasGeneratedBy  → PROV-O
+            //   - matchedArchetype / rationale → ECAA ns/0.2# vocabulary (same namespace as evaluated_against/verdict/invariant_id)
+            //   - evaluated_against / verdict / invariant_id → ECAA ns vocabulary
+            {
+                "wasGeneratedBy": "http://www.w3.org/ns/prov#wasGeneratedBy",
+                "matchedArchetype": "https://w3id.org/ecaa/ns/0.2#matchedArchetype",
+                "rationale": "https://w3id.org/ecaa/ns/0.2#rationale",
+                "evaluated_against": "https://w3id.org/ecaa/ns/0.2#evaluated_against",
+                "verdict": "https://w3id.org/ecaa/ns/0.2#verdict",
+                "invariant_id": "https://w3id.org/ecaa/ns/0.2#invariantId"
+            }
         ],
         "@graph": graph
     })
@@ -747,6 +770,90 @@ fn executor_agent_entity(state: &crate::container_state::ContainerState) -> Opti
     Some(agent)
 }
 
+/// Does the `@graph` carry at least one REAL executed run `CreateAction`?
+///
+/// "Real run action" = an entity typed `CreateAction` (the retrospective
+/// per-output actions [`register_produced_output_tables`] appends, each with a
+/// real `instrument`). The compile-time SME resolution entities are typed plain
+/// `Action` (not `CreateAction`) and are deliberately NOT counted — they record
+/// intake-time decisions, not executed workflow steps. The presence of a real
+/// `CreateAction` is the truthful precondition for a crate to claim the WRROC
+/// run profiles (process / workflow / provenance run crate).
+fn graph_has_run_create_action(graph: &[Value]) -> bool {
+    graph.iter().any(|e| {
+        let is_create_action = match e.get("@type") {
+            Some(Value::String(s)) => s == "CreateAction",
+            Some(Value::Array(a)) => a.iter().any(|t| t.as_str() == Some("CreateAction")),
+            _ => false,
+        };
+        is_create_action
+            && e.get("instrument")
+                .and_then(|i| i.get("@id"))
+                .and_then(Value::as_str)
+                .is_some()
+    })
+}
+
+/// Upgrade an executed crate's `conformsTo` from the plan-set to the full
+/// executed set, idempotently.
+///
+/// Adds each [`EXECUTED_ADDED_PROFILE_IRIS`] entry that is not already present
+/// to BOTH the metadata descriptor's and the root `./` Dataset's `conformsTo`
+/// (mirroring the plan-crate dual declaration), and emits the corresponding
+/// first-class `CreativeWork` profile entity for any newly-added IRI so the
+/// reference resolves rather than dangling. Called ONLY when the graph already
+/// contains a real run `CreateAction` ([`graph_has_run_create_action`]) — so
+/// the added run profiles are truthful, never fabricated. Idempotent: a
+/// second invocation on an already-upgraded graph is a no-op (the IRIs and
+/// profile entities are already present).
+fn upgrade_conforms_to_executed(graph: &mut Vec<Value>) {
+    let add_iris = ecaa_workflow_types::consts::EXECUTED_ADDED_PROFILE_IRIS;
+
+    // Which executed-add IRIs are missing from the descriptor's conformsTo?
+    let mut needs_profile_entity: Vec<&str> = Vec::new();
+    for target_id in ["ro-crate-metadata.json", "./"] {
+        let Some(entry) = graph
+            .iter_mut()
+            .find(|e| e.get("@id").and_then(Value::as_str) == Some(target_id))
+        else {
+            continue;
+        };
+        let Some(obj) = entry.as_object_mut() else {
+            continue;
+        };
+        let conforms = obj
+            .entry("conformsTo")
+            .or_insert_with(|| Value::Array(Vec::new()));
+        let Some(arr) = conforms.as_array_mut() else {
+            continue;
+        };
+        let present: std::collections::BTreeSet<String> = arr
+            .iter()
+            .filter_map(|c| c.get("@id").and_then(Value::as_str).map(String::from))
+            .collect();
+        for iri in add_iris {
+            if !present.contains(*iri) {
+                arr.push(json!({"@id": iri}));
+                // Track once (descriptor pass) for profile-entity emission.
+                if target_id == "ro-crate-metadata.json" {
+                    needs_profile_entity.push(iri);
+                }
+            }
+        }
+    }
+
+    // Emit a resolving profile entity for each newly-claimed IRI not already
+    // present as a node, so the `conformsTo` ref does not dangle.
+    for iri in needs_profile_entity {
+        let already = graph
+            .iter()
+            .any(|e| e.get("@id").and_then(Value::as_str) == Some(iri));
+        if !already {
+            graph.push(profile_entity(iri));
+        }
+    }
+}
+
 /// Register produced result tables as Evidence (V) `@graph` entities.
 ///
 /// Runs POST-EXECUTION, after the agent has written result tables under
@@ -855,13 +962,95 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
         }
     }
 
+    // Per-task EXECUTED TOOL entities. A WRROC tool-execution `CreateAction`
+    // documents the run of a *tool*: its `instrument` MUST name a
+    // SoftwareApplication / SoftwareSourceCode / ComputationalWorkflow
+    // (process/workflow/provenance-run-crate "Action instrument"), NOT the
+    // abstract `HowToStep`. The concrete tool a step ran is the REAL code it
+    // authored under `runtime/outputs/<task>/scripts/` (the executor brief
+    // mandates every executed line land there). We register those scripts as
+    // `SoftwareSourceCode` File entities and group them under one per-task tool
+    // entity `#tool/<task>` (also `SoftwareSourceCode`) whose `hasPart` lists
+    // the real scripts. The CreateActions below name this tool via `instrument`,
+    // the workflow `hasPart`s it, and each HowToStep's `workExample` points at
+    // it — all REAL graph entities, never synthetic placeholders. A task with NO
+    // recorded script gets no tool entity (we never invent code that did not
+    // run); its output's CreateAction then falls back to the HowToStep
+    // `instrument` (honest, though it leaves the optional shape unsatisfied for
+    // that single action rather than fabricating a tool).
+    //
+    // `tool_for_task[task] = Some("#tool/<task>")` when the task has ≥1 real
+    // script; the tool + its script File entities are accumulated in
+    // `new_tools` / `new_scripts` and appended after the actions.
+    let mut tool_for_task: std::collections::BTreeMap<String, String> =
+        std::collections::BTreeMap::new();
+    let mut new_tools: Vec<Value> = Vec::new();
+    let mut new_scripts: Vec<Value> = Vec::new();
+    {
+        // Iterate produced tasks in sorted order for deterministic emission.
+        let produced_tasks: std::collections::BTreeSet<String> = rels
+            .iter()
+            .filter_map(|rel| {
+                rel.strip_prefix("runtime/outputs/")
+                    .and_then(|r| r.split_once('/'))
+                    .map(|(task, _)| task.to_string())
+            })
+            .collect();
+        for task in &produced_tasks {
+            let tool_id = format!("#tool/{task}");
+            if existing.contains(&tool_id) {
+                // Already registered by a prior finalize; still record the
+                // mapping so this run's CreateActions point at the real tool.
+                tool_for_task.insert(task.clone(), tool_id);
+                continue;
+            }
+            let scripts_dir = outputs_root.join(task).join("scripts");
+            let mut script_rels: Vec<String> = Vec::new();
+            collect_task_scripts(
+                &scripts_dir,
+                &format!("runtime/outputs/{task}/scripts"),
+                &mut script_rels,
+            );
+            script_rels.sort();
+            if script_rels.is_empty() {
+                // No recorded code for this task — do not invent a tool.
+                continue;
+            }
+            let mut script_refs: Vec<Value> = Vec::new();
+            for srel in &script_rels {
+                if !existing.contains(srel) {
+                    new_scripts.push(json!({
+                        "@id": srel,
+                        "@type": ["File", "SoftwareSourceCode"],
+                        "name": srel.rsplit('/').next().unwrap_or(srel),
+                        "description": format!("Executed script authored by stage '{task}'."),
+                        "encodingFormat": script_encoding_format(srel),
+                    }));
+                }
+                script_refs.push(json!({"@id": srel}));
+            }
+            new_tools.push(json!({
+                "@id": tool_id,
+                "@type": "SoftwareSourceCode",
+                "name": format!("{task} tool"),
+                "description": format!(
+                    "The executable code stage '{task}' ran, grouping its recorded scripts."
+                ),
+                "hasPart": script_refs,
+            }));
+            tool_for_task.insert(task.clone(), tool_id);
+        }
+    }
+
     let mut new_parts: Vec<Value> = Vec::new();
     // Retrospective per-output PROV: one WRROC `CreateAction` per produced
     // table, accumulated here and appended AFTER the output nodes so the graph
     // stays in a stable (outputs, then actions; both in sorted `rels` order)
     // shape. Each output's `wasGeneratedBy` points at its action; the action's
-    // `result` is the output, `instrument` is the producing step, and `object`
-    // (PROV `used`) is the task's input step(s).
+    // `result` is the output, `instrument` is the producing tool (the REAL
+    // per-task code under `scripts/`, falling back to the `HowToStep` only when
+    // a task recorded no script), and `object` (PROV `used`) is the task's
+    // input step(s).
     let mut new_actions: Vec<Value> = Vec::new();
     // Executor agent entities referenced by the CreateActions' `agent` edge,
     // de-duplicated by `@id` (many tasks may share one container image →
@@ -930,11 +1119,19 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
         let cstate = crate::container_state::ContainerState::read_from_task_dir(&task_dir)
             .ok()
             .flatten();
+        // `instrument` = the REAL tool the step ran (its recorded code), so the
+        // action documents a tool execution per WRROC "Action instrument".
+        // Falls back to the abstract `HowToStep` only when the task recorded no
+        // script (we never invent a tool that did not run).
+        let instrument_id = tool_for_task
+            .get(task)
+            .cloned()
+            .unwrap_or_else(|| format!("#step-{task}"));
         let mut action = json!({
             "@id": action_id,
             "@type": ["CreateAction", "prov:Activity"],
             "name": format!("Production of {file} by stage '{task}'."),
-            "instrument": {"@id": format!("#step-{task}")},
+            "instrument": {"@id": instrument_id},
             "result": {"@id": rel},
             "object": object,
         });
@@ -963,9 +1160,129 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
     }
     graph.extend(new_actions);
     graph.extend(new_agents);
+    graph.extend(new_scripts);
+    graph.extend(new_tools);
+
+    // ── Wire the executed tools into the workflow + steps (REAL entities) ────
+    //
+    // Provenance Run Crate requires, for the executed crate:
+    //   * ComputationalWorkflow `hasPart` → orchestrated tools
+    //     (`must/0_computational_workflow.ttl` "ComputationalWorkflow hasPart").
+    //   * the workflow that links HowToStep via `step` ALSO carries the `HowTo`
+    //     `@type` ("ComputationalWorkflow with steps type").
+    //   * every HowToStep `workExample` → the tool it runs
+    //     (`must/1_howtostep.ttl` "HowToStep workExample").
+    // Every wired tool is a real `#tool/<task>` entity that is genuinely the
+    // `instrument` of the per-output CreateActions above ("Tool inverse
+    // instrument" in `must/0_tool.ttl`), so adding it to `hasPart` introduces no
+    // unbacked structure. We map each tool to its producing task so the step's
+    // `workExample` names the right tool.
+    if !tool_for_task.is_empty() {
+        // The full set of tool @ids to attach (newly-registered this run plus
+        // any registered by a prior finalize, recorded in `tool_for_task`).
+        let all_tool_ids: std::collections::BTreeSet<String> =
+            tool_for_task.values().cloned().collect();
+
+        if let Some(wf) = graph.iter_mut().find(|e| match e.get("@type") {
+            Some(Value::String(s)) => s == "ComputationalWorkflow",
+            Some(Value::Array(a)) => a.iter().any(|v| v.as_str() == Some("ComputationalWorkflow")),
+            _ => false,
+        }) {
+            if let Some(obj) = wf.as_object_mut() {
+                // (a) Add the `HowTo` @type (the workflow links HowToSteps via
+                //     `step`). @type is always the 3-element array literal from
+                //     `build_metadata`; handle both array and string shapes.
+                match obj.get_mut("@type") {
+                    Some(Value::Array(types)) => {
+                        if !types.iter().any(|t| t.as_str() == Some("HowTo")) {
+                            types.push(json!("HowTo"));
+                        }
+                    }
+                    Some(Value::String(s)) => {
+                        let existing_t = s.clone();
+                        obj.insert("@type".to_string(), json!([existing_t, "HowTo"]));
+                    }
+                    _ => {}
+                }
+                // (b) `hasPart` → the executed tools, de-duplicated.
+                let parts = obj
+                    .entry("hasPart")
+                    .or_insert_with(|| Value::Array(Vec::new()));
+                if let Some(arr) = parts.as_array_mut() {
+                    for tid in &all_tool_ids {
+                        if !arr.iter().any(|p| p.get("@id").and_then(Value::as_str) == Some(tid)) {
+                            arr.push(json!({"@id": tid}));
+                        }
+                    }
+                }
+            }
+        }
+
+        // (c) Each HowToStep `workExample` → the real tool its task ran. Only
+        //     touch steps whose task recorded a tool; steps without a tool keep
+        //     their existing `workExample` (if any) untouched.
+        for entity in graph.iter_mut() {
+            let is_step = match entity.get("@type") {
+                Some(Value::String(s)) => s == "HowToStep",
+                Some(Value::Array(a)) => a.iter().any(|t| t.as_str() == Some("HowToStep")),
+                _ => false,
+            };
+            if !is_step {
+                continue;
+            }
+            let Some(step_id) = entity.get("@id").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(task) = step_id.strip_prefix("#step-") else {
+                continue;
+            };
+            if let Some(tool_id) = tool_for_task.get(task) {
+                if let Some(obj) = entity.as_object_mut() {
+                    obj.insert("workExample".to_string(), json!({"@id": tool_id}));
+                }
+            }
+        }
+    }
+
+    // ── FormalParameter entities for the ParameterConnection endpoints ───────
+    //
+    // Each `ParameterConnection` carries `sourceParameter {@id:
+    // "#step-<src>#<port>"}` and `targetParameter {@id:
+    // "#step-<tgt>#<port>"}`. Provenance Run Crate `must/5_parameterconnection.ttl`
+    // requires both to RESOLVE to `FormalParameter` entities — in the plan crate
+    // these @ids dangle. Emit one `FormalParameter` per distinct endpoint @id
+    // actually referenced by a connection, named for the `<task>` / `<port>` it
+    // denotes. These are real declared ports of the executed workflow's steps
+    // (the connection edges already in the graph reference them); we materialise
+    // the entity the edge points at rather than inventing new connectivity.
+    register_parameter_connection_endpoints(graph);
+
+    // EXECUTION-AWARE `conformsTo` upgrade. The plan crate emitted by
+    // `build_metadata` declares only the profiles a workflow *definition*
+    // truthfully meets (`PLAN_PROFILE_IRIS`). Now that retrospective per-output
+    // `CreateAction`s with real `instrument`s are in the graph, the crate
+    // honestly documents executed processes / a workflow run / provenance, so
+    // it may add the three WRROC v0.5 run profiles (`EXECUTED_ADDED_PROFILE_IRIS`)
+    // to its `conformsTo`. Gated on the actual presence of a real run
+    // `CreateAction` (not the compile-time SME `Action`s) so the upgrade is
+    // truthful and idempotent across re-runs — it claims a run profile only
+    // when the graph genuinely carries run provenance.
+    let has_run_action = graph_has_run_create_action(graph);
+    if has_run_action {
+        upgrade_conforms_to_executed(graph);
+    }
 
     let added = new_parts.len();
     if added == 0 {
+        // Even with no NEW tables this invocation, a prior finalize may have
+        // registered run actions and upgraded the descriptor — persist the
+        // (idempotent) upgrade so a re-run on an already-executed crate keeps
+        // the executed `conformsTo`. With neither new tables nor any run
+        // action, nothing changed and we skip the write.
+        if has_run_action {
+            let serialized = serde_json::to_vec_pretty(&doc)?;
+            crate::fs_helpers::atomic_write_bytes_sync(&descriptor, &serialized)?;
+        }
         return Ok(0);
     }
 
@@ -1378,6 +1695,74 @@ fn collect_task_inputs(
     inputs
 }
 
+/// Materialise a `bioschemas:FormalParameter` entity for every distinct
+/// endpoint `@id` referenced by a `ParameterConnection`'s `sourceParameter` /
+/// `targetParameter`, so those references resolve (Provenance Run Crate
+/// `must/5_parameterconnection.ttl` requires both endpoints to be
+/// `FormalParameter` entities). In the plan crate the endpoint @ids
+/// (`#step-<task>#<port>`) dangle — this fills the entity the EXISTING edge
+/// already points at; no new connectivity is invented. Idempotent: an endpoint
+/// whose @id is already a graph node is skipped. Appends in sorted @id order
+/// for deterministic output.
+fn register_parameter_connection_endpoints(graph: &mut Vec<Value>) {
+    // Collect the endpoint @ids referenced by ParameterConnections.
+    let mut endpoints: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for node in graph.iter() {
+        let is_connection = match node.get("@type") {
+            Some(Value::String(s)) => s == "ParameterConnection",
+            Some(Value::Array(a)) => a.iter().any(|t| t.as_str() == Some("ParameterConnection")),
+            _ => false,
+        };
+        if !is_connection {
+            continue;
+        }
+        for key in ["sourceParameter", "targetParameter"] {
+            if let Some(id) = node.get(key).and_then(|p| p.get("@id")).and_then(Value::as_str) {
+                endpoints.insert(id.to_string());
+            }
+        }
+    }
+    // Existing @ids — skip endpoints already present (idempotency + never shadow
+    // a real entity the edge happens to point at).
+    let existing: std::collections::BTreeSet<String> = graph
+        .iter()
+        .filter_map(|e| e.get("@id").and_then(Value::as_str).map(String::from))
+        .collect();
+    for id in &endpoints {
+        if existing.contains(id) {
+            continue;
+        }
+        // Derive a human name from the `#step-<task>#<port>` shape (best effort;
+        // unparseable endpoints still get a FormalParameter with the bare @id).
+        let (task, port) = id
+            .strip_prefix("#step-")
+            .and_then(|body| body.split_once('#'))
+            .map(|(t, p)| (t.to_string(), p.to_string()))
+            .unwrap_or_else(|| (id.clone(), String::new()));
+        let name = if port.is_empty() {
+            task.clone()
+        } else {
+            format!("{task} {port}")
+        };
+        graph.push(json!({
+            "@id": id,
+            "@type": "FormalParameter",
+            // Workflow Run Crate `must/3_formal_parameter.ttl` requires an
+            // `additionalType`. These ports carry data artifacts between steps
+            // and are not declared with a concrete format, so the honest,
+            // non-overclaiming value is EDAM `data_0006` ("Data") — it asserts
+            // only that the port is a data parameter, inventing no specific type.
+            "additionalType": {"@id": "http://edamontology.org/data_0006"},
+            "name": name,
+            "description": format!(
+                "Declared {} port of workflow step '{}'.",
+                if port.is_empty() { "parameter" } else { &port },
+                task
+            ),
+        }));
+    }
+}
+
 /// Recursively collect produced result-table relative paths under `dir`,
 /// rooted at the package-relative `rel_prefix` (e.g. `runtime/outputs/<task>`).
 /// Prunes the `figures/` and `view_data/` sub-trees (ImageObjects / render
@@ -1404,6 +1789,54 @@ fn collect_output_tables(dir: &std::path::Path, rel_prefix: &str, out: &mut Vec<
         {
             out.push(rel);
         }
+    }
+}
+
+/// Recursively collect the relative paths of the REAL executed scripts a task
+/// authored under `runtime/outputs/<task>/scripts/`. These are the concrete
+/// code artifacts that ran the step (`*.R` / `*.py` / `*.sh` / `*.bash` /
+/// `*.pl` / `*.jl`), recorded per the executor brief. Paths are package-
+/// relative (`runtime/outputs/<task>/scripts/<file>`) and sorted by the caller.
+/// Returns an empty vec when the task has no `scripts/` directory.
+fn collect_task_scripts(scripts_dir: &std::path::Path, rel_prefix: &str, out: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(scripts_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = entry.file_name().to_str().map(String::from) else {
+            continue;
+        };
+        let rel = format!("{rel_prefix}/{name}");
+        if path.is_dir() {
+            collect_task_scripts(&path, &rel, out);
+        } else if path.is_file() {
+            let is_script = [".R", ".r", ".py", ".sh", ".bash", ".pl", ".jl"]
+                .iter()
+                .any(|ext| name.ends_with(ext));
+            if is_script {
+                out.push(rel);
+            }
+        }
+    }
+}
+
+/// Map a script's relative path to a JSON-LD media type for its
+/// `programmingLanguage` / `encodingFormat`. Honest, file-extension-derived;
+/// unknown extensions fall back to `text/plain`.
+fn script_encoding_format(rel: &str) -> &'static str {
+    if rel.ends_with(".R") || rel.ends_with(".r") {
+        "text/x-r-source"
+    } else if rel.ends_with(".py") {
+        "text/x-python"
+    } else if rel.ends_with(".sh") || rel.ends_with(".bash") {
+        "application/x-sh"
+    } else if rel.ends_with(".pl") {
+        "text/x-perl"
+    } else if rel.ends_with(".jl") {
+        "text/x-julia"
+    } else {
+        "text/plain"
     }
 }
 
@@ -2238,10 +2671,11 @@ mod tests {
         assert_eq!(edam_ids.iter().filter(|i| op_re.is_match(i)).count(), 2);
     }
 
-    /// B1: the metadata descriptor AND the root `./` Dataset both declare the
-    /// full normative `conformsTo` profile set, and every declared profile IRI
-    /// resolves to a first-class `CreativeWork` profile entity (name + version)
-    /// in the `@graph` — no bare dangling `{@id}` ref.
+    /// B1 (execution-aware): the metadata descriptor AND the root `./` Dataset
+    /// of a PLAN crate both declare exactly the plan-set `conformsTo` profiles,
+    /// and every declared profile IRI resolves to a first-class `CreativeWork`
+    /// profile entity (name + version) in the `@graph` — no bare dangling
+    /// `{@id}` ref.
     #[test]
     fn root_dataset_conforms_to_and_profile_entities_resolve() {
         let dag = one_task_dag();
@@ -2256,7 +2690,7 @@ mod tests {
         let metadata = build_metadata(&dag, &classification, &FrozenClock::default());
         let graph = metadata["@graph"].as_array().expect("@graph array");
 
-        // Root `./` carries conformsTo equal to the const profile set.
+        // Root `./` carries conformsTo equal to the PLAN profile set.
         let root = graph
             .iter()
             .find(|e| e["@id"].as_str() == Some("./"))
@@ -2267,10 +2701,10 @@ mod tests {
             .iter()
             .filter_map(|c| c["@id"].as_str())
             .collect();
-        for iri in ecaa_workflow_types::consts::REQUIRED_PROFILE_IRIS {
+        for iri in ecaa_workflow_types::consts::PLAN_PROFILE_IRIS {
             assert!(
                 declared.contains(iri),
-                "root ./ conformsTo must declare {iri}; got {declared:?}"
+                "root ./ conformsTo must declare plan profile {iri}; got {declared:?}"
             );
             // Each declared profile resolves to a CreativeWork entity carrying a
             // name + version.
@@ -2290,6 +2724,155 @@ mod tests {
             assert!(
                 entity["version"].as_str().is_some_and(|s| !s.is_empty()),
                 "profile entity {iri} must carry a non-empty version"
+            );
+        }
+    }
+
+    /// EXECUTION-AWARE `conformsTo` (T6′): a PRE-EXECUTION PLAN crate has ZERO
+    /// real run `CreateAction`s, so it must declare ONLY the truthful plan-set
+    /// profiles (base RO-Crate 1.1 + workflow-ro-crate/1.0 + ecaa/v0.2) on BOTH
+    /// the metadata descriptor and the root `./` Dataset — and must NOT claim
+    /// any of the three WRROC v0.5 run profiles (process / workflow /
+    /// provenance), which document executed runs. This is the regression guard
+    /// against the rejected Task-6 hack (which fabricated a planned run action
+    /// + workflow self-`hasPart` to make `provenance/0.5` "pass").
+    #[test]
+    fn plan_crate_conforms_to_excludes_run_profiles() {
+        let dag = one_task_dag();
+        let classification = ClassificationResult {
+            domain: "genomics".into(),
+            workflow_description: "test workflow".into(),
+            intake_text: "test intake".into(),
+            edam_topic: "topic:3673".into(),
+            edam_operation: "operation:3223".into(),
+            ..Default::default()
+        };
+        let metadata = build_metadata(&dag, &classification, &FrozenClock::default());
+        let graph = metadata["@graph"].as_array().expect("@graph array");
+
+        // The plan crate genuinely has NO real run CreateAction (the precondition
+        // for claiming any WRROC run profile).
+        assert!(
+            !graph_has_run_create_action(graph),
+            "a pre-execution plan crate must contain ZERO real run CreateActions"
+        );
+
+        let expected: std::collections::BTreeSet<&str> =
+            ecaa_workflow_types::consts::PLAN_PROFILE_IRIS
+                .iter()
+                .copied()
+                .collect();
+
+        for target_id in ["ro-crate-metadata.json", "./"] {
+            let entry = graph
+                .iter()
+                .find(|e| e["@id"].as_str() == Some(target_id))
+                .unwrap_or_else(|| panic!("{target_id} entry present"));
+            let declared: std::collections::BTreeSet<&str> = entry["conformsTo"]
+                .as_array()
+                .unwrap_or_else(|| panic!("{target_id} conformsTo is an array"))
+                .iter()
+                .filter_map(|c| c["@id"].as_str())
+                .collect();
+
+            // Exactly the truthful plan set — no more, no less.
+            assert_eq!(
+                declared, expected,
+                "{target_id} conformsTo must equal the plan set exactly; got {declared:?}"
+            );
+
+            // Specifically: none of the three execution-only WRROC run profiles.
+            for run_iri in ecaa_workflow_types::consts::EXECUTED_ADDED_PROFILE_IRIS {
+                assert!(
+                    !declared.contains(run_iri),
+                    "plan crate {target_id} conformsTo must NOT claim run profile {run_iri}"
+                );
+            }
+        }
+    }
+
+    /// EXECUTION-AWARE `conformsTo` (T6′, executed half): once a real run
+    /// `CreateAction` exists in the graph, the finalize-path upgrade
+    /// (`upgrade_conforms_to_executed`) adds the three WRROC v0.5 run profiles
+    /// to BOTH the descriptor and root `./`, emits resolving profile entities
+    /// for them, and is idempotent (a second upgrade adds nothing). The result
+    /// is the full executed `REQUIRED_PROFILE_IRIS` set, claimed truthfully
+    /// because the run action is real (not fabricated).
+    #[test]
+    fn executed_crate_conforms_to_upgrade_is_truthful_and_idempotent() {
+        let dag = one_task_dag();
+        let classification = ClassificationResult {
+            domain: "genomics".into(),
+            workflow_description: "test workflow".into(),
+            intake_text: "test intake".into(),
+            edam_topic: "topic:3673".into(),
+            edam_operation: "operation:3223".into(),
+            ..Default::default()
+        };
+        let metadata = build_metadata(&dag, &classification, &FrozenClock::default());
+        let mut graph: Vec<Value> = metadata["@graph"]
+            .as_array()
+            .expect("@graph array")
+            .clone();
+
+        // Inject a REAL run CreateAction (an `instrument`-bearing CreateAction),
+        // mirroring what `register_produced_output_tables` appends post-execution.
+        graph.push(json!({
+            "@id": "#action/runtime/outputs/t1/de.tsv",
+            "@type": ["CreateAction", "prov:Activity"],
+            "name": "Production of de.tsv by stage 't1'.",
+            "instrument": {"@id": "#step-t1"},
+            "result": {"@id": "runtime/outputs/t1/de.tsv"}
+        }));
+        assert!(
+            graph_has_run_create_action(&graph),
+            "injected CreateAction must be recognized as a real run action"
+        );
+
+        upgrade_conforms_to_executed(&mut graph);
+        // Idempotent: a second upgrade must not duplicate IRIs or entities.
+        upgrade_conforms_to_executed(&mut graph);
+
+        let full: std::collections::BTreeSet<&str> =
+            ecaa_workflow_types::consts::REQUIRED_PROFILE_IRIS
+                .iter()
+                .copied()
+                .collect();
+
+        for target_id in ["ro-crate-metadata.json", "./"] {
+            let entry = graph
+                .iter()
+                .find(|e| e["@id"].as_str() == Some(target_id))
+                .unwrap_or_else(|| panic!("{target_id} entry present"));
+            let arr = entry["conformsTo"]
+                .as_array()
+                .unwrap_or_else(|| panic!("{target_id} conformsTo is an array"));
+            let declared: Vec<&str> = arr.iter().filter_map(|c| c["@id"].as_str()).collect();
+
+            // No duplicate IRIs after two upgrades.
+            let unique: std::collections::BTreeSet<&str> = declared.iter().copied().collect();
+            assert_eq!(
+                declared.len(),
+                unique.len(),
+                "{target_id} conformsTo must have no duplicate IRIs; got {declared:?}"
+            );
+            // Equals the full executed set.
+            assert_eq!(
+                unique, full,
+                "{target_id} conformsTo must equal the full executed set; got {declared:?}"
+            );
+        }
+
+        // Each newly-claimed run profile resolves to exactly one CreativeWork
+        // profile entity (no dangling ref, no duplicate).
+        for run_iri in ecaa_workflow_types::consts::EXECUTED_ADDED_PROFILE_IRIS {
+            let n = graph
+                .iter()
+                .filter(|e| e["@id"].as_str() == Some(run_iri))
+                .count();
+            assert_eq!(
+                n, 1,
+                "run profile {run_iri} must resolve to exactly one entity; found {n}"
             );
         }
     }
@@ -2381,6 +2964,56 @@ mod tests {
         assert!(
             executor_agent_entity(&empty).is_none(),
             "no recorded executor identity must yield None, not a placeholder agent"
+        );
+    }
+
+    /// A2: the `@context` array must include an inline term-map that resolves
+    /// all extension terms emitted by this crate so that JSON-LD compaction
+    /// validates without unknown-term errors (roc-validator check ro-crate-1.1_2.1).
+    #[test]
+    fn context_defines_extension_terms() {
+        let dag = one_task_dag();
+        let classification = ClassificationResult {
+            domain: "genomics".into(),
+            workflow_description: "test workflow".into(),
+            intake_text: "test intake".into(),
+            edam_topic: "topic:3673".into(),
+            edam_operation: "operation:3223".into(),
+            ..Default::default()
+        };
+        let meta = build_metadata(&dag, &classification, &FrozenClock::default());
+        let ctx = meta["@context"].as_array().expect("@context is an array");
+        let inline = ctx
+            .iter()
+            .find_map(|v| v.as_object())
+            .expect("inline term map present in @context");
+        // PROV-O term used by wasGeneratedBy edges on output nodes.
+        assert_eq!(
+            inline["wasGeneratedBy"],
+            "http://www.w3.org/ns/prov#wasGeneratedBy"
+        );
+        // ECAA ns/0.2# terms used by the p-plan / archetype entity.
+        assert_eq!(
+            inline["matchedArchetype"],
+            "https://w3id.org/ecaa/ns/0.2#matchedArchetype"
+        );
+        assert_eq!(
+            inline["rationale"],
+            "https://w3id.org/ecaa/ns/0.2#rationale"
+        );
+        // ECAA ns terms used by InvariantVerdict nodes in the audit-proof
+        // projection (ecaa_projection.rs).
+        assert_eq!(
+            inline["evaluated_against"],
+            "https://w3id.org/ecaa/ns/0.2#evaluated_against"
+        );
+        assert_eq!(
+            inline["verdict"],
+            "https://w3id.org/ecaa/ns/0.2#verdict"
+        );
+        assert_eq!(
+            inline["invariant_id"],
+            "https://w3id.org/ecaa/ns/0.2#invariantId"
         );
     }
 
@@ -3169,5 +3802,29 @@ loaded via a namespace (and not attached):
         assert!(seen.get(&("conda".into(), "channel".into())).is_none());
         assert!(seen.get(&("python".into(), "name".into())).is_none()); // @ file:// artifact
         assert!(seen.get(&("r".into(), "GenomicRanges".into())).is_none()); // loaded-via-namespace
+    }
+
+    /// B2: the main workflow entity's `@type` includes `SoftwareSourceCode`
+    /// (WRROC "Main Workflow type" REQUIRED check).
+    #[test]
+    fn main_workflow_type_includes_softwaresourcecode() {
+        let dag = one_task_dag();
+        let classification = ClassificationResult {
+            domain: "genomics".into(),
+            workflow_description: "test workflow".into(),
+            intake_text: "test intake".into(),
+            edam_topic: "topic:3673".into(),
+            edam_operation: "operation:3223".into(),
+            ..Default::default()
+        };
+        let meta = build_metadata(&dag, &classification, &FrozenClock::default());
+        let wf = meta["@graph"].as_array().unwrap().iter()
+            .find(|e| e["@type"].as_array().map_or(false, |a|
+                a.iter().any(|t| t == "ComputationalWorkflow"))).unwrap();
+        let types: Vec<&str> = wf["@type"].as_array().unwrap()
+            .iter().filter_map(|t| t.as_str()).collect();
+        assert!(types.contains(&"File"));
+        assert!(types.contains(&"SoftwareSourceCode"));
+        assert!(types.contains(&"ComputationalWorkflow"));
     }
 }

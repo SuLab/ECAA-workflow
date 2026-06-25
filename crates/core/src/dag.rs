@@ -924,6 +924,21 @@ impl DAG {
             .all(|t| matches!(t.state, TaskState::Completed { .. }))
     }
 
+    /// True when every task has reached a TERMINAL state (`Completed` or
+    /// `Failed`) — no task is Pending/Ready/Running/Blocked, so no further
+    /// dispatch or recovery is possible and the run is finished.
+    ///
+    /// The end-of-run finalize uses this rather than [`Self::is_complete`]
+    /// (which requires every task to have *succeeded*): a run that ends with
+    /// some `Failed` tasks — e.g. the literature/reporting tasks that don't
+    /// complete in practice — must still finalize (capture the env-snapshot,
+    /// re-seal the package) instead of idling to `--max-iterations`. Failures
+    /// are only reached after the dispatch/retry/recovery paths are exhausted,
+    /// so finalizing on all-terminal never short-circuits a pending retry.
+    pub fn is_done(&self) -> bool {
+        self.tasks.values().all(|t| t.state.is_terminal())
+    }
+
     /// Returns (completed, ready, blocked, pending).
     pub fn progress(&self) -> (usize, usize, usize, usize) {
         let mut completed = 0;
@@ -2934,6 +2949,24 @@ mod tests {
             result: serde_json::json!({}),
         };
         assert!(dag.is_complete());
+    }
+
+    #[test]
+    fn is_done_true_on_all_terminal_even_with_failures() {
+        let mut dag = make_dag(vec![
+            ("a", completed_task(serde_json::json!({}))),
+            ("b", pending_task(vec![])),
+        ]);
+        // A Pending task is non-terminal: neither done nor complete.
+        assert!(!dag.is_done());
+        assert!(!dag.is_complete());
+        // A Failed task is terminal: the run is DONE (finalize should fire)
+        // even though it is not COMPLETE (success).
+        dag.tasks.get_mut("b").unwrap().state = TaskState::Failed {
+            reason: "literature task could not complete".into(),
+        };
+        assert!(dag.is_done());
+        assert!(!dag.is_complete());
     }
 
     #[test]

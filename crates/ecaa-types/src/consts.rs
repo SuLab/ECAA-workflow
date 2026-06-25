@@ -105,7 +105,50 @@ pub const SIDECAR_PATHS: &[(&str, &str)] = &[
     ("A", "runtime/audit-proof-report.json"),
 ];
 
-/// The 6 normative `conformsTo` profile IRIs.
+/// Profiles a PRE-EXECUTION PLAN crate truthfully satisfies (no run actions).
+///
+/// A plan crate — what `build_metadata` emits before the workflow runs —
+/// contains a workflow *definition* (a `ComputationalWorkflow` + its
+/// `HowToStep`s) but ZERO executed `CreateAction`s. It therefore honestly
+/// conforms only to:
+///   - base RO-Crate 1.1 (`ro/crate/1.1`),
+///   - the WorkflowHub Workflow RO-Crate profile (`workflow-ro-crate/1.0`),
+///     which describes a workflow-definition package, and
+///   - the bespoke ECAA v0.2 profile (`ecaa/v0.2`).
+///
+/// The three WRROC v0.5 run profiles (process / workflow / provenance) all
+/// document *executed* runs and require real `CreateAction`s with
+/// `instrument`s, so a plan crate cannot truthfully claim them and they are
+/// deliberately excluded here. They are added only on finalize/execution
+/// (see [`EXECUTED_ADDED_PROFILE_IRIS`]) — never to make a profile "pass" via
+/// synthetic graph structure.
+pub const PLAN_PROFILE_IRIS: &[&str] = &[
+    "https://w3id.org/ro/crate/1.1",
+    "https://w3id.org/workflowhub/workflow-ro-crate/1.0",
+    "https://w3id.org/ecaa/v0.2",
+];
+
+/// WRROC v0.5 run profiles a crate may claim ONLY once it carries real
+/// executed `CreateAction`s (the finalize/execution path adds these).
+///
+/// These three profiles document *executed* processes / workflow runs /
+/// full provenance. They are added to a crate's `conformsTo` by the
+/// finalize path precisely when retrospective per-output `CreateAction`s have
+/// been registered (real `instrument`s of real runs) — never by `build_metadata`
+/// on a pre-execution plan crate.
+pub const EXECUTED_ADDED_PROFILE_IRIS: &[&str] = &[
+    "https://w3id.org/ro/wfrun/process/0.5",
+    "https://w3id.org/ro/wfrun/workflow/0.5",
+    "https://w3id.org/ro/wfrun/provenance/0.5",
+];
+
+/// The 6 normative `conformsTo` profile IRIs of a COMPLETE (executed) crate —
+/// the union of the plan-set and the executed-adds.
+///
+/// This is the full set an executed ECAA package declares once it carries real
+/// run actions; it remains the canonical "all profiles" reference for the
+/// fixture / runcrate conformance gates (which validate executed packages).
+/// A pre-execution plan crate declares only the [`PLAN_PROFILE_IRIS`] subset.
 pub const REQUIRED_PROFILE_IRIS: &[&str] = &[
     "https://w3id.org/ro/crate/1.1",
     "https://w3id.org/workflowhub/workflow-ro-crate/1.0",
@@ -133,6 +176,55 @@ mod tests {
         assert_eq!(INVARIANT_IDS.len(), 6, "spec: 6 invariants");
         assert_eq!(SIDECAR_PATHS.len(), 8, "spec: 8 sub-graphs");
         assert_eq!(REQUIRED_PROFILE_IRIS.len(), 6, "spec: 6 profile IRIs");
+    }
+
+    /// The plan-set + executed-adds partition the full executed profile set:
+    /// `PLAN_PROFILE_IRIS ∪ EXECUTED_ADDED_PROFILE_IRIS == REQUIRED_PROFILE_IRIS`,
+    /// the two subsets are disjoint, and `provenance/0.5` (the WRROC run
+    /// profile a pre-execution plan crate CANNOT truthfully satisfy) lives in
+    /// the executed-adds, never the plan set.
+    #[test]
+    fn plan_and_executed_profile_iris_partition_required() {
+        const PROVENANCE: &str = "https://w3id.org/ro/wfrun/provenance/0.5";
+
+        assert_eq!(PLAN_PROFILE_IRIS.len(), 3, "plan crate claims 3 profiles");
+        assert_eq!(
+            EXECUTED_ADDED_PROFILE_IRIS.len(),
+            3,
+            "execution adds 3 WRROC run profiles"
+        );
+
+        // Disjoint: no IRI is both a plan profile and an executed-add.
+        for iri in PLAN_PROFILE_IRIS {
+            assert!(
+                !EXECUTED_ADDED_PROFILE_IRIS.contains(iri),
+                "{iri} must not be in both plan and executed sets"
+            );
+        }
+
+        // Union equals the full executed set (order-independent).
+        let union: std::collections::BTreeSet<&str> = PLAN_PROFILE_IRIS
+            .iter()
+            .chain(EXECUTED_ADDED_PROFILE_IRIS.iter())
+            .copied()
+            .collect();
+        let required: std::collections::BTreeSet<&str> =
+            REQUIRED_PROFILE_IRIS.iter().copied().collect();
+        assert_eq!(
+            union, required,
+            "plan ∪ executed-adds must equal REQUIRED_PROFILE_IRIS"
+        );
+
+        // The provenance run profile is execution-only — a plan crate that
+        // claimed it would be claiming a profile it cannot truthfully meet.
+        assert!(
+            !PLAN_PROFILE_IRIS.contains(&PROVENANCE),
+            "plan crate must NOT claim provenance/0.5 (no executed run actions)"
+        );
+        assert!(
+            EXECUTED_ADDED_PROFILE_IRIS.contains(&PROVENANCE),
+            "provenance/0.5 is added only on execution"
+        );
     }
 
     /// Catch string-form drift between the typed `InvariantId::ALL`

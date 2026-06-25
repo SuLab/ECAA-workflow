@@ -4148,9 +4148,9 @@ fn run_loop(
             }
         }
 
-        if after.is_complete() {
+        if after.is_done() {
             println!(
-                "\n{} All tasks complete after {} iteration(s).",
+                "\n{} All tasks terminal (run done) after {} iteration(s).",
                 "✓".green().bold(),
                 i + 1
             );
