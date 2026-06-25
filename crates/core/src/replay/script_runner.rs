@@ -220,6 +220,14 @@ fn run_task(
     // behaves as it did on the recorded run. Best-effort; idempotent.
     mirror_subdirs(&pkg.join("runtime/outputs").join(&task.task_id), &scratch_task_dir);
 
+    // The deposit export drops `intermediates/` (Tier E — regenerable bloat),
+    // so mirror_subdirs above cannot recreate it from the package. But agent
+    // scripts commonly write into `intermediates/` (e.g. `saveRDS(dds,
+    // "intermediates/dds.rds")`) without `dir.create`, relying on the dir that
+    // existed at record time. Recreate it so those writes succeed on replay
+    // and the task is not spuriously classified Failed.
+    let _ = std::fs::create_dir_all(scratch_task_dir.join("intermediates"));
+
     let mut task_ok = true;
     let mut task_stderr = String::new();
 
