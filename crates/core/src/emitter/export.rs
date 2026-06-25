@@ -162,7 +162,15 @@ pub struct ExportReport {
 ///    ([`prune_rocrate_dangling`]) so `ro-crate-metadata.json` carries no
 ///    dangling reference to a dropped C/D/E file. The prune mutates a
 ///    manifested file, so the BagIt manifest is re-sealed once more afterwards.
-/// 4. If `src/.git` exists, write `dst/runtime/execution-lineage.txt` from
+/// 4. Re-record `runtime/audit-proof-report.json` over the (now pruned)
+///    deposit graph via [`super::ecaa::write_audit_proof_report`], so the
+///    recorded verdicts a downloader reads agree with the fresh verdicts their
+///    offline `replay` recomputes over the same graph — the prune in step 3
+///    drops the embedded Claim / InvariantVerdict nodes, so the source
+///    package's report would otherwise ship a stale `cross_graph_integrity`
+///    verdict about nodes the deposit no longer carries. The report is BagIt-
+///    manifest-excluded, so no re-seal is needed.
+/// 5. If `src/.git` exists, write `dst/runtime/execution-lineage.txt` from
 ///    `git -C <src> log --stat --no-color` (best-effort; ignored if git is
 ///    absent or fails).
 pub fn export_depositable_package(src: &Path, dst: &Path) -> Result<ExportReport> {
@@ -228,6 +236,25 @@ pub fn export_depositable_package(src: &Path, dst: &Path) -> Result<ExportReport
         crate::emitter::regenerate_bagit_manifest(dst, &clock)
             .context("re-sealing BagIt manifest after RO-Crate prune")?;
     }
+
+    // Re-record the audit-proof report against the deposit-scoped graph. The
+    // prune above drops the embedded `C:*` Claim and `A:*` InvariantVerdict
+    // nodes (their prefix-tagged `@id`s are not on-disk paths), so the
+    // full-package report copied in from `src` can assert verdicts about graph
+    // nodes the deposit no longer carries — most visibly a stale
+    // `cross_graph_integrity = fail` whose dangling-`supported_by` Claim nodes
+    // are gone, which a consumer's offline `replay` recomputes as `pass` and
+    // flags as a recorded-vs-fresh divergence. Re-running the audit-proof here
+    // computes the verdicts over the deposit as it actually ships, so the
+    // "recorded" sidecar a downloader reads agrees with the "fresh" verdicts
+    // their replay recomputes over the same graph. `write_audit_proof_report`
+    // uses the same `NoopWrrocValidator` + `WallClock` path as that re-verify,
+    // so recorded and fresh match by construction. Runs AFTER the prune so it
+    // sees the final deposit graph; the report is on the BagIt manifest
+    // exclusion list (`emitter::bagit`) and its `@graph` file node carries no
+    // content hash, so rewriting it perturbs no seal (no re-seal required).
+    super::ecaa::write_audit_proof_report(dst)
+        .context("re-recording audit-proof report over the deposit graph")?;
 
     // Execution lineage: best-effort `git log` of the source working tree.
     if src.join(".git").exists() {
@@ -548,6 +575,67 @@ mod tests {
         assert!(report.kept >= 3, "expected >=3 kept files, got {}", report.kept);
         assert!(report.dropped >= 3, "expected >=3 dropped files, got {}", report.dropped);
         assert_eq!(report.dst, dst, "report.dst must echo the dst arg");
+    }
+
+    /// Regression: export must RE-RECORD `runtime/audit-proof-report.json` over
+    /// the deposit graph, not copy the source package's report verbatim. The
+    /// prune in step 3 drops embedded `C:`/`A:` Claim / InvariantVerdict nodes,
+    /// so a copied report can ship a stale `cross_graph_integrity = fail` about
+    /// nodes the deposit no longer carries — which a downloader's offline
+    /// `replay` recomputes as `pass` and flags as a recorded-vs-fresh
+    /// divergence. After export the report must reflect the deposit's own graph.
+    #[test]
+    fn export_re_records_audit_proof_over_deposit_graph() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let src = tmp.path().join("src");
+        let dst = tmp.path().join("dst");
+        build_fixture_package(&src);
+
+        // Plant a stale source report whose cross_graph_integrity verdict is a
+        // sentinel `fail` that no fresh run over the (claim-free) fixture graph
+        // could produce. A verbatim copy preserves it; a re-record overwrites it.
+        let stale = r#"{
+          "schema_version": "0.0.0-STALE",
+          "ecaa_version": "0.0.0-STALE",
+          "min_reader_version": "0.0.0-STALE",
+          "evaluator": {"name": "stale", "version": "0.0.0-STALE"},
+          "verdicts": [
+            {"id":"cross_graph_integrity","status":"fail","detail":"SENTINEL_STALE_VERDICT_MUST_BE_REGENERATED","n_inspected":99,"n_violations":7}
+          ]
+        }"#;
+        std::fs::write(src.join("runtime/audit-proof-report.json"), stale)
+            .expect("plant stale source audit-proof report");
+
+        export_depositable_package(&src, &dst).expect("export succeeds");
+
+        let report_path = dst.join("runtime/audit-proof-report.json");
+        assert!(report_path.is_file(), "deposit must carry an audit-proof report");
+        let body = std::fs::read_to_string(&report_path).expect("read deposit report");
+
+        // Sentinel detail + stale version markers gone ⇒ regenerated, not copied.
+        assert!(
+            !body.contains("SENTINEL_STALE_VERDICT_MUST_BE_REGENERATED"),
+            "deposit audit-proof report was copied verbatim (stale sentinel survived):\n{body}"
+        );
+        assert!(
+            !body.contains("0.0.0-STALE"),
+            "deposit audit-proof report retained stale version markers (not regenerated):\n{body}"
+        );
+
+        // The re-recorded cross_graph_integrity must reflect the deposit graph
+        // (no embedded Claim nodes) — never the planted `fail`.
+        let doc: serde_json::Value =
+            serde_json::from_str(&body).expect("deposit report is valid JSON");
+        let verdicts = doc["verdicts"].as_array().expect("verdicts array");
+        let cgi = verdicts
+            .iter()
+            .find(|v| v["id"].as_str() == Some("cross_graph_integrity"))
+            .expect("cross_graph_integrity verdict present");
+        assert_ne!(
+            cgi["status"].as_str(),
+            Some("fail"),
+            "re-recorded cross_graph_integrity must reflect the claim-free deposit graph, not the stale planted fail: {cgi}"
+        );
     }
 
     #[test]
