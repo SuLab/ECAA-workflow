@@ -490,7 +490,23 @@ pub fn build_metadata(
             // 0.5.0, StreamFlow ≥ 0.2.0.dev10, nf-prov ≥ 1.4.0); ROCs
             // emitted with explicit ParameterConnection / p-plan entities
             // (S6.14 follow-up) will validate against the Tier-3 schema.
-            "https://w3id.org/ro/terms/workflow-run"
+            "https://w3id.org/ro/terms/workflow-run",
+            // Inline term-map for extension keys emitted by this crate that
+            // are not defined by either upstream context URL.  Without these
+            // definitions the JSON-LD compaction step used by roc-validator's
+            // "Validation of the compaction format of the file descriptor"
+            // REQUIRED check fails.  Map each bare key to its canonical IRI:
+            //   - wasGeneratedBy  → PROV-O
+            //   - matchedArchetype / rationale → ECAA v0.2 vocabulary (v0.2#)
+            //   - evaluated_against / verdict / invariant_id → ECAA ns vocabulary
+            {
+                "wasGeneratedBy": "http://www.w3.org/ns/prov#wasGeneratedBy",
+                "matchedArchetype": "https://w3id.org/ecaa/v0.2#matchedArchetype",
+                "rationale": "https://w3id.org/ecaa/v0.2#rationale",
+                "evaluated_against": "https://w3id.org/ecaa/ns/0.2#evaluated_against",
+                "verdict": "https://w3id.org/ecaa/ns/0.2#verdict",
+                "invariant_id": "https://w3id.org/ecaa/ns/0.2#invariantId"
+            }
         ],
         "@graph": graph
     })
@@ -2383,6 +2399,56 @@ mod tests {
         assert!(
             executor_agent_entity(&empty).is_none(),
             "no recorded executor identity must yield None, not a placeholder agent"
+        );
+    }
+
+    /// A2: the `@context` array must include an inline term-map that resolves
+    /// all extension terms emitted by this crate so that JSON-LD compaction
+    /// validates without unknown-term errors (roc-validator check ro-crate-1.1_2.1).
+    #[test]
+    fn context_defines_extension_terms() {
+        let dag = one_task_dag();
+        let classification = ClassificationResult {
+            domain: "genomics".into(),
+            workflow_description: "test workflow".into(),
+            intake_text: "test intake".into(),
+            edam_topic: "topic:3673".into(),
+            edam_operation: "operation:3223".into(),
+            ..Default::default()
+        };
+        let meta = build_metadata(&dag, &classification, &FrozenClock::default());
+        let ctx = meta["@context"].as_array().expect("@context is an array");
+        let inline = ctx
+            .iter()
+            .find_map(|v| v.as_object())
+            .expect("inline term map present in @context");
+        // PROV-O term used by wasGeneratedBy edges on output nodes.
+        assert_eq!(
+            inline["wasGeneratedBy"],
+            "http://www.w3.org/ns/prov#wasGeneratedBy"
+        );
+        // ECAA v0.2 terms used by the p-plan / archetype entity.
+        assert_eq!(
+            inline["matchedArchetype"],
+            "https://w3id.org/ecaa/v0.2#matchedArchetype"
+        );
+        assert_eq!(
+            inline["rationale"],
+            "https://w3id.org/ecaa/v0.2#rationale"
+        );
+        // ECAA ns terms used by InvariantVerdict nodes in the audit-proof
+        // projection (ecaa_projection.rs).
+        assert_eq!(
+            inline["evaluated_against"],
+            "https://w3id.org/ecaa/ns/0.2#evaluated_against"
+        );
+        assert_eq!(
+            inline["verdict"],
+            "https://w3id.org/ecaa/ns/0.2#verdict"
+        );
+        assert_eq!(
+            inline["invariant_id"],
+            "https://w3id.org/ecaa/ns/0.2#invariantId"
         );
     }
 
