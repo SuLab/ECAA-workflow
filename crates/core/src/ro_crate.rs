@@ -497,12 +497,12 @@ pub fn build_metadata(
             // "Validation of the compaction format of the file descriptor"
             // REQUIRED check fails.  Map each bare key to its canonical IRI:
             //   - wasGeneratedBy  → PROV-O
-            //   - matchedArchetype / rationale → ECAA v0.2 vocabulary (v0.2#)
+            //   - matchedArchetype / rationale → ECAA ns/0.2# vocabulary (same namespace as evaluated_against/verdict/invariant_id)
             //   - evaluated_against / verdict / invariant_id → ECAA ns vocabulary
             {
                 "wasGeneratedBy": "http://www.w3.org/ns/prov#wasGeneratedBy",
-                "matchedArchetype": "https://w3id.org/ecaa/v0.2#matchedArchetype",
-                "rationale": "https://w3id.org/ecaa/v0.2#rationale",
+                "matchedArchetype": "https://w3id.org/ecaa/ns/0.2#matchedArchetype",
+                "rationale": "https://w3id.org/ecaa/ns/0.2#rationale",
                 "evaluated_against": "https://w3id.org/ecaa/ns/0.2#evaluated_against",
                 "verdict": "https://w3id.org/ecaa/ns/0.2#verdict",
                 "invariant_id": "https://w3id.org/ecaa/ns/0.2#invariantId"
@@ -2427,14 +2427,14 @@ mod tests {
             inline["wasGeneratedBy"],
             "http://www.w3.org/ns/prov#wasGeneratedBy"
         );
-        // ECAA v0.2 terms used by the p-plan / archetype entity.
+        // ECAA ns/0.2# terms used by the p-plan / archetype entity.
         assert_eq!(
             inline["matchedArchetype"],
-            "https://w3id.org/ecaa/v0.2#matchedArchetype"
+            "https://w3id.org/ecaa/ns/0.2#matchedArchetype"
         );
         assert_eq!(
             inline["rationale"],
-            "https://w3id.org/ecaa/v0.2#rationale"
+            "https://w3id.org/ecaa/ns/0.2#rationale"
         );
         // ECAA ns terms used by InvariantVerdict nodes in the audit-proof
         // projection (ecaa_projection.rs).
