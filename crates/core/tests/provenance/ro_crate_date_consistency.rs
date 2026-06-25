@@ -158,3 +158,69 @@ fn root_date_created_anchored_to_run_epoch_and_matches_bagging_date() {
         "Bagging-Date must anchor to the same run epoch as dateCreated; got:\n{bag_info}"
     );
 }
+
+#[serial_test::serial(SOURCE_DATE_EPOCH)]
+#[test]
+fn root_has_datepublished_equal_to_datecreated() {
+    let policies_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("config/downstream-policy");
+    let clf = minimal_classification();
+    let dag = one_task_dag();
+
+    let prior = std::env::var("SOURCE_DATE_EPOCH").ok();
+    unsafe {
+        std::env::set_var("SOURCE_DATE_EPOCH", "1782097294"); // 2026-06-22
+    }
+
+    let tmp = TempDir::new().unwrap();
+    let emit_result = emit_package(&EmitConfig {
+        objective: None,
+        output_dir: tmp.path(),
+        dag: &dag,
+        classification: &clf,
+        policies_dir: &policies_dir,
+        policy_allowlist: None,
+        claim_boundary: None,
+        compute_profiles_dir: None,
+        intake_facts: None,
+        amend_from: None,
+        amend_context: None,
+        validation_contract_ref: None,
+        preferred_container: None,
+        runtime_prereqs: None,
+        per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
+        experimental_archetype: false,
+        edge_kinds: None,
+    });
+
+    let meta = std::fs::read_to_string(tmp.path().join("ro-crate-metadata.json"));
+
+    unsafe {
+        match prior {
+            Some(v) => std::env::set_var("SOURCE_DATE_EPOCH", v),
+            None => std::env::remove_var("SOURCE_DATE_EPOCH"),
+        }
+    }
+
+    emit_result.expect("emit_package must succeed");
+    let meta: serde_json::Value =
+        serde_json::from_str(&meta.expect("ro-crate-metadata.json present")).unwrap();
+
+    let root = meta["@graph"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["@id"] == "./")
+        .unwrap();
+    let created = root["dateCreated"].as_str().expect("dateCreated present");
+    let published = root["datePublished"].as_str().expect("datePublished present");
+    assert_eq!(
+        created, published,
+        "datePublished must equal dateCreated (same run clock)"
+    );
+}

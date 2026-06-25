@@ -95,12 +95,14 @@ pub fn build_metadata(
         // FAIR maturity validator scores literal SPDX strings lower
         // than URL-form licenses.
         {
+            let emitted_at = clock.now_rfc3339();
             let mut root = serde_json::json!({
                 "@id": "./",
                 "@type": "Dataset",
                 "name": format!("{} — {}", classification.domain, classification.workflow_description),
                 "description": &classification.intake_text,
-                "dateCreated": clock.now_rfc3339(),
+                "dateCreated": emitted_at.clone(),
+                "datePublished": emitted_at.clone(),
                 "license": "https://www.apache.org/licenses/LICENSE-2.0",
                 // The root Dataset declares the full normative profile set
                 // (§4.3) — base RO-Crate 1.1, WorkflowHub workflow-ro-crate
