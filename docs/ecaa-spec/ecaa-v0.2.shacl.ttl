@@ -2,6 +2,7 @@
 @prefix ecaa: <https://w3id.org/ecaa/ns/0.2#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
 
 #######################################################################
 # SHACL shapes for the ECAA v0.2 audit-proof invariants.
@@ -61,20 +62,71 @@ ecaa:EquivalenceFailureShape a sh:NodeShape ;
         sh:message "Invariant 4 (equivalence_failure): RerunOutcome with class failed/non-deterministic must have a Blocker of kind UnprovableEdge or PolicyException"
     ] .
 
-# Invariant 6: substrate_validity
-# Structural: the package descriptor must declare the 6 required profile IRIs.
+# Invariant 6: substrate_validity (EXECUTION-AWARE conformsTo — amended
+# 2026-06-25, user-approved ecaa/v0.2 amendment after the T6 honesty audit).
+#
+# Structural: the package descriptor must declare the required profile IRIs
+# its graph TRUTHFULLY satisfies. Which profiles are required depends on
+# whether the crate records a real execution:
+#
+#   - A workflow-DEFINITION / PLAN crate — one that records NO real run
+#     (no `CreateAction` with an `instrument`) — describes a workflow
+#     definition only, so it can honestly claim ONLY the three DEFINITION
+#     profiles: RO-Crate 1.1 + WorkflowHub Workflow-RO-Crate 1.0 + ECAA v0.2.
+#     Claiming a WRROC v0.5 RUN profile (process/workflow/provenance) on a
+#     crate with no executed run would be an over-claim, so a plan crate is
+#     required to declare ⊇ the 3 definition profiles (it MAY declare more,
+#     but the 3 are the honest floor it must meet).
+#
+#   - An EXECUTED crate — one that records ≥1 real run `CreateAction` with an
+#     `instrument` (the retrospective per-output actions the finalize path
+#     appends) — additionally documents executed processes / a workflow run /
+#     full provenance, so it MUST declare all 6 profile IRIs (the 3 definition
+#     profiles + the 3 WRROC v0.5 run profiles).
+#
+# `ecaa:recordsExecution` is a projection-side boolean the harness stamps on
+# the synthesized `ecaa:Package` node, derived from the RO-Crate `@graph`
+# exactly as the Rust emitter's `graph_has_run_create_action` (an entity typed
+# `CreateAction` carrying an `instrument` @id). It is a projection sentinel,
+# NOT an ECAA closed predicate. The two `sh:or` branches are mutually
+# exclusive on that boolean, so exactly one branch grades any given crate:
+# plan crates are held to the 3-profile floor, executed crates to all 6 — the
+# rule is HONEST (plan→3, executed→6), never "accept anything".
+#
 # (The runcrate parseability check is performed by the Python conformance
-# harness, not by SHACL — this shape catches the trivially verifiable
-# structural prerequisites.)
+# harness, not by SHACL — this shape catches the structural prerequisites.)
 
 ecaa:SubstrateValidityShape a sh:NodeShape ;
     sh:targetClass ecaa:Package ;
     sh:severity sh:Violation ;     # substrate-hygiene tier
-    sh:property [
-        sh:path <http://purl.org/dc/terms/conformsTo> ;
-        sh:minCount 6 ;
-        sh:message "Invariant 6 (substrate_validity): package must declare ≥6 conformsTo profile IRIs (RO-Crate 1.1 + WRROC Tier-3 Process/Workflow/Provenance + ECAA v0.2)"
-    ] .
+    sh:or (
+        # Branch A — PLAN crate (records NO real execution): must declare ⊇ the
+        # 3 DEFINITION profiles. Guarded by recordsExecution = false so it
+        # cannot grade an executed crate.
+        [
+            sh:and (
+                [ sh:path ecaa:recordsExecution ; sh:hasValue false ]
+                [ sh:path dcterms:conformsTo ; sh:hasValue <https://w3id.org/ro/crate/1.1> ]
+                [ sh:path dcterms:conformsTo ; sh:hasValue <https://w3id.org/workflowhub/workflow-ro-crate/1.0> ]
+                [ sh:path dcterms:conformsTo ; sh:hasValue <https://w3id.org/ecaa/v0.2> ]
+            )
+        ]
+        # Branch B — EXECUTED crate (records ≥1 real run CreateAction with an
+        # instrument): must declare ALL 6 profiles. Guarded by
+        # recordsExecution = true so it cannot grade a plan crate.
+        [
+            sh:and (
+                [ sh:path ecaa:recordsExecution ; sh:hasValue true ]
+                [ sh:path dcterms:conformsTo ; sh:hasValue <https://w3id.org/ro/crate/1.1> ]
+                [ sh:path dcterms:conformsTo ; sh:hasValue <https://w3id.org/workflowhub/workflow-ro-crate/1.0> ]
+                [ sh:path dcterms:conformsTo ; sh:hasValue <https://w3id.org/ro/wfrun/process/0.5> ]
+                [ sh:path dcterms:conformsTo ; sh:hasValue <https://w3id.org/ro/wfrun/workflow/0.5> ]
+                [ sh:path dcterms:conformsTo ; sh:hasValue <https://w3id.org/ro/wfrun/provenance/0.5> ]
+                [ sh:path dcterms:conformsTo ; sh:hasValue <https://w3id.org/ecaa/v0.2> ]
+            )
+        ]
+    ) ;
+    sh:message "Invariant 6 (substrate_validity): a plan crate (no real run CreateAction) must declare ⊇ the 3 definition profiles (RO-Crate 1.1 + Workflow-RO-Crate 1.0 + ECAA v0.2); an executed crate (≥1 real run CreateAction with an instrument) must declare all 6 (definition profiles + WRROC v0.5 Process/Workflow/Provenance)" .
 
 # Invariant 3: evidence_coverage (runnable SHACL — the second-impl encoding
 # that agrees with the Rust `check_evidence_coverage`; the equivalent OWL-DL

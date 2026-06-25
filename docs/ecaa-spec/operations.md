@@ -29,7 +29,7 @@ its pre-condition, post-condition, and the ablation contract guarantee.
 
 ### 1.3 Post-conditions
 
-- Output package P MUST satisfy all six normative `conformsTo` profile IRIs (`v0.2.md` §3).
+- Output package P MUST declare the normative `conformsTo` profile IRIs required for its execution mode (`v0.2.md` §3.1): a plan crate (no real run `CreateAction`) declares the 3 definition profiles; an executed crate declares all 6. The `emit_package` output is a plan crate, so it declares the 3 definition profiles; the finalize/execution path upgrades it to all 6 once real run actions are registered.
 - Output package P MUST contain all 8 sidecars at their normative paths (`v0.2.md` §3 sidecar table).
 - Output package P's `audit-proof-report.json` MUST record exactly 6 `InvariantVerdict` nodes.
 - Output package P MUST round-trip through `runcrate report ≥ 0.5.0` parseability (runcrate ships no `validate` subcommand; `report` is the parseability proxy), verified via the substrate_validity invariant.
