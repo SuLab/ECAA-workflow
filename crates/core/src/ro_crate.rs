@@ -155,7 +155,7 @@ pub fn build_metadata(
         // ComputationalWorkflow with Bioschemas profile
         json!({
             "@id": "WORKFLOW.json",
-            "@type": ["File", "ComputationalWorkflow"],
+            "@type": ["File", "SoftwareSourceCode", "ComputationalWorkflow"],
             "name": format!("{} DAG", dag.workflow_id),
             "encodingFormat": "application/json",
             "conformsTo": {
@@ -3237,5 +3237,29 @@ loaded via a namespace (and not attached):
         assert!(seen.get(&("conda".into(), "channel".into())).is_none());
         assert!(seen.get(&("python".into(), "name".into())).is_none()); // @ file:// artifact
         assert!(seen.get(&("r".into(), "GenomicRanges".into())).is_none()); // loaded-via-namespace
+    }
+
+    /// B2: the main workflow entity's `@type` includes `SoftwareSourceCode`
+    /// (WRROC "Main Workflow type" REQUIRED check).
+    #[test]
+    fn main_workflow_type_includes_softwaresourcecode() {
+        let dag = one_task_dag();
+        let classification = ClassificationResult {
+            domain: "genomics".into(),
+            workflow_description: "test workflow".into(),
+            intake_text: "test intake".into(),
+            edam_topic: "topic:3673".into(),
+            edam_operation: "operation:3223".into(),
+            ..Default::default()
+        };
+        let meta = build_metadata(&dag, &classification, &FrozenClock::default());
+        let wf = meta["@graph"].as_array().unwrap().iter()
+            .find(|e| e["@type"].as_array().map_or(false, |a|
+                a.iter().any(|t| t == "ComputationalWorkflow"))).unwrap();
+        let types: Vec<&str> = wf["@type"].as_array().unwrap()
+            .iter().filter_map(|t| t.as_str()).collect();
+        assert!(types.contains(&"File"));
+        assert!(types.contains(&"SoftwareSourceCode"));
+        assert!(types.contains(&"ComputationalWorkflow"));
     }
 }
