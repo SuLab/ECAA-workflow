@@ -68,3 +68,6 @@ docs/*
 # Eval harness: large pinned datasets + per-run artifacts (operator-run)
 runtime/eval-runs/
 .eval-cache/
+
+# Validator venv (Task 1 — roc-validator harness)
+.venv-validator/
