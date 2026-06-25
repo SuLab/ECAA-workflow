@@ -962,13 +962,95 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
         }
     }
 
+    // Per-task EXECUTED TOOL entities. A WRROC tool-execution `CreateAction`
+    // documents the run of a *tool*: its `instrument` MUST name a
+    // SoftwareApplication / SoftwareSourceCode / ComputationalWorkflow
+    // (process/workflow/provenance-run-crate "Action instrument"), NOT the
+    // abstract `HowToStep`. The concrete tool a step ran is the REAL code it
+    // authored under `runtime/outputs/<task>/scripts/` (the executor brief
+    // mandates every executed line land there). We register those scripts as
+    // `SoftwareSourceCode` File entities and group them under one per-task tool
+    // entity `#tool/<task>` (also `SoftwareSourceCode`) whose `hasPart` lists
+    // the real scripts. The CreateActions below name this tool via `instrument`,
+    // the workflow `hasPart`s it, and each HowToStep's `workExample` points at
+    // it — all REAL graph entities, never synthetic placeholders. A task with NO
+    // recorded script gets no tool entity (we never invent code that did not
+    // run); its output's CreateAction then falls back to the HowToStep
+    // `instrument` (honest, though it leaves the optional shape unsatisfied for
+    // that single action rather than fabricating a tool).
+    //
+    // `tool_for_task[task] = Some("#tool/<task>")` when the task has ≥1 real
+    // script; the tool + its script File entities are accumulated in
+    // `new_tools` / `new_scripts` and appended after the actions.
+    let mut tool_for_task: std::collections::BTreeMap<String, String> =
+        std::collections::BTreeMap::new();
+    let mut new_tools: Vec<Value> = Vec::new();
+    let mut new_scripts: Vec<Value> = Vec::new();
+    {
+        // Iterate produced tasks in sorted order for deterministic emission.
+        let produced_tasks: std::collections::BTreeSet<String> = rels
+            .iter()
+            .filter_map(|rel| {
+                rel.strip_prefix("runtime/outputs/")
+                    .and_then(|r| r.split_once('/'))
+                    .map(|(task, _)| task.to_string())
+            })
+            .collect();
+        for task in &produced_tasks {
+            let tool_id = format!("#tool/{task}");
+            if existing.contains(&tool_id) {
+                // Already registered by a prior finalize; still record the
+                // mapping so this run's CreateActions point at the real tool.
+                tool_for_task.insert(task.clone(), tool_id);
+                continue;
+            }
+            let scripts_dir = outputs_root.join(task).join("scripts");
+            let mut script_rels: Vec<String> = Vec::new();
+            collect_task_scripts(
+                &scripts_dir,
+                &format!("runtime/outputs/{task}/scripts"),
+                &mut script_rels,
+            );
+            script_rels.sort();
+            if script_rels.is_empty() {
+                // No recorded code for this task — do not invent a tool.
+                continue;
+            }
+            let mut script_refs: Vec<Value> = Vec::new();
+            for srel in &script_rels {
+                if !existing.contains(srel) {
+                    new_scripts.push(json!({
+                        "@id": srel,
+                        "@type": ["File", "SoftwareSourceCode"],
+                        "name": srel.rsplit('/').next().unwrap_or(srel),
+                        "description": format!("Executed script authored by stage '{task}'."),
+                        "encodingFormat": script_encoding_format(srel),
+                    }));
+                }
+                script_refs.push(json!({"@id": srel}));
+            }
+            new_tools.push(json!({
+                "@id": tool_id,
+                "@type": "SoftwareSourceCode",
+                "name": format!("{task} tool"),
+                "description": format!(
+                    "The executable code stage '{task}' ran, grouping its recorded scripts."
+                ),
+                "hasPart": script_refs,
+            }));
+            tool_for_task.insert(task.clone(), tool_id);
+        }
+    }
+
     let mut new_parts: Vec<Value> = Vec::new();
     // Retrospective per-output PROV: one WRROC `CreateAction` per produced
     // table, accumulated here and appended AFTER the output nodes so the graph
     // stays in a stable (outputs, then actions; both in sorted `rels` order)
     // shape. Each output's `wasGeneratedBy` points at its action; the action's
-    // `result` is the output, `instrument` is the producing step, and `object`
-    // (PROV `used`) is the task's input step(s).
+    // `result` is the output, `instrument` is the producing tool (the REAL
+    // per-task code under `scripts/`, falling back to the `HowToStep` only when
+    // a task recorded no script), and `object` (PROV `used`) is the task's
+    // input step(s).
     let mut new_actions: Vec<Value> = Vec::new();
     // Executor agent entities referenced by the CreateActions' `agent` edge,
     // de-duplicated by `@id` (many tasks may share one container image →
@@ -1037,11 +1119,19 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
         let cstate = crate::container_state::ContainerState::read_from_task_dir(&task_dir)
             .ok()
             .flatten();
+        // `instrument` = the REAL tool the step ran (its recorded code), so the
+        // action documents a tool execution per WRROC "Action instrument".
+        // Falls back to the abstract `HowToStep` only when the task recorded no
+        // script (we never invent a tool that did not run).
+        let instrument_id = tool_for_task
+            .get(task)
+            .cloned()
+            .unwrap_or_else(|| format!("#step-{task}"));
         let mut action = json!({
             "@id": action_id,
             "@type": ["CreateAction", "prov:Activity"],
             "name": format!("Production of {file} by stage '{task}'."),
-            "instrument": {"@id": format!("#step-{task}")},
+            "instrument": {"@id": instrument_id},
             "result": {"@id": rel},
             "object": object,
         });
@@ -1070,6 +1160,102 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
     }
     graph.extend(new_actions);
     graph.extend(new_agents);
+    graph.extend(new_scripts);
+    graph.extend(new_tools);
+
+    // ── Wire the executed tools into the workflow + steps (REAL entities) ────
+    //
+    // Provenance Run Crate requires, for the executed crate:
+    //   * ComputationalWorkflow `hasPart` → orchestrated tools
+    //     (`must/0_computational_workflow.ttl` "ComputationalWorkflow hasPart").
+    //   * the workflow that links HowToStep via `step` ALSO carries the `HowTo`
+    //     `@type` ("ComputationalWorkflow with steps type").
+    //   * every HowToStep `workExample` → the tool it runs
+    //     (`must/1_howtostep.ttl` "HowToStep workExample").
+    // Every wired tool is a real `#tool/<task>` entity that is genuinely the
+    // `instrument` of the per-output CreateActions above ("Tool inverse
+    // instrument" in `must/0_tool.ttl`), so adding it to `hasPart` introduces no
+    // unbacked structure. We map each tool to its producing task so the step's
+    // `workExample` names the right tool.
+    if !tool_for_task.is_empty() {
+        // The full set of tool @ids to attach (newly-registered this run plus
+        // any registered by a prior finalize, recorded in `tool_for_task`).
+        let all_tool_ids: std::collections::BTreeSet<String> =
+            tool_for_task.values().cloned().collect();
+
+        if let Some(wf) = graph.iter_mut().find(|e| match e.get("@type") {
+            Some(Value::String(s)) => s == "ComputationalWorkflow",
+            Some(Value::Array(a)) => a.iter().any(|v| v.as_str() == Some("ComputationalWorkflow")),
+            _ => false,
+        }) {
+            if let Some(obj) = wf.as_object_mut() {
+                // (a) Add the `HowTo` @type (the workflow links HowToSteps via
+                //     `step`). @type is always the 3-element array literal from
+                //     `build_metadata`; handle both array and string shapes.
+                match obj.get_mut("@type") {
+                    Some(Value::Array(types)) => {
+                        if !types.iter().any(|t| t.as_str() == Some("HowTo")) {
+                            types.push(json!("HowTo"));
+                        }
+                    }
+                    Some(Value::String(s)) => {
+                        let existing_t = s.clone();
+                        obj.insert("@type".to_string(), json!([existing_t, "HowTo"]));
+                    }
+                    _ => {}
+                }
+                // (b) `hasPart` → the executed tools, de-duplicated.
+                let parts = obj
+                    .entry("hasPart")
+                    .or_insert_with(|| Value::Array(Vec::new()));
+                if let Some(arr) = parts.as_array_mut() {
+                    for tid in &all_tool_ids {
+                        if !arr.iter().any(|p| p.get("@id").and_then(Value::as_str) == Some(tid)) {
+                            arr.push(json!({"@id": tid}));
+                        }
+                    }
+                }
+            }
+        }
+
+        // (c) Each HowToStep `workExample` → the real tool its task ran. Only
+        //     touch steps whose task recorded a tool; steps without a tool keep
+        //     their existing `workExample` (if any) untouched.
+        for entity in graph.iter_mut() {
+            let is_step = match entity.get("@type") {
+                Some(Value::String(s)) => s == "HowToStep",
+                Some(Value::Array(a)) => a.iter().any(|t| t.as_str() == Some("HowToStep")),
+                _ => false,
+            };
+            if !is_step {
+                continue;
+            }
+            let Some(step_id) = entity.get("@id").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(task) = step_id.strip_prefix("#step-") else {
+                continue;
+            };
+            if let Some(tool_id) = tool_for_task.get(task) {
+                if let Some(obj) = entity.as_object_mut() {
+                    obj.insert("workExample".to_string(), json!({"@id": tool_id}));
+                }
+            }
+        }
+    }
+
+    // ── FormalParameter entities for the ParameterConnection endpoints ───────
+    //
+    // Each `ParameterConnection` carries `sourceParameter {@id:
+    // "#step-<src>#<port>"}` and `targetParameter {@id:
+    // "#step-<tgt>#<port>"}`. Provenance Run Crate `must/5_parameterconnection.ttl`
+    // requires both to RESOLVE to `FormalParameter` entities — in the plan crate
+    // these @ids dangle. Emit one `FormalParameter` per distinct endpoint @id
+    // actually referenced by a connection, named for the `<task>` / `<port>` it
+    // denotes. These are real declared ports of the executed workflow's steps
+    // (the connection edges already in the graph reference them); we materialise
+    // the entity the edge points at rather than inventing new connectivity.
+    register_parameter_connection_endpoints(graph);
 
     // EXECUTION-AWARE `conformsTo` upgrade. The plan crate emitted by
     // `build_metadata` declares only the profiles a workflow *definition*
@@ -1509,6 +1695,74 @@ fn collect_task_inputs(
     inputs
 }
 
+/// Materialise a `bioschemas:FormalParameter` entity for every distinct
+/// endpoint `@id` referenced by a `ParameterConnection`'s `sourceParameter` /
+/// `targetParameter`, so those references resolve (Provenance Run Crate
+/// `must/5_parameterconnection.ttl` requires both endpoints to be
+/// `FormalParameter` entities). In the plan crate the endpoint @ids
+/// (`#step-<task>#<port>`) dangle — this fills the entity the EXISTING edge
+/// already points at; no new connectivity is invented. Idempotent: an endpoint
+/// whose @id is already a graph node is skipped. Appends in sorted @id order
+/// for deterministic output.
+fn register_parameter_connection_endpoints(graph: &mut Vec<Value>) {
+    // Collect the endpoint @ids referenced by ParameterConnections.
+    let mut endpoints: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for node in graph.iter() {
+        let is_connection = match node.get("@type") {
+            Some(Value::String(s)) => s == "ParameterConnection",
+            Some(Value::Array(a)) => a.iter().any(|t| t.as_str() == Some("ParameterConnection")),
+            _ => false,
+        };
+        if !is_connection {
+            continue;
+        }
+        for key in ["sourceParameter", "targetParameter"] {
+            if let Some(id) = node.get(key).and_then(|p| p.get("@id")).and_then(Value::as_str) {
+                endpoints.insert(id.to_string());
+            }
+        }
+    }
+    // Existing @ids — skip endpoints already present (idempotency + never shadow
+    // a real entity the edge happens to point at).
+    let existing: std::collections::BTreeSet<String> = graph
+        .iter()
+        .filter_map(|e| e.get("@id").and_then(Value::as_str).map(String::from))
+        .collect();
+    for id in &endpoints {
+        if existing.contains(id) {
+            continue;
+        }
+        // Derive a human name from the `#step-<task>#<port>` shape (best effort;
+        // unparseable endpoints still get a FormalParameter with the bare @id).
+        let (task, port) = id
+            .strip_prefix("#step-")
+            .and_then(|body| body.split_once('#'))
+            .map(|(t, p)| (t.to_string(), p.to_string()))
+            .unwrap_or_else(|| (id.clone(), String::new()));
+        let name = if port.is_empty() {
+            task.clone()
+        } else {
+            format!("{task} {port}")
+        };
+        graph.push(json!({
+            "@id": id,
+            "@type": "FormalParameter",
+            // Workflow Run Crate `must/3_formal_parameter.ttl` requires an
+            // `additionalType`. These ports carry data artifacts between steps
+            // and are not declared with a concrete format, so the honest,
+            // non-overclaiming value is EDAM `data_0006` ("Data") — it asserts
+            // only that the port is a data parameter, inventing no specific type.
+            "additionalType": {"@id": "http://edamontology.org/data_0006"},
+            "name": name,
+            "description": format!(
+                "Declared {} port of workflow step '{}'.",
+                if port.is_empty() { "parameter" } else { &port },
+                task
+            ),
+        }));
+    }
+}
+
 /// Recursively collect produced result-table relative paths under `dir`,
 /// rooted at the package-relative `rel_prefix` (e.g. `runtime/outputs/<task>`).
 /// Prunes the `figures/` and `view_data/` sub-trees (ImageObjects / render
@@ -1535,6 +1789,54 @@ fn collect_output_tables(dir: &std::path::Path, rel_prefix: &str, out: &mut Vec<
         {
             out.push(rel);
         }
+    }
+}
+
+/// Recursively collect the relative paths of the REAL executed scripts a task
+/// authored under `runtime/outputs/<task>/scripts/`. These are the concrete
+/// code artifacts that ran the step (`*.R` / `*.py` / `*.sh` / `*.bash` /
+/// `*.pl` / `*.jl`), recorded per the executor brief. Paths are package-
+/// relative (`runtime/outputs/<task>/scripts/<file>`) and sorted by the caller.
+/// Returns an empty vec when the task has no `scripts/` directory.
+fn collect_task_scripts(scripts_dir: &std::path::Path, rel_prefix: &str, out: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(scripts_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = entry.file_name().to_str().map(String::from) else {
+            continue;
+        };
+        let rel = format!("{rel_prefix}/{name}");
+        if path.is_dir() {
+            collect_task_scripts(&path, &rel, out);
+        } else if path.is_file() {
+            let is_script = [".R", ".r", ".py", ".sh", ".bash", ".pl", ".jl"]
+                .iter()
+                .any(|ext| name.ends_with(ext));
+            if is_script {
+                out.push(rel);
+            }
+        }
+    }
+}
+
+/// Map a script's relative path to a JSON-LD media type for its
+/// `programmingLanguage` / `encodingFormat`. Honest, file-extension-derived;
+/// unknown extensions fall back to `text/plain`.
+fn script_encoding_format(rel: &str) -> &'static str {
+    if rel.ends_with(".R") || rel.ends_with(".r") {
+        "text/x-r-source"
+    } else if rel.ends_with(".py") {
+        "text/x-python"
+    } else if rel.ends_with(".sh") || rel.ends_with(".bash") {
+        "application/x-sh"
+    } else if rel.ends_with(".pl") {
+        "text/x-perl"
+    } else if rel.ends_with(".jl") {
+        "text/x-julia"
+    } else {
+        "text/plain"
     }
 }
 
