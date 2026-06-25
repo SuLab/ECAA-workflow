@@ -1,7 +1,15 @@
 {
   "@context": [
     "https://w3id.org/ro/crate/1.1/context",
-    "https://w3id.org/ro/terms/workflow-run"
+    "https://w3id.org/ro/terms/workflow-run",
+    {
+      "evaluated_against": "https://w3id.org/ecaa/ns/0.2#evaluated_against",
+      "invariant_id": "https://w3id.org/ecaa/ns/0.2#invariantId",
+      "matchedArchetype": "https://w3id.org/ecaa/ns/0.2#matchedArchetype",
+      "rationale": "https://w3id.org/ecaa/ns/0.2#rationale",
+      "verdict": "https://w3id.org/ecaa/ns/0.2#verdict",
+      "wasGeneratedBy": "http://www.w3.org/ns/prov#wasGeneratedBy"
+    }
   ],
   "@graph": [
     {
@@ -18,15 +26,6 @@
           "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0"
         },
         {
-          "@id": "https://w3id.org/ro/wfrun/process/0.5"
-        },
-        {
-          "@id": "https://w3id.org/ro/wfrun/workflow/0.5"
-        },
-        {
-          "@id": "https://w3id.org/ro/wfrun/provenance/0.5"
-        },
-        {
           "@id": "https://w3id.org/ecaa/v0.2"
         }
       ]
@@ -34,9 +33,24 @@
     {
       "@id": "./",
       "@type": "Dataset",
-      "dateCreated": "2029-09-29T23:31:09+00:00",
+      "conformsTo": [
+        {
+          "@id": "https://w3id.org/ro/crate/1.1"
+        },
+        {
+          "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0"
+        },
+        {
+          "@id": "https://w3id.org/ecaa/v0.2"
+        }
+      ],
+      "dateCreated": "2026-01-01T00:00:00+00:00",
+      "datePublished": "2026-01-01T00:00:00+00:00",
       "description": "We want to recreate the evaluation in Cramer et al. 2022 PNAS, the COVID-19 Forecast Hub probabilistic-forecast paper. The dataset is the public Reich Lab Forecast Hub on GitHub (reichlab/covid19-forecast-hub), with the Johns Hopkins CSSE COVID-19 dashboard repository (CSSEGISandData/COVID-19) as the ground truth. The evaluation period is epidemiological week 17 of 2020 through EW42 of 2021, 79 weeks total. The targets are 1-, 2-, 3-, and 4-week-ahead incident deaths. Submissions cover 57 locations (50 states, DC, and 6 territories: American Samoa, Guam, Northern Mariana Islands, Puerto Rico, US Virgin Islands), of which 55 are evaluated after excluding American Samoa and Northern Mariana Islands (zero deaths in window), plus a national forecast. Each model submits 23 probability quantiles per target per location per week.\n\nThe eligibility criteria for inclusion are: each model is designated primary by its team, covers at least 25 of 51 focal locations, includes all four forecast horizons, includes the full 23-quantile set, and submitted in at least 47 of 79 weeks. After applying these criteria, 28 models qualify. We want to reproduce Table 1 of the paper -- per-model relative WIS, relative MAE, 50% PI coverage, and 95% PI coverage.\n\nThe headline finding to verify is that the COVIDhub-ensemble achieves a relative WIS of 0.61 -- 39% less probabilistic error than the COVIDhub-baseline naive model -- while no individual model consistently outperforms the ensemble across location-target-week observations. Empirical 95% prediction interval coverage for the ensemble should be 0.90.\n\nSecondary analyses: standardized-rank density distributions across models (Fig 2), pandemic-phase stratification across the four named phases, and per-location relative-WIS heatmaps (Fig 5).\n\nNo models are being fit here -- the forecasts are pre-computed model outputs from teams. This is purely a scoring and aggregation task, with R 4.0.2 (the analysis software stack used by Reich Lab) as the reference reproducibility environment. Compute requirements are minimal -- single workstation, no GPU.\n\nClaims: probabilistic forecast skill comparison only. No public-health policy recommendations.\n",
       "hasPart": [
+        {
+          "@id": "README.md"
+        },
         {
           "@id": "WORKFLOW.json"
         },
@@ -117,6 +131,7 @@
       "@id": "WORKFLOW.json",
       "@type": [
         "File",
+        "SoftwareSourceCode",
         "ComputationalWorkflow"
       ],
       "applicationSubCategory": {
@@ -203,6 +218,16 @@
       "@type": "Role",
       "description": "The domain expert who resolved discovery decisions during intake chat, prior to agent execution.",
       "name": "Subject Matter Expert (intake)"
+    },
+    {
+      "@id": "README.md",
+      "@type": "File",
+      "about": {
+        "@id": "./"
+      },
+      "description": "Human-readable entry point: what was asked, where the answer lands, a map of the package, and the re-run command.",
+      "encodingFormat": "text/markdown",
+      "name": "Package README — human landing page"
     },
     {
       "@id": "PROMPT.md",
@@ -317,6 +342,24 @@
       "description": "Schema-validation and external-validator rollup for emitted ECAA artifacts.",
       "encodingFormat": "application/json",
       "name": "ECAA emit-time validation summary"
+    },
+    {
+      "@id": "https://w3id.org/ro/crate/1.1",
+      "@type": "CreativeWork",
+      "name": "RO-Crate",
+      "version": "1.1"
+    },
+    {
+      "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0",
+      "@type": "CreativeWork",
+      "name": "Workflow RO-Crate Profile",
+      "version": "1.0"
+    },
+    {
+      "@id": "https://w3id.org/ecaa/v0.2",
+      "@type": "CreativeWork",
+      "name": "ECAA Conformance Profile",
+      "version": "0.2"
     },
     {
       "@id": "#step-review_prior_work",

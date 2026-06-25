@@ -1,0 +1,126 @@
+{
+  "contract_id": "validation-contract-association",
+  "description": "Method-correctness assertions for differential-expression / regression stages — domain-correctness checks the structural validators (a non-empty DE table, an existing model artifact) passed silently in a live eval. AUTHORING NOTE (disclosure): the two error CLASSES below were IDENTIFIED from BiomniBench tasks da-15-1 + da-8-1 (benchmark-informed defect-finding). The executable assertions encode the GENERAL invariants — a model must adjust for the covariates the agent observed; the model's response must equal the task's stated outcome — and contain NO benchmark-specific value, column name, or task id in any check clause; they apply to any differential_expression stage. The two errors caught: (da-15-1) a DESeq2 design that OMITTED all covariates (`~ condition` only, no sex/age/RIN), and (da-8-1) an INVERTED regression (regressed the stated outcome as a predictor). METHOD NEUTRALITY (load-bearing): every assertion asserts a property of fields the AGENT recorded about ITS OWN model (`design_formula`, `response_variable`, `primary_variable`) compared against fields the agent ALSO recorded about the data/task (`available_covariates` — the agent's honest record of the covariate columns it observed in the metadata; `stated_outcome` — the agent's record of the SME's stated outcome when the task names one). It never recommends a model, test, or which covariates to include — the agent chose those; the contract only checks that the agent's own record is internally + task-consistent (record-what-you-did, the same shape as the variant contract asserting AF∈[0,1] on the agent's own VCF). `available_covariates`/`stated_outcome` are agent-recorded in v1; the `design_recorded` precondition REQUIRES `available_covariates` to be recorded so an agent cannot OMIT it to skip the covariate check (the omission false-negative). The residual self-report evasion — an agent recording an empty/under-counted `available_covariates` — is closed by hardening it to a pinned containerized metadata-column measurement script (documented follow-up, see docs/known-limitations.md). Thresholds/columns are never handed to the agent. Stages absent from a given DAG self-gate (enforcement fires only on a stage_class with a matching completed task).",
+  "version": "1.4.0",
+  "stages": {
+    "differential_expression": {
+      "assertions": [
+        {
+          "id": "differential_expression.design_recorded",
+          "description": "Precondition: result.json must record the fitted model so it is auditable — design_formula and response_variable. An unauditable model (missing either) is itself a failure — the agent must state what it did. Substrings are field-name keys, not model prescriptions. The covariate-columns record (`available_covariates`) is enforced separately by design_records_covariate_columns with a TYPED pointer check, because a substring scan would accept an incidental or nested occurrence the covariate-adjustment when-gate cannot read.",
+          "assertion_type": "string_contains",
+          "target": "runtime/outputs/differential_expression/result.json",
+          "check": {
+            "substrings": [
+              "design_formula",
+              "response_variable"
+            ]
+          },
+          "severity": "required"
+        },
+        {
+          "id": "differential_expression.design_records_covariate_columns",
+          "description": "Closes the covariate-omission false-negative at the SAME read mechanism the dependent check uses. design_adjusts_available_covariates `when`-gates on the JSON pointer /available_covariates; a whole-file substring scan of `available_covariates` would be satisfied by an incidental occurrence in a note OR a nested key while /available_covariates does not resolve at the top level — letting the adjustment check skip (skip-as-pass). This typed json_pointer_is_array check requires /available_covariates to resolve to an ARRAY: the covariate columns the agent observed, recorded as a list. An EMPTY array is allowed (a covariate-free run) — the adjustment check's own empty-array when-gate then self-skips, so this never false-fires the common case. Absence or a non-array value fails closed. It records what columns the agent saw (record-what-you-did); it never names which covariates to include (method-neutral).",
+          "assertion_type": "json_pointer_is_array",
+          "target": "runtime/outputs/differential_expression/result.json",
+          "check": {
+            "json_pointer": "/available_covariates"
+          },
+          "severity": "required"
+        },
+        {
+          "id": "differential_expression.design_adjusts_available_covariates",
+          "description": "Catches da-15-1 (naked `~condition`): the agent-recorded design_formula must REFERENCE at least one of the agent-recorded available_covariates after the primary comparison variable is removed from that set — i.e. the model the agent fit must adjust for at least one of the non-primary covariate columns the agent itself observed in the metadata. PASSES when ≥1 non-primary covariate is referenced OR when none remains to adjust for. It compares the agent's own formula against the agent's own record of the data's columns; it never names which covariates to include or which model to fit (method-neutral). GATED on /available_covariates so it is SKIPPED when the agent recorded no covariate columns (nothing to adjust for, never blocks).",
+          "assertion_type": "formula_references_covariates",
+          "target": "runtime/outputs/differential_expression/result.json",
+          "check": {
+            "formula_pointer": "/design_formula",
+            "covariates_pointer": "/available_covariates",
+            "primary_pointer": "/primary_variable"
+          },
+          "when": {
+            "json_pointer": "/available_covariates"
+          },
+          "severity": "required"
+        },
+        {
+          "id": "differential_expression.response_matches_stated_outcome",
+          "description": "Catches da-8-1 (inverted regression): the agent-recorded response_variable (the model's outcome / LHS) must equal the agent-recorded stated_outcome (the SME's stated outcome for the task) after casefold+trim normalization. If the agent regressed `metabolite ~ SBP` while the task's stated outcome is SBP, response_variable=metabolite ≠ stated_outcome=SBP and this fails. It compares the agent's own model outcome against the agent's own record of the task's stated outcome; it never tells the agent which variable to regress on (method-neutral). GATED on /stated_outcome so it is SKIPPED for plain DE-by-condition with no SME-stated outcome (never blocks the common case).",
+          "assertion_type": "cross_field_equals",
+          "target": "runtime/outputs/differential_expression/result.json",
+          "check": {
+            "this_pointer": "/response_variable",
+            "other_pointer": "/stated_outcome",
+            "normalize": "casefold_trim"
+          },
+          "when": {
+            "json_pointer": "/stated_outcome"
+          },
+          "severity": "required"
+        },
+        {
+          "id": "differential_expression.top_effect_reliability",
+          "description": "Effect-size reliability (domain-correctness, method-neutral): the features YOU ranked as strongest by absolute effect size (your own top-K by |effect estimate|) must sit at least this fraction of the tested set's typical (median) per-feature abundance/information basis YOU recorded (e.g. base mean / mean count / mean expression / logCPM). top_effect_abundance_ratio is recomputed by the containerized measurement (lib/measure_de_effect_size.py) from the agent's OWN ranked results table and its OWN recorded information column: the median abundance of your top-K-by-|effect| features divided by the median abundance over the whole tested set. It is null-robust — about 1 when effect and abundance are independent (a random sample) and driven toward 0 when extreme effect estimates concentrate in the lowest-abundance features, where effect estimates are unreliable, so such a 'strongest finding' list is not trustworthy. K and the ratio bound are operator-authored reference bounds embedded in the pinned script, NEVER handed to the agent; the agent chose the ranking, and HOW to keep its strongest-finding list domain-correct is its choice (no method, estimator, filter, or threshold value is prescribed). GATED on /information_column_recorded so it is SKIPPED (never blocks) when the agent recorded no per-feature abundance column (as some single-cell differential-expression paths do not) — an abundance column is the precondition for the check, not a prescribed output. This asserts a property of the ranking the agent produced — the same shape as het_tail_band_nonempty asserting a property of the agent's own call set. Severity is `required`: paired with the autonomous validation-recovery path (ECAA_HARNESS_VALIDATION_RECOVERY), an unattended run surfaces this neutral recomputed-vs-bound signal and re-dispatches rather than dead-stalling, while a production SME run treats it as a checkpoint (the SME may widen or tighten the bound by editing the pinned script). SME-overridable.",
+          "assertion_type": "numeric_threshold",
+          "target": "runtime/outputs/differential_expression/result.json",
+          "check": {
+            "json_pointer": "/top_effect_abundance_ratio",
+            "op": "gte",
+            "value": 0.2
+          },
+          "when": {
+            "json_pointer": "/information_column_recorded",
+            "equals": true
+          },
+          "severity": "required"
+        },
+        {
+          "id": "differential_expression.reports_model_fit",
+          "description": "Report-completeness (domain-correctness, method-neutral): when YOUR OWN results table records a model-fit / variance-explained column (an R-squared and its conventional synonyms), your written answer must SURFACE that statistic. This states a fact about your own recorded output — you computed and tabulated a model-fit column, so report it — and prescribes no method, estimator, model, or value; HOW you surface it (a sentence, a table, a value) is your choice. The check is a deterministic substring presence test (string_contains, substrings_any/OR) over /narrative_text, the single channel into which lib/measure_de_effect_size.py folds your sibling narrative deliverable (report.md / interpretation.md / summary.md / answer.txt) plus your own recorded narrative — so it never false-fires when the answer lives in a sibling .md/.txt instead of result.json. GATED on /r_squared_column_recorded so it is SKIPPED (never blocks, never prescribes adding the column) when no model-fit column is recorded — recorded-ness has the same FOUND-and-usable semantics as /information_column_recorded. AUTHORING NOTE (disclosure): this error CLASS was identified from BiomniBench da-8-1 C8 (an answer that omitted the R-squared its own table recorded); the assertion encodes the GENERAL invariant 'surface the model-fit statistic your own table records' and contains NO benchmark value, gene name, column literal, or task id in any check clause; the substrings are generic statistic-name synonyms, not column literals lifted from any dataset. It asserts a property of the agent's own artifacts, the same shape as top_effect_reliability over the agent's own ranking. SME-overridable by editing the pinned script's role tuple.",
+          "assertion_type": "string_contains",
+          "target": "runtime/outputs/differential_expression/result.json",
+          "check": {
+            "json_pointer": "/narrative_text",
+            "case_insensitive": true,
+            "substrings_any": [
+              "r2",
+              "r-squared",
+              "r squared",
+              "r²",
+              "variance explained",
+              "r_squared"
+            ]
+          },
+          "when": {
+            "json_pointer": "/r_squared_column_recorded",
+            "equals": true
+          },
+          "severity": "required"
+        },
+        {
+          "id": "differential_expression.reports_per_row_n",
+          "description": "Report-completeness (domain-correctness, method-neutral): when YOUR OWN results table records a per-row sample-size column, your written answer must SURFACE the per-row sample size. This states a fact about your own recorded output — you tabulated a per-row n, so report it — and prescribes no method or value; HOW you surface it is your choice. The check is a deterministic substring presence test (string_contains, substrings_any/OR) over /narrative_text, the single folded channel (report.md / interpretation.md / summary.md / answer.txt + your own narrative) lib/measure_de_effect_size.py writes, so it never false-fires when the answer sits in a sibling .md/.txt. GATED on /sample_size_column_recorded so it is SKIPPED (never blocks, never prescribes adding the column) when no per-row sample-size column is recorded — same FOUND-and-usable recorded-ness as /information_column_recorded. AUTHORING NOTE (disclosure): this error CLASS was identified from BiomniBench da-8-1 C8 (an answer that omitted the per-metabolite sample sizes its own table recorded); the assertion encodes the GENERAL invariant 'surface the per-row sample size your own table records' and contains NO benchmark value or task id in any check clause; the substrings are generic phrasings of a sample-size mention, not literals from any dataset. SME-overridable.",
+          "assertion_type": "string_contains",
+          "target": "runtime/outputs/differential_expression/result.json",
+          "check": {
+            "json_pointer": "/narrative_text",
+            "case_insensitive": true,
+            "substrings_any": [
+              "n =",
+              "n=",
+              "sample size",
+              "samples per",
+              "per-metabolite n",
+              "number of samples"
+            ]
+          },
+          "when": {
+            "json_pointer": "/sample_size_column_recorded",
+            "equals": true
+          },
+          "severity": "required"
+        }
+      ]
+    }
+  }
+}

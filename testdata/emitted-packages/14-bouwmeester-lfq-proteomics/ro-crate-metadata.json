@@ -1,7 +1,15 @@
 {
   "@context": [
     "https://w3id.org/ro/crate/1.1/context",
-    "https://w3id.org/ro/terms/workflow-run"
+    "https://w3id.org/ro/terms/workflow-run",
+    {
+      "evaluated_against": "https://w3id.org/ecaa/ns/0.2#evaluated_against",
+      "invariant_id": "https://w3id.org/ecaa/ns/0.2#invariantId",
+      "matchedArchetype": "https://w3id.org/ecaa/ns/0.2#matchedArchetype",
+      "rationale": "https://w3id.org/ecaa/ns/0.2#rationale",
+      "verdict": "https://w3id.org/ecaa/ns/0.2#verdict",
+      "wasGeneratedBy": "http://www.w3.org/ns/prov#wasGeneratedBy"
+    }
   ],
   "@graph": [
     {
@@ -18,15 +26,6 @@
           "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0"
         },
         {
-          "@id": "https://w3id.org/ro/wfrun/process/0.5"
-        },
-        {
-          "@id": "https://w3id.org/ro/wfrun/workflow/0.5"
-        },
-        {
-          "@id": "https://w3id.org/ro/wfrun/provenance/0.5"
-        },
-        {
           "@id": "https://w3id.org/ecaa/v0.2"
         }
       ]
@@ -34,9 +33,24 @@
     {
       "@id": "./",
       "@type": "Dataset",
-      "dateCreated": "2052-01-15T11:05:23+00:00",
+      "conformsTo": [
+        {
+          "@id": "https://w3id.org/ro/crate/1.1"
+        },
+        {
+          "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0"
+        },
+        {
+          "@id": "https://w3id.org/ecaa/v0.2"
+        }
+      ],
+      "dateCreated": "2026-01-01T00:00:00+00:00",
+      "datePublished": "2026-01-01T00:00:00+00:00",
       "description": "We want to recreate the label-free quantification (LFQ) proteomics benchmark from Bouwmeester et al. 2020 Journal of Proteome Research, ProteomeXchange accession PXD028735. The dataset is a three-species peptide mixture benchmark (human, yeast, E. coli) with 13 different instrument configurations (Orbitrap Fusion, Q Exactive HF-X, timsTOF Pro, and others) and multiple gradient lengths. The benchmark provides a ground-truth proteome-level mixture of known ratios for evaluating LFQ accuracy and reproducibility.\n\nThe analysis follows the benchmark design: process RAW files through MaxQuant v2.x for feature detection and protein group assembly (LFQ min ratio count 2, match between runs enabled, 1% FDR at both PSM and protein level using reverse decoy). Use the canonical UP000005640 human, UP000002311 yeast, and UP000000625 E. coli UniProt reference proteomes concatenated as the search database.\n\nFor LFQ normalization benchmarking, compare three quantification approaches on the same raw data: MaxQuant LFQ, intensity-based absolute quantification (iBAQ), and MaxLFQ. The primary acceptance criterion is accurate recovery of the known species ratios from the mixture design: human:yeast:E. coli = 65:30:5 by protein mass. Each method should recover human proteins at 60-70%, yeast at 25-35%, and E. coli at 3-8% of total protein mass.\n\nProtein-level quantification quality: coefficient of variation (CV) for technical replicates within each instrument platform should be below 20% for >80% of quantified proteins. Missing value rate should be below 15% per sample. Require a minimum of 1,000 quantified human protein groups, 500 yeast protein groups, and 100 E. coli protein groups across all platforms.\n\nRun PCA on the log2-normalized LFQ intensities across all samples; the first principal component should separate instrument platforms (expected R^2 > 0.4 for platform effect). Run differential abundance analysis between the three species proteome fractions using limma with empirical Bayes moderation; volcano plots should show clean separation at fold change > 2 and adjusted p-value < 0.05.\n\nAcceptance: species mixture ratios within +/-5 percentage points of ground truth for at least 8/13 instrument configurations; CV < 20% for >80% of proteins in technical replicates; at least 1,200 quantified human protein groups total.\n",
       "hasPart": [
+        {
+          "@id": "README.md"
+        },
         {
           "@id": "WORKFLOW.json"
         },
@@ -129,6 +143,7 @@
       "@id": "WORKFLOW.json",
       "@type": [
         "File",
+        "SoftwareSourceCode",
         "ComputationalWorkflow"
       ],
       "applicationSubCategory": {
@@ -236,6 +251,16 @@
       "@type": "Role",
       "description": "The domain expert who resolved discovery decisions during intake chat, prior to agent execution.",
       "name": "Subject Matter Expert (intake)"
+    },
+    {
+      "@id": "README.md",
+      "@type": "File",
+      "about": {
+        "@id": "./"
+      },
+      "description": "Human-readable entry point: what was asked, where the answer lands, a map of the package, and the re-run command.",
+      "encodingFormat": "text/markdown",
+      "name": "Package README — human landing page"
     },
     {
       "@id": "PROMPT.md",
@@ -352,6 +377,24 @@
       "name": "ECAA emit-time validation summary"
     },
     {
+      "@id": "https://w3id.org/ro/crate/1.1",
+      "@type": "CreativeWork",
+      "name": "RO-Crate",
+      "version": "1.1"
+    },
+    {
+      "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0",
+      "@type": "CreativeWork",
+      "name": "Workflow RO-Crate Profile",
+      "version": "1.0"
+    },
+    {
+      "@id": "https://w3id.org/ecaa/v0.2",
+      "@type": "CreativeWork",
+      "name": "ECAA Conformance Profile",
+      "version": "0.2"
+    },
+    {
       "@id": "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id=9606",
       "@type": "Taxon",
       "identifier": 9606,
@@ -464,14 +507,14 @@
       "@id": "#step-differential_expression",
       "@type": "HowToStep",
       "additionalType": "computation",
-      "name": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+      "name": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n\nRECORD-WHAT-YOU-DID (audit, not instruction): in result.json, write down the\nmodel you actually fit so it can be audited — this does NOT tell you which\nmodel/test to use, only to state your own choice. Record:\n  - design_formula: the model formula you fit (e.g. \"~ condition + sex + RIN\").\n  - response_variable: the model's outcome / left-hand side (the thing being\n    explained). For a contrast-based DE this is the expression/count response;\n    for a regression against an outcome it is that outcome variable.\n  - available_covariates: the covariate columns you observed in the sample\n    metadata (your honest list of what was available, e.g.\n    [\"condition\",\"sex\",\"age\",\"RIN\"]).\n  - primary_variable: the main comparison variable for the contrast (e.g.\n    \"condition\").\n  - stated_outcome: the SME's stated outcome for the task, when the task names\n    one (otherwise omit).\nThese are YOUR record of YOUR choices and of the data/task — a domain-correctness\ncontract checks them for internal + task consistency (e.g. the design adjusts\nfor an available covariate; the response matches the stated outcome). It never\nprescribes a model.\n",
       "position": 14
     },
     {
       "@id": "#step-validate_differential_expression",
       "@type": "HowToStep",
       "additionalType": "validation",
-      "name": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+      "name": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n\nRECORD-WHAT-YOU-DID (audit, not instruction): in result.json, write down the\nmodel you actually fit so it can be audited — this does NOT tell you which\nmodel/test to use, only to state your own choice. Record:\n  - design_formula: the model formula you fit (e.g. \"~ condition + sex + RIN\").\n  - response_variable: the model's outcome / left-hand side (the thing being\n    explained). For a contrast-based DE this is the expression/count response;\n    for a regression against an outcome it is that outcome variable.\n  - available_covariates: the covariate columns you observed in the sample\n    metadata (your honest list of what was available, e.g.\n    [\"condition\",\"sex\",\"age\",\"RIN\"]).\n  - primary_variable: the main comparison variable for the contrast (e.g.\n    \"condition\").\n  - stated_outcome: the SME's stated outcome for the task, when the task names\n    one (otherwise omit).\nThese are YOUR record of YOUR choices and of the data/task — a domain-correctness\ncontract checks them for internal + task consistency (e.g. the design adjusts\nfor an available covariate; the response matches the stated outcome). It never\nprescribes a model.\n",
       "position": 15
     },
     {

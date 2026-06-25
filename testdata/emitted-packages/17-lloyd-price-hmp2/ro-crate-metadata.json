@@ -1,7 +1,15 @@
 {
   "@context": [
     "https://w3id.org/ro/crate/1.1/context",
-    "https://w3id.org/ro/terms/workflow-run"
+    "https://w3id.org/ro/terms/workflow-run",
+    {
+      "evaluated_against": "https://w3id.org/ecaa/ns/0.2#evaluated_against",
+      "invariant_id": "https://w3id.org/ecaa/ns/0.2#invariantId",
+      "matchedArchetype": "https://w3id.org/ecaa/ns/0.2#matchedArchetype",
+      "rationale": "https://w3id.org/ecaa/ns/0.2#rationale",
+      "verdict": "https://w3id.org/ecaa/ns/0.2#verdict",
+      "wasGeneratedBy": "http://www.w3.org/ns/prov#wasGeneratedBy"
+    }
   ],
   "@graph": [
     {
@@ -18,15 +26,6 @@
           "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0"
         },
         {
-          "@id": "https://w3id.org/ro/wfrun/process/0.5"
-        },
-        {
-          "@id": "https://w3id.org/ro/wfrun/workflow/0.5"
-        },
-        {
-          "@id": "https://w3id.org/ro/wfrun/provenance/0.5"
-        },
-        {
           "@id": "https://w3id.org/ecaa/v0.2"
         }
       ]
@@ -34,9 +33,24 @@
     {
       "@id": "./",
       "@type": "Dataset",
-      "dateCreated": "2055-11-04T01:46:57+00:00",
+      "conformsTo": [
+        {
+          "@id": "https://w3id.org/ro/crate/1.1"
+        },
+        {
+          "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0"
+        },
+        {
+          "@id": "https://w3id.org/ecaa/v0.2"
+        }
+      ],
+      "dateCreated": "2026-01-01T00:00:00+00:00",
+      "datePublished": "2026-01-01T00:00:00+00:00",
       "description": "We want to recreate the multi-omic inflammatory bowel disease (IBD) gut microbiome analysis from Lloyd-Price et al. 2019 Nature (the IBDMDB / HMP2 study), SRA BioProject PRJNA398089. The study longitudinally profiled the gut microbiome and host transcriptome in 132 subjects (CD, UC, and healthy controls) over ~1 year, with stool samples collected every two weeks and colon biopsies at colonoscopy. We focus on the shotgun metagenomics + metatranscriptomics arms.\n\nThe metagenomics pipeline follows the HMP2 protocol. Process raw paired-end Illumina reads with KneadData v0.7+ for host (hg38) read removal and quality trimming. Run MetaPhlAn4 for taxonomic profiling (species-level relative abundances). Run HUMAnN3 for functional profiling (UniRef90 gene family abundances and MetaCyc pathway coverage). Normalize functional profiles by total sum scaling (TSS) for relative abundance and by reads-per-kilobase (RPK) for gene family counts.\n\nFor taxonomic analysis, reproduce the dysbiosis index: compute per-sample Bray-Curtis dissimilarity from MetaPhlAn species profiles. Active IBD flare samples (fecal calprotectin > 200 ug/g) should show higher Bray-Curtis distance from the healthy-cohort centroid than remission samples (p < 0.01 by Wilcoxon). Key dysbiosis species: Bacteroides fragilis, Ruminococcus gnavus enriched in IBD vs healthy; Roseburia intestinalis, Akkermansia muciniphila depleted. At least 4 of these 4 expected species must show the correct direction of effect at FDR < 0.1.\n\nFor longitudinal stability analysis, compute intra-individual vs inter-individual Bray-Curtis distances. Intra-individual should be lower than inter-individual for healthy subjects (p < 0.001). Model dysbiosis episodes using a hidden Markov model with 2 states (stable/dysbiotic) per subject time series; CD and UC subjects should show more state transitions per year than healthy (p < 0.05).\n\nRun ANCOM-BC2 for differential abundance testing between disease groups at the species level. Run Maaslin2 for multivariable association of species abundance with antibiotic exposure, host genetics (IBD risk alleles from the metadata), and inflammation markers.\n\nAcceptance: MetaPhlAn4 profiling of at least 800/1,595 stool samples; dysbiosis species directional effects reproduced for 4/4 listed species at FDR < 0.1; intra-individual stability lower than inter-individual in healthy cohort (p < 0.001).\n",
       "hasPart": [
+        {
+          "@id": "README.md"
+        },
         {
           "@id": "WORKFLOW.json"
         },
@@ -132,6 +146,7 @@
       "@id": "WORKFLOW.json",
       "@type": [
         "File",
+        "SoftwareSourceCode",
         "ComputationalWorkflow"
       ],
       "applicationSubCategory": {
@@ -233,6 +248,16 @@
       "@type": "Role",
       "description": "The domain expert who resolved discovery decisions during intake chat, prior to agent execution.",
       "name": "Subject Matter Expert (intake)"
+    },
+    {
+      "@id": "README.md",
+      "@type": "File",
+      "about": {
+        "@id": "./"
+      },
+      "description": "Human-readable entry point: what was asked, where the answer lands, a map of the package, and the re-run command.",
+      "encodingFormat": "text/markdown",
+      "name": "Package README — human landing page"
     },
     {
       "@id": "PROMPT.md",
@@ -347,6 +372,24 @@
       "description": "Schema-validation and external-validator rollup for emitted ECAA artifacts.",
       "encodingFormat": "application/json",
       "name": "ECAA emit-time validation summary"
+    },
+    {
+      "@id": "https://w3id.org/ro/crate/1.1",
+      "@type": "CreativeWork",
+      "name": "RO-Crate",
+      "version": "1.1"
+    },
+    {
+      "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0",
+      "@type": "CreativeWork",
+      "name": "Workflow RO-Crate Profile",
+      "version": "1.0"
+    },
+    {
+      "@id": "https://w3id.org/ecaa/v0.2",
+      "@type": "CreativeWork",
+      "name": "ECAA Conformance Profile",
+      "version": "0.2"
     },
     {
       "@id": "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id=9606",

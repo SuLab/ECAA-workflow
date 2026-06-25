@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "1.1",
+  "note": "DNA methylation overlay: CpG-probe entities, delta_beta (additive, log-scale pivot 0) effect column, hyper/hypo direction vocabulary, FDR columns. Only verifiableEntities is read by from_policy.",
+  "verifiableEntities": {
+    "enabled": true,
+    "entityNamePatterns": [
+      "(?i)\\bcg\\d{8}\\b"
+    ],
+    "entityNameExcludePatterns": [],
+    "directionVocab": {
+      "up": [
+        "hypermethylated",
+        "increased",
+        "higher",
+        "gained methylation"
+      ],
+      "down": [
+        "hypomethylated",
+        "decreased",
+        "lower",
+        "lost methylation"
+      ]
+    },
+    "effectSizeColumns": [
+      "delta_beta",
+      "beta_diff",
+      "mean_diff",
+      "log2FC",
+      "effect"
+    ],
+    "entityColumns": [
+      "cpg",
+      "cpg_id",
+      "probe",
+      "probe_id",
+      "site"
+    ],
+    "pvalueColumns": [
+      "padj",
+      "fdr",
+      "qvalue",
+      "pvalue",
+      "p_value"
+    ],
+    "tolerance": {
+      "log2FcAbsoluteDelta": 0.05,
+      "pvalueRelativeDelta": 0.1
+    }
+  }
+}

@@ -1,0 +1,595 @@
+{
+  "order": [
+    {
+      "index": 0,
+      "output_dir": "runtime/outputs/variant_calling_validate_final_reporting/",
+      "task_id": "variant_calling_validate_final_reporting"
+    },
+    {
+      "index": 1,
+      "output_dir": "runtime/outputs/variant_calling_review_prior_work/",
+      "task_id": "variant_calling_review_prior_work"
+    },
+    {
+      "index": 2,
+      "output_dir": "runtime/outputs/variant_calling_validate_review_prior_work/",
+      "task_id": "variant_calling_validate_review_prior_work"
+    },
+    {
+      "index": 3,
+      "output_dir": "runtime/outputs/variant_calling_data_acquisition/",
+      "task_id": "variant_calling_data_acquisition"
+    },
+    {
+      "index": 4,
+      "output_dir": "runtime/outputs/variant_calling_validate_data_acquisition/",
+      "task_id": "variant_calling_validate_data_acquisition"
+    },
+    {
+      "index": 5,
+      "output_dir": "runtime/outputs/variant_calling_raw_qc/",
+      "task_id": "variant_calling_raw_qc"
+    },
+    {
+      "index": 6,
+      "output_dir": "runtime/outputs/variant_calling_validate_raw_qc/",
+      "task_id": "variant_calling_validate_raw_qc"
+    },
+    {
+      "index": 7,
+      "output_dir": "runtime/outputs/variant_calling_survey_method_landscape/",
+      "task_id": "variant_calling_survey_method_landscape"
+    },
+    {
+      "index": 8,
+      "output_dir": "runtime/outputs/variant_calling_discover_variant_filtering/",
+      "task_id": "variant_calling_discover_variant_filtering"
+    },
+    {
+      "index": 9,
+      "output_dir": "runtime/outputs/variant_calling_discover_variant_calling/",
+      "task_id": "variant_calling_discover_variant_calling"
+    },
+    {
+      "index": 10,
+      "output_dir": "runtime/outputs/variant_calling_discover_variant_annotation/",
+      "task_id": "variant_calling_discover_variant_annotation"
+    },
+    {
+      "index": 11,
+      "output_dir": "runtime/outputs/variant_calling_discover_sequence_trimming/",
+      "task_id": "variant_calling_discover_sequence_trimming"
+    },
+    {
+      "index": 12,
+      "output_dir": "runtime/outputs/variant_calling_discover_alignment/",
+      "task_id": "variant_calling_discover_alignment"
+    },
+    {
+      "index": 13,
+      "output_dir": "runtime/outputs/variant_calling_sequence_trimming/",
+      "task_id": "variant_calling_sequence_trimming"
+    },
+    {
+      "index": 14,
+      "output_dir": "runtime/outputs/variant_calling_validate_sequence_trimming/",
+      "task_id": "variant_calling_validate_sequence_trimming"
+    },
+    {
+      "index": 15,
+      "output_dir": "runtime/outputs/variant_calling_alignment/",
+      "task_id": "variant_calling_alignment"
+    },
+    {
+      "index": 16,
+      "output_dir": "runtime/outputs/variant_calling_variant_calling/",
+      "task_id": "variant_calling_variant_calling"
+    },
+    {
+      "index": 17,
+      "output_dir": "runtime/outputs/variant_calling_variant_filtering/",
+      "task_id": "variant_calling_variant_filtering"
+    },
+    {
+      "index": 18,
+      "output_dir": "runtime/outputs/variant_calling_variant_annotation/",
+      "task_id": "variant_calling_variant_annotation"
+    },
+    {
+      "index": 19,
+      "output_dir": "runtime/outputs/variant_calling_validate_variant_annotation/",
+      "task_id": "variant_calling_validate_variant_annotation"
+    },
+    {
+      "index": 20,
+      "output_dir": "runtime/outputs/variant_calling_contextualize_findings_with_literature/",
+      "task_id": "variant_calling_contextualize_findings_with_literature"
+    },
+    {
+      "index": 21,
+      "output_dir": "runtime/outputs/variant_calling_validate_contextualize_findings_with_literature/",
+      "task_id": "variant_calling_validate_contextualize_findings_with_literature"
+    },
+    {
+      "index": 22,
+      "output_dir": "runtime/outputs/variant_calling_reporting/",
+      "task_id": "variant_calling_reporting"
+    },
+    {
+      "index": 23,
+      "output_dir": "runtime/outputs/variant_calling_validate_reporting/",
+      "task_id": "variant_calling_validate_reporting"
+    },
+    {
+      "index": 24,
+      "output_dir": "runtime/outputs/variant_calling_validate_variant_filtering/",
+      "task_id": "variant_calling_validate_variant_filtering"
+    },
+    {
+      "index": 25,
+      "output_dir": "runtime/outputs/variant_calling_validate_variant_calling/",
+      "task_id": "variant_calling_validate_variant_calling"
+    },
+    {
+      "index": 26,
+      "output_dir": "runtime/outputs/variant_calling_validate_alignment/",
+      "task_id": "variant_calling_validate_alignment"
+    },
+    {
+      "index": 27,
+      "output_dir": "runtime/outputs/chip_seq_validate_final_reporting/",
+      "task_id": "chip_seq_validate_final_reporting"
+    },
+    {
+      "index": 28,
+      "output_dir": "runtime/outputs/chip_seq_review_prior_work/",
+      "task_id": "chip_seq_review_prior_work"
+    },
+    {
+      "index": 29,
+      "output_dir": "runtime/outputs/chip_seq_validate_review_prior_work/",
+      "task_id": "chip_seq_validate_review_prior_work"
+    },
+    {
+      "index": 30,
+      "output_dir": "runtime/outputs/chip_seq_data_acquisition/",
+      "task_id": "chip_seq_data_acquisition"
+    },
+    {
+      "index": 31,
+      "output_dir": "runtime/outputs/chip_seq_validate_data_acquisition/",
+      "task_id": "chip_seq_validate_data_acquisition"
+    },
+    {
+      "index": 32,
+      "output_dir": "runtime/outputs/chip_seq_raw_qc/",
+      "task_id": "chip_seq_raw_qc"
+    },
+    {
+      "index": 33,
+      "output_dir": "runtime/outputs/chip_seq_validate_raw_qc/",
+      "task_id": "chip_seq_validate_raw_qc"
+    },
+    {
+      "index": 34,
+      "output_dir": "runtime/outputs/chip_seq_survey_method_landscape/",
+      "task_id": "chip_seq_survey_method_landscape"
+    },
+    {
+      "index": 35,
+      "output_dir": "runtime/outputs/chip_seq_discover_sequence_trimming/",
+      "task_id": "chip_seq_discover_sequence_trimming"
+    },
+    {
+      "index": 36,
+      "output_dir": "runtime/outputs/chip_seq_discover_peak_calling/",
+      "task_id": "chip_seq_discover_peak_calling"
+    },
+    {
+      "index": 37,
+      "output_dir": "runtime/outputs/chip_seq_discover_peak_annotation/",
+      "task_id": "chip_seq_discover_peak_annotation"
+    },
+    {
+      "index": 38,
+      "output_dir": "runtime/outputs/chip_seq_discover_motif_enrichment/",
+      "task_id": "chip_seq_discover_motif_enrichment"
+    },
+    {
+      "index": 39,
+      "output_dir": "runtime/outputs/chip_seq_discover_alignment/",
+      "task_id": "chip_seq_discover_alignment"
+    },
+    {
+      "index": 40,
+      "output_dir": "runtime/outputs/chip_seq_sequence_trimming/",
+      "task_id": "chip_seq_sequence_trimming"
+    },
+    {
+      "index": 41,
+      "output_dir": "runtime/outputs/chip_seq_validate_sequence_trimming/",
+      "task_id": "chip_seq_validate_sequence_trimming"
+    },
+    {
+      "index": 42,
+      "output_dir": "runtime/outputs/chip_seq_alignment/",
+      "task_id": "chip_seq_alignment"
+    },
+    {
+      "index": 43,
+      "output_dir": "runtime/outputs/chip_seq_validate_alignment/",
+      "task_id": "chip_seq_validate_alignment"
+    },
+    {
+      "index": 44,
+      "output_dir": "runtime/outputs/chip_seq_peak_calling/",
+      "task_id": "chip_seq_peak_calling"
+    },
+    {
+      "index": 45,
+      "output_dir": "runtime/outputs/chip_seq_validate_peak_calling/",
+      "task_id": "chip_seq_validate_peak_calling"
+    },
+    {
+      "index": 46,
+      "output_dir": "runtime/outputs/chip_seq_peak_annotation/",
+      "task_id": "chip_seq_peak_annotation"
+    },
+    {
+      "index": 47,
+      "output_dir": "runtime/outputs/chip_seq_validate_peak_annotation/",
+      "task_id": "chip_seq_validate_peak_annotation"
+    },
+    {
+      "index": 48,
+      "output_dir": "runtime/outputs/chip_seq_motif_enrichment/",
+      "task_id": "chip_seq_motif_enrichment"
+    },
+    {
+      "index": 49,
+      "output_dir": "runtime/outputs/chip_seq_validate_motif_enrichment/",
+      "task_id": "chip_seq_validate_motif_enrichment"
+    },
+    {
+      "index": 50,
+      "output_dir": "runtime/outputs/chip_seq_contextualize_findings_with_literature/",
+      "task_id": "chip_seq_contextualize_findings_with_literature"
+    },
+    {
+      "index": 51,
+      "output_dir": "runtime/outputs/chip_seq_validate_contextualize_findings_with_literature/",
+      "task_id": "chip_seq_validate_contextualize_findings_with_literature"
+    },
+    {
+      "index": 52,
+      "output_dir": "runtime/outputs/chip_seq_reporting/",
+      "task_id": "chip_seq_reporting"
+    },
+    {
+      "index": 53,
+      "output_dir": "runtime/outputs/chip_seq_validate_reporting/",
+      "task_id": "chip_seq_validate_reporting"
+    },
+    {
+      "index": 54,
+      "output_dir": "runtime/outputs/bulk_rnaseq_validate_final_reporting/",
+      "task_id": "bulk_rnaseq_validate_final_reporting"
+    },
+    {
+      "index": 55,
+      "output_dir": "runtime/outputs/bulk_rnaseq_review_prior_work/",
+      "task_id": "bulk_rnaseq_review_prior_work"
+    },
+    {
+      "index": 56,
+      "output_dir": "runtime/outputs/bulk_rnaseq_validate_review_prior_work/",
+      "task_id": "bulk_rnaseq_validate_review_prior_work"
+    },
+    {
+      "index": 57,
+      "output_dir": "runtime/outputs/bulk_rnaseq_data_acquisition/",
+      "task_id": "bulk_rnaseq_data_acquisition"
+    },
+    {
+      "index": 58,
+      "output_dir": "runtime/outputs/bulk_rnaseq_validate_data_acquisition/",
+      "task_id": "bulk_rnaseq_validate_data_acquisition"
+    },
+    {
+      "index": 59,
+      "output_dir": "runtime/outputs/bulk_rnaseq_raw_qc/",
+      "task_id": "bulk_rnaseq_raw_qc"
+    },
+    {
+      "index": 60,
+      "output_dir": "runtime/outputs/bulk_rnaseq_validate_raw_qc/",
+      "task_id": "bulk_rnaseq_validate_raw_qc"
+    },
+    {
+      "index": 61,
+      "output_dir": "runtime/outputs/bulk_rnaseq_survey_method_landscape/",
+      "task_id": "bulk_rnaseq_survey_method_landscape"
+    },
+    {
+      "index": 62,
+      "output_dir": "runtime/outputs/bulk_rnaseq_discover_sequence_trimming/",
+      "task_id": "bulk_rnaseq_discover_sequence_trimming"
+    },
+    {
+      "index": 63,
+      "output_dir": "runtime/outputs/bulk_rnaseq_discover_quantification/",
+      "task_id": "bulk_rnaseq_discover_quantification"
+    },
+    {
+      "index": 64,
+      "output_dir": "runtime/outputs/bulk_rnaseq_discover_pathway_enrichment/",
+      "task_id": "bulk_rnaseq_discover_pathway_enrichment"
+    },
+    {
+      "index": 65,
+      "output_dir": "runtime/outputs/bulk_rnaseq_discover_normalisation/",
+      "task_id": "bulk_rnaseq_discover_normalisation"
+    },
+    {
+      "index": 66,
+      "output_dir": "runtime/outputs/bulk_rnaseq_discover_differential_expression/",
+      "task_id": "bulk_rnaseq_discover_differential_expression"
+    },
+    {
+      "index": 67,
+      "output_dir": "runtime/outputs/bulk_rnaseq_discover_alignment/",
+      "task_id": "bulk_rnaseq_discover_alignment"
+    },
+    {
+      "index": 68,
+      "output_dir": "runtime/outputs/bulk_rnaseq_sequence_trimming/",
+      "task_id": "bulk_rnaseq_sequence_trimming"
+    },
+    {
+      "index": 69,
+      "output_dir": "runtime/outputs/bulk_rnaseq_validate_sequence_trimming/",
+      "task_id": "bulk_rnaseq_validate_sequence_trimming"
+    },
+    {
+      "index": 70,
+      "output_dir": "runtime/outputs/bulk_rnaseq_alignment/",
+      "task_id": "bulk_rnaseq_alignment"
+    },
+    {
+      "index": 71,
+      "output_dir": "runtime/outputs/bulk_rnaseq_validate_alignment/",
+      "task_id": "bulk_rnaseq_validate_alignment"
+    },
+    {
+      "index": 72,
+      "output_dir": "runtime/outputs/bulk_rnaseq_quantification/",
+      "task_id": "bulk_rnaseq_quantification"
+    },
+    {
+      "index": 73,
+      "output_dir": "runtime/outputs/bulk_rnaseq_validate_quantification/",
+      "task_id": "bulk_rnaseq_validate_quantification"
+    },
+    {
+      "index": 74,
+      "output_dir": "runtime/outputs/bulk_rnaseq_qc_preprocessing/",
+      "task_id": "bulk_rnaseq_qc_preprocessing"
+    },
+    {
+      "index": 75,
+      "output_dir": "runtime/outputs/bulk_rnaseq_validate_qc_preprocessing/",
+      "task_id": "bulk_rnaseq_validate_qc_preprocessing"
+    },
+    {
+      "index": 76,
+      "output_dir": "runtime/outputs/bulk_rnaseq_normalisation/",
+      "task_id": "bulk_rnaseq_normalisation"
+    },
+    {
+      "index": 77,
+      "output_dir": "runtime/outputs/bulk_rnaseq_validate_normalisation/",
+      "task_id": "bulk_rnaseq_validate_normalisation"
+    },
+    {
+      "index": 78,
+      "output_dir": "runtime/outputs/bulk_rnaseq_differential_expression/",
+      "task_id": "bulk_rnaseq_differential_expression"
+    },
+    {
+      "index": 79,
+      "output_dir": "runtime/outputs/bulk_rnaseq_validate_differential_expression/",
+      "task_id": "bulk_rnaseq_validate_differential_expression"
+    },
+    {
+      "index": 80,
+      "output_dir": "runtime/outputs/bulk_rnaseq_pathway_enrichment/",
+      "task_id": "bulk_rnaseq_pathway_enrichment"
+    },
+    {
+      "index": 81,
+      "output_dir": "runtime/outputs/bulk_rnaseq_validate_pathway_enrichment/",
+      "task_id": "bulk_rnaseq_validate_pathway_enrichment"
+    },
+    {
+      "index": 82,
+      "output_dir": "runtime/outputs/bulk_rnaseq_contextualize_findings_with_literature/",
+      "task_id": "bulk_rnaseq_contextualize_findings_with_literature"
+    },
+    {
+      "index": 83,
+      "output_dir": "runtime/outputs/bulk_rnaseq_validate_contextualize_findings_with_literature/",
+      "task_id": "bulk_rnaseq_validate_contextualize_findings_with_literature"
+    },
+    {
+      "index": 84,
+      "output_dir": "runtime/outputs/bulk_rnaseq_reporting/",
+      "task_id": "bulk_rnaseq_reporting"
+    },
+    {
+      "index": 85,
+      "output_dir": "runtime/outputs/bulk_rnaseq_validate_reporting/",
+      "task_id": "bulk_rnaseq_validate_reporting"
+    },
+    {
+      "index": 86,
+      "output_dir": "runtime/outputs/atac_seq_validate_final_reporting/",
+      "task_id": "atac_seq_validate_final_reporting"
+    },
+    {
+      "index": 87,
+      "output_dir": "runtime/outputs/atac_seq_review_prior_work/",
+      "task_id": "atac_seq_review_prior_work"
+    },
+    {
+      "index": 88,
+      "output_dir": "runtime/outputs/atac_seq_validate_review_prior_work/",
+      "task_id": "atac_seq_validate_review_prior_work"
+    },
+    {
+      "index": 89,
+      "output_dir": "runtime/outputs/atac_seq_data_acquisition/",
+      "task_id": "atac_seq_data_acquisition"
+    },
+    {
+      "index": 90,
+      "output_dir": "runtime/outputs/atac_seq_validate_data_acquisition/",
+      "task_id": "atac_seq_validate_data_acquisition"
+    },
+    {
+      "index": 91,
+      "output_dir": "runtime/outputs/atac_seq_raw_qc/",
+      "task_id": "atac_seq_raw_qc"
+    },
+    {
+      "index": 92,
+      "output_dir": "runtime/outputs/atac_seq_validate_raw_qc/",
+      "task_id": "atac_seq_validate_raw_qc"
+    },
+    {
+      "index": 93,
+      "output_dir": "runtime/outputs/atac_seq_survey_method_landscape/",
+      "task_id": "atac_seq_survey_method_landscape"
+    },
+    {
+      "index": 94,
+      "output_dir": "runtime/outputs/atac_seq_discover_sequence_trimming/",
+      "task_id": "atac_seq_discover_sequence_trimming"
+    },
+    {
+      "index": 95,
+      "output_dir": "runtime/outputs/atac_seq_discover_peak_calling/",
+      "task_id": "atac_seq_discover_peak_calling"
+    },
+    {
+      "index": 96,
+      "output_dir": "runtime/outputs/atac_seq_discover_peak_annotation/",
+      "task_id": "atac_seq_discover_peak_annotation"
+    },
+    {
+      "index": 97,
+      "output_dir": "runtime/outputs/atac_seq_discover_motif_enrichment/",
+      "task_id": "atac_seq_discover_motif_enrichment"
+    },
+    {
+      "index": 98,
+      "output_dir": "runtime/outputs/atac_seq_discover_differential_accessibility/",
+      "task_id": "atac_seq_discover_differential_accessibility"
+    },
+    {
+      "index": 99,
+      "output_dir": "runtime/outputs/atac_seq_discover_alignment/",
+      "task_id": "atac_seq_discover_alignment"
+    },
+    {
+      "index": 100,
+      "output_dir": "runtime/outputs/atac_seq_sequence_trimming/",
+      "task_id": "atac_seq_sequence_trimming"
+    },
+    {
+      "index": 101,
+      "output_dir": "runtime/outputs/atac_seq_validate_sequence_trimming/",
+      "task_id": "atac_seq_validate_sequence_trimming"
+    },
+    {
+      "index": 102,
+      "output_dir": "runtime/outputs/atac_seq_alignment/",
+      "task_id": "atac_seq_alignment"
+    },
+    {
+      "index": 103,
+      "output_dir": "runtime/outputs/atac_seq_validate_alignment/",
+      "task_id": "atac_seq_validate_alignment"
+    },
+    {
+      "index": 104,
+      "output_dir": "runtime/outputs/atac_seq_peak_calling/",
+      "task_id": "atac_seq_peak_calling"
+    },
+    {
+      "index": 105,
+      "output_dir": "runtime/outputs/atac_seq_validate_peak_calling/",
+      "task_id": "atac_seq_validate_peak_calling"
+    },
+    {
+      "index": 106,
+      "output_dir": "runtime/outputs/atac_seq_peak_annotation/",
+      "task_id": "atac_seq_peak_annotation"
+    },
+    {
+      "index": 107,
+      "output_dir": "runtime/outputs/atac_seq_validate_peak_annotation/",
+      "task_id": "atac_seq_validate_peak_annotation"
+    },
+    {
+      "index": 108,
+      "output_dir": "runtime/outputs/atac_seq_motif_enrichment/",
+      "task_id": "atac_seq_motif_enrichment"
+    },
+    {
+      "index": 109,
+      "output_dir": "runtime/outputs/atac_seq_validate_motif_enrichment/",
+      "task_id": "atac_seq_validate_motif_enrichment"
+    },
+    {
+      "index": 110,
+      "output_dir": "runtime/outputs/atac_seq_differential_accessibility/",
+      "task_id": "atac_seq_differential_accessibility"
+    },
+    {
+      "index": 111,
+      "output_dir": "runtime/outputs/atac_seq_validate_differential_accessibility/",
+      "task_id": "atac_seq_validate_differential_accessibility"
+    },
+    {
+      "index": 112,
+      "output_dir": "runtime/outputs/atac_seq_contextualize_findings_with_literature/",
+      "task_id": "atac_seq_contextualize_findings_with_literature"
+    },
+    {
+      "index": 113,
+      "output_dir": "runtime/outputs/atac_seq_validate_contextualize_findings_with_literature/",
+      "task_id": "atac_seq_validate_contextualize_findings_with_literature"
+    },
+    {
+      "index": 114,
+      "output_dir": "runtime/outputs/atac_seq_reporting/",
+      "task_id": "atac_seq_reporting"
+    },
+    {
+      "index": 115,
+      "output_dir": "runtime/outputs/atac_seq_validate_reporting/",
+      "task_id": "atac_seq_validate_reporting"
+    },
+    {
+      "index": 116,
+      "output_dir": "runtime/outputs/multi_modal_thematic_comparison/",
+      "task_id": "multi_modal_thematic_comparison"
+    },
+    {
+      "index": 117,
+      "output_dir": "runtime/outputs/final_reporting/",
+      "task_id": "final_reporting"
+    }
+  ],
+  "workflow_id": "workflow-095f86f076a7"
+}

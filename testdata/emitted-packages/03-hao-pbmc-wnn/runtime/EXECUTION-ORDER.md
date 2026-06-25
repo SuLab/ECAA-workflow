@@ -1,0 +1,44 @@
+# Execution order
+
+Tasks in dependency (execution) order. Real outputs live under `runtime/outputs/<task_id>/` — the folder names are the task ids (unchanged).
+
+00  review_prior_work  runtime/outputs/review_prior_work/
+01  validate_review_prior_work  runtime/outputs/validate_review_prior_work/
+02  data_acquisition  runtime/outputs/data_acquisition/
+03  validate_data_acquisition  runtime/outputs/validate_data_acquisition/
+04  qc_preprocessing  runtime/outputs/qc_preprocessing/
+05  validate_qc_preprocessing  runtime/outputs/validate_qc_preprocessing/
+06  survey_method_landscape  runtime/outputs/survey_method_landscape/
+07  discover_peak_to_gene_linking  runtime/outputs/discover_peak_to_gene_linking/
+08  discover_pathway_enrichment  runtime/outputs/discover_pathway_enrichment/
+09  discover_normalisation  runtime/outputs/discover_normalisation/
+10  discover_multiome_arc_demultiplex  runtime/outputs/discover_multiome_arc_demultiplex/
+11  discover_joint_wnn_integration  runtime/outputs/discover_joint_wnn_integration/
+12  discover_differential_expression  runtime/outputs/discover_differential_expression/
+13  discover_differential_accessibility  runtime/outputs/discover_differential_accessibility/
+14  discover_clustering  runtime/outputs/discover_clustering/
+15  discover_cell_type_annotation  runtime/outputs/discover_cell_type_annotation/
+16  normalisation  runtime/outputs/normalisation/
+17  validate_normalisation  runtime/outputs/validate_normalisation/
+18  multiome_arc_demultiplex  runtime/outputs/multiome_arc_demultiplex/
+19  validate_multiome_arc_demultiplex  runtime/outputs/validate_multiome_arc_demultiplex/
+20  joint_wnn_integration  runtime/outputs/joint_wnn_integration/
+21  validate_joint_wnn_integration  runtime/outputs/validate_joint_wnn_integration/
+22  clustering  runtime/outputs/clustering/
+23  validate_clustering  runtime/outputs/validate_clustering/
+24  cell_type_annotation  runtime/outputs/cell_type_annotation/
+25  validate_cell_type_annotation  runtime/outputs/validate_cell_type_annotation/
+26  peak_to_gene_linking  runtime/outputs/peak_to_gene_linking/
+27  validate_peak_to_gene_linking  runtime/outputs/validate_peak_to_gene_linking/
+28  contextualize_findings_with_literature  runtime/outputs/contextualize_findings_with_literature/
+29  validate_contextualize_findings_with_literature  runtime/outputs/validate_contextualize_findings_with_literature/
+30  differential_expression  runtime/outputs/differential_expression/
+31  validate_differential_expression  runtime/outputs/validate_differential_expression/
+32  pathway_enrichment  runtime/outputs/pathway_enrichment/
+33  validate_pathway_enrichment  runtime/outputs/validate_pathway_enrichment/
+34  differential_accessibility  runtime/outputs/differential_accessibility/
+35  validate_differential_accessibility  runtime/outputs/validate_differential_accessibility/
+36  reporting  runtime/outputs/reporting/
+37  validate_reporting  runtime/outputs/validate_reporting/
+38  final_reporting  runtime/outputs/final_reporting/
+39  validate_final_reporting  runtime/outputs/validate_final_reporting/

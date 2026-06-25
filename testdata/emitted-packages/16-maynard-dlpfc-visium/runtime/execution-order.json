@@ -1,0 +1,155 @@
+{
+  "order": [
+    {
+      "index": 0,
+      "output_dir": "runtime/outputs/review_prior_work/",
+      "task_id": "review_prior_work"
+    },
+    {
+      "index": 1,
+      "output_dir": "runtime/outputs/validate_review_prior_work/",
+      "task_id": "validate_review_prior_work"
+    },
+    {
+      "index": 2,
+      "output_dir": "runtime/outputs/data_acquisition/",
+      "task_id": "data_acquisition"
+    },
+    {
+      "index": 3,
+      "output_dir": "runtime/outputs/validate_data_acquisition/",
+      "task_id": "validate_data_acquisition"
+    },
+    {
+      "index": 4,
+      "output_dir": "runtime/outputs/qc_preprocessing/",
+      "task_id": "qc_preprocessing"
+    },
+    {
+      "index": 5,
+      "output_dir": "runtime/outputs/validate_qc_preprocessing/",
+      "task_id": "validate_qc_preprocessing"
+    },
+    {
+      "index": 6,
+      "output_dir": "runtime/outputs/survey_method_landscape/",
+      "task_id": "survey_method_landscape"
+    },
+    {
+      "index": 7,
+      "output_dir": "runtime/outputs/discover_spatial_clustering_method/",
+      "task_id": "discover_spatial_clustering_method"
+    },
+    {
+      "index": 8,
+      "output_dir": "runtime/outputs/discover_normalisation/",
+      "task_id": "discover_normalisation"
+    },
+    {
+      "index": 9,
+      "output_dir": "runtime/outputs/discover_dimensionality_reduction/",
+      "task_id": "discover_dimensionality_reduction"
+    },
+    {
+      "index": 10,
+      "output_dir": "runtime/outputs/discover_differential_expression/",
+      "task_id": "discover_differential_expression"
+    },
+    {
+      "index": 11,
+      "output_dir": "runtime/outputs/discover_cell_type_annotation/",
+      "task_id": "discover_cell_type_annotation"
+    },
+    {
+      "index": 12,
+      "output_dir": "runtime/outputs/normalisation/",
+      "task_id": "normalisation"
+    },
+    {
+      "index": 13,
+      "output_dir": "runtime/outputs/validate_normalisation/",
+      "task_id": "validate_normalisation"
+    },
+    {
+      "index": 14,
+      "output_dir": "runtime/outputs/dimensionality_reduction/",
+      "task_id": "dimensionality_reduction"
+    },
+    {
+      "index": 15,
+      "output_dir": "runtime/outputs/validate_dimensionality_reduction/",
+      "task_id": "validate_dimensionality_reduction"
+    },
+    {
+      "index": 16,
+      "output_dir": "runtime/outputs/spatial_domain_segmentation/",
+      "task_id": "spatial_domain_segmentation"
+    },
+    {
+      "index": 17,
+      "output_dir": "runtime/outputs/validate_spatial_domain_segmentation/",
+      "task_id": "validate_spatial_domain_segmentation"
+    },
+    {
+      "index": 18,
+      "output_dir": "runtime/outputs/spatially_variable_genes/",
+      "task_id": "spatially_variable_genes"
+    },
+    {
+      "index": 19,
+      "output_dir": "runtime/outputs/validate_spatially_variable_genes/",
+      "task_id": "validate_spatially_variable_genes"
+    },
+    {
+      "index": 20,
+      "output_dir": "runtime/outputs/cell_type_annotation/",
+      "task_id": "cell_type_annotation"
+    },
+    {
+      "index": 21,
+      "output_dir": "runtime/outputs/validate_cell_type_annotation/",
+      "task_id": "validate_cell_type_annotation"
+    },
+    {
+      "index": 22,
+      "output_dir": "runtime/outputs/differential_expression/",
+      "task_id": "differential_expression"
+    },
+    {
+      "index": 23,
+      "output_dir": "runtime/outputs/validate_differential_expression/",
+      "task_id": "validate_differential_expression"
+    },
+    {
+      "index": 24,
+      "output_dir": "runtime/outputs/contextualize_findings_with_literature/",
+      "task_id": "contextualize_findings_with_literature"
+    },
+    {
+      "index": 25,
+      "output_dir": "runtime/outputs/validate_contextualize_findings_with_literature/",
+      "task_id": "validate_contextualize_findings_with_literature"
+    },
+    {
+      "index": 26,
+      "output_dir": "runtime/outputs/reporting/",
+      "task_id": "reporting"
+    },
+    {
+      "index": 27,
+      "output_dir": "runtime/outputs/validate_reporting/",
+      "task_id": "validate_reporting"
+    },
+    {
+      "index": 28,
+      "output_dir": "runtime/outputs/final_reporting/",
+      "task_id": "final_reporting"
+    },
+    {
+      "index": 29,
+      "output_dir": "runtime/outputs/validate_final_reporting/",
+      "task_id": "validate_final_reporting"
+    }
+  ],
+  "workflow_id": "workflow-0a939b95a12f"
+}

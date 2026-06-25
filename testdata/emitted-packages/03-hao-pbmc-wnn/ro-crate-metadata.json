@@ -1,7 +1,15 @@
 {
   "@context": [
     "https://w3id.org/ro/crate/1.1/context",
-    "https://w3id.org/ro/terms/workflow-run"
+    "https://w3id.org/ro/terms/workflow-run",
+    {
+      "evaluated_against": "https://w3id.org/ecaa/ns/0.2#evaluated_against",
+      "invariant_id": "https://w3id.org/ecaa/ns/0.2#invariantId",
+      "matchedArchetype": "https://w3id.org/ecaa/ns/0.2#matchedArchetype",
+      "rationale": "https://w3id.org/ecaa/ns/0.2#rationale",
+      "verdict": "https://w3id.org/ecaa/ns/0.2#verdict",
+      "wasGeneratedBy": "http://www.w3.org/ns/prov#wasGeneratedBy"
+    }
   ],
   "@graph": [
     {
@@ -18,15 +26,6 @@
           "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0"
         },
         {
-          "@id": "https://w3id.org/ro/wfrun/process/0.5"
-        },
-        {
-          "@id": "https://w3id.org/ro/wfrun/workflow/0.5"
-        },
-        {
-          "@id": "https://w3id.org/ro/wfrun/provenance/0.5"
-        },
-        {
           "@id": "https://w3id.org/ecaa/v0.2"
         }
       ]
@@ -34,9 +33,24 @@
     {
       "@id": "./",
       "@type": "Dataset",
-      "dateCreated": "2065-07-25T04:44:20+00:00",
+      "conformsTo": [
+        {
+          "@id": "https://w3id.org/ro/crate/1.1"
+        },
+        {
+          "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0"
+        },
+        {
+          "@id": "https://w3id.org/ecaa/v0.2"
+        }
+      ],
+      "dateCreated": "2026-01-01T00:00:00+00:00",
+      "datePublished": "2026-01-01T00:00:00+00:00",
       "description": "We want to recreate the Hao et al. 2021 Cell multimodal PBMC reference atlas. The dataset is GEO GSE164378: 161,764 cells from 10X 3' CITE-seq with 228 TotalSeq-A antibodies plus 49,147 cells from ECCITE-seq on 10X 5' with 54 antibodies, totalling 210,911 cells after QC and Cell Hashing-based doublet removal. The cohort is 8 healthy volunteers from an HIV vaccine trial sampled at 3 timepoints (day 0, day 3, day 7) post-VSV-vectored HIV vaccine = 24 samples.\n\nUse Seurat v4 in R as the implementation. Normalize RNA with SCTransform v2 and ADT with centered-log-ratio (CLR) across-cells. Anchor-based integration on the RNA modality across the 24 samples first to remove sample-of-origin clustering. Then 50 PCs on RNA, a separate PCA on ADT, and FindMultiModalNeighbors() for the WNN graph at k=20 -- modality weights are unsupervised, computed per cell with bandwidth-kernel softmax, and sum to 1.\n\nCluster with Leiden at a resolution that yields 57 fine-grained Level 3 clusters. Annotate hierarchically: 8 Level 1 broad categories, 30 Level 2 categories, 57 Level 3 fine-grained subsets.\n\nHeadline acceptance: recover 30 Level 2 and 57 Level 3 clusters with ARI >= 0.80 vs the published labels. Reproduce the panel minimization analysis (Fig 4C): single ADT marker enriches 45 of 57 clusters at 10-fold; 3-marker panel enriches 55 of 57.\n\nFor the CD8 memory T-cell heterogeneity finding, identify the bimodal CD49a / CD103 populations and confirm CD8 CD103+ cells express high surface integrin beta-7 (ITGB7) while CD8 CD49a+ do not.\n\nFor the TCR repertoire arm (5' ECCITE-seq), assemble TCR alpha/beta chains and identify expanded clones (cells sharing exact CDR3-alpha + CDR3-beta). Reproduce 16,060 distinct clones overall and 31 clones with >= 10 cells after excluding MAIT and invariant NKT cells.\n\nAs a cross-modality demo, also run the WNN code on the published 11,351-cell PBMC Multiome ATAC+RNA dataset and reproduce: RNA-only 984 incorrect CD8/CD4 edges, ATAC-only 373, WNN 322.\n\nReference is GRCh38 with the cellranger pre-built reference. No mechanistic claims -- descriptive multimodal cell-state atlas only.\n",
       "hasPart": [
+        {
+          "@id": "README.md"
+        },
         {
           "@id": "WORKFLOW.json"
         },
@@ -174,6 +188,7 @@
       "@id": "WORKFLOW.json",
       "@type": [
         "File",
+        "SoftwareSourceCode",
         "ComputationalWorkflow"
       ],
       "applicationSubCategory": {
@@ -334,6 +349,16 @@
       "name": "Subject Matter Expert (intake)"
     },
     {
+      "@id": "README.md",
+      "@type": "File",
+      "about": {
+        "@id": "./"
+      },
+      "description": "Human-readable entry point: what was asked, where the answer lands, a map of the package, and the re-run command.",
+      "encodingFormat": "text/markdown",
+      "name": "Package README — human landing page"
+    },
+    {
       "@id": "PROMPT.md",
       "@type": "File",
       "encodingFormat": "text/markdown",
@@ -446,6 +471,24 @@
       "description": "Schema-validation and external-validator rollup for emitted ECAA artifacts.",
       "encodingFormat": "application/json",
       "name": "ECAA emit-time validation summary"
+    },
+    {
+      "@id": "https://w3id.org/ro/crate/1.1",
+      "@type": "CreativeWork",
+      "name": "RO-Crate",
+      "version": "1.1"
+    },
+    {
+      "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0",
+      "@type": "CreativeWork",
+      "name": "Workflow RO-Crate Profile",
+      "version": "1.0"
+    },
+    {
+      "@id": "https://w3id.org/ecaa/v0.2",
+      "@type": "CreativeWork",
+      "name": "ECAA Conformance Profile",
+      "version": "0.2"
     },
     {
       "@id": "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id=9606",
@@ -667,14 +710,14 @@
       "@id": "#step-differential_expression",
       "@type": "HowToStep",
       "additionalType": "computation",
-      "name": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+      "name": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n\nRECORD-WHAT-YOU-DID (audit, not instruction): in result.json, write down the\nmodel you actually fit so it can be audited — this does NOT tell you which\nmodel/test to use, only to state your own choice. Record:\n  - design_formula: the model formula you fit (e.g. \"~ condition + sex + RIN\").\n  - response_variable: the model's outcome / left-hand side (the thing being\n    explained). For a contrast-based DE this is the expression/count response;\n    for a regression against an outcome it is that outcome variable.\n  - available_covariates: the covariate columns you observed in the sample\n    metadata (your honest list of what was available, e.g.\n    [\"condition\",\"sex\",\"age\",\"RIN\"]).\n  - primary_variable: the main comparison variable for the contrast (e.g.\n    \"condition\").\n  - stated_outcome: the SME's stated outcome for the task, when the task names\n    one (otherwise omit).\nThese are YOUR record of YOUR choices and of the data/task — a domain-correctness\ncontract checks them for internal + task consistency (e.g. the design adjusts\nfor an available covariate; the response matches the stated outcome). It never\nprescribes a model.\n",
       "position": 31
     },
     {
       "@id": "#step-validate_differential_expression",
       "@type": "HowToStep",
       "additionalType": "validation",
-      "name": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+      "name": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n\nRECORD-WHAT-YOU-DID (audit, not instruction): in result.json, write down the\nmodel you actually fit so it can be audited — this does NOT tell you which\nmodel/test to use, only to state your own choice. Record:\n  - design_formula: the model formula you fit (e.g. \"~ condition + sex + RIN\").\n  - response_variable: the model's outcome / left-hand side (the thing being\n    explained). For a contrast-based DE this is the expression/count response;\n    for a regression against an outcome it is that outcome variable.\n  - available_covariates: the covariate columns you observed in the sample\n    metadata (your honest list of what was available, e.g.\n    [\"condition\",\"sex\",\"age\",\"RIN\"]).\n  - primary_variable: the main comparison variable for the contrast (e.g.\n    \"condition\").\n  - stated_outcome: the SME's stated outcome for the task, when the task names\n    one (otherwise omit).\nThese are YOUR record of YOUR choices and of the data/task — a domain-correctness\ncontract checks them for internal + task consistency (e.g. the design adjusts\nfor an available covariate; the response matches the stated outcome). It never\nprescribes a model.\n",
       "position": 32
     },
     {

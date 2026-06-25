@@ -1,6 +1,6 @@
 {
   "ecaa_version": "0.2",
-  "evaluated_at": "2026-06-12T21:40:48.072306945+00:00",
+  "evaluated_at": "2026-06-25T14:20:22.899862359+00:00",
   "evaluator": {
     "impl": "ecaa-workflow-audit-proof",
     "policy": "warn-only",

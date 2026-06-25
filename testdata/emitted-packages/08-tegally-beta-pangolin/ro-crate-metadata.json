@@ -1,7 +1,15 @@
 {
   "@context": [
     "https://w3id.org/ro/crate/1.1/context",
-    "https://w3id.org/ro/terms/workflow-run"
+    "https://w3id.org/ro/terms/workflow-run",
+    {
+      "evaluated_against": "https://w3id.org/ecaa/ns/0.2#evaluated_against",
+      "invariant_id": "https://w3id.org/ecaa/ns/0.2#invariantId",
+      "matchedArchetype": "https://w3id.org/ecaa/ns/0.2#matchedArchetype",
+      "rationale": "https://w3id.org/ecaa/ns/0.2#rationale",
+      "verdict": "https://w3id.org/ecaa/ns/0.2#verdict",
+      "wasGeneratedBy": "http://www.w3.org/ns/prov#wasGeneratedBy"
+    }
   ],
   "@graph": [
     {
@@ -18,15 +26,6 @@
           "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0"
         },
         {
-          "@id": "https://w3id.org/ro/wfrun/process/0.5"
-        },
-        {
-          "@id": "https://w3id.org/ro/wfrun/workflow/0.5"
-        },
-        {
-          "@id": "https://w3id.org/ro/wfrun/provenance/0.5"
-        },
-        {
           "@id": "https://w3id.org/ecaa/v0.2"
         }
       ]
@@ -34,9 +33,24 @@
     {
       "@id": "./",
       "@type": "Dataset",
-      "dateCreated": "2053-05-06T20:50:57+00:00",
+      "conformsTo": [
+        {
+          "@id": "https://w3id.org/ro/crate/1.1"
+        },
+        {
+          "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0"
+        },
+        {
+          "@id": "https://w3id.org/ecaa/v0.2"
+        }
+      ],
+      "dateCreated": "2026-01-01T00:00:00+00:00",
+      "datePublished": "2026-01-01T00:00:00+00:00",
       "description": "We have a SARS-CoV-2 lineage-assignment task on the Tegally et al. 2021 Nature dataset of 341 South African genomes. Raw reads are on NCBI SRA under BioProject PRJNA694014; consensus genomes are on GISAID with EPI_ISL_* accessions listed in Tegally Suppl Table 2. The objective is to confirm that pangolin assigns these genomes to lineage B.1.351 (the Beta variant of concern) and recovers the defining spike-protein substitutions of B.1.351 at the expected positions.\n\nThe pipeline is the standard pangolin workflow described in O'Toole et al. 2021 Virus Evolution. Genomes are aligned with minimap2 against the Wuhan-Hu-1 reference NC_045512.2, trimmed to the coding region (positions 265 to 29,674), and 5' and 3' UTRs are masked as N. Genomes with greater than 5% ambiguous bases in the coding region are excluded from lineage assignment. The retained genomes are assigned a lineage by the pangoLEARN decision-tree model, with heuristic SNP-override rules layered on top for known variants of concern (specifically B.1.1.7 and B.1.351).\n\nThe acceptance criteria are: at least 320 of the 341 genomes pass the 95% completeness QC; at least 90% of the QC-passing genomes are called B.1.351 by pangolin; and the defining spike-protein changes of B.1.351 -- the seven nonsynonymous substitutions D80A, D215G, K417N, E484K, N501Y, A701V, L18F plus the delta-242-244 three-residue NTD deletion (LAL) -- are recovered in at least 90% of the B.1.351-called genomes. Per the published cross-validation, pangolin's recall should be at least 0.94 and F1 at least 0.95 across designation releases.\n\nThe pangolin tool version and the pangoLEARN model release date must both be recorded in the run manifest -- these are the two reproducibility anchors. Pin pangolin v2.3.2 with pangoLEARN release 10 May 2021. Reference genome is NC_045512.2 (GenBank canonical ID).\n\nOne additional output: recreate Tegally Fig 3d, the spike-trimer 3D structure with the eight defining changes (D80A, D215G, K417N, E484K, N501Y, A701V, L18F, delta-242-244) mapped onto the surface coloured by protein domain (NTD / RBD / S2). PDB 6VXX is the canonical pre-fusion closed trimer structure to use here (Walls et al. 2020, deposited Feb 2020, released March 2020); 6VYB is the matched open state and should not be substituted.\n\nNo claims about transmission dynamics or epidemiology -- purely lineage-assignment correctness on a static genome set.\n",
       "hasPart": [
+        {
+          "@id": "README.md"
+        },
         {
           "@id": "WORKFLOW.json"
         },
@@ -132,6 +146,7 @@
       "@id": "WORKFLOW.json",
       "@type": [
         "File",
+        "SoftwareSourceCode",
         "ComputationalWorkflow"
       ],
       "applicationSubCategory": {
@@ -256,6 +271,16 @@
       "name": "Subject Matter Expert (intake)"
     },
     {
+      "@id": "README.md",
+      "@type": "File",
+      "about": {
+        "@id": "./"
+      },
+      "description": "Human-readable entry point: what was asked, where the answer lands, a map of the package, and the re-run command.",
+      "encodingFormat": "text/markdown",
+      "name": "Package README — human landing page"
+    },
+    {
       "@id": "PROMPT.md",
       "@type": "File",
       "encodingFormat": "text/markdown",
@@ -368,6 +393,24 @@
       "description": "Schema-validation and external-validator rollup for emitted ECAA artifacts.",
       "encodingFormat": "application/json",
       "name": "ECAA emit-time validation summary"
+    },
+    {
+      "@id": "https://w3id.org/ro/crate/1.1",
+      "@type": "CreativeWork",
+      "name": "RO-Crate",
+      "version": "1.1"
+    },
+    {
+      "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0",
+      "@type": "CreativeWork",
+      "name": "Workflow RO-Crate Profile",
+      "version": "1.0"
+    },
+    {
+      "@id": "https://w3id.org/ecaa/v0.2",
+      "@type": "CreativeWork",
+      "name": "ECAA Conformance Profile",
+      "version": "0.2"
     },
     {
       "@id": "#step-review_prior_work",

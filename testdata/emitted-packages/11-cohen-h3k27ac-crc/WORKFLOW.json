@@ -1,5 +1,125 @@
 {
   "current_task": null,
+  "execution_order": [
+    "variant_calling_validate_final_reporting",
+    "variant_calling_review_prior_work",
+    "variant_calling_validate_review_prior_work",
+    "variant_calling_data_acquisition",
+    "variant_calling_validate_data_acquisition",
+    "variant_calling_raw_qc",
+    "variant_calling_validate_raw_qc",
+    "variant_calling_survey_method_landscape",
+    "variant_calling_discover_variant_filtering",
+    "variant_calling_discover_variant_calling",
+    "variant_calling_discover_variant_annotation",
+    "variant_calling_discover_sequence_trimming",
+    "variant_calling_discover_alignment",
+    "variant_calling_sequence_trimming",
+    "variant_calling_validate_sequence_trimming",
+    "variant_calling_alignment",
+    "variant_calling_variant_calling",
+    "variant_calling_variant_filtering",
+    "variant_calling_variant_annotation",
+    "variant_calling_validate_variant_annotation",
+    "variant_calling_contextualize_findings_with_literature",
+    "variant_calling_validate_contextualize_findings_with_literature",
+    "variant_calling_reporting",
+    "variant_calling_validate_reporting",
+    "variant_calling_validate_variant_filtering",
+    "variant_calling_validate_variant_calling",
+    "variant_calling_validate_alignment",
+    "chip_seq_validate_final_reporting",
+    "chip_seq_review_prior_work",
+    "chip_seq_validate_review_prior_work",
+    "chip_seq_data_acquisition",
+    "chip_seq_validate_data_acquisition",
+    "chip_seq_raw_qc",
+    "chip_seq_validate_raw_qc",
+    "chip_seq_survey_method_landscape",
+    "chip_seq_discover_sequence_trimming",
+    "chip_seq_discover_peak_calling",
+    "chip_seq_discover_peak_annotation",
+    "chip_seq_discover_motif_enrichment",
+    "chip_seq_discover_alignment",
+    "chip_seq_sequence_trimming",
+    "chip_seq_validate_sequence_trimming",
+    "chip_seq_alignment",
+    "chip_seq_validate_alignment",
+    "chip_seq_peak_calling",
+    "chip_seq_validate_peak_calling",
+    "chip_seq_peak_annotation",
+    "chip_seq_validate_peak_annotation",
+    "chip_seq_motif_enrichment",
+    "chip_seq_validate_motif_enrichment",
+    "chip_seq_contextualize_findings_with_literature",
+    "chip_seq_validate_contextualize_findings_with_literature",
+    "chip_seq_reporting",
+    "chip_seq_validate_reporting",
+    "bulk_rnaseq_validate_final_reporting",
+    "bulk_rnaseq_review_prior_work",
+    "bulk_rnaseq_validate_review_prior_work",
+    "bulk_rnaseq_data_acquisition",
+    "bulk_rnaseq_validate_data_acquisition",
+    "bulk_rnaseq_raw_qc",
+    "bulk_rnaseq_validate_raw_qc",
+    "bulk_rnaseq_survey_method_landscape",
+    "bulk_rnaseq_discover_sequence_trimming",
+    "bulk_rnaseq_discover_quantification",
+    "bulk_rnaseq_discover_pathway_enrichment",
+    "bulk_rnaseq_discover_normalisation",
+    "bulk_rnaseq_discover_differential_expression",
+    "bulk_rnaseq_discover_alignment",
+    "bulk_rnaseq_sequence_trimming",
+    "bulk_rnaseq_validate_sequence_trimming",
+    "bulk_rnaseq_alignment",
+    "bulk_rnaseq_validate_alignment",
+    "bulk_rnaseq_quantification",
+    "bulk_rnaseq_validate_quantification",
+    "bulk_rnaseq_qc_preprocessing",
+    "bulk_rnaseq_validate_qc_preprocessing",
+    "bulk_rnaseq_normalisation",
+    "bulk_rnaseq_validate_normalisation",
+    "bulk_rnaseq_differential_expression",
+    "bulk_rnaseq_validate_differential_expression",
+    "bulk_rnaseq_pathway_enrichment",
+    "bulk_rnaseq_validate_pathway_enrichment",
+    "bulk_rnaseq_contextualize_findings_with_literature",
+    "bulk_rnaseq_validate_contextualize_findings_with_literature",
+    "bulk_rnaseq_reporting",
+    "bulk_rnaseq_validate_reporting",
+    "atac_seq_validate_final_reporting",
+    "atac_seq_review_prior_work",
+    "atac_seq_validate_review_prior_work",
+    "atac_seq_data_acquisition",
+    "atac_seq_validate_data_acquisition",
+    "atac_seq_raw_qc",
+    "atac_seq_validate_raw_qc",
+    "atac_seq_survey_method_landscape",
+    "atac_seq_discover_sequence_trimming",
+    "atac_seq_discover_peak_calling",
+    "atac_seq_discover_peak_annotation",
+    "atac_seq_discover_motif_enrichment",
+    "atac_seq_discover_differential_accessibility",
+    "atac_seq_discover_alignment",
+    "atac_seq_sequence_trimming",
+    "atac_seq_validate_sequence_trimming",
+    "atac_seq_alignment",
+    "atac_seq_validate_alignment",
+    "atac_seq_peak_calling",
+    "atac_seq_validate_peak_calling",
+    "atac_seq_peak_annotation",
+    "atac_seq_validate_peak_annotation",
+    "atac_seq_motif_enrichment",
+    "atac_seq_validate_motif_enrichment",
+    "atac_seq_differential_accessibility",
+    "atac_seq_validate_differential_accessibility",
+    "atac_seq_contextualize_findings_with_literature",
+    "atac_seq_validate_contextualize_findings_with_literature",
+    "atac_seq_reporting",
+    "atac_seq_validate_reporting",
+    "multi_modal_thematic_comparison",
+    "final_reporting"
+  ],
   "meta": {
     "modality_id": "bulk_rnaseq",
     "modality_stratum": "transcriptomics",
@@ -15,7 +135,27 @@
         "atac_seq_sequence_trimming"
       ],
       "description": "Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
+      "edam_operation": "operation:3198",
+      "execution_index": 102,
+      "inputs": [
+        {
+          "edam_data": "data:2044",
+          "edam_format": "format:1930",
+          "name": "reads"
+        },
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "companion_in_1"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:0863",
+          "edam_format": "format:2572",
+          "name": "aligned_reads"
+        }
+      ],
       "resource_class": "memory_heavy",
       "source_atom_id": "alignment",
       "spec": {
@@ -41,7 +181,42 @@
         "atac_seq_review_prior_work"
       ],
       "description": "Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+      "edam_operation": "operation:0305",
+      "execution_index": 112,
+      "inputs": [
+        {
+          "edam_format": "format:3475",
+          "name": "analysis_findings"
+        },
+        {
+          "edam_data": "ecaax:literature_claims_matrix",
+          "edam_format": "format:3752",
+          "name": "prior_claims_matrix"
+        },
+        {
+          "edam_data": "data:1255",
+          "edam_format": "format:3003",
+          "name": "residual_in_2"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "ecaax:claims_evidence_matrix",
+          "edam_format": "format:3752",
+          "name": "claims_evidence_matrix"
+        },
+        {
+          "edam_data": "ecaax:literature_search_protocol",
+          "edam_format": "format:1196",
+          "name": "literature_search_protocol"
+        },
+        {
+          "edam_data": "ecaax:citation_verification_report",
+          "edam_format": "format:1196",
+          "name": "citation_verification_report"
+        }
+      ],
       "required_artifacts": [
         {
           "path": "claims_evidence_matrix.csv",
@@ -51,7 +226,9 @@
             "evidence_quote_substring_match",
             "redistributable_or_marked",
             "claim_row_has_finding_id",
-            "concordance_flag_in_closed_set"
+            "concordance_flag_in_closed_set",
+            "direction_supported_by_quote",
+            "gene_symbol_ensembl_consistent"
           ]
         },
         {
@@ -62,7 +239,9 @@
             "evidence_quote_substring_match",
             "redistributable_or_marked",
             "claim_row_has_finding_id",
-            "concordance_flag_in_closed_set"
+            "concordance_flag_in_closed_set",
+            "direction_supported_by_quote",
+            "gene_symbol_ensembl_consistent"
           ]
         }
       ],
@@ -90,7 +269,7 @@
       "source_atom_id": "contextualize_findings_with_literature",
       "spec": {
         "attributes": {
-          "claim_boundary": "This atom emits row-level concordance flags ONLY. Each row references one\nupstream finding (finding_id), zero or more prior PMIDs, and a closed-set\nconcordance flag whose semantics are: same_direction iff the prior's effect\ndirection matches the analysis effect direction AND both effect-size\nmagnitudes are >0; opposite_direction iff signs differ; no_prior_finding\niff zero prior rows for this entity in this tissue; unverifiable iff prior\nrows exist but their evidence_quote does not specify a direction. Do NOT\nintroduce composite or narrative claims. Do NOT generate paragraphs that\nthe upstream atom did not also generate row-wise.\n\nEVIDENCE GATING (MANDATORY; enforced by post-task validation): cite a prior\nPMID — and assert same_direction / opposite_direction / unverifiable — ONLY\nfor a PMID that has a DOWNLOADED evidence snapshot you can point to (a\nsnapshots/<sha256> file recorded in an evidence/manifest.json, either this\ntask's own or an upstream literature task's such as review_prior_work /\nsurvey_method_landscape). Before writing ANY PMID into\nclaims_evidence_matrix.csv, confirm it resolves to such a manifest entry; if it\ndoes not, DROP the citation and set that row to no_prior_finding (leave the\nprior PMID column empty). NEVER cite a PMID from memory, from the finding's\ngene/region/variant name, or one you have not actually retrieved — an\nunretrieved PMID is an unsupported claim and will block the workflow. Record\nevery PMID you DO cite as an entry in THIS task's evidence/manifest.json\n(reuse the upstream snapshot path) so downstream validation resolves it.\n"
+          "claim_boundary": "This atom emits row-level concordance flags ONLY. Each row references one\nupstream finding (finding_id), zero or more prior PMIDs, and a closed-set\nconcordance flag whose semantics are: same_direction iff the prior's effect\ndirection matches the analysis effect direction AND both effect-size\nmagnitudes are >0; opposite_direction iff signs differ; no_prior_finding\niff zero prior rows for this entity in this tissue; unverifiable iff prior\nrows exist but their evidence_quote does not specify a direction. Do NOT\nintroduce composite or narrative claims. Do NOT generate paragraphs that\nthe upstream atom did not also generate row-wise.\n\nEVIDENCE GATING (MANDATORY; enforced by post-task validation): cite a prior\nPMID — and assert same_direction / opposite_direction / unverifiable — ONLY\nfor a PMID that has a DOWNLOADED evidence snapshot you can point to (a\nsnapshots/<sha256> file recorded in an evidence/manifest.json, either this\ntask's own or an upstream literature task's such as review_prior_work /\nsurvey_method_landscape). Before writing ANY PMID into\nclaims_evidence_matrix.csv, confirm it resolves to such a manifest entry; if it\ndoes not, DROP the citation and set that row to no_prior_finding (leave the\nprior PMID column empty). NEVER cite a PMID from memory, from the finding's\ngene/region/variant name, or one you have not actually retrieved — an\nunretrieved PMID is an unsupported claim and will block the workflow. Record\nevery PMID you DO cite as an entry in THIS task's evidence/manifest.json\n(reuse the upstream snapshot path) so downstream validation resolves it.\n\nGene-identity rule (MANDATORY): gene symbols MUST be resolved to Ensembl IDs\nusing the run's pinned genome annotation (org.Hs.eg.db / biomaRt at the\npackage's Ensembl release), OR by joining on the Ensembl IDs already present\nin the upstream differential-expression table (de_results.tsv gene_id column).\nYou MUST NOT hardcode Ensembl IDs and you MUST NOT recall them from memory; do\nnot embed a literal symbol→Ensembl map in the script. You MUST NOT fall back to\na literal ID when a lookup fails — on lookup failure, mark the gene unresolved\nrather than guessing. Resolution goes through the pinned annotation/adapter or\nthe upstream table only. Every emitted finding_id must be an Ensembl ID that\nappears in the upstream DE table or is explicitly flagged absent. For every\ngene row, ALSO populate the `entity` column with that gene's HGNC symbol (and\nentity_kind = gene), carried straight from the same annotation join used for\nthe Ensembl id — so the independent gene-symbol↔Ensembl consistency check can\nconfirm the citation is attached to the right gene.\n"
         },
         "expected_artifacts": [
           "claims_evidence_matrix.csv",
@@ -108,7 +287,26 @@
       "assignee": "agent",
       "depends_on": [],
       "description": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "edam_operation": "operation:2422",
+      "execution_index": 89,
+      "inputs": [
+        {
+          "name": "accession_descriptors"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:2531",
+          "edam_format": "format:3475",
+          "name": "cohort_manifest"
+        },
+        {
+          "edam_data": "data:2044",
+          "edam_format": "format:1930",
+          "name": "raw_reads"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "data_acquisition",
       "spec": {
@@ -135,7 +333,26 @@
         "atac_seq_peak_calling"
       ],
       "description": "Test for differential chromatin accessibility between sample groups\nfrom ATAC-seq / CUT&RUN / CUT&Tag peak counts. DiffBind / DESeq2-on-\nconsensus-peaks / edgeR / csaw selected at runtime. Operates on a\nconsensus peak set produced by peak_calling; emits per-peak\ndifferential statistics (log2FC, p-value, FDR).\n",
+      "edam_operation": "operation:3223",
+      "execution_index": 110,
+      "inputs": [
+        {
+          "edam_data": "data:1255",
+          "edam_format": "format:3003",
+          "name": "peaks"
+        },
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "companion_in_1"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_format": "format:3475",
+          "name": "differential_peaks"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "differential_accessibility",
       "spec": {
@@ -170,9 +387,22 @@
         "atac_seq_survey_method_landscape"
       ],
       "description": "Discover method for alignment (options: star, hisat2, bwa_mem2, bwa_mem, minimap2, bowtie2). Surface set_intake_method.",
+      "execution_index": 99,
+      "inputs": [
+        {
+          "edam_data": "ecaax:method_landscape_matrix",
+          "name": "companion_in_0"
+        }
+      ],
       "kind": {
         "discovery": "best_practice"
       },
+      "outputs": [
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "method_recommendation"
+        }
+      ],
       "requires_sme_review": true,
       "resource_class": "cpu_heavy",
       "source_atom_id": "discover_alignment",
@@ -193,9 +423,22 @@
         "atac_seq_survey_method_landscape"
       ],
       "description": "Discover method for differential_accessibility (options: diffbind, deseq2, edger, csaw). Surface set_intake_method.",
+      "execution_index": 98,
+      "inputs": [
+        {
+          "edam_data": "ecaax:method_landscape_matrix",
+          "name": "companion_in_0"
+        }
+      ],
       "kind": {
         "discovery": "best_practice"
       },
+      "outputs": [
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "method_recommendation"
+        }
+      ],
       "requires_sme_review": true,
       "resource_class": "cpu_heavy",
       "source_atom_id": "discover_differential_accessibility",
@@ -212,9 +455,22 @@
         "atac_seq_survey_method_landscape"
       ],
       "description": "Discover method for motif_enrichment (options: homer_findmotifsgenome, meme_chip, monalisa). Surface set_intake_method.",
+      "execution_index": 97,
+      "inputs": [
+        {
+          "edam_data": "ecaax:method_landscape_matrix",
+          "name": "companion_in_0"
+        }
+      ],
       "kind": {
         "discovery": "best_practice"
       },
+      "outputs": [
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "method_recommendation"
+        }
+      ],
       "requires_sme_review": true,
       "resource_class": "cpu_heavy",
       "source_atom_id": "discover_motif_enrichment",
@@ -231,9 +487,22 @@
         "atac_seq_survey_method_landscape"
       ],
       "description": "Discover method for peak_annotation (options: chipseeker, homer_annotatepeaks, great). Surface set_intake_method.",
+      "execution_index": 96,
+      "inputs": [
+        {
+          "edam_data": "ecaax:method_landscape_matrix",
+          "name": "companion_in_0"
+        }
+      ],
       "kind": {
         "discovery": "best_practice"
       },
+      "outputs": [
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "method_recommendation"
+        }
+      ],
       "requires_sme_review": true,
       "resource_class": "cpu_heavy",
       "source_atom_id": "discover_peak_annotation",
@@ -250,9 +519,22 @@
         "atac_seq_survey_method_landscape"
       ],
       "description": "Discover method for peak_calling (options: macs2, macs3, seacr, genrich). Surface set_intake_method.",
+      "execution_index": 95,
+      "inputs": [
+        {
+          "edam_data": "ecaax:method_landscape_matrix",
+          "name": "companion_in_0"
+        }
+      ],
       "kind": {
         "discovery": "best_practice"
       },
+      "outputs": [
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "method_recommendation"
+        }
+      ],
       "requires_sme_review": true,
       "resource_class": "cpu_heavy",
       "source_atom_id": "discover_peak_calling",
@@ -273,9 +555,22 @@
         "atac_seq_survey_method_landscape"
       ],
       "description": "Discover method for sequence_trimming (options: trimmomatic, cutadapt, fastp, trim_galore). Surface set_intake_method.",
+      "execution_index": 94,
+      "inputs": [
+        {
+          "edam_data": "ecaax:method_landscape_matrix",
+          "name": "companion_in_0"
+        }
+      ],
       "kind": {
         "discovery": "best_practice"
       },
+      "outputs": [
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "method_recommendation"
+        }
+      ],
       "requires_sme_review": true,
       "resource_class": "cpu_heavy",
       "source_atom_id": "discover_sequence_trimming",
@@ -293,7 +588,26 @@
         "atac_seq_peak_calling"
       ],
       "description": "Identify enriched DNA-binding motifs in a peak set. HOMER\nfindMotifsGenome.pl / MEME-ChIP / monaLisa selected at runtime by\norganism + reference. Outputs a ranked motif table (motif id, family,\np-value, fold enrichment) plus per-peak occurrence calls.\n",
+      "edam_operation": "operation:0238",
+      "execution_index": 108,
+      "inputs": [
+        {
+          "edam_data": "data:1255",
+          "edam_format": "format:3003",
+          "name": "peaks"
+        },
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "companion_in_1"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_format": "format:3475",
+          "name": "enriched_motifs"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "motif_enrichment",
       "spec": {
@@ -328,7 +642,26 @@
         "atac_seq_peak_calling"
       ],
       "description": "Annotate called peaks (ChIP-seq narrow / broad, ATAC-seq accessible\nregions, CUT&RUN / CUT&Tag enriched intervals) to the nearest gene\nand overlapping genomic feature (promoter, exon, intron, UTR,\nintergenic). ChIPseeker / HOMER annotatePeaks.pl / GREAT selected at\nruntime by organism + reference build. Emits a per-peak annotation\ntable with distance-to-TSS, nearest-gene id/symbol, and feature class.\n",
+      "edam_operation": "operation:2436",
+      "execution_index": 106,
+      "inputs": [
+        {
+          "edam_data": "data:1255",
+          "edam_format": "format:3003",
+          "name": "peaks"
+        },
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "companion_in_1"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_format": "format:3475",
+          "name": "annotated_peaks"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "peak_annotation",
       "spec": {
@@ -362,7 +695,27 @@
         "atac_seq_discover_peak_calling"
       ],
       "description": "Identify regions of significant read enrichment from ChIP-seq / ATAC-seq /\nCUT&RUN alignments. MACS2 / MACS3 / SEACR / Genrich selected at runtime\nby mark type (narrow / broad).\n",
+      "edam_operation": "operation:3222",
+      "execution_index": 104,
+      "inputs": [
+        {
+          "edam_data": "data:0863",
+          "edam_format": "format:2572",
+          "name": "aligned_reads"
+        },
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "companion_in_1"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:1255",
+          "edam_format": "format:3003",
+          "name": "peaks"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "peak_calling",
       "spec": {
@@ -397,7 +750,23 @@
         "atac_seq_data_acquisition"
       ],
       "description": "Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
+      "edam_operation": "operation:3218",
+      "execution_index": 91,
+      "inputs": [
+        {
+          "edam_data": "data:2044",
+          "edam_format": "format:1930",
+          "name": "raw_reads"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:2914",
+          "edam_format": "format:3475",
+          "name": "qc_metrics"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "raw_qc",
       "spec": {
@@ -428,7 +797,27 @@
         "atac_seq_peak_calling"
       ],
       "description": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "edam_operation": "operation:0337",
+      "execution_index": 114,
+      "inputs": [
+        {
+          "edam_format": "format:3464",
+          "name": "aggregated_results"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:2048",
+          "edam_format": "format:2331",
+          "name": "report_html"
+        },
+        {
+          "edam_data": "data:2048",
+          "edam_format": "format:3508",
+          "name": "report_pdf"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "reporting",
       "spec": {
@@ -451,7 +840,33 @@
       "assignee": "agent",
       "depends_on": [],
       "description": "Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "edam_operation": "operation:0305",
+      "execution_index": 87,
+      "inputs": [
+        {
+          "edam_data": "topic:3678",
+          "edam_format": "format:3464",
+          "name": "intake_facts"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "ecaax:literature_claims_matrix",
+          "edam_format": "format:3752",
+          "name": "prior_claims_matrix"
+        },
+        {
+          "edam_data": "ecaax:literature_search_protocol",
+          "edam_format": "format:1196",
+          "name": "literature_search_protocol"
+        },
+        {
+          "edam_data": "ecaax:citation_verification_report",
+          "edam_format": "format:1196",
+          "name": "citation_verification_report"
+        }
+      ],
       "required_artifacts": [
         {
           "path": "prior_claims_matrix.csv",
@@ -532,7 +947,32 @@
         "atac_seq_raw_qc"
       ],
       "description": "Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
+      "edam_operation": "operation:3192",
+      "execution_index": 100,
+      "inputs": [
+        {
+          "edam_data": "data:2044",
+          "edam_format": "format:1930",
+          "name": "raw_reads"
+        },
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "companion_in_1"
+        },
+        {
+          "edam_data": "data:2914",
+          "edam_format": "format:3475",
+          "name": "residual_in_2"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:2044",
+          "edam_format": "format:1930",
+          "name": "trimmed_reads"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "sequence_trimming",
       "spec": {
@@ -565,7 +1005,27 @@
         "atac_seq_raw_qc"
       ],
       "description": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. When the task carries\nan attributes.goal_context (the SME analysis goal), treat it as RETRIEVAL\nSCOPE — gather candidate methods + evidence relevant to that goal (e.g. a\nlow-allele-frequency / heteroplasmy detection goal widens retrieval toward\nAF-window-aware candidates). This conditions WHAT is retrieved only; it is\nnever a ranking or recommendation instruction. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
+      "edam_operation": "operation:0305",
+      "execution_index": 93,
+      "inputs": [
+        {
+          "edam_data": "data:2531",
+          "edam_format": "format:3475",
+          "name": "companion_in_0"
+        },
+        {
+          "edam_data": "data:2914",
+          "edam_format": "format:3475",
+          "name": "companion_in_1"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "ecaax:method_landscape_matrix",
+          "name": "method_landscape"
+        }
+      ],
       "required_artifacts": [
         {
           "path": "method_landscape.csv",
@@ -639,6 +1099,14 @@
         "atac_seq_alignment"
       ],
       "description": "Validate outputs of: Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
+      "execution_index": 103,
+      "inputs": [
+        {
+          "edam_data": "data:0863",
+          "edam_format": "format:2572",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_alignment",
@@ -652,6 +1120,14 @@
         "atac_seq_contextualize_findings_with_literature"
       ],
       "description": "Validate outputs of: Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+      "execution_index": 113,
+      "inputs": [
+        {
+          "edam_data": "ecaax:claims_evidence_matrix",
+          "edam_format": "format:3752",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_contextualize_findings_with_literature",
@@ -665,6 +1141,14 @@
         "atac_seq_data_acquisition"
       ],
       "description": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "execution_index": 90,
+      "inputs": [
+        {
+          "edam_data": "data:2531",
+          "edam_format": "format:3475",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_data_acquisition",
@@ -678,6 +1162,13 @@
         "atac_seq_differential_accessibility"
       ],
       "description": "Validate outputs of: Test for differential chromatin accessibility between sample groups\nfrom ATAC-seq / CUT&RUN / CUT&Tag peak counts. DiffBind / DESeq2-on-\nconsensus-peaks / edgeR / csaw selected at runtime. Operates on a\nconsensus peak set produced by peak_calling; emits per-peak\ndifferential statistics (log2FC, p-value, FDR).\n",
+      "execution_index": 111,
+      "inputs": [
+        {
+          "edam_format": "format:3475",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_differential_accessibility",
@@ -689,6 +1180,13 @@
       "assignee": "agent",
       "depends_on": [],
       "description": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "execution_index": 86,
+      "inputs": [
+        {
+          "edam_format": "format:2331",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_final_reporting",
@@ -702,6 +1200,13 @@
         "atac_seq_motif_enrichment"
       ],
       "description": "Validate outputs of: Identify enriched DNA-binding motifs in a peak set. HOMER\nfindMotifsGenome.pl / MEME-ChIP / monaLisa selected at runtime by\norganism + reference. Outputs a ranked motif table (motif id, family,\np-value, fold enrichment) plus per-peak occurrence calls.\n",
+      "execution_index": 109,
+      "inputs": [
+        {
+          "edam_format": "format:3475",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_motif_enrichment",
@@ -715,6 +1220,13 @@
         "atac_seq_peak_annotation"
       ],
       "description": "Validate outputs of: Annotate called peaks (ChIP-seq narrow / broad, ATAC-seq accessible\nregions, CUT&RUN / CUT&Tag enriched intervals) to the nearest gene\nand overlapping genomic feature (promoter, exon, intron, UTR,\nintergenic). ChIPseeker / HOMER annotatePeaks.pl / GREAT selected at\nruntime by organism + reference build. Emits a per-peak annotation\ntable with distance-to-TSS, nearest-gene id/symbol, and feature class.\n",
+      "execution_index": 107,
+      "inputs": [
+        {
+          "edam_format": "format:3475",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_peak_annotation",
@@ -728,6 +1240,14 @@
         "atac_seq_peak_calling"
       ],
       "description": "Validate outputs of: Identify regions of significant read enrichment from ChIP-seq / ATAC-seq /\nCUT&RUN alignments. MACS2 / MACS3 / SEACR / Genrich selected at runtime\nby mark type (narrow / broad).\n",
+      "execution_index": 105,
+      "inputs": [
+        {
+          "edam_data": "data:1255",
+          "edam_format": "format:3003",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_peak_calling",
@@ -741,6 +1261,14 @@
         "atac_seq_raw_qc"
       ],
       "description": "Validate outputs of: Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
+      "execution_index": 92,
+      "inputs": [
+        {
+          "edam_data": "data:2914",
+          "edam_format": "format:3475",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_raw_qc",
@@ -754,6 +1282,14 @@
         "atac_seq_reporting"
       ],
       "description": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "execution_index": 115,
+      "inputs": [
+        {
+          "edam_data": "data:2048",
+          "edam_format": "format:2331",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_reporting",
@@ -767,6 +1303,14 @@
         "atac_seq_review_prior_work"
       ],
       "description": "Validate outputs of: Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "execution_index": 88,
+      "inputs": [
+        {
+          "edam_data": "ecaax:literature_claims_matrix",
+          "edam_format": "format:3752",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_review_prior_work",
@@ -780,6 +1324,14 @@
         "atac_seq_sequence_trimming"
       ],
       "description": "Validate outputs of: Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
+      "execution_index": 101,
+      "inputs": [
+        {
+          "edam_data": "data:2044",
+          "edam_format": "format:1930",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_sequence_trimming",
@@ -794,7 +1346,27 @@
         "bulk_rnaseq_sequence_trimming"
       ],
       "description": "Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
+      "edam_operation": "operation:3198",
+      "execution_index": 70,
+      "inputs": [
+        {
+          "edam_data": "data:2044",
+          "edam_format": "format:1930",
+          "name": "reads"
+        },
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "companion_in_1"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:0863",
+          "edam_format": "format:2572",
+          "name": "aligned_reads"
+        }
+      ],
       "resource_class": "memory_heavy",
       "source_atom_id": "alignment",
       "spec": {
@@ -820,7 +1392,42 @@
         "bulk_rnaseq_review_prior_work"
       ],
       "description": "Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+      "edam_operation": "operation:0305",
+      "execution_index": 82,
+      "inputs": [
+        {
+          "edam_format": "format:3475",
+          "name": "analysis_findings"
+        },
+        {
+          "edam_data": "ecaax:literature_claims_matrix",
+          "edam_format": "format:3752",
+          "name": "prior_claims_matrix"
+        },
+        {
+          "edam_data": "data:3134",
+          "edam_format": "format:3475",
+          "name": "residual_in_2"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "ecaax:claims_evidence_matrix",
+          "edam_format": "format:3752",
+          "name": "claims_evidence_matrix"
+        },
+        {
+          "edam_data": "ecaax:literature_search_protocol",
+          "edam_format": "format:1196",
+          "name": "literature_search_protocol"
+        },
+        {
+          "edam_data": "ecaax:citation_verification_report",
+          "edam_format": "format:1196",
+          "name": "citation_verification_report"
+        }
+      ],
       "required_artifacts": [
         {
           "path": "claims_evidence_matrix.csv",
@@ -830,7 +1437,9 @@
             "evidence_quote_substring_match",
             "redistributable_or_marked",
             "claim_row_has_finding_id",
-            "concordance_flag_in_closed_set"
+            "concordance_flag_in_closed_set",
+            "direction_supported_by_quote",
+            "gene_symbol_ensembl_consistent"
           ]
         },
         {
@@ -841,7 +1450,9 @@
             "evidence_quote_substring_match",
             "redistributable_or_marked",
             "claim_row_has_finding_id",
-            "concordance_flag_in_closed_set"
+            "concordance_flag_in_closed_set",
+            "direction_supported_by_quote",
+            "gene_symbol_ensembl_consistent"
           ]
         }
       ],
@@ -869,7 +1480,7 @@
       "source_atom_id": "contextualize_findings_with_literature",
       "spec": {
         "attributes": {
-          "claim_boundary": "This atom emits row-level concordance flags ONLY. Each row references one\nupstream finding (finding_id), zero or more prior PMIDs, and a closed-set\nconcordance flag whose semantics are: same_direction iff the prior's effect\ndirection matches the analysis effect direction AND both effect-size\nmagnitudes are >0; opposite_direction iff signs differ; no_prior_finding\niff zero prior rows for this entity in this tissue; unverifiable iff prior\nrows exist but their evidence_quote does not specify a direction. Do NOT\nintroduce composite or narrative claims. Do NOT generate paragraphs that\nthe upstream atom did not also generate row-wise.\n\nEVIDENCE GATING (MANDATORY; enforced by post-task validation): cite a prior\nPMID — and assert same_direction / opposite_direction / unverifiable — ONLY\nfor a PMID that has a DOWNLOADED evidence snapshot you can point to (a\nsnapshots/<sha256> file recorded in an evidence/manifest.json, either this\ntask's own or an upstream literature task's such as review_prior_work /\nsurvey_method_landscape). Before writing ANY PMID into\nclaims_evidence_matrix.csv, confirm it resolves to such a manifest entry; if it\ndoes not, DROP the citation and set that row to no_prior_finding (leave the\nprior PMID column empty). NEVER cite a PMID from memory, from the finding's\ngene/region/variant name, or one you have not actually retrieved — an\nunretrieved PMID is an unsupported claim and will block the workflow. Record\nevery PMID you DO cite as an entry in THIS task's evidence/manifest.json\n(reuse the upstream snapshot path) so downstream validation resolves it.\n"
+          "claim_boundary": "This atom emits row-level concordance flags ONLY. Each row references one\nupstream finding (finding_id), zero or more prior PMIDs, and a closed-set\nconcordance flag whose semantics are: same_direction iff the prior's effect\ndirection matches the analysis effect direction AND both effect-size\nmagnitudes are >0; opposite_direction iff signs differ; no_prior_finding\niff zero prior rows for this entity in this tissue; unverifiable iff prior\nrows exist but their evidence_quote does not specify a direction. Do NOT\nintroduce composite or narrative claims. Do NOT generate paragraphs that\nthe upstream atom did not also generate row-wise.\n\nEVIDENCE GATING (MANDATORY; enforced by post-task validation): cite a prior\nPMID — and assert same_direction / opposite_direction / unverifiable — ONLY\nfor a PMID that has a DOWNLOADED evidence snapshot you can point to (a\nsnapshots/<sha256> file recorded in an evidence/manifest.json, either this\ntask's own or an upstream literature task's such as review_prior_work /\nsurvey_method_landscape). Before writing ANY PMID into\nclaims_evidence_matrix.csv, confirm it resolves to such a manifest entry; if it\ndoes not, DROP the citation and set that row to no_prior_finding (leave the\nprior PMID column empty). NEVER cite a PMID from memory, from the finding's\ngene/region/variant name, or one you have not actually retrieved — an\nunretrieved PMID is an unsupported claim and will block the workflow. Record\nevery PMID you DO cite as an entry in THIS task's evidence/manifest.json\n(reuse the upstream snapshot path) so downstream validation resolves it.\n\nGene-identity rule (MANDATORY): gene symbols MUST be resolved to Ensembl IDs\nusing the run's pinned genome annotation (org.Hs.eg.db / biomaRt at the\npackage's Ensembl release), OR by joining on the Ensembl IDs already present\nin the upstream differential-expression table (de_results.tsv gene_id column).\nYou MUST NOT hardcode Ensembl IDs and you MUST NOT recall them from memory; do\nnot embed a literal symbol→Ensembl map in the script. You MUST NOT fall back to\na literal ID when a lookup fails — on lookup failure, mark the gene unresolved\nrather than guessing. Resolution goes through the pinned annotation/adapter or\nthe upstream table only. Every emitted finding_id must be an Ensembl ID that\nappears in the upstream DE table or is explicitly flagged absent. For every\ngene row, ALSO populate the `entity` column with that gene's HGNC symbol (and\nentity_kind = gene), carried straight from the same annotation join used for\nthe Ensembl id — so the independent gene-symbol↔Ensembl consistency check can\nconfirm the citation is attached to the right gene.\n"
         },
         "expected_artifacts": [
           "claims_evidence_matrix.csv",
@@ -887,7 +1498,26 @@
       "assignee": "agent",
       "depends_on": [],
       "description": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "edam_operation": "operation:2422",
+      "execution_index": 57,
+      "inputs": [
+        {
+          "name": "accession_descriptors"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:2531",
+          "edam_format": "format:3475",
+          "name": "cohort_manifest"
+        },
+        {
+          "edam_data": "data:2044",
+          "edam_format": "format:1930",
+          "name": "raw_reads"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "data_acquisition",
       "spec": {
@@ -913,8 +1543,33 @@
         "bulk_rnaseq_discover_differential_expression",
         "bulk_rnaseq_normalisation"
       ],
-      "description": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+      "description": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n\nRECORD-WHAT-YOU-DID (audit, not instruction): in result.json, write down the\nmodel you actually fit so it can be audited — this does NOT tell you which\nmodel/test to use, only to state your own choice. Record:\n  - design_formula: the model formula you fit (e.g. \"~ condition + sex + RIN\").\n  - response_variable: the model's outcome / left-hand side (the thing being\n    explained). For a contrast-based DE this is the expression/count response;\n    for a regression against an outcome it is that outcome variable.\n  - available_covariates: the covariate columns you observed in the sample\n    metadata (your honest list of what was available, e.g.\n    [\"condition\",\"sex\",\"age\",\"RIN\"]).\n  - primary_variable: the main comparison variable for the contrast (e.g.\n    \"condition\").\n  - stated_outcome: the SME's stated outcome for the task, when the task names\n    one (otherwise omit).\nThese are YOUR record of YOUR choices and of the data/task — a domain-correctness\ncontract checks them for internal + task consistency (e.g. the design adjusts\nfor an available covariate; the response matches the stated outcome). It never\nprescribes a model.\n",
+      "edam_operation": "operation:3223",
+      "execution_index": 78,
+      "inputs": [
+        {
+          "edam_data": "data:3917",
+          "edam_format": "format:3475",
+          "name": "normalized_counts"
+        },
+        {
+          "edam_data": "topic:3678",
+          "edam_format": "format:3464",
+          "name": "experimental_design"
+        },
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "companion_in_2"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:3134",
+          "edam_format": "format:3475",
+          "name": "de_results"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "differential_expression",
       "spec": {
@@ -926,7 +1581,8 @@
             "mast",
             "wilcoxon"
           ],
-          "claim_boundary": "Differential expression is statistical association, not biological causation.\nReport effect-size + adjusted p-value + the reference factor level for every\ncontrast. Avoid mechanistic language; prefer \"associated with\" / \"enriched in\"\nover \"drives\" / \"causes\".\n"
+          "claim_boundary": "Differential expression is statistical association, not biological causation.\nReport effect-size + adjusted p-value + the reference factor level for every\ncontrast. Avoid mechanistic language; prefer \"associated with\" / \"enriched in\"\nover \"drives\" / \"causes\".\n",
+          "measurement_script": "measure_de_effect_size.py"
         },
         "expected_artifacts": [
           "de_results.tsv",
@@ -950,9 +1606,22 @@
         "bulk_rnaseq_survey_method_landscape"
       ],
       "description": "Discover method for alignment (options: star, hisat2, bwa_mem2, bwa_mem, minimap2, bowtie2). Surface set_intake_method.",
+      "execution_index": 67,
+      "inputs": [
+        {
+          "edam_data": "ecaax:method_landscape_matrix",
+          "name": "companion_in_0"
+        }
+      ],
       "kind": {
         "discovery": "best_practice"
       },
+      "outputs": [
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "method_recommendation"
+        }
+      ],
       "requires_sme_review": true,
       "resource_class": "cpu_heavy",
       "source_atom_id": "discover_alignment",
@@ -973,9 +1642,22 @@
         "bulk_rnaseq_survey_method_landscape"
       ],
       "description": "Discover method for differential_expression (options: deseq2, edger, limma_voom, mast, wilcoxon). Surface set_intake_method.",
+      "execution_index": 66,
+      "inputs": [
+        {
+          "edam_data": "ecaax:method_landscape_matrix",
+          "name": "companion_in_0"
+        }
+      ],
       "kind": {
         "discovery": "best_practice"
       },
+      "outputs": [
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "method_recommendation"
+        }
+      ],
       "requires_sme_review": true,
       "resource_class": "cpu_heavy",
       "source_atom_id": "discover_differential_expression",
@@ -996,9 +1678,22 @@
         "bulk_rnaseq_survey_method_landscape"
       ],
       "description": "Discover method for normalisation (options: deseq2_vst, edger_tmm, scran, seurat_lognormalize, sctransform). Surface set_intake_method.",
+      "execution_index": 65,
+      "inputs": [
+        {
+          "edam_data": "ecaax:method_landscape_matrix",
+          "name": "companion_in_0"
+        }
+      ],
       "kind": {
         "discovery": "best_practice"
       },
+      "outputs": [
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "method_recommendation"
+        }
+      ],
       "requires_sme_review": true,
       "resource_class": "cpu_heavy",
       "source_atom_id": "discover_normalisation",
@@ -1015,9 +1710,22 @@
         "bulk_rnaseq_survey_method_landscape"
       ],
       "description": "Discover method for pathway_enrichment (options: fgsea, clusterprofiler, gsea, enrichr). Surface set_intake_method.",
+      "execution_index": 64,
+      "inputs": [
+        {
+          "edam_data": "ecaax:method_landscape_matrix",
+          "name": "companion_in_0"
+        }
+      ],
       "kind": {
         "discovery": "best_practice"
       },
+      "outputs": [
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "method_recommendation"
+        }
+      ],
       "requires_sme_review": true,
       "resource_class": "cpu_heavy",
       "source_atom_id": "discover_pathway_enrichment",
@@ -1034,9 +1742,22 @@
         "bulk_rnaseq_survey_method_landscape"
       ],
       "description": "Discover method for quantification (options: salmon, kallisto, featurecounts, htseq, rsem). Surface set_intake_method.",
+      "execution_index": 63,
+      "inputs": [
+        {
+          "edam_data": "ecaax:method_landscape_matrix",
+          "name": "companion_in_0"
+        }
+      ],
       "kind": {
         "discovery": "best_practice"
       },
+      "outputs": [
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "method_recommendation"
+        }
+      ],
       "requires_sme_review": true,
       "resource_class": "cpu_heavy",
       "source_atom_id": "discover_quantification",
@@ -1057,9 +1778,22 @@
         "bulk_rnaseq_survey_method_landscape"
       ],
       "description": "Discover method for sequence_trimming (options: trimmomatic, cutadapt, fastp, trim_galore). Surface set_intake_method.",
+      "execution_index": 62,
+      "inputs": [
+        {
+          "edam_data": "ecaax:method_landscape_matrix",
+          "name": "companion_in_0"
+        }
+      ],
       "kind": {
         "discovery": "best_practice"
       },
+      "outputs": [
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "method_recommendation"
+        }
+      ],
       "requires_sme_review": true,
       "resource_class": "cpu_heavy",
       "source_atom_id": "discover_sequence_trimming",
@@ -1077,7 +1811,27 @@
         "bulk_rnaseq_qc_preprocessing"
       ],
       "description": "Standardise expression values to remove library-size and composition biases.\nMethod neutrality: DESeq2 VST / edgeR TMM / scran pooling / Seurat\nLogNormalize / scnorm / sctransform are selected at runtime.\n",
+      "edam_operation": "operation:3435",
+      "execution_index": 76,
+      "inputs": [
+        {
+          "edam_data": "data:3917",
+          "edam_format": "format:3475",
+          "name": "count_matrix"
+        },
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "companion_in_1"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:3917",
+          "edam_format": "format:3475",
+          "name": "normalized_counts"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "normalisation",
       "spec": {
@@ -1113,7 +1867,37 @@
         "bulk_rnaseq_discover_pathway_enrichment"
       ],
       "description": "Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
+      "edam_operation": "operation:2436",
+      "execution_index": 80,
+      "inputs": [
+        {
+          "edam_data": "data:0951",
+          "edam_format": "format:3475",
+          "name": "ranked_de_results"
+        },
+        {
+          "edam_data": "data:2600",
+          "edam_format": "format:3475",
+          "name": "gene_set_collection"
+        },
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "companion_in_2"
+        },
+        {
+          "edam_data": "data:3134",
+          "edam_format": "format:3475",
+          "name": "residual_in_3"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:0960",
+          "edam_format": "format:3475",
+          "name": "pathway_results"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "pathway_enrichment",
       "spec": {
@@ -1147,7 +1931,22 @@
         "bulk_rnaseq_quantification"
       ],
       "description": "Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
+      "edam_operation": "ecaax:scrnaseq_cell_qc",
+      "execution_index": 74,
+      "inputs": [
+        {
+          "edam_data": "data:3917",
+          "edam_format": "format:3475",
+          "name": "count_matrix"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_format": "format:3590",
+          "name": "filtered_count_matrix"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "qc_preprocessing",
       "spec": {
@@ -1175,7 +1974,27 @@
         "bulk_rnaseq_discover_quantification"
       ],
       "description": "Quantify gene- or transcript-level expression from aligned reads. Method\nneutrality: featureCounts / HTSeq / Salmon / kallisto / RSEM are selected\nat runtime. Emits a count matrix consumed by downstream normalisation.\n",
+      "edam_operation": "operation:3800",
+      "execution_index": 72,
+      "inputs": [
+        {
+          "edam_data": "data:0863",
+          "edam_format": "format:2572",
+          "name": "aligned_reads"
+        },
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "companion_in_1"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:3917",
+          "edam_format": "format:3475",
+          "name": "count_matrix"
+        }
+      ],
       "resource_class": "memory_heavy",
       "source_atom_id": "quantification",
       "spec": {
@@ -1199,7 +2018,23 @@
         "bulk_rnaseq_data_acquisition"
       ],
       "description": "Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
+      "edam_operation": "operation:3218",
+      "execution_index": 59,
+      "inputs": [
+        {
+          "edam_data": "data:2044",
+          "edam_format": "format:1930",
+          "name": "raw_reads"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:2914",
+          "edam_format": "format:3475",
+          "name": "qc_metrics"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "raw_qc",
       "spec": {
@@ -1228,7 +2063,27 @@
         "bulk_rnaseq_pathway_enrichment"
       ],
       "description": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "edam_operation": "operation:0337",
+      "execution_index": 84,
+      "inputs": [
+        {
+          "edam_format": "format:3464",
+          "name": "aggregated_results"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:2048",
+          "edam_format": "format:2331",
+          "name": "report_html"
+        },
+        {
+          "edam_data": "data:2048",
+          "edam_format": "format:3508",
+          "name": "report_pdf"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "reporting",
       "spec": {
@@ -1251,7 +2106,33 @@
       "assignee": "agent",
       "depends_on": [],
       "description": "Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "edam_operation": "operation:0305",
+      "execution_index": 55,
+      "inputs": [
+        {
+          "edam_data": "topic:3678",
+          "edam_format": "format:3464",
+          "name": "intake_facts"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "ecaax:literature_claims_matrix",
+          "edam_format": "format:3752",
+          "name": "prior_claims_matrix"
+        },
+        {
+          "edam_data": "ecaax:literature_search_protocol",
+          "edam_format": "format:1196",
+          "name": "literature_search_protocol"
+        },
+        {
+          "edam_data": "ecaax:citation_verification_report",
+          "edam_format": "format:1196",
+          "name": "citation_verification_report"
+        }
+      ],
       "required_artifacts": [
         {
           "path": "prior_claims_matrix.csv",
@@ -1332,7 +2213,32 @@
         "bulk_rnaseq_raw_qc"
       ],
       "description": "Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
+      "edam_operation": "operation:3192",
+      "execution_index": 68,
+      "inputs": [
+        {
+          "edam_data": "data:2044",
+          "edam_format": "format:1930",
+          "name": "raw_reads"
+        },
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "companion_in_1"
+        },
+        {
+          "edam_data": "data:2914",
+          "edam_format": "format:3475",
+          "name": "residual_in_2"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:2044",
+          "edam_format": "format:1930",
+          "name": "trimmed_reads"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "sequence_trimming",
       "spec": {
@@ -1365,7 +2271,27 @@
         "bulk_rnaseq_raw_qc"
       ],
       "description": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. When the task carries\nan attributes.goal_context (the SME analysis goal), treat it as RETRIEVAL\nSCOPE — gather candidate methods + evidence relevant to that goal (e.g. a\nlow-allele-frequency / heteroplasmy detection goal widens retrieval toward\nAF-window-aware candidates). This conditions WHAT is retrieved only; it is\nnever a ranking or recommendation instruction. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
+      "edam_operation": "operation:0305",
+      "execution_index": 61,
+      "inputs": [
+        {
+          "edam_data": "data:2531",
+          "edam_format": "format:3475",
+          "name": "companion_in_0"
+        },
+        {
+          "edam_data": "data:2914",
+          "edam_format": "format:3475",
+          "name": "companion_in_1"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "ecaax:method_landscape_matrix",
+          "name": "method_landscape"
+        }
+      ],
       "required_artifacts": [
         {
           "path": "method_landscape.csv",
@@ -1439,6 +2365,14 @@
         "bulk_rnaseq_alignment"
       ],
       "description": "Validate outputs of: Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
+      "execution_index": 71,
+      "inputs": [
+        {
+          "edam_data": "data:0863",
+          "edam_format": "format:2572",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_alignment",
@@ -1452,6 +2386,14 @@
         "bulk_rnaseq_contextualize_findings_with_literature"
       ],
       "description": "Validate outputs of: Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+      "execution_index": 83,
+      "inputs": [
+        {
+          "edam_data": "ecaax:claims_evidence_matrix",
+          "edam_format": "format:3752",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_contextualize_findings_with_literature",
@@ -1465,6 +2407,14 @@
         "bulk_rnaseq_data_acquisition"
       ],
       "description": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "execution_index": 58,
+      "inputs": [
+        {
+          "edam_data": "data:2531",
+          "edam_format": "format:3475",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_data_acquisition",
@@ -1477,7 +2427,15 @@
       "depends_on": [
         "bulk_rnaseq_differential_expression"
       ],
-      "description": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+      "description": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n\nRECORD-WHAT-YOU-DID (audit, not instruction): in result.json, write down the\nmodel you actually fit so it can be audited — this does NOT tell you which\nmodel/test to use, only to state your own choice. Record:\n  - design_formula: the model formula you fit (e.g. \"~ condition + sex + RIN\").\n  - response_variable: the model's outcome / left-hand side (the thing being\n    explained). For a contrast-based DE this is the expression/count response;\n    for a regression against an outcome it is that outcome variable.\n  - available_covariates: the covariate columns you observed in the sample\n    metadata (your honest list of what was available, e.g.\n    [\"condition\",\"sex\",\"age\",\"RIN\"]).\n  - primary_variable: the main comparison variable for the contrast (e.g.\n    \"condition\").\n  - stated_outcome: the SME's stated outcome for the task, when the task names\n    one (otherwise omit).\nThese are YOUR record of YOUR choices and of the data/task — a domain-correctness\ncontract checks them for internal + task consistency (e.g. the design adjusts\nfor an available covariate; the response matches the stated outcome). It never\nprescribes a model.\n",
+      "execution_index": 79,
+      "inputs": [
+        {
+          "edam_data": "data:3134",
+          "edam_format": "format:3475",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_differential_expression",
@@ -1489,6 +2447,13 @@
       "assignee": "agent",
       "depends_on": [],
       "description": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "execution_index": 54,
+      "inputs": [
+        {
+          "edam_format": "format:2331",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_final_reporting",
@@ -1502,6 +2467,14 @@
         "bulk_rnaseq_normalisation"
       ],
       "description": "Validate outputs of: Standardise expression values to remove library-size and composition biases.\nMethod neutrality: DESeq2 VST / edgeR TMM / scran pooling / Seurat\nLogNormalize / scnorm / sctransform are selected at runtime.\n",
+      "execution_index": 77,
+      "inputs": [
+        {
+          "edam_data": "data:3917",
+          "edam_format": "format:3475",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_normalisation",
@@ -1515,6 +2488,14 @@
         "bulk_rnaseq_pathway_enrichment"
       ],
       "description": "Validate outputs of: Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
+      "execution_index": 81,
+      "inputs": [
+        {
+          "edam_data": "data:0960",
+          "edam_format": "format:3475",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_pathway_enrichment",
@@ -1528,6 +2509,13 @@
         "bulk_rnaseq_qc_preprocessing"
       ],
       "description": "Validate outputs of: Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
+      "execution_index": 75,
+      "inputs": [
+        {
+          "edam_format": "format:3590",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_qc_preprocessing",
@@ -1541,6 +2529,14 @@
         "bulk_rnaseq_quantification"
       ],
       "description": "Validate outputs of: Quantify gene- or transcript-level expression from aligned reads. Method\nneutrality: featureCounts / HTSeq / Salmon / kallisto / RSEM are selected\nat runtime. Emits a count matrix consumed by downstream normalisation.\n",
+      "execution_index": 73,
+      "inputs": [
+        {
+          "edam_data": "data:3917",
+          "edam_format": "format:3475",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_quantification",
@@ -1554,6 +2550,14 @@
         "bulk_rnaseq_raw_qc"
       ],
       "description": "Validate outputs of: Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
+      "execution_index": 60,
+      "inputs": [
+        {
+          "edam_data": "data:2914",
+          "edam_format": "format:3475",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_raw_qc",
@@ -1567,6 +2571,14 @@
         "bulk_rnaseq_reporting"
       ],
       "description": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "execution_index": 85,
+      "inputs": [
+        {
+          "edam_data": "data:2048",
+          "edam_format": "format:2331",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_reporting",
@@ -1580,6 +2592,14 @@
         "bulk_rnaseq_review_prior_work"
       ],
       "description": "Validate outputs of: Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "execution_index": 56,
+      "inputs": [
+        {
+          "edam_data": "ecaax:literature_claims_matrix",
+          "edam_format": "format:3752",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_review_prior_work",
@@ -1593,6 +2613,14 @@
         "bulk_rnaseq_sequence_trimming"
       ],
       "description": "Validate outputs of: Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
+      "execution_index": 69,
+      "inputs": [
+        {
+          "edam_data": "data:2044",
+          "edam_format": "format:1930",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_sequence_trimming",
@@ -1607,7 +2635,27 @@
         "chip_seq_sequence_trimming"
       ],
       "description": "Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
+      "edam_operation": "operation:3198",
+      "execution_index": 42,
+      "inputs": [
+        {
+          "edam_data": "data:2044",
+          "edam_format": "format:1930",
+          "name": "reads"
+        },
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "companion_in_1"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:0863",
+          "edam_format": "format:2572",
+          "name": "aligned_reads"
+        }
+      ],
       "resource_class": "memory_heavy",
       "source_atom_id": "alignment",
       "spec": {
@@ -1633,7 +2681,42 @@
         "chip_seq_review_prior_work"
       ],
       "description": "Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+      "edam_operation": "operation:0305",
+      "execution_index": 50,
+      "inputs": [
+        {
+          "edam_format": "format:3475",
+          "name": "analysis_findings"
+        },
+        {
+          "edam_data": "ecaax:literature_claims_matrix",
+          "edam_format": "format:3752",
+          "name": "prior_claims_matrix"
+        },
+        {
+          "edam_data": "data:1255",
+          "edam_format": "format:3003",
+          "name": "residual_in_2"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "ecaax:claims_evidence_matrix",
+          "edam_format": "format:3752",
+          "name": "claims_evidence_matrix"
+        },
+        {
+          "edam_data": "ecaax:literature_search_protocol",
+          "edam_format": "format:1196",
+          "name": "literature_search_protocol"
+        },
+        {
+          "edam_data": "ecaax:citation_verification_report",
+          "edam_format": "format:1196",
+          "name": "citation_verification_report"
+        }
+      ],
       "required_artifacts": [
         {
           "path": "claims_evidence_matrix.csv",
@@ -1643,7 +2726,9 @@
             "evidence_quote_substring_match",
             "redistributable_or_marked",
             "claim_row_has_finding_id",
-            "concordance_flag_in_closed_set"
+            "concordance_flag_in_closed_set",
+            "direction_supported_by_quote",
+            "gene_symbol_ensembl_consistent"
           ]
         },
         {
@@ -1654,7 +2739,9 @@
             "evidence_quote_substring_match",
             "redistributable_or_marked",
             "claim_row_has_finding_id",
-            "concordance_flag_in_closed_set"
+            "concordance_flag_in_closed_set",
+            "direction_supported_by_quote",
+            "gene_symbol_ensembl_consistent"
           ]
         }
       ],
@@ -1682,7 +2769,7 @@
       "source_atom_id": "contextualize_findings_with_literature",
       "spec": {
         "attributes": {
-          "claim_boundary": "This atom emits row-level concordance flags ONLY. Each row references one\nupstream finding (finding_id), zero or more prior PMIDs, and a closed-set\nconcordance flag whose semantics are: same_direction iff the prior's effect\ndirection matches the analysis effect direction AND both effect-size\nmagnitudes are >0; opposite_direction iff signs differ; no_prior_finding\niff zero prior rows for this entity in this tissue; unverifiable iff prior\nrows exist but their evidence_quote does not specify a direction. Do NOT\nintroduce composite or narrative claims. Do NOT generate paragraphs that\nthe upstream atom did not also generate row-wise.\n\nEVIDENCE GATING (MANDATORY; enforced by post-task validation): cite a prior\nPMID — and assert same_direction / opposite_direction / unverifiable — ONLY\nfor a PMID that has a DOWNLOADED evidence snapshot you can point to (a\nsnapshots/<sha256> file recorded in an evidence/manifest.json, either this\ntask's own or an upstream literature task's such as review_prior_work /\nsurvey_method_landscape). Before writing ANY PMID into\nclaims_evidence_matrix.csv, confirm it resolves to such a manifest entry; if it\ndoes not, DROP the citation and set that row to no_prior_finding (leave the\nprior PMID column empty). NEVER cite a PMID from memory, from the finding's\ngene/region/variant name, or one you have not actually retrieved — an\nunretrieved PMID is an unsupported claim and will block the workflow. Record\nevery PMID you DO cite as an entry in THIS task's evidence/manifest.json\n(reuse the upstream snapshot path) so downstream validation resolves it.\n"
+          "claim_boundary": "This atom emits row-level concordance flags ONLY. Each row references one\nupstream finding (finding_id), zero or more prior PMIDs, and a closed-set\nconcordance flag whose semantics are: same_direction iff the prior's effect\ndirection matches the analysis effect direction AND both effect-size\nmagnitudes are >0; opposite_direction iff signs differ; no_prior_finding\niff zero prior rows for this entity in this tissue; unverifiable iff prior\nrows exist but their evidence_quote does not specify a direction. Do NOT\nintroduce composite or narrative claims. Do NOT generate paragraphs that\nthe upstream atom did not also generate row-wise.\n\nEVIDENCE GATING (MANDATORY; enforced by post-task validation): cite a prior\nPMID — and assert same_direction / opposite_direction / unverifiable — ONLY\nfor a PMID that has a DOWNLOADED evidence snapshot you can point to (a\nsnapshots/<sha256> file recorded in an evidence/manifest.json, either this\ntask's own or an upstream literature task's such as review_prior_work /\nsurvey_method_landscape). Before writing ANY PMID into\nclaims_evidence_matrix.csv, confirm it resolves to such a manifest entry; if it\ndoes not, DROP the citation and set that row to no_prior_finding (leave the\nprior PMID column empty). NEVER cite a PMID from memory, from the finding's\ngene/region/variant name, or one you have not actually retrieved — an\nunretrieved PMID is an unsupported claim and will block the workflow. Record\nevery PMID you DO cite as an entry in THIS task's evidence/manifest.json\n(reuse the upstream snapshot path) so downstream validation resolves it.\n\nGene-identity rule (MANDATORY): gene symbols MUST be resolved to Ensembl IDs\nusing the run's pinned genome annotation (org.Hs.eg.db / biomaRt at the\npackage's Ensembl release), OR by joining on the Ensembl IDs already present\nin the upstream differential-expression table (de_results.tsv gene_id column).\nYou MUST NOT hardcode Ensembl IDs and you MUST NOT recall them from memory; do\nnot embed a literal symbol→Ensembl map in the script. You MUST NOT fall back to\na literal ID when a lookup fails — on lookup failure, mark the gene unresolved\nrather than guessing. Resolution goes through the pinned annotation/adapter or\nthe upstream table only. Every emitted finding_id must be an Ensembl ID that\nappears in the upstream DE table or is explicitly flagged absent. For every\ngene row, ALSO populate the `entity` column with that gene's HGNC symbol (and\nentity_kind = gene), carried straight from the same annotation join used for\nthe Ensembl id — so the independent gene-symbol↔Ensembl consistency check can\nconfirm the citation is attached to the right gene.\n"
         },
         "expected_artifacts": [
           "claims_evidence_matrix.csv",
@@ -1700,7 +2787,26 @@
       "assignee": "agent",
       "depends_on": [],
       "description": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "edam_operation": "operation:2422",
+      "execution_index": 30,
+      "inputs": [
+        {
+          "name": "accession_descriptors"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:2531",
+          "edam_format": "format:3475",
+          "name": "cohort_manifest"
+        },
+        {
+          "edam_data": "data:2044",
+          "edam_format": "format:1930",
+          "name": "raw_reads"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "data_acquisition",
       "spec": {
@@ -1726,9 +2832,22 @@
         "chip_seq_survey_method_landscape"
       ],
       "description": "Discover method for alignment (options: star, hisat2, bwa_mem2, bwa_mem, minimap2, bowtie2). Surface set_intake_method.",
+      "execution_index": 39,
+      "inputs": [
+        {
+          "edam_data": "ecaax:method_landscape_matrix",
+          "name": "companion_in_0"
+        }
+      ],
       "kind": {
         "discovery": "best_practice"
       },
+      "outputs": [
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "method_recommendation"
+        }
+      ],
       "requires_sme_review": true,
       "resource_class": "cpu_heavy",
       "source_atom_id": "discover_alignment",
@@ -1749,9 +2868,22 @@
         "chip_seq_survey_method_landscape"
       ],
       "description": "Discover method for motif_enrichment (options: homer_findmotifsgenome, meme_chip, monalisa). Surface set_intake_method.",
+      "execution_index": 38,
+      "inputs": [
+        {
+          "edam_data": "ecaax:method_landscape_matrix",
+          "name": "companion_in_0"
+        }
+      ],
       "kind": {
         "discovery": "best_practice"
       },
+      "outputs": [
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "method_recommendation"
+        }
+      ],
       "requires_sme_review": true,
       "resource_class": "cpu_heavy",
       "source_atom_id": "discover_motif_enrichment",
@@ -1768,9 +2900,22 @@
         "chip_seq_survey_method_landscape"
       ],
       "description": "Discover method for peak_annotation (options: chipseeker, homer_annotatepeaks, great). Surface set_intake_method.",
+      "execution_index": 37,
+      "inputs": [
+        {
+          "edam_data": "ecaax:method_landscape_matrix",
+          "name": "companion_in_0"
+        }
+      ],
       "kind": {
         "discovery": "best_practice"
       },
+      "outputs": [
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "method_recommendation"
+        }
+      ],
       "requires_sme_review": true,
       "resource_class": "cpu_heavy",
       "source_atom_id": "discover_peak_annotation",
@@ -1787,9 +2932,22 @@
         "chip_seq_survey_method_landscape"
       ],
       "description": "Discover method for peak_calling (options: macs2, macs3, seacr, genrich). Surface set_intake_method.",
+      "execution_index": 36,
+      "inputs": [
+        {
+          "edam_data": "ecaax:method_landscape_matrix",
+          "name": "companion_in_0"
+        }
+      ],
       "kind": {
         "discovery": "best_practice"
       },
+      "outputs": [
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "method_recommendation"
+        }
+      ],
       "requires_sme_review": true,
       "resource_class": "cpu_heavy",
       "source_atom_id": "discover_peak_calling",
@@ -1810,9 +2968,22 @@
         "chip_seq_survey_method_landscape"
       ],
       "description": "Discover method for sequence_trimming (options: trimmomatic, cutadapt, fastp, trim_galore). Surface set_intake_method.",
+      "execution_index": 35,
+      "inputs": [
+        {
+          "edam_data": "ecaax:method_landscape_matrix",
+          "name": "companion_in_0"
+        }
+      ],
       "kind": {
         "discovery": "best_practice"
       },
+      "outputs": [
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "method_recommendation"
+        }
+      ],
       "requires_sme_review": true,
       "resource_class": "cpu_heavy",
       "source_atom_id": "discover_sequence_trimming",
@@ -1830,7 +3001,26 @@
         "chip_seq_peak_calling"
       ],
       "description": "Identify enriched DNA-binding motifs in a peak set. HOMER\nfindMotifsGenome.pl / MEME-ChIP / monaLisa selected at runtime by\norganism + reference. Outputs a ranked motif table (motif id, family,\np-value, fold enrichment) plus per-peak occurrence calls.\n",
+      "edam_operation": "operation:0238",
+      "execution_index": 48,
+      "inputs": [
+        {
+          "edam_data": "data:1255",
+          "edam_format": "format:3003",
+          "name": "peaks"
+        },
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "companion_in_1"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_format": "format:3475",
+          "name": "enriched_motifs"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "motif_enrichment",
       "spec": {
@@ -1865,7 +3055,26 @@
         "chip_seq_peak_calling"
       ],
       "description": "Annotate called peaks (ChIP-seq narrow / broad, ATAC-seq accessible\nregions, CUT&RUN / CUT&Tag enriched intervals) to the nearest gene\nand overlapping genomic feature (promoter, exon, intron, UTR,\nintergenic). ChIPseeker / HOMER annotatePeaks.pl / GREAT selected at\nruntime by organism + reference build. Emits a per-peak annotation\ntable with distance-to-TSS, nearest-gene id/symbol, and feature class.\n",
+      "edam_operation": "operation:2436",
+      "execution_index": 46,
+      "inputs": [
+        {
+          "edam_data": "data:1255",
+          "edam_format": "format:3003",
+          "name": "peaks"
+        },
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "companion_in_1"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_format": "format:3475",
+          "name": "annotated_peaks"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "peak_annotation",
       "spec": {
@@ -1899,7 +3108,27 @@
         "chip_seq_discover_peak_calling"
       ],
       "description": "Identify regions of significant read enrichment from ChIP-seq / ATAC-seq /\nCUT&RUN alignments. MACS2 / MACS3 / SEACR / Genrich selected at runtime\nby mark type (narrow / broad).\n",
+      "edam_operation": "operation:3222",
+      "execution_index": 44,
+      "inputs": [
+        {
+          "edam_data": "data:0863",
+          "edam_format": "format:2572",
+          "name": "aligned_reads"
+        },
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "companion_in_1"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:1255",
+          "edam_format": "format:3003",
+          "name": "peaks"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "peak_calling",
       "spec": {
@@ -1934,7 +3163,23 @@
         "chip_seq_data_acquisition"
       ],
       "description": "Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
+      "edam_operation": "operation:3218",
+      "execution_index": 32,
+      "inputs": [
+        {
+          "edam_data": "data:2044",
+          "edam_format": "format:1930",
+          "name": "raw_reads"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:2914",
+          "edam_format": "format:3475",
+          "name": "qc_metrics"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "raw_qc",
       "spec": {
@@ -1964,7 +3209,27 @@
         "chip_seq_peak_calling"
       ],
       "description": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "edam_operation": "operation:0337",
+      "execution_index": 52,
+      "inputs": [
+        {
+          "edam_format": "format:3464",
+          "name": "aggregated_results"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:2048",
+          "edam_format": "format:2331",
+          "name": "report_html"
+        },
+        {
+          "edam_data": "data:2048",
+          "edam_format": "format:3508",
+          "name": "report_pdf"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "reporting",
       "spec": {
@@ -1987,7 +3252,33 @@
       "assignee": "agent",
       "depends_on": [],
       "description": "Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "edam_operation": "operation:0305",
+      "execution_index": 28,
+      "inputs": [
+        {
+          "edam_data": "topic:3678",
+          "edam_format": "format:3464",
+          "name": "intake_facts"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "ecaax:literature_claims_matrix",
+          "edam_format": "format:3752",
+          "name": "prior_claims_matrix"
+        },
+        {
+          "edam_data": "ecaax:literature_search_protocol",
+          "edam_format": "format:1196",
+          "name": "literature_search_protocol"
+        },
+        {
+          "edam_data": "ecaax:citation_verification_report",
+          "edam_format": "format:1196",
+          "name": "citation_verification_report"
+        }
+      ],
       "required_artifacts": [
         {
           "path": "prior_claims_matrix.csv",
@@ -2068,7 +3359,32 @@
         "chip_seq_raw_qc"
       ],
       "description": "Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
+      "edam_operation": "operation:3192",
+      "execution_index": 40,
+      "inputs": [
+        {
+          "edam_data": "data:2044",
+          "edam_format": "format:1930",
+          "name": "raw_reads"
+        },
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "companion_in_1"
+        },
+        {
+          "edam_data": "data:2914",
+          "edam_format": "format:3475",
+          "name": "residual_in_2"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:2044",
+          "edam_format": "format:1930",
+          "name": "trimmed_reads"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "sequence_trimming",
       "spec": {
@@ -2101,7 +3417,27 @@
         "chip_seq_raw_qc"
       ],
       "description": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. When the task carries\nan attributes.goal_context (the SME analysis goal), treat it as RETRIEVAL\nSCOPE — gather candidate methods + evidence relevant to that goal (e.g. a\nlow-allele-frequency / heteroplasmy detection goal widens retrieval toward\nAF-window-aware candidates). This conditions WHAT is retrieved only; it is\nnever a ranking or recommendation instruction. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
+      "edam_operation": "operation:0305",
+      "execution_index": 34,
+      "inputs": [
+        {
+          "edam_data": "data:2531",
+          "edam_format": "format:3475",
+          "name": "companion_in_0"
+        },
+        {
+          "edam_data": "data:2914",
+          "edam_format": "format:3475",
+          "name": "companion_in_1"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "ecaax:method_landscape_matrix",
+          "name": "method_landscape"
+        }
+      ],
       "required_artifacts": [
         {
           "path": "method_landscape.csv",
@@ -2175,6 +3511,14 @@
         "chip_seq_alignment"
       ],
       "description": "Validate outputs of: Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
+      "execution_index": 43,
+      "inputs": [
+        {
+          "edam_data": "data:0863",
+          "edam_format": "format:2572",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_alignment",
@@ -2188,6 +3532,14 @@
         "chip_seq_contextualize_findings_with_literature"
       ],
       "description": "Validate outputs of: Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+      "execution_index": 51,
+      "inputs": [
+        {
+          "edam_data": "ecaax:claims_evidence_matrix",
+          "edam_format": "format:3752",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_contextualize_findings_with_literature",
@@ -2201,6 +3553,14 @@
         "chip_seq_data_acquisition"
       ],
       "description": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "execution_index": 31,
+      "inputs": [
+        {
+          "edam_data": "data:2531",
+          "edam_format": "format:3475",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_data_acquisition",
@@ -2212,6 +3572,13 @@
       "assignee": "agent",
       "depends_on": [],
       "description": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "execution_index": 27,
+      "inputs": [
+        {
+          "edam_format": "format:2331",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_final_reporting",
@@ -2225,6 +3592,13 @@
         "chip_seq_motif_enrichment"
       ],
       "description": "Validate outputs of: Identify enriched DNA-binding motifs in a peak set. HOMER\nfindMotifsGenome.pl / MEME-ChIP / monaLisa selected at runtime by\norganism + reference. Outputs a ranked motif table (motif id, family,\np-value, fold enrichment) plus per-peak occurrence calls.\n",
+      "execution_index": 49,
+      "inputs": [
+        {
+          "edam_format": "format:3475",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_motif_enrichment",
@@ -2238,6 +3612,13 @@
         "chip_seq_peak_annotation"
       ],
       "description": "Validate outputs of: Annotate called peaks (ChIP-seq narrow / broad, ATAC-seq accessible\nregions, CUT&RUN / CUT&Tag enriched intervals) to the nearest gene\nand overlapping genomic feature (promoter, exon, intron, UTR,\nintergenic). ChIPseeker / HOMER annotatePeaks.pl / GREAT selected at\nruntime by organism + reference build. Emits a per-peak annotation\ntable with distance-to-TSS, nearest-gene id/symbol, and feature class.\n",
+      "execution_index": 47,
+      "inputs": [
+        {
+          "edam_format": "format:3475",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_peak_annotation",
@@ -2251,6 +3632,14 @@
         "chip_seq_peak_calling"
       ],
       "description": "Validate outputs of: Identify regions of significant read enrichment from ChIP-seq / ATAC-seq /\nCUT&RUN alignments. MACS2 / MACS3 / SEACR / Genrich selected at runtime\nby mark type (narrow / broad).\n",
+      "execution_index": 45,
+      "inputs": [
+        {
+          "edam_data": "data:1255",
+          "edam_format": "format:3003",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_peak_calling",
@@ -2264,6 +3653,14 @@
         "chip_seq_raw_qc"
       ],
       "description": "Validate outputs of: Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
+      "execution_index": 33,
+      "inputs": [
+        {
+          "edam_data": "data:2914",
+          "edam_format": "format:3475",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_raw_qc",
@@ -2277,6 +3674,14 @@
         "chip_seq_reporting"
       ],
       "description": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "execution_index": 53,
+      "inputs": [
+        {
+          "edam_data": "data:2048",
+          "edam_format": "format:2331",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_reporting",
@@ -2290,6 +3695,14 @@
         "chip_seq_review_prior_work"
       ],
       "description": "Validate outputs of: Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "execution_index": 29,
+      "inputs": [
+        {
+          "edam_data": "ecaax:literature_claims_matrix",
+          "edam_format": "format:3752",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_review_prior_work",
@@ -2303,6 +3716,14 @@
         "chip_seq_sequence_trimming"
       ],
       "description": "Validate outputs of: Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
+      "execution_index": 41,
+      "inputs": [
+        {
+          "edam_data": "data:2044",
+          "edam_format": "format:1930",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_sequence_trimming",
@@ -2316,7 +3737,27 @@
         "multi_modal_thematic_comparison"
       ],
       "description": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "edam_operation": "operation:0337",
+      "execution_index": 117,
+      "inputs": [
+        {
+          "edam_data": "data:2048",
+          "edam_format": "format:3464",
+          "name": "analysis_bundle"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_format": "format:2331",
+          "name": "final_report_html"
+        },
+        {
+          "edam_data": "data:2048",
+          "edam_format": "format:3508",
+          "name": "final_report_pdf"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "final_reporting",
       "spec": {
@@ -2389,7 +3830,28 @@
         "variant_calling_validate_variant_filtering"
       ],
       "description": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "edam_operation": "operation:0337",
+      "execution_index": 116,
+      "inputs": [
+        {
+          "edam_data": "data:2048",
+          "edam_format": "format:3464",
+          "name": "aggregated_results"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:2048",
+          "edam_format": "format:2331",
+          "name": "report_html"
+        },
+        {
+          "edam_data": "data:2048",
+          "edam_format": "format:3508",
+          "name": "report_pdf"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "reporting",
       "spec": {
@@ -2415,7 +3877,27 @@
         "variant_calling_sequence_trimming"
       ],
       "description": "Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
+      "edam_operation": "operation:3198",
+      "execution_index": 15,
+      "inputs": [
+        {
+          "edam_data": "data:2044",
+          "edam_format": "format:1930",
+          "name": "reads"
+        },
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "companion_in_1"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:0863",
+          "edam_format": "format:2572",
+          "name": "aligned_reads"
+        }
+      ],
       "resource_class": "memory_heavy",
       "source_atom_id": "alignment",
       "spec": {
@@ -2441,7 +3923,37 @@
         "variant_calling_variant_annotation"
       ],
       "description": "Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+      "edam_operation": "operation:0305",
+      "execution_index": 20,
+      "inputs": [
+        {
+          "edam_format": "format:3475",
+          "name": "analysis_findings"
+        },
+        {
+          "edam_data": "ecaax:literature_claims_matrix",
+          "edam_format": "format:3752",
+          "name": "prior_claims_matrix"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "ecaax:claims_evidence_matrix",
+          "edam_format": "format:3752",
+          "name": "claims_evidence_matrix"
+        },
+        {
+          "edam_data": "ecaax:literature_search_protocol",
+          "edam_format": "format:1196",
+          "name": "literature_search_protocol"
+        },
+        {
+          "edam_data": "ecaax:citation_verification_report",
+          "edam_format": "format:1196",
+          "name": "citation_verification_report"
+        }
+      ],
       "required_artifacts": [
         {
           "path": "claims_evidence_matrix.csv",
@@ -2451,7 +3963,9 @@
             "evidence_quote_substring_match",
             "redistributable_or_marked",
             "claim_row_has_finding_id",
-            "concordance_flag_in_closed_set"
+            "concordance_flag_in_closed_set",
+            "direction_supported_by_quote",
+            "gene_symbol_ensembl_consistent"
           ]
         },
         {
@@ -2462,7 +3976,9 @@
             "evidence_quote_substring_match",
             "redistributable_or_marked",
             "claim_row_has_finding_id",
-            "concordance_flag_in_closed_set"
+            "concordance_flag_in_closed_set",
+            "direction_supported_by_quote",
+            "gene_symbol_ensembl_consistent"
           ]
         }
       ],
@@ -2490,7 +4006,7 @@
       "source_atom_id": "contextualize_findings_with_literature",
       "spec": {
         "attributes": {
-          "claim_boundary": "This atom emits row-level concordance flags ONLY. Each row references one\nupstream finding (finding_id), zero or more prior PMIDs, and a closed-set\nconcordance flag whose semantics are: same_direction iff the prior's effect\ndirection matches the analysis effect direction AND both effect-size\nmagnitudes are >0; opposite_direction iff signs differ; no_prior_finding\niff zero prior rows for this entity in this tissue; unverifiable iff prior\nrows exist but their evidence_quote does not specify a direction. Do NOT\nintroduce composite or narrative claims. Do NOT generate paragraphs that\nthe upstream atom did not also generate row-wise.\n\nEVIDENCE GATING (MANDATORY; enforced by post-task validation): cite a prior\nPMID — and assert same_direction / opposite_direction / unverifiable — ONLY\nfor a PMID that has a DOWNLOADED evidence snapshot you can point to (a\nsnapshots/<sha256> file recorded in an evidence/manifest.json, either this\ntask's own or an upstream literature task's such as review_prior_work /\nsurvey_method_landscape). Before writing ANY PMID into\nclaims_evidence_matrix.csv, confirm it resolves to such a manifest entry; if it\ndoes not, DROP the citation and set that row to no_prior_finding (leave the\nprior PMID column empty). NEVER cite a PMID from memory, from the finding's\ngene/region/variant name, or one you have not actually retrieved — an\nunretrieved PMID is an unsupported claim and will block the workflow. Record\nevery PMID you DO cite as an entry in THIS task's evidence/manifest.json\n(reuse the upstream snapshot path) so downstream validation resolves it.\n"
+          "claim_boundary": "This atom emits row-level concordance flags ONLY. Each row references one\nupstream finding (finding_id), zero or more prior PMIDs, and a closed-set\nconcordance flag whose semantics are: same_direction iff the prior's effect\ndirection matches the analysis effect direction AND both effect-size\nmagnitudes are >0; opposite_direction iff signs differ; no_prior_finding\niff zero prior rows for this entity in this tissue; unverifiable iff prior\nrows exist but their evidence_quote does not specify a direction. Do NOT\nintroduce composite or narrative claims. Do NOT generate paragraphs that\nthe upstream atom did not also generate row-wise.\n\nEVIDENCE GATING (MANDATORY; enforced by post-task validation): cite a prior\nPMID — and assert same_direction / opposite_direction / unverifiable — ONLY\nfor a PMID that has a DOWNLOADED evidence snapshot you can point to (a\nsnapshots/<sha256> file recorded in an evidence/manifest.json, either this\ntask's own or an upstream literature task's such as review_prior_work /\nsurvey_method_landscape). Before writing ANY PMID into\nclaims_evidence_matrix.csv, confirm it resolves to such a manifest entry; if it\ndoes not, DROP the citation and set that row to no_prior_finding (leave the\nprior PMID column empty). NEVER cite a PMID from memory, from the finding's\ngene/region/variant name, or one you have not actually retrieved — an\nunretrieved PMID is an unsupported claim and will block the workflow. Record\nevery PMID you DO cite as an entry in THIS task's evidence/manifest.json\n(reuse the upstream snapshot path) so downstream validation resolves it.\n\nGene-identity rule (MANDATORY): gene symbols MUST be resolved to Ensembl IDs\nusing the run's pinned genome annotation (org.Hs.eg.db / biomaRt at the\npackage's Ensembl release), OR by joining on the Ensembl IDs already present\nin the upstream differential-expression table (de_results.tsv gene_id column).\nYou MUST NOT hardcode Ensembl IDs and you MUST NOT recall them from memory; do\nnot embed a literal symbol→Ensembl map in the script. You MUST NOT fall back to\na literal ID when a lookup fails — on lookup failure, mark the gene unresolved\nrather than guessing. Resolution goes through the pinned annotation/adapter or\nthe upstream table only. Every emitted finding_id must be an Ensembl ID that\nappears in the upstream DE table or is explicitly flagged absent. For every\ngene row, ALSO populate the `entity` column with that gene's HGNC symbol (and\nentity_kind = gene), carried straight from the same annotation join used for\nthe Ensembl id — so the independent gene-symbol↔Ensembl consistency check can\nconfirm the citation is attached to the right gene.\n"
         },
         "expected_artifacts": [
           "claims_evidence_matrix.csv",
@@ -2508,7 +4024,26 @@
       "assignee": "agent",
       "depends_on": [],
       "description": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "edam_operation": "operation:2422",
+      "execution_index": 3,
+      "inputs": [
+        {
+          "name": "accession_descriptors"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:2531",
+          "edam_format": "format:3475",
+          "name": "cohort_manifest"
+        },
+        {
+          "edam_data": "data:2044",
+          "edam_format": "format:1930",
+          "name": "raw_reads"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "data_acquisition",
       "spec": {
@@ -2534,9 +4069,22 @@
         "variant_calling_survey_method_landscape"
       ],
       "description": "Discover method for alignment (options: star, hisat2, bwa_mem2, bwa_mem, minimap2, bowtie2). Surface set_intake_method.",
+      "execution_index": 12,
+      "inputs": [
+        {
+          "edam_data": "ecaax:method_landscape_matrix",
+          "name": "companion_in_0"
+        }
+      ],
       "kind": {
         "discovery": "best_practice"
       },
+      "outputs": [
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "method_recommendation"
+        }
+      ],
       "requires_sme_review": true,
       "resource_class": "cpu_heavy",
       "source_atom_id": "discover_alignment",
@@ -2557,9 +4105,22 @@
         "variant_calling_survey_method_landscape"
       ],
       "description": "Discover method for sequence_trimming (options: trimmomatic, cutadapt, fastp, trim_galore). Surface set_intake_method.",
+      "execution_index": 11,
+      "inputs": [
+        {
+          "edam_data": "ecaax:method_landscape_matrix",
+          "name": "companion_in_0"
+        }
+      ],
       "kind": {
         "discovery": "best_practice"
       },
+      "outputs": [
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "method_recommendation"
+        }
+      ],
       "requires_sme_review": true,
       "resource_class": "cpu_heavy",
       "source_atom_id": "discover_sequence_trimming",
@@ -2576,9 +4137,22 @@
         "variant_calling_survey_method_landscape"
       ],
       "description": "Discover method for variant_annotation (options: vep, annovar, snpeff). Surface set_intake_method.",
+      "execution_index": 10,
+      "inputs": [
+        {
+          "edam_data": "ecaax:method_landscape_matrix",
+          "name": "companion_in_0"
+        }
+      ],
       "kind": {
         "discovery": "best_practice"
       },
+      "outputs": [
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "method_recommendation"
+        }
+      ],
       "requires_sme_review": true,
       "resource_class": "cpu_heavy",
       "source_atom_id": "discover_variant_annotation",
@@ -2595,9 +4169,22 @@
         "variant_calling_survey_method_landscape"
       ],
       "description": "Discover method for variant_calling (options: haplotypecaller, deepvariant, mutect2, strelka2, dragen, lofreq). Surface set_intake_method.",
+      "execution_index": 9,
+      "inputs": [
+        {
+          "edam_data": "ecaax:method_landscape_matrix",
+          "name": "companion_in_0"
+        }
+      ],
       "kind": {
         "discovery": "best_practice"
       },
+      "outputs": [
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "method_recommendation"
+        }
+      ],
       "requires_sme_review": true,
       "resource_class": "cpu_heavy",
       "source_atom_id": "discover_variant_calling",
@@ -2614,9 +4201,22 @@
         "variant_calling_survey_method_landscape"
       ],
       "description": "Discover method for variant_filtering (options: vqsr, gatk_hard_filter, deepvariant_cnn, bcftools_filter, lofreq_filter, vcffilter). Surface set_intake_method.",
+      "execution_index": 8,
+      "inputs": [
+        {
+          "edam_data": "ecaax:method_landscape_matrix",
+          "name": "companion_in_0"
+        }
+      ],
       "kind": {
         "discovery": "best_practice"
       },
+      "outputs": [
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "method_recommendation"
+        }
+      ],
       "requires_sme_review": true,
       "resource_class": "cpu_heavy",
       "source_atom_id": "discover_variant_filtering",
@@ -2633,7 +4233,23 @@
         "variant_calling_data_acquisition"
       ],
       "description": "Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
+      "edam_operation": "operation:3218",
+      "execution_index": 5,
+      "inputs": [
+        {
+          "edam_data": "data:2044",
+          "edam_format": "format:1930",
+          "name": "raw_reads"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:2914",
+          "edam_format": "format:3475",
+          "name": "qc_metrics"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "raw_qc",
       "spec": {
@@ -2661,7 +4277,27 @@
         "variant_calling_variant_annotation"
       ],
       "description": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "edam_operation": "operation:0337",
+      "execution_index": 22,
+      "inputs": [
+        {
+          "edam_format": "format:3464",
+          "name": "aggregated_results"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:2048",
+          "edam_format": "format:2331",
+          "name": "report_html"
+        },
+        {
+          "edam_data": "data:2048",
+          "edam_format": "format:3508",
+          "name": "report_pdf"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "reporting",
       "spec": {
@@ -2684,7 +4320,33 @@
       "assignee": "agent",
       "depends_on": [],
       "description": "Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "edam_operation": "operation:0305",
+      "execution_index": 1,
+      "inputs": [
+        {
+          "edam_data": "topic:3678",
+          "edam_format": "format:3464",
+          "name": "intake_facts"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "ecaax:literature_claims_matrix",
+          "edam_format": "format:3752",
+          "name": "prior_claims_matrix"
+        },
+        {
+          "edam_data": "ecaax:literature_search_protocol",
+          "edam_format": "format:1196",
+          "name": "literature_search_protocol"
+        },
+        {
+          "edam_data": "ecaax:citation_verification_report",
+          "edam_format": "format:1196",
+          "name": "citation_verification_report"
+        }
+      ],
       "required_artifacts": [
         {
           "path": "prior_claims_matrix.csv",
@@ -2765,7 +4427,32 @@
         "variant_calling_raw_qc"
       ],
       "description": "Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
+      "edam_operation": "operation:3192",
+      "execution_index": 13,
+      "inputs": [
+        {
+          "edam_data": "data:2044",
+          "edam_format": "format:1930",
+          "name": "raw_reads"
+        },
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "companion_in_1"
+        },
+        {
+          "edam_data": "data:2914",
+          "edam_format": "format:3475",
+          "name": "residual_in_2"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:2044",
+          "edam_format": "format:1930",
+          "name": "trimmed_reads"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "sequence_trimming",
       "spec": {
@@ -2798,7 +4485,27 @@
         "variant_calling_raw_qc"
       ],
       "description": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. When the task carries\nan attributes.goal_context (the SME analysis goal), treat it as RETRIEVAL\nSCOPE — gather candidate methods + evidence relevant to that goal (e.g. a\nlow-allele-frequency / heteroplasmy detection goal widens retrieval toward\nAF-window-aware candidates). This conditions WHAT is retrieved only; it is\nnever a ranking or recommendation instruction. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
+      "edam_operation": "operation:0305",
+      "execution_index": 7,
+      "inputs": [
+        {
+          "edam_data": "data:2531",
+          "edam_format": "format:3475",
+          "name": "companion_in_0"
+        },
+        {
+          "edam_data": "data:2914",
+          "edam_format": "format:3475",
+          "name": "companion_in_1"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "ecaax:method_landscape_matrix",
+          "name": "method_landscape"
+        }
+      ],
       "required_artifacts": [
         {
           "path": "method_landscape.csv",
@@ -2872,6 +4579,14 @@
         "variant_calling_alignment"
       ],
       "description": "Validate outputs of: Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
+      "execution_index": 26,
+      "inputs": [
+        {
+          "edam_data": "data:0863",
+          "edam_format": "format:2572",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_alignment",
@@ -2885,6 +4600,14 @@
         "variant_calling_contextualize_findings_with_literature"
       ],
       "description": "Validate outputs of: Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+      "execution_index": 21,
+      "inputs": [
+        {
+          "edam_data": "ecaax:claims_evidence_matrix",
+          "edam_format": "format:3752",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_contextualize_findings_with_literature",
@@ -2898,6 +4621,14 @@
         "variant_calling_data_acquisition"
       ],
       "description": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "execution_index": 4,
+      "inputs": [
+        {
+          "edam_data": "data:2531",
+          "edam_format": "format:3475",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_data_acquisition",
@@ -2909,6 +4640,13 @@
       "assignee": "agent",
       "depends_on": [],
       "description": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "execution_index": 0,
+      "inputs": [
+        {
+          "edam_format": "format:2331",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_final_reporting",
@@ -2922,6 +4660,14 @@
         "variant_calling_raw_qc"
       ],
       "description": "Validate outputs of: Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
+      "execution_index": 6,
+      "inputs": [
+        {
+          "edam_data": "data:2914",
+          "edam_format": "format:3475",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_raw_qc",
@@ -2935,6 +4681,14 @@
         "variant_calling_reporting"
       ],
       "description": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "execution_index": 23,
+      "inputs": [
+        {
+          "edam_data": "data:2048",
+          "edam_format": "format:2331",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_reporting",
@@ -2948,6 +4702,14 @@
         "variant_calling_review_prior_work"
       ],
       "description": "Validate outputs of: Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "execution_index": 2,
+      "inputs": [
+        {
+          "edam_data": "ecaax:literature_claims_matrix",
+          "edam_format": "format:3752",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_review_prior_work",
@@ -2961,6 +4723,14 @@
         "variant_calling_sequence_trimming"
       ],
       "description": "Validate outputs of: Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
+      "execution_index": 14,
+      "inputs": [
+        {
+          "edam_data": "data:2044",
+          "edam_format": "format:1930",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_sequence_trimming",
@@ -2974,6 +4744,14 @@
         "variant_calling_variant_annotation"
       ],
       "description": "Validate outputs of: Annotate filtered variants with gene impact, consequence, population\nfrequency, and clinical significance. VEP / ANNOVAR / SnpEff against\nEnsembl / RefSeq / gnomAD / ClinVar selected at runtime.\n",
+      "execution_index": 19,
+      "inputs": [
+        {
+          "edam_data": "data:3498",
+          "edam_format": "format:3016",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_variant_annotation",
@@ -2987,6 +4765,14 @@
         "variant_calling_variant_calling"
       ],
       "description": "Validate outputs of: Call germline or somatic SNVs / indels from aligned reads. HaplotypeCaller /\nDeepVariant / Mutect2 / Strelka2 selected at runtime by experimental design\n(germline cohort vs tumor-normal pair vs tumor-only).\n",
+      "execution_index": 25,
+      "inputs": [
+        {
+          "edam_data": "data:3498",
+          "edam_format": "format:3016",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_variant_calling",
@@ -3000,6 +4786,14 @@
         "variant_calling_variant_filtering"
       ],
       "description": "Validate outputs of: Filter raw variant calls by VQSR / hard filters / CNN-based quality scores.\necaax namespace per EDAM audit — operation:3225 (variant classification) is\nsemantic creep for filtering.\n",
+      "execution_index": 24,
+      "inputs": [
+        {
+          "edam_data": "data:3498",
+          "edam_format": "format:3016",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_variant_filtering",
@@ -3014,7 +4808,27 @@
         "variant_calling_variant_filtering"
       ],
       "description": "Annotate filtered variants with gene impact, consequence, population\nfrequency, and clinical significance. VEP / ANNOVAR / SnpEff against\nEnsembl / RefSeq / gnomAD / ClinVar selected at runtime.\n",
+      "edam_operation": "operation:3672",
+      "execution_index": 18,
+      "inputs": [
+        {
+          "edam_data": "data:3498",
+          "edam_format": "format:3016",
+          "name": "filtered_variants"
+        },
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "companion_in_1"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:3498",
+          "edam_format": "format:3016",
+          "name": "annotated_variants"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "variant_annotation",
       "spec": {
@@ -3038,7 +4852,27 @@
         "variant_calling_discover_variant_calling"
       ],
       "description": "Call germline or somatic SNVs / indels from aligned reads. HaplotypeCaller /\nDeepVariant / Mutect2 / Strelka2 selected at runtime by experimental design\n(germline cohort vs tumor-normal pair vs tumor-only).\n",
+      "edam_operation": "operation:3227",
+      "execution_index": 16,
+      "inputs": [
+        {
+          "edam_data": "data:0863",
+          "edam_format": "format:2572",
+          "name": "aligned_reads"
+        },
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "companion_in_1"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:3498",
+          "edam_format": "format:3016",
+          "name": "variants"
+        }
+      ],
       "required_artifacts": [
         {
           "min_size_bytes": 2,
@@ -3076,7 +4910,27 @@
         "variant_calling_variant_calling"
       ],
       "description": "Filter raw variant calls by VQSR / hard filters / CNN-based quality scores.\necaax namespace per EDAM audit — operation:3225 (variant classification) is\nsemantic creep for filtering.\n",
+      "edam_operation": "ecaax:variant_filtering",
+      "execution_index": 17,
+      "inputs": [
+        {
+          "edam_data": "data:3498",
+          "edam_format": "format:3016",
+          "name": "raw_variants"
+        },
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "companion_in_1"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:3498",
+          "edam_format": "format:3016",
+          "name": "filtered_variants"
+        }
+      ],
       "required_artifacts": [
         {
           "min_size_bytes": 2,

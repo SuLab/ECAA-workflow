@@ -1,7 +1,15 @@
 {
   "@context": [
     "https://w3id.org/ro/crate/1.1/context",
-    "https://w3id.org/ro/terms/workflow-run"
+    "https://w3id.org/ro/terms/workflow-run",
+    {
+      "evaluated_against": "https://w3id.org/ecaa/ns/0.2#evaluated_against",
+      "invariant_id": "https://w3id.org/ecaa/ns/0.2#invariantId",
+      "matchedArchetype": "https://w3id.org/ecaa/ns/0.2#matchedArchetype",
+      "rationale": "https://w3id.org/ecaa/ns/0.2#rationale",
+      "verdict": "https://w3id.org/ecaa/ns/0.2#verdict",
+      "wasGeneratedBy": "http://www.w3.org/ns/prov#wasGeneratedBy"
+    }
   ],
   "@graph": [
     {
@@ -18,15 +26,6 @@
           "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0"
         },
         {
-          "@id": "https://w3id.org/ro/wfrun/process/0.5"
-        },
-        {
-          "@id": "https://w3id.org/ro/wfrun/workflow/0.5"
-        },
-        {
-          "@id": "https://w3id.org/ro/wfrun/provenance/0.5"
-        },
-        {
           "@id": "https://w3id.org/ecaa/v0.2"
         }
       ]
@@ -34,9 +33,24 @@
     {
       "@id": "./",
       "@type": "Dataset",
-      "dateCreated": "2064-12-18T01:21:22+00:00",
+      "conformsTo": [
+        {
+          "@id": "https://w3id.org/ro/crate/1.1"
+        },
+        {
+          "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0"
+        },
+        {
+          "@id": "https://w3id.org/ecaa/v0.2"
+        }
+      ],
+      "dateCreated": "2026-01-01T00:00:00+00:00",
+      "datePublished": "2026-01-01T00:00:00+00:00",
       "description": "We want to recreate the original Drop-seq cell atlas of the mouse retina from Macosko et al. 2015 Cell, GEO accession GSE63473. The data is 49,300 STAMPs collected from postnatal-day-14 mouse retinas across 7 experimental batches over 4 days. Sequencing on NextSeq 500. Drop-seq cell barcode is 12 bp on read 1, UMI is 8 bp, cDNA on read 2. Reference is mm10.\n\nUse Drop-seq tools (McCarroll lab) to convert FASTQ to a digital gene expression (DGE) matrix; do not use Cell Ranger.\n\nThe clustering follows the paper's protocol exactly. Take the 13,155 cells with more than 900 genes detected as the training set and run PCA in Seurat. Identify the 32 statistically significant PCs by permutation test. Run t-SNE on those 32 PCs. Project the remaining 36,145 cells onto the t-SNE map based on their PC-subspace representation. Apply density clustering (Ester et al. 1996, DBSCAN-style) on the resulting t-SNE point cloud. The expected output is 39 transcriptionally distinct clusters spanning the 5 neuronal retinal classes (photoreceptor = rods+cones, bipolar, horizontal, retinal ganglion, amacrine) plus non-neuronal populations (Mueller glia, microglia, astrocyte, endothelial, pericyte). Cluster sizes range from ~50 to ~29,400.\n\nWithin the amacrine compartment, focus on the 21 amacrine clusters and classify them by neurotransmitter markers: 12 should be GABAergic (Gad1/Gad2+), 5 glycinergic (Slc6a9+), 1 excitatory (Slc17a8+), and 3 nGnG (clusters 4, 20, 21). Cluster 16 should mark as A-II amacrines (high Gjd2) and cluster 3 as SACs (high Chat). Recreate the cluster 7 vs cluster 6 DE finding (16 genes at >2.8-fold, p<1e-9) and the cluster 20 vs cluster 21 DE finding (12 genes at >2.8-fold, p<1e-9).\n\nRun McDavid et al. 2013 likelihood-ratio test for differential expression. Build a dendrogram from Euclidean distance + complete linkage on cluster centroids.\n\nAlso recreate the species-mixing experiments (HEK+3T3 across cell concentrations 12.5/25/50/100 cells/uL) and reproduce the doublet rates (0.36%/1.4%/4.6%/11.3%), single-cell purity (98.8% down to 90.4%), and the cell-cycle reconstruction (544 human + 668 mouse cell-cycle genes at FDR 5%, 200 orthologous pairs).\n\nNo mechanistic claims -- descriptive cell atlas only.\n",
       "hasPart": [
+        {
+          "@id": "README.md"
+        },
         {
           "@id": "WORKFLOW.json"
         },
@@ -174,6 +188,7 @@
       "@id": "WORKFLOW.json",
       "@type": [
         "File",
+        "SoftwareSourceCode",
         "ComputationalWorkflow"
       ],
       "applicationSubCategory": {
@@ -355,6 +370,16 @@
       "name": "Subject Matter Expert (intake)"
     },
     {
+      "@id": "README.md",
+      "@type": "File",
+      "about": {
+        "@id": "./"
+      },
+      "description": "Human-readable entry point: what was asked, where the answer lands, a map of the package, and the re-run command.",
+      "encodingFormat": "text/markdown",
+      "name": "Package README — human landing page"
+    },
+    {
       "@id": "PROMPT.md",
       "@type": "File",
       "encodingFormat": "text/markdown",
@@ -467,6 +492,24 @@
       "description": "Schema-validation and external-validator rollup for emitted ECAA artifacts.",
       "encodingFormat": "application/json",
       "name": "ECAA emit-time validation summary"
+    },
+    {
+      "@id": "https://w3id.org/ro/crate/1.1",
+      "@type": "CreativeWork",
+      "name": "RO-Crate",
+      "version": "1.1"
+    },
+    {
+      "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0",
+      "@type": "CreativeWork",
+      "name": "Workflow RO-Crate Profile",
+      "version": "1.0"
+    },
+    {
+      "@id": "https://w3id.org/ecaa/v0.2",
+      "@type": "CreativeWork",
+      "name": "ECAA Conformance Profile",
+      "version": "0.2"
     },
     {
       "@id": "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id=9606",
@@ -743,14 +786,14 @@
       "@id": "#step-differential_expression",
       "@type": "HowToStep",
       "additionalType": "computation",
-      "name": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+      "name": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n\nRECORD-WHAT-YOU-DID (audit, not instruction): in result.json, write down the\nmodel you actually fit so it can be audited — this does NOT tell you which\nmodel/test to use, only to state your own choice. Record:\n  - design_formula: the model formula you fit (e.g. \"~ condition + sex + RIN\").\n  - response_variable: the model's outcome / left-hand side (the thing being\n    explained). For a contrast-based DE this is the expression/count response;\n    for a regression against an outcome it is that outcome variable.\n  - available_covariates: the covariate columns you observed in the sample\n    metadata (your honest list of what was available, e.g.\n    [\"condition\",\"sex\",\"age\",\"RIN\"]).\n  - primary_variable: the main comparison variable for the contrast (e.g.\n    \"condition\").\n  - stated_outcome: the SME's stated outcome for the task, when the task names\n    one (otherwise omit).\nThese are YOUR record of YOUR choices and of the data/task — a domain-correctness\ncontract checks them for internal + task consistency (e.g. the design adjusts\nfor an available covariate; the response matches the stated outcome). It never\nprescribes a model.\n",
       "position": 38
     },
     {
       "@id": "#step-validate_differential_expression",
       "@type": "HowToStep",
       "additionalType": "validation",
-      "name": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+      "name": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n\nRECORD-WHAT-YOU-DID (audit, not instruction): in result.json, write down the\nmodel you actually fit so it can be audited — this does NOT tell you which\nmodel/test to use, only to state your own choice. Record:\n  - design_formula: the model formula you fit (e.g. \"~ condition + sex + RIN\").\n  - response_variable: the model's outcome / left-hand side (the thing being\n    explained). For a contrast-based DE this is the expression/count response;\n    for a regression against an outcome it is that outcome variable.\n  - available_covariates: the covariate columns you observed in the sample\n    metadata (your honest list of what was available, e.g.\n    [\"condition\",\"sex\",\"age\",\"RIN\"]).\n  - primary_variable: the main comparison variable for the contrast (e.g.\n    \"condition\").\n  - stated_outcome: the SME's stated outcome for the task, when the task names\n    one (otherwise omit).\nThese are YOUR record of YOUR choices and of the data/task — a domain-correctness\ncontract checks them for internal + task consistency (e.g. the design adjusts\nfor an available covariate; the response matches the stated outcome). It never\nprescribes a model.\n",
       "position": 39
     },
     {

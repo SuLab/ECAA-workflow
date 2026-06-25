@@ -1,0 +1,52 @@
+{
+  "schemaVersion": "1.1",
+  "note": "Microbiome differential-abundance overlay: ASV/OTU taxon entities, log2FC (log-scale) effect column, FDR columns. Only verifiableEntities is read by from_policy.",
+  "verifiableEntities": {
+    "enabled": true,
+    "entityNamePatterns": [
+      "(?i)\\b(?:otu|asv)\\d+\\b"
+    ],
+    "entityNameExcludePatterns": [],
+    "directionVocab": {
+      "up": [
+        "enriched",
+        "increased",
+        "higher",
+        "elevated",
+        "more abundant"
+      ],
+      "down": [
+        "depleted",
+        "decreased",
+        "lower",
+        "reduced",
+        "less abundant"
+      ]
+    },
+    "effectSizeColumns": [
+      "log2FC",
+      "log2_fold_change",
+      "effect_size",
+      "lda_score",
+      "clr_diff"
+    ],
+    "entityColumns": [
+      "asv",
+      "otu",
+      "taxon",
+      "taxon_id",
+      "feature"
+    ],
+    "pvalueColumns": [
+      "padj",
+      "qvalue",
+      "fdr",
+      "pvalue",
+      "p_value"
+    ],
+    "tolerance": {
+      "log2FcAbsoluteDelta": 0.05,
+      "pvalueRelativeDelta": 0.1
+    }
+  }
+}

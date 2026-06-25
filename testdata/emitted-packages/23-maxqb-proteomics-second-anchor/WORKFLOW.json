@@ -1,5 +1,30 @@
 {
   "current_task": null,
+  "execution_order": [
+    "review_prior_work",
+    "validate_review_prior_work",
+    "data_acquisition",
+    "validate_data_acquisition",
+    "survey_method_landscape",
+    "discover_protein_quantification",
+    "discover_peptide_search",
+    "discover_pathway_enrichment",
+    "discover_differential_expression",
+    "peptide_search",
+    "validate_peptide_search",
+    "protein_quantification",
+    "validate_protein_quantification",
+    "differential_expression",
+    "validate_differential_expression",
+    "pathway_enrichment",
+    "validate_pathway_enrichment",
+    "contextualize_findings_with_literature",
+    "validate_contextualize_findings_with_literature",
+    "reporting",
+    "validate_reporting",
+    "final_reporting",
+    "validate_final_reporting"
+  ],
   "meta": {
     "modality_id": "proteomics",
     "modality_stratum": "proteomics",
@@ -15,7 +40,42 @@
         "review_prior_work"
       ],
       "description": "Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+      "edam_operation": "operation:0305",
+      "execution_index": 17,
+      "inputs": [
+        {
+          "edam_format": "format:3475",
+          "name": "analysis_findings"
+        },
+        {
+          "edam_data": "ecaax:literature_claims_matrix",
+          "edam_format": "format:3752",
+          "name": "prior_claims_matrix"
+        },
+        {
+          "edam_data": "data:3134",
+          "edam_format": "format:3475",
+          "name": "residual_in_2"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "ecaax:claims_evidence_matrix",
+          "edam_format": "format:3752",
+          "name": "claims_evidence_matrix"
+        },
+        {
+          "edam_data": "ecaax:literature_search_protocol",
+          "edam_format": "format:1196",
+          "name": "literature_search_protocol"
+        },
+        {
+          "edam_data": "ecaax:citation_verification_report",
+          "edam_format": "format:1196",
+          "name": "citation_verification_report"
+        }
+      ],
       "required_artifacts": [
         {
           "path": "claims_evidence_matrix.csv",
@@ -25,7 +85,9 @@
             "evidence_quote_substring_match",
             "redistributable_or_marked",
             "claim_row_has_finding_id",
-            "concordance_flag_in_closed_set"
+            "concordance_flag_in_closed_set",
+            "direction_supported_by_quote",
+            "gene_symbol_ensembl_consistent"
           ]
         },
         {
@@ -36,7 +98,9 @@
             "evidence_quote_substring_match",
             "redistributable_or_marked",
             "claim_row_has_finding_id",
-            "concordance_flag_in_closed_set"
+            "concordance_flag_in_closed_set",
+            "direction_supported_by_quote",
+            "gene_symbol_ensembl_consistent"
           ]
         }
       ],
@@ -64,7 +128,7 @@
       "source_atom_id": "contextualize_findings_with_literature",
       "spec": {
         "attributes": {
-          "claim_boundary": "This atom emits row-level concordance flags ONLY. Each row references one\nupstream finding (finding_id), zero or more prior PMIDs, and a closed-set\nconcordance flag whose semantics are: same_direction iff the prior's effect\ndirection matches the analysis effect direction AND both effect-size\nmagnitudes are >0; opposite_direction iff signs differ; no_prior_finding\niff zero prior rows for this entity in this tissue; unverifiable iff prior\nrows exist but their evidence_quote does not specify a direction. Do NOT\nintroduce composite or narrative claims. Do NOT generate paragraphs that\nthe upstream atom did not also generate row-wise.\n\nEVIDENCE GATING (MANDATORY; enforced by post-task validation): cite a prior\nPMID — and assert same_direction / opposite_direction / unverifiable — ONLY\nfor a PMID that has a DOWNLOADED evidence snapshot you can point to (a\nsnapshots/<sha256> file recorded in an evidence/manifest.json, either this\ntask's own or an upstream literature task's such as review_prior_work /\nsurvey_method_landscape). Before writing ANY PMID into\nclaims_evidence_matrix.csv, confirm it resolves to such a manifest entry; if it\ndoes not, DROP the citation and set that row to no_prior_finding (leave the\nprior PMID column empty). NEVER cite a PMID from memory, from the finding's\ngene/region/variant name, or one you have not actually retrieved — an\nunretrieved PMID is an unsupported claim and will block the workflow. Record\nevery PMID you DO cite as an entry in THIS task's evidence/manifest.json\n(reuse the upstream snapshot path) so downstream validation resolves it.\n"
+          "claim_boundary": "This atom emits row-level concordance flags ONLY. Each row references one\nupstream finding (finding_id), zero or more prior PMIDs, and a closed-set\nconcordance flag whose semantics are: same_direction iff the prior's effect\ndirection matches the analysis effect direction AND both effect-size\nmagnitudes are >0; opposite_direction iff signs differ; no_prior_finding\niff zero prior rows for this entity in this tissue; unverifiable iff prior\nrows exist but their evidence_quote does not specify a direction. Do NOT\nintroduce composite or narrative claims. Do NOT generate paragraphs that\nthe upstream atom did not also generate row-wise.\n\nEVIDENCE GATING (MANDATORY; enforced by post-task validation): cite a prior\nPMID — and assert same_direction / opposite_direction / unverifiable — ONLY\nfor a PMID that has a DOWNLOADED evidence snapshot you can point to (a\nsnapshots/<sha256> file recorded in an evidence/manifest.json, either this\ntask's own or an upstream literature task's such as review_prior_work /\nsurvey_method_landscape). Before writing ANY PMID into\nclaims_evidence_matrix.csv, confirm it resolves to such a manifest entry; if it\ndoes not, DROP the citation and set that row to no_prior_finding (leave the\nprior PMID column empty). NEVER cite a PMID from memory, from the finding's\ngene/region/variant name, or one you have not actually retrieved — an\nunretrieved PMID is an unsupported claim and will block the workflow. Record\nevery PMID you DO cite as an entry in THIS task's evidence/manifest.json\n(reuse the upstream snapshot path) so downstream validation resolves it.\n\nGene-identity rule (MANDATORY): gene symbols MUST be resolved to Ensembl IDs\nusing the run's pinned genome annotation (org.Hs.eg.db / biomaRt at the\npackage's Ensembl release), OR by joining on the Ensembl IDs already present\nin the upstream differential-expression table (de_results.tsv gene_id column).\nYou MUST NOT hardcode Ensembl IDs and you MUST NOT recall them from memory; do\nnot embed a literal symbol→Ensembl map in the script. You MUST NOT fall back to\na literal ID when a lookup fails — on lookup failure, mark the gene unresolved\nrather than guessing. Resolution goes through the pinned annotation/adapter or\nthe upstream table only. Every emitted finding_id must be an Ensembl ID that\nappears in the upstream DE table or is explicitly flagged absent. For every\ngene row, ALSO populate the `entity` column with that gene's HGNC symbol (and\nentity_kind = gene), carried straight from the same annotation join used for\nthe Ensembl id — so the independent gene-symbol↔Ensembl consistency check can\nconfirm the citation is attached to the right gene.\n"
         },
         "expected_artifacts": [
           "claims_evidence_matrix.csv",
@@ -82,7 +146,26 @@
       "assignee": "agent",
       "depends_on": [],
       "description": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "edam_operation": "operation:2422",
+      "execution_index": 2,
+      "inputs": [
+        {
+          "name": "accession_descriptors"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:2531",
+          "edam_format": "format:3475",
+          "name": "cohort_manifest"
+        },
+        {
+          "edam_data": "data:2044",
+          "edam_format": "format:1930",
+          "name": "raw_reads"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "data_acquisition",
       "spec": {
@@ -107,8 +190,37 @@
         "discover_differential_expression",
         "protein_quantification"
       ],
-      "description": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+      "description": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n\nRECORD-WHAT-YOU-DID (audit, not instruction): in result.json, write down the\nmodel you actually fit so it can be audited — this does NOT tell you which\nmodel/test to use, only to state your own choice. Record:\n  - design_formula: the model formula you fit (e.g. \"~ condition + sex + RIN\").\n  - response_variable: the model's outcome / left-hand side (the thing being\n    explained). For a contrast-based DE this is the expression/count response;\n    for a regression against an outcome it is that outcome variable.\n  - available_covariates: the covariate columns you observed in the sample\n    metadata (your honest list of what was available, e.g.\n    [\"condition\",\"sex\",\"age\",\"RIN\"]).\n  - primary_variable: the main comparison variable for the contrast (e.g.\n    \"condition\").\n  - stated_outcome: the SME's stated outcome for the task, when the task names\n    one (otherwise omit).\nThese are YOUR record of YOUR choices and of the data/task — a domain-correctness\ncontract checks them for internal + task consistency (e.g. the design adjusts\nfor an available covariate; the response matches the stated outcome). It never\nprescribes a model.\n",
+      "edam_operation": "operation:3223",
+      "execution_index": 13,
+      "inputs": [
+        {
+          "edam_data": "data:3917",
+          "edam_format": "format:3475",
+          "name": "normalized_counts"
+        },
+        {
+          "edam_data": "topic:3678",
+          "edam_format": "format:3464",
+          "name": "experimental_design"
+        },
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "companion_in_2"
+        },
+        {
+          "edam_format": "format:3475",
+          "name": "residual_in_3"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:3134",
+          "edam_format": "format:3475",
+          "name": "de_results"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "differential_expression",
       "spec": {
@@ -120,7 +232,8 @@
             "mast",
             "wilcoxon"
           ],
-          "claim_boundary": "Differential expression is statistical association, not biological causation.\nReport effect-size + adjusted p-value + the reference factor level for every\ncontrast. Avoid mechanistic language; prefer \"associated with\" / \"enriched in\"\nover \"drives\" / \"causes\".\n"
+          "claim_boundary": "Differential expression is statistical association, not biological causation.\nReport effect-size + adjusted p-value + the reference factor level for every\ncontrast. Avoid mechanistic language; prefer \"associated with\" / \"enriched in\"\nover \"drives\" / \"causes\".\n",
+          "measurement_script": "measure_de_effect_size.py"
         },
         "expected_artifacts": [
           "de_results.tsv",
@@ -143,9 +256,22 @@
         "survey_method_landscape"
       ],
       "description": "Discover method for differential_expression (options: deseq2, edger, limma_voom, mast, wilcoxon). Surface set_intake_method.",
+      "execution_index": 8,
+      "inputs": [
+        {
+          "edam_data": "ecaax:method_landscape_matrix",
+          "name": "companion_in_0"
+        }
+      ],
       "kind": {
         "discovery": "best_practice"
       },
+      "outputs": [
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "method_recommendation"
+        }
+      ],
       "requires_sme_review": true,
       "resource_class": "cpu_heavy",
       "source_atom_id": "discover_differential_expression",
@@ -162,9 +288,22 @@
         "survey_method_landscape"
       ],
       "description": "Discover method for pathway_enrichment (options: fgsea, clusterprofiler, gsea, enrichr). Surface set_intake_method.",
+      "execution_index": 7,
+      "inputs": [
+        {
+          "edam_data": "ecaax:method_landscape_matrix",
+          "name": "companion_in_0"
+        }
+      ],
       "kind": {
         "discovery": "best_practice"
       },
+      "outputs": [
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "method_recommendation"
+        }
+      ],
       "requires_sme_review": true,
       "resource_class": "cpu_heavy",
       "source_atom_id": "discover_pathway_enrichment",
@@ -181,9 +320,22 @@
         "survey_method_landscape"
       ],
       "description": "Discover method for peptide_search (options: maxquant, fragpipe, spectronaut, dia_nn, msfragger). Surface set_intake_method.",
+      "execution_index": 6,
+      "inputs": [
+        {
+          "edam_data": "ecaax:method_landscape_matrix",
+          "name": "companion_in_0"
+        }
+      ],
       "kind": {
         "discovery": "best_practice"
       },
+      "outputs": [
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "method_recommendation"
+        }
+      ],
       "requires_sme_review": true,
       "resource_class": "cpu_heavy",
       "source_atom_id": "discover_peptide_search",
@@ -200,9 +352,22 @@
         "survey_method_landscape"
       ],
       "description": "Discover method for protein_quantification (options: maxlfq, irs_normalization, spectronaut_directlfq). Surface set_intake_method.",
+      "execution_index": 5,
+      "inputs": [
+        {
+          "edam_data": "ecaax:method_landscape_matrix",
+          "name": "companion_in_0"
+        }
+      ],
       "kind": {
         "discovery": "best_practice"
       },
+      "outputs": [
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "method_recommendation"
+        }
+      ],
       "requires_sme_review": true,
       "resource_class": "cpu_heavy",
       "source_atom_id": "discover_protein_quantification",
@@ -219,7 +384,27 @@
         "reporting"
       ],
       "description": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "edam_operation": "operation:0337",
+      "execution_index": 21,
+      "inputs": [
+        {
+          "edam_data": "data:2048",
+          "edam_format": "format:3464",
+          "name": "analysis_bundle"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_format": "format:2331",
+          "name": "final_report_html"
+        },
+        {
+          "edam_data": "data:2048",
+          "edam_format": "format:3508",
+          "name": "final_report_pdf"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "final_reporting",
       "spec": {
@@ -247,7 +432,37 @@
         "discover_pathway_enrichment"
       ],
       "description": "Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
+      "edam_operation": "operation:2436",
+      "execution_index": 15,
+      "inputs": [
+        {
+          "edam_data": "data:0951",
+          "edam_format": "format:3475",
+          "name": "ranked_de_results"
+        },
+        {
+          "edam_data": "data:2600",
+          "edam_format": "format:3475",
+          "name": "gene_set_collection"
+        },
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "companion_in_2"
+        },
+        {
+          "edam_data": "data:3134",
+          "edam_format": "format:3475",
+          "name": "residual_in_3"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:0960",
+          "edam_format": "format:3475",
+          "name": "pathway_results"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "pathway_enrichment",
       "spec": {
@@ -282,7 +497,26 @@
         "discover_peptide_search"
       ],
       "description": "Match MS/MS spectra against a protein database to identify peptides.\nMaxQuant / FragPipe / Spectronaut / DIA-NN selected at runtime by\nacquisition mode (DDA / DIA).\n",
+      "edam_operation": "operation:3767",
+      "execution_index": 9,
+      "inputs": [
+        {
+          "edam_data": "data:2531",
+          "name": "spectra"
+        },
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "companion_in_1"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:0945",
+          "edam_format": "format:3475",
+          "name": "peptide_identifications"
+        }
+      ],
       "resource_class": "memory_heavy",
       "source_atom_id": "peptide_search",
       "spec": {
@@ -307,7 +541,26 @@
         "peptide_search"
       ],
       "description": "Quantify protein abundance from peptide-spectrum matches. LFQ / TMT / SILAC /\niBAQ strategies; MaxLFQ / IRS-corrected TMT / Spectronaut directLFQ\nselected at runtime by labeling chemistry.\n",
+      "edam_operation": "operation:3630",
+      "execution_index": 11,
+      "inputs": [
+        {
+          "edam_data": "data:0945",
+          "edam_format": "format:3475",
+          "name": "peptide_identifications"
+        },
+        {
+          "edam_data": "ecaax:method_recommendation",
+          "name": "companion_in_1"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_format": "format:3475",
+          "name": "protein_abundance"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "protein_quantification",
       "spec": {
@@ -342,7 +595,27 @@
         "pathway_enrichment"
       ],
       "description": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "edam_operation": "operation:0337",
+      "execution_index": 19,
+      "inputs": [
+        {
+          "edam_format": "format:3464",
+          "name": "aggregated_results"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:2048",
+          "edam_format": "format:2331",
+          "name": "report_html"
+        },
+        {
+          "edam_data": "data:2048",
+          "edam_format": "format:3508",
+          "name": "report_pdf"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "reporting",
       "spec": {
@@ -364,7 +637,33 @@
       "assignee": "agent",
       "depends_on": [],
       "description": "Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "edam_operation": "operation:0305",
+      "execution_index": 0,
+      "inputs": [
+        {
+          "edam_data": "topic:3678",
+          "edam_format": "format:3464",
+          "name": "intake_facts"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "ecaax:literature_claims_matrix",
+          "edam_format": "format:3752",
+          "name": "prior_claims_matrix"
+        },
+        {
+          "edam_data": "ecaax:literature_search_protocol",
+          "edam_format": "format:1196",
+          "name": "literature_search_protocol"
+        },
+        {
+          "edam_data": "ecaax:citation_verification_report",
+          "edam_format": "format:1196",
+          "name": "citation_verification_report"
+        }
+      ],
       "required_artifacts": [
         {
           "path": "prior_claims_matrix.csv",
@@ -444,7 +743,22 @@
         "data_acquisition"
       ],
       "description": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. When the task carries\nan attributes.goal_context (the SME analysis goal), treat it as RETRIEVAL\nSCOPE — gather candidate methods + evidence relevant to that goal (e.g. a\nlow-allele-frequency / heteroplasmy detection goal widens retrieval toward\nAF-window-aware candidates). This conditions WHAT is retrieved only; it is\nnever a ranking or recommendation instruction. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
+      "edam_operation": "operation:0305",
+      "execution_index": 4,
+      "inputs": [
+        {
+          "edam_data": "data:2531",
+          "edam_format": "format:3475",
+          "name": "companion_in_0"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "ecaax:method_landscape_matrix",
+          "name": "method_landscape"
+        }
+      ],
       "required_artifacts": [
         {
           "path": "method_landscape.csv",
@@ -518,6 +832,14 @@
         "contextualize_findings_with_literature"
       ],
       "description": "Validate outputs of: Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+      "execution_index": 18,
+      "inputs": [
+        {
+          "edam_data": "ecaax:claims_evidence_matrix",
+          "edam_format": "format:3752",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_contextualize_findings_with_literature",
@@ -531,6 +853,14 @@
         "data_acquisition"
       ],
       "description": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "execution_index": 3,
+      "inputs": [
+        {
+          "edam_data": "data:2531",
+          "edam_format": "format:3475",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_data_acquisition",
@@ -543,7 +873,15 @@
       "depends_on": [
         "differential_expression"
       ],
-      "description": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+      "description": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n\nRECORD-WHAT-YOU-DID (audit, not instruction): in result.json, write down the\nmodel you actually fit so it can be audited — this does NOT tell you which\nmodel/test to use, only to state your own choice. Record:\n  - design_formula: the model formula you fit (e.g. \"~ condition + sex + RIN\").\n  - response_variable: the model's outcome / left-hand side (the thing being\n    explained). For a contrast-based DE this is the expression/count response;\n    for a regression against an outcome it is that outcome variable.\n  - available_covariates: the covariate columns you observed in the sample\n    metadata (your honest list of what was available, e.g.\n    [\"condition\",\"sex\",\"age\",\"RIN\"]).\n  - primary_variable: the main comparison variable for the contrast (e.g.\n    \"condition\").\n  - stated_outcome: the SME's stated outcome for the task, when the task names\n    one (otherwise omit).\nThese are YOUR record of YOUR choices and of the data/task — a domain-correctness\ncontract checks them for internal + task consistency (e.g. the design adjusts\nfor an available covariate; the response matches the stated outcome). It never\nprescribes a model.\n",
+      "execution_index": 14,
+      "inputs": [
+        {
+          "edam_data": "data:3134",
+          "edam_format": "format:3475",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_differential_expression",
@@ -557,6 +895,13 @@
         "final_reporting"
       ],
       "description": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "execution_index": 22,
+      "inputs": [
+        {
+          "edam_format": "format:2331",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_final_reporting",
@@ -570,6 +915,14 @@
         "pathway_enrichment"
       ],
       "description": "Validate outputs of: Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
+      "execution_index": 16,
+      "inputs": [
+        {
+          "edam_data": "data:0960",
+          "edam_format": "format:3475",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_pathway_enrichment",
@@ -583,6 +936,14 @@
         "peptide_search"
       ],
       "description": "Validate outputs of: Match MS/MS spectra against a protein database to identify peptides.\nMaxQuant / FragPipe / Spectronaut / DIA-NN selected at runtime by\nacquisition mode (DDA / DIA).\n",
+      "execution_index": 10,
+      "inputs": [
+        {
+          "edam_data": "data:0945",
+          "edam_format": "format:3475",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_peptide_search",
@@ -596,6 +957,13 @@
         "protein_quantification"
       ],
       "description": "Validate outputs of: Quantify protein abundance from peptide-spectrum matches. LFQ / TMT / SILAC /\niBAQ strategies; MaxLFQ / IRS-corrected TMT / Spectronaut directLFQ\nselected at runtime by labeling chemistry.\n",
+      "execution_index": 12,
+      "inputs": [
+        {
+          "edam_format": "format:3475",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_protein_quantification",
@@ -609,6 +977,14 @@
         "reporting"
       ],
       "description": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "execution_index": 20,
+      "inputs": [
+        {
+          "edam_data": "data:2048",
+          "edam_format": "format:2331",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_reporting",
@@ -622,6 +998,14 @@
         "review_prior_work"
       ],
       "description": "Validate outputs of: Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "execution_index": 1,
+      "inputs": [
+        {
+          "edam_data": "ecaax:literature_claims_matrix",
+          "edam_format": "format:3752",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_review_prior_work",

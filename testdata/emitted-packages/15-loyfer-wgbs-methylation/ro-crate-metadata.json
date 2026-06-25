@@ -1,7 +1,15 @@
 {
   "@context": [
     "https://w3id.org/ro/crate/1.1/context",
-    "https://w3id.org/ro/terms/workflow-run"
+    "https://w3id.org/ro/terms/workflow-run",
+    {
+      "evaluated_against": "https://w3id.org/ecaa/ns/0.2#evaluated_against",
+      "invariant_id": "https://w3id.org/ecaa/ns/0.2#invariantId",
+      "matchedArchetype": "https://w3id.org/ecaa/ns/0.2#matchedArchetype",
+      "rationale": "https://w3id.org/ecaa/ns/0.2#rationale",
+      "verdict": "https://w3id.org/ecaa/ns/0.2#verdict",
+      "wasGeneratedBy": "http://www.w3.org/ns/prov#wasGeneratedBy"
+    }
   ],
   "@graph": [
     {
@@ -18,15 +26,6 @@
           "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0"
         },
         {
-          "@id": "https://w3id.org/ro/wfrun/process/0.5"
-        },
-        {
-          "@id": "https://w3id.org/ro/wfrun/workflow/0.5"
-        },
-        {
-          "@id": "https://w3id.org/ro/wfrun/provenance/0.5"
-        },
-        {
           "@id": "https://w3id.org/ecaa/v0.2"
         }
       ]
@@ -34,9 +33,24 @@
     {
       "@id": "./",
       "@type": "Dataset",
-      "dateCreated": "2042-04-03T07:19:58+00:00",
+      "conformsTo": [
+        {
+          "@id": "https://w3id.org/ro/crate/1.1"
+        },
+        {
+          "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0"
+        },
+        {
+          "@id": "https://w3id.org/ecaa/v0.2"
+        }
+      ],
+      "dateCreated": "2026-01-01T00:00:00+00:00",
+      "datePublished": "2026-01-01T00:00:00+00:00",
       "description": "We want to recreate the whole-genome bisulfite sequencing (WGBS) human cell-type methylation atlas from Loyfer et al. 2023 Nature, GEO accession GSE186458. The atlas profiles 39 human cell types at single-CpG resolution to build a reference methylation landscape for deconvolution of liquid biopsy (cell-free DNA methylation) data. The cohort includes sorted primary human cell types from blood, solid tissues, and immune compartments, with 2-4 biological replicates per cell type.\n\nProcess WGBS reads using Trim Galore for adapter and quality trimming, then align with Bismark against the human GRCh38 reference genome (UCSC hg38 with ENCODE blacklist v2 excluded). Deduplicate with Bismark deduplicate_bismark. Extract CpG methylation calls with bismark2bedGraph + coverage2cytosine; require at least 5x coverage per CpG for inclusion in analysis. Compute global CpG methylation rate per sample; expect 65-85% genome-wide CpG methylation for somatic cells.\n\nFor cell-type-specific differentially methylated regions (DMRs), use DSS (v2.x) with a sliding window approach: window size 500 bp, smoothing span 500 bp. Call DMRs at delta-methylation > 0.3 and FDR < 0.01 vs all other cell types. The atlas should yield cell-type-specific hypomethylated blocks (tissue-specific enhancers) for each of the 39 cell types.\n\nBuild the methylation reference atlas as a matrix of CpG beta-values (rows = CpGs, columns = cell types). Select the top 1,000 most cell-type-discriminating CpG loci per cell type (lowest within-group variance, highest between-group variance by ANOVA F-statistic). Validate atlas specificity by leave-one-replicate-out deconvolution: each held-out replicate should deconvolve with >85% correct cell-type assignment using NNLS.\n\nFor liquid biopsy application, apply the atlas to plasma cell-free DNA methylation profiles from healthy donors and cancer patients. Deconvolute cfDNA methylation using the atlas reference to infer cell-type-of-origin contributions. Healthy plasma should show >80% hematopoietic contribution (granulocyte + monocyte + lymphocyte). Cancer patient plasma should show elevated contributions from tumor-of-origin cell types vs matched healthy controls.\n\nAcceptance: at least 35/39 cell types with >200 cell-type-specific DMRs; atlas deconvolution leave-one-out accuracy >85%; cfDNA healthy donor hematopoietic fraction >80%.\n",
       "hasPart": [
+        {
+          "@id": "README.md"
+        },
         {
           "@id": "WORKFLOW.json"
         },
@@ -150,6 +164,7 @@
       "@id": "WORKFLOW.json",
       "@type": [
         "File",
+        "SoftwareSourceCode",
         "ComputationalWorkflow"
       ],
       "applicationSubCategory": {
@@ -289,6 +304,16 @@
       "name": "Subject Matter Expert (intake)"
     },
     {
+      "@id": "README.md",
+      "@type": "File",
+      "about": {
+        "@id": "./"
+      },
+      "description": "Human-readable entry point: what was asked, where the answer lands, a map of the package, and the re-run command.",
+      "encodingFormat": "text/markdown",
+      "name": "Package README — human landing page"
+    },
+    {
       "@id": "PROMPT.md",
       "@type": "File",
       "encodingFormat": "text/markdown",
@@ -401,6 +426,24 @@
       "description": "Schema-validation and external-validator rollup for emitted ECAA artifacts.",
       "encodingFormat": "application/json",
       "name": "ECAA emit-time validation summary"
+    },
+    {
+      "@id": "https://w3id.org/ro/crate/1.1",
+      "@type": "CreativeWork",
+      "name": "RO-Crate",
+      "version": "1.1"
+    },
+    {
+      "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0",
+      "@type": "CreativeWork",
+      "name": "Workflow RO-Crate Profile",
+      "version": "1.0"
+    },
+    {
+      "@id": "https://w3id.org/ecaa/v0.2",
+      "@type": "CreativeWork",
+      "name": "ECAA Conformance Profile",
+      "version": "0.2"
     },
     {
       "@id": "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id=9606",
@@ -573,14 +616,14 @@
       "@id": "#step-differential_expression",
       "@type": "HowToStep",
       "additionalType": "computation",
-      "name": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+      "name": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n\nRECORD-WHAT-YOU-DID (audit, not instruction): in result.json, write down the\nmodel you actually fit so it can be audited — this does NOT tell you which\nmodel/test to use, only to state your own choice. Record:\n  - design_formula: the model formula you fit (e.g. \"~ condition + sex + RIN\").\n  - response_variable: the model's outcome / left-hand side (the thing being\n    explained). For a contrast-based DE this is the expression/count response;\n    for a regression against an outcome it is that outcome variable.\n  - available_covariates: the covariate columns you observed in the sample\n    metadata (your honest list of what was available, e.g.\n    [\"condition\",\"sex\",\"age\",\"RIN\"]).\n  - primary_variable: the main comparison variable for the contrast (e.g.\n    \"condition\").\n  - stated_outcome: the SME's stated outcome for the task, when the task names\n    one (otherwise omit).\nThese are YOUR record of YOUR choices and of the data/task — a domain-correctness\ncontract checks them for internal + task consistency (e.g. the design adjusts\nfor an available covariate; the response matches the stated outcome). It never\nprescribes a model.\n",
       "position": 24
     },
     {
       "@id": "#step-validate_differential_expression",
       "@type": "HowToStep",
       "additionalType": "validation",
-      "name": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+      "name": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n\nRECORD-WHAT-YOU-DID (audit, not instruction): in result.json, write down the\nmodel you actually fit so it can be audited — this does NOT tell you which\nmodel/test to use, only to state your own choice. Record:\n  - design_formula: the model formula you fit (e.g. \"~ condition + sex + RIN\").\n  - response_variable: the model's outcome / left-hand side (the thing being\n    explained). For a contrast-based DE this is the expression/count response;\n    for a regression against an outcome it is that outcome variable.\n  - available_covariates: the covariate columns you observed in the sample\n    metadata (your honest list of what was available, e.g.\n    [\"condition\",\"sex\",\"age\",\"RIN\"]).\n  - primary_variable: the main comparison variable for the contrast (e.g.\n    \"condition\").\n  - stated_outcome: the SME's stated outcome for the task, when the task names\n    one (otherwise omit).\nThese are YOUR record of YOUR choices and of the data/task — a domain-correctness\ncontract checks them for internal + task consistency (e.g. the design adjusts\nfor an available covariate; the response matches the stated outcome). It never\nprescribes a model.\n",
       "position": 25
     },
     {

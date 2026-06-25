@@ -1,7 +1,15 @@
 {
   "@context": [
     "https://w3id.org/ro/crate/1.1/context",
-    "https://w3id.org/ro/terms/workflow-run"
+    "https://w3id.org/ro/terms/workflow-run",
+    {
+      "evaluated_against": "https://w3id.org/ecaa/ns/0.2#evaluated_against",
+      "invariant_id": "https://w3id.org/ecaa/ns/0.2#invariantId",
+      "matchedArchetype": "https://w3id.org/ecaa/ns/0.2#matchedArchetype",
+      "rationale": "https://w3id.org/ecaa/ns/0.2#rationale",
+      "verdict": "https://w3id.org/ecaa/ns/0.2#verdict",
+      "wasGeneratedBy": "http://www.w3.org/ns/prov#wasGeneratedBy"
+    }
   ],
   "@graph": [
     {
@@ -18,15 +26,6 @@
           "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0"
         },
         {
-          "@id": "https://w3id.org/ro/wfrun/process/0.5"
-        },
-        {
-          "@id": "https://w3id.org/ro/wfrun/workflow/0.5"
-        },
-        {
-          "@id": "https://w3id.org/ro/wfrun/provenance/0.5"
-        },
-        {
           "@id": "https://w3id.org/ecaa/v0.2"
         }
       ]
@@ -34,9 +33,24 @@
     {
       "@id": "./",
       "@type": "Dataset",
-      "dateCreated": "2061-10-31T12:27:43+00:00",
+      "conformsTo": [
+        {
+          "@id": "https://w3id.org/ro/crate/1.1"
+        },
+        {
+          "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0"
+        },
+        {
+          "@id": "https://w3id.org/ecaa/v0.2"
+        }
+      ],
+      "dateCreated": "2026-01-01T00:00:00+00:00",
+      "datePublished": "2026-01-01T00:00:00+00:00",
       "description": "We want to recreate the single-cell ATAC-seq mouse tissue atlas from Cusanovich et al. 2018 Cell, GEO accession GSE111586. The dataset is ~80,000 single-cell combinatorial indexing ATAC-seq (sci-ATAC-seq) profiles from 13 mouse tissues (brain, cerebellum, heart, kidney, liver, lung, spleen, small intestine, large intestine, bone marrow, thymus, skin, and testes) from adult C57BL/6 mice. The atlas is used to map cis-regulatory element accessibility at single-cell resolution across the mouse body.\n\nProcess sci-ATAC-seq reads using the pipeline described in Cusanovich et al.: demultiplex by cell barcode (25-bp combinatorial indices), trim adapters with Trimmomatic, align with Bowtie2 v2.x to mm10, remove PCR duplicates. Filter cells with fewer than 1,000 unique fragments or a TSS enrichment score below 4. Expected cell yield: approximately 61,000 high-quality cells after QC filtering.\n\nCall peaks using MACS2 on the aggregate per-tissue pseudo-bulk, then build a master peak set by merging all tissue peak calls (max gap 500 bp). The expected master peak set is approximately 436,206 accessible sites. Build a cells-by-peaks binary accessibility matrix.\n\nFor dimensionality reduction, apply LSI (latent semantic indexing) on the TF-IDF transformed binary matrix (top 30 LSI components, removing the first component which captures read depth). Run UMAP on the top LSI components (components 2-30). Apply Louvain clustering to identify cell populations.\n\nThe atlas should recover tissue-of-origin clustering: cells from the same tissue cluster together before any tissue label is provided. Compute silhouette score for tissue-of-origin on the UMAP; expect mean silhouette > 0.3. Identify tissue-specific accessible peaks using one-vs-rest logistic regression; the top 1,000 tissue-specific peaks should show significant tissue specificity (AUC > 0.85 for the tissue-of-origin classifier).\n\nFor cis-regulatory annotation, overlap master peaks with ENCODE SCREEN registry of candidate cis-regulatory elements (cCREs) for mm10. Classify peaks as: proximal promoter (within 2 kb of TSS), distal enhancer (>2 kb from TSS, overlapping ENCODE enhancer), or other. Report fraction of peaks in each class per tissue type.\n\nFor TF motif analysis, run ChromVAR on the binary accessibility matrix to compute per-cell TF activity scores for JASPAR 2020 motif set (mouse). Expected tissue-specific TF activities: Nkx2-5 in heart, Gata1 in bone marrow erythroid compartment, Hnf4a in liver.\n\nAcceptance: at least 55,000 high-quality cells after QC; master peak set >400,000 peaks; tissue-of-origin silhouette >0.3; tissue-specific TF motifs (Nkx2-5/heart, Gata1/bone marrow, Hnf4a/liver) with ChromVAR z-score > 2 in expected tissues.\n",
       "hasPart": [
+        {
+          "@id": "README.md"
+        },
         {
           "@id": "WORKFLOW.json"
         },
@@ -114,6 +128,7 @@
       "@id": "WORKFLOW.json",
       "@type": [
         "File",
+        "SoftwareSourceCode",
         "ComputationalWorkflow"
       ],
       "applicationSubCategory": {
@@ -194,6 +209,16 @@
       "@type": "Role",
       "description": "The domain expert who resolved discovery decisions during intake chat, prior to agent execution.",
       "name": "Subject Matter Expert (intake)"
+    },
+    {
+      "@id": "README.md",
+      "@type": "File",
+      "about": {
+        "@id": "./"
+      },
+      "description": "Human-readable entry point: what was asked, where the answer lands, a map of the package, and the re-run command.",
+      "encodingFormat": "text/markdown",
+      "name": "Package README — human landing page"
     },
     {
       "@id": "PROMPT.md",
@@ -308,6 +333,24 @@
       "description": "Schema-validation and external-validator rollup for emitted ECAA artifacts.",
       "encodingFormat": "application/json",
       "name": "ECAA emit-time validation summary"
+    },
+    {
+      "@id": "https://w3id.org/ro/crate/1.1",
+      "@type": "CreativeWork",
+      "name": "RO-Crate",
+      "version": "1.1"
+    },
+    {
+      "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0",
+      "@type": "CreativeWork",
+      "name": "Workflow RO-Crate Profile",
+      "version": "1.0"
+    },
+    {
+      "@id": "https://w3id.org/ecaa/v0.2",
+      "@type": "CreativeWork",
+      "name": "ECAA Conformance Profile",
+      "version": "0.2"
     },
     {
       "@id": "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id=10090",

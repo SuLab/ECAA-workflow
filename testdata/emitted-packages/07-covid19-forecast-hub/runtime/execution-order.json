@@ -1,0 +1,85 @@
+{
+  "order": [
+    {
+      "index": 0,
+      "output_dir": "runtime/outputs/review_prior_work/",
+      "task_id": "review_prior_work"
+    },
+    {
+      "index": 1,
+      "output_dir": "runtime/outputs/validate_review_prior_work/",
+      "task_id": "validate_review_prior_work"
+    },
+    {
+      "index": 2,
+      "output_dir": "runtime/outputs/data_import/",
+      "task_id": "data_import"
+    },
+    {
+      "index": 3,
+      "output_dir": "runtime/outputs/validate_data_import/",
+      "task_id": "validate_data_import"
+    },
+    {
+      "index": 4,
+      "output_dir": "runtime/outputs/time_series_decompose/",
+      "task_id": "time_series_decompose"
+    },
+    {
+      "index": 5,
+      "output_dir": "runtime/outputs/validate_time_series_decompose/",
+      "task_id": "validate_time_series_decompose"
+    },
+    {
+      "index": 6,
+      "output_dir": "runtime/outputs/time_series_model_fit/",
+      "task_id": "time_series_model_fit"
+    },
+    {
+      "index": 7,
+      "output_dir": "runtime/outputs/validate_time_series_model_fit/",
+      "task_id": "validate_time_series_model_fit"
+    },
+    {
+      "index": 8,
+      "output_dir": "runtime/outputs/time_series_forecast_evaluate/",
+      "task_id": "time_series_forecast_evaluate"
+    },
+    {
+      "index": 9,
+      "output_dir": "runtime/outputs/validate_time_series_forecast_evaluate/",
+      "task_id": "validate_time_series_forecast_evaluate"
+    },
+    {
+      "index": 10,
+      "output_dir": "runtime/outputs/contextualize_findings_with_literature/",
+      "task_id": "contextualize_findings_with_literature"
+    },
+    {
+      "index": 11,
+      "output_dir": "runtime/outputs/validate_contextualize_findings_with_literature/",
+      "task_id": "validate_contextualize_findings_with_literature"
+    },
+    {
+      "index": 12,
+      "output_dir": "runtime/outputs/reporting/",
+      "task_id": "reporting"
+    },
+    {
+      "index": 13,
+      "output_dir": "runtime/outputs/validate_reporting/",
+      "task_id": "validate_reporting"
+    },
+    {
+      "index": 14,
+      "output_dir": "runtime/outputs/final_reporting/",
+      "task_id": "final_reporting"
+    },
+    {
+      "index": 15,
+      "output_dir": "runtime/outputs/validate_final_reporting/",
+      "task_id": "validate_final_reporting"
+    }
+  ],
+  "workflow_id": "workflow-ca268c8fba9b"
+}

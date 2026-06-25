@@ -1,0 +1,54 @@
+{
+  "schemaVersion": "1.1",
+  "note": "Single-cell RNA-seq marker overlay: gene-symbol marker entities, avg_log2FC (log-scale) effect column, Seurat/Scanpy adjusted-p columns. Only verifiableEntities is read by from_policy.",
+  "verifiableEntities": {
+    "enabled": true,
+    "entityNamePatterns": [
+      "[A-Z][A-Z0-9]{1,}"
+    ],
+    "entityNameExcludePatterns": [
+      "(?i)^(umap|tsne|pca|rna|adt|hto|qc|mt|rp)$"
+    ],
+    "directionVocab": {
+      "up": [
+        "upregulated",
+        "increased",
+        "elevated",
+        "enriched",
+        "higher"
+      ],
+      "down": [
+        "downregulated",
+        "decreased",
+        "reduced",
+        "depleted",
+        "lower"
+      ]
+    },
+    "effectSizeColumns": [
+      "avg_log2FC",
+      "avg_logFC",
+      "avg_log2_fc",
+      "log2FC",
+      "logfc"
+    ],
+    "entityColumns": [
+      "gene",
+      "feature",
+      "symbol",
+      "gene_name"
+    ],
+    "pvalueColumns": [
+      "p_val_adj",
+      "pvals_adj",
+      "padj",
+      "p_val",
+      "pvalue",
+      "fdr"
+    ],
+    "tolerance": {
+      "log2FcAbsoluteDelta": 0.05,
+      "pvalueRelativeDelta": 0.1
+    }
+  }
+}

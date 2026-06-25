@@ -1,0 +1,205 @@
+{
+  "order": [
+    {
+      "index": 0,
+      "output_dir": "runtime/outputs/review_prior_work/",
+      "task_id": "review_prior_work"
+    },
+    {
+      "index": 1,
+      "output_dir": "runtime/outputs/validate_review_prior_work/",
+      "task_id": "validate_review_prior_work"
+    },
+    {
+      "index": 2,
+      "output_dir": "runtime/outputs/data_acquisition/",
+      "task_id": "data_acquisition"
+    },
+    {
+      "index": 3,
+      "output_dir": "runtime/outputs/validate_data_acquisition/",
+      "task_id": "validate_data_acquisition"
+    },
+    {
+      "index": 4,
+      "output_dir": "runtime/outputs/qc_preprocessing/",
+      "task_id": "qc_preprocessing"
+    },
+    {
+      "index": 5,
+      "output_dir": "runtime/outputs/validate_qc_preprocessing/",
+      "task_id": "validate_qc_preprocessing"
+    },
+    {
+      "index": 6,
+      "output_dir": "runtime/outputs/survey_method_landscape/",
+      "task_id": "survey_method_landscape"
+    },
+    {
+      "index": 7,
+      "output_dir": "runtime/outputs/discover_peak_to_gene_linking/",
+      "task_id": "discover_peak_to_gene_linking"
+    },
+    {
+      "index": 8,
+      "output_dir": "runtime/outputs/discover_pathway_enrichment/",
+      "task_id": "discover_pathway_enrichment"
+    },
+    {
+      "index": 9,
+      "output_dir": "runtime/outputs/discover_normalisation/",
+      "task_id": "discover_normalisation"
+    },
+    {
+      "index": 10,
+      "output_dir": "runtime/outputs/discover_multiome_arc_demultiplex/",
+      "task_id": "discover_multiome_arc_demultiplex"
+    },
+    {
+      "index": 11,
+      "output_dir": "runtime/outputs/discover_joint_wnn_integration/",
+      "task_id": "discover_joint_wnn_integration"
+    },
+    {
+      "index": 12,
+      "output_dir": "runtime/outputs/discover_differential_expression/",
+      "task_id": "discover_differential_expression"
+    },
+    {
+      "index": 13,
+      "output_dir": "runtime/outputs/discover_differential_accessibility/",
+      "task_id": "discover_differential_accessibility"
+    },
+    {
+      "index": 14,
+      "output_dir": "runtime/outputs/discover_clustering/",
+      "task_id": "discover_clustering"
+    },
+    {
+      "index": 15,
+      "output_dir": "runtime/outputs/discover_cell_type_annotation/",
+      "task_id": "discover_cell_type_annotation"
+    },
+    {
+      "index": 16,
+      "output_dir": "runtime/outputs/normalisation/",
+      "task_id": "normalisation"
+    },
+    {
+      "index": 17,
+      "output_dir": "runtime/outputs/validate_normalisation/",
+      "task_id": "validate_normalisation"
+    },
+    {
+      "index": 18,
+      "output_dir": "runtime/outputs/multiome_arc_demultiplex/",
+      "task_id": "multiome_arc_demultiplex"
+    },
+    {
+      "index": 19,
+      "output_dir": "runtime/outputs/validate_multiome_arc_demultiplex/",
+      "task_id": "validate_multiome_arc_demultiplex"
+    },
+    {
+      "index": 20,
+      "output_dir": "runtime/outputs/joint_wnn_integration/",
+      "task_id": "joint_wnn_integration"
+    },
+    {
+      "index": 21,
+      "output_dir": "runtime/outputs/validate_joint_wnn_integration/",
+      "task_id": "validate_joint_wnn_integration"
+    },
+    {
+      "index": 22,
+      "output_dir": "runtime/outputs/clustering/",
+      "task_id": "clustering"
+    },
+    {
+      "index": 23,
+      "output_dir": "runtime/outputs/validate_clustering/",
+      "task_id": "validate_clustering"
+    },
+    {
+      "index": 24,
+      "output_dir": "runtime/outputs/cell_type_annotation/",
+      "task_id": "cell_type_annotation"
+    },
+    {
+      "index": 25,
+      "output_dir": "runtime/outputs/validate_cell_type_annotation/",
+      "task_id": "validate_cell_type_annotation"
+    },
+    {
+      "index": 26,
+      "output_dir": "runtime/outputs/peak_to_gene_linking/",
+      "task_id": "peak_to_gene_linking"
+    },
+    {
+      "index": 27,
+      "output_dir": "runtime/outputs/validate_peak_to_gene_linking/",
+      "task_id": "validate_peak_to_gene_linking"
+    },
+    {
+      "index": 28,
+      "output_dir": "runtime/outputs/contextualize_findings_with_literature/",
+      "task_id": "contextualize_findings_with_literature"
+    },
+    {
+      "index": 29,
+      "output_dir": "runtime/outputs/validate_contextualize_findings_with_literature/",
+      "task_id": "validate_contextualize_findings_with_literature"
+    },
+    {
+      "index": 30,
+      "output_dir": "runtime/outputs/differential_expression/",
+      "task_id": "differential_expression"
+    },
+    {
+      "index": 31,
+      "output_dir": "runtime/outputs/validate_differential_expression/",
+      "task_id": "validate_differential_expression"
+    },
+    {
+      "index": 32,
+      "output_dir": "runtime/outputs/pathway_enrichment/",
+      "task_id": "pathway_enrichment"
+    },
+    {
+      "index": 33,
+      "output_dir": "runtime/outputs/validate_pathway_enrichment/",
+      "task_id": "validate_pathway_enrichment"
+    },
+    {
+      "index": 34,
+      "output_dir": "runtime/outputs/differential_accessibility/",
+      "task_id": "differential_accessibility"
+    },
+    {
+      "index": 35,
+      "output_dir": "runtime/outputs/validate_differential_accessibility/",
+      "task_id": "validate_differential_accessibility"
+    },
+    {
+      "index": 36,
+      "output_dir": "runtime/outputs/reporting/",
+      "task_id": "reporting"
+    },
+    {
+      "index": 37,
+      "output_dir": "runtime/outputs/validate_reporting/",
+      "task_id": "validate_reporting"
+    },
+    {
+      "index": 38,
+      "output_dir": "runtime/outputs/final_reporting/",
+      "task_id": "final_reporting"
+    },
+    {
+      "index": 39,
+      "output_dir": "runtime/outputs/validate_final_reporting/",
+      "task_id": "validate_final_reporting"
+    }
+  ],
+  "workflow_id": "workflow-84804784cbf3"
+}

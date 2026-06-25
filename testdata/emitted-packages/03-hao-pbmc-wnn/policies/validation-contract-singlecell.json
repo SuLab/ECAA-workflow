@@ -1,13 +1,13 @@
 {
   "contract_id": "validation-contract-singlecell",
-  "description": "Per-stage required assertions for the single-cell RNA-seq taxonomy. Each stage_class block lists assertions the validator MUST run; the harness cross-checks the validator's validation_report.json after completion and re-blocks the parent compute task if any `required` assertion is missing or failed. Derived from the Lotz IVD spec (specs/0[1-9]_*.md + 1[0-2]_*.md).",
-  "version": "1.0.0",
+  "description": "Per-stage required assertions for the single-cell RNA-seq taxonomy, carried by the single_cell_de archetype. Stage keys match the archetype's task ids (the harness matches on task_id when spec.stage_class is absent); required-artifact filenames match the single_cell_de atoms' declared required_artifacts, so a free-choice agent that fulfils its task spec passes. Goal-agnostic: required assertions check only that each stage produced its declared output (recursive `**` glob, so flat OR compartment-partitioned layouts both match). Study-specific clinical covariates carried over from the original IVD derivation (a disease-grade column, a tissue-compartment column, an age column, a study column) were REMOVED from the required metadata-column check — they would false-fail a general single-cell study (tumour/immune atlas); only a sample-level join key is required. Stages absent from a given DAG self-gate (the harness only enforces a stage_class that has a matching completed task).",
+  "version": "1.5.0",
   "stages": {
     "data_acquisition": {
       "assertions": [
         {
           "id": "data_acquisition.registry_present",
-          "description": "A dataset_registry.tsv must be produced listing every accession with kept/dropped status.",
+          "description": "A dataset_registry.tsv listing every accession with kept/dropped status is recommended.",
           "assertion_type": "artifact_present",
           "target": "runtime/outputs/data_acquisition/dataset_registry.tsv",
           "severity": "recommended"
@@ -18,42 +18,40 @@
       "assertions": [
         {
           "id": "metadata_harmonization.sample_metadata_present",
-          "description": "sample_metadata.tsv must be produced by the metadata_harmonization stage.",
+          "description": "sample_metadata.tsv must be produced when a metadata_harmonization stage runs.",
           "assertion_type": "artifact_present",
           "target": "runtime/outputs/metadata_harmonization/sample_metadata.tsv",
           "severity": "required"
         },
         {
-          "id": "metadata_harmonization.canonical_columns",
-          "description": "sample_metadata.tsv must carry the canonical columns for downstream DE + composition analysis.",
+          "id": "metadata_harmonization.sample_join_key_present",
+          "description": "Harmonized metadata must carry a sample-level join key so cells can be tied to samples downstream. Goal-agnostic: any of the common key names satisfies it. Study-specific clinical covariates (e.g. age, disease grade, tissue compartment) are NOT required here — those belong to a scenario overlay, not the general single-cell contract.",
           "assertion_type": "string_contains",
           "target": "runtime/outputs/metadata_harmonization/sample_metadata.tsv",
           "check": {
-            "substrings": ["study", "sample_key", "condition", "age_years", "pfirrmann_grade", "compartment"]
+            "substrings_any": [
+              "sample_key",
+              "sample_id",
+              "sample"
+            ]
           },
           "severity": "required"
         }
       ]
     },
-    "preprocessing": {
+    "qc_preprocessing": {
       "assertions": [
         {
-          "id": "preprocessing.cellranger_or_passthrough_documented",
-          "description": "Either Cell Ranger 7.x is the method, or the passthrough is explicitly documented with a spec-deviation rationale in known_limitations.",
+          "id": "qc_preprocessing.doublet_detection_documented",
+          "description": "Doublet detection (Scrublet/DoubletFinder or equivalent) is recommended; recorded in the manifest.",
           "assertion_type": "string_contains",
-          "target": "runtime/outputs/preprocessing/manifest.json",
+          "target": "runtime/outputs/qc_preprocessing/manifest.json",
           "check": {
-            "substrings_any": ["cellranger_7", "cellranger_8", "skip_preprocessing_passthrough"]
-          },
-          "severity": "recommended"
-        },
-        {
-          "id": "preprocessing.doublet_detection_ran",
-          "description": "Scrublet or an equivalent doublet detection method must have run.",
-          "assertion_type": "string_contains",
-          "target": "runtime/outputs/preprocessing/manifest.json",
-          "check": {
-            "substrings_any": ["scrublet", "doubletfinder", "doublet_detection"]
+            "substrings_any": [
+              "scrublet",
+              "doubletfinder",
+              "doublet_detection"
+            ]
           },
           "severity": "recommended"
         }
@@ -63,18 +61,22 @@
       "assertions": [
         {
           "id": "batch_correction.integration_stats_present",
-          "description": "Every compartment directory must contain an integration_stats.json.",
+          "description": "integration_stats.json must be produced when batch_correction runs (matches the atom's declared required_artifact). Recursive glob: flat or compartment-partitioned layouts both match.",
           "assertion_type": "artifact_glob_any",
-          "target": "runtime/outputs/batch_correction/compartment_*/integration_stats.json",
+          "target": "runtime/outputs/batch_correction/**/integration_stats.json",
           "severity": "required"
         },
         {
-          "id": "batch_correction.ilisi_recorded",
-          "description": "iLISI (or equivalent batch-mixing metric) must be present in each compartment's integration_stats.json.",
+          "id": "batch_correction.mixing_metric_recorded",
+          "description": "A batch-mixing metric (iLISI or equivalent) in integration_stats.json is recommended.",
           "assertion_type": "string_contains",
-          "target": "runtime/outputs/batch_correction/compartment_NP/integration_stats.json",
+          "target": "runtime/outputs/batch_correction/integration_stats.json",
           "check": {
-            "substrings_any": ["ilisi", "batch_mixing_post", "mixing_post"]
+            "substrings_any": [
+              "ilisi",
+              "batch_mixing_post",
+              "mixing_post"
+            ]
           },
           "severity": "recommended"
         }
@@ -84,18 +86,21 @@
       "assertions": [
         {
           "id": "clustering.cluster_assignments_present",
-          "description": "Every compartment directory must contain cluster_assignments.tsv(.gz).",
+          "description": "cluster_assignments.tsv(.gz) must be produced (matches the atom's declared required_artifact). Recursive glob handles flat or partitioned layouts.",
           "assertion_type": "artifact_glob_any",
-          "target": "runtime/outputs/clustering/compartment_*/cluster_assignments.tsv*",
+          "target": "runtime/outputs/clustering/**/cluster_assignments.tsv*",
           "severity": "required"
         },
         {
           "id": "clustering.resolution_sweep_documented",
-          "description": "A resolution sweep must be recorded in the manifest (the spec's step-0.1 sweep is preferred; looser sweeps are a documented deviation).",
+          "description": "A clustering-resolution sweep recorded in the manifest is recommended.",
           "assertion_type": "string_contains",
           "target": "runtime/outputs/clustering/manifest.json",
           "check": {
-            "substrings_any": ["resolution_sweep", "resolution_sensitivity"]
+            "substrings_any": [
+              "resolution_sweep",
+              "resolution_sensitivity"
+            ]
           },
           "severity": "recommended"
         }
@@ -105,9 +110,9 @@
       "assertions": [
         {
           "id": "cell_type_annotation.labels_present",
-          "description": "Per-compartment annotation_per_cell.tsv(.gz) must be produced with a cell-type column.",
+          "description": "celltype_assignments.tsv(.gz) must be produced with a cell-type column (matches the atom's declared required_artifact). Recursive glob handles flat or partitioned layouts.",
           "assertion_type": "artifact_glob_any",
-          "target": "runtime/outputs/cell_type_annotation/compartment_*/annotation_per_cell.tsv*",
+          "target": "runtime/outputs/cell_type_annotation/**/celltype_assignments.tsv*",
           "severity": "required"
         }
       ]
@@ -116,30 +121,149 @@
       "assertions": [
         {
           "id": "differential_expression.results_non_empty",
-          "description": "de_results.tsv(.gz) for at least one compartment must carry more than its header row — an empty DE table marks the stage as not actually run.",
+          "description": "de_results.tsv(.gz) must carry more than its header row — an empty DE table marks the stage as not actually run. Recursive glob handles flat or partitioned layouts.",
           "assertion_type": "artifact_non_empty_table",
-          "target": "runtime/outputs/differential_expression/compartment_*/de_results.tsv*",
+          "target": "runtime/outputs/differential_expression/**/de_results.tsv*",
           "severity": "required"
         },
         {
           "id": "differential_expression.design_records_covariates",
-          "description": "The DE design string in the manifest should record the condition + study covariates at minimum; ivd_score is spec-preferred when available.",
+          "description": "The DE design string in the manifest should record the condition/grouping covariate at minimum.",
           "assertion_type": "string_contains",
           "target": "runtime/outputs/differential_expression/manifest.json",
           "check": {
-            "substrings_any": ["condition", "design"]
+            "substrings_any": [
+              "condition",
+              "design",
+              "group"
+            ]
           },
           "severity": "recommended"
+        },
+        {
+          "id": "differential_expression.design_recorded",
+          "description": "Method-correctness precondition (shared with validation-contract-association): result.json must record the fitted model so it is auditable — design_formula and response_variable. An unauditable model (missing either) is itself a failure. Substrings are field-name keys, not model prescriptions. The covariate-columns record (`available_covariates`) is enforced separately by design_records_covariate_columns with a TYPED pointer check, because a substring scan would accept an incidental or nested occurrence the covariate-adjustment when-gate cannot read. stated_outcome is the agent's honest record of the task's stated outcome (record-what-you-did); hardening available_covariates to a pinned measurement script is a follow-up (docs/known-limitations.md).",
+          "assertion_type": "string_contains",
+          "target": "runtime/outputs/differential_expression/result.json",
+          "check": {
+            "substrings": [
+              "design_formula",
+              "response_variable"
+            ]
+          },
+          "severity": "required"
+        },
+        {
+          "id": "differential_expression.design_records_covariate_columns",
+          "description": "Closes the covariate-omission false-negative at the SAME read mechanism the dependent check uses (shared with validation-contract-association). design_adjusts_available_covariates `when`-gates on the JSON pointer /available_covariates; a whole-file substring scan of `available_covariates` would be satisfied by an incidental occurrence in a note OR a nested key while /available_covariates does not resolve at the top level — letting the adjustment check skip (skip-as-pass). This typed json_pointer_is_array check requires /available_covariates to resolve to an ARRAY: the covariate columns the agent observed, recorded as a list. An EMPTY array is allowed (a covariate-free run) — the adjustment check's own empty-array when-gate then self-skips, so this never false-fires the common case. Absence or a non-array value fails closed. It records what columns the agent saw (record-what-you-did); it never names which covariates to include (method-neutral).",
+          "assertion_type": "json_pointer_is_array",
+          "target": "runtime/outputs/differential_expression/result.json",
+          "check": {
+            "json_pointer": "/available_covariates"
+          },
+          "severity": "required"
+        },
+        {
+          "id": "differential_expression.design_adjusts_available_covariates",
+          "description": "Catches a covariate-omitting design (da-15-1): the agent-recorded design_formula must REFERENCE at least one of the agent-recorded available_covariates after the primary comparison variable is removed. Compares the agent's own formula against the agent's own record of the data's columns; it never names which covariates to include (method-neutral). GATED on /available_covariates so it SKIPS when no covariate columns were recorded.",
+          "assertion_type": "formula_references_covariates",
+          "target": "runtime/outputs/differential_expression/result.json",
+          "check": {
+            "formula_pointer": "/design_formula",
+            "covariates_pointer": "/available_covariates",
+            "primary_pointer": "/primary_variable"
+          },
+          "when": {
+            "json_pointer": "/available_covariates"
+          },
+          "severity": "required"
+        },
+        {
+          "id": "differential_expression.response_matches_stated_outcome",
+          "description": "Catches an inverted regression (da-8-1): the agent-recorded response_variable (model outcome / LHS) must equal the agent-recorded stated_outcome (the SME's stated outcome) after casefold+trim. Compares the agent's own model outcome against the agent's own record of the task's stated outcome; it never names which variable to regress on (method-neutral). GATED on /stated_outcome so it SKIPS plain DE-by-condition with no SME-stated outcome.",
+          "assertion_type": "cross_field_equals",
+          "target": "runtime/outputs/differential_expression/result.json",
+          "check": {
+            "this_pointer": "/response_variable",
+            "other_pointer": "/stated_outcome",
+            "normalize": "casefold_trim"
+          },
+          "when": {
+            "json_pointer": "/stated_outcome"
+          },
+          "severity": "required"
+        },
+        {
+          "id": "differential_expression.top_effect_reliability",
+          "description": "Effect-size reliability (domain-correctness, method-neutral; shared with validation-contract-association): the features the agent ranked as strongest by absolute effect size (its own top-K by |effect estimate|) must sit at least this fraction of the tested set's typical (median) per-feature abundance/information basis the agent recorded (e.g. base mean / mean count / mean expression / logCPM). top_effect_abundance_ratio is recomputed by lib/measure_de_effect_size.py from the agent's OWN ranked results table and its OWN abundance column: the median abundance of its top-K-by-|effect| features divided by the median abundance over the whole tested set. It is null-robust — about 1 when effect and abundance are independent and driven toward 0 when extreme effects concentrate in the lowest-abundance features, where effect estimates are unreliable, so such a 'strongest finding' list is not trustworthy. K and the ratio bound are operator-authored constants in the pinned script, never handed to the agent; the agent chose the ranking and how to keep its strongest-finding list domain-correct is its choice (no method/filter/threshold prescribed). GATED on /information_column_recorded so it is SKIPPED (never blocks) when no per-feature abundance column was recorded — as occurs on some single-cell differential-expression paths, so this check applies only where an abundance basis exists. Severity is `required`: paired with the autonomous validation-recovery path (ECAA_HARNESS_VALIDATION_RECOVERY), an unattended run surfaces this neutral recomputed-vs-bound signal and re-dispatches rather than dead-stalling, while a production SME run treats it as a checkpoint. SME-overridable.",
+          "assertion_type": "numeric_threshold",
+          "target": "runtime/outputs/differential_expression/result.json",
+          "check": {
+            "json_pointer": "/top_effect_abundance_ratio",
+            "op": "gte",
+            "value": 0.2
+          },
+          "when": {
+            "json_pointer": "/information_column_recorded",
+            "equals": true
+          },
+          "severity": "required"
+        },
+        {
+          "id": "differential_expression.reports_model_fit",
+          "description": "Report-completeness (domain-correctness, method-neutral; shared with validation-contract-association): when the agent's OWN results table records a model-fit / variance-explained column (an R-squared and its conventional synonyms), the agent's written answer must SURFACE that statistic. States a fact about the agent's own recorded output, prescribing no method/estimator/model/value; how the agent surfaces it is its choice. Deterministic substring presence test (string_contains, substrings_any/OR) over /narrative_text — the single channel lib/measure_de_effect_size.py folds the sibling narrative deliverable (report.md / interpretation.md / summary.md / answer.txt) plus the agent's own narrative into, so it never false-fires when the answer lives in a sibling .md/.txt. GATED on /r_squared_column_recorded (FOUND-and-usable recorded-ness, same as /information_column_recorded) so it is SKIPPED (never blocks, never prescribes the column) when no model-fit column is recorded — as occurs on the common single-cell DE path (no per-feature variance-explained column), so this check applies only where a model-fit basis exists. AUTHORING NOTE (disclosure): error CLASS identified from BiomniBench da-8-1 C8; the assertion encodes the GENERAL invariant 'surface the model-fit statistic your own table records' with NO benchmark value, gene name, column literal, or task id in any check clause; substrings are generic statistic-name synonyms. SME-overridable.",
+          "assertion_type": "string_contains",
+          "target": "runtime/outputs/differential_expression/result.json",
+          "check": {
+            "json_pointer": "/narrative_text",
+            "case_insensitive": true,
+            "substrings_any": [
+              "r2",
+              "r-squared",
+              "r squared",
+              "r²",
+              "variance explained",
+              "r_squared"
+            ]
+          },
+          "when": {
+            "json_pointer": "/r_squared_column_recorded",
+            "equals": true
+          },
+          "severity": "required"
+        },
+        {
+          "id": "differential_expression.reports_per_row_n",
+          "description": "Report-completeness (domain-correctness, method-neutral; shared with validation-contract-association): when the agent's OWN results table records a per-row sample-size column, the agent's written answer must SURFACE the per-row sample size. States a fact about the agent's own recorded output, prescribing no method/value; how the agent surfaces it is its choice. Deterministic substring presence test (string_contains, substrings_any/OR) over /narrative_text — the single folded channel (report.md / interpretation.md / summary.md / answer.txt + own narrative) lib/measure_de_effect_size.py writes, so it never false-fires when the answer sits in a sibling .md/.txt. GATED on /sample_size_column_recorded (FOUND-and-usable recorded-ness) so it is SKIPPED (never blocks, never prescribes the column) when no per-row sample-size column is recorded. AUTHORING NOTE (disclosure): error CLASS identified from BiomniBench da-8-1 C8; encodes the GENERAL invariant 'surface the per-row sample size your own table records' with NO benchmark value or task id in any check clause; substrings are generic phrasings of a sample-size mention. SME-overridable.",
+          "assertion_type": "string_contains",
+          "target": "runtime/outputs/differential_expression/result.json",
+          "check": {
+            "json_pointer": "/narrative_text",
+            "case_insensitive": true,
+            "substrings_any": [
+              "n =",
+              "n=",
+              "sample size",
+              "samples per",
+              "per-metabolite n",
+              "number of samples"
+            ]
+          },
+          "when": {
+            "json_pointer": "/sample_size_column_recorded",
+            "equals": true
+          },
+          "severity": "required"
         }
       ]
     },
-    "biological_interpretation": {
+    "pathway_enrichment": {
       "assertions": [
         {
-          "id": "biological_interpretation.enrichment_present",
-          "description": "Per-compartment enrichment tables must be produced (ora, method_consensus, or gsea).",
+          "id": "pathway_enrichment.results_present",
+          "description": "An enrichment/pathway table must be produced (ORA, GSEA, or method-consensus). Recursive glob over any .tsv handles the atom's pathway_results.tsv and partitioned layouts.",
           "assertion_type": "artifact_glob_any",
-          "target": "runtime/outputs/biological_interpretation/compartment_*/*.tsv*",
+          "target": "runtime/outputs/pathway_enrichment/**/*.tsv*",
           "severity": "required"
         }
       ]
@@ -148,9 +272,9 @@
       "assertions": [
         {
           "id": "trajectory_analysis.pseudotime_present",
-          "description": "Per-compartment pseudotime assignments (dpt_per_cell.tsv.gz or equivalent) must be produced when the stage runs.",
+          "description": "Pseudotime assignments (dpt_per_cell.tsv.gz or equivalent) when the stage runs (recommended).",
           "assertion_type": "artifact_glob_any",
-          "target": "runtime/outputs/trajectory_analysis/compartment_*/dpt_per_cell.tsv*",
+          "target": "runtime/outputs/trajectory_analysis/**/dpt_per_cell.tsv*",
           "severity": "recommended"
         }
       ]
@@ -159,9 +283,9 @@
       "assertions": [
         {
           "id": "cell_cell_communication.interactions_present",
-          "description": "Per-compartment interaction tables must be produced (LIANA or CellChat).",
+          "description": "An interaction table must be produced when the stage runs (LIANA or CellChat). Recursive glob over any .tsv handles flat or partitioned layouts.",
           "assertion_type": "artifact_glob_any",
-          "target": "runtime/outputs/cell_cell_communication/compartment_*/*.tsv*",
+          "target": "runtime/outputs/cell_cell_communication/**/*.tsv*",
           "severity": "required"
         }
       ]

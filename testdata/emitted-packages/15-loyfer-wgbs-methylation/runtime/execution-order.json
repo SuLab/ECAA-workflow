@@ -1,0 +1,170 @@
+{
+  "order": [
+    {
+      "index": 0,
+      "output_dir": "runtime/outputs/review_prior_work/",
+      "task_id": "review_prior_work"
+    },
+    {
+      "index": 1,
+      "output_dir": "runtime/outputs/validate_review_prior_work/",
+      "task_id": "validate_review_prior_work"
+    },
+    {
+      "index": 2,
+      "output_dir": "runtime/outputs/data_acquisition/",
+      "task_id": "data_acquisition"
+    },
+    {
+      "index": 3,
+      "output_dir": "runtime/outputs/validate_data_acquisition/",
+      "task_id": "validate_data_acquisition"
+    },
+    {
+      "index": 4,
+      "output_dir": "runtime/outputs/raw_qc/",
+      "task_id": "raw_qc"
+    },
+    {
+      "index": 5,
+      "output_dir": "runtime/outputs/validate_raw_qc/",
+      "task_id": "validate_raw_qc"
+    },
+    {
+      "index": 6,
+      "output_dir": "runtime/outputs/survey_method_landscape/",
+      "task_id": "survey_method_landscape"
+    },
+    {
+      "index": 7,
+      "output_dir": "runtime/outputs/discover_sequence_trimming/",
+      "task_id": "discover_sequence_trimming"
+    },
+    {
+      "index": 8,
+      "output_dir": "runtime/outputs/discover_quantification/",
+      "task_id": "discover_quantification"
+    },
+    {
+      "index": 9,
+      "output_dir": "runtime/outputs/discover_pathway_enrichment/",
+      "task_id": "discover_pathway_enrichment"
+    },
+    {
+      "index": 10,
+      "output_dir": "runtime/outputs/discover_normalisation/",
+      "task_id": "discover_normalisation"
+    },
+    {
+      "index": 11,
+      "output_dir": "runtime/outputs/discover_differential_expression/",
+      "task_id": "discover_differential_expression"
+    },
+    {
+      "index": 12,
+      "output_dir": "runtime/outputs/discover_alignment/",
+      "task_id": "discover_alignment"
+    },
+    {
+      "index": 13,
+      "output_dir": "runtime/outputs/sequence_trimming/",
+      "task_id": "sequence_trimming"
+    },
+    {
+      "index": 14,
+      "output_dir": "runtime/outputs/validate_sequence_trimming/",
+      "task_id": "validate_sequence_trimming"
+    },
+    {
+      "index": 15,
+      "output_dir": "runtime/outputs/alignment/",
+      "task_id": "alignment"
+    },
+    {
+      "index": 16,
+      "output_dir": "runtime/outputs/validate_alignment/",
+      "task_id": "validate_alignment"
+    },
+    {
+      "index": 17,
+      "output_dir": "runtime/outputs/quantification/",
+      "task_id": "quantification"
+    },
+    {
+      "index": 18,
+      "output_dir": "runtime/outputs/validate_quantification/",
+      "task_id": "validate_quantification"
+    },
+    {
+      "index": 19,
+      "output_dir": "runtime/outputs/qc_preprocessing/",
+      "task_id": "qc_preprocessing"
+    },
+    {
+      "index": 20,
+      "output_dir": "runtime/outputs/validate_qc_preprocessing/",
+      "task_id": "validate_qc_preprocessing"
+    },
+    {
+      "index": 21,
+      "output_dir": "runtime/outputs/normalisation/",
+      "task_id": "normalisation"
+    },
+    {
+      "index": 22,
+      "output_dir": "runtime/outputs/validate_normalisation/",
+      "task_id": "validate_normalisation"
+    },
+    {
+      "index": 23,
+      "output_dir": "runtime/outputs/differential_expression/",
+      "task_id": "differential_expression"
+    },
+    {
+      "index": 24,
+      "output_dir": "runtime/outputs/validate_differential_expression/",
+      "task_id": "validate_differential_expression"
+    },
+    {
+      "index": 25,
+      "output_dir": "runtime/outputs/pathway_enrichment/",
+      "task_id": "pathway_enrichment"
+    },
+    {
+      "index": 26,
+      "output_dir": "runtime/outputs/validate_pathway_enrichment/",
+      "task_id": "validate_pathway_enrichment"
+    },
+    {
+      "index": 27,
+      "output_dir": "runtime/outputs/contextualize_findings_with_literature/",
+      "task_id": "contextualize_findings_with_literature"
+    },
+    {
+      "index": 28,
+      "output_dir": "runtime/outputs/validate_contextualize_findings_with_literature/",
+      "task_id": "validate_contextualize_findings_with_literature"
+    },
+    {
+      "index": 29,
+      "output_dir": "runtime/outputs/reporting/",
+      "task_id": "reporting"
+    },
+    {
+      "index": 30,
+      "output_dir": "runtime/outputs/validate_reporting/",
+      "task_id": "validate_reporting"
+    },
+    {
+      "index": 31,
+      "output_dir": "runtime/outputs/final_reporting/",
+      "task_id": "final_reporting"
+    },
+    {
+      "index": 32,
+      "output_dir": "runtime/outputs/validate_final_reporting/",
+      "task_id": "validate_final_reporting"
+    }
+  ],
+  "workflow_id": "workflow-fb58950da79a"
+}

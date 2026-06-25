@@ -1,7 +1,15 @@
 {
   "@context": [
     "https://w3id.org/ro/crate/1.1/context",
-    "https://w3id.org/ro/terms/workflow-run"
+    "https://w3id.org/ro/terms/workflow-run",
+    {
+      "evaluated_against": "https://w3id.org/ecaa/ns/0.2#evaluated_against",
+      "invariant_id": "https://w3id.org/ecaa/ns/0.2#invariantId",
+      "matchedArchetype": "https://w3id.org/ecaa/ns/0.2#matchedArchetype",
+      "rationale": "https://w3id.org/ecaa/ns/0.2#rationale",
+      "verdict": "https://w3id.org/ecaa/ns/0.2#verdict",
+      "wasGeneratedBy": "http://www.w3.org/ns/prov#wasGeneratedBy"
+    }
   ],
   "@graph": [
     {
@@ -18,15 +26,6 @@
           "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0"
         },
         {
-          "@id": "https://w3id.org/ro/wfrun/process/0.5"
-        },
-        {
-          "@id": "https://w3id.org/ro/wfrun/workflow/0.5"
-        },
-        {
-          "@id": "https://w3id.org/ro/wfrun/provenance/0.5"
-        },
-        {
           "@id": "https://w3id.org/ecaa/v0.2"
         }
       ]
@@ -34,9 +33,24 @@
     {
       "@id": "./",
       "@type": "Dataset",
-      "dateCreated": "2071-06-19T12:47:05+00:00",
+      "conformsTo": [
+        {
+          "@id": "https://w3id.org/ro/crate/1.1"
+        },
+        {
+          "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0"
+        },
+        {
+          "@id": "https://w3id.org/ecaa/v0.2"
+        }
+      ],
+      "dateCreated": "2026-01-01T00:00:00+00:00",
+      "datePublished": "2026-01-01T00:00:00+00:00",
       "description": "We want to recreate the SEQC2 somatic-mutation truth-set construction pipeline from Fang et al. 2019 (bioRxiv) / 2021 (Nat Biotechnol). The reference samples are HCC1395 (triple-negative breast cancer) and HCC1395BL (matched B-lymphocyte normal), with raw FASTQs on SRA under SRP162370 (BioProject PRJNA496703) totalling 140 billion reads.\n\nThe pipeline is a multi-aligner x multi-caller cross product. Run three aligners on the same FASTQs: BWA-MEM (default), Bowtie2, and NovoAlign. Run six somatic callers against each tumor/normal alignment: MuTect2, SomaticSniper, VarDict, MuSE, Strelka2, and TNscope. Per-data-group SomaticSeq machine-learning classifier (Fang 2015) labels each call PASS or REJECT.\n\nThe super set is the union of PASS calls. Confidence levels are assigned by the cross-caller agreement pattern: HighConf = many PASS / few REJECT; MedConf = some PASS / few REJECT, mostly low VAF; LowConf = few PASS at or below the 50x detection limit; Unclassified = significant REJECT (poor mapping / poor alignment / germline risk).\n\nValidate the truth set with three orthogonal platforms: AmpliSeq deep MiSeq at 2000x depth, Ion Torrent WES at 34x, and HiSeq WES at 12,500x. Compute Pearson correlation between Super-Set VAF and validation-platform VAF, restricted to HighConf.\n\nHeadline numbers we want to reproduce (within +/-5%): 37,094 SNV HighConf, 1,588 INDEL HighConf, 2,442 SNV MedConf, 8,143 SNV LowConf, 62,407 SNV Unclassified. Validation rate for AmpliSeq HighConf SNV >= 98.7%. HiSeq WES HighConf SNV validation rate = 100%. Pearson R >= 0.95 between Super-Set VAF and AmpliSeq VAF for HighConf.\n\nFor the germline arm, joint-genotype across 63 BAMs with FreeBayes, RTG, DeepVariant, and GATK HaplotypeCaller and assign an SNV Call Probability (SCP) score per call from cross-caller agreement. Reproduce 3,597,940 SCP=1 germline calls and the AmpliSeq germline VAF correlation (R ~ 0.986).\n\nReference genome is GRCh38. Exclude chr6p, chr16q, and chrX from the somatic truth set due to losses in HCC1395BL. VAF detection floor is 5%; calls below this are blacklisted from benchmarking.\n\nNo clinical-utility claims -- this is the reference truth-set construction.\n",
       "hasPart": [
+        {
+          "@id": "README.md"
+        },
         {
           "@id": "WORKFLOW.json"
         },
@@ -132,6 +146,7 @@
       "@id": "WORKFLOW.json",
       "@type": [
         "File",
+        "SoftwareSourceCode",
         "ComputationalWorkflow"
       ],
       "applicationSubCategory": {
@@ -256,6 +271,16 @@
       "name": "Subject Matter Expert (intake)"
     },
     {
+      "@id": "README.md",
+      "@type": "File",
+      "about": {
+        "@id": "./"
+      },
+      "description": "Human-readable entry point: what was asked, where the answer lands, a map of the package, and the re-run command.",
+      "encodingFormat": "text/markdown",
+      "name": "Package README — human landing page"
+    },
+    {
       "@id": "PROMPT.md",
       "@type": "File",
       "encodingFormat": "text/markdown",
@@ -368,6 +393,24 @@
       "description": "Schema-validation and external-validator rollup for emitted ECAA artifacts.",
       "encodingFormat": "application/json",
       "name": "ECAA emit-time validation summary"
+    },
+    {
+      "@id": "https://w3id.org/ro/crate/1.1",
+      "@type": "CreativeWork",
+      "name": "RO-Crate",
+      "version": "1.1"
+    },
+    {
+      "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0",
+      "@type": "CreativeWork",
+      "name": "Workflow RO-Crate Profile",
+      "version": "1.0"
+    },
+    {
+      "@id": "https://w3id.org/ecaa/v0.2",
+      "@type": "CreativeWork",
+      "name": "ECAA Conformance Profile",
+      "version": "0.2"
     },
     {
       "@id": "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id=9606",

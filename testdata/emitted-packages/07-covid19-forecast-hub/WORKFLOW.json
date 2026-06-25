@@ -1,5 +1,23 @@
 {
   "current_task": null,
+  "execution_order": [
+    "review_prior_work",
+    "validate_review_prior_work",
+    "data_import",
+    "validate_data_import",
+    "time_series_decompose",
+    "validate_time_series_decompose",
+    "time_series_model_fit",
+    "validate_time_series_model_fit",
+    "time_series_forecast_evaluate",
+    "validate_time_series_forecast_evaluate",
+    "contextualize_findings_with_literature",
+    "validate_contextualize_findings_with_literature",
+    "reporting",
+    "validate_reporting",
+    "final_reporting",
+    "validate_final_reporting"
+  ],
   "meta": {
     "modality_id": "time_series_forecast",
     "run_id": "7a0e628c-e5ed-00e5-91f0-3326b41511ff"
@@ -14,7 +32,37 @@
         "time_series_forecast_evaluate"
       ],
       "description": "Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+      "edam_operation": "operation:0305",
+      "execution_index": 10,
+      "inputs": [
+        {
+          "edam_format": "format:3475",
+          "name": "analysis_findings"
+        },
+        {
+          "edam_data": "ecaax:literature_claims_matrix",
+          "edam_format": "format:3752",
+          "name": "prior_claims_matrix"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "ecaax:claims_evidence_matrix",
+          "edam_format": "format:3752",
+          "name": "claims_evidence_matrix"
+        },
+        {
+          "edam_data": "ecaax:literature_search_protocol",
+          "edam_format": "format:1196",
+          "name": "literature_search_protocol"
+        },
+        {
+          "edam_data": "ecaax:citation_verification_report",
+          "edam_format": "format:1196",
+          "name": "citation_verification_report"
+        }
+      ],
       "required_artifacts": [
         {
           "path": "claims_evidence_matrix.csv",
@@ -24,7 +72,9 @@
             "evidence_quote_substring_match",
             "redistributable_or_marked",
             "claim_row_has_finding_id",
-            "concordance_flag_in_closed_set"
+            "concordance_flag_in_closed_set",
+            "direction_supported_by_quote",
+            "gene_symbol_ensembl_consistent"
           ]
         },
         {
@@ -35,7 +85,9 @@
             "evidence_quote_substring_match",
             "redistributable_or_marked",
             "claim_row_has_finding_id",
-            "concordance_flag_in_closed_set"
+            "concordance_flag_in_closed_set",
+            "direction_supported_by_quote",
+            "gene_symbol_ensembl_consistent"
           ]
         }
       ],
@@ -63,7 +115,7 @@
       "source_atom_id": "contextualize_findings_with_literature",
       "spec": {
         "attributes": {
-          "claim_boundary": "This atom emits row-level concordance flags ONLY. Each row references one\nupstream finding (finding_id), zero or more prior PMIDs, and a closed-set\nconcordance flag whose semantics are: same_direction iff the prior's effect\ndirection matches the analysis effect direction AND both effect-size\nmagnitudes are >0; opposite_direction iff signs differ; no_prior_finding\niff zero prior rows for this entity in this tissue; unverifiable iff prior\nrows exist but their evidence_quote does not specify a direction. Do NOT\nintroduce composite or narrative claims. Do NOT generate paragraphs that\nthe upstream atom did not also generate row-wise.\n\nEVIDENCE GATING (MANDATORY; enforced by post-task validation): cite a prior\nPMID — and assert same_direction / opposite_direction / unverifiable — ONLY\nfor a PMID that has a DOWNLOADED evidence snapshot you can point to (a\nsnapshots/<sha256> file recorded in an evidence/manifest.json, either this\ntask's own or an upstream literature task's such as review_prior_work /\nsurvey_method_landscape). Before writing ANY PMID into\nclaims_evidence_matrix.csv, confirm it resolves to such a manifest entry; if it\ndoes not, DROP the citation and set that row to no_prior_finding (leave the\nprior PMID column empty). NEVER cite a PMID from memory, from the finding's\ngene/region/variant name, or one you have not actually retrieved — an\nunretrieved PMID is an unsupported claim and will block the workflow. Record\nevery PMID you DO cite as an entry in THIS task's evidence/manifest.json\n(reuse the upstream snapshot path) so downstream validation resolves it.\n"
+          "claim_boundary": "This atom emits row-level concordance flags ONLY. Each row references one\nupstream finding (finding_id), zero or more prior PMIDs, and a closed-set\nconcordance flag whose semantics are: same_direction iff the prior's effect\ndirection matches the analysis effect direction AND both effect-size\nmagnitudes are >0; opposite_direction iff signs differ; no_prior_finding\niff zero prior rows for this entity in this tissue; unverifiable iff prior\nrows exist but their evidence_quote does not specify a direction. Do NOT\nintroduce composite or narrative claims. Do NOT generate paragraphs that\nthe upstream atom did not also generate row-wise.\n\nEVIDENCE GATING (MANDATORY; enforced by post-task validation): cite a prior\nPMID — and assert same_direction / opposite_direction / unverifiable — ONLY\nfor a PMID that has a DOWNLOADED evidence snapshot you can point to (a\nsnapshots/<sha256> file recorded in an evidence/manifest.json, either this\ntask's own or an upstream literature task's such as review_prior_work /\nsurvey_method_landscape). Before writing ANY PMID into\nclaims_evidence_matrix.csv, confirm it resolves to such a manifest entry; if it\ndoes not, DROP the citation and set that row to no_prior_finding (leave the\nprior PMID column empty). NEVER cite a PMID from memory, from the finding's\ngene/region/variant name, or one you have not actually retrieved — an\nunretrieved PMID is an unsupported claim and will block the workflow. Record\nevery PMID you DO cite as an entry in THIS task's evidence/manifest.json\n(reuse the upstream snapshot path) so downstream validation resolves it.\n\nGene-identity rule (MANDATORY): gene symbols MUST be resolved to Ensembl IDs\nusing the run's pinned genome annotation (org.Hs.eg.db / biomaRt at the\npackage's Ensembl release), OR by joining on the Ensembl IDs already present\nin the upstream differential-expression table (de_results.tsv gene_id column).\nYou MUST NOT hardcode Ensembl IDs and you MUST NOT recall them from memory; do\nnot embed a literal symbol→Ensembl map in the script. You MUST NOT fall back to\na literal ID when a lookup fails — on lookup failure, mark the gene unresolved\nrather than guessing. Resolution goes through the pinned annotation/adapter or\nthe upstream table only. Every emitted finding_id must be an Ensembl ID that\nappears in the upstream DE table or is explicitly flagged absent. For every\ngene row, ALSO populate the `entity` column with that gene's HGNC symbol (and\nentity_kind = gene), carried straight from the same annotation join used for\nthe Ensembl id — so the independent gene-symbol↔Ensembl consistency check can\nconfirm the citation is attached to the right gene.\n"
         },
         "expected_artifacts": [
           "claims_evidence_matrix.csv",
@@ -81,7 +133,21 @@
       "assignee": "agent",
       "depends_on": [],
       "description": "Import structured tabular or domain-formatted inputs (CDISC ADaM/SDTM, time-series\npanels, pre-computed count matrices) supplied by the SME. Mirrors `data_acquisition`\nbut for the clinical-trial and time-series-forecast project classes where inputs\nare files-on-disk rather than repository accessions.\n",
+      "edam_operation": "operation:2422",
+      "execution_index": 2,
+      "inputs": [
+        {
+          "name": "dataset_descriptors"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:2531",
+          "edam_format": "format:3475",
+          "name": "imported_dataset"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "data_import",
       "spec": {
@@ -105,7 +171,27 @@
         "reporting"
       ],
       "description": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "edam_operation": "operation:0337",
+      "execution_index": 14,
+      "inputs": [
+        {
+          "edam_data": "data:2048",
+          "edam_format": "format:3464",
+          "name": "analysis_bundle"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_format": "format:2331",
+          "name": "final_report_html"
+        },
+        {
+          "edam_data": "data:2048",
+          "edam_format": "format:3508",
+          "name": "final_report_pdf"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "final_reporting",
       "spec": {
@@ -133,7 +219,27 @@
         "time_series_forecast_evaluate"
       ],
       "description": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "edam_operation": "operation:0337",
+      "execution_index": 12,
+      "inputs": [
+        {
+          "edam_format": "format:3464",
+          "name": "aggregated_results"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:2048",
+          "edam_format": "format:2331",
+          "name": "report_html"
+        },
+        {
+          "edam_data": "data:2048",
+          "edam_format": "format:3508",
+          "name": "report_pdf"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "reporting",
       "spec": {
@@ -155,7 +261,33 @@
       "assignee": "agent",
       "depends_on": [],
       "description": "Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "edam_operation": "operation:0305",
+      "execution_index": 0,
+      "inputs": [
+        {
+          "edam_data": "topic:3678",
+          "edam_format": "format:3464",
+          "name": "intake_facts"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "ecaax:literature_claims_matrix",
+          "edam_format": "format:3752",
+          "name": "prior_claims_matrix"
+        },
+        {
+          "edam_data": "ecaax:literature_search_protocol",
+          "edam_format": "format:1196",
+          "name": "literature_search_protocol"
+        },
+        {
+          "edam_data": "ecaax:citation_verification_report",
+          "edam_format": "format:1196",
+          "name": "citation_verification_report"
+        }
+      ],
       "required_artifacts": [
         {
           "path": "prior_claims_matrix.csv",
@@ -235,7 +367,28 @@
         "data_import"
       ],
       "description": "Decompose a time-series panel into trend / seasonality / residual\ncomponents and run stationarity diagnostics. Method-neutral: the\nconcrete decomposition (STL, classical additive/multiplicative,\nX-13ARIMA-SEATS) is selected at runtime by the agent. Closes\nPhase 6.1 B.1 of the dag-design-v3-v4-100-percent-closure plan —\nthe time_series_forecast archetype previously had no producer for\nthis stage and dispatch failed with GoalUnreachable.\n",
+      "edam_operation": "operation:3658",
+      "execution_index": 4,
+      "inputs": [
+        {
+          "edam_data": "data:3134",
+          "edam_format": "format:3475",
+          "name": "panel"
+        },
+        {
+          "edam_data": "data:2531",
+          "edam_format": "format:3475",
+          "name": "residual_in_1"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:3134",
+          "edam_format": "format:3475",
+          "name": "decomposed_components"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "time_series_decompose",
       "state": {
@@ -248,7 +401,22 @@
         "time_series_model_fit"
       ],
       "description": "Produce point forecasts + prediction intervals over the named\nhorizon and evaluate against a held-out window. Emits a tabular\nforecast table tagged as a statistical estimate (data:0951) so\nthe v4 planner can match it to the\n`time_series_forecast` archetype goal. Closes Phase 6.1 B.1 of\nthe dag-design-v3-v4-100-percent-closure plan.\n",
+      "edam_operation": "operation:3659",
+      "execution_index": 8,
+      "inputs": [
+        {
+          "edam_data": "data:3134",
+          "edam_format": "format:3475",
+          "name": "fitted_model"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_format": "format:3475",
+          "name": "forecast_table"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "time_series_forecast_evaluate",
       "spec": {
@@ -273,7 +441,23 @@
         "time_series_decompose"
       ],
       "description": "Fit a forecasting model family (ARIMA / state-space / exponential\nsmoothing / Prophet) to the decomposed panel. Method-neutral: the\nconcrete model family is chosen at runtime by the agent based on\nthe SME-named model and series characteristics; the atom emits a\nfitted-model artifact consumed by the downstream forecast-evaluate\natom. Closes Phase 6.1 B.1 of the\ndag-design-v3-v4-100-percent-closure plan.\n",
+      "edam_operation": "operation:3659",
+      "execution_index": 6,
+      "inputs": [
+        {
+          "edam_data": "data:3134",
+          "edam_format": "format:3475",
+          "name": "decomposed_components"
+        }
+      ],
       "kind": "computation",
+      "outputs": [
+        {
+          "edam_data": "data:3134",
+          "edam_format": "format:3475",
+          "name": "fitted_model"
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "time_series_model_fit",
       "state": {
@@ -286,6 +470,14 @@
         "contextualize_findings_with_literature"
       ],
       "description": "Validate outputs of: Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+      "execution_index": 11,
+      "inputs": [
+        {
+          "edam_data": "ecaax:claims_evidence_matrix",
+          "edam_format": "format:3752",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_contextualize_findings_with_literature",
@@ -299,6 +491,14 @@
         "data_import"
       ],
       "description": "Validate outputs of: Import structured tabular or domain-formatted inputs (CDISC ADaM/SDTM, time-series\npanels, pre-computed count matrices) supplied by the SME. Mirrors `data_acquisition`\nbut for the clinical-trial and time-series-forecast project classes where inputs\nare files-on-disk rather than repository accessions.\n",
+      "execution_index": 3,
+      "inputs": [
+        {
+          "edam_data": "data:2531",
+          "edam_format": "format:3475",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_data_import",
@@ -312,6 +512,13 @@
         "final_reporting"
       ],
       "description": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "execution_index": 15,
+      "inputs": [
+        {
+          "edam_format": "format:2331",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_final_reporting",
@@ -325,6 +532,14 @@
         "reporting"
       ],
       "description": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "execution_index": 13,
+      "inputs": [
+        {
+          "edam_data": "data:2048",
+          "edam_format": "format:2331",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_reporting",
@@ -338,6 +553,14 @@
         "review_prior_work"
       ],
       "description": "Validate outputs of: Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "execution_index": 1,
+      "inputs": [
+        {
+          "edam_data": "ecaax:literature_claims_matrix",
+          "edam_format": "format:3752",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_review_prior_work",
@@ -351,6 +574,14 @@
         "time_series_decompose"
       ],
       "description": "Validate outputs of: Decompose a time-series panel into trend / seasonality / residual\ncomponents and run stationarity diagnostics. Method-neutral: the\nconcrete decomposition (STL, classical additive/multiplicative,\nX-13ARIMA-SEATS) is selected at runtime by the agent. Closes\nPhase 6.1 B.1 of the dag-design-v3-v4-100-percent-closure plan —\nthe time_series_forecast archetype previously had no producer for\nthis stage and dispatch failed with GoalUnreachable.\n",
+      "execution_index": 5,
+      "inputs": [
+        {
+          "edam_data": "data:3134",
+          "edam_format": "format:3475",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_time_series_decompose",
@@ -364,6 +595,13 @@
         "time_series_forecast_evaluate"
       ],
       "description": "Validate outputs of: Produce point forecasts + prediction intervals over the named\nhorizon and evaluate against a held-out window. Emits a tabular\nforecast table tagged as a statistical estimate (data:0951) so\nthe v4 planner can match it to the\n`time_series_forecast` archetype goal. Closes Phase 6.1 B.1 of\nthe dag-design-v3-v4-100-percent-closure plan.\n",
+      "execution_index": 9,
+      "inputs": [
+        {
+          "edam_format": "format:3475",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_time_series_forecast_evaluate",
@@ -377,6 +615,14 @@
         "time_series_model_fit"
       ],
       "description": "Validate outputs of: Fit a forecasting model family (ARIMA / state-space / exponential\nsmoothing / Prophet) to the decomposed panel. Method-neutral: the\nconcrete model family is chosen at runtime by the agent based on\nthe SME-named model and series characteristics; the atom emits a\nfitted-model artifact consumed by the downstream forecast-evaluate\natom. Closes Phase 6.1 B.1 of the\ndag-design-v3-v4-100-percent-closure plan.\n",
+      "execution_index": 7,
+      "inputs": [
+        {
+          "edam_data": "data:3134",
+          "edam_format": "format:3475",
+          "name": "validated_artifact"
+        }
+      ],
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_time_series_model_fit",
