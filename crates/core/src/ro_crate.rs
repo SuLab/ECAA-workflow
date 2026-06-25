@@ -152,26 +152,10 @@ pub fn build_metadata(
             }
             root
         },
-        // ComputationalWorkflow with Bioschemas profile.
-        //
-        // Provenance Run Crate (provenance-run-crate-0.5) requires, at REQUIRED
-        // severity:
-        //   * `hasPart` referencing an orchestrated tool typed as one of
-        //     SoftwareApplication / SoftwareSourceCode / ComputationalWorkflow
-        //     (`must/0_computational_workflow.ttl` → "ComputationalWorkflow hasPart").
-        //   * a `HowTo` `@type` whenever the workflow links HowToStep instances
-        //     via `step` (`must/0_computational_workflow.ttl` →
-        //     "ComputationalWorkflow with steps type").
-        // The DAG file is itself the orchestrated artefact (it IS the
-        // SoftwareSourceCode the steps describe), so the workflow `hasPart`s
-        // itself. This entity is not a tool *invoked by an action* — the
-        // `must/0_tool.ttl` "Tool inverse instrument" SPARQL target only matches
-        // tools that an action references via `instrument`, which this
-        // declarative compile-time crate does not yet emit, so the
-        // self-reference stays clear of that cascade.
+        // ComputationalWorkflow with Bioschemas profile
         json!({
             "@id": "WORKFLOW.json",
-            "@type": ["File", "SoftwareSourceCode", "ComputationalWorkflow", "HowTo"],
+            "@type": ["File", "SoftwareSourceCode", "ComputationalWorkflow"],
             "name": format!("{} DAG", dag.workflow_id),
             "encodingFormat": "application/json",
             "conformsTo": {
@@ -184,7 +168,6 @@ pub fn build_metadata(
             "featureList": {
                 "@id": edam_iri(&classification.edam_operation)
             },
-            "hasPart": [{"@id": "WORKFLOW.json"}],
             "step": topo_order.iter()
                 .map(|id| json!({"@id": format!("#step-{}", id)}))
                 .collect::<Vec<_>>(),
@@ -369,16 +352,7 @@ pub fn build_metadata(
             "@id": format!("#step-{}", id),
             "@type": "HowToStep",
             "name": &task.description,
-            "position": i + 1,
-            // Provenance Run Crate `must/1_howtostep.ttl` → "HowToStep
-            // workExample" requires EVERY HowToStep to refer to the tool it
-            // runs, typed SoftwareApplication / SoftwareSourceCode /
-            // ComputationalWorkflow. The DAG file (WORKFLOW.json) is the
-            // orchestrating SoftwareSourceCode/ComputationalWorkflow these
-            // steps belong to; an SME-resolved step overrides this below to
-            // point at its per-step resolution Action's instrument. Default
-            // here so the property is present unconditionally.
-            "workExample": {"@id": "WORKFLOW.json"}
+            "position": i + 1
         });
 
         // Annotate with task kind
@@ -404,14 +378,8 @@ pub fn build_metadata(
                     step["description"] = json!(method);
                 }
 
-                // The resolution Action back-links to its step via `object`
-                // below; we deliberately do NOT route the step's `workExample`
-                // at this Action — `workExample` MUST name a tool typed
-                // SoftwareApplication / SoftwareSourceCode / ComputationalWorkflow
-                // (Provenance Run Crate `must/1_howtostep.ttl`), and an Action is
-                // none of those. The step keeps its default `workExample`
-                // (WORKFLOW.json) set at construction above.
                 let action_id = format!("#sme-action-{}", id);
+                step["workExample"] = json!({"@id": action_id});
 
                 let mut action = json!({
                     "@id": action_id,
@@ -509,28 +477,6 @@ pub fn build_metadata(
             ));
         }
     }
-
-    // Planned workflow-run Action.
-    //
-    // Provenance Run Crate `must/0_tool.ttl` ("Tool inverse instrument")
-    // requires that any entity reachable as a workflow `hasPart` tool
-    // (WORKFLOW.json, set above) be referred to from an action via
-    // `instrument`. Without this edge the self-`hasPart` we add to satisfy
-    // "ComputationalWorkflow hasPart" cascades into a missing-action failure.
-    //
-    // This crate is a *plan* emitted before execution, so the action is typed
-    // `PotentialActionStatus` (planned, not completed) and carries no
-    // `endTime`/`result`/`agent` — those are filled in retrospectively, per
-    // produced output, by `register_output_provenance` once the workflow runs.
-    // The only REQUIRED property on a CreateAction (process-run-crate
-    // `must/1_create_action.ttl`) is `instrument`, which we supply here.
-    graph.push(json!({
-        "@id": "#workflow-run",
-        "@type": ["CreateAction", "prov:Activity"],
-        "name": format!("Planned execution of the {} workflow", dag.workflow_id),
-        "instrument": {"@id": "WORKFLOW.json"},
-        "actionStatus": "https://schema.org/PotentialActionStatus"
-    }));
 
     json!({
         "@context": [
@@ -2308,200 +2254,6 @@ mod tests {
         // per-step instrument both come from edam_operation).
         assert_eq!(edam_ids.iter().filter(|i| topic_re.is_match(i)).count(), 1);
         assert_eq!(edam_ids.iter().filter(|i| op_re.is_match(i)).count(), 2);
-    }
-
-    /// Build a multi-task DAG (`t1 -> t2`) so `build_metadata` emits more than
-    /// one `HowToStep` and at least one `ParameterConnection`, exercising the
-    /// workflow `hasPart` / per-step `workExample` wiring across several steps.
-    fn two_task_chain_dag() -> DAG {
-        let t1: crate::dag::Task = serde_json::from_value(json!({
-            "kind": "computation",
-            "state": {"status": "pending"},
-            "depends_on": [],
-            "assignee": "agent",
-            "description": "upstream task",
-            "spec": {"edam_operation": "operation:3223"}
-        }))
-        .expect("t1 deserializes");
-        let t2: crate::dag::Task = serde_json::from_value(json!({
-            "kind": "computation",
-            "state": {"status": "pending"},
-            "depends_on": ["t1"],
-            "assignee": "agent",
-            "description": "downstream task",
-            "spec": {"edam_operation": "operation:3223"}
-        }))
-        .expect("t2 deserializes");
-        let mut tasks = std::collections::BTreeMap::new();
-        tasks.insert(crate::ids::TaskId::from("t1"), t1);
-        tasks.insert(crate::ids::TaskId::from("t2"), t2);
-        let mut dag = DAG {
-            version: "1.0".into(),
-            schema_version: crate::dag::current_dag_schema_version(),
-            workflow_id: "test-chain".into(),
-            current_task: None,
-            tasks,
-            run_id: None,
-            reverse_deps: std::collections::BTreeMap::new(),
-            execution_order: Vec::new(),
-        };
-        dag.rebuild_reverse_deps();
-        dag
-    }
-
-    fn chain_classification() -> ClassificationResult {
-        ClassificationResult {
-            domain: "genomics".into(),
-            workflow_description: "test workflow".into(),
-            intake_text: "test intake".into(),
-            edam_topic: "topic:3673".into(),
-            edam_operation: "operation:3223".into(),
-            ..Default::default()
-        }
-    }
-
-    /// Locate the `ComputationalWorkflow` entity in an emitted `@graph`.
-    fn find_workflow_entity(graph: &[Value]) -> &Value {
-        graph
-            .iter()
-            .find(|e| match e.get("@type") {
-                Some(Value::String(s)) => s == "ComputationalWorkflow",
-                Some(Value::Array(a)) => {
-                    a.iter().any(|v| v.as_str() == Some("ComputationalWorkflow"))
-                }
-                _ => false,
-            })
-            .expect("ComputationalWorkflow entity present in @graph")
-    }
-
-    /// Provenance Run Crate `must/0_computational_workflow.ttl`:
-    /// the ComputationalWorkflow MUST declare `hasPart` referencing an
-    /// orchestrated tool typed SoftwareApplication / SoftwareSourceCode /
-    /// ComputationalWorkflow, and — because it links HowToStep instances via
-    /// `step` — MUST also carry the `HowTo` `@type`. The `hasPart` target
-    /// (WORKFLOW.json) must itself be one of those three types, and a planned
-    /// `CreateAction` must name it via `instrument` so the tool is reachable
-    /// from an action (`must/0_tool.ttl` "Tool inverse instrument").
-    #[test]
-    fn workflow_haspart_and_steps_type_satisfy_provenance_shape() {
-        let dag = two_task_chain_dag();
-        let metadata = build_metadata(&dag, &chain_classification(), &FrozenClock::default());
-        let graph = metadata["@graph"].as_array().expect("@graph array");
-
-        let wf = find_workflow_entity(graph);
-
-        // The workflow that links steps MUST be typed `HowTo`.
-        let wf_types: Vec<&str> = wf["@type"]
-            .as_array()
-            .expect("workflow @type is an array")
-            .iter()
-            .filter_map(|v| v.as_str())
-            .collect();
-        assert!(
-            wf_types.contains(&"HowTo"),
-            "ComputationalWorkflow that links steps must carry @type HowTo; got {wf_types:?}"
-        );
-
-        // `hasPart` references at least one orchestrated tool, and every
-        // referenced id resolves to an entity typed SoftwareApplication /
-        // SoftwareSourceCode / ComputationalWorkflow.
-        let has_part = wf["hasPart"]
-            .as_array()
-            .expect("workflow hasPart is an array");
-        assert!(
-            !has_part.is_empty(),
-            "ComputationalWorkflow hasPart must reference at least one tool"
-        );
-        let type_of = |id: &str| -> Vec<String> {
-            graph
-                .iter()
-                .find(|e| e.get("@id").and_then(Value::as_str) == Some(id))
-                .map(|e| match e.get("@type") {
-                    Some(Value::String(s)) => vec![s.clone()],
-                    Some(Value::Array(a)) => a
-                        .iter()
-                        .filter_map(|v| v.as_str().map(String::from))
-                        .collect(),
-                    _ => Vec::new(),
-                })
-                .unwrap_or_default()
-        };
-        for part in has_part {
-            let id = part["@id"].as_str().expect("hasPart entry has @id");
-            let types = type_of(id);
-            assert!(
-                types.iter().any(|t| {
-                    t == "SoftwareApplication"
-                        || t == "SoftwareSourceCode"
-                        || t == "ComputationalWorkflow"
-                }),
-                "hasPart target {id} must be a tool type; got {types:?}"
-            );
-            // The tool MUST be reachable from an action via `instrument`
-            // (Provenance Run Crate "Tool inverse instrument").
-            let instrumented = graph.iter().any(|e| {
-                e.get("instrument").and_then(|i| i.get("@id")).and_then(Value::as_str)
-                    == Some(id)
-            });
-            assert!(
-                instrumented,
-                "hasPart tool {id} must be referenced by an action via instrument"
-            );
-        }
-    }
-
-    /// Provenance Run Crate `must/1_howtostep.ttl` "HowToStep workExample":
-    /// EVERY emitted HowToStep MUST carry a `workExample` resolving to a tool
-    /// typed SoftwareApplication / SoftwareSourceCode / ComputationalWorkflow.
-    #[test]
-    fn every_howtostep_has_tool_workexample() {
-        let dag = two_task_chain_dag();
-        let metadata = build_metadata(&dag, &chain_classification(), &FrozenClock::default());
-        let graph = metadata["@graph"].as_array().expect("@graph array");
-
-        // Index entities by @id to resolve workExample targets' types.
-        let type_of = |id: &str| -> Vec<String> {
-            graph
-                .iter()
-                .find(|e| e.get("@id").and_then(Value::as_str) == Some(id))
-                .map(|e| match e.get("@type") {
-                    Some(Value::String(s)) => vec![s.clone()],
-                    Some(Value::Array(a)) => a
-                        .iter()
-                        .filter_map(|v| v.as_str().map(String::from))
-                        .collect(),
-                    _ => Vec::new(),
-                })
-                .unwrap_or_default()
-        };
-
-        let steps: Vec<&Value> = graph
-            .iter()
-            .filter(|e| e.get("@type").and_then(Value::as_str) == Some("HowToStep"))
-            .collect();
-        assert!(
-            steps.len() >= 2,
-            "expected at least 2 HowToStep entities, got {}",
-            steps.len()
-        );
-
-        for step in steps {
-            let step_id = step["@id"].as_str().unwrap_or("<unknown>");
-            let we = step
-                .get("workExample")
-                .and_then(|w| w.get("@id"))
-                .and_then(Value::as_str)
-                .unwrap_or_else(|| panic!("HowToStep {step_id} missing workExample"));
-            let types = type_of(we);
-            assert!(
-                types.iter().any(|t| {
-                    t == "SoftwareApplication"
-                        || t == "SoftwareSourceCode"
-                        || t == "ComputationalWorkflow"
-                }),
-                "HowToStep {step_id} workExample {we} must be a tool type; got {types:?}"
-            );
-        }
     }
 
     /// B1: the metadata descriptor AND the root `./` Dataset both declare the
