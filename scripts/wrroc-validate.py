@@ -1,9 +1,25 @@
 #!/usr/bin/env python3
 """WRROC v0.5 conformance validator.
 
+EXECUTION-AWARE: the required profile set and structural checks depend on
+whether the crate carries real executed `CreateAction`s:
+
+  Plan crate (no CreateAction — a workflow *definition*):
+    - requires conformsTo: ro-crate/1.1 + workflow-ro-crate/1.0 + ecaa/v0.2
+    - does NOT require the three WRROC run profiles (process/workflow/provenance)
+    - requires: ParameterConnection + p-plan:Plan (prospective structure)
+
+  Executed crate (≥1 real CreateAction — a workflow *run*):
+    - requires conformsTo: all 6 IRIs (plan set + process/workflow/provenance)
+    - requires: ParameterConnection + p-plan:Plan + CreateAction
+
+The "has CreateAction" predicate mirrors the Rust `graph_has_run_create_action`
+in `crates/core/src/ro_crate.rs` and the T6″ `recordsExecution` logic in the
+conformance crate.
+
 Uses `runcrate report` (Tier-1 parseability proxy; `runcrate validate`
-has never shipped) plus four explicit Tier-3 conformance checks:
-descriptor `conformsTo` includes the three WRROC profile IRIs,
+has never shipped) plus explicit Tier-3 conformance checks:
+descriptor `conformsTo` includes the required profile IRIs,
 at least one `ParameterConnection`, and at least one `p-plan:Plan`.
 
 Usage:
@@ -12,8 +28,10 @@ Usage:
 Emits JSON to stdout:
     {
       "validated": [
-        {"path": "/tmp/pkg1", "ok": true, "profiles": ["process/0.5", ...]},
-        {"path": "/tmp/pkg2", "ok": false, "errors": ["..."]}
+        {"path": "/tmp/pkg1", "ok": true, "profiles": ["process/0.5", ...],
+         "crate_kind": "executed"},
+        {"path": "/tmp/pkg2", "ok": false, "errors": ["..."],
+         "crate_kind": "plan"}
       ],
       "summary": {"total": N, "passed": M, "failed": N-M}
     }
@@ -29,12 +47,42 @@ import sys
 from pathlib import Path
 
 
-REQUIRED_PROFILES = [
+# Profile IRIs required for a plan (pre-execution) crate.
+PLAN_PROFILES = [
     "https://w3id.org/ro/crate/1.1",
+    "https://w3id.org/workflowhub/workflow-ro-crate/1.0",
+    "https://w3id.org/ecaa/v0.2",
+]
+
+# Additional profile IRIs added when a crate records real execution
+# (CreateActions from the finalize path).
+EXECUTED_ADDED_PROFILES = [
     "https://w3id.org/ro/wfrun/process/0.5",
     "https://w3id.org/ro/wfrun/workflow/0.5",
     "https://w3id.org/ro/wfrun/provenance/0.5",
 ]
+
+# Full profile set for a completely executed crate.
+EXECUTED_PROFILES = PLAN_PROFILES + EXECUTED_ADDED_PROFILES
+
+
+def _graph_has_create_action(graph: list) -> bool:
+    """Return True iff the graph contains a real executed CreateAction.
+
+    Mirrors `graph_has_run_create_action` in crates/core/src/ro_crate.rs
+    and the T6″ `recordsExecution` logic: an entity typed `CreateAction`
+    (scalar or array) is a real run action. Plain `Action` (prospective plan
+    steps) is deliberately NOT counted.
+    """
+    for entity in graph:
+        t = entity.get("@type", "")
+        if isinstance(t, str):
+            if t == "CreateAction":
+                return True
+        elif isinstance(t, list):
+            if "CreateAction" in t:
+                return True
+    return False
 
 
 def validate_one(pkg_dir: Path) -> dict:
@@ -44,7 +92,17 @@ def validate_one(pkg_dir: Path) -> dict:
             "path": str(pkg_dir),
             "ok": False,
             "errors": ["missing ro-crate-metadata.json"],
+            "crate_kind": "unknown",
         }
+
+    with (pkg_dir / "ro-crate-metadata.json").open() as f:
+        metadata = json.load(f)
+    graph = metadata.get("@graph", [])
+
+    # EXECUTION-AWARE: determine required profile set from actual graph content.
+    executed = _graph_has_create_action(graph)
+    crate_kind = "executed" if executed else "plan"
+    required_profiles = EXECUTED_PROFILES if executed else PLAN_PROFILES
 
     # 1. Tier-1 RO-Crate 1.1 parseability check.
     #
@@ -73,12 +131,14 @@ def validate_one(pkg_dir: Path) -> dict:
             "path": str(pkg_dir),
             "ok": False,
             "errors": ["runcrate not installed (pip install runcrate>=0.5.0)"],
+            "crate_kind": crate_kind,
         }
     except subprocess.TimeoutExpired:
         return {
             "path": str(pkg_dir),
             "ok": False,
             "errors": ["runcrate report timed out after 60s"],
+            "crate_kind": crate_kind,
         }
 
     if result.returncode != 0 or "Traceback" in result.stderr:
@@ -88,9 +148,6 @@ def validate_one(pkg_dir: Path) -> dict:
         )
 
     # 2. Confirm the descriptor's conformsTo lists every required profile.
-    with (pkg_dir / "ro-crate-metadata.json").open() as f:
-        metadata = json.load(f)
-    graph = metadata.get("@graph", [])
     descriptor = next(
         (e for e in graph if e.get("@id") == "ro-crate-metadata.json"),
         None,
@@ -102,11 +159,11 @@ def validate_one(pkg_dir: Path) -> dict:
         if isinstance(conforms, dict):
             conforms = [conforms]
         conform_ids = {c.get("@id") for c in conforms}
-        for required in REQUIRED_PROFILES:
+        for required in required_profiles:
             if required not in conform_ids:
                 errors.append(f"missing conformsTo: {required}")
 
-    # 3. Confirm at least one ParameterConnection entity (Tier-3)
+    # 3. Confirm at least one ParameterConnection entity (Tier-3, both kinds)
     has_connection = any(
         e.get("@type") == "ParameterConnection" for e in graph
     )
@@ -115,7 +172,7 @@ def validate_one(pkg_dir: Path) -> dict:
             "no ParameterConnection entities (WRROC Tier-3 requires per-edge connections)"
         )
 
-    # 4. Confirm at least one p-plan:Plan entity
+    # 4. Confirm at least one p-plan:Plan entity (both kinds)
     has_plan = any(
         "p-plan:Plan" in (e.get("@type") if isinstance(e.get("@type"), list) else [e.get("@type")])
         for e in graph
@@ -127,7 +184,8 @@ def validate_one(pkg_dir: Path) -> dict:
         "path": str(pkg_dir),
         "ok": len(errors) == 0,
         "errors": errors,
-        "profiles": list(REQUIRED_PROFILES) if not errors else [],
+        "profiles": list(required_profiles) if not errors else [],
+        "crate_kind": crate_kind,
     }
 
 

@@ -7,7 +7,7 @@
 
 .PHONY: help build build-release install bootstrap test test-runner test-doc \
         test-fast test-core test-conversation test-harness test-server test-cli \
-        test-ui conformance test-substrate-utility lint-ui clippy fmt check types e2e e2e-playwright bench \
+        test-ui conformance test-substrate-utility roc-gate lint-ui clippy fmt check types e2e e2e-playwright bench \
         verify-reproducibility \
         bio-min dev-server dev-ui clean doctor lint deny install-hooks \
         eval eval-dryrun eval-e2e eval-full \
@@ -74,10 +74,16 @@ test-ui: ## Vitest + axe a11y for ui/
 conformance: ## ECAA conformance suite (block-on-fail; ECAA_CONFORMANCE_MODE=1 + ECAA_VALIDATION_BLOCK_ON_FAIL=1)
 	ECAA_CONFORMANCE_MODE=1 ECAA_VALIDATION_BLOCK_ON_FAIL=1 cargo test -p ecaa-workflow-conformance
 	@command -v runcrate >/dev/null 2>&1 && $(MAKE) test-substrate-utility || echo "[conformance] runcrate absent — substrate-utility row skipped (non-blocking)"
+	@test -x .venv-validator/bin/python && PATH="$$(pwd)/target/debug:$$PATH" $(MAKE) roc-gate || echo "[conformance] .venv-validator absent — roc-gate skipped (run: python3 -m venv .venv-validator && .venv-validator/bin/pip install -r requirements-validator.txt)"
 
 test-substrate-utility: ## Run the runcrate-gated substrate row of the invariant-utility matrix
 	@command -v runcrate >/dev/null 2>&1 || { echo "runcrate not on PATH — install the WRROC runcrate report wrapper first (see scripts/README.md)"; exit 1; }
 	ECAA_CONFORMANCE_MODE=1 cargo test -p ecaa-workflow-conformance invariant_utility -- --nocapture
+
+roc-gate: ## Execution-aware strict roc-validator regression gate (T8): plan ro-crate-1.1 + executed all-four profiles + gate-bites proof
+	@test -x .venv-validator/bin/python || { echo "[roc-gate] ERROR: .venv-validator missing — run: python3 -m venv .venv-validator && .venv-validator/bin/pip install -r requirements-validator.txt"; exit 1; }
+	@command -v ecaa-workflow >/dev/null 2>&1 || { echo "[roc-gate] ERROR: ecaa-workflow not on PATH — run: cargo build --bin ecaa-workflow && PATH=\"\$$(pwd)/target/debug:\$$PATH\" make roc-gate"; exit 1; }
+	bash scripts/roc-gate.sh
 
 # ── Lint / format / type-check ───────────────────────────────────────────────
 
