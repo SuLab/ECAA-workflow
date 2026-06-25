@@ -1836,6 +1836,7 @@ if [ -n "${ECAA_TASK_ID:-}" ]; then
     printf '  "lc_all": "%s",\n' "${LC_ALL:-}"
     printf '  "tz": "%s",\n' "${TZ:-}"
     printf '  "pythonhashseed": "%s",\n' "${PYTHONHASHSEED:-}"
+    printf '  "pkg_root": "%s",\n' "${PACKAGE:-}"
     printf '  "task_container_digest": "%s"\n' "${TASK_CONTAINER_DIGEST:-}"
     printf '}\n'
   } > "$_DET_OUT_DIR/determinism-env.json" 2>/dev/null || true

@@ -65,6 +65,12 @@ pub fn render_snapshot_dockerfile(
              \x20&& chmod +x /usr/local/bin/Rscript /usr/local/bin/R\n",
             bin = bin.display(),
         ));
+        // The base image (e.g. bio-min) puts /opt/conda/bin AHEAD of
+        // /usr/local/bin on PATH, so a bare `Rscript` would hit the base conda R
+        // (no DESeq2) and bypass the wrapper above. Replay invokes the bare
+        // interpreter (not a login shell), so prepend /usr/local/bin to PATH so
+        // the wrapper wins. python3 is unaffected (no python wrapper installed).
+        df.push_str("ENV PATH=/usr/local/bin:${PATH}\n");
         if let Some(user) = base_user.filter(|u| !u.is_empty()) {
             df.push_str(&format!("USER {user}\n"));
         }
@@ -608,6 +614,9 @@ mod tests {
         // recorded base user is restored.
         assert!(df.contains("USER root"));
         assert!(df.contains("USER bio:bio"));
+        // /usr/local/bin must be prepended to PATH so the wrapper beats the
+        // base image's /opt/conda/bin Rscript when replay invokes a bare Rscript.
+        assert!(df.contains("ENV PATH=/usr/local/bin:${PATH}"));
         // Wrapper execs the env's Rscript/R by absolute path (R_HOME stays in env).
         assert!(df.contains("/usr/local/bin/Rscript"));
         assert!(df.contains("exec \"/cache/s1/conda-envs/ecaa-bioc/bin/Rscript\" \"$@\""));
