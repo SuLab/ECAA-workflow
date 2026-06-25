@@ -12,6 +12,18 @@ the RO-Crate package at `$PACKAGE`. Do that one task, write your outputs,
 record the state transition, and exit. The harness invokes a fresh agent
 for the next ready task; never start another task yourself.
 
+`$PACKAGE` (alias `$PKG_ROOT`) is an environment variable the harness sets
+to the absolute package root; it is valid both at run time and during
+replay. When any script you write needs an absolute path, build it from
+`$PACKAGE` — e.g. `"$PACKAGE/inputs/<file>"`,
+`"$PACKAGE/runtime/outputs/$ECAA_TASK_ID"`. Never recompute the package root
+by counting `dirname` levels up from `$0` / `$BASH_SOURCE` / `__file__`:
+that is off-by-one-prone (a wrong count silently reads from
+`runtime/inputs/` and writes to `runtime/runtime/outputs/`) and resolves to
+the wrong root during replay, where your script runs from a staged copy at a
+different depth. Equivalently you may use paths relative to the working
+directory, which the harness sets to `$PACKAGE`.
+
 ### Turn budget
 
 You have a budget of {{MAX_TURNS_PER_TASK}} turns per task. Spend them on

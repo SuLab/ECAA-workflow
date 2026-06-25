@@ -997,6 +997,17 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   # Hand the agent the discovered canonical interpreter so ecaa-install + the
   # renderer use it regardless of PATH resolution order in the image.
   [ -n "$CANON_PY_BIN" ] && DOCKER_ENV_ARGS+=(-e "ECAA_PY=$CANON_PY_BIN/python3")
+  # Forward the absolute package root so task scripts derive paths from
+  # $PACKAGE / $PKG_ROOT instead of counting `dirname` levels up from $0.
+  # The dirname approach is fragile: an off-by-one miscount makes a script
+  # read from `runtime/inputs/` and write to `runtime/runtime/outputs/`, and
+  # the script's own location differs under replay (staged to scratch), so a
+  # level-count that happened to work at run time resolves to the wrong root
+  # on replay. The package is bind-mounted at the same path inside the
+  # container (`-v "$PACKAGE":"$PACKAGE"`, workdir `-w "$PACKAGE"`), so the
+  # host path is valid in-container; replay sets the same vars to its scratch
+  # package root, so a $PACKAGE-derived path reproduces byte-for-byte.
+  DOCKER_ENV_ARGS+=(-e "PACKAGE=$PACKAGE" -e "PKG_ROOT=$PACKAGE")
   unset __agent_kv
   # Forward the eval fault-injection contract env (STRICT no-op unless
   # ECAA_EVAL_SHIM_DIR is set, so production is byte-identical). The shim reads
