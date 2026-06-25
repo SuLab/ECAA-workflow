@@ -66,19 +66,21 @@ pub fn build_metadata(
 
     let mut graph: Vec<Value> = vec![
         // RO-Crate metadata descriptor.
-        // `conformsTo` asserts the full normative profile set — base
-        // RO-Crate 1.1, the WorkflowHub workflow-ro-crate 1.0 profile,
-        // the WRROC v0.5 Tier-3 profiles (process / workflow /
-        // provenance), and the ECAA v0.2 profile — built from the single
-        // `REQUIRED_PROFILE_IRIS` source of truth so the descriptor and
-        // the spec-conformance post-checks never drift. The Tier-3 entity
-        // builders (`parameter_connection_entity`, `p_plan_entity`) wire
-        // into `build_metadata` separately; this descriptor declares the
-        // intended profile set, not the per-entity emission.
+        //
+        // EXECUTION-AWARE `conformsTo`: this is the PRE-EXECUTION PLAN crate
+        // (a workflow *definition* with ZERO executed `CreateAction`s), so it
+        // declares ONLY the profiles it truthfully satisfies — base
+        // RO-Crate 1.1, the WorkflowHub workflow-ro-crate 1.0 profile, and the
+        // ECAA v0.2 profile (`PLAN_PROFILE_IRIS`). The three WRROC v0.5 run
+        // profiles (process / workflow / provenance) all document *executed*
+        // runs and require real run actions, so they are NOT claimed here;
+        // the finalize/execution path adds them (`EXECUTED_ADDED_PROFILE_IRIS`)
+        // once retrospective per-output `CreateAction`s are registered. We
+        // never fabricate a run action to make a run profile pass.
         json!({
             "@id": "ro-crate-metadata.json",
             "@type": "CreativeWork",
-            "conformsTo": ecaa_workflow_types::consts::REQUIRED_PROFILE_IRIS
+            "conformsTo": ecaa_workflow_types::consts::PLAN_PROFILE_IRIS
                 .iter()
                 .map(|iri| json!({"@id": iri}))
                 .collect::<Vec<_>>(),
@@ -104,16 +106,16 @@ pub fn build_metadata(
                 "dateCreated": emitted_at.clone(),
                 "datePublished": emitted_at.clone(),
                 "license": "https://www.apache.org/licenses/LICENSE-2.0",
-                // The root Dataset declares the full normative profile set
-                // (§4.3) — base RO-Crate 1.1, WorkflowHub workflow-ro-crate
-                // 1.0, the three WRROC v0.5 Tier-3 profiles, and ECAA v0.2 —
-                // mirroring the metadata descriptor's `conformsTo` so an
-                // RO-Crate validator that profiles off `./` (the Workflow Run
-                // Crate validators do) sees the same declared profiles as one
-                // reading the descriptor. Each IRI is also emitted as a
-                // first-class `CreativeWork` profile entity below so the
-                // reference resolves rather than dangling.
-                "conformsTo": ecaa_workflow_types::consts::REQUIRED_PROFILE_IRIS
+                // The root Dataset mirrors the metadata descriptor's
+                // execution-aware `conformsTo`: the PLAN-crate profile subset
+                // only (base RO-Crate 1.1, WorkflowHub workflow-ro-crate 1.0,
+                // ECAA v0.2), so an RO-Crate validator that profiles off `./`
+                // (the Workflow Run Crate validators do) sees the same
+                // truthfully-declared profiles as one reading the descriptor.
+                // The WRROC run profiles are added to BOTH on finalize. Each
+                // IRI is also emitted as a first-class `CreativeWork` profile
+                // entity below so the reference resolves rather than dangling.
+                "conformsTo": ecaa_workflow_types::consts::PLAN_PROFILE_IRIS
                     .iter()
                     .map(|iri| json!({"@id": iri}))
                     .collect::<Vec<_>>(),
@@ -323,8 +325,11 @@ pub fn build_metadata(
     // so the reference resolves to a named, versioned entity rather than a bare
     // `{@id}` dangling ref. Name + version are parsed deterministically from the
     // IRI's trailing version segment (`…/1.1`, `…/0.5`, `…/v0.2`); no value is
-    // invented beyond what the IRI itself encodes.
-    for iri in ecaa_workflow_types::consts::REQUIRED_PROFILE_IRIS {
+    // invented beyond what the IRI itself encodes. Plan-crate only emits the
+    // profiles it actually claims (`PLAN_PROFILE_IRIS`); the finalize/execution
+    // path adds the WRROC run-profile entities alongside their `conformsTo`
+    // references once real run actions exist.
+    for iri in ecaa_workflow_types::consts::PLAN_PROFILE_IRIS {
         graph.push(profile_entity(iri));
     }
 
@@ -765,6 +770,90 @@ fn executor_agent_entity(state: &crate::container_state::ContainerState) -> Opti
     Some(agent)
 }
 
+/// Does the `@graph` carry at least one REAL executed run `CreateAction`?
+///
+/// "Real run action" = an entity typed `CreateAction` (the retrospective
+/// per-output actions [`register_produced_output_tables`] appends, each with a
+/// real `instrument`). The compile-time SME resolution entities are typed plain
+/// `Action` (not `CreateAction`) and are deliberately NOT counted — they record
+/// intake-time decisions, not executed workflow steps. The presence of a real
+/// `CreateAction` is the truthful precondition for a crate to claim the WRROC
+/// run profiles (process / workflow / provenance run crate).
+fn graph_has_run_create_action(graph: &[Value]) -> bool {
+    graph.iter().any(|e| {
+        let is_create_action = match e.get("@type") {
+            Some(Value::String(s)) => s == "CreateAction",
+            Some(Value::Array(a)) => a.iter().any(|t| t.as_str() == Some("CreateAction")),
+            _ => false,
+        };
+        is_create_action
+            && e.get("instrument")
+                .and_then(|i| i.get("@id"))
+                .and_then(Value::as_str)
+                .is_some()
+    })
+}
+
+/// Upgrade an executed crate's `conformsTo` from the plan-set to the full
+/// executed set, idempotently.
+///
+/// Adds each [`EXECUTED_ADDED_PROFILE_IRIS`] entry that is not already present
+/// to BOTH the metadata descriptor's and the root `./` Dataset's `conformsTo`
+/// (mirroring the plan-crate dual declaration), and emits the corresponding
+/// first-class `CreativeWork` profile entity for any newly-added IRI so the
+/// reference resolves rather than dangling. Called ONLY when the graph already
+/// contains a real run `CreateAction` ([`graph_has_run_create_action`]) — so
+/// the added run profiles are truthful, never fabricated. Idempotent: a
+/// second invocation on an already-upgraded graph is a no-op (the IRIs and
+/// profile entities are already present).
+fn upgrade_conforms_to_executed(graph: &mut Vec<Value>) {
+    let add_iris = ecaa_workflow_types::consts::EXECUTED_ADDED_PROFILE_IRIS;
+
+    // Which executed-add IRIs are missing from the descriptor's conformsTo?
+    let mut needs_profile_entity: Vec<&str> = Vec::new();
+    for target_id in ["ro-crate-metadata.json", "./"] {
+        let Some(entry) = graph
+            .iter_mut()
+            .find(|e| e.get("@id").and_then(Value::as_str) == Some(target_id))
+        else {
+            continue;
+        };
+        let Some(obj) = entry.as_object_mut() else {
+            continue;
+        };
+        let conforms = obj
+            .entry("conformsTo")
+            .or_insert_with(|| Value::Array(Vec::new()));
+        let Some(arr) = conforms.as_array_mut() else {
+            continue;
+        };
+        let present: std::collections::BTreeSet<String> = arr
+            .iter()
+            .filter_map(|c| c.get("@id").and_then(Value::as_str).map(String::from))
+            .collect();
+        for iri in add_iris {
+            if !present.contains(*iri) {
+                arr.push(json!({"@id": iri}));
+                // Track once (descriptor pass) for profile-entity emission.
+                if target_id == "ro-crate-metadata.json" {
+                    needs_profile_entity.push(iri);
+                }
+            }
+        }
+    }
+
+    // Emit a resolving profile entity for each newly-claimed IRI not already
+    // present as a node, so the `conformsTo` ref does not dangle.
+    for iri in needs_profile_entity {
+        let already = graph
+            .iter()
+            .any(|e| e.get("@id").and_then(Value::as_str) == Some(iri));
+        if !already {
+            graph.push(profile_entity(iri));
+        }
+    }
+}
+
 /// Register produced result tables as Evidence (V) `@graph` entities.
 ///
 /// Runs POST-EXECUTION, after the agent has written result tables under
@@ -982,8 +1071,32 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
     graph.extend(new_actions);
     graph.extend(new_agents);
 
+    // EXECUTION-AWARE `conformsTo` upgrade. The plan crate emitted by
+    // `build_metadata` declares only the profiles a workflow *definition*
+    // truthfully meets (`PLAN_PROFILE_IRIS`). Now that retrospective per-output
+    // `CreateAction`s with real `instrument`s are in the graph, the crate
+    // honestly documents executed processes / a workflow run / provenance, so
+    // it may add the three WRROC v0.5 run profiles (`EXECUTED_ADDED_PROFILE_IRIS`)
+    // to its `conformsTo`. Gated on the actual presence of a real run
+    // `CreateAction` (not the compile-time SME `Action`s) so the upgrade is
+    // truthful and idempotent across re-runs — it claims a run profile only
+    // when the graph genuinely carries run provenance.
+    let has_run_action = graph_has_run_create_action(graph);
+    if has_run_action {
+        upgrade_conforms_to_executed(graph);
+    }
+
     let added = new_parts.len();
     if added == 0 {
+        // Even with no NEW tables this invocation, a prior finalize may have
+        // registered run actions and upgraded the descriptor — persist the
+        // (idempotent) upgrade so a re-run on an already-executed crate keeps
+        // the executed `conformsTo`. With neither new tables nor any run
+        // action, nothing changed and we skip the write.
+        if has_run_action {
+            let serialized = serde_json::to_vec_pretty(&doc)?;
+            crate::fs_helpers::atomic_write_bytes_sync(&descriptor, &serialized)?;
+        }
         return Ok(0);
     }
 
@@ -2256,10 +2369,11 @@ mod tests {
         assert_eq!(edam_ids.iter().filter(|i| op_re.is_match(i)).count(), 2);
     }
 
-    /// B1: the metadata descriptor AND the root `./` Dataset both declare the
-    /// full normative `conformsTo` profile set, and every declared profile IRI
-    /// resolves to a first-class `CreativeWork` profile entity (name + version)
-    /// in the `@graph` — no bare dangling `{@id}` ref.
+    /// B1 (execution-aware): the metadata descriptor AND the root `./` Dataset
+    /// of a PLAN crate both declare exactly the plan-set `conformsTo` profiles,
+    /// and every declared profile IRI resolves to a first-class `CreativeWork`
+    /// profile entity (name + version) in the `@graph` — no bare dangling
+    /// `{@id}` ref.
     #[test]
     fn root_dataset_conforms_to_and_profile_entities_resolve() {
         let dag = one_task_dag();
@@ -2274,7 +2388,7 @@ mod tests {
         let metadata = build_metadata(&dag, &classification, &FrozenClock::default());
         let graph = metadata["@graph"].as_array().expect("@graph array");
 
-        // Root `./` carries conformsTo equal to the const profile set.
+        // Root `./` carries conformsTo equal to the PLAN profile set.
         let root = graph
             .iter()
             .find(|e| e["@id"].as_str() == Some("./"))
@@ -2285,10 +2399,10 @@ mod tests {
             .iter()
             .filter_map(|c| c["@id"].as_str())
             .collect();
-        for iri in ecaa_workflow_types::consts::REQUIRED_PROFILE_IRIS {
+        for iri in ecaa_workflow_types::consts::PLAN_PROFILE_IRIS {
             assert!(
                 declared.contains(iri),
-                "root ./ conformsTo must declare {iri}; got {declared:?}"
+                "root ./ conformsTo must declare plan profile {iri}; got {declared:?}"
             );
             // Each declared profile resolves to a CreativeWork entity carrying a
             // name + version.
@@ -2308,6 +2422,155 @@ mod tests {
             assert!(
                 entity["version"].as_str().is_some_and(|s| !s.is_empty()),
                 "profile entity {iri} must carry a non-empty version"
+            );
+        }
+    }
+
+    /// EXECUTION-AWARE `conformsTo` (T6′): a PRE-EXECUTION PLAN crate has ZERO
+    /// real run `CreateAction`s, so it must declare ONLY the truthful plan-set
+    /// profiles (base RO-Crate 1.1 + workflow-ro-crate/1.0 + ecaa/v0.2) on BOTH
+    /// the metadata descriptor and the root `./` Dataset — and must NOT claim
+    /// any of the three WRROC v0.5 run profiles (process / workflow /
+    /// provenance), which document executed runs. This is the regression guard
+    /// against the rejected Task-6 hack (which fabricated a planned run action
+    /// + workflow self-`hasPart` to make `provenance/0.5` "pass").
+    #[test]
+    fn plan_crate_conforms_to_excludes_run_profiles() {
+        let dag = one_task_dag();
+        let classification = ClassificationResult {
+            domain: "genomics".into(),
+            workflow_description: "test workflow".into(),
+            intake_text: "test intake".into(),
+            edam_topic: "topic:3673".into(),
+            edam_operation: "operation:3223".into(),
+            ..Default::default()
+        };
+        let metadata = build_metadata(&dag, &classification, &FrozenClock::default());
+        let graph = metadata["@graph"].as_array().expect("@graph array");
+
+        // The plan crate genuinely has NO real run CreateAction (the precondition
+        // for claiming any WRROC run profile).
+        assert!(
+            !graph_has_run_create_action(graph),
+            "a pre-execution plan crate must contain ZERO real run CreateActions"
+        );
+
+        let expected: std::collections::BTreeSet<&str> =
+            ecaa_workflow_types::consts::PLAN_PROFILE_IRIS
+                .iter()
+                .copied()
+                .collect();
+
+        for target_id in ["ro-crate-metadata.json", "./"] {
+            let entry = graph
+                .iter()
+                .find(|e| e["@id"].as_str() == Some(target_id))
+                .unwrap_or_else(|| panic!("{target_id} entry present"));
+            let declared: std::collections::BTreeSet<&str> = entry["conformsTo"]
+                .as_array()
+                .unwrap_or_else(|| panic!("{target_id} conformsTo is an array"))
+                .iter()
+                .filter_map(|c| c["@id"].as_str())
+                .collect();
+
+            // Exactly the truthful plan set — no more, no less.
+            assert_eq!(
+                declared, expected,
+                "{target_id} conformsTo must equal the plan set exactly; got {declared:?}"
+            );
+
+            // Specifically: none of the three execution-only WRROC run profiles.
+            for run_iri in ecaa_workflow_types::consts::EXECUTED_ADDED_PROFILE_IRIS {
+                assert!(
+                    !declared.contains(run_iri),
+                    "plan crate {target_id} conformsTo must NOT claim run profile {run_iri}"
+                );
+            }
+        }
+    }
+
+    /// EXECUTION-AWARE `conformsTo` (T6′, executed half): once a real run
+    /// `CreateAction` exists in the graph, the finalize-path upgrade
+    /// (`upgrade_conforms_to_executed`) adds the three WRROC v0.5 run profiles
+    /// to BOTH the descriptor and root `./`, emits resolving profile entities
+    /// for them, and is idempotent (a second upgrade adds nothing). The result
+    /// is the full executed `REQUIRED_PROFILE_IRIS` set, claimed truthfully
+    /// because the run action is real (not fabricated).
+    #[test]
+    fn executed_crate_conforms_to_upgrade_is_truthful_and_idempotent() {
+        let dag = one_task_dag();
+        let classification = ClassificationResult {
+            domain: "genomics".into(),
+            workflow_description: "test workflow".into(),
+            intake_text: "test intake".into(),
+            edam_topic: "topic:3673".into(),
+            edam_operation: "operation:3223".into(),
+            ..Default::default()
+        };
+        let metadata = build_metadata(&dag, &classification, &FrozenClock::default());
+        let mut graph: Vec<Value> = metadata["@graph"]
+            .as_array()
+            .expect("@graph array")
+            .clone();
+
+        // Inject a REAL run CreateAction (an `instrument`-bearing CreateAction),
+        // mirroring what `register_produced_output_tables` appends post-execution.
+        graph.push(json!({
+            "@id": "#action/runtime/outputs/t1/de.tsv",
+            "@type": ["CreateAction", "prov:Activity"],
+            "name": "Production of de.tsv by stage 't1'.",
+            "instrument": {"@id": "#step-t1"},
+            "result": {"@id": "runtime/outputs/t1/de.tsv"}
+        }));
+        assert!(
+            graph_has_run_create_action(&graph),
+            "injected CreateAction must be recognized as a real run action"
+        );
+
+        upgrade_conforms_to_executed(&mut graph);
+        // Idempotent: a second upgrade must not duplicate IRIs or entities.
+        upgrade_conforms_to_executed(&mut graph);
+
+        let full: std::collections::BTreeSet<&str> =
+            ecaa_workflow_types::consts::REQUIRED_PROFILE_IRIS
+                .iter()
+                .copied()
+                .collect();
+
+        for target_id in ["ro-crate-metadata.json", "./"] {
+            let entry = graph
+                .iter()
+                .find(|e| e["@id"].as_str() == Some(target_id))
+                .unwrap_or_else(|| panic!("{target_id} entry present"));
+            let arr = entry["conformsTo"]
+                .as_array()
+                .unwrap_or_else(|| panic!("{target_id} conformsTo is an array"));
+            let declared: Vec<&str> = arr.iter().filter_map(|c| c["@id"].as_str()).collect();
+
+            // No duplicate IRIs after two upgrades.
+            let unique: std::collections::BTreeSet<&str> = declared.iter().copied().collect();
+            assert_eq!(
+                declared.len(),
+                unique.len(),
+                "{target_id} conformsTo must have no duplicate IRIs; got {declared:?}"
+            );
+            // Equals the full executed set.
+            assert_eq!(
+                unique, full,
+                "{target_id} conformsTo must equal the full executed set; got {declared:?}"
+            );
+        }
+
+        // Each newly-claimed run profile resolves to exactly one CreativeWork
+        // profile entity (no dangling ref, no duplicate).
+        for run_iri in ecaa_workflow_types::consts::EXECUTED_ADDED_PROFILE_IRIS {
+            let n = graph
+                .iter()
+                .filter(|e| e["@id"].as_str() == Some(run_iri))
+                .count();
+            assert_eq!(
+                n, 1,
+                "run profile {run_iri} must resolve to exactly one entity; found {n}"
             );
         }
     }
