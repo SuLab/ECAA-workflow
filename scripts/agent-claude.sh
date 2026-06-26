@@ -1008,6 +1008,13 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   # host path is valid in-container; replay sets the same vars to its scratch
   # package root, so a $PACKAGE-derived path reproduces byte-for-byte.
   DOCKER_ENV_ARGS+=(-e "PACKAGE=$PACKAGE" -e "PKG_ROOT=$PACKAGE")
+  # Forward the Claude Code beta kill-switch into the container so the agent's
+  # `claude` CLI sees it. When ="1" it strips ALL `anthropic-beta` headers —
+  # notably `context-management-2025-06-27`, which a HIPAA-regulated Anthropic
+  # org WITHOUT Zero Data Retention rejects with HTTP 400. docker does not
+  # inherit parent env, so this explicit -e is required.
+  [ -n "${CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS:-}" ] && \
+    DOCKER_ENV_ARGS+=(-e "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=$CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS")
   unset __agent_kv
   # Forward the eval fault-injection contract env (STRICT no-op unless
   # ECAA_EVAL_SHIM_DIR is set, so production is byte-identical). The shim reads

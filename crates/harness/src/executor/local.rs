@@ -79,6 +79,11 @@ pub(super) const REQUIRED_INHERITED_KEYS: &[&str] = &[
     // the task prompt and uses the billing mode when choosing Claude auth.
     "ECAA_AGENT_BILLING",
     "MAX_TURNS_PER_TASK",
+    // Claude Code beta gate. When set (="1"), the agent CLI strips ALL
+    // `anthropic-beta` headers — notably `context-management-2025-06-27`, which
+    // a HIPAA-regulated org WITHOUT Zero Data Retention rejects with HTTP 400.
+    // Must be in the allowlist or `env_clear` drops it before the agent spawns.
+    "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS",
     // Per-task $ budget cap (claude `--max-budget-usd`). agent-claude.sh reads
     // ECAA_AGENT_BUDGET_USD (global override) and the per-class siblings; the
     // agent's wallclock SIGTERM timer reads ECAA_AGENT_WALLCLOCK_SECS. Without
