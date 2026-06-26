@@ -109,6 +109,27 @@ pub(crate) fn classify(rel: &Path) -> DepositTier {
         || basename == ".blas-probe.json"
         || basename == ".sme-auto-approve-discoveries"
         || has_component("view_data")
+        // Harness operational telemetry at the runtime root: per-run logs,
+        // session metrics, harness health, the internal dispatch / invocation /
+        // atom-picker logs, the package install transcript, the orphan-policy
+        // open-sweep sink, and the harness exit-status file. None is consumed by
+        // re-execution or by the audit-proof / claim-verifier (which read
+        // decisions.jsonl / proofs.jsonl / claim-verification.json / …), so they
+        // are operational bloat for a deposit. The audit & provenance sidecars
+        // (audit-proof-report.json, claim-verification.json, decisions.jsonl,
+        // proofs.jsonl, assumptions.jsonl, validation-*, cost-ledger.jsonl,
+        // repair-*, reexecution.json, …) are deliberately NOT listed here and
+        // stay Tier A. Anchored to the `runtime/` root so a same-named file in a
+        // task output dir is never matched by accident.
+        || rel_str == "runtime/LOG.jsonl"
+        || rel_str == "runtime/invocations.jsonl"
+        || rel_str == "runtime/dispatches.jsonl"
+        || rel_str == "runtime/session-metrics.jsonl"
+        || rel_str == "runtime/harness-health.json"
+        || rel_str == "runtime/install-log.jsonl"
+        || rel_str == "runtime/picker-decisions.jsonl"
+        || rel_str == "runtime/policy-opens.jsonl"
+        || rel_str == "runtime/.execution_status.json"
     {
         return DepositTier::C;
     }
@@ -217,6 +238,17 @@ pub fn export_depositable_package(src: &Path, dst: &Path) -> Result<ExportReport
         }
     }
 
+    // Drop byte-data-duplicate output tables the per-task agent sometimes writes
+    // under two names (e.g. `de_results.tsv` + `de_table.tsv`, identical data
+    // rows differing only in the header). Runs after the copy and BEFORE the
+    // reseal + RO-Crate prune below, so the manifest and `@graph` reflect the
+    // deduplicated set; the prune then drops each deleted table's `@graph` File
+    // entity and its `#action/<path>` CreateAction. Counted out of `kept`.
+    let deduped = dedup_duplicate_output_tables(dst)
+        .context("de-duplicating output tables over export")?;
+    kept = kept.saturating_sub(deduped);
+    dropped += deduped;
+
     // Re-seal BagIt over the kept set (rebuilds manifest + tagmanifest).
     let clock = WallClock;
     crate::emitter::regenerate_bagit_manifest(dst, &clock)
@@ -289,6 +321,95 @@ fn write_execution_lineage(src: &Path, dst: &Path) {
     let _ = std::fs::write(runtime_dir.join("execution-lineage.txt"), output);
 }
 
+/// Drop byte-data-duplicate output tables. A per-task agent sometimes writes the
+/// same result table under two names (e.g. `de_results.tsv` + `de_table.tsv`)
+/// whose DATA rows are byte-identical and differ only in the header line. For
+/// each `runtime/outputs/<task>/` directory, `.tsv`/`.csv` files with an
+/// identical data-row digest form a duplicate set; the copy referenced by the
+/// most `@graph` mentions is kept (the lexicographically-smallest relative path
+/// breaks ties), and the rest are deleted from disk. The caller's subsequent
+/// [`prune_rocrate_dangling`] then drops each deleted file's now-dangling
+/// `@graph` File entity, its `#action/<path>` CreateAction, and references to
+/// it. Tables that differ in their data (e.g. by rounding) are NOT duplicates
+/// and are left untouched. Returns the number of files deleted. Best-effort:
+/// an unreadable directory or descriptor yields no deletions for that scope.
+fn dedup_duplicate_output_tables(dst: &Path) -> Result<usize> {
+    use std::collections::HashMap;
+
+    // How many times each relative path is mentioned anywhere in the crate
+    // descriptor — a proxy for "how connected / consumed" a table is. The
+    // consumed twin (referenced by a downstream task's input + its own File +
+    // CreateAction) outscores an unconsumed near-duplicate.
+    let meta = std::fs::read_to_string(dst.join("ro-crate-metadata.json")).unwrap_or_default();
+    let ref_count = |rel: &str| -> usize { meta.matches(rel).count() };
+
+    let outputs = dst.join("runtime").join("outputs");
+    if !outputs.is_dir() {
+        return Ok(0);
+    }
+    let Ok(task_dirs) = std::fs::read_dir(&outputs) else {
+        return Ok(0);
+    };
+    let mut deleted = 0usize;
+    for task in task_dirs.flatten() {
+        let task = task.path();
+        if !task.is_dir() {
+            continue;
+        }
+        // Group same-directory result tables by the digest of their DATA rows
+        // (everything after the first/header line): identical digest ⇒ identical
+        // data ⇒ a true duplicate regardless of the header column name.
+        let mut groups: HashMap<String, Vec<PathBuf>> = HashMap::new();
+        let Ok(entries) = std::fs::read_dir(&task) else {
+            continue;
+        };
+        for ent in entries.flatten() {
+            let p = ent.path();
+            if !p.is_file() {
+                continue;
+            }
+            if !matches!(p.extension().and_then(|e| e.to_str()), Some("tsv") | Some("csv")) {
+                continue;
+            }
+            let Ok(bytes) = std::fs::read(&p) else {
+                continue;
+            };
+            let data = match bytes.iter().position(|&b| b == b'\n') {
+                Some(i) => &bytes[i + 1..],
+                None => &bytes[..],
+            };
+            let digest = blake3::hash(data).to_hex().to_string();
+            groups.entry(digest).or_default().push(p);
+        }
+        let rel_of = |p: &Path| -> String {
+            p.strip_prefix(dst)
+                .unwrap_or(p)
+                .to_string_lossy()
+                .replace('\\', "/")
+        };
+        for (_digest, files) in groups {
+            if files.len() < 2 {
+                continue;
+            }
+            // Keep the most-referenced copy; lexicographically-smallest relative
+            // path breaks ties (deterministic). Delete the rest.
+            let Some(keep) = files.iter().max_by_key(|p| {
+                let rel = rel_of(p);
+                (ref_count(&rel), std::cmp::Reverse(rel))
+            }) else {
+                continue;
+            };
+            let keep = keep.clone();
+            for p in &files {
+                if p != &keep && std::fs::remove_file(p).is_ok() {
+                    deleted += 1;
+                }
+            }
+        }
+    }
+    Ok(deleted)
+}
+
 /// Drop `@graph` entries from `dst/ro-crate-metadata.json` whose `@id` is a
 /// package-relative path that does not exist on disk under `dst`.
 ///
@@ -331,12 +452,19 @@ fn prune_rocrate_dangling(dst: &Path) -> Result<usize> {
     // also scrub references TO them. A dropped file's `@id` left inside another
     // entry's `hasPart`/`object`/`result` array dangles, and consumers (e.g.
     // runcrate) choke on the unresolvable reference.
-    let pruned: std::collections::HashSet<String> = graph
+    let mut pruned: std::collections::HashSet<String> = graph
         .iter()
         .filter_map(|e| e.get("@id").and_then(Value::as_str))
         .filter(|id| is_dangling(id))
         .map(String::from)
         .collect();
+
+    // Also remove the `#action/<path>` CreateAction node keyed off each pruned
+    // path (the emitter's per-output action-id convention) — e.g. the
+    // de_table.tsv producer action once a duplicate table is dropped — so no
+    // resultless action lingers. A derived id that matches no node is a no-op.
+    let derived_action_ids: Vec<String> = pruned.iter().map(|p| format!("#action/{p}")).collect();
+    pruned.extend(derived_action_ids);
 
     let before = graph.len();
     graph.retain(|entry| {
@@ -636,6 +764,105 @@ mod tests {
             Some("fail"),
             "re-recorded cross_graph_integrity must reflect the claim-free deposit graph, not the stale planted fail: {cgi}"
         );
+    }
+
+    #[test]
+    fn classify_drops_runtime_operational_telemetry() {
+        // Harness operational telemetry at the runtime root → Tier C (dropped).
+        for rel in [
+            "runtime/LOG.jsonl",
+            "runtime/invocations.jsonl",
+            "runtime/dispatches.jsonl",
+            "runtime/session-metrics.jsonl",
+            "runtime/harness-health.json",
+            "runtime/install-log.jsonl",
+            "runtime/picker-decisions.jsonl",
+            "runtime/policy-opens.jsonl",
+            "runtime/.execution_status.json",
+        ] {
+            assert_eq!(
+                classify(Path::new(rel)),
+                DepositTier::C,
+                "{rel} must be Tier C (operational telemetry)"
+            );
+        }
+        // Audit / provenance sidecars at the runtime root stay Tier A (kept).
+        for rel in [
+            "runtime/audit-proof-report.json",
+            "runtime/claim-verification.json",
+            "runtime/decisions.jsonl",
+            "runtime/proofs.jsonl",
+            "runtime/assumptions.jsonl",
+            "runtime/cost-ledger.jsonl",
+            "runtime/reexecution.json",
+            "runtime/repair-status.json",
+        ] {
+            assert_eq!(
+                classify(Path::new(rel)),
+                DepositTier::A,
+                "{rel} must stay Tier A (audit/provenance)"
+            );
+        }
+        // Anchored to the runtime root: a same-named file inside a task output
+        // directory is NOT swept up.
+        assert_eq!(
+            classify(Path::new("runtime/outputs/t/harness-health.json")),
+            DepositTier::A,
+            "a same-named file under a task output dir must not be dropped"
+        );
+    }
+
+    #[test]
+    fn dedup_drops_byte_data_duplicate_output_table() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dst = tmp.path();
+        let de = dst.join("runtime/outputs/differential_expression");
+        std::fs::create_dir_all(&de).expect("mkdir");
+        // Two tables with byte-identical DATA rows, differing only in the header.
+        let data = "ENSG1\t1.0\t0.01\nENSG2\t-2.0\t0.40\n";
+        std::fs::write(de.join("de_results.tsv"), format!("gene_id\tlog2fc\tpadj\n{data}")).unwrap();
+        std::fs::write(de.join("de_table.tsv"), format!("gene\tlog2fc\tpadj\n{data}")).unwrap();
+        // A genuinely-different table must be left alone.
+        std::fs::write(de.join("vst.tsv"), "gene\tv\nENSG1\t5\n").unwrap();
+        // Descriptor: both tables have a File + #action; de_results is ALSO
+        // consumed downstream (one extra mention), so it must win and be kept.
+        std::fs::write(
+            dst.join("ro-crate-metadata.json"),
+            r##"{"@graph":[
+              {"@id":"runtime/outputs/differential_expression/de_results.tsv","@type":"File"},
+              {"@id":"#action/runtime/outputs/differential_expression/de_results.tsv","@type":"CreateAction","result":{"@id":"runtime/outputs/differential_expression/de_results.tsv"}},
+              {"@id":"runtime/outputs/differential_expression/de_table.tsv","@type":"File"},
+              {"@id":"#action/runtime/outputs/differential_expression/de_table.tsv","@type":"CreateAction","result":{"@id":"runtime/outputs/differential_expression/de_table.tsv"}},
+              {"@id":"#consume","object":{"@id":"runtime/outputs/differential_expression/de_results.tsv"}}
+            ]}"##,
+        )
+        .unwrap();
+
+        let n = dedup_duplicate_output_tables(dst).expect("dedup ok");
+        assert_eq!(n, 1, "exactly the unconsumed duplicate must be deleted");
+        assert!(de.join("de_results.tsv").exists(), "consumed twin must be kept");
+        assert!(!de.join("de_table.tsv").exists(), "unconsumed duplicate must be deleted");
+        assert!(de.join("vst.tsv").exists(), "a distinct table must be untouched");
+
+        // The prune then drops the deleted table's File entity AND its
+        // #action/<path> CreateAction, leaving no de_table reference.
+        let removed = prune_rocrate_dangling(dst).expect("prune ok");
+        assert!(removed >= 2, "File + #action must both be pruned, got {removed}");
+        let doc: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(dst.join("ro-crate-metadata.json")).unwrap(),
+        )
+        .unwrap();
+        let ids: Vec<&str> = doc["@graph"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|e| e["@id"].as_str())
+            .collect();
+        assert!(
+            !ids.iter().any(|i| i.contains("de_table.tsv")),
+            "no de_table File or #action node may survive: {ids:?}"
+        );
+        assert!(ids.iter().any(|i| i.contains("de_results.tsv")), "de_results kept");
     }
 
     #[test]
