@@ -11,7 +11,9 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use ecaa_workflow_core::emitter::{export_depositable_package, zip_dir};
+use ecaa_workflow_core::emitter::{
+    export_depositable_package_with_profile, zip_dir, DepositProfile,
+};
 
 #[derive(clap::Args, Debug)]
 pub(crate) struct ExportArgs {
@@ -22,14 +24,24 @@ pub(crate) struct ExportArgs {
     /// Destination `.zip` path for the depositable package.
     #[arg(long)]
     out: PathBuf,
+    /// Deposit profile: `full` (everything A+B), `re-executable` (drops the
+    /// policy-doc catalog + redundant artifacts, keeps the re-execution tier;
+    /// still replays), or `minimal` (also drops the re-execution tier —
+    /// audit/review-complete only).
+    #[arg(long, default_value = "full")]
+    profile: String,
 }
 
 pub(crate) fn run(args: ExportArgs) -> Result<()> {
     // Export the A+B surface into a scratch tempdir; it is deleted when
     // `staging` drops at end of scope.
+    let profile: DepositProfile = args
+        .profile
+        .parse()
+        .map_err(|e: String| anyhow::anyhow!(e))?;
     let staging = tempfile::tempdir().context("creating export staging tempdir")?;
     let export_root = staging.path().join("export");
-    let report = export_depositable_package(&args.package, &export_root)
+    let report = export_depositable_package_with_profile(&args.package, &export_root, profile)
         .with_context(|| format!("exporting package {}", args.package.display()))?;
 
     // Zip the clean tree into `--out`. Parent dirs are created so a caller
@@ -46,7 +58,8 @@ pub(crate) fn run(args: ExportArgs) -> Result<()> {
         .with_context(|| format!("zipping export into {}", args.out.display()))?;
 
     println!(
-        "export: {} kept / {} dropped → {}",
+        "export[{}]: {} kept / {} dropped → {}",
+        profile,
         report.kept,
         report.dropped,
         args.out.display()

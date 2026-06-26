@@ -167,6 +167,90 @@ pub struct ExportReport {
     pub dst: PathBuf,
 }
 
+/// Which surface of a completed package a deposit export carries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DepositProfile {
+    /// Everything Tier A+B (the historical default): audit + re-execution + all
+    /// policy docs and conventional crate components.
+    #[default]
+    Full,
+    /// Lean re-executable: `Full` minus the policy-doc catalog and the
+    /// redundant/convenience artifacts (`package.ttl`, `ro-crate-preview.html`,
+    /// the `execution-lineage.txt` git-log, `ed-cf-self-assessment.json`). Keeps
+    /// the re-execution tier; still replays — the container snapshot digest lives
+    /// in each task's `determinism-env.json`, not `policies/container.json`.
+    ReExecutable,
+    /// Minimal audit/review: `ReExecutable` minus the re-execution tier (per-task
+    /// `scripts/`, `env.lock`, the plotting environments, raw `inputs/`, `lib/`).
+    /// Carries the accountability + provenance surface needed to re-verify every
+    /// recorded verdict offline, with nothing to replay.
+    MinimalAudit,
+}
+
+impl std::str::FromStr for DepositProfile {
+    type Err = String;
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+            "full" => Ok(Self::Full),
+            "re-executable" | "reexecutable" | "executable" => Ok(Self::ReExecutable),
+            "minimal" | "minimal-audit" | "audit" => Ok(Self::MinimalAudit),
+            other => Err(format!(
+                "unknown deposit profile {other:?} (expected: full, re-executable, minimal)"
+            )),
+        }
+    }
+}
+
+impl std::fmt::Display for DepositProfile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Full => "full",
+            Self::ReExecutable => "re-executable",
+            Self::MinimalAudit => "minimal",
+        })
+    }
+}
+
+/// Extra per-profile drop, applied on top of the [`is_kept`] tier gate. `Full`
+/// drops nothing extra. The lean profiles drop the policy-doc catalog and the
+/// redundant/convenience artifacts the deposit adversarial audit flagged as
+/// needed for neither re-execution nor auditability; `MinimalAudit` additionally
+/// drops the re-execution tier.
+fn profile_extra_drop(profile: DepositProfile, rel: &Path) -> bool {
+    if matches!(profile, DepositProfile::Full) {
+        return false;
+    }
+    let rel_str = rel.to_string_lossy().replace('\\', "/");
+    let basename = rel
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let has_component = |name: &str| {
+        rel.components()
+            .any(|c| matches!(c, std::path::Component::Normal(s) if s.to_string_lossy() == name))
+    };
+    // Lean profiles (re-executable + minimal): the policy-doc catalog + the
+    // redundant Turtle copy, the human preview, and the informational
+    // self-assessment. (`execution-lineage.txt` is skipped at the write site.)
+    if rel_str.starts_with("policies/")
+        || rel_str == "package.ttl"
+        || rel_str == "ro-crate-preview.html"
+        || rel_str == "runtime/ed-cf-self-assessment.json"
+    {
+        return true;
+    }
+    // Minimal only: also drop the re-execution tier.
+    if matches!(profile, DepositProfile::MinimalAudit) {
+        return has_component("scripts")
+            || basename == "env.lock"
+            || rel_str.starts_with("runtime/plotting/")
+            || rel_str.starts_with("runtime/plotting_r/")
+            || rel_str.starts_with("inputs/")
+            || rel_str.starts_with("lib/");
+    }
+    false
+}
+
 /// Export the A+B-tier (audit/review/deposit + re-execution) surface of the
 /// package at `src` into a clean deposit-ready tree at `dst`.
 ///
@@ -191,10 +275,21 @@ pub struct ExportReport {
 ///    package's report would otherwise ship a stale `cross_graph_integrity`
 ///    verdict about nodes the deposit no longer carries. The report is BagIt-
 ///    manifest-excluded, so no re-seal is needed.
-/// 5. If `src/.git` exists, write `dst/runtime/execution-lineage.txt` from
-///    `git -C <src> log --stat --no-color` (best-effort; ignored if git is
-///    absent or fails).
+/// 5. (`Full` profile only) If `src/.git` exists, write
+///    `dst/runtime/execution-lineage.txt` from `git -C <src> log --stat
+///    --no-color` (best-effort; ignored if git is absent or fails).
 pub fn export_depositable_package(src: &Path, dst: &Path) -> Result<ExportReport> {
+    export_depositable_package_with_profile(src, dst, DepositProfile::Full)
+}
+
+/// [`export_depositable_package`] with an explicit [`DepositProfile`]. `Full`
+/// reproduces the historical behavior; the lean profiles additionally apply
+/// [`profile_extra_drop`] in the copy loop and skip the execution-lineage write.
+pub fn export_depositable_package_with_profile(
+    src: &Path,
+    dst: &Path,
+    profile: DepositProfile,
+) -> Result<ExportReport> {
     use crate::clock::WallClock;
 
     std::fs::create_dir_all(dst)
@@ -223,7 +318,7 @@ pub fn export_depositable_package(src: &Path, dst: &Path) -> Result<ExportReport
             .strip_prefix(src)
             .with_context(|| format!("stripping {} from {}", src.display(), abs.display()))?;
 
-        if is_kept(classify(rel)) {
+        if is_kept(classify(rel)) && !profile_extra_drop(profile, rel) {
             let dest_path = dst.join(rel);
             if let Some(parent) = dest_path.parent() {
                 std::fs::create_dir_all(parent)
@@ -289,7 +384,8 @@ pub fn export_depositable_package(src: &Path, dst: &Path) -> Result<ExportReport
         .context("re-recording audit-proof report over the deposit graph")?;
 
     // Execution lineage: best-effort `git log` of the source working tree.
-    if src.join(".git").exists() {
+    // Full profile only — the lean profiles treat it as droppable convenience.
+    if matches!(profile, DepositProfile::Full) && src.join(".git").exists() {
         write_execution_lineage(src, dst);
     }
 
@@ -863,6 +959,75 @@ mod tests {
             "no de_table File or #action node may survive: {ids:?}"
         );
         assert!(ids.iter().any(|i| i.contains("de_results.tsv")), "de_results kept");
+    }
+
+    #[test]
+    fn deposit_profiles_drop_the_right_surface() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let src = tmp.path().join("src");
+        let w = |rel: &str, body: &str| {
+            let p = src.join(rel);
+            std::fs::create_dir_all(p.parent().expect("parent")).expect("mkdir");
+            std::fs::write(p, body).expect("write");
+        };
+        w(
+            "ro-crate-metadata.json",
+            r#"{"@context":"https://w3id.org/ro/crate/1.1/context","@graph":[{"@id":"ro-crate-metadata.json","@type":"CreativeWork","about":{"@id":"./"}},{"@id":"./","@type":"Dataset","name":"x","description":"y","hasPart":[]}]}"#,
+        );
+        w("bagit.txt", "BagIt-Version: 1.0\nTag-File-Character-Encoding: UTF-8\n");
+        // bloat / policy docs (lean profiles drop)
+        w("package.ttl", "@prefix x: <urn:y> .\n");
+        w("ro-crate-preview.html", "<html></html>\n");
+        w("runtime/ed-cf-self-assessment.json", "{}\n");
+        w("policies/interpretation-policy.json", "{}\n");
+        w("policies/container.json", "{}\n");
+        // audit/provenance (all profiles keep)
+        w("runtime/audit-proof-report.json", r#"{"verdicts":[]}"#);
+        w("runtime/claim-verification.json", r#"{"verdicts":[]}"#);
+        w("runtime/outputs/de/de_results.tsv", "g\tp\nA\t0.01\n");
+        // re-execution tier (minimal drops; re-executable + full keep)
+        w("runtime/outputs/de/scripts/01.R", "print(1)\n");
+        w("runtime/outputs/de/env.lock", "lock\n");
+        w("inputs/counts.tsv", "x\n");
+        w("lib/measure.py", "pass\n");
+        w("runtime/plotting/VERSION", "1\n");
+
+        let run = |prof: DepositProfile| -> std::path::PathBuf {
+            let d = tmp.path().join(format!("dst-{prof}"));
+            export_depositable_package_with_profile(&src, &d, prof).expect("export");
+            d
+        };
+
+        // Full keeps everything.
+        let full = run(DepositProfile::Full);
+        for f in ["policies/interpretation-policy.json", "package.ttl",
+                  "runtime/outputs/de/scripts/01.R", "inputs/counts.tsv"] {
+            assert!(full.join(f).exists(), "full must keep {f}");
+        }
+
+        // Re-executable: drops policy docs + bloat; keeps re-exec tier + audit + results.
+        let re = run(DepositProfile::ReExecutable);
+        for f in ["policies/interpretation-policy.json", "policies/container.json",
+                  "package.ttl", "ro-crate-preview.html", "runtime/ed-cf-self-assessment.json"] {
+            assert!(!re.join(f).exists(), "re-executable must drop {f}");
+        }
+        for f in ["runtime/outputs/de/scripts/01.R", "inputs/counts.tsv", "lib/measure.py",
+                  "runtime/audit-proof-report.json", "runtime/claim-verification.json",
+                  "runtime/outputs/de/de_results.tsv"] {
+            assert!(re.join(f).exists(), "re-executable must keep {f}");
+        }
+
+        // Minimal: drops policy docs + bloat + re-exec tier; keeps audit + results.
+        let min = run(DepositProfile::MinimalAudit);
+        for f in ["policies/interpretation-policy.json", "package.ttl",
+                  "runtime/outputs/de/scripts/01.R", "runtime/outputs/de/env.lock",
+                  "inputs/counts.tsv", "lib/measure.py", "runtime/plotting/VERSION"] {
+            assert!(!min.join(f).exists(), "minimal must drop {f}");
+        }
+        for f in ["runtime/claim-verification.json", "runtime/audit-proof-report.json",
+                  "runtime/outputs/de/de_results.tsv"] {
+            assert!(min.join(f).exists(), "minimal must keep {f}");
+        }
     }
 
     #[test]

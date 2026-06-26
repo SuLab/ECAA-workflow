@@ -166,13 +166,34 @@ export function DocumentsPane({
         </h3>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <a
-            href={depositPackageUrl(sessionId)}
+            href={depositPackageUrl(sessionId, 'minimal')}
             download
-            data-testid="download-depositable"
-            style={primaryButtonStyle}
-            aria-label="Download deposit-ready package as zip archive"
+            data-testid="download-deposit-minimal"
+            style={secondaryButtonStyle}
+            aria-label="Download minimal audit deposit package as zip archive"
+            title="Minimal audit/review deposit: claims, decisions, proofs, audit-proof, results, figures, evidence. No scripts or inputs — not re-runnable."
           >
-            Download depositable package (.zip)
+            Deposit · minimal (audit)
+          </a>
+          <a
+            href={depositPackageUrl(sessionId, 're-executable')}
+            download
+            data-testid="download-deposit-reexecutable"
+            style={primaryButtonStyle}
+            aria-label="Download re-executable deposit package as zip archive"
+            title="Minimal audit surface plus the re-execution tier (scripts, env.lock, inputs, container) — replays offline against the recorded env-snapshot."
+          >
+            Deposit · re-executable
+          </a>
+          <a
+            href={depositPackageUrl(sessionId, 'full')}
+            download
+            data-testid="download-deposit-full"
+            style={secondaryButtonStyle}
+            aria-label="Download full deposit package as zip archive"
+            title="Everything tier A+B, including the full policy-doc catalog and conventional crate components."
+          >
+            Deposit · full
           </a>
           <a
             href={packageTarballUrl(sessionId)}
@@ -180,7 +201,7 @@ export function DocumentsPane({
             style={secondaryButtonStyle}
             aria-label="Download full working package as gzipped tar archive"
           >
-            Download full working package (.tar.gz)
+            Full working tree (.tar.gz)
           </a>
         </div>
       </div>

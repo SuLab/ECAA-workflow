@@ -246,6 +246,7 @@ pub(crate) async fn get_package_tarball(
 pub(crate) async fn get_deposit_package(
     State(app): State<ChatAppState>,
     Path(session_id): Path<Uuid>,
+    axum::extract::Query(query): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> impl IntoResponse {
     let Some(session) = app.conversation.get_session(session_id).await else {
         return (StatusCode::NOT_FOUND, "session not found").into_response();
@@ -269,12 +270,29 @@ pub(crate) async fn get_deposit_package(
         .and_then(|n| n.to_str())
         .unwrap_or("scripps-package")
         .to_string();
-    let download_name = format!("{pkg_basename}-deposit.zip");
+    // Deposit profile (default `full`). An explicit but unrecognized value is
+    // a 400; a missing/empty `profile` is the historical full export.
+    let profile = match query.get("profile").map(String::as_str) {
+        None | Some("") => ecaa_workflow_core::emitter::DepositProfile::Full,
+        Some(p) => match p.parse::<ecaa_workflow_core::emitter::DepositProfile>() {
+            Ok(pr) => pr,
+            Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
+        },
+    };
+    let download_name = {
+        let suffix = match profile {
+            ecaa_workflow_core::emitter::DepositProfile::Full => "",
+            ecaa_workflow_core::emitter::DepositProfile::ReExecutable => "-reexecutable",
+            ecaa_workflow_core::emitter::DepositProfile::MinimalAudit => "-minimal",
+        };
+        format!("{pkg_basename}-deposit{suffix}.zip")
+    };
 
     // Export + zip are synchronous, filesystem-heavy work: run on a blocking
     // thread so the async runtime isn't parked. The result is a sealed temp
     // `.zip` file we then stream.
-    let zip_result = tokio::task::spawn_blocking(move || build_deposit_zip(&root_canon)).await;
+    let zip_result =
+        tokio::task::spawn_blocking(move || build_deposit_zip(&root_canon, profile)).await;
     let zip_tempfile = match zip_result {
         Ok(Ok(f)) => f,
         Ok(Err(e)) => {
@@ -352,13 +370,16 @@ pub(crate) async fn get_deposit_package(
 /// sealed `NamedTempFile`. Runs on a blocking thread (see caller). The scratch
 /// `TempDir` is dropped (and deleted) before returning; the returned
 /// `NamedTempFile` carries the finished `.zip`.
-fn build_deposit_zip(root: &std::path::Path) -> anyhow::Result<tempfile::NamedTempFile> {
+fn build_deposit_zip(
+    root: &std::path::Path,
+    profile: ecaa_workflow_core::emitter::DepositProfile,
+) -> anyhow::Result<tempfile::NamedTempFile> {
     use anyhow::Context as _;
-    use ecaa_workflow_core::emitter::{export_depositable_package, zip_dir};
+    use ecaa_workflow_core::emitter::{export_depositable_package_with_profile, zip_dir};
 
     let staging = tempfile::tempdir().context("creating deposit export staging dir")?;
     let export_root = staging.path().join("export");
-    export_depositable_package(root, &export_root)
+    export_depositable_package_with_profile(root, &export_root, profile)
         .with_context(|| format!("exporting package {}", root.display()))?;
 
     let mut zip_file = tempfile::NamedTempFile::new().context("creating deposit zip tempfile")?;

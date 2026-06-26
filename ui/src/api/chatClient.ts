@@ -1179,11 +1179,22 @@ export function artifactUrl(sessionId: string, path: string): string {
 /// a clean tier-A + tier-B tree as a `.zip`. Forwards `?share_token=`
 /// the same way `artifactUrl` does, since an `<a href>` can't carry the
 /// X-Share-Token header that `_fetch.ts` uses.
-export function depositPackageUrl(sessionId: string): string {
+export type DepositProfile = 'full' | 're-executable' | 'minimal'
+
+export function depositPackageUrl(
+  sessionId: string,
+  profile: DepositProfile = 'full',
+): string {
   const base = `/api/chat/session/${encodeURIComponent(sessionId)}/deposit-package.zip`
-  if (typeof window === 'undefined') return base
-  const tok = new URLSearchParams(window.location.search).get('share_token')
-  return tok ? `${base}?share_token=${encodeURIComponent(tok)}` : base
+  const params = new URLSearchParams()
+  // `full` is the server default — omit the param so existing links are unchanged.
+  if (profile && profile !== 'full') params.set('profile', profile)
+  if (typeof window !== 'undefined') {
+    const tok = new URLSearchParams(window.location.search).get('share_token')
+    if (tok) params.set('share_token', tok)
+  }
+  const qs = params.toString()
+  return qs ? `${base}?${qs}` : base
 }
 
 // ── Task-detail drawer endpoints ───────────────────────────────────────
