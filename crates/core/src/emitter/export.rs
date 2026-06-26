@@ -230,23 +230,68 @@ fn profile_extra_drop(profile: DepositProfile, rel: &Path) -> bool {
             .any(|c| matches!(c, std::path::Component::Normal(s) if s.to_string_lossy() == name))
     };
     // Lean profiles (re-executable + minimal): the policy-doc catalog + the
-    // redundant Turtle copy, the human preview, and the informational
-    // self-assessment. (`execution-lineage.txt` is skipped at the write site.)
+    // redundant Turtle copy, the human preview, the informational
+    // self-assessment, and the informational git-log lineage. The lineage is
+    // also skipped at the write site, but dropping it here as well makes the
+    // exclusion robust when the *source* already carries one (e.g. re-exporting
+    // a previously-exported full deposit, which appends it post-copy).
     if rel_str.starts_with("policies/")
         || rel_str == "package.ttl"
         || rel_str == "ro-crate-preview.html"
         || rel_str == "runtime/ed-cf-self-assessment.json"
+        || rel_str == "runtime/execution-lineage.txt"
     {
         return true;
     }
-    // Minimal only: also drop the re-execution tier.
+    // Minimal only: also drop the re-execution tier …
     if matches!(profile, DepositProfile::MinimalAudit) {
-        return has_component("scripts")
+        if has_component("scripts")
             || basename == "env.lock"
             || rel_str.starts_with("runtime/plotting/")
             || rel_str.starts_with("runtime/plotting_r/")
             || rel_str.starts_with("inputs/")
-            || rel_str.starts_with("lib/");
+            || rel_str.starts_with("lib/")
+        {
+            return true;
+        }
+        // … and the operational / duplicate / redundant sidecars that are not in
+        // the RO-Crate `@graph`, not read by `replay --tier verify`, and have no
+        // analog in real deposited crates. Per-task re-execution captures, input
+        // provisioning, figure manifests, the task-spec (duplicated in
+        // WORKFLOW.json), navigation indexes/summaries (ARTIFACTS.md supersedes),
+        // the repair process detail (repair-status + AUDIT-REPORT carry the
+        // audit need), and the tiny choice records duplicated in decisions.jsonl.
+        // Duplicate-format figures: the PNGs are registered in the `@graph`, the
+        // PDFs are not — drop the dark duplicate (full / re-executable keep both).
+        let under_outputs = rel_str.starts_with("runtime/outputs/");
+        if (under_outputs && basename == "manifest.json")
+            || basename == "determinism-env.json"
+            || basename == "provisioning.json"
+            || basename == "task-spec.json"
+            || basename == "sme-selection.json"
+            || rel_str.ends_with(".pdf")
+            || (under_outputs
+                && (basename.ends_with("_index.json")
+                    || basename.ends_with("_summary.json")
+                    || basename == "summary_stats.json"))
+            || rel_str == "runtime/claim-repair-plan.json"
+            || rel_str == "runtime/repair-log.jsonl"
+            || rel_str == "runtime/repair-requests.jsonl"
+            || rel_str == "runtime/typed-blocker.json"
+            || rel_str == "runtime/validation-warnings.jsonl"
+            || rel_str == "runtime/env_capability.json"
+            || basename.starts_with("sme-review-confirmed")
+            // The verifier's low-level type-unification trace (~1 MB): its
+            // conclusions are the proven edges in proofs.jsonl + AUDIT-REPORT.md;
+            // the trace itself is verifier-debug, not science provenance.
+            || rel_str == "runtime/verifier-decisions.jsonl"
+            // Dependency lock = re-execution metadata; the audit-only minimal
+            // already drops the re-execution tier, and the deps are declared as
+            // `#dep/*` SoftwareApplication entities in the `@graph`.
+            || rel_str == "runtime/dependency-lock.json"
+        {
+            return true;
+        }
     }
     false
 }
@@ -275,7 +320,12 @@ fn profile_extra_drop(profile: DepositProfile, rel: &Path) -> bool {
 ///    package's report would otherwise ship a stale `cross_graph_integrity`
 ///    verdict about nodes the deposit no longer carries. The report is BagIt-
 ///    manifest-excluded, so no re-seal is needed.
-/// 5. (`Full` profile only) If `src/.git` exists, write
+/// 5. Write `dst/AUDIT-REPORT.md` — a human-readable Markdown summary of the
+///    audit/provenance sidecars (claim verification, audit-proof invariants,
+///    decisions, assumptions, typed proofs, validation, re-execution, repair,
+///    cost) — and re-seal once more to fold it into the manifest. Runs after
+///    step 4 so its invariant table reflects the deposit's own verdicts.
+/// 6. (`Full` profile only) If `src/.git` exists, write
 ///    `dst/runtime/execution-lineage.txt` from `git -C <src> log --stat
 ///    --no-color` (best-effort; ignored if git is absent or fails).
 pub fn export_depositable_package(src: &Path, dst: &Path) -> Result<ExportReport> {
@@ -344,6 +394,19 @@ pub fn export_depositable_package_with_profile(
     kept = kept.saturating_sub(deduped);
     dropped += deduped;
 
+    // Minimal: drop per-task sidecars that carry NO information — `agent-code.json`
+    // holding only the ~57 KB boilerplate prompt (empty `executed_code` +
+    // `response_text`; redundant with PROMPT.md / AGENT-EXECUTOR.md / the
+    // WORKFLOW.json task specs) and `curated_pools.json` that is all-empty arrays.
+    // Content-aware, so a run that DOES record the agent's code, or a non-empty
+    // pool set (e.g. the method-survey stage), is kept.
+    if matches!(profile, DepositProfile::MinimalAudit) {
+        let pruned = prune_content_empty_outputs(dst)
+            .context("pruning content-empty per-task sidecars")?;
+        kept = kept.saturating_sub(pruned);
+        dropped += pruned;
+    }
+
     // Re-seal BagIt over the kept set (rebuilds manifest + tagmanifest).
     let clock = WallClock;
     crate::emitter::regenerate_bagit_manifest(dst, &clock)
@@ -382,6 +445,57 @@ pub fn export_depositable_package_with_profile(
     // content hash, so rewriting it perturbs no seal (no re-seal required).
     super::ecaa::write_audit_proof_report(dst)
         .context("re-recording audit-proof report over the deposit graph")?;
+
+    // Deposit readability transforms (all pure functions of the exported tree,
+    // none touch the `@graph`): reorder `WORKFLOW.json` tasks into execution
+    // order (execution-safe — the harness re-sorts `tasks` into a BTreeMap and
+    // runs from `execution_order`), write the `ARTIFACTS.md` per-step file map,
+    // and append the README navigation section. Each is best-effort + idempotent
+    // and leaves its file untouched on any sanity-check failure.
+    super::readability::reorder_workflow_tasks(dst)
+        .context("reordering WORKFLOW.json tasks into execution order")?;
+    super::readability::write_artifacts_manifest(dst)
+        .context("writing ARTIFACTS.md over the deposit")?;
+
+    // Human-readable Markdown summary of the audit/provenance sidecars, written
+    // into every deposit so a reviewer gets the claim-verification, audit-proof
+    // invariants, decisions, assumptions, typed proofs, validation, re-execution,
+    // repair, and cost surface without reading JSON. Runs AFTER the audit-proof
+    // re-record so its invariant table reflects the deposit's own verdicts.
+    super::audit_report::write_audit_report(dst)
+        .context("writing AUDIT-REPORT.md over the deposit")?;
+
+    // README navigation section links AUDIT-REPORT.md + ARTIFACTS.md (just
+    // written) and inlines the execution-order table; run last so its
+    // existence checks see the artifacts above. A final reseal then folds the
+    // reordered WORKFLOW.json + ARTIFACTS.md + AUDIT-REPORT.md + README into the
+    // BagIt manifest (all derived deterministically, so the seal is stable).
+    super::readability::augment_readme(dst)
+        .context("augmenting README.md over the deposit")?;
+
+    // Zero dark payload: register every kept file not yet in the RO-Crate
+    // `@graph` as a `File` entity in the root `hasPart`, so the deposit declares
+    // all of its payload (matching the discipline of the most detailed real-world
+    // WRROC crates). Runs LAST, after every generated file (reordered
+    // WORKFLOW.json, ARTIFACTS.md, AUDIT-REPORT.md, README) exists, so all are
+    // captured. No re-prune follows — every registered `@id` is a file on disk.
+    let registered = super::readability::register_deposit_entities(dst)
+        .context("registering deposit payload into the RO-Crate @graph")?;
+
+    // Adding `File` nodes for on-disk files does not change the audit-proof
+    // invariants (they concern Claim / decision / proof / equivalence nodes, not
+    // file completeness), but re-record over the now-final graph so the recorded
+    // verdicts match a downloader's fresh `replay` exactly, then regenerate the
+    // audit report so its `evaluated_at` matches the final report.
+    if registered > 0 {
+        super::ecaa::write_audit_proof_report(dst)
+            .context("re-recording audit-proof after @graph registration")?;
+        super::audit_report::write_audit_report(dst)
+            .context("regenerating AUDIT-REPORT.md after @graph registration")?;
+    }
+
+    crate::emitter::regenerate_bagit_manifest(dst, &clock)
+        .context("re-sealing BagIt manifest after readability transforms")?;
 
     // Execution lineage: best-effort `git log` of the source working tree.
     // Full profile only — the lean profiles treat it as droppable convenience.
@@ -429,6 +543,66 @@ fn write_execution_lineage(src: &Path, dst: &Path) {
 /// it. Tables that differ in their data (e.g. by rounding) are NOT duplicates
 /// and are left untouched. Returns the number of files deleted. Best-effort:
 /// an unreadable directory or descriptor yields no deletions for that scope.
+/// Remove per-task `runtime/outputs/<task>/` sidecars that carry NO information,
+/// content-aware so populated files survive:
+///   * `agent-code.json` whose `executed_code` AND `response_text` are both
+///     empty/absent — only the boilerplate prompt, redundant with `PROMPT.md` /
+///     `AGENT-EXECUTOR.md` / the `WORKFLOW.json` task specs.
+///   * `curated_pools.json` whose every value is an empty array — a placeholder
+///     with no candidate pools (a populated pool set, e.g. the method-survey
+///     stage's, is kept).
+/// Returns the number removed.
+fn prune_content_empty_outputs(dst: &Path) -> Result<usize> {
+    use serde_json::Value;
+    let root = dst.join("runtime").join("outputs");
+    if !root.exists() {
+        return Ok(0);
+    }
+    let mut removed = 0usize;
+    for entry in walkdir::WalkDir::new(&root) {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !entry.file_type().is_file() || (name != "agent-code.json" && name != "curated_pools.json")
+        {
+            continue;
+        }
+        let v: Value = match std::fs::read(entry.path())
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+        {
+            Some(v) => v,
+            None => continue,
+        };
+        let drop = if name == "agent-code.json" {
+            let empty = |k: &str| {
+                v.get(k)
+                    .and_then(Value::as_str)
+                    .map(|s| s.trim().is_empty())
+                    .unwrap_or(true)
+            };
+            empty("executed_code") && empty("response_text")
+        } else {
+            // curated_pools.json: an object whose every value is an empty array.
+            v.as_object()
+                .map(|o| {
+                    !o.is_empty()
+                        && o.values()
+                            .all(|val| val.as_array().map(|a| a.is_empty()).unwrap_or(false))
+                })
+                .unwrap_or(false)
+        };
+        if drop {
+            std::fs::remove_file(entry.path())
+                .with_context(|| format!("removing {}", entry.path().display()))?;
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
 fn dedup_duplicate_output_tables(dst: &Path) -> Result<usize> {
     use std::collections::HashMap;
 
@@ -979,6 +1153,9 @@ mod tests {
         w("package.ttl", "@prefix x: <urn:y> .\n");
         w("ro-crate-preview.html", "<html></html>\n");
         w("runtime/ed-cf-self-assessment.json", "{}\n");
+        // git-log lineage already present in the source (as when re-exporting a
+        // full deposit): lean profiles must drop it, full keeps it.
+        w("runtime/execution-lineage.txt", "abc123 commit msg\n");
         w("policies/interpretation-policy.json", "{}\n");
         w("policies/container.json", "{}\n");
         // audit/provenance (all profiles keep)
@@ -991,6 +1168,45 @@ mod tests {
         w("inputs/counts.tsv", "x\n");
         w("lib/measure.py", "pass\n");
         w("runtime/plotting/VERSION", "1\n");
+        // readability inputs: WORKFLOW.json (tasks alphabetical: a_step,z_step;
+        // exec order reversed at the top to prove the reorder), a README with
+        // the emit footer, execution-order.json + a per-step output table.
+        w(
+            "WORKFLOW.json",
+            r#"{"version":"1","workflow_id":"wf","tasks":{"z_step":{"id":"z_step","depends_on":["a_step"]},"a_step":{"id":"a_step","depends_on":[]}},"execution_order":["a_step","z_step"]}"#,
+        );
+        w(
+            "README.md",
+            "# Title — ECAA analysis package\n\n## 1. The answer\n\nsee outputs\n\n\
+             ## 4. Re-run it\n\n```\nrun\n```\n\n\
+             _Generated deterministically by the ECAA compiler from the workflow plan._\n",
+        );
+        w(
+            "runtime/execution-order.json",
+            r#"{"workflow_id":"wf","order":[{"index":0,"task_id":"a_step","output_dir":"runtime/outputs/a_step/"},{"index":1,"task_id":"z_step","output_dir":"runtime/outputs/z_step/"}]}"#,
+        );
+        w("runtime/outputs/a_step/result.tsv", "g\tp\nA\t0.01\n");
+        // Leaner-minimal inputs: a transparency artifact to KEEP+REGISTER, plus
+        // operational/re-exec/duplicate files the minimal must DROP.
+        w("runtime/outputs/a_step/agent-code.json", r#"{"prompt":"p","executed_code":"x"}"#); // register
+        w("runtime/outputs/a_step/determinism-env.json", r#"{"pkg_root":"/x"}"#); // drop (minimal)
+        w("runtime/outputs/a_step/task-spec.json", "{}"); // drop (minimal)
+        w("runtime/outputs/a_step/figures/v.png", "PNG"); // keep
+        w("runtime/outputs/a_step/figures/v.pdf", "PDF"); // drop (minimal), keep full
+        w("runtime/outputs/a_step/qc_summary.json", "{}"); // drop (minimal)
+        w("runtime/inputs/a_step/provisioning.json", "{}"); // drop (minimal)
+        w("runtime/typed-blocker.json", "{}"); // drop (minimal)
+        // z_step: a content-EMPTY agent-code.json (only boilerplate prompt) — drop
+        // in minimal; the populated a_step/agent-code.json (executed_code "x") stays.
+        w("runtime/outputs/z_step/result.tsv", "g\tp\nB\t0.02\n");
+        w("runtime/outputs/z_step/agent-code.json", r#"{"prompt":"p","executed_code":"","response_text":""}"#);
+        // Further minimal drops: the ~1 MB verifier trace + the empty dependency
+        // lock (re-exec metadata) + a content-empty curated_pools (vs a non-empty
+        // one that must survive).
+        w("runtime/verifier-decisions.jsonl", "{\"kind\":\"unification_failed\"}\n"); // drop (minimal)
+        w("runtime/dependency-lock.json", r#"{"r":[],"python":[],"conda":[]}"#); // drop (minimal)
+        w("runtime/outputs/a_step/curated_pools.json", r#"{"x":[],"y":[]}"#); // empty -> drop (minimal)
+        w("runtime/outputs/z_step/curated_pools.json", r#"{"de":["deseq2","edger"]}"#); // non-empty -> keep
 
         let run = |prof: DepositProfile| -> std::path::PathBuf {
             let d = tmp.path().join(format!("dst-{prof}"));
@@ -1001,14 +1217,16 @@ mod tests {
         // Full keeps everything.
         let full = run(DepositProfile::Full);
         for f in ["policies/interpretation-policy.json", "package.ttl",
-                  "runtime/outputs/de/scripts/01.R", "inputs/counts.tsv"] {
+                  "runtime/outputs/de/scripts/01.R", "inputs/counts.tsv",
+                  "runtime/execution-lineage.txt"] {
             assert!(full.join(f).exists(), "full must keep {f}");
         }
 
         // Re-executable: drops policy docs + bloat; keeps re-exec tier + audit + results.
         let re = run(DepositProfile::ReExecutable);
         for f in ["policies/interpretation-policy.json", "policies/container.json",
-                  "package.ttl", "ro-crate-preview.html", "runtime/ed-cf-self-assessment.json"] {
+                  "package.ttl", "ro-crate-preview.html", "runtime/ed-cf-self-assessment.json",
+                  "runtime/execution-lineage.txt"] {
             assert!(!re.join(f).exists(), "re-executable must drop {f}");
         }
         for f in ["runtime/outputs/de/scripts/01.R", "inputs/counts.tsv", "lib/measure.py",
@@ -1021,13 +1239,127 @@ mod tests {
         let min = run(DepositProfile::MinimalAudit);
         for f in ["policies/interpretation-policy.json", "package.ttl",
                   "runtime/outputs/de/scripts/01.R", "runtime/outputs/de/env.lock",
-                  "inputs/counts.tsv", "lib/measure.py", "runtime/plotting/VERSION"] {
+                  "inputs/counts.tsv", "lib/measure.py", "runtime/plotting/VERSION",
+                  "runtime/execution-lineage.txt"] {
             assert!(!min.join(f).exists(), "minimal must drop {f}");
         }
         for f in ["runtime/claim-verification.json", "runtime/audit-proof-report.json",
                   "runtime/outputs/de/de_results.tsv"] {
             assert!(min.join(f).exists(), "minimal must keep {f}");
         }
+
+        // Every profile carries the human-readable audit report, sourced from
+        // the sidecars, with the key audit/provenance sections present.
+        for d in [&full, &re, &min] {
+            assert!(d.join("AUDIT-REPORT.md").is_file(), "AUDIT-REPORT.md must be in every profile");
+        }
+        let body = std::fs::read_to_string(min.join("AUDIT-REPORT.md")).unwrap();
+        for h in ["# Audit & provenance report", "## Audit-proof invariants",
+                  "## Claim verification"] {
+            assert!(body.contains(h), "audit report must contain section {h:?}");
+        }
+
+        // Readability transforms apply to every profile (their inputs —
+        // WORKFLOW.json, README.md, execution-order.json — are Tier-A, kept in
+        // all three).
+        for d in [&full, &re, &min] {
+            assert!(d.join("ARTIFACTS.md").is_file(), "ARTIFACTS.md in every profile");
+
+            // README navigation appended, original footer preserved.
+            let readme = std::fs::read_to_string(d.join("README.md")).unwrap();
+            assert!(readme.contains("## Package navigation"), "README nav section");
+            assert!(readme.contains("AUDIT-REPORT.md"), "README links audit report");
+            assert!(readme.contains("ARTIFACTS.md"), "README links artifact map");
+            assert!(readme.contains("Steps, in execution order"), "README inline exec table");
+            assert!(readme.contains("_Generated deterministically"), "README footer preserved");
+
+            // WORKFLOW.json reordered: tasks block last, a_step before z_step,
+            // and value-equal (every task + the execution_order survive).
+            let wf_txt = std::fs::read_to_string(d.join("WORKFLOW.json")).unwrap();
+            let after = &wf_txt[wf_txt.find("\"tasks\"").expect("tasks key")..];
+            assert!(
+                after.find("a_step").unwrap() < after.find("z_step").unwrap(),
+                "tasks must be in execution order (a_step before z_step), got: {after}"
+            );
+            let wf: serde_json::Value =
+                serde_json::from_str(&wf_txt).expect("reordered WORKFLOW.json parses");
+            assert_eq!(wf["tasks"].as_object().unwrap().len(), 2, "both tasks survive reorder");
+            assert_eq!(wf["execution_order"], serde_json::json!(["a_step", "z_step"]));
+        }
+
+        // Per-step artifact section is present and lists the producing step.
+        let artifacts = std::fs::read_to_string(min.join("ARTIFACTS.md")).unwrap();
+        assert!(artifacts.contains("## Per-step outputs"), "per-step section");
+        assert!(artifacts.contains("a_step"), "per-step lists a_step");
+        assert!(artifacts.contains("result.tsv"), "per-step lists the step output");
+
+        // Leaner minimal: operational / re-exec / duplicate files dropped …
+        for f in ["runtime/outputs/a_step/determinism-env.json",
+                  "runtime/outputs/a_step/task-spec.json",
+                  "runtime/outputs/a_step/qc_summary.json",
+                  "runtime/outputs/a_step/figures/v.pdf",
+                  "runtime/inputs/a_step/provisioning.json",
+                  "runtime/typed-blocker.json",
+                  "runtime/verifier-decisions.jsonl",
+                  "runtime/dependency-lock.json",
+                  "runtime/outputs/a_step/curated_pools.json"] {
+            assert!(!min.join(f).exists(), "minimal must drop {f}");
+        }
+        // … while the transparency artifact + the PNG figure + the NON-empty
+        // curated_pools are kept …
+        // a_step/agent-code.json has executed_code "x" → content-bearing, KEPT;
+        // z_step/agent-code.json is empty → content-empty, DROPPED in minimal.
+        for f in ["runtime/outputs/a_step/agent-code.json",
+                  "runtime/outputs/a_step/figures/v.png",
+                  "runtime/outputs/z_step/curated_pools.json"] {
+            assert!(min.join(f).exists(), "minimal must keep {f}");
+        }
+        assert!(!min.join("runtime/outputs/z_step/agent-code.json").exists(),
+            "minimal must drop the content-empty agent-code.json");
+        // Full keeps the duplicate/operational files + the empty agent-code +
+        // the verifier trace / dependency-lock / empty curated_pools (only minimal drops them).
+        for f in ["runtime/outputs/a_step/determinism-env.json",
+                  "runtime/outputs/a_step/figures/v.pdf",
+                  "runtime/outputs/z_step/agent-code.json",
+                  "runtime/verifier-decisions.jsonl",
+                  "runtime/dependency-lock.json",
+                  "runtime/outputs/a_step/curated_pools.json"] {
+            assert!(full.join(f).exists(), "full must keep {f}");
+        }
+
+        // Zero dark payload: every kept file (bar BagIt/descriptor structural
+        // files) is declared in the `@graph` and the root `hasPart`.
+        let zero_dark = |root: &std::path::Path| {
+            let meta: serde_json::Value = serde_json::from_slice(
+                &std::fs::read(root.join("ro-crate-metadata.json")).unwrap(),
+            )
+            .unwrap();
+            let ids: std::collections::HashSet<String> = meta["@graph"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|e| e["@id"].as_str().map(String::from))
+                .collect();
+            let structural = ["ro-crate-metadata.json", "ro-crate-preview.html",
+                "bagit.txt", "bag-info.txt", "manifest-sha512.txt", "tagmanifest-sha512.txt"];
+            for e in walkdir::WalkDir::new(root) {
+                let e = e.unwrap();
+                if !e.file_type().is_file() { continue; }
+                let rel = e.path().strip_prefix(root).unwrap()
+                    .to_string_lossy().replace('\\', "/");
+                if structural.contains(&rel.as_str()) { continue; }
+                assert!(ids.contains(&rel), "dark payload (not in @graph): {rel}");
+            }
+        };
+        zero_dark(&min);
+        zero_dark(&full);
+        // The kept transparency artifact is among the registered entities.
+        let ids: std::collections::HashSet<String> = serde_json::from_slice::<serde_json::Value>(
+            &std::fs::read(min.join("ro-crate-metadata.json")).unwrap()).unwrap()
+            ["@graph"].as_array().unwrap().iter()
+            .filter_map(|e| e["@id"].as_str().map(String::from)).collect();
+        assert!(ids.contains("runtime/outputs/a_step/agent-code.json"),
+            "agent-code.json must be registered in @graph");
     }
 
     #[test]

@@ -126,8 +126,10 @@ and reports referenced above are produced when the package is executed._\n",
 mod amendment;
 pub(crate) mod bagit;
 mod copy_libs;
+mod audit_report;
 mod ecaa;
 mod export;
+mod readability;
 pub mod ecaa_projection;
 mod policies;
 use amendment::{
