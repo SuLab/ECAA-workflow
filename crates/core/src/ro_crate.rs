@@ -28,7 +28,7 @@ fn profile_entity(iri: &str) -> Value {
     let last = iri.rsplit('/').next().unwrap_or(iri);
     let version = last.strip_prefix('v').unwrap_or(last);
     let name = match iri {
-        "https://w3id.org/ro/crate/1.1" => "RO-Crate",
+        "https://w3id.org/ro/crate/1.2" => "RO-Crate",
         "https://w3id.org/workflowhub/workflow-ro-crate/1.0" => "Workflow RO-Crate Profile",
         "https://w3id.org/ro/wfrun/process/0.5" => "Process Run Crate Profile",
         "https://w3id.org/ro/wfrun/workflow/0.5" => "Workflow Run Crate Profile",
@@ -485,7 +485,7 @@ pub fn build_metadata(
 
     json!({
         "@context": [
-            "https://w3id.org/ro/crate/1.1/context",
+            "https://w3id.org/ro/crate/1.2/context",
             // WRROC Tier-3 (Provenance Run Crate) extension
             // namespace. The Workflow Run RO-Crate spec adds an extension
             // context for `ParameterConnection`, `wfprov:`, and the
@@ -1241,6 +1241,86 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
                     obj.insert("workExample".to_string(), json!({"@id": tool_id}));
                 }
             }
+        }
+    }
+
+    // ── Provenance Run Crate: EVERY HowToStep MUST carry `workExample` ───────
+    //
+    // `must/1_howtostep.ttl` ("HowToStep workExample") requires every step to
+    // name its implementing tool. The block above links steps whose task wrote a
+    // script-backed `#tool/<task>`; the orchestration stages (validation /
+    // discovery / reporting) emit no script, so their steps would dangle and the
+    // crate would fail the Provenance Run Crate 0.5 profile (it passes base 1.2 +
+    // Process + Workflow Run without this). Give each remaining step a
+    // `#tool/<task>` `SoftwareApplication` for the harness component that executed
+    // that stage — a `SoftwareApplication`, not `SoftwareSourceCode`, so NO source
+    // artifact is claimed — link its `workExample`, and add it to the
+    // `ComputationalWorkflow`'s `hasPart`. The step already exists in the graph
+    // (it ran), so this materialises the executor the step implies rather than
+    // inventing connectivity.
+    {
+        let existing_ids: std::collections::BTreeSet<String> = graph
+            .iter()
+            .filter_map(|e| e.get("@id").and_then(Value::as_str).map(String::from))
+            .collect();
+        let mut synthesized: Vec<Value> = Vec::new();
+        let mut new_tool_ids: std::collections::BTreeSet<String> =
+            std::collections::BTreeSet::new();
+        for entity in graph.iter_mut() {
+            let is_step = match entity.get("@type") {
+                Some(Value::String(s)) => s == "HowToStep",
+                Some(Value::Array(a)) => a.iter().any(|t| t.as_str() == Some("HowToStep")),
+                _ => false,
+            };
+            if !is_step || entity.get("workExample").is_some() {
+                continue;
+            }
+            let Some(task) = entity
+                .get("@id")
+                .and_then(Value::as_str)
+                .and_then(|s| s.strip_prefix("#step-"))
+                .map(str::to_string)
+            else {
+                continue;
+            };
+            let tool_id = format!("#tool/{task}");
+            if let Some(obj) = entity.as_object_mut() {
+                obj.insert("workExample".to_string(), json!({ "@id": tool_id }));
+            }
+            if !existing_ids.contains(&tool_id) && new_tool_ids.insert(tool_id.clone()) {
+                synthesized.push(json!({
+                    "@id": tool_id,
+                    "@type": "SoftwareApplication",
+                    "name": format!("{task} stage executor"),
+                    "description": format!(
+                        "Harness component that executed the '{task}' stage of the ECAA \
+                         workflow (agent-orchestrated; no standalone source artifact)."
+                    ),
+                }));
+            }
+        }
+        if !synthesized.is_empty() {
+            if let Some(wf) = graph.iter_mut().find(|e| match e.get("@type") {
+                Some(Value::String(s)) => s == "ComputationalWorkflow",
+                Some(Value::Array(a)) => a.iter().any(|v| v.as_str() == Some("ComputationalWorkflow")),
+                _ => false,
+            }) {
+                if let Some(parts) = wf
+                    .as_object_mut()
+                    .map(|o| o.entry("hasPart").or_insert_with(|| Value::Array(Vec::new())))
+                    .and_then(Value::as_array_mut)
+                {
+                    for tid in &new_tool_ids {
+                        if !parts
+                            .iter()
+                            .any(|p| p.get("@id").and_then(Value::as_str) == Some(tid.as_str()))
+                        {
+                            parts.push(json!({ "@id": tid }));
+                        }
+                    }
+                }
+            }
+            graph.extend(synthesized);
         }
     }
 
