@@ -28,7 +28,7 @@ fn profile_entity(iri: &str) -> Value {
     let last = iri.rsplit('/').next().unwrap_or(iri);
     let version = last.strip_prefix('v').unwrap_or(last);
     let name = match iri {
-        "https://w3id.org/ro/crate/1.2" => "RO-Crate",
+        "https://w3id.org/ro/crate/1.1" => "RO-Crate",
         "https://w3id.org/workflowhub/workflow-ro-crate/1.0" => "Workflow RO-Crate Profile",
         "https://w3id.org/ro/wfrun/process/0.5" => "Process Run Crate Profile",
         "https://w3id.org/ro/wfrun/workflow/0.5" => "Workflow Run Crate Profile",
@@ -485,7 +485,7 @@ pub fn build_metadata(
 
     json!({
         "@context": [
-            "https://w3id.org/ro/crate/1.2/context",
+            "https://w3id.org/ro/crate/1.1/context",
             // WRROC Tier-3 (Provenance Run Crate) extension
             // namespace. The Workflow Run RO-Crate spec adds an extension
             // context for `ParameterConnection`, `wfprov:`, and the
@@ -886,6 +886,13 @@ fn upgrade_conforms_to_executed(graph: &mut Vec<Value>) {
 /// (tasks then files sorted). Returns the number of newly-registered tables;
 /// a no-op `Ok(0)` when the package has no `ro-crate-metadata.json`, no
 /// `runtime/outputs/`, or every produced table is already registered.
+/// A stage's primary recorded output, in attribution-priority order. Used both
+/// to detect that an agent-orchestrated stage actually RAN (so it earns a
+/// synthesized executor tool) and to pick the `result` of its production
+/// `CreateAction`. Every entry is retained by all deposit profiles.
+const PRIMARY_STAGE_OUTPUTS: [&str; 5] =
+    ["result.json", "decision.json", "final_report.md", "report.md", "manifest.json"];
+
 pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::io::Result<usize> {
     let descriptor = package_root.join("ro-crate-metadata.json");
     let Ok(bytes) = std::fs::read(&descriptor) else {
@@ -962,6 +969,37 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
         }
     }
 
+    // Every EXECUTED stage = each `#step-<task>` HowToStep in the graph (table
+    // producers are a subset). Provenance Run Crate couples two MUSTs — every
+    // HowToStep names a tool (`must/1_howtostep.ttl` "HowToStep workExample")
+    // AND every tool is the `instrument` of a CreateAction (`must/0_tool.ttl`
+    // "Tool inverse instrument"). We use this set to (a) give EVERY stage a tool
+    // and (b) record a production `CreateAction` for the agent-orchestrated
+    // stages (validation / discovery / reporting) that emit no V `Table`, over
+    // the real primary output each one recorded — so both MUSTs hold without
+    // inventing any artifact.
+    let executed_tasks: std::collections::BTreeSet<String> = {
+        let is_step = |e: &Value| match e.get("@type") {
+            Some(Value::String(s)) => s == "HowToStep",
+            Some(Value::Array(a)) => a.iter().any(|t| t.as_str() == Some("HowToStep")),
+            _ => false,
+        };
+        let mut s: std::collections::BTreeSet<String> = graph
+            .iter()
+            .filter(|e| is_step(e))
+            .filter_map(|e| e.get("@id").and_then(Value::as_str))
+            .filter_map(|id| id.strip_prefix("#step-").map(str::to_string))
+            .collect();
+        for rel in &rels {
+            if let Some((task, _)) =
+                rel.strip_prefix("runtime/outputs/").and_then(|r| r.split_once('/'))
+            {
+                s.insert(task.to_string());
+            }
+        }
+        s
+    };
+
     // Per-task EXECUTED TOOL entities. A WRROC tool-execution `CreateAction`
     // documents the run of a *tool*: its `instrument` MUST name a
     // SoftwareApplication / SoftwareSourceCode / ComputationalWorkflow
@@ -987,16 +1025,8 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
     let mut new_tools: Vec<Value> = Vec::new();
     let mut new_scripts: Vec<Value> = Vec::new();
     {
-        // Iterate produced tasks in sorted order for deterministic emission.
-        let produced_tasks: std::collections::BTreeSet<String> = rels
-            .iter()
-            .filter_map(|rel| {
-                rel.strip_prefix("runtime/outputs/")
-                    .and_then(|r| r.split_once('/'))
-                    .map(|(task, _)| task.to_string())
-            })
-            .collect();
-        for task in &produced_tasks {
+        // Iterate EVERY executed stage (sorted) for deterministic emission.
+        for task in &executed_tasks {
             let tool_id = format!("#tool/{task}");
             if existing.contains(&tool_id) {
                 // Already registered by a prior finalize; still record the
@@ -1013,7 +1043,37 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
             );
             script_rels.sort();
             if script_rels.is_empty() {
-                // No recorded code for this task — do not invent a tool.
+                // No recorded script. Only stages that ACTUALLY RAN — produced a
+                // registered output table OR a primary recorded output on disk —
+                // get a synthesized executor. A PRE-EXECUTION PLAN crate, whose
+                // steps have no outputs yet, gets NO tool: it stays a clean
+                // workflow *definition* and never claims an executor that has not
+                // run (this also keeps plan-emit byte-deterministic).
+                let ran = task_outputs.contains_key(task)
+                    || PRIMARY_STAGE_OUTPUTS
+                        .iter()
+                        .any(|f| outputs_root.join(task).join(f).is_file());
+                if !ran {
+                    continue;
+                }
+                // This stage ran agent-orchestrated (validation / discovery /
+                // reporting). Register a SoftwareApplication EXECUTOR —
+                // deliberately NOT SoftwareSourceCode, so NO source artifact is
+                // claimed — so the step's `workExample` resolves and the stage's
+                // production `CreateAction` (recorded below over its real
+                // recorded output) has a resolvable `instrument`. The stage
+                // genuinely ran and recorded an output, so this materialises its
+                // executor rather than inventing connectivity.
+                new_tools.push(json!({
+                    "@id": tool_id,
+                    "@type": "SoftwareApplication",
+                    "name": format!("{task} stage executor"),
+                    "description": format!(
+                        "Agent-orchestrated executor that ran the '{task}' stage of the \
+                         ECAA workflow (no standalone source artifact recorded)."
+                    ),
+                }));
+                tool_for_task.insert(task.clone(), tool_id);
                 continue;
             }
             let mut script_refs: Vec<Value> = Vec::new();
@@ -1158,6 +1218,103 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
         new_actions.push(action);
         new_parts.push(json!({"@id": rel}));
     }
+
+    // ── Production CreateActions for the NON-TABLE (agent-orchestrated) stages ─
+    //
+    // The loop above covers every stage that produced a V `Table`. The
+    // validation / discovery / reporting stages produce no table, so their
+    // executor tool would have no `instrument`-side action ("Tool inverse
+    // instrument" in `must/0_tool.ttl`). Each such stage DID record a real
+    // primary output — its `result.json` execution manifest (or, in priority
+    // order, `decision.json` / `final_report.md` / `report.md` / `manifest.json`)
+    // — every one retained by all deposit profiles. Register that output File +
+    // a `CreateAction` (`instrument` = the stage executor, `result` = that real
+    // file). Nothing is fabricated: the file exists on disk and the stage
+    // produced it. Skip stages that already have a table action.
+    for task in &executed_tasks {
+        if task_outputs.contains_key(task) {
+            continue;
+        }
+        let Some(tool_id) = tool_for_task.get(task) else {
+            continue;
+        };
+        let task_dir = outputs_root.join(task);
+        let Some(file) = PRIMARY_STAGE_OUTPUTS.iter().copied().find(|f| task_dir.join(f).is_file()) else {
+            // The stage recorded no primary output to attribute — never invent
+            // one; its step keeps no production action (Provenance then flags it
+            // honestly rather than fabricating).
+            continue;
+        };
+        let rel = format!("runtime/outputs/{task}/{file}");
+        if existing.contains(&rel) {
+            continue;
+        }
+        let action_id = format!("#action/{rel}");
+        let fmt = if file.ends_with(".json") {
+            "application/json"
+        } else {
+            "text/markdown"
+        };
+        graph.push(json!({
+            "@id": rel,
+            "@type": ["File"],
+            "name": format!("{task} — {file}"),
+            "description": format!("Primary recorded output of stage '{task}'."),
+            "encodingFormat": fmt,
+            "schema:about": {"@id": format!("#step-{task}")},
+            "wasGeneratedBy": {"@id": action_id.clone()},
+        }));
+        let object: Vec<Value> = task_inputs
+            .get(task)
+            .map(|ins| {
+                ins.iter()
+                    .flat_map(|step| {
+                        let src_task = step.strip_prefix("#step-").unwrap_or(step);
+                        match task_outputs.get(src_task) {
+                            Some(files) if !files.is_empty() => {
+                                files.iter().map(|f| json!({"@id": f})).collect::<Vec<_>>()
+                            }
+                            _ => vec![json!({"@id": step})],
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut action = json!({
+            "@id": action_id,
+            "@type": ["CreateAction", "prov:Activity"],
+            "name": format!("Execution of stage '{task}' producing {file}."),
+            "instrument": {"@id": tool_id},
+            "result": {"@id": rel},
+            "object": object,
+        });
+        let cstate = crate::container_state::ContainerState::read_from_task_dir(&task_dir)
+            .ok()
+            .flatten();
+        if let Some(state) = &cstate {
+            if !state.ended_at.is_empty() {
+                action["endTime"] = json!(state.ended_at);
+            }
+            if let Some(agent) = executor_agent_entity(state) {
+                let agent_id = agent
+                    .get("@id")
+                    .and_then(Value::as_str)
+                    .expect("executor agent entity carries @id")
+                    .to_string();
+                action["agent"] = json!({"@id": agent_id});
+                let already = graph
+                    .iter()
+                    .chain(new_agents.iter())
+                    .any(|e| e.get("@id").and_then(Value::as_str) == Some(agent_id.as_str()));
+                if !already {
+                    new_agents.push(agent);
+                }
+            }
+        }
+        new_actions.push(action);
+        new_parts.push(json!({"@id": rel}));
+    }
+
     graph.extend(new_actions);
     graph.extend(new_agents);
     graph.extend(new_scripts);
@@ -1173,10 +1330,12 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
     //   * every HowToStep `workExample` → the tool it runs
     //     (`must/1_howtostep.ttl` "HowToStep workExample").
     // Every wired tool is a real `#tool/<task>` entity that is genuinely the
-    // `instrument` of the per-output CreateActions above ("Tool inverse
-    // instrument" in `must/0_tool.ttl`), so adding it to `hasPart` introduces no
-    // unbacked structure. We map each tool to its producing task so the step's
-    // `workExample` names the right tool.
+    // `instrument` of a CreateAction above — a per-output table action for
+    // table stages, or the production action over the stage's recorded primary
+    // output for agent-orchestrated stages ("Tool inverse instrument" in
+    // `must/0_tool.ttl`) — so adding it to `hasPart` introduces no unbacked
+    // structure. We map each tool to its stage so the step's `workExample`
+    // names the right tool.
     if !tool_for_task.is_empty() {
         // The full set of tool @ids to attach (newly-registered this run plus
         // any registered by a prior finalize, recorded in `tool_for_task`).
@@ -1218,9 +1377,10 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
             }
         }
 
-        // (c) Each HowToStep `workExample` → the real tool its task ran. Only
-        //     touch steps whose task recorded a tool; steps without a tool keep
-        //     their existing `workExample` (if any) untouched.
+        // (c) Each HowToStep `workExample` → the tool its stage ran. Every
+        //     executed stage now has a `#tool/<task>` (script-backed
+        //     SoftwareSourceCode, or a SoftwareApplication executor for
+        //     agent-orchestrated stages), so every step is wired.
         for entity in graph.iter_mut() {
             let is_step = match entity.get("@type") {
                 Some(Value::String(s)) => s == "HowToStep",
@@ -1241,86 +1401,6 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
                     obj.insert("workExample".to_string(), json!({"@id": tool_id}));
                 }
             }
-        }
-    }
-
-    // ── Provenance Run Crate: EVERY HowToStep MUST carry `workExample` ───────
-    //
-    // `must/1_howtostep.ttl` ("HowToStep workExample") requires every step to
-    // name its implementing tool. The block above links steps whose task wrote a
-    // script-backed `#tool/<task>`; the orchestration stages (validation /
-    // discovery / reporting) emit no script, so their steps would dangle and the
-    // crate would fail the Provenance Run Crate 0.5 profile (it passes base 1.2 +
-    // Process + Workflow Run without this). Give each remaining step a
-    // `#tool/<task>` `SoftwareApplication` for the harness component that executed
-    // that stage — a `SoftwareApplication`, not `SoftwareSourceCode`, so NO source
-    // artifact is claimed — link its `workExample`, and add it to the
-    // `ComputationalWorkflow`'s `hasPart`. The step already exists in the graph
-    // (it ran), so this materialises the executor the step implies rather than
-    // inventing connectivity.
-    {
-        let existing_ids: std::collections::BTreeSet<String> = graph
-            .iter()
-            .filter_map(|e| e.get("@id").and_then(Value::as_str).map(String::from))
-            .collect();
-        let mut synthesized: Vec<Value> = Vec::new();
-        let mut new_tool_ids: std::collections::BTreeSet<String> =
-            std::collections::BTreeSet::new();
-        for entity in graph.iter_mut() {
-            let is_step = match entity.get("@type") {
-                Some(Value::String(s)) => s == "HowToStep",
-                Some(Value::Array(a)) => a.iter().any(|t| t.as_str() == Some("HowToStep")),
-                _ => false,
-            };
-            if !is_step || entity.get("workExample").is_some() {
-                continue;
-            }
-            let Some(task) = entity
-                .get("@id")
-                .and_then(Value::as_str)
-                .and_then(|s| s.strip_prefix("#step-"))
-                .map(str::to_string)
-            else {
-                continue;
-            };
-            let tool_id = format!("#tool/{task}");
-            if let Some(obj) = entity.as_object_mut() {
-                obj.insert("workExample".to_string(), json!({ "@id": tool_id }));
-            }
-            if !existing_ids.contains(&tool_id) && new_tool_ids.insert(tool_id.clone()) {
-                synthesized.push(json!({
-                    "@id": tool_id,
-                    "@type": "SoftwareApplication",
-                    "name": format!("{task} stage executor"),
-                    "description": format!(
-                        "Harness component that executed the '{task}' stage of the ECAA \
-                         workflow (agent-orchestrated; no standalone source artifact)."
-                    ),
-                }));
-            }
-        }
-        if !synthesized.is_empty() {
-            if let Some(wf) = graph.iter_mut().find(|e| match e.get("@type") {
-                Some(Value::String(s)) => s == "ComputationalWorkflow",
-                Some(Value::Array(a)) => a.iter().any(|v| v.as_str() == Some("ComputationalWorkflow")),
-                _ => false,
-            }) {
-                if let Some(parts) = wf
-                    .as_object_mut()
-                    .map(|o| o.entry("hasPart").or_insert_with(|| Value::Array(Vec::new())))
-                    .and_then(Value::as_array_mut)
-                {
-                    for tid in &new_tool_ids {
-                        if !parts
-                            .iter()
-                            .any(|p| p.get("@id").and_then(Value::as_str) == Some(tid.as_str()))
-                        {
-                            parts.push(json!({ "@id": tid }));
-                        }
-                    }
-                }
-            }
-            graph.extend(synthesized);
         }
     }
 

@@ -123,7 +123,7 @@ pub const SIDECAR_PATHS: &[(&str, &str)] = &[
 /// (see [`EXECUTED_ADDED_PROFILE_IRIS`]) — never to make a profile "pass" via
 /// synthetic graph structure.
 pub const PLAN_PROFILE_IRIS: &[&str] = &[
-    "https://w3id.org/ro/crate/1.2",
+    "https://w3id.org/ro/crate/1.1",
     "https://w3id.org/workflowhub/workflow-ro-crate/1.0",
     "https://w3id.org/ecaa/v0.2",
 ];
@@ -150,7 +150,7 @@ pub const EXECUTED_ADDED_PROFILE_IRIS: &[&str] = &[
 /// fixture / runcrate conformance gates (which validate executed packages).
 /// A pre-execution plan crate declares only the [`PLAN_PROFILE_IRIS`] subset.
 pub const REQUIRED_PROFILE_IRIS: &[&str] = &[
-    "https://w3id.org/ro/crate/1.2",
+    "https://w3id.org/ro/crate/1.1",
     "https://w3id.org/workflowhub/workflow-ro-crate/1.0",
     "https://w3id.org/ro/wfrun/process/0.5",
     "https://w3id.org/ro/wfrun/workflow/0.5",

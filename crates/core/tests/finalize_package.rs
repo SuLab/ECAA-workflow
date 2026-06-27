@@ -199,10 +199,32 @@ fn finalize_emits_per_output_was_generated_by_create_action() {
         Some(output_id),
         "CreateAction.result must reference the produced output"
     );
+    // Every executed stage now carries a tool entity: a `SoftwareSourceCode`
+    // `#tool/<task>` when it recorded scripts, else a `SoftwareApplication`
+    // executor (no source artifact claimed). This fixture stage recorded no
+    // script, so its CreateAction `instrument` references the executor tool —
+    // which MUST exist in the graph so the reference resolves (WRROC
+    // "Action instrument" / "Tool inverse instrument").
+    let instrument_id = action["instrument"]["@id"].as_str();
     assert_eq!(
-        action["instrument"]["@id"].as_str(),
-        Some("#step-differential_expression"),
-        "CreateAction.instrument must reference the producing workflow step"
+        instrument_id,
+        Some("#tool/differential_expression"),
+        "CreateAction.instrument must reference the stage's executor tool"
+    );
+    let tool = graph
+        .iter()
+        .find(|e| e["@id"].as_str() == instrument_id)
+        .expect("the instrument tool entity must exist in the graph");
+    let tool_types: Vec<&str> = tool["@type"]
+        .as_array()
+        .map(|a| a.iter().filter_map(Value::as_str).collect())
+        .or_else(|| tool["@type"].as_str().map(|s| vec![s]))
+        .unwrap_or_default();
+    assert!(
+        tool_types.contains(&"SoftwareApplication")
+            || tool_types.contains(&"SoftwareSourceCode"),
+        "instrument tool must be a SoftwareApplication/SoftwareSourceCode; @type = {:?}",
+        tool["@type"]
     );
 
     // 3. The `object` (PROV used) references the task's input(s), derived from
