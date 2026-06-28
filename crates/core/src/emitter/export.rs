@@ -211,12 +211,85 @@ impl std::fmt::Display for DepositProfile {
     }
 }
 
+/// Serialized binary compute objects an analysis stage writes to pass state
+/// downstream (or as working scratch): R/Python/HDF5 matrix + model
+/// serializations and alignment binaries. These are **never** registered as a
+/// V result `Table` — [`crate::ro_crate::register_produced_output_tables`]'
+/// `collect_output_tables` only registers `.tsv` / `.csv` / `.parquet`, so a
+/// serialized object can only ever be a zero-dark `File` entity, never a
+/// `CreateAction` `result`. They are re-execution working state, not part of the
+/// audit/result surface — out of scope for the `MinimalAudit` ("audit-complete,
+/// NOT re-executable") profile. Matched case-insensitively on the basename so
+/// new stages/layouts are covered automatically (not a per-path blocklist).
+const SERIALIZED_OBJECT_EXTS: &[&str] = &[
+    ".rds", ".rdata", ".h5", ".h5ad", ".hdf5", ".loom", ".npy", ".npz", ".pkl", ".pickle",
+    ".joblib", ".feather", ".arrow", ".mtx", ".mtx.gz", ".bam", ".cram", ".bai", ".crai",
+    ".bw", ".bigwig", ".bigbed", ".2bit",
+];
+
+/// Package-relative `@id`s the source `ro-crate-metadata.json` references as a
+/// `CreateAction` `result` or `object` (PROV `used`). These are
+/// provenance-load-bearing: dropping one would dangle a `result`/`object` edge
+/// and break Provenance Run Crate conformance, so the lean-profile working-data
+/// drop ([`profile_extra_drop`]) never removes a path in this set. Read once
+/// from `src` before the copy loop. Best-effort: a missing/unparseable
+/// descriptor yields an empty set (then the working-data drop applies only to the
+/// serialized-object class, which is never a `result` anyway — still safe).
+fn collect_provenance_referenced_paths(src: &Path) -> std::collections::BTreeSet<String> {
+    use serde_json::Value;
+    let mut out = std::collections::BTreeSet::new();
+    let Ok(bytes) = std::fs::read(src.join("ro-crate-metadata.json")) else {
+        return out;
+    };
+    let Ok(doc) = serde_json::from_slice::<Value>(&bytes) else {
+        return out;
+    };
+    let Some(graph) = doc.get("@graph").and_then(Value::as_array) else {
+        return out;
+    };
+    let is_action = |e: &Value| match e.get("@type") {
+        Some(Value::String(s)) => s == "CreateAction",
+        Some(Value::Array(a)) => a.iter().any(|t| t.as_str() == Some("CreateAction")),
+        _ => false,
+    };
+    let mut add_ref = |out: &mut std::collections::BTreeSet<String>, v: &Value| match v {
+        Value::Object(o) => {
+            if let Some(id) = o.get("@id").and_then(Value::as_str) {
+                out.insert(id.to_string());
+            }
+        }
+        Value::Array(a) => {
+            for x in a {
+                if let Some(id) = x.get("@id").and_then(Value::as_str) {
+                    out.insert(id.to_string());
+                }
+            }
+        }
+        _ => {}
+    };
+    for e in graph.iter().filter(|e| is_action(e)) {
+        if let Some(r) = e.get("result") {
+            add_ref(&mut out, r);
+        }
+        if let Some(o) = e.get("object") {
+            add_ref(&mut out, o);
+        }
+    }
+    out
+}
+
 /// Extra per-profile drop, applied on top of the [`is_kept`] tier gate. `Full`
 /// drops nothing extra. The lean profiles drop the policy-doc catalog and the
 /// redundant/convenience artifacts the deposit adversarial audit flagged as
 /// needed for neither re-execution nor auditability; `MinimalAudit` additionally
-/// drops the re-execution tier.
-fn profile_extra_drop(profile: DepositProfile, rel: &Path) -> bool {
+/// drops the re-execution tier AND the re-execution **working data** that lives
+/// under stage-output subdirs (serialized binary objects + re-staged inputs),
+/// gated on `protected` so no provenance-load-bearing output is removed.
+fn profile_extra_drop(
+    profile: DepositProfile,
+    rel: &Path,
+    protected: &std::collections::BTreeSet<String>,
+) -> bool {
     if matches!(profile, DepositProfile::Full) {
         return false;
     }
@@ -292,6 +365,39 @@ fn profile_extra_drop(profile: DepositProfile, rel: &Path) -> bool {
         {
             return true;
         }
+        // Re-execution WORKING DATA under stage-output subdirs. The classifier's
+        // tier-E `intermediates/` drop and the top-level `inputs/` drop above
+        // catch the conventional locations, but a stage is free to write large
+        // working data anywhere under its own `runtime/outputs/<stage>/…` dir,
+        // where it lands in Tier A ("keep everything else"). On data-heavy
+        // analyses this dominates the deposit (e.g. an scRNA SCT-residuals
+        // `.rds`, or re-staged multi-omic input matrices) — defeating the
+        // "minimal" intent. The `MinimalAudit` profile is audit-complete and
+        // explicitly NOT re-executable, so this working data is out of scope.
+        //
+        // Two intrinsic classes, BOTH gated on `protected` (the source graph's
+        // CreateAction `result`/`object` set) so a provenance-load-bearing output
+        // is never dropped — that would dangle an edge and fail Provenance Run
+        // Crate. The post-copy prune then scrubs each dropped file's zero-dark
+        // `File` node, preserving the zero-dark-payload invariant.
+        if under_outputs && !protected.contains(rel_str.as_str()) {
+            // (a) serialized binary compute objects (matrices / model objects /
+            //     alignments) — never a registered result table, pure
+            //     re-execution working state. Matched on the file's intrinsic
+            //     type, not a path, so new stages are covered automatically.
+            let lc = basename.to_ascii_lowercase();
+            if SERIALIZED_OBJECT_EXTS.iter().any(|e| lc.ends_with(e)) {
+                return true;
+            }
+            // (b) re-staged raw inputs / fetched references: `data_acquisition`
+            //     (and other stages) copy SME inputs + downloaded references into
+            //     a `…/<stage>/data/` subdir. These are re-fetchable from source
+            //     and not part of the audit/result surface — the produced,
+            //     registered output copies (which ARE in `protected`) are kept.
+            if has_component("data") {
+                return true;
+            }
+        }
     }
     false
 }
@@ -348,6 +454,15 @@ pub fn export_depositable_package_with_profile(
     let mut kept = 0usize;
     let mut dropped = 0usize;
 
+    // Provenance-load-bearing paths (CreateAction result/object) from the source
+    // graph — the lean-profile working-data drop must never remove one. Read once
+    // up front (empty for `Full`, which drops nothing extra anyway).
+    let protected = if matches!(profile, DepositProfile::Full) {
+        std::collections::BTreeSet::new()
+    } else {
+        collect_provenance_referenced_paths(src)
+    };
+
     // Walk source; copy only kept (A+B) files, preserving layout. `.git/` is
     // pruned at the directory level so the walk never descends into VCS
     // internals.
@@ -368,7 +483,7 @@ pub fn export_depositable_package_with_profile(
             .strip_prefix(src)
             .with_context(|| format!("stripping {} from {}", src.display(), abs.display()))?;
 
-        if is_kept(classify(rel)) && !profile_extra_drop(profile, rel) {
+        if is_kept(classify(rel)) && !profile_extra_drop(profile, rel, &protected) {
             let dest_path = dst.join(rel);
             if let Some(parent) = dest_path.parent() {
                 std::fs::create_dir_all(parent)
@@ -1146,7 +1261,7 @@ mod tests {
         };
         w(
             "ro-crate-metadata.json",
-            r#"{"@context":"https://w3id.org/ro/crate/1.1/context","@graph":[{"@id":"ro-crate-metadata.json","@type":"CreativeWork","about":{"@id":"./"}},{"@id":"./","@type":"Dataset","name":"x","description":"y","hasPart":[]}]}"#,
+            r##"{"@context":"https://w3id.org/ro/crate/1.1/context","@graph":[{"@id":"ro-crate-metadata.json","@type":"CreativeWork","about":{"@id":"./"}},{"@id":"./","@type":"Dataset","name":"x","description":"y","hasPart":[]},{"@id":"#action/keep","@type":"CreateAction","result":{"@id":"runtime/outputs/a_step/protected_model.rds"}}]}"##,
         );
         w("bagit.txt", "BagIt-Version: 1.0\nTag-File-Character-Encoding: UTF-8\n");
         // bloat / policy docs (lean profiles drop)
@@ -1207,6 +1322,18 @@ mod tests {
         w("runtime/dependency-lock.json", r#"{"r":[],"python":[],"conda":[]}"#); // drop (minimal)
         w("runtime/outputs/a_step/curated_pools.json", r#"{"x":[],"y":[]}"#); // empty -> drop (minimal)
         w("runtime/outputs/z_step/curated_pools.json", r#"{"de":["deseq2","edger"]}"#); // non-empty -> keep
+        // RE-EXECUTION WORKING DATA under stage-output subdirs (the large-deposit
+        // root cause): serialized binary objects + re-staged inputs. Minimal must
+        // DROP these (they are not provenance-referenced); re-executable + full
+        // KEEP them. A serialized object is never a result table, so it is only a
+        // zero-dark File — safe to drop.
+        w("runtime/outputs/a_step/normalized_counts/sct_residuals.rds", "BINARY-RDS"); // drop (minimal)
+        w("runtime/outputs/a_step/normalized_counts/raw_hvg.h5ad", "BINARY-H5AD"); // drop (minimal)
+        w("runtime/outputs/data_acquisition/data/da/big_input_matrix.txt", "x\ty\n1\t2\n"); // drop (minimal): re-staged input
+        // A serialized object that IS a CreateAction result must be KEPT even in
+        // minimal (provenance-load-bearing). The metadata graph above references
+        // it as a result, so it lands in `protected`.
+        w("runtime/outputs/a_step/protected_model.rds", "BINARY-PROTECTED"); // keep (all): is a CreateAction result
 
         let run = |prof: DepositProfile| -> std::path::PathBuf {
             let d = tmp.path().join(format!("dst-{prof}"));
@@ -1231,7 +1358,11 @@ mod tests {
         }
         for f in ["runtime/outputs/de/scripts/01.R", "inputs/counts.tsv", "lib/measure.py",
                   "runtime/audit-proof-report.json", "runtime/claim-verification.json",
-                  "runtime/outputs/de/de_results.tsv"] {
+                  "runtime/outputs/de/de_results.tsv",
+                  // re-executable KEEPS stage working data (it is re-executable)
+                  "runtime/outputs/a_step/normalized_counts/sct_residuals.rds",
+                  "runtime/outputs/a_step/normalized_counts/raw_hvg.h5ad",
+                  "runtime/outputs/data_acquisition/data/da/big_input_matrix.txt"] {
             assert!(re.join(f).exists(), "re-executable must keep {f}");
         }
 
@@ -1240,11 +1371,19 @@ mod tests {
         for f in ["policies/interpretation-policy.json", "package.ttl",
                   "runtime/outputs/de/scripts/01.R", "runtime/outputs/de/env.lock",
                   "inputs/counts.tsv", "lib/measure.py", "runtime/plotting/VERSION",
-                  "runtime/execution-lineage.txt"] {
+                  "runtime/execution-lineage.txt",
+                  // root cause: re-execution working data under stage-output
+                  // subdirs — serialized objects + re-staged inputs — now dropped
+                  "runtime/outputs/a_step/normalized_counts/sct_residuals.rds",
+                  "runtime/outputs/a_step/normalized_counts/raw_hvg.h5ad",
+                  "runtime/outputs/data_acquisition/data/da/big_input_matrix.txt"] {
             assert!(!min.join(f).exists(), "minimal must drop {f}");
         }
         for f in ["runtime/claim-verification.json", "runtime/audit-proof-report.json",
-                  "runtime/outputs/de/de_results.tsv"] {
+                  "runtime/outputs/de/de_results.tsv",
+                  // a serialized object that IS a CreateAction result is
+                  // provenance-load-bearing → kept even in minimal
+                  "runtime/outputs/a_step/protected_model.rds"] {
             assert!(min.join(f).exists(), "minimal must keep {f}");
         }
 
