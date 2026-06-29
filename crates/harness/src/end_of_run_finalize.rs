@@ -42,21 +42,30 @@ use std::path::{Path, PathBuf};
 /// `ecaa-workflow repair --agent` path.
 pub const ENV_AUTO_REPAIR: &str = "ECAA_AUTO_REPAIR";
 
-/// Whether the offline end-of-run repair loop is enabled. Default OFF — only the
-/// canonical truthy table (`1` / `true` / `yes` / `on` / `t` / `y`,
-/// case-insensitive, trimmed; identical to
-/// [`crate::validation_recovery::recovery_enabled`] and `core::config`'s
-/// `parse_bool`) enables it, so a typo never silently runs a post-finalize
-/// repair pass.
+/// Whether the offline end-of-run repair loop is enabled. **Default ON** — the
+/// loop runs unless `ECAA_AUTO_REPAIR` is explicitly set to a canonical falsy
+/// value (`0` / `false` / `no` / `off` / `f` / `n`, case-insensitive, trimmed).
+/// An unset var, an empty value, or any truthy value all enable it.
+///
+/// Rationale for the default flip (was OFF): the loop is best-effort, non-fatal,
+/// and — under the default [`ReviewRoutingRunner`] — only APPLIES deterministic
+/// prose/manifest repairs (prose-vs-table re-syncs that match the computed
+/// ground-truth table, BagIt re-seals) while ROUTING any judgment-bearing or
+/// agentic correction to the signed review list (`runtime/repair-status.json` +
+/// `runtime/repair-requests.jsonl`). It never silently rewrites a scientific
+/// claim and never re-executes an agent at end-of-run, so running it by default
+/// surfaces issues (and fixes the unambiguous ones) rather than letting a run
+/// finalize with un-actioned verification failures. Set `ECAA_AUTO_REPAIR=0` to
+/// opt out (e.g. for bit-reproducibility arms that must not re-seal manifests).
 pub fn auto_repair_enabled() -> bool {
-    matches!(
+    !matches!(
         std::env::var(ENV_AUTO_REPAIR)
             .ok()
             .as_deref()
             .map(str::trim)
             .map(str::to_ascii_lowercase)
             .as_deref(),
-        Some("1") | Some("true") | Some("yes") | Some("on") | Some("t") | Some("y")
+        Some("0") | Some("false") | Some("no") | Some("off") | Some("f") | Some("n")
     )
 }
 
