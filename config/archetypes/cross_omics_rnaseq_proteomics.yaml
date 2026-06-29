@@ -39,6 +39,14 @@ atoms:
   - { atom_id: protein_quantification,  alias: proteomics_protein_quantification,  depends_on: [proteomics_peptide_search],   required: true }
   - { atom_id: differential_expression, alias: proteomics_differential_abundance,  depends_on: [proteomics_protein_quantification], required: true }
   - { atom_id: pathway_enrichment,      alias: proteomics_pathway_enrichment,      depends_on: [proteomics_differential_abundance], required: false }
+  # Optional cross-table concordance branch (cross-cohort comparison task
+  # type): tests directional concordance/overlap between the two
+  # independent DE tables (e.g. GAHT-vs-MHT DE directions) instead of
+  # leaving the comparison to a generic descriptive summary. Pruned when
+  # the intake doesn't ask for a directional cross-table comparison.
+  # Mirrors the pathway_enrichment optional-atom wiring.
+  - { atom_id: cross_table_concordance, alias: cross_omics_concordance,
+      depends_on: [rnaseq_differential_expression, proteomics_differential_abundance], required: false }
   # Unconditional literature contextualization: review_prior_work +
   # contextualize_findings_with_literature are present in every emitted DAG
   # so the cross-omics findings are grounded against prior work.
@@ -46,9 +54,11 @@ atoms:
   - { atom_id: contextualize_findings_with_literature,
       depends_on: [rnaseq_differential_expression, review_prior_work], required: false }
   - { atom_id: reporting,               alias: cross_omics_thematic_comparison,
-      # Consume pathway enrichments too so they don't orphan.
+      # Consume pathway enrichments + the optional concordance branch too
+      # so they don't orphan in the lowered DAG.
       depends_on: [rnaseq_differential_expression, proteomics_differential_abundance,
                    rnaseq_pathway_enrichment, proteomics_pathway_enrichment,
+                   cross_omics_concordance,
                    contextualize_findings_with_literature], required: true }
   - { atom_id: final_reporting,         depends_on: [cross_omics_thematic_comparison], required: true }
 slot_mappings:
@@ -70,6 +80,9 @@ claim_boundary: |
 ordering_only_edges:
   - { from: contextualize_findings_with_literature, to: cross_omics_thematic_comparison }
   - { from: rnaseq_differential_expression, to: contextualize_findings_with_literature }
+  - { from: rnaseq_differential_expression, to: cross_omics_concordance }
+  - { from: proteomics_differential_abundance, to: cross_omics_concordance }
+  - { from: cross_omics_concordance, to: cross_omics_thematic_comparison }
   - { from: proteomics_differential_abundance, to: cross_omics_thematic_comparison }
   - { from: proteomics_differential_abundance, to: proteomics_pathway_enrichment }
   - { from: proteomics_pathway_enrichment, to: cross_omics_thematic_comparison }

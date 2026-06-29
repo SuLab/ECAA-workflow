@@ -1967,6 +1967,306 @@ fn prune_unsourced_atoms_pass(session: &mut Session) {
     }
 }
 
+// ── G1/G2 resolution mode + bound-analysis guard ───────────────────────────
+/// How intake resolves when no specific analysis atom binds to the question.
+/// Read from `ECAA_INTAKE_RESOLUTION`; DEFAULT `AutoAuthor`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IntakeResolution {
+    /// (default) Author an `agent_generated_analysis` node so the run attempts
+    /// the real analysis instead of emitting a generic-only descriptive plan.
+    AutoAuthor,
+    /// Block at emit and wait for the SME to author/confirm.
+    Sme,
+    /// Refuse emit and record an unbindable-analysis failure.
+    StrictBlock,
+}
+
+/// Read the resolution mode from `ECAA_INTAKE_RESOLUTION` (default auto-author).
+pub(crate) fn intake_resolution() -> IntakeResolution {
+    intake_resolution_from(&std::env::var("ECAA_INTAKE_RESOLUTION").unwrap_or_default())
+}
+
+/// Pure parser for the resolution mode (split out from [`intake_resolution`] so
+/// it is unit-testable without mutating the process-global env — mutating env in
+/// a parallel test binary races every other test that reads it).
+pub(crate) fn intake_resolution_from(raw: &str) -> IntakeResolution {
+    match raw.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+        "sme" => IntakeResolution::Sme,
+        "strict-block" | "strict" | "block" => IntakeResolution::StrictBlock,
+        "auto-author" | "author" | "" => IntakeResolution::AutoAuthor,
+        other => {
+            tracing::warn!(value = ?other, "unknown ECAA_INTAKE_RESOLUTION; defaulting to auto-author");
+            IntakeResolution::AutoAuthor
+        }
+    }
+}
+
+/// Scaffold / non-analysis atom ids — their presence does NOT make a DAG carry a
+/// bound analysis. Superset of the `intake::PROTECTED` list plus the structural
+/// roots + preprocessing stages. Any `discover_`/`validate_`-prefixed node is
+/// also scaffold (handled in [`dag_has_bound_analysis`]).
+pub(crate) const SCAFFOLD_ATOM_IDS: &[&str] = &[
+    "data_acquisition",
+    "data_import",
+    "raw_qc",
+    "qc_preprocessing",
+    "normalisation",
+    "reporting",
+    "final_reporting",
+    "generic_summary",
+    "review_prior_work",
+    "survey_method_landscape",
+    "contextualize_findings_with_literature",
+];
+
+/// True iff the DAG carries at least one SPECIFIC analysis node — any task that
+/// is not in [`SCAFFOLD_ATOM_IDS`] and is not a `discover_`/`validate_`
+/// companion. `agent_generated_analysis` (the G2 auto-authored node) counts as a
+/// bound analysis. A DAG that has only the generic descriptive scaffold returns
+/// false.
+pub(crate) fn dag_has_bound_analysis(dag: &ecaa_workflow_core::dag::DAG) -> bool {
+    dag.tasks.keys().any(|id| {
+        let s = id.as_str();
+        if s.starts_with("discover_") || s.starts_with("validate_") {
+            return false;
+        }
+        !SCAFFOLD_ATOM_IDS.contains(&s)
+    })
+}
+
+/// True when the SME's question actually requests a specific analysis (an
+/// analysis verb is present). Used to scope the G1 guard + the G2 auto-author so
+/// a genuinely descriptive ("summarise / describe") request is never forced to
+/// carry an analysis node.
+pub(crate) fn prose_requests_analysis(session: &Session) -> bool {
+    let p = session.intake_prose.to_ascii_lowercase();
+    const VERBS: &[&str] = &[
+        "analy", "test", "identif", "compar", "predict", "rank", "enrich", "associat",
+        "correlat", "cluster", "differential", "stratif", "mediat", "regress", "classif",
+        "deconvol", "coloc", "pleiotrop", "concord", "signature", "which ", "do the", "does ",
+        "are there", "find ", "detect", "quantif", "estimate", "model ", "score",
+    ];
+    VERBS.iter().any(|v| p.contains(v))
+}
+
+/// G2: when no specific analysis bound, splice an `agent_generated_analysis`
+/// node into the authoritative `session.workflow_dag` and re-lower. The node is
+/// wired from the most-downstream preprocessing/root node into the existing
+/// terminal (`generic_summary`/`reporting`/`final_reporting`). Idempotent.
+/// Mirrors the node-synthesis + edge-wiring pattern in
+/// `composer_v4::reporting_consumer_synthesis`.
+fn auto_author_analysis_node(session: &mut Session) {
+    use ecaa_workflow_core::workflow_contracts::edge::{
+        CompatibilityProof, EdgeContract, EdgeKind,
+    };
+    use ecaa_workflow_core::workflow_contracts::port::PortContract;
+    use ecaa_workflow_core::workflow_contracts::task_node::TaskNode;
+
+    let id = workflow_id(&session.id);
+    let intent = {
+        let p = session.intake_prose.trim();
+        if p.is_empty() {
+            "Author and run the specific analysis the question requires; report the quantitative \
+             evidence (effect sizes, test statistics, adjusted significance, and the comparison \
+             structure) needed to answer it. State QC and assumptions; do not presuppose \
+             row-selection rules."
+                .to_string()
+        } else {
+            let snippet: String = p.chars().take(280).collect();
+            format!(
+                "Author and run the specific analysis required to answer the SME's question \
+                 (\"{snippet}\"). Report the quantitative evidence the question needs (effect \
+                 sizes / test statistics / adjusted significance / comparison structure); state \
+                 QC and assumptions, and do not presuppose row-selection rules."
+            )
+        }
+    };
+
+    let Some(wf) = session.workflow_dag.as_mut() else {
+        return;
+    };
+    if wf.nodes.iter().any(|n| n.id.as_str() == "agent_generated_analysis") {
+        return; // idempotent
+    }
+    let upstream = ["normalisation", "qc_preprocessing", "raw_qc", "data_import", "data_acquisition"]
+        .iter()
+        .find(|c| wf.nodes.iter().any(|n| n.id.as_str() == **c))
+        .map(|s| s.to_string());
+    let terminal = ["generic_summary", "reporting", "final_reporting"]
+        .iter()
+        .find(|c| wf.nodes.iter().any(|n| n.id.as_str() == **c))
+        .map(|s| s.to_string());
+
+    let mut node = TaskNode::skeleton("agent_generated_analysis", intent);
+    node.attributes.insert(
+        "role".into(),
+        serde_json::to_value(ecaa_workflow_core::atom::AtomRole::Operation)
+            .unwrap_or(serde_json::Value::Null),
+    );
+    node.attributes.insert(
+        "assignee".into(),
+        serde_json::to_value(ecaa_workflow_core::atom::AtomAssignee::Agent)
+            .unwrap_or(serde_json::Value::Null),
+    );
+    node.lifecycle_state = ecaa_workflow_core::workflow_contracts::lifecycle::LifecycleState::Production;
+    node.inputs = vec![PortContract::from_edam(
+        "analysis_input",
+        Some("data:0006"),
+        Some("format:2331"),
+    )];
+    node.outputs = vec![PortContract::from_edam(
+        "analysis_result",
+        Some("data:0006"),
+        Some("format:2331"),
+    )];
+
+    let mut new_edges: Vec<EdgeContract> = Vec::new();
+    if let Some(up) = &upstream {
+        let up_out = wf
+            .nodes
+            .iter()
+            .find(|n| n.id.as_str() == up.as_str())
+            .and_then(|n| n.outputs.first().cloned());
+        new_edges.push(EdgeContract {
+            from_node: up.clone(),
+            from_port: up_out.as_ref().map(|p| p.name.clone()).unwrap_or_default(),
+            to_node: "agent_generated_analysis".into(),
+            to_port: "analysis_input".into(),
+            proof: CompatibilityProof {
+                producer_type: up_out
+                    .as_ref()
+                    .map(|p| p.semantic_type.stable_id())
+                    .unwrap_or_default(),
+                consumer_type: "data:0006".into(),
+                rationale: Some(
+                    "G2 auto-author: no specific analysis atom bound — seeded \
+                     agent_generated_analysis to attempt the requested analysis"
+                        .into(),
+                ),
+                ..Default::default()
+            },
+            kind: EdgeKind::OrderingOnly,
+            chain_of_custody: None,
+        });
+    }
+    if let Some(term) = &terminal {
+        let to_port = wf
+            .nodes
+            .iter()
+            .find(|n| n.id.as_str() == term.as_str())
+            .and_then(|n| n.inputs.first().map(|p| p.name.clone()))
+            .unwrap_or_default();
+        new_edges.push(EdgeContract {
+            from_node: "agent_generated_analysis".into(),
+            from_port: "analysis_result".into(),
+            to_node: term.clone(),
+            to_port,
+            proof: CompatibilityProof {
+                producer_type: "data:0006".into(),
+                consumer_type: "data:0006".into(),
+                rationale: Some(
+                    "G2 auto-author: wire the authored analysis into the report terminal".into(),
+                ),
+                ..Default::default()
+            },
+            kind: EdgeKind::OrderingOnly,
+            chain_of_custody: None,
+        });
+    }
+
+    wf.nodes.push(node);
+    wf.edges.extend(new_edges);
+    wf.nodes.sort_by(|a, b| a.id.cmp(&b.id));
+    wf.edges.sort_by(|a, b| {
+        a.from_node
+            .cmp(&b.from_node)
+            .then_with(|| a.from_port.cmp(&b.from_port))
+            .then_with(|| a.to_node.cmp(&b.to_node))
+            .then_with(|| a.to_port.cmp(&b.to_port))
+    });
+    if let Ok(rebuilt) = ecaa_workflow_core::builder::build_dag_from_workflow_dag(wf, &id) {
+        session.dag = Some(rebuilt);
+        tracing::info!(
+            session_id = %session.id,
+            "G2 auto-author: seeded agent_generated_analysis node (no specific analysis bound)"
+        );
+    }
+}
+
+/// G5: de-novo single-cell atoms that should be skipped when the SME registers
+/// an ALREADY-PROCESSED single-cell object (it carries derived embeddings /
+/// cell-type labels), so the workflow verifies/uses those rather than
+/// re-deriving them.
+const SINGLECELL_DENOVO_ATOM_IDS: &[&str] = &["clustering", "cell_type_annotation"];
+
+/// True when a registered input is a processed single-cell object by file type
+/// (`.h5ad` / `.h5` / `.rds` / `.loom`). The conversation layer sees file paths
+/// only (no column/obs introspection), so this keys on the object type — the
+/// label-presence check itself happens agent-side in `data_acquisition`.
+fn processed_singlecell_inputs(session: &crate::session::Session) -> bool {
+    session.inputs.iter().any(|i| {
+        i.files.iter().any(|f| {
+            let lower = f.relpath.to_ascii_lowercase();
+            lower.ends_with(".h5ad")
+                || lower.ends_with(".h5")
+                || lower.ends_with(".rds")
+                || lower.ends_with(".loom")
+        })
+    })
+}
+
+/// G5: drop the de-novo `clustering` + `cell_type_annotation` atoms (and their
+/// `discover_`/`validate_` companions) when the inputs are a processed
+/// single-cell object — the embeddings/labels already exist, so re-deriving
+/// them is wasted compute (the executed da-1-3/1-4/17-1 scope creep). Survivors
+/// that lose all upstreams are rewired to `data_acquisition`. Overridable: kept
+/// when the question explicitly asks to re-cluster de novo. Mirrors
+/// [`prune_excluded_atoms`]' rewire-or-drop + re-lower; no-op otherwise.
+fn prune_denovo_singlecell_atoms(session: &mut Session) {
+    if !processed_singlecell_inputs(session) {
+        return;
+    }
+    let p = session.intake_prose.to_ascii_lowercase();
+    if p.contains("re-cluster")
+        || p.contains("recluster")
+        || p.contains("de novo")
+        || p.contains("de-novo")
+        || p.contains("from scratch")
+        || p.contains("cluster the cells")
+    {
+        return; // SME explicitly wants de-novo clustering — honour it
+    }
+    let targets: std::collections::BTreeSet<&str> =
+        SINGLECELL_DENOVO_ATOM_IDS.iter().copied().collect();
+    let Some(wf) = session.workflow_dag.as_mut() else {
+        return;
+    };
+    let mut dropped: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for node in wf.nodes.iter() {
+        let nid = node.id.as_str();
+        let base = nid
+            .strip_prefix("discover_")
+            .or_else(|| nid.strip_prefix("validate_"))
+            .unwrap_or(nid);
+        if targets.contains(base) {
+            dropped.insert(nid.to_string());
+        }
+    }
+    if dropped.is_empty() {
+        return;
+    }
+    ecaa_workflow_core::composer_v4::prune_unsourced::rewire_or_drop(wf, &dropped);
+    tracing::info!(
+        session_id = %session.id,
+        dropped = ?dropped,
+        "G5: processed single-cell input — skipped de-novo clustering/annotation (use supplied embeddings/labels)"
+    );
+    let id = workflow_id(&session.id);
+    if let Ok(rebuilt) = ecaa_workflow_core::builder::build_dag_from_workflow_dag(wf, &id) {
+        session.dag = Some(rebuilt);
+    }
+}
+
 pub(crate) fn rebuild_dag(
     session: &mut Session,
     config_dir: &std::path::Path,
@@ -1978,6 +2278,15 @@ pub(crate) fn rebuild_dag(
         });
     }
     let _methods = session.intake_methods.to_core();
+    // NOTE (G4 deferred): scoping cross-omics composition by the QUESTION's
+    // intent (vs the dataset's declared modalities) was prototyped here but
+    // deferred — a keyword "integrative intent" heuristic on the intake-prose
+    // blob cannot robustly separate a genuinely multi-omic QUESTION (e.g.
+    // "compare gene expression AND proteomics" — must compose both branches)
+    // from a single-modality question on a multi-omic DATASET (da-19-1/da-19-3
+    // over-composition). It regressed legitimate cross-omics intake. A correct
+    // fix needs question-vs-data-inventory scope separation at classification
+    // time, not a blob keyword gate. See dag-issues-rca.md (G4).
     let requires_cross_omics = session
         .classification
         .as_ref()
@@ -2039,6 +2348,12 @@ pub(crate) fn rebuild_dag(
     //      next read sees the trimmed surface immediately.
     prune_excluded_atoms(session);
 
+    // G5: processed single-cell object inputs → skip de-novo clustering +
+    // cell_type_annotation (use the supplied embeddings/labels). Runs after the
+    // explicit-exclusion prune (same rewire-or-drop mechanism) and before the
+    // type-driven prune below.
+    prune_denovo_singlecell_atoms(session);
+
     // Type-driven prune: drop every atom whose REQUIRED input port(s)
     // cannot be sourced from any upstream producer (e.g.
     // `pathway_enrichment`'s `gene_set_collection` input when no gene-set
@@ -2055,6 +2370,53 @@ pub(crate) fn rebuild_dag(
     // See `reinject_promoted_nodes_into_workflow_dag` for the full
     // explanation and the D4 chained-proposal regression test.
     reinject_promoted_nodes_into_workflow_dag(session);
+
+    // G2: auto-author a specific analysis node when none bound. Under the
+    // default `auto-author` resolution mode, a DAG that carries only the generic
+    // descriptive scaffold (the silent-fallback failure mode) gets an
+    // `agent_generated_analysis` node so the run ATTEMPTS the requested analysis
+    // instead of emitting a vacuous plan. Scoped to questions that actually
+    // request an analysis (a genuinely descriptive ask is left alone).
+    if matches!(intake_resolution(), IntakeResolution::AutoAuthor)
+        && prose_requests_analysis(session)
+        && session
+            .dag
+            .as_ref()
+            .map(|d| !dag_has_bound_analysis(d))
+            .unwrap_or(false)
+    {
+        auto_author_analysis_node(session);
+    }
+
+    // G6: propagation safety-check — every SME-requested exclusion must actually
+    // be absent from the rebuilt DAG (the regression where a "skip X" directive
+    // was softened but never pruned). debug_assert in dev; warn in release.
+    if !session.excluded_atoms.is_empty() {
+        if let Some(d) = session.dag.as_ref() {
+            let excluded: Vec<String> = session.excluded_atoms.clone();
+            for ex in &excluded {
+                let survived = d.tasks.keys().any(|tid| {
+                    let s = tid.as_str();
+                    let base = s
+                        .strip_prefix("discover_")
+                        .or_else(|| s.strip_prefix("validate_"))
+                        .unwrap_or(s);
+                    s == ex.as_str() || base == ex.as_str()
+                });
+                debug_assert!(
+                    !survived,
+                    "G6: excluded atom '{ex}' survived into the emitted DAG"
+                );
+                if survived {
+                    tracing::warn!(
+                        session_id = %session.id,
+                        atom = %ex,
+                        "G6: requested exclusion survived into the rebuilt DAG"
+                    );
+                }
+            }
+        }
+    }
 
     if has_unresolved {
         // Best-effort: from terminal states (Emitted, Blocked, ReadyToEmit

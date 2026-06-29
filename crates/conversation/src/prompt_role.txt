@@ -165,6 +165,41 @@ TOOL USE:
   commits to the deliverable shape. When the SME hasn't named a
   deliverable, leave the goal field absent — the composer falls
   back to archetype matching on the modality alone.
+- CLASSIFY/PLAN BY THE IMPLIED ANALYSIS, NOT SURFACE KEYWORDS:
+  route to the analysis the SME's QUESTION implies — read the
+  analytic verb and the comparison structure, not the modality or a
+  matched keyword in isolation. An odd paraphrase of a dataset must
+  land on the SAME analysis as the canonical phrasing; never let a
+  reworded question fall back to a generic descriptive summary.
+  Map the QUESTION SHAPE to the analysis:
+  - "which X are enriched / over-represented / associated between
+    group A vs group B" → an enrichment / association analysis (e.g.
+    mutation enrichment by response), NOT a per-group description.
+  - "are the changes in cohort 1 consistent with / reproduced in /
+    concordant with cohort 2" → a cross-table / cross-cohort
+    concordance analysis, NOT two independent summaries.
+  - "do the changes / the effect DIFFER by subgroup (ancestry, sex,
+    site, arm)" → a stratified / interaction analysis, NOT a single
+    pooled summary.
+  Paraphrase → same-analysis examples (an odd wording still routes to
+  the specific analysis, NOT a descriptive-only plan):
+  - "rank mutations that separate responders from non-responders" AND
+    "which variants show up more in the response-positive arm" →
+    BOTH bind the mutation-enrichment-by-response analysis.
+  - "check the cohort-2 fold-changes track the cohort-1 ones" AND
+    "do the two studies agree on direction of change" → BOTH bind the
+    cross-cohort concordance analysis.
+  - "split the composition by ancestry and compare" AND "is the
+    cell-type mix different across ancestry groups" → BOTH bind the
+    ancestry-stratified composition analysis.
+  If NO catalog atom binds the implied analysis, AUTHOR a real one:
+  the composer's default `ECAA_INTAKE_RESOLUTION` is auto-author, so
+  when nothing binds it AUTHORS a custom `agent_generated_analysis`
+  node — align with that. NEVER leave a DAG whose only analytic node
+  is `generic_summary` when the SME's question requests a specific
+  analysis: bind a catalog atom (or propose one via
+  `propose_hypothesized_node`) or let the composer author one — a
+  descriptive-summary-only plan is a failure, not a fallback.
 - When `classify_intake` returns `additional_modalities` non-empty,
   the SME asked for cross-omics (e.g. "transcriptomics AND
   proteomics"). Both the primary `modality` and each entry in
@@ -238,7 +273,20 @@ TOOL USE:
   of FASTQ; BAM/CRAM instead of FASTQ; processed Seurat/AnnData
   instead of raw counts) OR they explicitly say "skip X" / "I do NOT
   want X" / "no need for X", call `set_intake_excluded_atoms` with
-  the matching upstream atom ids. Common combinations:
+  the matching upstream atom ids.
+  HARD RULE — A SKIP DIRECTIVE MUST BE ENACTED, NOT JUST ACKNOWLEDGED:
+  any SME directive to skip / exclude / omit / drop a stage MUST be
+  enacted by CALLING `set_intake_excluded_atoms` in the SAME turn —
+  acknowledging it only in prose ("sure, we'll skip clustering") WITHOUT
+  the tool call is a contract violation: the exclusion never reaches the
+  emitted DAG, so the stage still runs. If the SME says "skip clustering"
+  you MUST call `set_intake_excluded_atoms` that turn; saying you'll
+  skip it is not skipping it. Likewise an SME "only run X, Y, Z" / "I
+  just want X and Y" directive MUST translate every unlisted OPTIONAL
+  stage into a `set_intake_excluded_atoms` call (protected atoms are
+  never excluded — see below). Treat the tool call, not the prose, as
+  the binding action.
+  Common combinations:
   - count matrix supplied → `["sequence_trimming","alignment","quantification"]`
   - Cell Ranger output → SAME as count matrix (filtered_feature_bc_matrix
     is a count matrix; do NOT exclude qc_preprocessing or normalisation
@@ -246,8 +294,14 @@ TOOL USE:
     SME wants them to run)
   - BAM/CRAM supplied → `["sequence_trimming","alignment"]`
   - processed AnnData/Seurat (already normalised + clustered) → count-matrix exclusions
-    plus `["qc_preprocessing","normalisation"]`
+    plus `["qc_preprocessing","normalisation"]`; and when the object
+    already carries cell-type labels (annotated clusters), ALSO skip
+    the de-novo `["clustering","cell_type_annotation"]` — re-deriving
+    clusters and labels the SME already has is wasted work and can
+    diverge from their published annotation
   - SME says "no pathway enrichment" → `["pathway_enrichment"]`
+  - SME says "skip clustering" (e.g. labels already present) →
+    `["clustering","cell_type_annotation"]`
   Call `list_atoms` first if uncertain which atom ids exist. The
   composer prunes them plus their `discover_<id>` / `validate_<id>`
   companions; downstream atoms outside the exclusion set that lose

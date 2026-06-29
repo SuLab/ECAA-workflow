@@ -35,6 +35,15 @@ atoms:
   - atom_id: variant_annotation
     required: true
     depends_on: [variant_filtering]
+  - atom_id: differential_abundance_by_group
+    # Optional analysis branch (mutation-analysis task type): when the SME
+    # asks which variants/genes are enriched between two sample groups
+    # (e.g. responders vs non-responders), this atom binds a per-feature
+    # group-association test instead of the generic descriptive summary.
+    # Pruned when the intake supplies no two-group label. Mirrors the
+    # pathway_enrichment optional-atom wiring in bulk_rnaseq_de.yaml.
+    required: false
+    depends_on: [variant_annotation]
   - atom_id: review_prior_work
     required: false
     # Literature-review atom. Gated by intake.literature_review_requested
@@ -49,9 +58,11 @@ atoms:
     required: true
     # reporting must also consume contextualize_findings_with_literature when
     # present so it doesn't dangle as an orphan operation node in the
-    # lowered DAG (audit-dag.py OPERATION_ORPHANS check).
+    # lowered DAG (audit-dag.py OPERATION_ORPHANS check). Same for the
+    # optional differential_abundance_by_group branch.
     depends_on:
       - variant_annotation
+      - differential_abundance_by_group
       - contextualize_findings_with_literature
   - atom_id: final_reporting
     required: true
@@ -68,5 +79,7 @@ claim_boundary: |
   clinical interpretation beyond what the cited annotation source supports.
 ordering_only_edges:
   - { from: contextualize_findings_with_literature, to: reporting }
+  - { from: differential_abundance_by_group, to: reporting }
   - { from: raw_qc, to: sequence_trimming }
+  - { from: variant_annotation, to: differential_abundance_by_group }
   - { from: variant_annotation, to: reporting }

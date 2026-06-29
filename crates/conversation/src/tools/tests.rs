@@ -3550,3 +3550,256 @@ fn counts_level_entry_from_exclusion_prunes_fastq_block() {
         "no edge may reference pruned raw_qc"
     );
 }
+
+// ───────────────────────────────────────────────────────────────────────
+// G1/G2/G5 DAG-composition-fix coverage (2026-06-28).
+//
+// Deterministic unit tests for the resolution-mode parser, the G1/G2
+// auto-author splice + bound-analysis guard, and the G5 processed-single-
+// cell de-novo-clustering prune. G4 was deferred (see `rebuild_dag`); G3/G6
+// are prompt-level and pinned by the prompt-hash test. The cross-omics
+// intake tests above exercise the genuine multi-omic path G4 must NOT
+// regress.
+// ───────────────────────────────────────────────────────────────────────
+
+/// Build a linear ordering-only `WorkflowDag` over `ids` (each node depends
+/// on the previous) — the OrderingOnly skeleton shape the composer lowers.
+fn linear_workflow_dag(
+    ids: &[&str],
+) -> ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag {
+    use ecaa_workflow_core::workflow_contracts::edge::{
+        CompatibilityProof, EdgeContract, EdgeKind,
+    };
+    use ecaa_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
+    let nodes = ids
+        .iter()
+        .map(|id| TaskNode::skeleton(*id, "scaffold"))
+        .collect();
+    let mut edges = Vec::new();
+    for w in ids.windows(2) {
+        edges.push(EdgeContract {
+            from_node: w[0].into(),
+            from_port: String::new(),
+            to_node: w[1].into(),
+            to_port: String::new(),
+            proof: CompatibilityProof::default(),
+            kind: EdgeKind::OrderingOnly,
+            chain_of_custody: None,
+        });
+    }
+    WorkflowDag {
+        id: "wf-test".into(),
+        nodes,
+        edges,
+        assumptions: Default::default(),
+        source_template: None,
+    }
+}
+
+/// Register a single already-processed AnnData (`.h5ad`) input so
+/// `processed_singlecell_inputs` returns true.
+fn push_processed_h5ad(s: &mut crate::session::Session) {
+    use crate::session::state::{UserInput, UserInputFile, UserInputKind};
+    s.inputs.push(UserInput {
+        input_id: "testinput0000001".into(),
+        label: "annotated AnnData".into(),
+        kind: UserInputKind::LocalPath,
+        root_path: "/data/test".into(),
+        files: vec![UserInputFile {
+            relpath: "adata_annotated.h5ad".into(),
+            size_bytes: 1024,
+            sha256: "0".repeat(64),
+        }],
+        registered_at: chrono::Utc::now(),
+        registered_by: s.owner_user.clone(),
+    });
+}
+
+#[test]
+fn intake_resolution_parser_modes() {
+    use super::IntakeResolution::*;
+    assert_eq!(super::intake_resolution_from(""), AutoAuthor); // default
+    assert_eq!(super::intake_resolution_from("auto-author"), AutoAuthor);
+    assert_eq!(super::intake_resolution_from("  Auto_Author "), AutoAuthor); // trim/case/underscore
+    assert_eq!(super::intake_resolution_from("sme"), Sme);
+    assert_eq!(super::intake_resolution_from("strict-block"), StrictBlock);
+    assert_eq!(super::intake_resolution_from("strict"), StrictBlock);
+    assert_eq!(super::intake_resolution_from("block"), StrictBlock);
+    assert_eq!(super::intake_resolution_from("nonsense-value"), AutoAuthor); // unknown → default
+}
+
+#[test]
+fn dag_has_bound_analysis_distinguishes_scaffold_from_analysis() {
+    let lower = |wf: &ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag| {
+        ecaa_workflow_core::builder::build_dag_from_workflow_dag(wf, "wf-test")
+            .expect("workflow lowers")
+    };
+    // scaffold-only chain → NOT bound analysis.
+    let scaffold = linear_workflow_dag(&["data_acquisition", "raw_qc", "generic_summary"]);
+    assert!(
+        !super::dag_has_bound_analysis(&lower(&scaffold)),
+        "scaffold-only must not count as bound analysis"
+    );
+    // chain with a real analysis stage → bound.
+    let bound = linear_workflow_dag(&[
+        "data_acquisition",
+        "raw_qc",
+        "differential_expression",
+        "generic_summary",
+    ]);
+    assert!(
+        super::dag_has_bound_analysis(&lower(&bound)),
+        "a differential_expression node is bound analysis"
+    );
+    // discover_/validate_-prefixed nodes are scaffold, not analysis.
+    let disc = linear_workflow_dag(&[
+        "data_acquisition",
+        "raw_qc",
+        "discover_gene_sets",
+        "validate_de",
+        "generic_summary",
+    ]);
+    assert!(
+        !super::dag_has_bound_analysis(&lower(&disc)),
+        "discover_/validate_ nodes do not count as bound analysis"
+    );
+    // the G2 auto-authored node counts as bound analysis.
+    let auto = linear_workflow_dag(&[
+        "data_acquisition",
+        "raw_qc",
+        "agent_generated_analysis",
+        "generic_summary",
+    ]);
+    assert!(
+        super::dag_has_bound_analysis(&lower(&auto)),
+        "agent_generated_analysis is bound analysis"
+    );
+}
+
+#[test]
+fn auto_author_seeds_analysis_node_for_generic_scaffold() {
+    let mut s = crate::session::Session::new(false);
+    s.intake_prose =
+        "Identify which genes are differentially expressed between treated and control.".into();
+    s.workflow_dag = Some(linear_workflow_dag(&[
+        "data_acquisition",
+        "raw_qc",
+        "generic_summary",
+    ]));
+
+    super::auto_author_analysis_node(&mut s);
+
+    let dag = s
+        .dag
+        .as_ref()
+        .expect("auto-author must lower a DAG into s.dag");
+    assert!(
+        dag.tasks.keys().any(|k| k.as_str() == "agent_generated_analysis"),
+        "auto-author must splice agent_generated_analysis; tasks={:?}",
+        dag.tasks.keys().map(|k| k.as_str()).collect::<Vec<_>>()
+    );
+    assert!(
+        super::dag_has_bound_analysis(dag),
+        "after auto-author the DAG carries bound analysis"
+    );
+
+    // Idempotent: a second pass must not add a duplicate node.
+    super::auto_author_analysis_node(&mut s);
+    let count = s
+        .workflow_dag
+        .as_ref()
+        .unwrap()
+        .nodes
+        .iter()
+        .filter(|n| n.id.as_str() == "agent_generated_analysis")
+        .count();
+    assert_eq!(count, 1, "auto-author must be idempotent");
+}
+
+#[test]
+fn prune_denovo_singlecell_skips_clustering_for_processed_input() {
+    let mut s = crate::session::Session::new(false);
+    s.workflow_dag = Some(linear_workflow_dag(&[
+        "data_acquisition",
+        "raw_qc",
+        "qc_preprocessing",
+        "normalisation",
+        "clustering",
+        "cell_type_annotation",
+        "generic_summary",
+    ]));
+    push_processed_h5ad(&mut s);
+
+    super::prune_denovo_singlecell_atoms(&mut s);
+
+    let dag = s.dag.as_ref().expect("prune must lower a DAG");
+    let ids: Vec<&str> = dag.tasks.keys().map(|k| k.as_str()).collect();
+    assert!(
+        !ids.contains(&"clustering"),
+        "clustering must be pruned for a processed AnnData input; ids={ids:?}"
+    );
+    assert!(
+        !ids.contains(&"cell_type_annotation"),
+        "cell_type_annotation must be pruned; ids={ids:?}"
+    );
+    assert!(
+        ids.contains(&"normalisation"),
+        "upstream survivors must remain; ids={ids:?}"
+    );
+}
+
+#[test]
+fn prune_denovo_singlecell_honors_explicit_recluster_request() {
+    let mut s = crate::session::Session::new(false);
+    s.intake_prose = "Re-cluster the cells from scratch and annotate de novo.".into();
+    s.workflow_dag = Some(linear_workflow_dag(&[
+        "data_acquisition",
+        "raw_qc",
+        "normalisation",
+        "clustering",
+        "cell_type_annotation",
+        "generic_summary",
+    ]));
+    push_processed_h5ad(&mut s);
+
+    super::prune_denovo_singlecell_atoms(&mut s);
+
+    let wf = s.workflow_dag.as_ref().unwrap();
+    assert!(
+        wf.nodes.iter().any(|n| n.id.as_str() == "clustering"),
+        "an explicit re-cluster/de-novo request must retain clustering"
+    );
+}
+
+#[test]
+fn prune_denovo_singlecell_noop_without_processed_input() {
+    let mut s = crate::session::Session::new(false);
+    s.workflow_dag = Some(linear_workflow_dag(&[
+        "data_acquisition",
+        "raw_qc",
+        "clustering",
+        "cell_type_annotation",
+        "generic_summary",
+    ]));
+    // No inputs registered → processed_singlecell_inputs() is false.
+    super::prune_denovo_singlecell_atoms(&mut s);
+
+    let wf = s.workflow_dag.as_ref().unwrap();
+    assert!(
+        wf.nodes.iter().any(|n| n.id.as_str() == "clustering"),
+        "without a processed single-cell input the prune is a no-op"
+    );
+}
+
+#[test]
+fn prose_requests_analysis_detects_analytic_intent() {
+    let mut s = crate::session::Session::new(false);
+    s.intake_prose = "Which genes are differentially expressed between groups?".into();
+    assert!(super::prose_requests_analysis(&s));
+
+    s.intake_prose = String::new();
+    assert!(
+        !super::prose_requests_analysis(&s),
+        "empty prose requests no analysis"
+    );
+}

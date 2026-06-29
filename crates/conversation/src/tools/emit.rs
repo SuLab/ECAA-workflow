@@ -94,7 +94,56 @@ fn check_emit_preconditions(session: &mut Session, fresh: Option<&Session>) -> O
     if let Some(r) = gate_dag_built(session) {
         return Some(r);
     }
+    if let Some(r) = gate_bound_analysis(session) {
+        return Some(r);
+    }
     gate_taxonomy(session)
+}
+
+/// Gate 3b (G1) — the plan must carry a SPECIFIC bound analysis, not just the
+/// generic descriptive scaffold (`generic_summary` + reporting). Catches the
+/// silent generic-fallback failure where intake could not bind the requested
+/// analysis. Only fires when the SME's question actually requests an analysis
+/// (an analysis verb is present) — a genuinely descriptive ask is allowed
+/// through. Dispatch is by `ECAA_INTAKE_RESOLUTION`: under the default
+/// `auto-author`, `rebuild_dag` should already have seeded an
+/// `agent_generated_analysis` node, so reaching here with no bound analysis is
+/// a bug and is blocked defensively; `sme` blocks for the human; `strict-block`
+/// refuses emit and records the unbindable-analysis failure.
+fn gate_bound_analysis(session: &mut Session) -> Option<ToolResult> {
+    let Some(dag) = session.ensure_dag_cached() else {
+        return None; // gate_dag_built already handles the no-DAG case
+    };
+    if super::dag_has_bound_analysis(&dag) {
+        return None;
+    }
+    if !super::prose_requests_analysis(session) {
+        return None; // genuinely descriptive ask — generic scaffold is acceptable
+    }
+    let (reason, hint): (String, String) = match super::intake_resolution() {
+        super::IntakeResolution::AutoAuthor => (
+            "no specific analysis is bound in the plan and auto-author did not seed one".into(),
+            "Bind a catalog analysis atom or call propose_hypothesized_node before emitting."
+                .into(),
+        ),
+        super::IntakeResolution::Sme => (
+            "no specific analysis is bound for this question — only the generic descriptive \
+             scaffold is present"
+                .into(),
+            "Author the requested analysis (select a method / propose_hypothesized_node), or set \
+             ECAA_INTAKE_RESOLUTION=auto-author to let the composer author one."
+                .into(),
+        ),
+        super::IntakeResolution::StrictBlock => (
+            "unbindable_analysis: no specific analysis bound; strict-block refuses emit".into(),
+            "This scenario could not bind a specific analysis to its question.".into(),
+        ),
+    };
+    tracing::warn!(
+        session_id = %session.id,
+        "emit_package_precondition_failure_no_bound_analysis",
+    );
+    Some(ToolResult::err(ToolError::PreconditionFailure { reason, hint }))
 }
 
 /// Gate 1 — the per-emit `ConfirmationToken`. A confirm-then-amend race drifts

@@ -27,6 +27,22 @@ atoms:
   - atom_id: colocalization
     required: true
     depends_on: [gwas_summary_harmonization]
+  - atom_id: cross_trait_genetic_sharing
+    # Optional analysis branch (gwas / metabolite cross-trait task type):
+    # quantifies genome-wide genetic sharing (rg / locus overlap /
+    # pleiotropy) across >= 2 harmonised trait GWASs — distinct from the
+    # single-locus colocalization above. Pruned when the intake supplies
+    # only one trait. Mirrors the pathway_enrichment optional-atom wiring.
+    required: false
+    depends_on: [gwas_summary_harmonization]
+  - atom_id: mediation_analysis
+    # Optional analysis branch (exposure -> mediator -> outcome task type,
+    # e.g. a metabolite mediating a genetic exposure's effect on a trait):
+    # binds a causal-mediation decomposition instead of the generic
+    # descriptive summary. Pruned when the intake names no exposure +
+    # mediator + outcome triple.
+    required: false
+    depends_on: [colocalization]
   - atom_id: review_prior_work
     required: false
     # Unconditional literature contextualization:
@@ -38,8 +54,13 @@ atoms:
     depends_on: [colocalization, review_prior_work]
   - atom_id: reporting
     required: true
+    # Consume the optional cross_trait_genetic_sharing + mediation_analysis
+    # branches alongside colocalization so they don't dangle as orphan
+    # operation nodes in the lowered DAG (audit-dag.py OPERATION_ORPHANS).
     depends_on:
       - colocalization
+      - cross_trait_genetic_sharing
+      - mediation_analysis
       - contextualize_findings_with_literature
   - atom_id: final_reporting
     required: true
@@ -59,5 +80,9 @@ claim_boundary: |
 ordering_only_edges:
   - { from: contextualize_findings_with_literature, to: reporting }
   - { from: colocalization, to: contextualize_findings_with_literature }
+  - { from: colocalization, to: mediation_analysis }
   - { from: colocalization, to: reporting }
+  - { from: cross_trait_genetic_sharing, to: reporting }
   - { from: data_acquisition, to: gwas_summary_harmonization }
+  - { from: gwas_summary_harmonization, to: cross_trait_genetic_sharing }
+  - { from: mediation_analysis, to: reporting }

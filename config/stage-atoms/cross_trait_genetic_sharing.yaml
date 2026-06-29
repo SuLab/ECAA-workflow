@@ -1,0 +1,124 @@
+id: cross_trait_genetic_sharing
+version: "1.0.0"
+role: operation
+# Confirmatory result-producing stage: emits a per-trait-pair sharing
+# table (genetic correlation / shared-locus statistics) the verifier
+# can recompute.
+confirmatory: true
+description: |
+  Identify shared genetic factors ACROSS two or more traits / metabolites
+  — genome-wide genetic correlation, cross-trait locus overlap, or a
+  pleiotropy test. DISTINCT from `colocalization`, which tests a single
+  shared causal variant between a GWAS and a matched eQTL signal at one
+  locus; this atom quantifies genetic sharing across the genome between
+  multiple trait GWASs. Method-neutral over the cross-trait-sharing
+  family: LD-score-regression genetic correlation (ldsc_rg),
+  cross-trait significant-locus overlap with overlap-significance
+  testing, or a formal pleiotropy test — selected at runtime based on
+  the number of traits and whether individual-level or summary-level
+  data is available. Emits a per-trait-pair sharing table.
+
+  RECORD-WHAT-YOU-DID (audit, not instruction): in result.json, write
+  down the analysis you actually ran so it can be audited — this does
+  NOT tell you which method to use, only to state your own choice.
+  Record:
+    - traits_analyzed: the list of traits / metabolites whose summary
+      statistics you ingested.
+    - method_used: the sharing method you ran (e.g. "LDSC genetic
+      correlation", "cross-trait locus overlap + hypergeometric
+      overlap test", "pleiotropy test").
+    - ld_reference: the LD reference panel / ancestry you used (when the
+      method requires one).
+    - sharing_metric: the statistic you report per trait pair (e.g.
+      "rg", "shared-locus count + overlap p-value").
+  These are YOUR record of YOUR choices and of the data/task — a
+  domain-correctness contract checks them for internal + task
+  consistency (e.g. a genetic-correlation method names its LD reference;
+  the ancestry is consistent across the trait set). It never prescribes
+  a method.
+edam_operation: "ecaax:cross_trait_genetic_sharing"
+edam_data: "data:0928"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - gwas_summary_harmonization
+expected_artifacts:
+  - trait_pair_sharing.tsv
+  - trait_pair_sharing_summary.json
+  - manifest.json
+  - result.json
+required_figures:
+  - modality_concordance_heatmap
+attributes:
+  candidate_tools:
+    - ldsc_rg
+    - cross_trait_locus_overlap
+    - pleiotropy_test
+  result_contract:
+    record_in_result_json:
+      - traits_analyzed
+      - method_used
+      - ld_reference
+      - sharing_metric
+    note: >-
+      record-what-you-did, not be-told-what-to-do. State the traits you
+      analyzed, the sharing method you ran, the LD reference / ancestry,
+      and the metric you report; the harness checks your own record for
+      domain-correctness (e.g. a genetic-correlation method declares its
+      LD reference, ancestry is consistent across the trait set). No
+      threshold is prescribed.
+resource_profile:
+  cpu: moderate
+  memory: medium
+  gpu: false
+  runtime_class: minutes
+claim_boundary: |
+  Cross-trait genetic sharing (genetic correlation / locus overlap /
+  pleiotropy) is evidence of shared genetic architecture within the
+  declared ancestry and LD reference, NOT a shared causal variant and
+  NOT a mechanistic or causal link between traits. Report the sharing
+  statistic, its standard error / p-value, the LD reference, and the
+  ancestry for every trait pair. Do not extrapolate across ancestries
+  without a matched LD reference, and do not interpret a non-zero
+  genetic correlation as one trait causing the other (use a dedicated
+  causal-inference method for that). Distinguish genome-wide sharing
+  from single-locus colocalization.
+# Explicit rich ports.
+# Inputs: two or more harmonised GWAS summary-statistic sets (and an LD
+# reference when the method requires one). Output is the per-trait-pair
+# sharing table. Output is an ecaax local extension because EDAM has no
+# first-class cross-trait-sharing-result class; proposed parents map it
+# to the GWAS-summary lineage.
+inputs:
+  - name: trait_summary_stats
+    semantic_type:
+      kind: ontology_term
+      iri: "data:0928"
+      label: "GWAS summary"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    # Many: the cross-trait sharing test fans in >= 2 trait GWAS sets
+    # (scatter/gather), mirroring the integrate_multi_omics_* inputs.
+    cardinality:
+      kind: many
+    privacy_class: internal
+outputs:
+  - name: trait_pair_sharing
+    semantic_type:
+      kind: local_extension
+      namespace: "ecaax"
+      id: "cross_trait_sharing_table"
+      # Parent on the modality-concordance type so the resolver reuses the
+      # concordance-heatmap renderer for the pairwise genetic-correlation
+      # (rg) matrix across traits, rather than the single-GWAS qq/manhattan
+      # renderer (which is wrong for a cross-trait sharing matrix).
+      proposed_parent_terms:
+        - "data:1278"
+      definition: "Per-trait-pair genetic-sharing table (genetic correlation rg or shared-locus overlap statistics with standard error / p-value), distinct from single-variant colocalization."
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    statistical_state: "multiple_testing_corrected"
+    privacy_class: internal

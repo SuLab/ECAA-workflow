@@ -1,0 +1,130 @@
+id: cross_table_concordance
+version: "1.0.0"
+role: operation
+# Confirmatory result-producing stage: emits a concordance summary
+# (sign-agreement rate, rank correlation, overlap p-value) the verifier
+# can recompute from the two source tables.
+confirmatory: true
+description: |
+  Test directional concordance / overlap between two independent result
+  tables that share a feature key and each carry an effect-direction
+  column (e.g., a GAHT differential-expression table vs an MHT
+  differential-expression table, or two cohorts' association results).
+  Method-neutral over the concordance family: a sign-concordance test
+  on the shared significant features, a rank correlation
+  (Spearman / Kendall) of effect sizes, or an overlap-significance test
+  on the significant-feature sets — selected at runtime based on whether
+  the question is direction-agreement or set-overlap. Emits a
+  concordance summary plus the per-feature merged table the summary is
+  computed from.
+
+  RECORD-WHAT-YOU-DID (audit, not instruction): in result.json, write
+  down the comparison you actually ran so it can be audited — this does
+  NOT tell you which test to use, only to state your own choice.
+  Record:
+    - table_a_label: a human label for the first result table (e.g.
+      "GAHT DE").
+    - table_b_label: a human label for the second result table (e.g.
+      "MHT DE").
+    - join_key: the column the two tables were joined on (e.g.
+      "gene_id").
+    - effect_direction_columns: the effect-size / direction column used
+      from each table (e.g. ["log2FC_gaht", "log2FC_mht"]).
+    - concordance_method: the test you ran (e.g. "sign-concordance +
+      binomial test", "Spearman rank correlation",
+      "hypergeometric overlap test").
+  These are YOUR record of YOUR choices and of the data/task — a
+  domain-correctness contract checks them for internal + task
+  consistency (e.g. both effect-direction columns exist in their source
+  tables, the join key is shared). It never prescribes a test.
+edam_operation: "ecaax:cross_table_concordance"
+edam_data: "data:0951"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - differential_expression
+expected_artifacts:
+  - concordance_merged.tsv
+  - concordance_summary.json
+  - manifest.json
+  - result.json
+required_figures:
+  - modality_concordance_heatmap
+attributes:
+  candidate_tools:
+    - sign_concordance_test
+    - rank_correlation
+    - overlap_significance_test
+  result_contract:
+    record_in_result_json:
+      - table_a_label
+      - table_b_label
+      - join_key
+      - effect_direction_columns
+      - concordance_method
+    note: >-
+      record-what-you-did, not be-told-what-to-do. State the two tables
+      you compared, the join key, the effect-direction columns, and the
+      concordance test you ran; the harness checks your own record for
+      domain-correctness (e.g. each effect-direction column exists in
+      its source table, the join key is shared). No threshold or
+      row-filter is prescribed.
+resource_profile:
+  cpu: light
+  memory: small
+  gpu: false
+  runtime_class: minutes
+claim_boundary: |
+  Cross-table concordance is a descriptive comparison of two
+  independent result sets, not evidence of a shared mechanism or
+  causation. Report the concordance statistic (sign-agreement rate /
+  rank correlation / overlap p-value), its significance, the number of
+  features compared, and the join key. Directional agreement between
+  two tables does not establish that the two conditions act through the
+  same biology; discordance does not prove independence. Each source
+  table's own effect sizes and adjusted p-values remain the primary
+  evidence.
+# Explicit rich ports.
+# Inputs: two independent result tables, each with an effect-size /
+# direction column and a shared feature key. Output is the concordance
+# summary + merged table.
+inputs:
+  - name: result_table_a
+    semantic_type:
+      kind: ontology_term
+      iri: "data:0951"
+      label: "Statistical estimate score"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    statistical_state: "de_tested"
+    privacy_class: internal
+  - name: result_table_b
+    semantic_type:
+      kind: ontology_term
+      iri: "data:0951"
+      label: "Statistical estimate score"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    statistical_state: "de_tested"
+    privacy_class: internal
+outputs:
+  - name: concordance_summary
+    semantic_type:
+      kind: local_extension
+      namespace: "ecaax"
+      id: "cross_table_concordance_table"
+      # Parent on the modality-concordance type so the resolver reuses the
+      # concordance-heatmap renderer (pairwise sign/rank agreement between
+      # the two tables) rather than the enrichment-terms renderer.
+      proposed_parent_terms:
+        - "data:1278"
+      definition: "Directional-concordance summary between two independent result tables (sign-agreement rate, rank correlation, or overlap-significance statistic) plus the per-feature merged table it was computed from."
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    statistical_state: "de_tested"
+    privacy_class: internal

@@ -1,0 +1,123 @@
+id: mediation_analysis
+version: "1.0.0"
+role: operation
+# Confirmatory result-producing stage: emits a per-mediator
+# indirect-effect table (estimate + p / CI) the verifier can recompute.
+confirmatory: true
+description: |
+  Test whether one or more intermediate features (candidate mediators)
+  carry part of an exposure -> outcome effect, decomposing the total
+  effect into a direct effect and an indirect (mediated) effect.
+  Method-neutral over the causal-mediation family: the
+  Baron-Kenny / product-of-coefficients approach, a bootstrapped
+  causal-mediation estimator, or a counterfactual mediation model —
+  mediation (R) / bootstrapped causal-mediation selected at runtime
+  based on outcome type (continuous vs binary) and the number of
+  candidate mediators. Emits a per-mediator indirect-effect table.
+
+  RECORD-WHAT-YOU-DID (audit, not instruction): in result.json, write
+  down the model you actually fit so it can be audited — this does NOT
+  tell you which estimator to use, only to state your own choice.
+  Record:
+    - exposure_variable: the treatment / exposure being decomposed.
+    - mediator_variables: the candidate mediator(s) tested.
+    - outcome_variable: the downstream outcome.
+    - estimator: the mediation method you ran (e.g. "R mediation
+      package, quasi-Bayesian", "bootstrapped product-of-coefficients,
+      5000 resamples").
+    - available_covariates: the covariate columns you observed and
+      adjusted both the mediator and outcome models for.
+  These are YOUR record of YOUR choices and of the data/task — a
+  domain-correctness contract checks them for internal + task
+  consistency (e.g. the same confounders adjust both stages, the
+  outcome named matches the task's stated outcome). It never prescribes
+  an estimator.
+edam_operation: "operation:3659"
+edam_data: "data:0951"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - differential_expression
+expected_artifacts:
+  - mediation_results.tsv
+  - mediation_summary.json
+  - manifest.json
+  - result.json
+required_figures:
+  - forest
+attributes:
+  candidate_tools:
+    - r_mediation
+    - bootstrapped_causal_mediation
+  result_contract:
+    record_in_result_json:
+      - exposure_variable
+      - mediator_variables
+      - outcome_variable
+      - estimator
+      - available_covariates
+    note: >-
+      record-what-you-did, not be-told-what-to-do. State the
+      exposure / mediator / outcome you modelled, the estimator you ran,
+      and the covariates you adjusted both stages for; the harness
+      checks your own record for domain-correctness (e.g. mediator and
+      outcome models share the same confounder set). No threshold is
+      prescribed.
+resource_profile:
+  cpu: moderate
+  memory: medium
+  gpu: false
+  runtime_class: minutes
+claim_boundary: |
+  A mediation estimate is a model-based decomposition under strong
+  no-unmeasured-confounding assumptions, not a demonstrated causal
+  mechanism. Report the indirect (mediated) effect, the direct effect,
+  the proportion mediated, and a confidence interval / p-value for
+  every mediator, alongside the confounders adjusted for. State the
+  identifying assumptions; a non-zero indirect effect is consistent
+  with — not proof of — mediation. Prefer "consistent with mediation
+  of" over "mediates" / "causes".
+# Explicit rich ports.
+# Inputs: an exposure assignment, one or more candidate mediator
+# measurements, and an outcome — typically joined per subject. Output
+# is the per-mediator indirect-effect table.
+inputs:
+  - name: exposure_and_outcome
+    semantic_type:
+      kind: ontology_term
+      iri: "topic:3678"
+      label: "Experimental design and studies"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3464"
+      label: "JSON"
+    privacy_class: internal
+  - name: candidate_mediators
+    semantic_type:
+      kind: ontology_term
+      iri: "data:0951"
+      label: "Statistical estimate score"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    statistical_state: "de_tested"
+    privacy_class: internal
+outputs:
+  - name: mediation_results
+    semantic_type:
+      kind: local_extension
+      namespace: "ecaax"
+      id: "mediation_effect_table"
+      # Parent on the benchmarking-concordance type so the resolver reuses
+      # the forest renderer: a per-mediator indirect-effect estimate with a
+      # confidence interval is exactly a forest-plot row. (Declared-parents
+      # walk matches this ecaax key directly — see plot_affordance::selector.)
+      proposed_parent_terms:
+        - "ecaax:benchmarking_concordance"
+      definition: "Per-mediator decomposition table (indirect effect, direct effect, proportion mediated, confidence interval / p-value) for an exposure -> mediator -> outcome model."
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    statistical_state: "multiple_testing_corrected"
+    privacy_class: internal
