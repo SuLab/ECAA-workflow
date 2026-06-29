@@ -970,9 +970,25 @@ impl Classifier {
         // transcriptomics and proteomics ideas" must not surface
         // companions. Confirmed by
         // `classify::tests::conjunction_alone_without_threshold_clearing_is_noop`.
-        let strong_cross_omics_marker = has_strong_cross_omics_marker(normalized_text);
+        // G4 — scope cross-omics INTENT detection to the analytic question,
+        // not the data-inventory listing. A single-modality question over a
+        // multi-omic dataset ("which genes are downregulated?" with an
+        // "Available data: … profiled by RNA-seq, ChIP-seq, and ATAC-seq"
+        // catalog) was tripping `is_n_way_intent` / strong-marker detection on
+        // the inventory's modality list and fanning the DAG out to every
+        // modality. `analytic_scope_text` removes a detected data-inventory
+        // region so these intent / threshold-relaxation gates key on what the
+        // SME is ASKING, not what the dataset CONTAINS. Per-modality keyword
+        // hit-counting (`scored`, computed above) stays on the FULL text: a
+        // companion must still be PRESENT in the data to be a candidate — it
+        // just won't surface unless the QUESTION itself is integrative. No-op
+        // when no inventory region is detected, so single-block SME prose (and
+        // every existing cross-omics test) is unaffected.
+        let analytic = analytic_scope_text(normalized_text);
+        let analytic: &str = analytic.as_ref();
+        let strong_cross_omics_marker = has_strong_cross_omics_marker(analytic);
         let any_cross_omics_intent =
-            strong_cross_omics_marker || is_cross_omics_intent(normalized_text);
+            strong_cross_omics_marker || is_cross_omics_intent(analytic);
         // ≥3 canonical-distinct comma-list modalities ("matched bulk
         // RNA-seq, ATAC-seq, and ChIP-seq") is a stronger signal than
         // 2-way conjunction intent: the SME has named three distinct
@@ -984,7 +1000,7 @@ impl Classifier {
         // when `is_n_way_intent` fires keeps the
         // `conjunction_alone_without_threshold_clearing_is_noop`
         // regression intact (2-way conjunctions still demand ≥2 hits).
-        let n_way_intent = is_n_way_intent(normalized_text);
+        let n_way_intent = is_n_way_intent(analytic);
         let (min_confidence, base_min_hits) = cross_omics_threshold();
         // Four-tier threshold by intent strength:
         // - Strong marker (named integrator like DIABLO, named
@@ -1191,6 +1207,54 @@ fn pair_explicitly_conjoined(text: &str, primary: &str, companion: &str) -> bool
 
 /// Strong cross-omics markers. When the SME wrote one of
 /// these, the [`SUPPRESSED_PAIRS`] heuristic in
+/// G4 — return the "analytic ask" slice of intake text, with a detected
+/// data-inventory region removed, for cross-omics INTENT detection only.
+///
+/// A multi-omic *dataset* described in an inventory block ("Available data: …
+/// profiled by RNA-seq, ChIP-seq, and ATAC-seq") must not, by itself, make a
+/// single-modality *question* compose every modality branch. Stripping the
+/// inventory keeps the modality list out of [`is_cross_omics_intent`],
+/// [`is_n_way_intent`] and [`has_strong_cross_omics_marker`] so they fire only
+/// when the question/objective itself is integrative.
+///
+/// Detection is conservative and prose-robust: it triggers only on explicit,
+/// *structural* data-inventory headers — the colon-terminated `available data:`
+/// section header emitted by intake formatting, or a `sample-to-condition
+/// mapping` block. Bare phrases like "publicly available data" do NOT match
+/// (the colon anchors the header), so ordinary single-block SME prose — and
+/// every existing cross-omics classifier test, including the conversation
+/// crate's `cross_omics_autism_pms_intake_emits_both_branches` ("all publicly
+/// available data … gene expression and proteomics … Cross-omics analysis") —
+/// is returned unchanged. Input is expected already normalized via
+/// [`normalize_for_match`] (the function is idempotent under it regardless).
+/// Per-modality keyword hit-counting deliberately runs on the FULL text
+/// elsewhere; only the intent/threshold-relaxation gates consume this view.
+pub fn analytic_scope_text(normalized: &str) -> std::borrow::Cow<'_, str> {
+    // Inventory-region START cues (earliest occurrence wins). Kept narrow and
+    // structural to avoid stripping conversational mentions of "available data".
+    const START_CUES: &[&str] = &["available data:", "sample to condition mapping"];
+    // Region END cues: instruction/boilerplate that follows the inventory in
+    // structured intake. The inventory is stripped from START up to the
+    // earliest END cue at/after START; text before START and from END onward
+    // is retained (END text is plain instruction, carrying no modality list).
+    const END_CUES: &[&str] = &["produce the analysis", "required outputs", "organism and modality"];
+
+    let Some(start) = START_CUES.iter().filter_map(|c| normalized.find(c)).min() else {
+        return std::borrow::Cow::Borrowed(normalized);
+    };
+    let end = END_CUES
+        .iter()
+        .filter_map(|c| normalized[start..].find(c).map(|i| start + i))
+        .min();
+    let mut out = String::with_capacity(normalized.len());
+    out.push_str(&normalized[..start]);
+    if let Some(end) = end {
+        out.push(' ');
+        out.push_str(&normalized[end..]);
+    }
+    std::borrow::Cow::Owned(out)
+}
+
 /// Detects explicit n-way (≥3 modality) intent: "three-way analysis",
 /// "tri-omics", "trio analysis", or a comma-list with ≥3 distinct
 /// modality nouns. Wider than [`has_strong_cross_omics_marker`] (which

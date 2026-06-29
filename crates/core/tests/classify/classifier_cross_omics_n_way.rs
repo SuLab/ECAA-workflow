@@ -100,6 +100,98 @@ fn comma_only_list_two_modalities_no_and() {
     );
 }
 
+// ── G4: scope cross-omics by the QUESTION, not the data-inventory listing ──
+//
+// A single-modality analytic question over a multi-omic *dataset* must NOT
+// fan the DAG out to every modality just because the data-inventory section
+// lists them. Mirrors the BiomniBench da-19 scenarios where the over-
+// composition came from re-classifying the full intake message (Task +
+// "Available data: … profiled by RNA-seq, ChIP-seq, and ATAC-seq").
+
+/// Shared multi-omic inventory block (the part that names three modalities).
+const DA19_INVENTORY: &str = "\n\nAvailable data:\nMulti-omics cohort from the \
+    CBFB-SMMHC inhibition study. Human inv(16) leukemia cells (ME-1) treated with \
+    the inhibitor AI-10-49 or DMSO control, profiled by RNA-seq, ChIP-seq (H3K27ac \
+    and RUNX1), and ATAC-seq. ChIP-seq H3K27ac BAMs (GSM2715535 DMSO, GSM2715536 \
+    AI-10-49) with MACS2 narrowPeak peaks called against matched input controls; \
+    RUNX1 ChIP-seq BAMs and peaks likewise. Sample-to-condition mapping used \
+    across all modalities.\n\nProduce the analysis with appropriate per-step \
+    result tables and a summary report. Organism and modality: infer from the \
+    task and data above.";
+
+#[test]
+fn da19_chip_question_over_multiomic_inventory_stays_single_modality() {
+    // Pure ChIP-seq question (reduced H3K27ac signal) over the multi-omic
+    // dataset. The inventory's RNA-seq/ATAC-seq must NOT surface as companions.
+    let clf = load_classifier();
+    let prose = format!(
+        "Task: To identify enhancers that drive leukemia maintenance, which \
+         genomic regions show reduced H3K27ac ChIP-seq signal upon AI-10-49 \
+         treatment?{DA19_INVENTORY}"
+    );
+    let result = clf.classify(&prose);
+    assert_eq!(
+        result.modality, "chip_seq",
+        "single-modality H3K27ac question should classify as chip_seq, got {}",
+        result.modality
+    );
+    assert!(
+        result.additional_modalities.is_empty(),
+        "ChIP question over a multi-omic dataset must NOT surface companion \
+         modalities from the data inventory, got {:?}",
+        result
+            .additional_modalities
+            .iter()
+            .map(|m| m.modality.as_str())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn da19_rnaseq_question_over_multiomic_inventory_stays_single_modality() {
+    // Pure RNA-seq DE question over the same multi-omic dataset.
+    let clf = load_classifier();
+    let prose = format!(
+        "Task: To identify therapeutic targets, which genes are most \
+         significantly downregulated upon AI-10-49 treatment in the RNA-seq \
+         differential expression results?{DA19_INVENTORY}"
+    );
+    let result = clf.classify(&prose);
+    assert!(
+        result.additional_modalities.is_empty(),
+        "RNA-seq DE question over a multi-omic dataset must NOT surface companion \
+         modalities from the data inventory, got primary={} additional={:?}",
+        result.modality,
+        result
+            .additional_modalities
+            .iter()
+            .map(|m| m.modality.as_str())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn integrative_question_over_multiomic_inventory_keeps_companions() {
+    // CONTROL: when the QUESTION itself is integrative (not just the dataset),
+    // cross-omics companions MUST still surface — the fix keys on the ask.
+    let clf = load_classifier();
+    let prose = format!(
+        "Task: Integrate ChIP-seq H3K27ac enhancer changes with the RNA-seq \
+         differential expression results to link enhancer loss to downregulated \
+         genes across both assays in a joint cross-omics analysis.{DA19_INVENTORY}"
+    );
+    let result = clf.classify(&prose);
+    let all: std::collections::HashSet<&str> = std::iter::once(result.modality.as_str())
+        .chain(result.additional_modalities.iter().map(|m| m.modality.as_str()))
+        .collect();
+    assert!(
+        result.additional_modalities.len() >= 1 && all.len() >= 2,
+        "an explicitly integrative question must still surface cross-omics \
+         companions, got {:?}",
+        all
+    );
+}
+
 #[test]
 fn single_modality_list_with_methods_no_false_positive() {
     // Regression guard: a single-modality intake that happens to use
