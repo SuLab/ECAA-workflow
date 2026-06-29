@@ -1117,7 +1117,29 @@ async fn spawn_harness_for_session_reserved(
     // for a session that is freshly running.
     execution_status_sidecar::clear(&package_dir);
 
-    let mut child = cmd.spawn().map_err(SpawnHarnessError::SpawnFailed)?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| {
+            // ENOENT here means the harness *binary* itself was not found on
+            // PATH (or at ECAA_HARNESS_BIN_PATH) — distinct from a missing
+            // package/agent file. The bare "No such file or directory" gives
+            // the operator nothing to act on, so spell out the fix. The dev
+            // servers run from source (`cargo run`/Vite) and work without
+            // `make install`, which makes it easy to reach this button having
+            // never installed the harness.
+            if e.kind() == std::io::ErrorKind::NotFound {
+                SpawnHarnessError::SpawnFailed(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!(
+                        "harness binary {harness_bin:?} not found on PATH — run `make install` \
+                         (or `cargo install --path crates/harness`) to install \
+                         `ecaa-workflow-harness`, or set ECAA_HARNESS_BIN_PATH to its full path"
+                    ),
+                ))
+            } else {
+                SpawnHarnessError::SpawnFailed(e)
+            }
+        })?;
     let Some(pid) = child.id() else {
         let _ = child.start_kill();
         return Err(SpawnHarnessError::NoPid);

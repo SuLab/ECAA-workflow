@@ -57,6 +57,8 @@ make dev-server
 make dev-ui
 ```
 
+> **Execution requires the installed harness binary.** `make dev-server` / `make dev-ui` run from source (`cargo run` / Vite), so they work without `make install`. But the **Start execution** button spawns the `ecaa-workflow-harness` *binary* by name from `PATH` (override with `ECAA_HARNESS_BIN_PATH`). If you skipped `make install` (Setup step 5), execution fails with `failed to spawn harness: No such file or directory`; run `make install` to fix it.
+
 The chat surface boots in offline mode without an API key (the UI renders but assistant turns are mocked). For LLM-mediated chat:
 
 ```bash
