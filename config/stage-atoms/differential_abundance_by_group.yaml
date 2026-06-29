@@ -5,6 +5,17 @@ role: operation
 # table (effect size + p / adjusted-p) the verifier can recompute.
 confirmatory: true
 description: |
+  USE ONLY WHEN the question names (or clearly implies) a CONTRAST
+  between two or more sample groups — responders vs non-responders,
+  tumour subtype A vs B, carriers vs non-carriers, treated vs control.
+  DO NOT use this for a single-cohort descriptive question that has no
+  group to contrast against — e.g. "what are the TOP MUTATED / most
+  frequent genes", a mutation-frequency landscape, or a ranked summary
+  over one cohort. Those need a frequency / ranking / landscape summary
+  (author one via `agent_generated_analysis` if no catalog atom fits),
+  NOT a between-group abundance test; binding this atom there invents a
+  contrast the data does not contain.
+
   Test which features (genes / mutations / proteins / metabolites) are
   significantly enriched or differ in abundance between two SME-named
   sample groups (e.g., responders vs non-responders, carriers vs

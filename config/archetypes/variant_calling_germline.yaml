@@ -40,8 +40,12 @@ atoms:
     # asks which variants/genes are enriched between two sample groups
     # (e.g. responders vs non-responders), this atom binds a per-feature
     # group-association test instead of the generic descriptive summary.
-    # Pruned when the intake supplies no two-group label. Mirrors the
-    # pathway_enrichment optional-atom wiring in bulk_rnaseq_de.yaml.
+    # Pruned when the intake supplies no two-group label. A single-cohort
+    # "top / most-frequent mutated genes" or mutation-landscape question
+    # has NO contrast and must NOT bind this atom (author a frequency /
+    # ranking summary instead — see the atom description's USE-ONLY-WHEN
+    # gate). Mirrors the pathway_enrichment optional-atom wiring in
+    # bulk_rnaseq_de.yaml.
     required: false
     depends_on: [variant_annotation]
   - atom_id: review_prior_work

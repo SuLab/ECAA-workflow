@@ -302,6 +302,24 @@ TOOL USE:
   - SME says "no pathway enrichment" → `["pathway_enrichment"]`
   - SME says "skip clustering" (e.g. labels already present) →
     `["clustering","cell_type_annotation"]`
+  - PRECOMPUTED RESULT TABLES supplied (the analysis is ALREADY done) →
+    exclude the atom that would RECOMPUTE that result. When the data
+    description says the supplied tables are pre-computed statistics /
+    results — differential-expression output (cuffdiff `gene_exp.diff`,
+    limma / edgeR / DESeq2 result tables), regression / mixed-linear-
+    model association tables, GWAS / QTL summary statistics, or any
+    "pre-computed associations" — the step that PRODUCES that table is
+    already done. Exclude the recompute atom (`differential_expression`,
+    `differential_abundance_by_group`, or the modality's association
+    atom) and instead READ, filter (by significance / effect size),
+    rank, and interpret the supplied table. Re-deriving a result the SME
+    already handed you is wrong, not merely wasteful — and when the raw
+    measurements are NOT supplied (only the result table) the recompute
+    would fail at execution. Say which precomputed table you are reading
+    and which columns (effect size, p / q) you filter on. (The reading /
+    interpretation itself is a confirmatory analysis — bind a fitting
+    catalog atom or, if none fits, `agent_generated_analysis`; never
+    leave the DAG with only generic_summary.)
   Call `list_atoms` first if uncertain which atom ids exist. The
   composer prunes them plus their `discover_<id>` / `validate_<id>`
   companions; downstream atoms outside the exclusion set that lose
