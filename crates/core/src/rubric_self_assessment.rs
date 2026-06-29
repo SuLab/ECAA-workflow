@@ -230,7 +230,7 @@ mod tests {
     fn full_inputs() -> AssessmentInputs {
         AssessmentInputs {
             tool_count: 22,
-            atom_count: 97,
+            atom_count: 101,
             modality_count: 23,
             blocker_kind_count: 48,
             sandbox_default_strict: true,
@@ -256,7 +256,7 @@ mod tests {
     fn full_inputs_fixture_matches_live_baselines() {
         let f = full_inputs();
         assert_eq!(
-            f.atom_count, 97,
+            f.atom_count, 101,
             "rubric fixture atom_count is stale (WS-D2)"
         );
         assert_eq!(
