@@ -45,7 +45,15 @@ export function DocumentsPane({
   sessionId: string | null
 }): JSX.Element {
   const emittedPath = state?.emitted_package_path
-  const isEmitted = state?.state.kind === 'emitted'
+  // The deposit package is written at confirmation/emit time and persists
+  // through every later session state (running / blocked / done / finalized).
+  // Gate the documents + downloads on the emitted package PATH being present,
+  // NOT on the transient `state.kind === 'emitted'` snapshot — otherwise the
+  // whole tab (including every deposit download option) vanishes the moment
+  // execution starts, blocks (e.g. at a final_reporting validation gate), or
+  // completes, even though the package is on disk and the download endpoint
+  // happily serves all three profiles.
+  const packageEmitted = Boolean(emittedPath)
 
   // Probe for the final report. The server returns 404 if absent;
   // we use a HEAD request equivalent (small GET, ignore the body) to
@@ -53,7 +61,7 @@ export function DocumentsPane({
   // to "card hidden", never a tab-level error.
   const [hasFinalReport, setHasFinalReport] = useState<boolean | null>(null)
   useEffect(() => {
-    if (!sessionId || !isEmitted) {
+    if (!sessionId || !packageEmitted) {
       setHasFinalReport(null)
       return
     }
@@ -74,7 +82,7 @@ export function DocumentsPane({
     return () => {
       cancelled = true
     }
-  }, [sessionId, isEmitted])
+  }, [sessionId, packageEmitted])
 
   // Target for the inline markdown viewer modal: which markdown artifact
   // is currently open. `null` keeps the modal closed. The FinalReportCard
@@ -82,7 +90,7 @@ export function DocumentsPane({
   // single MarkdownViewer instance handles all of them.
   const [viewer, setViewer] = useState<ViewerTarget | null>(null)
 
-  if (!sessionId || !emittedPath || !isEmitted) {
+  if (!sessionId || !packageEmitted) {
     return (
       <PlaceholderPane>
         Documents the package emits will appear here after confirmation.

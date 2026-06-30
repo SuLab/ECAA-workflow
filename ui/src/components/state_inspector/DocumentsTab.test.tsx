@@ -1,7 +1,8 @@
-// Coverage: placeholder until state.kind === 'emitted'; lists the
-// four canonical artifacts once emitted with View links pointing at
-// the /artifacts/* endpoint; surfaces the final_report.md card when
-// final_reporting wrote one.
+// Coverage: placeholder until the package is emitted (emitted_package_path
+// present — independent of the live session kind, so downloads survive
+// blocked/done/finalized); lists the four canonical artifacts once emitted
+// with View links pointing at the /artifacts/* endpoint; surfaces the
+// final_report.md card when final_reporting wrote one.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render, waitFor } from '@testing-library/react'
@@ -45,15 +46,34 @@ describe('DocumentsPane', () => {
     expect(getByText(/Documents the package emits/i)).toBeInTheDocument()
   })
 
-  it('renders placeholder when state.kind is not emitted', () => {
+  it('renders placeholder before emit (no emitted_package_path)', () => {
     const state = makeState({
       state: { kind: 'intake' } as unknown as SessionStateSnapshot['state'],
-      emitted_package_path: '/some/path',
+      emitted_package_path: undefined,
     })
     const { getByText } = render(
       <DocumentsPane state={state} sessionId="s1" />,
     )
     expect(getByText(/Documents the package emits/i)).toBeInTheDocument()
+  })
+
+  it('shows the deposit download options once the package is emitted even when the session is blocked (regression)', () => {
+    // A fully-executed run that is blocked at a final_reporting validation
+    // gate still has its package on disk; the download endpoint serves all
+    // three profiles. Gating on the transient `state.kind === "emitted"`
+    // snapshot used to hide the entire tab (and every download) here.
+    mockFinalReport(404)
+    const state = makeState({
+      state: { kind: 'blocked' } as unknown as SessionStateSnapshot['state'],
+      emitted_package_path: '/abs/path/to/package',
+    })
+    const { getByTestId, queryByText } = render(
+      <DocumentsPane state={state} sessionId="s1" />,
+    )
+    expect(queryByText(/Documents the package emits/i)).toBeNull()
+    expect(getByTestId('download-deposit-minimal')).toBeInTheDocument()
+    expect(getByTestId('download-deposit-reexecutable')).toBeInTheDocument()
+    expect(getByTestId('download-deposit-full')).toBeInTheDocument()
   })
 
   it('lists the four canonical artifacts as links to /artifacts/ when emitted', () => {
@@ -142,7 +162,7 @@ describe('DocumentsPane', () => {
       <DocumentsPane state={state} sessionId="s1" />,
     )
     const link = getByLabelText(
-      'Download entire package as gzipped tar archive',
+      'Download full working package as gzipped tar archive',
     ) as HTMLAnchorElement
     expect(link.tagName).toBe('A')
     expect(link.getAttribute('href')).toBe(

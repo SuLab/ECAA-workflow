@@ -813,15 +813,92 @@ export interface DiscoveryDecision {
   auto_picked?: boolean
 }
 
+/// Normalize a raw `decision.json` artifact into the `DiscoveryDecision`
+/// shape the BlockerCard discovery picker consumes.
+///
+/// The agent's current `decision.json` schema records the scored method
+/// pool as `{ chosen, candidate_pool_full: [{ method_id, rank,
+/// composite_score, rationale, ... }] }` — it does NOT carry the legacy
+/// top-level `top_candidate` / `runner_ups` / `scores` fields the UI was
+/// written against. Without this adapter `decision.top_candidate` reads
+/// `undefined`, so the picker renders a single blank radio marked
+/// "★ RECOMMENDED (only candidate)" — the reported symptom where the SME
+/// sees one unlabeled "recommended" option with no real choices.
+///
+/// This maps the rich pool back onto the legacy fields:
+///   - top_candidate ← `chosen` (the agent's recommendation) or rank-1
+///   - runner_ups    ← every other method, rank-ordered
+///   - scores        ← `composite_score` normalized from the 0–5 scoring
+///                     scale to the 0–1 scale the card's "score X/1.0"
+///                     label expects
+///   - rationale     ← top-level rationale or the rank-1 method's rationale
+/// A decision that already carries `top_candidate` is returned unchanged,
+/// so legacy artifacts keep working.
+export function normalizeDiscoveryDecision(
+  raw: unknown,
+): DiscoveryDecision | null {
+  if (!raw || typeof raw !== 'object') return null
+  const d = raw as Record<string, unknown>
+  // Already in the shape the UI expects — pass through untouched.
+  if (typeof d.top_candidate === 'string' && d.top_candidate.length > 0) {
+    return raw as DiscoveryDecision
+  }
+  const pool = Array.isArray(d.candidate_pool_full)
+    ? (d.candidate_pool_full as Array<Record<string, unknown>>)
+    : []
+  const chosen = typeof d.chosen === 'string' ? (d.chosen as string) : ''
+  // Nothing rich to adapt and no legacy fields — hand back as-is so
+  // callers still get the task_id / any other fields the agent wrote.
+  if (pool.length === 0 && !chosen) {
+    return raw as DiscoveryDecision
+  }
+  const sorted = [...pool].sort((a, b) => {
+    const ra = typeof a.rank === 'number' ? (a.rank as number) : Number.MAX_SAFE_INTEGER
+    const rb = typeof b.rank === 'number' ? (b.rank as number) : Number.MAX_SAFE_INTEGER
+    return ra - rb
+  })
+  const methodIds = sorted
+    .map((c) => c.method_id)
+    .filter((m): m is string => typeof m === 'string' && m.length > 0)
+  const top = chosen || methodIds[0] || ''
+  const runner_ups = methodIds.filter((m) => m !== top)
+  const scores: Record<string, number> = {}
+  for (const c of sorted) {
+    if (typeof c.method_id === 'string' && typeof c.composite_score === 'number') {
+      // composite_score is clamped to [0, 5] server-side; the radio
+      // renders "score X/1.0", so normalize onto the 0–1 scale.
+      scores[c.method_id] = (c.composite_score as number) / 5
+    }
+  }
+  const topEntry = sorted.find((c) => c.method_id === top)
+  return {
+    task_id: typeof d.task_id === 'string' ? (d.task_id as string) : '',
+    top_candidate: top,
+    runner_ups,
+    scores: Object.keys(scores).length > 0 ? scores : undefined,
+    rationale:
+      typeof d.rationale === 'string'
+        ? (d.rationale as string)
+        : typeof topEntry?.rationale === 'string'
+          ? (topEntry.rationale as string)
+          : undefined,
+    auto_picked: typeof d.auto_picked === 'boolean' ? (d.auto_picked as boolean) : undefined,
+  }
+}
+
 /// Read a task's decision.json artifact. Returns null on 404 so the
-/// BlockerCard can fall back to plain-text reason display.
+/// BlockerCard can fall back to plain-text reason display. The raw
+/// artifact is run through `normalizeDiscoveryDecision` so the current
+/// `{ chosen, candidate_pool_full }` schema renders every scored
+/// candidate (not a single blank "recommended" radio).
 export async function getTaskDecision(
   sessionId: string,
   taskId: string,
 ): Promise<DiscoveryDecision | null> {
-  return jsonFetchOrNull(
+  const raw = await jsonFetchOrNull<unknown>(
     `${sessionUrl(sessionId, 'artifacts/runtime/outputs')}/${encodeURIComponent(taskId)}/decision.json`,
   )
+  return normalizeDiscoveryDecision(raw)
 }
 
 /// Method-landscape artifact produced once per analysis by the

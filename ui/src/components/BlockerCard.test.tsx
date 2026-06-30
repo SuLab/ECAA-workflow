@@ -312,6 +312,69 @@ describe('BlockerCard — discovery-approval variant', () => {
     expect(screen.getByText(/best-practice scorer pick/)).toBeInTheDocument()
   })
 
+  // Regression: the agent's current decision.json schema records the
+  // scored pool as { chosen, candidate_pool_full:[{method_id, rank,
+  // composite_score, rationale}] } with NO legacy top_candidate field.
+  // Before the getTaskDecision adapter, decision.top_candidate read
+  // undefined → the picker rendered a single blank radio marked
+  // "★ RECOMMENDED (only candidate)" — the reported bug where the SME
+  // sees one unlabeled "recommended" option. Assert every scored method
+  // now renders as a named, selectable candidate.
+  const richReasonWithDecision =
+    'Awaiting SME approval for sequence_trimming. Full decision: runtime/outputs/discover_sequence_trimming/decision.json'
+  const richDecisionBody = {
+    task_id: 'discover_sequence_trimming',
+    chosen: 'fastp',
+    candidate_pool_full: [
+      {
+        method_id: 'fastp',
+        rank: 1,
+        tier: 'defaultRecommended',
+        composite_score: 4.8,
+        rationale: 'fast all-in-one adapter + quality trimmer',
+      },
+      { method_id: 'trim_galore', rank: 2, tier: 'alternative', composite_score: 4.5 },
+      { method_id: 'cutadapt', rank: 3, tier: 'alternative', composite_score: 4.2 },
+      { method_id: 'trimmomatic', rank: 4, tier: 'alternative', composite_score: 3.9 },
+    ],
+  }
+
+  it('renders every scored candidate for the {chosen, candidate_pool_full} schema (no blank "recommended" radio)', async () => {
+    mockFetch([
+      jsonResponse(200, richDecisionBody),
+      jsonResponse(404, 'no blocker.json'),
+    ])
+    render(
+      <BlockerCard
+        reason={richReasonWithDecision}
+        recoveryHint="pick a method"
+        onUnblock={vi.fn()}
+        sessionId="s1"
+      />,
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText('Candidates for discover_sequence_trimming'),
+      ).toBeInTheDocument(),
+    )
+    // All four scored methods render as named, selectable radios.
+    expect(screen.getByLabelText('fastp')).toBeChecked()
+    expect(screen.getByLabelText('trim_galore')).toBeInTheDocument()
+    expect(screen.getByLabelText('cutadapt')).toBeInTheDocument()
+    expect(screen.getByLabelText('trimmomatic')).toBeInTheDocument()
+    // The recommended (chosen) method is starred...
+    expect(
+      screen.getByText('★ RECOMMENDED', { exact: true }),
+    ).toBeInTheDocument()
+    // ...and the degraded single-blank-option states never appear.
+    expect(screen.queryByText(/only candidate/i)).toBeNull()
+    // composite_score 4.8 on the 0–5 scale → 0.96 on the card's /1.0 scale.
+    expect(screen.getByText(/score 0\.96/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/fast all-in-one adapter . quality trimmer/),
+    ).toBeInTheDocument()
+  })
+
   it('degrades to plain-text reason when sessionId is null', () => {
     render(
       <BlockerCard

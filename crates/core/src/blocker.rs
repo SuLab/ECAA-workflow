@@ -294,7 +294,16 @@ pub fn parse_agent_blocker_kind_with_envelope(
         };
     }
 
-    match raw_kind {
+    // The agent writes `blocker_kind` using the PascalCase enum-variant
+    // name it sees in its prompt schema (observed: "AwaitingSmeApproval"),
+    // while the dispatch arms below are snake_case agent-vocab tokens.
+    // Without normalization a PascalCase value misses every typed arm and
+    // silently falls through to the `unknown` → `AwaitingStructuredDecision`
+    // bucket, losing the typed `AwaitingSmeApproval` / `AwaitingSmeSelection`
+    // shape (wrong card title + button + routing). Fold both casings to the
+    // snake_case token before matching.
+    let kind_token = normalize_blocker_kind_token(raw_kind);
+    match kind_token.as_str() {
         // Agent vocabulary includes `missing_input` for the "upstream
         // stage didn't produce the file this one needs" case. Without
         // an explicit arm this
@@ -401,8 +410,8 @@ pub fn parse_agent_blocker_kind_with_envelope(
             // default since it puts the decision_points_for_sme picker
             // in front of the SME.
             eprintln!(
-                "[blocker_kind_unknown] task={} kind={:?} — mapping to AwaitingStructuredDecision",
-                task_id, unknown
+                "[blocker_kind_unknown] task={} raw={:?} normalized={:?} — mapping to AwaitingStructuredDecision",
+                task_id, raw_kind, unknown
             );
             BlockerKind::AwaitingStructuredDecision {
                 task_id: task_id.to_string(),
@@ -411,6 +420,35 @@ pub fn parse_agent_blocker_kind_with_envelope(
             }
         }
     }
+}
+
+/// Fold an agent-written `blocker_kind` token to the snake_case form the
+/// dispatch arms match on. Accepts both the PascalCase enum-variant name
+/// the agent emits from its prompt schema (e.g. "AwaitingSmeApproval")
+/// and the snake_case agent vocab (e.g. "awaiting_sme_approval"); a value
+/// that is already snake_case (or all-lowercase) is just trimmed and
+/// lowercased. Consecutive capitals are NOT split into single letters —
+/// the enum names use PascalCase words ("Sme", not "SME").
+fn normalize_blocker_kind_token(raw: &str) -> String {
+    let s = raw.trim();
+    if s.is_empty() {
+        return String::new();
+    }
+    if !s.chars().any(|c| c.is_ascii_uppercase()) {
+        return s.to_ascii_lowercase();
+    }
+    let mut out = String::with_capacity(s.len() + 4);
+    for (i, ch) in s.chars().enumerate() {
+        if ch.is_ascii_uppercase() {
+            if i != 0 && !out.ends_with('_') {
+                out.push('_');
+            }
+            out.push(ch.to_ascii_lowercase());
+        } else {
+            out.push(ch);
+        }
+    }
+    out
 }
 
 fn one_line_summary(text: &str, max: usize) -> String {
@@ -992,6 +1030,59 @@ mod tests {
                 assert_eq!(runner_ups, vec!["cca_integratelayers", "scvi"]);
             }
             _ => panic!("expected AwaitingSmeApproval, got {:?}", out),
+        }
+    }
+
+    #[test]
+    fn normalize_blocker_kind_token_folds_pascalcase_to_snake() {
+        assert_eq!(
+            normalize_blocker_kind_token("AwaitingSmeApproval"),
+            "awaiting_sme_approval"
+        );
+        assert_eq!(
+            normalize_blocker_kind_token("AwaitingSmeSelection"),
+            "awaiting_sme_selection"
+        );
+        // Already snake_case / lowercase passes through (just trimmed).
+        assert_eq!(
+            normalize_blocker_kind_token("  awaiting_sme_input "),
+            "awaiting_sme_input"
+        );
+        assert_eq!(
+            normalize_blocker_kind_token("data_shape_mismatch"),
+            "data_shape_mismatch"
+        );
+    }
+
+    #[test]
+    fn mapper_accepts_pascalcase_blocker_kind_from_agent() {
+        // Regression: the agent writes `blocker_kind` as the PascalCase
+        // enum-variant name ("AwaitingSmeApproval", observed in the Himes
+        // run's blocker.json). Before case-folding this missed the
+        // snake_case arm and degraded to AwaitingStructuredDecision.
+        let blocker = serde_json::json!({
+            "stage_class": "differential_expression",
+            "blocker_kind": "AwaitingSmeApproval",
+            "top_candidate": "deseq2",
+            "runner_ups": ["limma_voom", "edger"],
+        });
+        let out = parse_agent_blocker_kind(
+            "AwaitingSmeApproval",
+            "discover_differential_expression",
+            "Awaiting SME approval for differential_expression",
+            Some(&blocker),
+        );
+        match out {
+            BlockerKind::AwaitingSmeApproval {
+                stage_id,
+                top_candidate,
+                runner_ups,
+            } => {
+                assert_eq!(stage_id, "differential_expression");
+                assert_eq!(top_candidate, "deseq2");
+                assert_eq!(runner_ups, vec!["limma_voom", "edger"]);
+            }
+            _ => panic!("expected AwaitingSmeApproval from PascalCase, got {:?}", out),
         }
     }
 

@@ -12,7 +12,7 @@
 // status). Mismatches are highlighted; a "Re-verify" button on each
 // row POSTs the verify endpoint and refreshes the row.
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import type { DAG } from '../../types/DAG'
 import type { ClaimVerificationReport } from '../../types/ClaimVerificationReport'
 import type { ClaimVerdict } from '../../types/ClaimVerdict'
@@ -295,9 +295,8 @@ export function ClaimsTab({ sessionId, dag }: Props): JSX.Element {
           {rows.map((row) => {
             const isOpen = expanded === row.taskId
             return (
-              <>
+              <Fragment key={row.taskId}>
                 <tr
-                  key={row.taskId}
                   onClick={() =>
                     setExpanded(isOpen ? null : row.taskId)
                   }
@@ -372,7 +371,7 @@ export function ClaimsTab({ sessionId, dag }: Props): JSX.Element {
                     </td>
                   </tr>
                 ) : null}
-              </>
+              </Fragment>
             )
           })}
         </tbody>
