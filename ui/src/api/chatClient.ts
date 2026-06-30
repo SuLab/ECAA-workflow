@@ -901,6 +901,30 @@ export async function getTaskDecision(
   return normalizeDiscoveryDecision(raw)
 }
 
+/// One markdown document in the emitted package, addressable through the
+/// path-jailed `/artifacts/<path>` route for inline rendering.
+export interface PackageMarkdownDoc {
+  /// Package-relative path — feed to `artifactUrl(sessionId, path)`.
+  path: string
+  /// Bare filename for display.
+  name: string
+  /// `"package"` for top-level docs, else the owning task id.
+  group: string
+}
+
+/// List EVERY markdown document the package emitted (top-level
+/// PROMPT/CONTEXT/README/etc. + every per-task narrative/report) so the
+/// Documents tab can offer inline rendering for all of them rather than a
+/// hardcoded few. Returns `[]` before emit / on any error.
+export async function getMarkdownIndex(
+  sessionId: string,
+): Promise<PackageMarkdownDoc[]> {
+  const r = await jsonFetchOrNull<{ docs: PackageMarkdownDoc[] }>(
+    sessionUrl(sessionId, 'markdown-index'),
+  )
+  return r?.docs ?? []
+}
+
 /// Method-landscape artifact produced once per analysis by the
 /// `survey_method_landscape` agent task. Shape conforms to
 /// config/stage-atoms/schemas/method_landscape_matrix.schema.json (the

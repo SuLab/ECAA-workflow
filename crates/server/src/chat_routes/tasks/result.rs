@@ -991,11 +991,100 @@ fn compute_active_progress(
     }
 }
 
+/// One markdown document in the emitted package, addressable through the
+/// existing path-jailed `/artifacts/*` route for inline rendering.
+#[derive(serde::Serialize)]
+struct MarkdownDoc {
+    /// Package-relative path (forward slashes) — feed to `/artifacts/<path>`.
+    path: String,
+    /// Bare filename for display.
+    name: String,
+    /// `"package"` for top-level docs, else the owning `runtime/outputs/<task>` id.
+    group: String,
+}
+
+/// Recursively collect every `*.md` in the emitted package so the
+/// Documents tab can surface ALL produced markdown (not just the three
+/// hardcoded ones) for inline rendering. The sealed `policies/` doc
+/// catalog and VCS metadata are skipped; everything else (top-level
+/// PROMPT/CONTEXT/README/AGENT-EXECUTOR/SNAPSHOTS, runtime operational
+/// docs, and every per-task narrative/report) is included.
+fn scan_markdown_docs(pkg: &std::path::Path) -> Vec<MarkdownDoc> {
+    let mut out: Vec<MarkdownDoc> = Vec::new();
+    for entry in walkdir::WalkDir::new(pkg)
+        .into_iter()
+        .filter_entry(|e| {
+            let name = e.file_name().to_string_lossy();
+            // Skip the sealed governance catalog + VCS dir wholesale.
+            !(e.file_type().is_dir() && (name == "policies" || name == ".git"))
+        })
+        .flatten()
+    {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let p = entry.path();
+        let is_md = p
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.eq_ignore_ascii_case("md"))
+            .unwrap_or(false);
+        if !is_md {
+            continue;
+        }
+        let Ok(rel) = p.strip_prefix(pkg) else {
+            continue;
+        };
+        let rel_str = rel.to_string_lossy().replace('\\', "/");
+        let name = p
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| rel_str.clone());
+        let group = rel_str
+            .strip_prefix("runtime/outputs/")
+            .and_then(|s| s.split('/').next())
+            .map(|t| t.to_string())
+            .unwrap_or_else(|| "package".to_string());
+        out.push(MarkdownDoc {
+            path: rel_str,
+            name,
+            group,
+        });
+    }
+    // Top-level package docs first, then per-task groups, path-sorted within.
+    out.sort_by(|a, b| {
+        (a.group != "package", &a.group, &a.path).cmp(&(b.group != "package", &b.group, &b.path))
+    });
+    out
+}
+
+/// `GET /session/:id/markdown-index` — every markdown document in the
+/// emitted package, for the Documents tab's inline-render list.
+pub(crate) async fn get_markdown_index(
+    State(app): State<ChatAppState>,
+    Path(session_id): Path<Uuid>,
+) -> impl IntoResponse {
+    let Some(session) = app.conversation.get_session(session_id).await else {
+        return (StatusCode::NOT_FOUND, "session not found").into_response();
+    };
+    let Some(pkg) = session.emitted_package_path.clone() else {
+        return Json(serde_json::json!({ "docs": [] })).into_response();
+    };
+    let docs = tokio::task::spawn_blocking(move || scan_markdown_docs(&pkg))
+        .await
+        .unwrap_or_default();
+    Json(serde_json::json!({ "docs": docs })).into_response()
+}
+
 pub(crate) fn routes() -> axum::Router<ChatAppState> {
     axum::Router::new()
         .route(
             "/api/chat/session/:id/task/:task_id/result",
             axum::routing::get(get_task_result),
+        )
+        .route(
+            "/api/chat/session/:id/markdown-index",
+            axum::routing::get(get_markdown_index),
         )
         .route(
             "/api/chat/session/:id/artifacts/*path",
@@ -1021,6 +1110,49 @@ pub(crate) fn routes() -> axum::Router<ChatAppState> {
             "/api/chat/session/:id/active-tasks",
             axum::routing::get(get_active_tasks),
         )
+}
+
+#[cfg(test)]
+mod markdown_index_tests {
+    use super::scan_markdown_docs;
+
+    #[test]
+    fn scans_all_md_excludes_policies_and_groups_by_task() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path();
+        std::fs::write(p.join("README.md"), "# r").unwrap();
+        std::fs::write(p.join("PROMPT.md"), "# p").unwrap();
+        std::fs::create_dir_all(p.join("runtime/outputs/differential_expression")).unwrap();
+        std::fs::write(
+            p.join("runtime/outputs/differential_expression/summary.md"),
+            "# s",
+        )
+        .unwrap();
+        // sealed governance catalog — must be excluded
+        std::fs::create_dir_all(p.join("policies")).unwrap();
+        std::fs::write(p.join("policies/governance.md"), "# g").unwrap();
+        // non-markdown — ignored
+        std::fs::write(p.join("data.json"), "{}").unwrap();
+
+        let docs = scan_markdown_docs(p);
+        let paths: Vec<&str> = docs.iter().map(|d| d.path.as_str()).collect();
+        assert!(paths.contains(&"README.md"));
+        assert!(paths.contains(&"PROMPT.md"));
+        assert!(paths.contains(&"runtime/outputs/differential_expression/summary.md"));
+        assert!(
+            !paths.iter().any(|p| p.contains("policies/")),
+            "policies/ catalog must be excluded, got {paths:?}"
+        );
+        assert!(!paths.iter().any(|p| p.ends_with(".json")));
+
+        // per-task narratives are grouped by their owning task id
+        let summary = docs.iter().find(|d| d.name == "summary.md").unwrap();
+        assert_eq!(summary.group, "differential_expression");
+        // top-level docs are grouped under "package" and sort first
+        let readme = docs.iter().find(|d| d.name == "README.md").unwrap();
+        assert_eq!(readme.group, "package");
+        assert_eq!(docs[0].group, "package");
+    }
 }
 
 #[cfg(test)]

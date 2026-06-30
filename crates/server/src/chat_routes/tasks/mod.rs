@@ -77,6 +77,7 @@ pub(super) const ROUTES: &[(&str, &str)] = &[
     ("POST", "/api/chat/session/:id/task/:task_id/rerun-script"),
     ("GET", "/api/chat/session/:id/stuck-tasks"),
     ("GET", "/api/chat/session/:id/active-tasks"),
+    ("GET", "/api/chat/session/:id/markdown-index"),
     ("POST", "/api/chat/session/:id/task/:task_id/impact-preview"),
     ("GET", "/api/chat/session/:id/task/:task_id/blocker"),
     ("POST", "/api/chat/session/:id/task/:task_id/sme-decisions"),

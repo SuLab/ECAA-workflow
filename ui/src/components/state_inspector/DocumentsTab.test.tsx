@@ -76,6 +76,55 @@ describe('DocumentsPane', () => {
     expect(getByTestId('download-deposit-full')).toBeInTheDocument()
   })
 
+  it('lists every package markdown doc with an inline View (markdown-index section)', async () => {
+    const docs = [
+      { path: 'PROMPT.md', name: 'PROMPT.md', group: 'package' },
+      {
+        path: 'runtime/outputs/differential_expression/summary.md',
+        name: 'summary.md',
+        group: 'differential_expression',
+      },
+      {
+        path: 'runtime/outputs/reporting/report.md',
+        name: 'report.md',
+        group: 'reporting',
+      },
+    ]
+    // URL-aware mock: markdown-index -> the doc list; everything else -> 404.
+    ;(globalThis as unknown as { fetch: typeof fetch }).fetch = vi.fn(
+      async (url: string) =>
+        String(url).includes('markdown-index')
+          ? new Response(JSON.stringify({ docs }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            })
+          : new Response('', { status: 404 }),
+    ) as unknown as typeof fetch
+    const state = makeState({
+      state: { kind: 'blocked' } as unknown as SessionStateSnapshot['state'],
+      emitted_package_path: '/abs/path/to/package',
+    })
+    const { getByTestId, queryByTestId } = render(
+      <DocumentsPane state={state} sessionId="s1" />,
+    )
+    await waitFor(
+      () => expect(queryByTestId('markdown-docs-section')).not.toBeNull(),
+      { timeout: 4000 },
+    )
+    // every produced markdown doc is listed...
+    expect(getByTestId('md-doc-PROMPT.md')).toBeInTheDocument()
+    expect(
+      getByTestId('md-doc-runtime/outputs/differential_expression/summary.md'),
+    ).toBeInTheDocument()
+    expect(
+      getByTestId('md-doc-runtime/outputs/reporting/report.md'),
+    ).toBeInTheDocument()
+    // ...and each offers an inline View affordance.
+    expect(
+      getByTestId('md-view-runtime/outputs/reporting/report.md'),
+    ).toBeInTheDocument()
+  })
+
   it('lists the four canonical artifacts as links to /artifacts/ when emitted', () => {
     mockFinalReport(404) // no final report — only artifacts
     const state = makeState({

@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import {
   artifactUrl,
   depositPackageUrl,
+  getMarkdownIndex,
+  type PackageMarkdownDoc,
   type SessionStateSnapshot,
 } from '../../api/chatClient'
 import { PlaceholderPane } from './common'
@@ -89,6 +91,29 @@ export function DocumentsPane({
   // and every markdown ArtifactRowView write into this same state so a
   // single MarkdownViewer instance handles all of them.
   const [viewer, setViewer] = useState<ViewerTarget | null>(null)
+
+  // Every markdown document the package emitted (top-level docs + every
+  // per-task narrative/report), so each is reachable for inline rendering
+  // — not just the three hardcoded canonical files below. Best-effort:
+  // empty list on error keeps the rest of the tab working.
+  const [mdDocs, setMdDocs] = useState<PackageMarkdownDoc[]>([])
+  useEffect(() => {
+    if (!sessionId || !packageEmitted) {
+      setMdDocs([])
+      return
+    }
+    let cancelled = false
+    getMarkdownIndex(sessionId)
+      .then((docs) => {
+        if (!cancelled) setMdDocs(docs)
+      })
+      .catch(() => {
+        if (!cancelled) setMdDocs([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [sessionId, packageEmitted])
 
   if (!sessionId || !packageEmitted) {
     return (
@@ -247,6 +272,89 @@ export function DocumentsPane({
           />
         ))}
       </ul>
+
+      {mdDocs.length > 0 && (
+        <div style={{ marginTop: '1.25rem' }} data-testid="markdown-docs-section">
+          <h3
+            style={{
+              margin: '0 0 0.35rem',
+              fontSize: '0.95rem',
+              color: 'var(--color-text-primary)',
+            }}
+          >
+            Markdown documents ({mdDocs.length})
+          </h3>
+          <p
+            style={{
+              margin: '0 0 0.5rem',
+              fontSize: '0.76rem',
+              color: 'var(--color-text-secondary)',
+              lineHeight: 1.45,
+            }}
+          >
+            Every markdown file the package produced — top-level docs plus each
+            stage's narrative/report. “View inline” renders it formatted in the
+            browser.
+          </p>
+          <ul
+            aria-label="All markdown documents"
+            style={{ listStyle: 'none', padding: 0, margin: 0, fontSize: '0.83rem' }}
+          >
+            {mdDocs.map((d) => (
+              <li
+                key={d.path}
+                data-testid={`md-doc-${d.path}`}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.6rem',
+                  padding: '0.3rem 0',
+                  borderBottom: '1px solid var(--color-border-subtle, #eee)',
+                }}
+              >
+                <code style={{ fontFamily: 'ui-monospace, monospace' }}>
+                  {d.name}
+                </code>
+                <span
+                  style={{ fontSize: '0.72rem', color: 'var(--color-text-faint)' }}
+                  title={d.path}
+                >
+                  {d.group === 'package' ? 'package' : d.group}
+                </span>
+                <span
+                  style={{ marginLeft: 'auto', display: 'flex', gap: '0.6rem', alignItems: 'center' }}
+                >
+                  <button
+                    type="button"
+                    data-testid={`md-view-${d.path}`}
+                    onClick={() => setViewer({ path: d.path, filename: d.name })}
+                    style={{
+                      border: 'none',
+                      background: 'none',
+                      padding: 0,
+                      cursor: 'pointer',
+                      color: 'var(--color-link, #2563eb)',
+                      fontSize: '0.8rem',
+                      textDecoration: 'underline',
+                    }}
+                  >
+                    View inline
+                  </button>
+                  <a
+                    href={artifactUrl(sessionId, d.path)}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ fontSize: '0.76rem', color: 'var(--color-text-secondary)' }}
+                  >
+                    raw
+                  </a>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <p
         style={{
           marginTop: '1rem',

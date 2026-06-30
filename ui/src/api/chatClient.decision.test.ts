@@ -1,5 +1,31 @@
-import { describe, expect, it } from 'vitest'
-import { normalizeDiscoveryDecision } from './chatClient'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { getMarkdownIndex, normalizeDiscoveryDecision } from './chatClient'
+
+describe('getMarkdownIndex', () => {
+  afterEach(() => vi.restoreAllMocks())
+  it('returns the docs array from the markdown-index endpoint', async () => {
+    ;(globalThis as unknown as { fetch: typeof fetch }).fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            docs: [
+              { path: 'README.md', name: 'README.md', group: 'package' },
+              {
+                path: 'runtime/outputs/reporting/report.md',
+                name: 'report.md',
+                group: 'reporting',
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+    ) as unknown as typeof fetch
+    const docs = await getMarkdownIndex('s1')
+    expect(docs).toHaveLength(2)
+    expect(docs[0]!.name).toBe('README.md')
+    expect(docs[1]!.group).toBe('reporting')
+  })
+})
 
 describe('normalizeDiscoveryDecision', () => {
   it('maps the rich { chosen, candidate_pool_full } schema onto the legacy fields', () => {
