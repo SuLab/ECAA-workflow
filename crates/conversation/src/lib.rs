@@ -53,6 +53,7 @@ pub mod anthropic;
 /// [`session::ConfirmationToken::granted_by`].
 pub mod audit_actor;
 pub mod batcher;
+pub mod dataset_probe;
 // R2-N19 — provider-neutral LLM abstraction. The canonical `LlmBackend`
 // trait lives at `crate::llm::backend`; `crate::anthropic::backend`
 // stays as a thin re-export shim so existing imports keep working.

@@ -3784,6 +3784,87 @@ fn run_loop(
                     guard_flipped.push(tid.to_string());
                     continue;
                 }
+                // (b.5) Input-form mismatch guard — data_acquisition only.
+                // data_acquisition's contract emits raw_reads (data:2044
+                // FASTQ). For a GEO/SRA accession that deposits ONLY a
+                // processed count matrix, the agent writes a count matrix
+                // instead; if the composed DAG still carries the read-
+                // processing stages (sequence_trimming / alignment /
+                // quantification), the run silently stalls at alignment with
+                // no honest pass-through. Detect that shape↔data mismatch
+                // deterministically here and re-block with an actionable
+                // reason (the server maps the `[data_shape_mismatch]` prefix
+                // to BlockerKind::DataShapeMismatch) instead of letting it
+                // proceed to a dead-end. A counts-first DAG (read stages
+                // pruned) does NOT trip this; nor does a run that also
+                // materialized real FASTQ.
+                if tid.as_str() == "data_acquisition" {
+                    let da_dir = path.join("runtime/outputs").join(tid.as_str());
+                    let emitted_counts = std::fs::read_to_string(
+                        da_dir.join("matrices_index.json"),
+                    )
+                    .ok()
+                    .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                    .and_then(|v| {
+                        v.get("matrices").and_then(|m| m.as_array()).map(|arr| {
+                            arr.iter().any(|m| {
+                                m.get("matrix_type")
+                                    .and_then(|t| t.as_str())
+                                    .map(|t| t.to_ascii_lowercase().contains("count"))
+                                    .unwrap_or(false)
+                            })
+                        })
+                    })
+                    .unwrap_or(false);
+                    // If real FASTQ was also materialized, the read pipeline
+                    // can run — no mismatch.
+                    let has_fastq = result
+                        .get("artifacts")
+                        .and_then(|a| a.as_array())
+                        .map(|arr| {
+                            arr.iter().filter_map(|x| x.as_str()).any(|s| {
+                                let s = s.to_ascii_lowercase();
+                                s.ends_with(".fastq")
+                                    || s.ends_with(".fastq.gz")
+                                    || s.ends_with(".fq")
+                                    || s.ends_with(".fq.gz")
+                            })
+                        })
+                        .unwrap_or(false);
+                    // The composed DAG still expects raw reads iff any read-
+                    // processing stage survived composition. Read task ids
+                    // from WORKFLOW.json on disk (avoids re-borrowing the DAG
+                    // we are iterating mutably).
+                    let dag_expects_reads = std::fs::read(path.join("WORKFLOW.json"))
+                        .ok()
+                        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+                        .and_then(|wf| {
+                            wf.get("tasks").and_then(|t| t.as_object()).map(|tasks| {
+                                ["sequence_trimming", "alignment", "quantification"]
+                                    .iter()
+                                    .any(|s| tasks.contains_key(*s))
+                            })
+                        })
+                        .unwrap_or(false);
+                    if emitted_counts && !has_fastq && dag_expects_reads {
+                        let reason = "[data_shape_mismatch] expected=raw sequence reads (data:2044) \
+                             actual=processed count matrix (data:3917) — data_acquisition obtained only a \
+                             deposited count matrix for this accession, but the composed pipeline still \
+                             includes read-processing stages (sequence_trimming / alignment / quantification) \
+                             that require raw reads. Recovery: recompose counts-first (declare the deposited \
+                             count matrix as the starting point so trimming/alignment/quantification are \
+                             pruned), or supply an accession that provides raw reads (SRA)."
+                            .to_string();
+                        task.state = TaskState::Blocked {
+                            record: ecaa_workflow_core::dag::BlockedRecord {
+                                reason,
+                                attempts: vec![],
+                            },
+                        };
+                        guard_flipped.push(tid.to_string());
+                        continue;
+                    }
+                }
                 // (c) run the validator bundle on
                 // the completed task and append per-row results to
                 // `runtime/validation-reports.jsonl`. Pulled from the
