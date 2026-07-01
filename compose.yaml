@@ -1,0 +1,36 @@
+services:
+  ecaa:
+    image: ${ECAA_IMAGE:-ecaa-workflow-server:local}
+    init: true
+    # Host networking so the server binds the HOST's loopback directly. That makes
+    # it a genuine 127.0.0.1 bind, which the server treats as trusted-local: no
+    # ECAA_SERVER_AUTH_TOKEN required and the full /api works with zero friction —
+    # exactly like running the binary on the host. (Port-publishing instead forces a
+    # 0.0.0.0 container bind, which the server hard-requires a bearer token for, and
+    # the browser UI does not send one.) Linux: works as-is. macOS/Windows Docker
+    # Desktop: host networking is limited — see deploy/README.md for the alternative.
+    network_mode: host
+    user: "${ECAA_UID}:${ECAA_GID}"
+    group_add:
+      - "${DOCKER_GID:-0}"            # read the mounted docker socket (docker path)
+    environment:
+      HOME: "${HOME}"
+      ECAA_BIND_ADDR: "127.0.0.1"     # loopback on the host => trusted-local, no token
+      ECAA_CONFIG_DIR: "/app/config"
+      ECAA_PACKAGE_ROOT: "${HOME}/.ecaa-workflow/packages"
+      ECAA_CHAT_SESSIONS_DIR: "${HOME}/.ecaa-workflow/sessions"
+      ECAA_AGENT_HOME_DIR: "${HOME}/.ecaa-workflow/agent-home"   # OUTSIDE the package tree
+      ECAA_HARNESS_BIN_PATH: "/usr/local/bin/ecaa-workflow-harness"
+    env_file:
+      - .env
+    volumes:
+      - "${ECAA_DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock"
+      - "${HOME}/.ecaa-workflow:${HOME}/.ecaa-workflow"          # state at IDENTICAL host path
+      - "${HOME}/.claude:${HOME}/.claude:ro"                     # subscription creds, read-only
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 30s
