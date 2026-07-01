@@ -77,6 +77,18 @@ ecaa-workflow intake \
 ecaa-workflow dag --package /tmp/ibd-package
 ```
 
+## Operate (container-runtime-only)
+
+With only Docker or (preferred) rootless Podman installed:
+
+```bash
+./deploy/ecaa up          # builds/pulls, starts the server on http://127.0.0.1:3000
+./deploy/ecaa doctor      # preflight: runtime, socket, creds
+```
+
+To run analyses, log in to Claude Code once so `~/.claude` holds subscription credentials
+(mounted read-only into the server). For shared-server / cloud / HPC, see [`deploy/`](deploy/).
+
 ## Test
 
 ```bash
