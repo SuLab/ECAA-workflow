@@ -1,0 +1,26 @@
+# Rootless Podman Quadlet unit. Install to ~/.config/containers/systemd/ then:
+#   loginctl enable-linger $USER
+#   systemctl --user daemon-reload && systemctl --user start ecaa-workflow
+# `podman generate systemd` is DEPRECATED — Quadlet is the current path (Podman >= 4.4; prefer 5.x).
+[Unit]
+Description=ECAA-workflow server
+After=network-online.target
+
+[Container]
+Image=ghcr.io/scripps/ecaa-workflow-server:latest
+AutoUpdate=registry
+PublishPort=127.0.0.1:3000:3000
+Volume=%h/.ecaa-workflow:%h/.ecaa-workflow:Z
+Volume=%h/.claude:%h/.claude:ro
+Volume=%t/podman/podman.sock:/var/run/docker.sock
+Environment=HOME=%h
+Environment=ECAA_BIND_ADDR=0.0.0.0
+Environment=ECAA_CONFIG_DIR=/app/config
+Environment=ECAA_PER_TASK_IMAGES=0
+EnvironmentFile=%h/.config/ecaa/ecaa.env
+
+[Service]
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
