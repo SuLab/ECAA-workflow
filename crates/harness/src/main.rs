@@ -3785,42 +3785,60 @@ fn run_loop(
                     continue;
                 }
                 // (b.5) Input-form mismatch guard — data_acquisition only.
-                // data_acquisition's contract emits raw_reads (data:2044
-                // FASTQ). For a GEO/SRA accession that deposits ONLY a
-                // processed count matrix, the agent writes a count matrix
-                // instead; if the composed DAG still carries the read-
-                // processing stages (sequence_trimming / alignment /
-                // quantification), the run silently stalls at alignment with
-                // no honest pass-through. Detect that shape↔data mismatch
+                // data_acquisition's contract emits the RAW input a composed
+                // DAG's first processing stage consumes: raw reads (data:2044
+                // FASTQ) for a sequencing DAG, or raw mass-spectrometry files
+                // (data:2536) for a proteomics DAG. For an accession that
+                // deposits ONLY a downstream/processed product (a count
+                // matrix, called peaks, a VCF, a BAM, a protein-abundance
+                // matrix, a taxonomy table, a methylation beta matrix, …),
+                // the agent materializes that product instead; if the
+                // composed DAG still carries the raw-input-consuming stage
+                // (sequence_trimming / alignment; or peptide_search /
+                // hla_peptide_search), the run silently stalls there with no
+                // honest pass-through. Detect that shape↔data mismatch
                 // deterministically here and re-block with an actionable
                 // reason (the server maps the `[data_shape_mismatch]` prefix
                 // to BlockerKind::DataShapeMismatch) instead of letting it
-                // proceed to a dead-end. A counts-first DAG (read stages
+                // proceed to a dead-end. A downstream-first DAG (raw stage
                 // pruned) does NOT trip this; nor does a run that also
-                // materialized real FASTQ.
+                // materialized the real raw input.
                 if tid.as_str() == "data_acquisition" {
                     let da_dir = path.join("runtime/outputs").join(tid.as_str());
-                    let emitted_counts =
+                    let matrices_index =
                         std::fs::read_to_string(da_dir.join("matrices_index.json"))
                             .ok()
-                            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-                            .map(|v| matrices_index_has_counts(&v))
-                            .unwrap_or(false);
-                    // If real FASTQ was also materialized, the read pipeline
-                    // can run — no mismatch.
+                            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok());
+                    // Which recognized downstream product (if any) did the
+                    // accession deposit? Detected from result.artifacts file
+                    // signatures + the matrices_index for count matrices.
+                    let product = deposited_downstream_product(result, matrices_index.as_ref());
+                    // If the real raw input was also materialized, the
+                    // corresponding pipeline can run — no mismatch.
                     let has_fastq = result_artifacts_have_fastq(result);
-                    // The composed DAG still expects raw reads iff any read-
-                    // processing stage survived composition. Read task ids
-                    // from WORKFLOW.json on disk (avoids re-borrowing the DAG
-                    // we are iterating mutably).
-                    let dag_expects_reads = std::fs::read(path.join("WORKFLOW.json"))
+                    let has_raw_ms = result_artifacts_have_raw_ms(result);
+                    // The composed DAG still expects a raw input iff a raw-
+                    // input-consuming stage survived composition. Read task
+                    // ids from WORKFLOW.json on disk (avoids re-borrowing the
+                    // DAG we are iterating mutably).
+                    let wf = std::fs::read(path.join("WORKFLOW.json"))
                         .ok()
-                        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-                        .map(|wf| workflow_has_read_processing_stages(&wf))
+                        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok());
+                    let dag_expects_reads = wf
+                        .as_ref()
+                        .map(workflow_has_read_processing_stages)
                         .unwrap_or(false);
-                    if let Some(reason) =
-                        input_form_mismatch_reason(emitted_counts, has_fastq, dag_expects_reads)
-                    {
+                    let dag_expects_ms = wf
+                        .as_ref()
+                        .map(workflow_has_ms_search_stage)
+                        .unwrap_or(false);
+                    if let Some(reason) = input_form_mismatch_reason(
+                        product.as_ref(),
+                        has_fastq,
+                        has_raw_ms,
+                        dag_expects_reads,
+                        dag_expects_ms,
+                    ) {
                         task.state = TaskState::Blocked {
                             record: ecaa_workflow_core::dag::BlockedRecord {
                                 reason,
@@ -4895,6 +4913,29 @@ fn watchdog_wall_clock_event_is_current(package_root: &Path, task_id: &str) -> b
 // Extracted from the completed-task poll loop so the shape↔data-mismatch
 // decision can be unit-tested against real package shapes without driving
 // a live execution.
+//
+// Shape of the mismatch (modality-general): `data_acquisition`'s contract
+// emits the RAW input a composed DAG's first processing stage consumes —
+// raw FASTQ (data:2044) for a sequencing DAG, raw mass-spectrometry files
+// (data:2536) for a proteomics DAG. For an accession that deposits ONLY a
+// DOWNSTREAM/processed product (a count matrix, called peaks, a VCF, a BAM,
+// a protein-abundance matrix, a taxonomy table, a methylation beta matrix,
+// …), the agent materializes that product instead. If the composed DAG
+// still carries a raw-input-consuming stage (sequence_trimming / alignment
+// for sequencing; peptide_search / hla_peptide_search for proteomics) the
+// run stalls silently at that stage with no honest pass-through. The guard
+// detects this deterministically and re-blocks with an actionable reason.
+// A downstream-first DAG (raw stage pruned) does NOT trip it, nor does a
+// run that also materialized the real raw input.
+
+/// A recognized deposited DOWNSTREAM/processed product, plus the EDAM data
+/// class it corresponds to, used to phrase the mismatch reason.
+struct DepositedProduct {
+    /// Human-readable product label, e.g. `"called peaks"`.
+    label: &'static str,
+    /// EDAM `data:` IRI for the product, e.g. `"data:1255"`.
+    iri: &'static str,
+}
 
 /// True iff any matrix in a `matrices_index.json` value has a count-like
 /// `matrix_type` (e.g. "raw_counts", "counts").
@@ -4912,26 +4953,153 @@ fn matrices_index_has_counts(v: &serde_json::Value) -> bool {
         .unwrap_or(false)
 }
 
-/// True iff a completed task's `result.artifacts` array names a FASTQ file
-/// (raw reads were actually materialized, so a read pipeline can run).
-fn result_artifacts_have_fastq(result: &serde_json::Value) -> bool {
+/// Iterate the string entries of a completed task's `result.artifacts`
+/// array, lowercased. Empty when the array is missing or malformed.
+fn result_artifact_names(result: &serde_json::Value) -> Vec<String> {
     result
         .get("artifacts")
         .and_then(|a| a.as_array())
         .map(|arr| {
-            arr.iter().filter_map(|x| x.as_str()).any(|s| {
-                let s = s.to_ascii_lowercase();
-                s.ends_with(".fastq")
-                    || s.ends_with(".fastq.gz")
-                    || s.ends_with(".fq")
-                    || s.ends_with(".fq.gz")
-            })
+            arr.iter()
+                .filter_map(|x| x.as_str())
+                .map(|s| s.to_ascii_lowercase())
+                .collect()
         })
-        .unwrap_or(false)
+        .unwrap_or_default()
 }
 
-/// True iff a `WORKFLOW.json` value still carries a read-processing stage
-/// (the composed DAG expects raw reads).
+/// True iff a completed task's `result.artifacts` array names a FASTQ file
+/// (raw reads were actually materialized, so a read pipeline can run).
+fn result_artifacts_have_fastq(result: &serde_json::Value) -> bool {
+    result_artifact_names(result).iter().any(|s| {
+        s.ends_with(".fastq")
+            || s.ends_with(".fastq.gz")
+            || s.ends_with(".fq")
+            || s.ends_with(".fq.gz")
+    })
+}
+
+/// True iff a completed task's `result.artifacts` array names a raw
+/// mass-spectrometry file (a proteomics search pipeline can run). Covers
+/// the heterogeneous vendor family peptide_search consumes: open formats
+/// (.mzml / .mzxml) and vendor natives (Thermo .raw, Bruker .d directory,
+/// .wiff/.wiff2). `.raw` is intentionally matched only in the MS sense
+/// here; a genomics run deposits no `.raw` artifact.
+fn result_artifacts_have_raw_ms(result: &serde_json::Value) -> bool {
+    result_artifact_names(result).iter().any(|s| {
+        s.ends_with(".mzml")
+            || s.ends_with(".mzxml")
+            || s.ends_with(".mzml.gz")
+            || s.ends_with(".raw")
+            || s.ends_with(".d")
+            || s.ends_with(".wiff")
+            || s.ends_with(".wiff2")
+    })
+}
+
+/// Classify the deposited DOWNSTREAM product materialized by
+/// `data_acquisition`, from `result.artifacts` file signatures and (for
+/// count matrices) the `matrices_index.json` value. Returns the FIRST
+/// recognized product; ordering is deliberate — more specific genomic
+/// products (peaks / variants / alignments) are tested before the generic
+/// count/abundance/tabular families so a `.narrowPeak` never reads as a
+/// counts matrix. Raw inputs (FASTQ / raw MS) are NOT products and are
+/// deliberately not matched here — they gate the mismatch elsewhere.
+fn deposited_downstream_product(
+    result: &serde_json::Value,
+    matrices_index: Option<&serde_json::Value>,
+) -> Option<DepositedProduct> {
+    let names = result_artifact_names(result);
+    let any = |exts: &[&str]| names.iter().any(|s| exts.iter().any(|e| s.ends_with(e)));
+
+    // Called peaks (ChIP-seq / ATAC-seq / CUT&Tag / STARR-seq): BED-family
+    // feature records + coverage tracks. EDAM data:1255 (Feature record).
+    if any(&[
+        ".narrowpeak",
+        ".broadpeak",
+        ".gappedpeak",
+        ".bed",
+        ".bed.gz",
+        ".bigwig",
+        ".bw",
+    ]) {
+        return Some(DepositedProduct {
+            label: "called peaks",
+            iri: "data:1255",
+        });
+    }
+    // Called variants: VCF. EDAM data:3498 (Sequence variations).
+    if any(&[".vcf", ".vcf.gz", ".bcf"]) {
+        return Some(DepositedProduct {
+            label: "called variants (VCF)",
+            iri: "data:3498",
+        });
+    }
+    // Deposited alignments: BAM / CRAM. EDAM data:0863 (Sequence
+    // alignment). A downstream product for any modality whose composed DAG
+    // still tries to (re)align raw reads.
+    if any(&[".bam", ".cram"]) {
+        return Some(DepositedProduct {
+            label: "deposited alignments (BAM/CRAM)",
+            iri: "data:0863",
+        });
+    }
+    // Taxonomy table (metagenomics): taxonomic profile. EDAM data:3028
+    // (Taxonomy). Matched on filename because the extension is generic
+    // tabular text.
+    if names
+        .iter()
+        .any(|s| s.contains("taxonomic_profile") || s.contains("taxonomy_table"))
+    {
+        return Some(DepositedProduct {
+            label: "taxonomy table",
+            iri: "data:3028",
+        });
+    }
+    // Protein-abundance matrix (proteomics): protein × sample abundance.
+    // ecaax:protein_abundance_matrix → EDAM data:2976 (Protein data).
+    if names.iter().any(|s| s.contains("protein_abundance")) {
+        return Some(DepositedProduct {
+            label: "protein-abundance matrix",
+            iri: "data:2976",
+        });
+    }
+    // Methylation beta matrix: per-CpG beta values. EDAM data:3917 reused
+    // as the closest count/measurement-matrix term.
+    if names
+        .iter()
+        .any(|s| s.contains("beta_matrix") || s.contains("cpg_methylation"))
+    {
+        return Some(DepositedProduct {
+            label: "methylation beta matrix",
+            iri: "data:3917",
+        });
+    }
+    // Count matrix: bulk/scRNA expression counts. Detected via the
+    // matrices_index.json `matrix_type` OR a materialized 10x/AnnData
+    // feature-barcode artifact (.mtx/.h5/.h5ad). EDAM data:3917.
+    let counts_via_index = matrices_index
+        .map(matrices_index_has_counts)
+        .unwrap_or(false);
+    let counts_via_files = any(&[".mtx", ".mtx.gz", ".h5", ".h5ad", ".loom"])
+        || names
+            .iter()
+            .any(|s| s.contains("feature_bc_matrix") || s.contains("count_matrix"));
+    if counts_via_index || counts_via_files {
+        return Some(DepositedProduct {
+            label: "processed count matrix",
+            iri: "data:3917",
+        });
+    }
+    None
+}
+
+/// True iff a `WORKFLOW.json` value still carries a raw-FASTQ-consuming
+/// stage (`sequence_trimming` or `alignment`) — the composed sequencing
+/// DAG expects raw reads. `quantification` is intentionally retained here
+/// for backward compatibility with the original guard: a scRNA/methylation
+/// DAG that carries `quantification` also carries alignment upstream, and
+/// treating it as read-expecting is conservative.
 fn workflow_has_read_processing_stages(wf: &serde_json::Value) -> bool {
     wf.get("tasks")
         .and_then(|t| t.as_object())
@@ -4943,39 +5111,74 @@ fn workflow_has_read_processing_stages(wf: &serde_json::Value) -> bool {
         .unwrap_or(false)
 }
 
-/// The guard's decision. Returns the actionable `[data_shape_mismatch]`
-/// block reason when `data_acquisition` obtained a processed count matrix
-/// (`emitted_counts`), materialized no raw FASTQ (`!has_fastq`), and the
-/// composed DAG still carries read-processing stages (`dag_expects_reads`)
-/// — the exact shape that otherwise stalls silently at alignment. Returns
-/// `None` (no block) for a counts-first DAG (read stages pruned) or a run
-/// that also produced real FASTQ.
+/// True iff a `WORKFLOW.json` value carries a raw-MS-consuming stage
+/// (`peptide_search` or `hla_peptide_search`) — the composed proteomics
+/// DAG expects raw mass-spectrometry files.
+fn workflow_has_ms_search_stage(wf: &serde_json::Value) -> bool {
+    wf.get("tasks")
+        .and_then(|t| t.as_object())
+        .map(|tasks| {
+            ["peptide_search", "hla_peptide_search"]
+                .iter()
+                .any(|s| tasks.contains_key(*s))
+        })
+        .unwrap_or(false)
+}
+
+/// The guard's decision (modality-general). `data_acquisition` deposited a
+/// downstream product (`product`, if any recognized type), materialized the
+/// real raw sequencing input iff `has_fastq`, materialized the real raw MS
+/// input iff `has_raw_ms`, and the composed DAG carries a raw-FASTQ stage
+/// iff `dag_expects_reads` and a raw-MS stage iff `dag_expects_ms`.
+///
+/// Returns the actionable `[data_shape_mismatch]` block reason when a
+/// deposited product coexists with a raw-input-consuming stage whose raw
+/// input was NOT materialized:
+///   - sequencing arm: product present, `!has_fastq`, `dag_expects_reads`;
+///   - proteomics arm: product present, `!has_raw_ms`, `dag_expects_ms`.
+/// Returns `None` for a downstream-first DAG (raw stage pruned), a run that
+/// materialized the real raw input, or a run with no deposited product.
 fn input_form_mismatch_reason(
-    emitted_counts: bool,
+    product: Option<&DepositedProduct>,
     has_fastq: bool,
+    has_raw_ms: bool,
     dag_expects_reads: bool,
+    dag_expects_ms: bool,
 ) -> Option<String> {
-    if emitted_counts && !has_fastq && dag_expects_reads {
-        Some(
+    let product = product?;
+    if dag_expects_reads && !has_fastq {
+        return Some(format!(
             "[data_shape_mismatch] expected=raw sequence reads (data:2044) \
-             actual=processed count matrix (data:3917) — data_acquisition obtained only a \
-             deposited count matrix for this accession, but the composed pipeline still \
-             includes read-processing stages (sequence_trimming / alignment / quantification) \
-             that require raw reads. Recovery: recompose counts-first (declare the deposited \
-             count matrix as the starting point so trimming/alignment/quantification are \
-             pruned), or supply an accession that provides raw reads (SRA)."
-                .to_string(),
-        )
-    } else {
-        None
+             actual={} ({}) — data_acquisition materialized only a deposited downstream \
+             product for this accession, but the composed pipeline still includes \
+             read-processing stages (sequence_trimming / alignment) that require raw reads. \
+             Recovery: recompose downstream-first (declare the deposited product as the \
+             starting point so trimming/alignment are pruned), or supply an accession that \
+             provides raw reads (e.g. SRA FASTQ).",
+            product.label, product.iri
+        ));
     }
+    if dag_expects_ms && !has_raw_ms {
+        return Some(format!(
+            "[data_shape_mismatch] expected=raw mass-spectrometry data (data:2536) \
+             actual={} ({}) — data_acquisition materialized only a deposited downstream \
+             product for this accession, but the composed pipeline still includes a \
+             spectra-search stage (peptide_search / hla_peptide_search) that requires raw MS \
+             files (.raw / .mzML / .d). Recovery: recompose downstream-first (declare the \
+             deposited product as the starting point so the search stage is pruned), or \
+             supply an accession that provides raw spectra (e.g. PRIDE .raw / .mzML).",
+            product.label, product.iri
+        ));
+    }
+    None
 }
 
 #[cfg(test)]
 mod input_form_guard_tests {
     use super::{
-        input_form_mismatch_reason, matrices_index_has_counts, result_artifacts_have_fastq,
-        workflow_has_read_processing_stages,
+        deposited_downstream_product, input_form_mismatch_reason, matrices_index_has_counts,
+        result_artifacts_have_fastq, result_artifacts_have_raw_ms,
+        workflow_has_ms_search_stage, workflow_has_read_processing_stages,
     };
     use serde_json::json;
 
@@ -5006,17 +5209,33 @@ mod input_form_guard_tests {
     #[test]
     fn faulty_package_shape_fails_loudly() {
         // Exactly the b0a4d222 scenario: counts emitted, no FASTQ, FASTQ DAG.
-        let emitted_counts = matrices_index_has_counts(&faulty_matrices_index());
+        let mi = faulty_matrices_index();
+        let product = deposited_downstream_product(&faulty_result(), Some(&mi));
         let has_fastq = result_artifacts_have_fastq(&faulty_result());
+        let has_raw_ms = result_artifacts_have_raw_ms(&faulty_result());
         let dag_expects_reads = workflow_has_read_processing_stages(&fastq_workflow());
-        assert!(emitted_counts, "raw_counts matrix must read as counts");
+        let dag_expects_ms = workflow_has_ms_search_stage(&fastq_workflow());
+        assert!(matrices_index_has_counts(&mi), "raw_counts matrix must read as counts");
+        assert_eq!(
+            product.as_ref().map(|p| p.label),
+            Some("processed count matrix"),
+            "count matrix must classify as the count-matrix product"
+        );
         assert!(!has_fastq, "count-matrix-only run has no FASTQ artifact");
         assert!(dag_expects_reads, "FASTQ DAG carries read-processing stages");
 
-        let reason = input_form_mismatch_reason(emitted_counts, has_fastq, dag_expects_reads)
-            .expect("guard MUST block the counts-into-FASTQ-DAG mismatch");
+        let reason = input_form_mismatch_reason(
+            product.as_ref(),
+            has_fastq,
+            has_raw_ms,
+            dag_expects_reads,
+            dag_expects_ms,
+        )
+        .expect("guard MUST block the counts-into-FASTQ-DAG mismatch");
         assert!(reason.starts_with("[data_shape_mismatch]"), "typed marker: {reason}");
-        assert!(reason.contains("Recovery: recompose counts-first"), "actionable: {reason}");
+        assert!(reason.contains("expected=raw sequence reads (data:2044)"), "expected side: {reason}");
+        assert!(reason.contains("processed count matrix (data:3917)"), "actual side: {reason}");
+        assert!(reason.contains("Recovery: recompose downstream-first"), "actionable: {reason}");
     }
 
     #[test]
@@ -5027,8 +5246,22 @@ mod input_form_guard_tests {
             "differential_expression": {}
         }});
         let dag_expects_reads = workflow_has_read_processing_stages(&wf);
+        let dag_expects_ms = workflow_has_ms_search_stage(&wf);
         assert!(!dag_expects_reads);
-        assert!(input_form_mismatch_reason(true, false, dag_expects_reads).is_none());
+        assert!(!dag_expects_ms);
+        let mi = faulty_matrices_index();
+        let product = deposited_downstream_product(&faulty_result(), Some(&mi));
+        assert!(product.is_some(), "product is still present, but no raw stage remains");
+        assert!(
+            input_form_mismatch_reason(
+                product.as_ref(),
+                false,
+                false,
+                dag_expects_reads,
+                dag_expects_ms
+            )
+            .is_none()
+        );
     }
 
     #[test]
@@ -5039,14 +5272,24 @@ mod input_form_guard_tests {
         ]});
         let has_fastq = result_artifacts_have_fastq(&result);
         assert!(has_fastq);
-        assert!(input_form_mismatch_reason(true, has_fastq, true).is_none());
+        // Even if a count product were also present, real FASTQ satisfies the
+        // read stages -> no mismatch on the sequencing arm.
+        let mi = faulty_matrices_index();
+        let product = deposited_downstream_product(&result, Some(&mi));
+        assert!(
+            input_form_mismatch_reason(product.as_ref(), has_fastq, false, true, false).is_none()
+        );
     }
 
     #[test]
-    fn raw_reads_run_without_counts_does_not_trip() {
-        // No matrices_index / no count matrix -> emitted_counts false.
+    fn raw_reads_run_without_product_does_not_trip() {
+        // No matrices_index / no deposited product -> product is None.
+        let result = json!({"artifacts": ["data/SRR1.fastq.gz", "manifest.json"]});
         assert!(!matrices_index_has_counts(&json!({"matrices": []})));
-        assert!(input_form_mismatch_reason(false, false, true).is_none());
+        let product = deposited_downstream_product(&result, Some(&json!({"matrices": []})));
+        // The FASTQ artifact is a raw input, NOT a product.
+        assert!(product.is_none(), "raw FASTQ is not a downstream product");
+        assert!(input_form_mismatch_reason(product.as_ref(), true, false, true, false).is_none());
     }
 
     #[test]
@@ -5058,6 +5301,185 @@ mod input_form_guard_tests {
             );
         }
         assert!(!matrices_index_has_counts(&json!({"matrices": [{"matrix_type": "fpkm"}]})));
+    }
+
+    // ── Generalized modality coverage ────────────────────────────────
+
+    fn seq_workflow() -> serde_json::Value {
+        // Any sequencing archetype: raw_qc → sequence_trimming → alignment.
+        json!({"tasks": {
+            "data_acquisition": {}, "raw_qc": {}, "sequence_trimming": {},
+            "alignment": {}, "peak_calling": {}, "reporting": {}
+        }})
+    }
+
+    #[test]
+    fn chip_atac_deposited_peaks_into_alignment_dag_blocks() {
+        // ChIP-seq / ATAC-seq: accession deposits called peaks
+        // (.narrowPeak/.bed) but the composed DAG still aligns raw reads.
+        for peak_file in ["results/peaks/consensus.narrowPeak", "results/peaks/regions.bed"] {
+            let result = json!({"artifacts": [
+                "cohort_manifest.tsv", "manifest.json", "result.json", peak_file
+            ]});
+            let product = deposited_downstream_product(&result, None)
+                .expect("peaks artifact must classify as a deposited product");
+            assert_eq!(product.label, "called peaks");
+            assert_eq!(product.iri, "data:1255");
+            assert!(!result_artifacts_have_fastq(&result));
+            let dag_reads = workflow_has_read_processing_stages(&seq_workflow());
+            let reason =
+                input_form_mismatch_reason(Some(&product), false, false, dag_reads, false)
+                    .expect("deposited peaks + alignment DAG (no FASTQ) MUST block");
+            assert!(reason.starts_with("[data_shape_mismatch]"), "typed: {reason}");
+            assert!(reason.contains("called peaks (data:1255)"), "product side: {reason}");
+            assert!(reason.contains("expected=raw sequence reads"), "expected side: {reason}");
+        }
+    }
+
+    #[test]
+    fn variant_deposited_vcf_into_alignment_dag_blocks() {
+        // Variant calling: accession deposits a VCF but the composed DAG
+        // still trims/aligns raw reads (variant_calling_germline shape).
+        let result = json!({"artifacts": [
+            "manifest.json", "result.json", "data/cohort.vcf.gz"
+        ]});
+        let wf = json!({"tasks": {
+            "data_acquisition": {}, "raw_qc": {}, "sequence_trimming": {},
+            "alignment": {}, "variant_calling": {}, "variant_filtering": {}
+        }});
+        let product = deposited_downstream_product(&result, None)
+            .expect("VCF artifact must classify as a deposited product");
+        assert_eq!(product.label, "called variants (VCF)");
+        assert_eq!(product.iri, "data:3498");
+        assert!(!result_artifacts_have_fastq(&result));
+        let dag_reads = workflow_has_read_processing_stages(&wf);
+        let reason = input_form_mismatch_reason(Some(&product), false, false, dag_reads, false)
+            .expect("deposited VCF + alignment DAG (no FASTQ) MUST block");
+        assert!(reason.starts_with("[data_shape_mismatch]"), "typed: {reason}");
+        assert!(reason.contains("called variants (VCF) (data:3498)"), "product side: {reason}");
+    }
+
+    #[test]
+    fn scrna_deposited_10x_counts_into_alignment_dag_blocks() {
+        // scRNA: accession deposits 10x feature-barcode counts
+        // (.mtx / .h5 / filtered_feature_bc_matrix) but the composed
+        // single_cell_de DAG still trims/aligns/quantifies raw reads.
+        for counts_file in [
+            "data/GSMxxxxxxx_matrix.mtx.gz",
+            "data/adata.h5ad",
+            "data/filtered_feature_bc_matrix.h5",
+        ] {
+            let result = json!({"artifacts": [
+                "cohort_manifest.tsv", "manifest.json", "result.json", counts_file
+            ]});
+            // matrices_index absent for a 10x deposit -> detection is via files.
+            let product = deposited_downstream_product(&result, None)
+                .unwrap_or_else(|| panic!("10x artifact {counts_file} must classify as counts"));
+            assert_eq!(product.label, "processed count matrix");
+            assert_eq!(product.iri, "data:3917");
+            assert!(!result_artifacts_have_fastq(&result));
+            let dag_reads = workflow_has_read_processing_stages(&fastq_workflow());
+            let reason =
+                input_form_mismatch_reason(Some(&product), false, false, dag_reads, false)
+                    .expect("deposited 10x counts + alignment DAG (no FASTQ) MUST block");
+            assert!(reason.starts_with("[data_shape_mismatch]"), "typed: {reason}");
+        }
+    }
+
+    #[test]
+    fn proteomics_deposited_abundance_into_search_dag_blocks() {
+        // Proteomics: accession deposits a protein-abundance matrix but the
+        // composed proteomics_dda/dia DAG still runs peptide_search, which
+        // requires raw MS files (.raw/.mzML/.d) that were NOT materialized.
+        let result = json!({"artifacts": [
+            "manifest.json", "result.json", "data/protein_abundance.tsv"
+        ]});
+        let wf = json!({"tasks": {
+            "data_acquisition": {}, "peptide_search": {},
+            "protein_quantification": {}, "differential_expression": {}
+        }});
+        let product = deposited_downstream_product(&result, None)
+            .expect("protein_abundance.tsv must classify as a deposited product");
+        assert_eq!(product.label, "protein-abundance matrix");
+        assert_eq!(product.iri, "data:2976");
+        assert!(!result_artifacts_have_raw_ms(&result), "no raw MS file present");
+        assert!(!result_artifacts_have_fastq(&result), "not a sequencing run");
+        let dag_reads = workflow_has_read_processing_stages(&wf);
+        let dag_ms = workflow_has_ms_search_stage(&wf);
+        assert!(!dag_reads, "proteomics DAG has no read-processing stage");
+        assert!(dag_ms, "proteomics DAG carries peptide_search");
+        let reason = input_form_mismatch_reason(Some(&product), false, false, dag_reads, dag_ms)
+            .expect("deposited abundance + peptide_search DAG (no raw MS) MUST block");
+        assert!(reason.starts_with("[data_shape_mismatch]"), "typed: {reason}");
+        assert!(
+            reason.contains("expected=raw mass-spectrometry data (data:2536)"),
+            "expected side: {reason}"
+        );
+        assert!(reason.contains("protein-abundance matrix (data:2976)"), "product side: {reason}");
+        assert!(reason.contains("peptide_search"), "actionable names the stage: {reason}");
+    }
+
+    #[test]
+    fn downstream_first_dag_no_raw_stage_does_not_block() {
+        // A recomposed downstream-first DAG (no sequence_trimming/alignment,
+        // no peptide_search): product present but nothing consumes a raw
+        // input -> no mismatch (the intended fixed shape for every modality).
+        let peaks_result = json!({"artifacts": [
+            "manifest.json", "result.json", "results/peaks/consensus.narrowPeak"
+        ]});
+        let wf = json!({"tasks": {
+            "data_acquisition": {}, "peak_annotation": {}, "motif_enrichment": {},
+            "reporting": {}
+        }});
+        let product = deposited_downstream_product(&peaks_result, None);
+        assert!(product.is_some(), "peaks are still a product");
+        let dag_reads = workflow_has_read_processing_stages(&wf);
+        let dag_ms = workflow_has_ms_search_stage(&wf);
+        assert!(!dag_reads && !dag_ms, "no raw-consuming stage survives");
+        assert!(
+            input_form_mismatch_reason(product.as_ref(), false, false, dag_reads, dag_ms)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn real_raw_ms_materialized_does_not_block() {
+        // Genuine proteomics raw run: .raw/.mzML present + peptide_search
+        // DAG -> consistent, no mismatch even if it also emitted a product.
+        let result = json!({"artifacts": [
+            "manifest.json", "result.json",
+            "data/sample1.raw", "data/sample2.mzML"
+        ]});
+        assert!(result_artifacts_have_raw_ms(&result));
+        let wf = json!({"tasks": {"data_acquisition": {}, "peptide_search": {}}});
+        let dag_ms = workflow_has_ms_search_stage(&wf);
+        assert!(dag_ms);
+        // product None here (raw MS is an input, not a product) -> no block.
+        let product = deposited_downstream_product(&result, None);
+        assert!(product.is_none(), "raw MS files are inputs, not products");
+        assert!(input_form_mismatch_reason(product.as_ref(), false, true, false, dag_ms).is_none());
+    }
+
+    #[test]
+    fn raw_reads_run_no_product_no_block_all_modalities() {
+        // Sequencing raw run: FASTQ only, no deposited product -> no block.
+        let result = json!({"artifacts": ["data/SRR1.fastq.gz", "manifest.json"]});
+        let product = deposited_downstream_product(&result, None);
+        assert!(product.is_none());
+        assert!(input_form_mismatch_reason(product.as_ref(), true, false, true, false).is_none());
+    }
+
+    #[test]
+    fn product_classification_precedence_peaks_before_counts() {
+        // A .narrowPeak alongside a matrices_index that reads as counts must
+        // classify as peaks (more-specific genomic product wins) so the
+        // reason names the right EDAM class.
+        let result = json!({"artifacts": [
+            "manifest.json", "results/peaks/x.narrowPeak", "data/counts.csv"
+        ]});
+        let mi = faulty_matrices_index();
+        let product = deposited_downstream_product(&result, Some(&mi)).unwrap();
+        assert_eq!(product.label, "called peaks", "peaks take precedence over counts");
     }
 }
 
