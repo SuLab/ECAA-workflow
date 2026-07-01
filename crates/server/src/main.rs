@@ -26,6 +26,15 @@ fn main() {
         .with_level(true)
         .init();
 
+    // Version stamp for support / reproducibility triage. Values are baked in
+    // by build.rs (vergen-gitcl) with no timestamp / dirty flag so they stay
+    // reproducible; fall back to "unknown" outside a git tree.
+    tracing::info!(
+        "ecaa-workflow-server {} ({})",
+        env!("VERGEN_GIT_DESCRIBE"),
+        env!("VERGEN_GIT_SHA"),
+    );
+
     // Route panics through tracing so they appear in the structured log
     // stream rather than going to stderr unformatted. The default hook
     // still prints the backtrace when RUST_BACKTRACE is set; this hook
