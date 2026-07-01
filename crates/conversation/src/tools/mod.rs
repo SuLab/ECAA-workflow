@@ -1698,6 +1698,28 @@ fn dispatch_batchable(
             // pruning the read stages resolves the block naturally.
             session.probed_processed_only =
                 !probed.deposited_products.is_empty() && probed.raw_reads_sra.is_none();
+            // Counts-first default signal: a deposited COUNT matrix exists for
+            // this accession, INDEPENDENT of whether raw reads also exist (the
+            // "both forms" case). Consumed by `propose_summary_confirmation` to
+            // steer `reanalyze … standard pipeline` downstream-first unless the
+            // SME explicitly asked to start from raw reads.
+            //
+            // STICKY (`||=`): once any probe confirms a deposited counts matrix
+            // for the accession, keep the flag set. The intake agent probes on
+            // most turns, and a later probe that FLAKES (NCBI rate-limit /
+            // network error → `probe_note`/`needs_manual` with empty
+            // `deposited_products`) must not erase confirmed knowledge and
+            // silently re-enable a reads-first plan. (`probed_processed_only`
+            // above intentionally OVERWRITES: a flake there resolves to
+            // `false`, which only RELAXES a block — the safe direction. Here a
+            // flake resolving to `false` would DISABLE the counts-first steer —
+            // the unsafe direction — so it must be sticky.) Trade-off: if the
+            // SME pivots mid-intake to a different, raw-only accession, the flag
+            // stays set and a reads-first plan for THAT accession is steered
+            // counts-first; that degrades loudly (data_acquisition finds no
+            // counts) rather than silently, and is far rarer than probe flake.
+            session.probed_counts_matrix_available = session.probed_counts_matrix_available
+                || crate::dataset_probe::probe_reports_counts_matrix(&probed);
             match serde_json::to_value(&probed) {
                 Ok(v) => ToolResult::ok(v),
                 Err(_) => ToolResult::ok(serde_json::json!({

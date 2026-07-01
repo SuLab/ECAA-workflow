@@ -290,6 +290,9 @@ impl Session {
             // `probe_dataset` dispatch when it observes a processed-only
             // deposit (deposited product present, no raw SRA reads).
             probed_processed_only: false,
+            // No dataset probed yet; set by the `probe_dataset` dispatch when
+            // it observes a deposited counts matrix (counts-first default).
+            probed_counts_matrix_available: false,
         }
     }
 }

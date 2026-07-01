@@ -3383,6 +3383,13 @@ mod processed_only_confirmation_gate {
         assert!(dag.tasks.contains_key("alignment"));
     }
 
+    /// Record the SME's raw request as a USER-role turn (what
+    /// `intake_requests_raw_reprocessing` keys on — NOT the agent-composed
+    /// `intake_prose`).
+    fn seed_user_prose(s: &mut Session, text: &str) {
+        std::sync::Arc::make_mut(&mut s.conversation).push(crate::session::Turn::user(text));
+    }
+
     /// Seed a downstream-first RNA-seq DAG (read-processing stages
     /// pruned) — the shape after set_intake_excluded_atoms.
     fn seed_downstream_first_dag(s: &mut Session) {
@@ -3491,6 +3498,164 @@ mod processed_only_confirmation_gate {
         );
     }
 
+    // ── Counts-first default (both-forms deposit) ─────────────────────
+    // GSE164073-shape: a deposited COUNT matrix AND linked SRA raw reads.
+    // `probed_processed_only` is FALSE (the reads-first plan is satisfiable),
+    // but the counts-first default steers `reanalyze … standard pipeline`
+    // downstream-first UNLESS the intake explicitly asks for raw reprocessing.
+
+    // (e) counts matrix available + no explicit raw request + raw-first DAG
+    //     → REFUSED and steered to counts-first (but NOT with the "can never
+    //     run" unsatisfiable message — this is a preference, not a broken plan).
+    #[test]
+    fn refused_when_counts_matrix_available_and_no_raw_request() {
+        let mut s = Session::new(false);
+        s.probed_processed_only = false; // both forms exist
+        s.probed_counts_matrix_available = true;
+        seed_user_prose(
+            &mut s,
+            "reanalyze GSE164073 bulk rna-seq infected vs control standard pipeline",
+        );
+        seed_raw_first_dag(&mut s);
+        let r = super::conversational::propose_summary_confirmation(&mut s, "Here is the plan.");
+        assert!(
+            r.is_error,
+            "counts-first default must refuse a reads-first card, got {:?}",
+            r.content
+        );
+        let body = serde_json::to_string(&r.content).unwrap();
+        assert_eq!(r.content["error_kind"], "precondition_failure", "body={body}");
+        assert!(
+            body.contains("deposited count matrix"),
+            "message must cite the deposited counts: {body}"
+        );
+        assert!(
+            body.contains("set_intake_excluded_atoms"),
+            "hint must steer to counts-first: {body}"
+        );
+        assert!(
+            !body.contains("can never run"),
+            "must NOT use the unsatisfiable (processed-only) message: {body}"
+        );
+        assert!(
+            s.pending_emission_id.is_none(),
+            "refused gate must not mint a pending_emission_id"
+        );
+    }
+
+    // (f) counts matrix available BUT the intake explicitly requests raw
+    //     reprocessing → NOT blocked (a satisfiable reads-first plan the SME
+    //     asked for; the counts-first default opts out).
+    #[test]
+    fn allowed_when_counts_matrix_available_but_raw_explicitly_requested() {
+        let mut s = Session::new(false);
+        s.probed_counts_matrix_available = true;
+        seed_user_prose(&mut s, "reanalyze GSE164073, start from raw reads and re-align");
+        seed_raw_first_dag(&mut s);
+        let r = super::conversational::propose_summary_confirmation(&mut s, "Here is the plan.");
+        assert!(
+            !r.is_error,
+            "explicit raw request must opt out of the counts-first default, got {:?}",
+            r.content
+        );
+    }
+
+    // (g) counts matrix available + no raw request + already counts-first DAG
+    //     → NOT blocked (no raw stage remains; nothing to steer).
+    #[test]
+    fn passes_when_counts_matrix_available_and_dag_already_counts_first() {
+        let mut s = Session::new(false);
+        s.probed_counts_matrix_available = true;
+        seed_user_prose(&mut s, "reanalyze GSE164073 standard pipeline");
+        seed_downstream_first_dag(&mut s);
+        let r = super::conversational::propose_summary_confirmation(&mut s, "Here is the plan.");
+        assert!(
+            !r.is_error,
+            "counts-first DAG must clear the gate, got {:?}",
+            r.content
+        );
+    }
+
+    // (h) no deposited counts matrix (raw-only / no probe) + raw-first DAG
+    //     → NOT blocked (reads-first is the only option).
+    #[test]
+    fn not_blocked_when_no_counts_matrix_available() {
+        let mut s = Session::new(false);
+        assert!(
+            !s.probed_counts_matrix_available,
+            "fresh session must default the flag false"
+        );
+        seed_user_prose(&mut s, "process GSE12345 bulk rna-seq standard pipeline");
+        seed_raw_first_dag(&mut s);
+        let r = super::conversational::propose_summary_confirmation(&mut s, "Here is the plan.");
+        assert!(
+            !r.is_error,
+            "no deposited counts ⇒ reads-first must pass, got {:?}",
+            r.content
+        );
+    }
+
+    // (i) Regression guard for the observed live bug: the intake AGENT wrote
+    //     reads-first framing into `intake_prose` ("… starting from raw FASTQ
+    //     (SRP299835)"), but the SME's OWN turns never asked for raw. The gate
+    //     keys on the SME's user turns, NOT the agent-composed prose, so it must
+    //     STILL steer counts-first (otherwise the agent's own framing defeats
+    //     the default — the circularity that made this reads-first ~50% live).
+    #[test]
+    fn refused_when_agent_prose_says_raw_but_sme_did_not() {
+        let mut s = Session::new(false);
+        s.probed_counts_matrix_available = true;
+        // Agent-composed prose leaks its chosen approach — must be IGNORED.
+        s.intake_prose = "Reanalyze GSE164073. Standard bulk RNA-seq pipeline \
+                          starting from raw FASTQ (SRP299835)."
+            .into();
+        // The SME only ever asked to reanalyze with a standard pipeline.
+        seed_user_prose(&mut s, "reanalyze GSE164073");
+        seed_user_prose(&mut s, "bulk rna-seq");
+        seed_user_prose(&mut s, "standard pipeline");
+        seed_raw_first_dag(&mut s);
+        let r = super::conversational::propose_summary_confirmation(&mut s, "Here is the plan.");
+        assert!(
+            r.is_error,
+            "agent's raw-FASTQ prose must NOT defeat the counts-first default when the SME \
+             never asked for raw, got {:?}",
+            r.content
+        );
+        let body = serde_json::to_string(&r.content).unwrap();
+        assert!(
+            body.contains("deposited count matrix"),
+            "must still steer counts-first: {body}"
+        );
+    }
+
+    // Detector unit: the GSE164073 verbatim intake (and its variants) must NOT
+    // read as a raw request (→ counts-first default), while explicit raw
+    // phrasings MUST.
+    #[test]
+    fn raw_reprocessing_detector_scopes_correctly() {
+        use super::conversational::intake_requests_raw_reprocessing as raw;
+        for p in [
+            "reanalyze GSE164073",
+            "bulk rna-seq",
+            "infected vs control, then a comparison of the three tissues",
+            "pull from metadata",
+            "standard pipeline",
+            "reanalyze GSE164073 bulk rna-seq standard pipeline pull from metadata",
+        ] {
+            assert!(!raw(p), "counts-first intent must NOT read as a raw request: {p:?}");
+        }
+        for p in [
+            "start from raw reads",
+            "re-align from FASTQ",
+            "reprocess from the raw fastq files",
+            "pull raw reads from SRA and quantify",
+            "trim and align the reads",
+            "realign to GRCh38",
+        ] {
+            assert!(raw(p), "explicit raw request must read as one: {p:?}");
+        }
+    }
+
     // Proteomics: the peptide_search raw-spectra stage is also gated.
     #[test]
     fn refused_for_proteomics_peptide_search_stage() {
@@ -3569,6 +3734,65 @@ mod processed_only_confirmation_gate {
             ..neither.clone()
         };
         assert!(!processed_only(&raw_only));
+    }
+
+    // Documents the exact rule the ProbeDataset dispatch applies when setting
+    // `session.probed_counts_matrix_available`: a deposited `expression_matrix`
+    // product whose `kind` is `counts`, INDEPENDENT of raw reads (so it fires
+    // in the both-forms case where `probed_processed_only` is false).
+    #[test]
+    fn dispatch_counts_matrix_flag_rule_matches_probe_result_shape() {
+        use crate::dataset_probe::{parse_geo_soft, probe_reports_counts_matrix as has_counts};
+
+        // Both-forms GSE164073 (count matrix + SRA): counts flag TRUE,
+        // processed_only FALSE — exactly the case the counts-first default targets.
+        let both = parse_geo_soft(
+            "GSE164073",
+            "!Series_type = Expression profiling by high throughput sequencing\n\
+             !Series_supplementary_file = ftp://x/GSE164073_Eye_count_matrix.csv.gz\n\
+             !Series_relation = SRA: https://www.ncbi.nlm.nih.gov/sra?term=SRP299835\n",
+        );
+        assert!(both.raw_reads_sra.is_some(), "both-forms: SRA present");
+        assert!(has_counts(&both), "deposited count matrix ⇒ counts flag true");
+
+        // fpkm-only deposit (no counts): flag FALSE — reads-first stays the
+        // right default (fpkm is not a valid DE substrate).
+        let fpkm = parse_geo_soft(
+            "GSE999999",
+            "!Series_type = Expression profiling by high throughput sequencing\n\
+             !Series_supplementary_file = ftp://x/GSE999999_FPKM_values.txt.gz\n\
+             !Series_relation = SRA: https://www.ncbi.nlm.nih.gov/sra?term=SRP999999\n",
+        );
+        assert!(
+            !has_counts(&fpkm),
+            "fpkm-only deposit must NOT set the counts flag (got {:?})",
+            fpkm.deposited_products
+        );
+
+        // Raw-only / microarray (no recognized product): flag FALSE.
+        let neither = parse_geo_soft(
+            "GSE2034",
+            "!Series_type = Expression profiling by array\n\
+             !Series_supplementary_file = ftp://x/GSE2034_RAW.tar\n",
+        );
+        assert!(!has_counts(&neither), "no product ⇒ counts flag false");
+
+        // STICKINESS: the dispatch sets `flag = flag || has_counts(probe)`. A
+        // later FLAKING probe (needs_manual / network error → empty products)
+        // must NOT erase a flag an earlier counts-bearing probe set. This is
+        // the exact live bug that let a reads-first plan through: a subsequent
+        // rate-limited probe reset the flag to false and the gate stopped firing.
+        let flake = crate::dataset_probe::ProbeResult::needs_manual("GSE164073", "GEO request failed");
+        assert!(!has_counts(&flake), "a flaked probe reports no counts");
+        let sticky = |prev: bool, p: &crate::dataset_probe::ProbeResult| prev || has_counts(p);
+        assert!(
+            sticky(sticky(false, &both), &flake),
+            "counts-then-flake must stay TRUE (sticky); a flake must not disable the counts-first steer"
+        );
+        assert!(
+            !sticky(sticky(false, &neither), &flake),
+            "no-counts-then-flake stays false"
+        );
     }
 }
 

@@ -260,6 +260,18 @@ fn best_expression_matrix(products: &[DepositedProduct]) -> Option<ProcessedMatr
     })
 }
 
+/// True iff a probe result reports a deposited RNA-seq COUNT matrix (an
+/// `expression_matrix` product whose `kind` is `counts`). Scoped to counts
+/// (not fpkm/tpm) because only counts are a valid DE substrate; a series that
+/// deposits only fpkm/tpm should still be reprocessed from raw to regenerate
+/// counts. Consumed by the ProbeDataset dispatch to (stickily) set
+/// `Session::probed_counts_matrix_available`.
+pub(crate) fn probe_reports_counts_matrix(p: &ProbeResult) -> bool {
+    p.deposited_products
+        .iter()
+        .any(|d| d.product_type == "expression_matrix" && d.kind == "counts")
+}
+
 /// Classify a supplementary filename as a deposited processed product across
 /// all modalities. Returns `(product_type, kind)`, or `None` when the file is
 /// not a recognized processed product — i.e. raw inputs (microarray `*_RAW.tar`

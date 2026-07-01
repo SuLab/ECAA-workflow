@@ -347,6 +347,10 @@ impl Session {
             // "processed-only ⇒ don't raise a broken plan card" gate
             // stays armed on the child until its read stages are pruned.
             probed_processed_only: parent.probed_processed_only,
+            // Same rationale: the deposited-counts-matrix fact about the
+            // dataset is shared by the branch (inherited intake_prose), so
+            // the counts-first default stays armed on the child.
+            probed_counts_matrix_available: parent.probed_counts_matrix_available,
         }
     }
 }
@@ -443,6 +447,7 @@ mod branch_from_exhaustiveness {
             audit_writer_secret: _,
             coverage_confidence: _,
             probed_processed_only: _,
+            probed_counts_matrix_available: _,
         } = child;
     }
 }

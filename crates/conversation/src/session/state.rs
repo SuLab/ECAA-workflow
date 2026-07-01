@@ -784,6 +784,32 @@ pub struct Session {
     #[serde(default)]
     #[ts(skip)]
     pub probed_processed_only: bool,
+
+    /// True when the most recent `probe_dataset` call found a deposited,
+    /// already-processed COUNT matrix for the accession (a bulk/scRNA
+    /// `expression_matrix` product whose `kind` is `counts`), INDEPENDENT
+    /// of whether raw reads also exist. Unlike [`Self::probed_processed_only`]
+    /// (which is the raw-reads-ABSENT, unsatisfiable case), this flag is set
+    /// even in the "both forms" case (a linked SRA study is also present).
+    ///
+    /// It encodes the counts-first default: for a `reanalyze <accession> …
+    /// standard pipeline` intent where a deposited count matrix exists and
+    /// the SME did NOT explicitly ask to start from raw reads,
+    /// `propose_summary_confirmation` steers the plan downstream-first
+    /// (start from the deposited counts) rather than fetching SRA and
+    /// re-aligning. The gate is on
+    /// `(this flag AND no explicit raw request AND the DAG still has a
+    /// raw-processing stage)`, so it never wedges: pruning the read stages
+    /// (via `set_intake_excluded_atoms`) clears it, and an explicit raw
+    /// request (see `intake_requests_raw_reprocessing`) opts out entirely so
+    /// a satisfiable reads-first plan is never blocked.
+    ///
+    /// `#[serde(default)]` (defaults `false`) so sessions persisted before
+    /// this field existed load unchanged. `#[ts(skip)]` — internal
+    /// intake-gating signal, not surfaced to the browser.
+    #[serde(default)]
+    #[ts(skip)]
+    pub probed_counts_matrix_available: bool,
 }
 
 /// SME-legible projection of catalog-coverage confidence. Derived purely

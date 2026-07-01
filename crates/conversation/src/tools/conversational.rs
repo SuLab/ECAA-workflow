@@ -44,6 +44,63 @@ fn raw_processing_stage_in_dag(session: &Session) -> Option<String> {
         .map(|id| id.to_string())
 }
 
+/// Explicit "start from raw reads / reprocess from raw" markers. These opt a
+/// session OUT of the counts-first default (see
+/// [`Session::probed_counts_matrix_available`]): when the SME's intake prose
+/// carries one, a reads-first plan is the SME's declared intent and must not
+/// be steered downstream-first, even though a deposited count matrix exists.
+///
+/// Deliberately narrow — every entry names raw reads / FASTQ / SRA / (re)align
+/// unambiguously. Generic reanalysis language ("reanalyze", "standard
+/// pipeline", "bulk rna-seq", "pull from metadata") is intentionally ABSENT:
+/// those are the counts-first default, per the product decision.
+const RAW_REPROCESSING_MARKERS: &[&str] = &[
+    "raw read",
+    "raw fastq",
+    "raw sequencing",
+    "raw sequence read",
+    "from raw",
+    "from the raw",
+    "from fastq",
+    "from the fastq",
+    "fastq file",
+    "from sra",
+    "sra read",
+    "re-align",
+    "realign",
+    "start from reads",
+    "starting from reads",
+    "align the reads",
+    "trim and align",
+];
+
+/// True iff the SME's request text explicitly asks to start from / reprocess
+/// raw reads (see [`RAW_REPROCESSING_MARKERS`]). Case-insensitive substring
+/// match. Callers pass the SME's OWN words (see [`sme_request_text`]) — NOT
+/// `intake_prose`.
+pub(super) fn intake_requests_raw_reprocessing(sme_request_text: &str) -> bool {
+    let lower = sme_request_text.to_lowercase();
+    RAW_REPROCESSING_MARKERS.iter().any(|m| lower.contains(m))
+}
+
+/// The SME's own request text: the concatenation of every USER-role turn's
+/// content. This is the SME's raw words, deliberately NOT `session.intake_prose`
+/// — the intake agent composes `intake_prose` and embeds its CHOSEN approach in
+/// it (e.g. "Standard bulk RNA-seq pipeline starting from raw FASTQ (SRP…)").
+/// Keying the counts-first opt-out on the agent's prose is circular: the agent's
+/// own reads-first framing would trip the raw-request markers and defeat the
+/// default. Keying it on the SME's turns honors only what the SME actually asked.
+fn sme_request_text(session: &Session) -> String {
+    use crate::session::TurnRole;
+    session
+        .conversation
+        .iter()
+        .filter(|t| t.role == TurnRole::User)
+        .map(|t| t.content.as_str())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 pub(super) fn propose_summary_confirmation(
     session: &mut Session,
     summary_markdown: &str,
@@ -68,8 +125,10 @@ pub(super) fn propose_summary_confirmation(
     // block clears naturally even if `probed_processed_only` is still set.
     // The "both forms" case (raw reads ALSO present) leaves the flag false,
     // so a satisfiable raw-first plan is never blocked.
-    if session.probed_processed_only {
-        if let Some(stage) = raw_processing_stage_in_dag(session) {
+    if let Some(stage) = raw_processing_stage_in_dag(session) {
+        // (1) Processed-ONLY (no raw reads exist for the accession): the raw
+        // stage is UNSATISFIABLE. Refuse a guaranteed-broken plan card.
+        if session.probed_processed_only {
             return ToolResult::err(ToolError::PreconditionFailure {
                 reason: format!(
                     "the probed dataset provides only a deposited, already-processed product \
@@ -82,6 +141,35 @@ pub(super) fn propose_summary_confirmation(
                        count matrix, or [\"peptide_search\"] for a proteomics abundance matrix) \
                        so the plan begins from the deposited product. Do not call \
                        propose_summary_confirmation again until those stages are gone from the DAG."
+                    .into(),
+            });
+        }
+        // (2) Counts-first DEFAULT (both forms exist, no explicit raw
+        // request): a deposited COUNT matrix is available AND the SME did not
+        // ask to start from raw reads, so fetching SRA + re-aligning is not
+        // the intended plan for `reanalyze … standard pipeline`. Steer
+        // downstream-first from the deposited counts. The plan IS satisfiable
+        // (raw reads exist) — this is a preference, not a broken plan — so the
+        // message differs, and an explicit raw request opts out entirely.
+        if session.probed_counts_matrix_available
+            && !intake_requests_raw_reprocessing(&sme_request_text(session))
+        {
+            return ToolResult::err(ToolError::PreconditionFailure {
+                reason: format!(
+                    "a deposited count matrix is available for this accession and the intake did \
+                     not ask to start from raw reads, but the composed plan still contains the \
+                     raw-read-processing stage `{stage}` (fetch SRA + re-align). For a \
+                     `reanalyze … standard pipeline` request the deposited counts are the \
+                     intended starting point (counts-first default)."
+                ),
+                hint: "Start downstream-first from the deposited count matrix: call \
+                       set_intake_excluded_atoms to prune the read-processing stages \
+                       ([\"sequence_trimming\",\"alignment\",\"quantification\"]) so the plan \
+                       begins from the counts. If the SME EXPLICITLY wants raw reprocessing \
+                       (re-align from FASTQ/SRA), record that in the intake prose (e.g. \"start \
+                       from raw reads\") and re-propose. Do not call propose_summary_confirmation \
+                       again until either the read stages are gone or an explicit raw request is \
+                       recorded."
                     .into(),
             });
         }
