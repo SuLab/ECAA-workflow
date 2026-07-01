@@ -408,11 +408,37 @@ pub(crate) fn compose_v4_dispatch_full(
             // upstream raw-read / quantify chain — exactly as the counts-matrix
             // (`data:3917`) path drops the align/quantify chain. Method-neutral:
             // this only declares the product is available, never a DE method.
-            Some(iri @ ("data:1255" | "data:3498" | "data:0863" | "data:3134")) => {
+            //
+            // `data:3028` ("Taxonomy") is the supplied metagenomics
+            // taxonomy/OTU/ASV table — the `taxonomic_classification` atom's
+            // OUTPUT-PORT type. Seeding it lets `prune_supplied_upstream` drop
+            // the raw_qc → sequence_trimming → taxonomic_classification chain
+            // and rewire `diversity_analysis` onto the staging anchor.
+            //
+            // `data:2976` ("Protein abundance matrix") is the supplied
+            // proteomics abundance/intensity matrix. It is the proposed-parent
+            // ontology term of the `protein_quantification` OUTPUT port (a
+            // LocalExtension `ecaax:protein_abundance_matrix`). Seeding it here
+            // declares the product available; note the prune matches producer
+            // ports by ontology-term IRI equality, so the search→quantify chain
+            // is not pruned while the producer port stays a local extension (see
+            // `intake_facts::detect_input_data_stage`). Method-neutral: declares
+            // the product only, never a quantification or DE method.
+            //
+            // (The methylation beta matrix seeds `data:3917` — the generic
+            // `quantification` atom's OUTPUT port that `methylation_de` reuses —
+            // and so flows through the `Some("data:3917")` counts arm above, not
+            // this arm.)
+            Some(
+                iri @ ("data:1255" | "data:3498" | "data:0863" | "data:3134" | "data:3028"
+                | "data:2976"),
+            ) => {
                 let label = match iri {
                     "data:1255" => "Called peaks",
                     "data:3498" => "Sequence variant",
                     "data:3134" => "Gene expression data",
+                    "data:3028" => "Taxonomy",
+                    "data:2976" => "Protein abundance matrix",
                     _ => "Sequence alignment",
                 };
                 let mut dp =
