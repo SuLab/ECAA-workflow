@@ -213,6 +213,23 @@ impl IntakeFacts {
     ///   `differential_expression` producer. `data:3134` is the DE node's
     ///   OUTPUT-PORT type (the prune-match target), NOT the archetype goal type
     ///   `data:0951`.
+    /// - **protein-abundance matrix** (`data:2976`) — proteomics-family
+    ///   modalities (`proteomics`, `immunopeptidomics`). NOTE: the
+    ///   `protein_quantification` producer port is a `LocalExtension`
+    ///   (`ecaax:protein_abundance_matrix`, parent `data:2976`), and
+    ///   `prune_supplied_upstream` matches producer ports by ontology-term IRI
+    ///   equality only — so this seed is detected + declared available but does
+    ///   NOT currently prune the search→quantify chain (documented at the
+    ///   detection site).
+    /// - **methylation beta matrix** (`data:3917`) — only the `methylation`
+    ///   modality. The `methylation_de` archetype reuses the GENERIC
+    ///   `quantification` atom for per-CpG extraction, whose OUTPUT port is
+    ///   `data:3917` ("Count matrix"); the supplied beta matrix therefore
+    ///   carries `data:3917` (NOT the archetype goal type `data:0951`) and
+    ///   reuses the counts seed.
+    /// - **taxonomy table** (`data:3028`) — only the `metagenomics` modality.
+    ///   `data:3028` ("Taxonomy") is the `taxonomic_classification` node's
+    ///   OUTPUT-PORT type (the prune-match target).
     /// - **alignments / BAM** (`data:0863`) — modality-independent (every
     ///   read-based pipeline has an `alignment` producer), so gated only on a
     ///   known modality being present.
@@ -385,6 +402,118 @@ impl IntakeFacts {
                 "intake_de_results_0",
                 "data:3134",
                 "Gene expression data",
+            ));
+        }
+
+        // Proteomics protein-abundance matrix: gate on proteomics-family
+        // modalities + an abundance-matrix NOUN. This is the supplied product
+        // for a proteomics intake whose SME already holds the quantified
+        // protein × sample matrix (ProteinGroups.txt / a MaxLFQ / directLFQ
+        // intensity table) and wants only downstream DE + enrichment — no raw
+        // spectra, no peptide search.
+        //
+        // INPUT-TYPE RECOGNITION ONLY — method-neutral. Recognizing that the
+        // SME holds an abundance matrix prescribes no quantification strategy
+        // (LFQ / TMT / SILAC / iBAQ) or DE method.
+        //
+        // IRI CHOICE (VERIFIED): the `protein_quantification` atom's
+        // `protein_abundance` OUTPUT PORT is a LOCAL EXTENSION
+        // (`ecaax:protein_abundance_matrix`, proposed parent `data:2976`)
+        // — see config/stage-atoms/protein_quantification.yaml outputs. We seed
+        // the proposed-parent ontology IRI `data:2976` ("Mass spectrometry
+        // spectra"/protein-abundance family) because that is the closest EDAM
+        // backbone term and matches `protein_quantification`'s top-level
+        // `edam_data`. NOTE: `input_stage_prune::prune_supplied_upstream`
+        // matches producer OUTPUT ports by ONTOLOGY-TERM IRI EQUALITY only
+        // (`type_iri` returns `None` for a `LocalExtension`), so this seed does
+        // NOT currently prune the proteomics search→quantify chain — the
+        // producer port is a local extension, not `data:2976`. Detection is
+        // still correct + useful (it declares the product available and stamps
+        // the modifier); the prune becomes effective only once the producing
+        // port carries an ontology-term `data:2976` (or the prune learns
+        // local-extension parent subsumption). This mirrors how the other
+        // categories seed via `supplied_product`, and is called out here so the
+        // limitation is not mistaken for a bug.
+        const PROTEOMICS_MODALITIES: &[&str] = &["proteomics", "immunopeptidomics"];
+        const PROTEIN_ABUNDANCE_NOUNS: &[&str] = &[
+            "protein abundance matrix",
+            "intensity matrix",
+            "proteingroups",
+            "quantified proteins",
+            "abundance matrix",
+        ];
+        if PROTEOMICS_MODALITIES.contains(&modality) && bound(PROTEIN_ABUNDANCE_NOUNS) {
+            return Some(supplied_product(
+                "intake_protein_abundance_0",
+                "data:2976",
+                "Protein abundance matrix",
+            ));
+        }
+
+        // Methylation beta-value matrix: gate on the `methylation` modality + a
+        // beta-matrix NOUN. This is the supplied product for a methylation
+        // intake whose SME already holds the per-CpG / per-probe beta matrix
+        // (minfi / array-derived) and wants only DMR calling + downstream work
+        // — no raw bisulfite/EM-seq reads, no alignment.
+        //
+        // INPUT-TYPE RECOGNITION ONLY — method-neutral. No extraction tool
+        // (Bismark / bwa-meth / minfi) or DMR method (methylKit / dmrseq) is
+        // prescribed.
+        //
+        // IRI CHOICE (VERIFIED + CORRECTED): the candidate `data:0951` was
+        // WRONG — that is the `methylation_de` archetype's GOAL type (the DMR
+        // statistical-estimate table), never a lifted node OUTPUT port. The
+        // `methylation_de` archetype reuses the GENERIC `quantification` atom
+        // for per-CpG methylation extraction, whose `count_matrix` OUTPUT PORT
+        // is ontology-term `data:3917` ("Count matrix") — see
+        // config/stage-atoms/quantification.yaml outputs and
+        // config/archetypes/methylation_de.yaml (quantification stage). So the
+        // supplied beta matrix must be typed `data:3917` to match the
+        // `quantification` producer node for `input_stage_prune`. `data:3917`
+        // coincides with the RNA-counts IRI, so this reuses the existing
+        // dispatch `Some("data:3917")` seeding arm — no new dispatch arm needed.
+        const METHYLATION_BETA_NOUNS: &[&str] = &[
+            "beta values",
+            "beta matrix",
+            "methylation matrix",
+            "methylation levels",
+        ];
+        if modality == "methylation" && bound(METHYLATION_BETA_NOUNS) {
+            return Some(
+                crate::workflow_contracts::data_product::DataProductContract::gene_count_matrix(),
+            );
+        }
+
+        // Metagenomics taxonomy table: gate on the `metagenomics` modality + a
+        // taxonomy NOUN. This is the supplied product for a metagenomics intake
+        // whose SME already holds the taxonomic-profile / OTU / ASV table
+        // (Kraken2 / MetaPhlAn / QIIME2 output) and wants only diversity +
+        // group-comparison work — no raw reads, no classification.
+        //
+        // INPUT-TYPE RECOGNITION ONLY — method-neutral. No classifier
+        // (Kraken2 / MetaPhlAn / QIIME2) or reference DB is prescribed.
+        //
+        // IRI CHOICE (VERIFIED): the `taxonomic_classification` atom's
+        // `taxonomic_assignments` OUTPUT PORT is ontology-term `data:3028`
+        // ("Taxonomy") — see config/stage-atoms/taxonomic_classification.yaml
+        // outputs. `data:3028` has exactly one producer in the
+        // `metagenomics_taxonomic` archetype (`diversity_analysis` CONSUMES it,
+        // it does not re-produce it), so `prune_supplied_upstream` cleanly drops
+        // raw_qc → sequence_trimming → taxonomic_classification and rewires
+        // `diversity_analysis` onto the staging anchor. Candidate `data:3028`
+        // CONFIRMED correct.
+        const TAXONOMY_NOUNS: &[&str] = &[
+            "taxonomy table",
+            "taxonomic profile",
+            "taxonomic abundance",
+            "otu table",
+            "asv table",
+        ];
+        if modality == "metagenomics" && bound(TAXONOMY_NOUNS) {
+            return Some(supplied_product(
+                "intake_taxonomy_table_0",
+                "data:3028",
+                "Taxonomy",
             ));
         }
 
@@ -801,6 +930,154 @@ mod tests {
                 "a DE STEP (not a held DE table) must NOT seed supplied DE results: {prose:?}"
             );
         }
+    }
+
+    #[test]
+    fn detect_input_data_stage_recognises_supplied_protein_abundance() {
+        // Proteomics intake where the SME already holds the quantified
+        // protein × sample abundance matrix (ProteinGroups / intensity table)
+        // and wants only downstream DE + enrichment. Each phrase pairs an
+        // abundance-matrix NOUN with a possession marker. INPUT-TYPE
+        // RECOGNITION ONLY — no quantification/DE method prescribed.
+        use crate::workflow_contracts::semantic_type::SemanticType;
+        for (prose, modality) in [
+            (
+                "We already have the protein abundance matrix; just run DE.",
+                "proteomics",
+            ),
+            (
+                "No raw spectra — start from the provided intensity matrix.",
+                "proteomics",
+            ),
+            (
+                "proteingroups table already prepared, downstream only",
+                "proteomics",
+            ),
+            (
+                "quantified proteins provided; run differential abundance and enrichment",
+                "immunopeptidomics",
+            ),
+        ] {
+            let p = IntakeFacts::detect_input_data_stage(prose, Some(modality))
+                .unwrap_or_else(|| panic!("expected a protein-abundance input stage for: {prose:?}"));
+            match &p.semantic_type {
+                // `data:2976` is the proposed-parent ontology term of the
+                // `protein_quantification` LocalExtension output port.
+                SemanticType::OntologyTerm { iri, .. } => assert_eq!(iri, "data:2976"),
+                other => panic!("expected protein-abundance ontology term, got {other:?}"),
+            }
+        }
+        // A proteomics search→quantify pipeline description must NOT seed a
+        // supplied abundance matrix (the marker must bind an abundance-matrix
+        // NOUN, not the produce-it verb).
+        for prose in [
+            "DDA LC-MS/MS: search peptides with FragPipe, quantify proteins with MaxLFQ, test DE",
+            "acquire raw spectra and quantify protein abundance across conditions",
+        ] {
+            assert!(
+                IntakeFacts::detect_input_data_stage(prose, Some("proteomics")).is_none(),
+                "a quantify STEP must NOT seed a supplied abundance matrix: {prose:?}"
+            );
+        }
+        // Modality gating: an abundance-matrix phrase on a non-proteomics
+        // modality must NOT seed the proteomics product.
+        assert!(
+            IntakeFacts::detect_input_data_stage(
+                "abundance matrix already prepared",
+                Some("bulk_rnaseq"),
+            )
+            .is_none(),
+            "abundance-matrix noun on bulk_rnaseq must not seed proteomics product"
+        );
+    }
+
+    #[test]
+    fn detect_input_data_stage_recognises_supplied_methylation_beta() {
+        // Methylation intake where the SME already holds the per-CpG / per-probe
+        // beta matrix and wants only DMR calling + downstream work. Each phrase
+        // pairs a beta-matrix NOUN with a possession marker. The supplied
+        // product carries `data:3917` — the generic `quantification` atom's
+        // OUTPUT port that `methylation_de` reuses — NOT the archetype goal
+        // `data:0951`.
+        use crate::workflow_contracts::semantic_type::SemanticType;
+        for prose in [
+            "We already have the beta values matrix; just call DMRs.",
+            "No raw reads — start from the provided methylation matrix.",
+            "beta matrix already prepared, downstream analysis only",
+            "methylation levels provided per probe; run DMR calling",
+        ] {
+            let p = IntakeFacts::detect_input_data_stage(prose, Some("methylation"))
+                .unwrap_or_else(|| panic!("expected a methylation-beta input stage for: {prose:?}"));
+            match &p.semantic_type {
+                SemanticType::OntologyTerm { iri, .. } => assert_eq!(iri, "data:3917"),
+                other => panic!("expected methylation-beta ontology term, got {other:?}"),
+            }
+        }
+        // A bisulfite-pipeline description that mentions extracting methylation
+        // levels as a STEP must NOT seed a supplied beta matrix.
+        for prose in [
+            "WGBS: align with Bismark, extract per-CpG methylation levels, call DMRs with dmrseq",
+        ] {
+            assert!(
+                IntakeFacts::detect_input_data_stage(prose, Some("methylation")).is_none(),
+                "a methylation-extraction STEP must NOT seed a supplied beta matrix: {prose:?}"
+            );
+        }
+        // Modality gating: a beta-matrix phrase on a non-methylation modality
+        // must NOT seed the methylation product.
+        assert!(
+            IntakeFacts::detect_input_data_stage(
+                "beta matrix already prepared",
+                Some("bulk_rnaseq"),
+            )
+            .is_none(),
+            "beta-matrix noun on bulk_rnaseq must not seed methylation product"
+        );
+    }
+
+    #[test]
+    fn detect_input_data_stage_recognises_supplied_taxonomy_table() {
+        // Metagenomics intake where the SME already holds the taxonomic-profile
+        // / OTU / ASV table and wants only diversity + group comparison. Each
+        // phrase pairs a taxonomy NOUN with a possession marker. The supplied
+        // product carries `data:3028` ("Taxonomy") — the
+        // `taxonomic_classification` node OUTPUT-PORT type (the prune target).
+        use crate::workflow_contracts::semantic_type::SemanticType;
+        for prose in [
+            "We already have the taxonomy table; just run diversity analysis.",
+            "No raw reads — start from the provided taxonomic profile.",
+            "otu table already prepared, downstream diversity only",
+            "asv table provided; compute alpha and beta diversity",
+            "taxonomic abundance table already prepared",
+        ] {
+            let p = IntakeFacts::detect_input_data_stage(prose, Some("metagenomics"))
+                .unwrap_or_else(|| panic!("expected a taxonomy-table input stage for: {prose:?}"));
+            match &p.semantic_type {
+                SemanticType::OntologyTerm { iri, .. } => assert_eq!(iri, "data:3028"),
+                other => panic!("expected taxonomy ontology term, got {other:?}"),
+            }
+        }
+        // A metagenomics classification-pipeline description must NOT seed a
+        // supplied taxonomy table (marker must bind a taxonomy NOUN, not the
+        // classify verb).
+        for prose in [
+            "shotgun metagenomics: QC, trim, classify reads with Kraken2, then diversity",
+        ] {
+            assert!(
+                IntakeFacts::detect_input_data_stage(prose, Some("metagenomics")).is_none(),
+                "a classify STEP must NOT seed a supplied taxonomy table: {prose:?}"
+            );
+        }
+        // Modality gating: a taxonomy phrase on a non-metagenomics modality
+        // must NOT seed the taxonomy product.
+        assert!(
+            IntakeFacts::detect_input_data_stage(
+                "taxonomy table already prepared",
+                Some("bulk_rnaseq"),
+            )
+            .is_none(),
+            "taxonomy noun on bulk_rnaseq must not seed metagenomics product"
+        );
     }
 
     #[test]
