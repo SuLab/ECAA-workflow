@@ -3800,37 +3800,15 @@ fn run_loop(
                 // materialized real FASTQ.
                 if tid.as_str() == "data_acquisition" {
                     let da_dir = path.join("runtime/outputs").join(tid.as_str());
-                    let emitted_counts = std::fs::read_to_string(
-                        da_dir.join("matrices_index.json"),
-                    )
-                    .ok()
-                    .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-                    .and_then(|v| {
-                        v.get("matrices").and_then(|m| m.as_array()).map(|arr| {
-                            arr.iter().any(|m| {
-                                m.get("matrix_type")
-                                    .and_then(|t| t.as_str())
-                                    .map(|t| t.to_ascii_lowercase().contains("count"))
-                                    .unwrap_or(false)
-                            })
-                        })
-                    })
-                    .unwrap_or(false);
+                    let emitted_counts =
+                        std::fs::read_to_string(da_dir.join("matrices_index.json"))
+                            .ok()
+                            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                            .map(|v| matrices_index_has_counts(&v))
+                            .unwrap_or(false);
                     // If real FASTQ was also materialized, the read pipeline
                     // can run — no mismatch.
-                    let has_fastq = result
-                        .get("artifacts")
-                        .and_then(|a| a.as_array())
-                        .map(|arr| {
-                            arr.iter().filter_map(|x| x.as_str()).any(|s| {
-                                let s = s.to_ascii_lowercase();
-                                s.ends_with(".fastq")
-                                    || s.ends_with(".fastq.gz")
-                                    || s.ends_with(".fq")
-                                    || s.ends_with(".fq.gz")
-                            })
-                        })
-                        .unwrap_or(false);
+                    let has_fastq = result_artifacts_have_fastq(result);
                     // The composed DAG still expects raw reads iff any read-
                     // processing stage survived composition. Read task ids
                     // from WORKFLOW.json on disk (avoids re-borrowing the DAG
@@ -3838,23 +3816,11 @@ fn run_loop(
                     let dag_expects_reads = std::fs::read(path.join("WORKFLOW.json"))
                         .ok()
                         .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-                        .and_then(|wf| {
-                            wf.get("tasks").and_then(|t| t.as_object()).map(|tasks| {
-                                ["sequence_trimming", "alignment", "quantification"]
-                                    .iter()
-                                    .any(|s| tasks.contains_key(*s))
-                            })
-                        })
+                        .map(|wf| workflow_has_read_processing_stages(&wf))
                         .unwrap_or(false);
-                    if emitted_counts && !has_fastq && dag_expects_reads {
-                        let reason = "[data_shape_mismatch] expected=raw sequence reads (data:2044) \
-                             actual=processed count matrix (data:3917) — data_acquisition obtained only a \
-                             deposited count matrix for this accession, but the composed pipeline still \
-                             includes read-processing stages (sequence_trimming / alignment / quantification) \
-                             that require raw reads. Recovery: recompose counts-first (declare the deposited \
-                             count matrix as the starting point so trimming/alignment/quantification are \
-                             pruned), or supply an accession that provides raw reads (SRA)."
-                            .to_string();
+                    if let Some(reason) =
+                        input_form_mismatch_reason(emitted_counts, has_fastq, dag_expects_reads)
+                    {
                         task.state = TaskState::Blocked {
                             record: ecaa_workflow_core::dag::BlockedRecord {
                                 reason,
@@ -4923,6 +4889,176 @@ fn watchdog_wall_clock_event_is_current(package_root: &Path, task_id: &str) -> b
         dag.tasks.get(task_id).map(|task| &task.state),
         Some(TaskState::Running { .. })
     )
+}
+
+// ── Input-form mismatch guard (b.5) — pure, testable helpers ──────────
+// Extracted from the completed-task poll loop so the shape↔data-mismatch
+// decision can be unit-tested against real package shapes without driving
+// a live execution.
+
+/// True iff any matrix in a `matrices_index.json` value has a count-like
+/// `matrix_type` (e.g. "raw_counts", "counts").
+fn matrices_index_has_counts(v: &serde_json::Value) -> bool {
+    v.get("matrices")
+        .and_then(|m| m.as_array())
+        .map(|arr| {
+            arr.iter().any(|m| {
+                m.get("matrix_type")
+                    .and_then(|t| t.as_str())
+                    .map(|t| t.to_ascii_lowercase().contains("count"))
+                    .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false)
+}
+
+/// True iff a completed task's `result.artifacts` array names a FASTQ file
+/// (raw reads were actually materialized, so a read pipeline can run).
+fn result_artifacts_have_fastq(result: &serde_json::Value) -> bool {
+    result
+        .get("artifacts")
+        .and_then(|a| a.as_array())
+        .map(|arr| {
+            arr.iter().filter_map(|x| x.as_str()).any(|s| {
+                let s = s.to_ascii_lowercase();
+                s.ends_with(".fastq")
+                    || s.ends_with(".fastq.gz")
+                    || s.ends_with(".fq")
+                    || s.ends_with(".fq.gz")
+            })
+        })
+        .unwrap_or(false)
+}
+
+/// True iff a `WORKFLOW.json` value still carries a read-processing stage
+/// (the composed DAG expects raw reads).
+fn workflow_has_read_processing_stages(wf: &serde_json::Value) -> bool {
+    wf.get("tasks")
+        .and_then(|t| t.as_object())
+        .map(|tasks| {
+            ["sequence_trimming", "alignment", "quantification"]
+                .iter()
+                .any(|s| tasks.contains_key(*s))
+        })
+        .unwrap_or(false)
+}
+
+/// The guard's decision. Returns the actionable `[data_shape_mismatch]`
+/// block reason when `data_acquisition` obtained a processed count matrix
+/// (`emitted_counts`), materialized no raw FASTQ (`!has_fastq`), and the
+/// composed DAG still carries read-processing stages (`dag_expects_reads`)
+/// — the exact shape that otherwise stalls silently at alignment. Returns
+/// `None` (no block) for a counts-first DAG (read stages pruned) or a run
+/// that also produced real FASTQ.
+fn input_form_mismatch_reason(
+    emitted_counts: bool,
+    has_fastq: bool,
+    dag_expects_reads: bool,
+) -> Option<String> {
+    if emitted_counts && !has_fastq && dag_expects_reads {
+        Some(
+            "[data_shape_mismatch] expected=raw sequence reads (data:2044) \
+             actual=processed count matrix (data:3917) — data_acquisition obtained only a \
+             deposited count matrix for this accession, but the composed pipeline still \
+             includes read-processing stages (sequence_trimming / alignment / quantification) \
+             that require raw reads. Recovery: recompose counts-first (declare the deposited \
+             count matrix as the starting point so trimming/alignment/quantification are \
+             pruned), or supply an accession that provides raw reads (SRA)."
+                .to_string(),
+        )
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod input_form_guard_tests {
+    use super::{
+        input_form_mismatch_reason, matrices_index_has_counts, result_artifacts_have_fastq,
+        workflow_has_read_processing_stages,
+    };
+    use serde_json::json;
+
+    // These mirror the EXACT on-disk shapes of the analyzed faulty package
+    // b0a4d222…GSE164073: data_acquisition emitted a raw_counts matrix,
+    // no FASTQ artifact, while the composed DAG carried trim/align/quantify.
+    fn faulty_matrices_index() -> serde_json::Value {
+        json!({"matrices": [{
+            "matrix_id": "GSE164073_count_matrix",
+            "matrix_type": "raw_counts",
+            "filename": "GSE164073_Eye_count_matrix.csv.gz"
+        }]})
+    }
+    fn faulty_result() -> serde_json::Value {
+        json!({"artifacts": [
+            "cohort_manifest.tsv", "per_accession_summary.json",
+            "matrices_index.json", "manifest.json", "result.json",
+            "data/GSE164073/GSE164073_Eye_count_matrix.csv.gz"
+        ]})
+    }
+    fn fastq_workflow() -> serde_json::Value {
+        json!({"tasks": {
+            "data_acquisition": {}, "sequence_trimming": {}, "alignment": {},
+            "quantification": {}, "normalisation": {}, "differential_expression": {}
+        }})
+    }
+
+    #[test]
+    fn faulty_package_shape_fails_loudly() {
+        // Exactly the b0a4d222 scenario: counts emitted, no FASTQ, FASTQ DAG.
+        let emitted_counts = matrices_index_has_counts(&faulty_matrices_index());
+        let has_fastq = result_artifacts_have_fastq(&faulty_result());
+        let dag_expects_reads = workflow_has_read_processing_stages(&fastq_workflow());
+        assert!(emitted_counts, "raw_counts matrix must read as counts");
+        assert!(!has_fastq, "count-matrix-only run has no FASTQ artifact");
+        assert!(dag_expects_reads, "FASTQ DAG carries read-processing stages");
+
+        let reason = input_form_mismatch_reason(emitted_counts, has_fastq, dag_expects_reads)
+            .expect("guard MUST block the counts-into-FASTQ-DAG mismatch");
+        assert!(reason.starts_with("[data_shape_mismatch]"), "typed marker: {reason}");
+        assert!(reason.contains("Recovery: recompose counts-first"), "actionable: {reason}");
+    }
+
+    #[test]
+    fn counts_first_dag_does_not_trip() {
+        // Read stages pruned (the fixed intake path) -> no mismatch.
+        let wf = json!({"tasks": {
+            "data_acquisition": {}, "qc_preprocessing": {}, "normalisation": {},
+            "differential_expression": {}
+        }});
+        let dag_expects_reads = workflow_has_read_processing_stages(&wf);
+        assert!(!dag_expects_reads);
+        assert!(input_form_mismatch_reason(true, false, dag_expects_reads).is_none());
+    }
+
+    #[test]
+    fn real_fastq_materialized_does_not_trip() {
+        // A genuine raw-reads run: FASTQ present, FASTQ DAG -> consistent.
+        let result = json!({"artifacts": [
+            "data/SRR1.fastq.gz", "data/SRR2.fastq.gz", "manifest.json"
+        ]});
+        let has_fastq = result_artifacts_have_fastq(&result);
+        assert!(has_fastq);
+        assert!(input_form_mismatch_reason(true, has_fastq, true).is_none());
+    }
+
+    #[test]
+    fn raw_reads_run_without_counts_does_not_trip() {
+        // No matrices_index / no count matrix -> emitted_counts false.
+        assert!(!matrices_index_has_counts(&json!({"matrices": []})));
+        assert!(input_form_mismatch_reason(false, false, true).is_none());
+    }
+
+    #[test]
+    fn matrix_type_variants_read_as_counts() {
+        for t in ["raw_counts", "counts", "gene_counts", "COUNT"] {
+            assert!(
+                matrices_index_has_counts(&json!({"matrices": [{"matrix_type": t}]})),
+                "matrix_type {t:?} should read as counts"
+            );
+        }
+        assert!(!matrices_index_has_counts(&json!({"matrices": [{"matrix_type": "fpkm"}]})));
+    }
 }
 
 fn write_dag(dir: &Path, dag: &DAG) -> Result<()> {
