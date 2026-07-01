@@ -39,11 +39,42 @@ fn product_iri(p: &DataProductContract) -> Option<&str> {
     type_iri(&p.semantic_type)
 }
 
-/// Does node `n` expose an OUTPUT port of semantic type `iri`?
+/// Does a producer OUTPUT port of semantic type `st` supply the
+/// SME-supplied product typed by ontology IRI `iri`?
+///
+/// True when:
+/// - the port is an `OntologyTerm` whose IRI equals `iri` (the exact-term
+///   match that already drove counts/peaks/VCF/BAM/DE-results pruning), OR
+/// - the port is a `LocalExtension` whose `proposed_parent_terms` CONTAINS
+///   `iri` — i.e. the port is a local subtype of the supplied ontology term.
+///   This is the proteomics case: `protein_quantification`'s output port is
+///   `ecaax:protein_abundance_matrix` with `proposed_parent_terms: [data:2976]`,
+///   so a seeded `data:2976` (protein abundance matrix) must match it to prune
+///   the search→quantify chain, even though the port carries no bare IRI.
+///
+/// Deliberately NARROW: this subsumption is applied ONLY on the supplied-
+/// product → producer-port direction used for input-stage pruning. It is a
+/// one-directional "the supplied ontology term is (an ancestor of) what this
+/// port produces" test — it does not touch `SemanticType`'s general
+/// type-equality / edge-compatibility logic, and it never fires for the raw
+/// default (`data:2044` is guarded out before any port match).
+fn port_supplies_iri(st: &SemanticType, iri: &str) -> bool {
+    match st {
+        SemanticType::OntologyTerm { iri: port_iri, .. } => port_iri == iri,
+        SemanticType::LocalExtension {
+            proposed_parent_terms,
+            ..
+        } => proposed_parent_terms.iter().any(|p| p == iri),
+        _ => false,
+    }
+}
+
+/// Does node `n` expose an OUTPUT port that supplies ontology type `iri`
+/// (exact ontology term, or a local extension proposing it as a parent)?
 fn node_produces(n: &TaskNode, iri: &str) -> bool {
     n.outputs
         .iter()
-        .any(|o| type_iri(&o.semantic_type) == Some(iri))
+        .any(|o| port_supplies_iri(&o.semantic_type, iri))
 }
 
 /// Transitive ancestors of `target` (every node with a forward path to it).
@@ -136,7 +167,7 @@ pub fn prune_supplied_upstream(
         if let Some(port) = dag.nodes.iter().find(|n| n.id == q).and_then(|n| {
             n.outputs
                 .iter()
-                .find(|o| type_iri(&o.semantic_type) == Some(iri))
+                .find(|o| port_supplies_iri(&o.semantic_type, iri))
                 .cloned()
         }) {
             if let Some(anchor_node) = dag.nodes.iter_mut().find(|n| n.id == anchor) {
@@ -185,6 +216,22 @@ mod tests {
     }
     fn inp(name: &str, iri: &str) -> PortContract {
         PortContract::with_semantic_type(name, SemanticType::edam(iri, ""))
+    }
+    /// A `local_extension` output port proposing `parent_iri` as a parent
+    /// term — mirrors the `protein_quantification` atom's
+    /// `ecaax:protein_abundance_matrix` output (`proposed_parent_terms:
+    /// [data:2976]`).
+    fn out_local_ext(name: &str, ext_id: &str, parent_iri: &str) -> PortContract {
+        PortContract::with_semantic_type(
+            name,
+            SemanticType::LocalExtension {
+                namespace: "ecaax".into(),
+                id: ext_id.into(),
+                proposed_parent_terms: vec![parent_iri.into()],
+                definition: String::new(),
+                maturity: crate::workflow_contracts::semantic_type::default_minted(),
+            },
+        )
     }
     fn node(id: &str, inputs: Vec<PortContract>, outputs: Vec<PortContract>) -> TaskNode {
         let mut n = TaskNode::skeleton(id, id);
@@ -613,6 +660,148 @@ mod tests {
         assert!(
             node_produces(da, DE_RESULTS),
             "data_acquisition must expose the supplied DE-results type"
+        );
+    }
+
+    /// REGRESSION (Task B guard): the new local-extension subsumption must NOT
+    /// change ontology-term pruning. Supplying counts (`data:3917`, a bare
+    /// OntologyTerm) prunes an ONTOLOGY-TERM `quantification` producer exactly
+    /// as before, and a proteomics `data:2976` seed must NOT prune this
+    /// counts chain (its output ports carry no `data:2976` proposed parent).
+    #[test]
+    fn ontology_term_pruning_unchanged_by_local_extension_extension() {
+        let build = || WorkflowDag {
+            id: "t".into(),
+            nodes: vec![
+                node("data_acquisition", vec![], vec![out("staged", "data:2531")]),
+                node(
+                    "quantification",
+                    vec![inp("bam", BAM)],
+                    vec![out("counts", COUNTS)],
+                ),
+                node(
+                    "differential_expression",
+                    vec![inp("counts", COUNTS)],
+                    vec![out("de", DE)],
+                ),
+            ],
+            edges: vec![
+                edge("data_acquisition", "quantification"),
+                edge("quantification", "differential_expression"),
+            ],
+            ..Default::default()
+        };
+        // Counts (bare ontology term) still prunes the ontology-term producer.
+        let mut dag = build();
+        let removed =
+            prune_supplied_upstream(&mut dag, &[DataProductContract::gene_count_matrix()]);
+        assert!(
+            removed.iter().any(|r| r == "quantification"),
+            "ontology-term counts seed must still prune quantification; got {removed:?}"
+        );
+        // A proteomics data:2976 seed must NOT touch a chain whose ports never
+        // propose data:2976 as a parent — the subsumption is IRI-scoped.
+        let mut dag2 = build();
+        let supplied = DataProductContract::skeleton(
+            "intake_supplied_data_2976",
+            SemanticType::edam("data:2976", "Protein abundance matrix"),
+        );
+        let removed2 = prune_supplied_upstream(&mut dag2, &[supplied]);
+        assert!(
+            removed2.is_empty(),
+            "data:2976 must not prune a counts chain lacking that parent term; got {removed2:?}"
+        );
+        assert_eq!(dag2.nodes.len(), 3, "no counts node may be removed");
+    }
+
+    /// TASK B: supplying a PROTEOMICS abundance matrix (`data:2976`) must prune
+    /// the search→quantify chain (`peptide_search → protein_quantification`)
+    /// even though `protein_quantification`'s output port is a
+    /// `local_extension` (`ecaax:protein_abundance_matrix`) proposing
+    /// `data:2976` as its parent — NOT a bare ontology term. Before the
+    /// local-extension subsumption, `node_produces` returned `None` for that
+    /// port, so seeding `data:2976` was a silent no-op and the search→quantify
+    /// chain stranded. The surviving consumer (`differential_expression`)
+    /// rewires onto data_acquisition, which now exposes the supplied product.
+    #[test]
+    fn supplied_proteomics_matrix_prunes_search_quantify_chain_and_rewires() {
+        const PROTEIN_ABUNDANCE: &str = "data:2976";
+        let mut dag = WorkflowDag {
+            id: "t".into(),
+            nodes: vec![
+                node("data_acquisition", vec![], vec![out("staged", "data:2531")]),
+                node(
+                    "peptide_search",
+                    vec![inp("spectra", "data:2536")],
+                    vec![out("psms", "data:2537")],
+                ),
+                node(
+                    "protein_quantification",
+                    vec![inp("psms", "data:2537")],
+                    // The load-bearing shape: output is a local_extension whose
+                    // proposed parent is the supplied data:2976 term.
+                    vec![out_local_ext(
+                        "protein_abundance",
+                        "protein_abundance_matrix",
+                        PROTEIN_ABUNDANCE,
+                    )],
+                ),
+                node(
+                    "differential_expression",
+                    vec![inp("abundance", PROTEIN_ABUNDANCE)],
+                    vec![out("de", DE)],
+                ),
+            ],
+            edges: vec![
+                edge("data_acquisition", "peptide_search"),
+                edge("peptide_search", "protein_quantification"),
+                edge("protein_quantification", "differential_expression"),
+            ],
+            ..Default::default()
+        };
+        // The supplied product is typed as the bare ontology term data:2976 (as
+        // the dispatcher seeds it), matching the producer's local_extension
+        // parent.
+        let supplied = DataProductContract::skeleton(
+            "intake_supplied_data_2976",
+            SemanticType::edam(PROTEIN_ABUNDANCE, "Protein abundance matrix"),
+        );
+        let removed = prune_supplied_upstream(&mut dag, &[supplied]);
+        let ids: BTreeSet<&str> = dag.nodes.iter().map(|n| n.id.as_str()).collect();
+        for gone in ["peptide_search", "protein_quantification"] {
+            assert!(!ids.contains(gone), "{gone} must be pruned; got {ids:?}");
+            assert!(
+                removed.iter().any(|r| r == gone),
+                "removed should list {gone}; got {removed:?}"
+            );
+        }
+        for kept in ["data_acquisition", "differential_expression"] {
+            assert!(ids.contains(kept), "{kept} must survive; got {ids:?}");
+        }
+        assert!(
+            dag.edges.iter().any(|e| e.from_node == "data_acquisition"
+                && e.to_node == "differential_expression"),
+            "differential_expression must be rewired onto data_acquisition; edges={:?}",
+            dag.edges
+                .iter()
+                .map(|e| (e.from_node.clone(), e.to_node.clone()))
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            !dag.edges.iter().any(|e| e.from_node == "protein_quantification"
+                || e.to_node == "protein_quantification"),
+            "no edges may reference the pruned protein_quantification node"
+        );
+        // data_acquisition now exposes the supplied local-extension product port
+        // so the rewired edge keeps a typed source.
+        let da = dag
+            .nodes
+            .iter()
+            .find(|n| n.id == "data_acquisition")
+            .unwrap();
+        assert!(
+            node_produces(da, PROTEIN_ABUNDANCE),
+            "data_acquisition must expose the supplied protein-abundance type"
         );
     }
 }

@@ -250,7 +250,7 @@ pub fn plan(
             // multi-branch path never ran `prune_supplied_upstream`, so a
             // supplied product would otherwise strand its producing-chain.
             // Run BEFORE scoring so the score reflects the pruned shape.
-            finalize_primary_dag(&mut comp.dag, ctx, archetype_reg);
+            finalize_primary_dag(&mut comp.dag, ctx, goal, archetype_reg);
             let score = score_dag(&comp.dag, ctx, archetype_reg);
             let summary = summarize_dag(&comp.dag, &score);
             let effective_sandbox = ctx
@@ -782,7 +782,7 @@ pub fn plan(
     // otherwise strand a supplied product's producing-chain. Keep
     // `alternatives[0]` in sync with the returned primary so the slate the SME
     // sees matches what was emitted.
-    finalize_primary_dag(&mut primary_dag, ctx, archetype_reg);
+    finalize_primary_dag(&mut primary_dag, ctx, goal, archetype_reg);
     alternatives[0].dag = primary_dag.clone();
 
     // Determine outcome shape from the primary's score + content.
@@ -820,11 +820,22 @@ pub fn plan(
 ///    running it here means EVERY primary DAG (primary/single-archetype path
 ///    included) is coherence-checked. Never blocks — surfaces via tracing.
 ///
+/// 3. **Input-stage signal (data_acquisition).** Stamp `required_input_stage`
+///    onto the data-staging anchor's attributes so the lowering pass can fold
+///    it into `task-spec.json` and the executing agent knows WHICH input stage
+///    the composed DAG expects. Without it, the agent fetches whatever is
+///    easiest (often a deposited supplementary count matrix) even when the DAG
+///    needs raw reads — a silent stall. Runs here (on the SELECTED primary DAG)
+///    rather than at seed-lift time so it covers EVERY branch (archetype seed,
+///    search-driven, multi-branch) uniformly, and after pruning so the stamp
+///    reflects the final anchor shape.
+///
 /// Both passes are warn/no-op-safe: the emitted DAG only ever SHRINKS (prune)
 /// or is logged (coherence); neither invents nodes.
 fn finalize_primary_dag(
     dag: &mut WorkflowDag,
     ctx: &PlanningContext,
+    goal: &GoalSpec,
     archetype_reg: &ArchetypeRegistry,
 ) {
     let pruned =
@@ -836,12 +847,67 @@ fn finalize_primary_dag(
             "finalize_primary_dag: pruned supplied upstream on the selected primary DAG"
         );
     }
+    stamp_required_input_stage(dag, goal);
     let coherence = super::coherence_gate::evaluate(dag, ctx, archetype_reg);
     if !coherence.findings.is_empty() {
         tracing::warn!(
             findings = ?coherence.findings,
             "coherence gate flagged potential incoherence on the selected primary DAG"
         );
+    }
+}
+
+/// Default entry point when the classifier detected no SME-declared supplied
+/// product: raw sequence reads / raw mass-spec (`data:2044`). Mirrors
+/// `input_stage_prune::RAW_INPUT_IRI`.
+const RAW_INPUT_STAGE_IRI: &str = "data:2044";
+
+/// Stamp `required_input_stage` (the resolved composed-DAG entry-point EDAM
+/// IRI) onto the `data_acquisition` staging-anchor node. The lowering pass
+/// (`backend_emitters/workflow_json.rs`) folds this attribute into
+/// `task-spec.json`'s `spec` object exactly as it does `required_figures`, so
+/// the executing agent (via `scripts/agent-prompts/task-execution.md`) knows
+/// whether to fetch RAW reads (the `data:2044` default) or to materialize a
+/// specific processed product (the downstream-first entry point).
+///
+/// The signal source is `goal.modifiers["available_input_stage"]` — the type
+/// IRI the classifier stamps from `detect_input_data_stage` (see
+/// `composer::dispatch`, which seeds `intent.available_data` from the same
+/// modifier). Defaults to `data:2044` (raw reads) when unset. Match is by
+/// `stage_id`/`atom_id` attribute (falling back to the node id), so an aliased
+/// staging anchor is still stamped.
+///
+/// Scoped to `data_acquisition` only (NOT `data_import`): the raw-reads default
+/// is meaningful for repository-fetch pipelines but would mis-signal the
+/// `data_import` (CDISC/tabular dataset-descriptor) clinical-trial path, which
+/// never carries `available_input_stage` and consumes a tabular descriptor, not
+/// FASTQ. That path is outside the raw-reads-vs-processed-matrix root cause this
+/// signal addresses.
+fn stamp_required_input_stage(dag: &mut WorkflowDag, goal: &GoalSpec) {
+    let iri = goal
+        .modifiers
+        .get("available_input_stage")
+        .map(String::as_str)
+        .unwrap_or(RAW_INPUT_STAGE_IRI)
+        .to_string();
+    const ANCHOR: &str = "data_acquisition";
+    for node in dag.nodes.iter_mut() {
+        let stage_id = node
+            .attributes
+            .get("stage_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or(node.id.as_str());
+        let atom_id = node
+            .attributes
+            .get("atom_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if stage_id == ANCHOR || atom_id == ANCHOR {
+            node.attributes.insert(
+                "required_input_stage".into(),
+                serde_json::Value::String(iri.clone()),
+            );
+        }
     }
 }
 
