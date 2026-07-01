@@ -3772,6 +3772,161 @@ fn counts_level_entry_from_exclusion_prunes_fastq_block() {
     );
 }
 
+/// Regression (real-API-caught): after the exclusion prune yields a
+/// counts-first DAG (no read-processing stages; `data_acquisition` ->
+/// `qc_preprocessing[count_matrix data:3917]`), `restamp_required_input_stage`
+/// must set the anchor's `required_input_stage` to the count-matrix IRI
+/// (`data:3917`) — NOT the raw-reads default (`data:2044`) the core planner
+/// stamped BEFORE this crate's exclusion prune ran. A raw DAG (with
+/// `sequence_trimming`/`alignment`) must stay `data:2044`. Live testing found
+/// the anchor stuck at `data:2044` on counts-first, which would misdirect the
+/// executing agent to fetch raw reads for a counts pipeline.
+#[test]
+fn restamp_required_input_stage_reflects_postprune_entry() {
+    use ecaa_workflow_core::dag::{
+        current_dag_schema_version, Assignee, ResourceClass, Task, TaskKind, TaskState, DAG,
+    };
+    use ecaa_workflow_core::workflow_contracts::edge::{
+        CompatibilityProof, EdgeContract, EdgeKind,
+    };
+    use ecaa_workflow_core::workflow_contracts::evidence::AssumptionLedger;
+    use ecaa_workflow_core::workflow_contracts::port::PortContract;
+    use ecaa_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
+
+    fn node_with(id: &str, in_iri: &str, out_iri: &str) -> TaskNode {
+        let mut n = TaskNode::skeleton(id, format!("intent {id}"));
+        n.attributes
+            .insert("stage_id".into(), serde_json::Value::String(id.into()));
+        n.inputs = vec![PortContract::from_edam("in", Some(in_iri), Some("format:3475"))];
+        n.outputs = vec![PortContract::from_edam("out", Some(out_iri), Some("format:3475"))];
+        n
+    }
+    fn edge(from: &str, to: &str) -> EdgeContract {
+        EdgeContract {
+            from_node: from.into(),
+            from_port: "out".into(),
+            to_node: to.into(),
+            to_port: "in".into(),
+            proof: CompatibilityProof::default(),
+            kind: EdgeKind::TypedDataFlow,
+            chain_of_custody: None,
+        }
+    }
+    // Mirrors the exclusion-prune rewire: synthetic placeholder ports that do
+    // NOT name a real consumer input (prune_unsourced::rewire_or_drop).
+    fn bridge_edge(from: &str, to: &str) -> EdgeContract {
+        EdgeContract {
+            from_node: from.into(),
+            from_port: "_excluded_rewire".into(),
+            to_node: to.into(),
+            to_port: "_excluded_rewire".into(),
+            proof: CompatibilityProof::default(),
+            kind: EdgeKind::TypedDataFlow,
+            chain_of_custody: None,
+        }
+    }
+    fn session_with(wf: WorkflowDag) -> crate::session::Session {
+        let mut s = crate::session::Session::new(false);
+        let mut tasks = std::collections::BTreeMap::new();
+        tasks.insert(
+            "data_acquisition".into(),
+            Task {
+                kind: TaskKind::Computation,
+                state: TaskState::Pending,
+                depends_on: vec![],
+                assignee: Assignee::Agent,
+                description: "da".into(),
+                // Simulate the core planner's pre-exclusion stamp (raw default).
+                spec: Some(serde_json::json!({"required_input_stage": "data:2044"})),
+                resolution: None,
+                result_ref: None,
+                resource_class: ResourceClass::CpuHeavy,
+                requires_sme_review: false,
+                required_artifacts: vec![],
+                container: None,
+                source_atom_id: None,
+                safety: Default::default(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+                edam_operation: None,
+                execution_index: None,
+            },
+        );
+        s.dag = Some(DAG {
+            version: "1.0".into(),
+            schema_version: current_dag_schema_version(),
+            workflow_id: "t".into(),
+            current_task: None,
+            tasks,
+            reverse_deps: Default::default(),
+            run_id: None,
+            execution_order: vec![],
+        });
+        s.workflow_dag = Some(wf);
+        s
+    }
+    fn stamped(s: &crate::session::Session) -> Option<String> {
+        s.dag
+            .as_ref()?
+            .tasks
+            .get("data_acquisition")?
+            .spec
+            .as_ref()?
+            .get("required_input_stage")?
+            .as_str()
+            .map(str::to_string)
+    }
+
+    // Counts-first: data_acquisition -> qc_preprocessing[count_matrix], no read stages.
+    let counts_wf = WorkflowDag {
+        id: "t".into(),
+        nodes: vec![
+            node_with("data_acquisition", "data:2531", "data:2044"),
+            node_with("qc_preprocessing", "data:3917", "data:3917"),
+            node_with("normalisation", "data:3917", "data:3917"),
+        ],
+        edges: vec![
+            // The exclusion prune rewires data_acquisition -> qc_preprocessing
+            // with a synthetic port name (the exact live shape that broke the
+            // by-name lookup).
+            bridge_edge("data_acquisition", "qc_preprocessing"),
+            edge("qc_preprocessing", "normalisation"),
+        ],
+        assumptions: AssumptionLedger::default(),
+        source_template: None,
+    };
+    let mut s = session_with(counts_wf);
+    super::restamp_required_input_stage(&mut s);
+    assert_eq!(
+        stamped(&s).as_deref(),
+        Some("data:3917"),
+        "counts-first DAG must resolve required_input_stage to the count-matrix IRI"
+    );
+
+    // Raw: sequence_trimming/alignment present => stays raw reads.
+    let raw_wf = WorkflowDag {
+        id: "t".into(),
+        nodes: vec![
+            node_with("data_acquisition", "data:2531", "data:2044"),
+            node_with("sequence_trimming", "data:2044", "data:2044"),
+            node_with("alignment", "data:2044", "data:0863"),
+        ],
+        edges: vec![
+            edge("data_acquisition", "sequence_trimming"),
+            edge("sequence_trimming", "alignment"),
+        ],
+        assumptions: AssumptionLedger::default(),
+        source_template: None,
+    };
+    let mut s2 = session_with(raw_wf);
+    super::restamp_required_input_stage(&mut s2);
+    assert_eq!(
+        stamped(&s2).as_deref(),
+        Some("data:2044"),
+        "raw-first DAG must keep required_input_stage at raw reads"
+    );
+}
+
 // ───────────────────────────────────────────────────────────────────────
 // G1/G2/G5 DAG-composition-fix coverage (2026-06-28).
 //

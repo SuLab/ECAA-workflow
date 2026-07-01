@@ -2487,6 +2487,14 @@ pub(crate) fn rebuild_dag(
         }
     }
 
+    // Re-derive `required_input_stage` from the FINAL post-prune DAG (see
+    // `restamp_required_input_stage`). The core planner stamps it during
+    // composition, BEFORE this crate's `set_intake_excluded_atoms` prune
+    // removes the read-processing stages — so a counts-first-via-exclusions
+    // DAG would otherwise keep the raw-reads default and misdirect
+    // `data_acquisition` to fetch raw reads for a counts pipeline.
+    restamp_required_input_stage(session);
+
     if has_unresolved {
         // Best-effort: from terminal states (Emitted, Blocked, ReadyToEmit
         // etc.) the trigger is illegal and try_transition returns Err. We
@@ -2500,6 +2508,51 @@ pub(crate) fn rebuild_dag(
     }
 
     Ok(())
+}
+
+/// Re-stamp the `data_acquisition` anchor's `required_input_stage` from the
+/// FINAL, fully-pruned session DAG. Called at the end of `rebuild_dag` after
+/// every prune (including this crate's `set_intake_excluded_atoms` pass, which
+/// runs AFTER core composition, so the core planner's earlier stamp is stale
+/// for the counts-first-via-exclusions path). Updates BOTH `session.workflow_dag`
+/// node attributes (folded into `task-spec.json` at emit) and `session.dag`'s
+/// `Task.spec` (read by the `/dag` endpoint) so they agree. The structure-based
+/// derivation itself lives in core
+/// (`composer_v4::planner::derive_required_input_stage`).
+fn restamp_required_input_stage(session: &mut Session) {
+    let Some(wf) = session.workflow_dag.as_mut() else {
+        return;
+    };
+    let iri = ecaa_workflow_core::composer_v4::planner::derive_required_input_stage(wf);
+    for node in wf.nodes.iter_mut() {
+        let stage_id = node
+            .attributes
+            .get("stage_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or(node.id.as_str());
+        let atom_id = node
+            .attributes
+            .get("atom_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if stage_id == "data_acquisition" || atom_id == "data_acquisition" {
+            node.attributes.insert(
+                "required_input_stage".into(),
+                serde_json::Value::String(iri.clone()),
+            );
+        }
+    }
+    if let Some(dag) = session.dag.as_mut() {
+        if let Some(task) = dag.tasks.get_mut("data_acquisition") {
+            let spec = task.spec.get_or_insert_with(|| serde_json::json!({}));
+            if let Some(obj) = spec.as_object_mut() {
+                obj.insert(
+                    "required_input_stage".into(),
+                    serde_json::Value::String(iri),
+                );
+            }
+        }
+    }
 }
 
 /// Re-inject every `Promoted` proposal back into `session.workflow_dag`

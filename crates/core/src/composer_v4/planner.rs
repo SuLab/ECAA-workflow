@@ -883,13 +883,119 @@ const RAW_INPUT_STAGE_IRI: &str = "data:2044";
 /// never carries `available_input_stage` and consumes a tabular descriptor, not
 /// FASTQ. That path is outside the raw-reads-vs-processed-matrix root cause this
 /// signal addresses.
+/// Raw mass-spectrometry entry point (proteomics / immunopeptidomics).
+const RAW_MS_INPUT_STAGE_IRI: &str = "data:2536";
+/// EDAM "Experiment annotation" — the `data_acquisition` cohort-manifest /
+/// accession-descriptor port type; metadata, never the analysis entry point.
+const MANIFEST_IRI: &str = "data:2531";
+
+/// Derive the composed-DAG entry point (the EDAM type `data_acquisition` must
+/// supply) from the FINAL, post-prune DAG STRUCTURE — not from the classifier
+/// goal alone. This is correct whether the read-processing stages were pruned
+/// by the core `input_stage_prune` (available_input_stage seeding) OR by the
+/// conversation crate's `set_intake_excluded_atoms`, which runs AFTER core
+/// composition — so callers must invoke it once the DAG is fully pruned.
+///
+/// First match wins: (1) a surviving `sequence_trimming`/`alignment` consumer
+/// => `data:2044` (raw reads); (2) a surviving `peptide_search`/`hla_peptide_search`
+/// => `data:2536` (raw mass-spec); (3) otherwise the pipeline is downstream-first,
+/// so return the ontology IRI of `data_acquisition`'s primary (non-validator,
+/// non-manifest) consumer's input port — the exact product it must materialize
+/// (a `count_matrix` consumer => `data:3917`); (4) else fall back to raw reads.
+pub fn derive_required_input_stage(dag: &WorkflowDag) -> String {
+    use crate::workflow_contracts::semantic_type::SemanticType;
+    let eff_ids = |n: &TaskNode| -> (String, String) {
+        let stage = n
+            .attributes
+            .get("stage_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or(n.id.as_str())
+            .to_string();
+        let atom = n
+            .attributes
+            .get("atom_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        (stage, atom)
+    };
+    let has_stage = |ids: &[&str]| -> bool {
+        dag.nodes.iter().any(|n| {
+            let (s, a) = eff_ids(n);
+            ids.contains(&s.as_str()) || ids.contains(&a.as_str())
+        })
+    };
+    // A surviving raw-consuming stage pins the raw entry point.
+    if has_stage(&["sequence_trimming", "alignment"]) {
+        return RAW_INPUT_STAGE_IRI.to_string();
+    }
+    if has_stage(&["peptide_search", "hla_peptide_search"]) {
+        return RAW_MS_INPUT_STAGE_IRI.to_string();
+    }
+    // Downstream-first: the entry point is whatever `data_acquisition`'s
+    // primary consumer needs. Read that consumer's input-port ontology IRI
+    // off the edge (skip validators + the cohort-manifest metadata port).
+    let anchor_ids: std::collections::BTreeSet<&str> = dag
+        .nodes
+        .iter()
+        .filter(|n| {
+            let (s, a) = eff_ids(n);
+            s == "data_acquisition" || a == "data_acquisition"
+        })
+        .map(|n| n.id.as_str())
+        .collect();
+    // Consumers that are NOT the analysis data path: the `raw_qc` sentinel
+    // (a protected no-op on a counts-first DAG) and the literature atoms
+    // (they read the accession descriptor / manifest, not the entry product).
+    const SKIP_CONSUMERS: &[&str] = &["raw_qc", "survey_method_landscape", "review_prior_work"];
+    // First non-manifest ontology IRI among a port then all the node's inputs.
+    let first_product_iri = |consumer: &TaskNode, named: Option<&PortContract>| -> Option<String> {
+        named
+            .into_iter()
+            .chain(consumer.inputs.iter())
+            .find_map(|p| match &p.semantic_type {
+                SemanticType::OntologyTerm { iri, .. } if iri != MANIFEST_IRI => Some(iri.clone()),
+                _ => None,
+            })
+    };
+    // Prefer the exclusion-prune rewire bridge (from_port `_excluded_rewire`),
+    // which connects data_acquisition directly to the primary downstream
+    // consumer of the pruned entry point; fall through to any other data
+    // consumer. The rewire synthesizes a placeholder `to_port`, so match the
+    // named port when present and otherwise use the consumer's first
+    // non-manifest ontology input port (e.g. `count_matrix` => `data:3917`).
+    for prefer_bridge in [true, false] {
+        for edge in &dag.edges {
+            if !anchor_ids.contains(edge.from_node.as_str()) || edge.to_node.starts_with("validate_")
+            {
+                continue;
+            }
+            if prefer_bridge && edge.from_port != "_excluded_rewire" {
+                continue;
+            }
+            let Some(consumer) = dag.nodes.iter().find(|n| n.id == edge.to_node) else {
+                continue;
+            };
+            let (cs, ca) = eff_ids(consumer);
+            if SKIP_CONSUMERS.contains(&cs.as_str()) || SKIP_CONSUMERS.contains(&ca.as_str()) {
+                continue;
+            }
+            let named = consumer.inputs.iter().find(|p| p.name == edge.to_port);
+            if let Some(iri) = first_product_iri(consumer, named) {
+                return iri;
+            }
+        }
+    }
+    RAW_INPUT_STAGE_IRI.to_string()
+}
+
 fn stamp_required_input_stage(dag: &mut WorkflowDag, goal: &GoalSpec) {
-    let iri = goal
-        .modifiers
-        .get("available_input_stage")
-        .map(String::as_str)
-        .unwrap_or(RAW_INPUT_STAGE_IRI)
-        .to_string();
+    // The entry point is now derived from the post-prune DAG structure; the
+    // classifier goal is no longer the authority (it missed the
+    // exclusion-pruned counts-first path). Kept in the signature for the
+    // call site's stability.
+    let _ = goal;
+    let iri = derive_required_input_stage(dag);
     const ANCHOR: &str = "data_acquisition";
     for node in dag.nodes.iter_mut() {
         let stage_id = node
