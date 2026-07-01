@@ -521,6 +521,19 @@ fn lower_task(node: &TaskNode, depends_on: Vec<TaskId>) -> Result<Task, EmitErro
     if let Some(ea) = node.attributes.get("expected_artifacts") {
         spec_map.insert("expected_artifacts".into(), ea.clone());
     }
+    // `required_input_stage` is the resolved composed-DAG entry-point EDAM IRI
+    // stamped onto the `data_acquisition` staging anchor by
+    // `composer_v4::planner::stamp_required_input_stage`. Folding it into the
+    // per-task spec (mirroring `required_figures`) is what lets the executing
+    // agent — via the data-acquisition guidance in
+    // scripts/agent-prompts/task-execution.md — fetch the RIGHT input stage
+    // (raw reads for `data:2044`; the named processed product otherwise) instead
+    // of substituting whatever deposited artifact is easiest to grab. Additive:
+    // emitted only on the nodes the planner stamped, so every other task keeps
+    // its byte-reproducible spec shape.
+    if let Some(ris) = node.attributes.get("required_input_stage") {
+        spec_map.insert("required_input_stage".into(), ris.clone());
+    }
     // `stage_class` is the bare axis name (e.g. `peptide_search`,
     // `dimensionality_reduction`) used by the agent prompt's auto-approve
     // gate to match against `runtime/.sme-auto-approve-discoveries`.

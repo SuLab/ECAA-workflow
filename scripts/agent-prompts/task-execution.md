@@ -141,6 +141,28 @@ stub, fabricate, or copy placeholder data. Missing a required output table is
 a hard completion failure: an analytical stage that did not emit the tables
 its declared figures are rendered from is not done.
 
+### Data acquisition — required input stage
+
+When `task-spec.json` carries `required_input_stage`, it names the EDAM data
+type the composed workflow expects THIS acquisition stage to hand downstream.
+Fetch to match it; do not substitute a different, easier-to-grab form.
+
+- `data:2044` (raw sequence reads — the default): fetch RAW sequencing reads
+  (FASTQ from SRA/ENA, or raw mass-spec RAW/mzML). Do NOT substitute a
+  deposited supplementary processed matrix, a pre-called peak/VCF set, or a
+  precomputed count table — the downstream stages (alignment, quantification,
+  calling) need the raw substrate, and swapping in a processed product silently
+  strands them.
+- any other IRI (a processed-product entry point, e.g. `data:3917` counts,
+  `data:1255` peaks, `data:3498` variants, `data:0863` alignments, `data:3134`
+  DE results, `data:3028` taxonomy, `data:2976` protein abundance): the
+  workflow is downstream-first and the producing chain has been pruned, so
+  materialize THAT product directly (the deposited/supplied processed artifact)
+  rather than re-fetching raw reads.
+
+If `required_input_stage` is absent, acquire the raw input the stage's ports
+declare, as before.
+
 ### Discovery tasks (`discover_*`)
 
 A `discover_*` task selects the method for its downstream stage. Follow the

@@ -29,6 +29,14 @@ attributes:
     - dbgap
     - egastudy
     - sme_provided
+  # NOTE: `required_input_stage` is NOT declared here. It is injected by the
+  # composer at compose time (composer_v4::planner::stamp_required_input_stage)
+  # onto this staging anchor's node attributes and folded into task-spec.json's
+  # `spec` by the WORKFLOW.json lowering pass. Its value is the resolved
+  # composed-DAG entry-point EDAM IRI (default data:2044 = raw reads; otherwise
+  # a processed-product IRI when the DAG is downstream-first). The executing
+  # agent reads it via scripts/agent-prompts/task-execution.md to fetch the
+  # right input stage instead of substituting an easier deposited artifact.
 resource_profile:
   cpu: moderate
   memory: medium
