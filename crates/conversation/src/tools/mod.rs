@@ -238,6 +238,15 @@ pub enum BatchableTool {
         /// Quick-reply chip labels.
         options: Vec<String>,
     },
+    /// Probe a public GEO accession for its available analysis entry points
+    /// (a deposited processed count/expression matrix and/or raw reads via
+    /// the linked SRA study). Read-only network lookup; the intake agent
+    /// calls this before composing so it can present the SME a choice
+    /// instead of defaulting to a raw-read pipeline.
+    ProbeDataset {
+        /// GEO Series accession, e.g. "GSE164073".
+        accession: String,
+    },
 }
 
 /// High-impact tools that must be the only tool call in their turn.
@@ -770,6 +779,14 @@ const SPEC_PROPOSE_QUICK_REPLIES: ToolSpec = ToolSpec {
     state_trigger: None,
     post_handler: None,
 };
+const SPEC_PROBE_DATASET: ToolSpec = ToolSpec {
+    name: "probe_dataset",
+    // Read-only network lookup; records nothing on the session (the SME's
+    // chosen entry point is persisted separately via set_intake_field).
+    is_mutation: false,
+    state_trigger: None,
+    post_handler: None,
+};
 const SPEC_PROPOSE_HYPOTHESIZED_NODE: ToolSpec = ToolSpec {
     name: "propose_hypothesized_node",
     is_mutation: true,
@@ -921,6 +938,7 @@ impl BatchableTool {
             BatchableTool::SetIntakeModality { .. } => &SPEC_SET_INTAKE_MODALITY,
             BatchableTool::ProposeSummaryConfirmation { .. } => &SPEC_PROPOSE_SUMMARY_CONFIRMATION,
             BatchableTool::ProposeQuickReplies { .. } => &SPEC_PROPOSE_QUICK_REPLIES,
+            BatchableTool::ProbeDataset { .. } => &SPEC_PROBE_DATASET,
         }
     }
 
@@ -979,6 +997,9 @@ impl BatchableTool {
             BatchableTool::ProposeQuickReplies {
                 question: "x".into(),
                 options: vec!["y".into()],
+            },
+            BatchableTool::ProbeDataset {
+                accession: "GSE164073".into(),
             },
         ]
     }
@@ -1637,6 +1658,36 @@ fn dispatch_batchable(
         }
         BatchableTool::ProposeQuickReplies { question, options } => {
             conversational::propose_quick_replies(session, question, options, &ctx.config_dir)
+        }
+        BatchableTool::ProbeDataset { accession } => {
+            // The probe is an async network lookup, but batchable dispatch is
+            // sync. Bridge via block_in_place + the current multithread
+            // runtime handle (the server runs on rt-multi-thread). Degrade
+            // gracefully when not on a multithread runtime (e.g. unit tests)
+            // so the intake agent falls back to asking the SME.
+            let acc = accession.clone();
+            let probed = match tokio::runtime::Handle::try_current() {
+                Ok(h)
+                    if h.runtime_flavor()
+                        == tokio::runtime::RuntimeFlavor::MultiThread =>
+                {
+                    tokio::task::block_in_place(|| {
+                        h.block_on(crate::dataset_probe::probe_accession(&acc))
+                    })
+                }
+                _ => crate::dataset_probe::ProbeResult::needs_manual(
+                    &acc,
+                    "dataset probe unavailable in this runtime context",
+                ),
+            };
+            match serde_json::to_value(&probed) {
+                Ok(v) => ToolResult::ok(v),
+                Err(_) => ToolResult::ok(serde_json::json!({
+                    "accession": acc,
+                    "recognized": false,
+                    "note": "probe result serialization failed"
+                })),
+            }
         }
     }
 }

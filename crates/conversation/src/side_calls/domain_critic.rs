@@ -346,7 +346,7 @@ mod tests {
     #[test]
     fn ws1_does_not_grow_tool_vocabulary() {
         // The domain_critic is a side-call, NOT a Tool. Adding it must
-        // leave the closed tool vocabulary at 22.
-        assert_eq!(crate::tools::Tool::COUNT, 22);
+        // leave the closed tool vocabulary at 23.
+        assert_eq!(crate::tools::Tool::COUNT, 23);
     }
 }

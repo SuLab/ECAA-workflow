@@ -1399,7 +1399,7 @@ fn every_tool_variant_has_unique_non_empty_name() {
             tool
         );
     }
-    assert_eq!(seen.len(), 22, "expected 22 distinct tool names");
+    assert_eq!(seen.len(), 23, "expected 23 distinct tool names");
 }
 
 #[test]
@@ -1478,17 +1478,18 @@ fn high_impact_tools_count_matches_documented_8() {
 }
 
 #[test]
-fn batchable_tools_count_matches_documented_13() {
+fn batchable_tools_count_matches_documented_15() {
     use strum::EnumCount;
     assert_eq!(
         <super::BatchableTool as EnumCount>::COUNT,
-        14,
+        15,
         "Batchable bucket is the residual after the 8 high-impact split: \
-         7 read-only (classify_intake, get_taxonomy_info, get_session_state, \
+         8 read-only (classify_intake, get_taxonomy_info, get_session_state, \
          get_classification_evidence, get_task_result, get_literature_context, \
-         list_atoms) + 5 intake-mutation (set_intake_field, set_intake_method, \
-         set_intake_excluded_atoms, set_intake_modality, append_intake_prose) \
-         + 2 conversational (propose_summary_confirmation, propose_quick_replies)"
+         list_atoms, probe_dataset) + 5 intake-mutation (set_intake_field, \
+         set_intake_method, set_intake_excluded_atoms, set_intake_modality, \
+         append_intake_prose) + 2 conversational \
+         (propose_summary_confirmation, propose_quick_replies)"
     );
 }
 

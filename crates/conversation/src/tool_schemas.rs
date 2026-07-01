@@ -52,6 +52,9 @@ const INTAKE_ONLY_TOOLS: &[&str] = &[
     "set_intake_excluded_atoms",
     "set_intake_modality",
     "propose_summary_confirmation",
+    // Read-only accession probe: only meaningful during intake, to
+    // establish the starting data form before the plan is confirmed.
+    "probe_dataset",
     // Anthropic's strict tool-schema compiler still hit
     // "Schema is too complex for compilation" when ReadyToEmit kept
     // `list_atoms` (5 properties, two with multi-word descriptions
@@ -141,6 +144,9 @@ pub fn tool_status_line(tool: &Tool) -> &'static str {
             "Proposing a custom plot…"
         }
         Tool::Batchable(BatchableTool::ListAtoms { .. }) => "Checking the atom catalog…",
+        Tool::Batchable(BatchableTool::ProbeDataset { .. }) => {
+            "Probing the dataset for available starting points…"
+        }
     }
 }
 
@@ -613,6 +619,20 @@ fn raw_tool_schemas() -> Vec<serde_json::Value> {
             }
         }),
         json!({
+            "name": "probe_dataset",
+            "description": "Probe a public GEO Series accession (GSExxxxx) to discover which starting data forms it actually provides — raw sequence reads (SRA), a deposited processed count/expression matrix, or both. Read-only network lookup against the NCBI GEO SOFT record; does not save anything or advance the session. Call this the moment the user names a GEO accession, BEFORE confirming the plan, so you can present the real entry-point options (raw-reads-first vs counts-first). If the series provides only a processed matrix (no SRA raw reads), start counts-first by calling set_intake_excluded_atoms([\"sequence_trimming\",\"alignment\",\"quantification\"]). Returns recognized, title, organism, platform, series_type, n_samples, processed_matrix {filename, kind}, raw_reads_sra {study}, and note.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "accession": {
+                        "type": "string",
+                        "description": "A GEO Series accession, e.g. 'GSE164073'. Only GSE accessions are supported; anything else returns recognized=false with a note."
+                    }
+                },
+                "required": ["accession"]
+            }
+        }),
+        json!({
             "name": "propose_hypothesized_node",
             "description": "Propose a new pipeline node when the SME asks for a capability the registry doesn't satisfy. Alone-in-turn. The node is recorded as Hypothesized/Unverified and cannot execute until validators + sandbox + promotion authority approve. Only use when no existing atom or archetype fits.",
             "input_schema": {
@@ -723,9 +743,11 @@ mod tests {
         // Test-suite-remediation plan added `list_atoms`
         // (read-only catalog inspection) bringing it to 20. RCA F8
         // added `set_intake_modality` (SME-confirmed disambiguation)
-        // bringing it to 22. Any further additions require a plan
+        // bringing it to 22. The starting-data-form plan added
+        // `probe_dataset` (read-only GEO accession probe) bringing it
+        // to 23. Any further additions require a plan
         // amendment per CLAUDE.md.
-        assert_eq!(tool_schemas().len(), 22);
+        assert_eq!(tool_schemas().len(), 23);
     }
 
     /// Runtime baseline for `Tool::COUNT` (strum `EnumCount`). The
@@ -740,7 +762,7 @@ mod tests {
     fn tool_count_baseline_is_twenty() {
         assert_eq!(
             Tool::COUNT,
-            22,
+            23,
             "Tool::COUNT drifted; update CLAUDE.md prose + this baseline together"
         );
     }

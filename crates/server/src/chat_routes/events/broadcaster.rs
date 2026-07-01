@@ -129,6 +129,29 @@ pub(super) fn synthesize_missing_decision_json(package_root: &std::path::Path, d
 /// strings fall through to DataShapeMismatch (the most common case).
 fn parse_harness_blocker_kind(detail: &str) -> ecaa_workflow_core::blocker::BlockerKind {
     use ecaa_workflow_core::blocker::BlockerKind;
+    // Case 0: the harness input-form guard re-blocks a data_acquisition
+    // task that obtained a processed count matrix while the composed DAG
+    // still carries read-processing stages. It writes the reason with a
+    // `[data_shape_mismatch] expected=… actual=… — <recovery>` marker (no
+    // blocker.json — data_acquisition itself completed). Recognise the
+    // marker here so the card types as DataShapeMismatch (not the generic
+    // awaiting_sme_input upgrade) and the raw marker never leaks into the
+    // user-facing prose. `expected`/`actual` carry the entry-point IRIs +
+    // recovery guidance; the marker is stripped.
+    if let Some(rest) = detail.strip_prefix("[data_shape_mismatch]") {
+        let rest = rest.trim();
+        // Parse `expected=<…> actual=<…rest…>`; values may contain spaces
+        // and parentheses, so split on the literal ` actual=` boundary
+        // rather than whitespace-tokenising.
+        let (expected, actual) = match rest.strip_prefix("expected=") {
+            Some(after_expected) => match after_expected.split_once(" actual=") {
+                Some((exp, act)) => (exp.trim().to_string(), act.trim().to_string()),
+                None => ("raw sequence reads".to_string(), after_expected.trim().to_string()),
+            },
+            None => ("raw sequence reads".to_string(), rest.to_string()),
+        };
+        return BlockerKind::DataShapeMismatch { expected, actual };
+    }
     // Case 1 (legacy happy path): detail is a serialized BlockerKind
     // JSON — deserialize directly.
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(detail) {
@@ -280,5 +303,39 @@ mod tests {
         synthesize_missing_decision_json(pkg, detail);
         let expected = pkg.join("runtime/outputs/discover_normalization/decision.json");
         assert!(expected.exists(), "expected stub at {}", expected.display());
+    }
+
+    // The input-form guard's `[data_shape_mismatch]` marker must resolve
+    // to a typed DataShapeMismatch with expected/actual parsed out of the
+    // reason prose — NOT the generic awaiting_sme_input fallback — and the
+    // raw marker must never survive into the user-facing fields.
+    #[test]
+    fn input_form_guard_marker_types_as_data_shape_mismatch() {
+        use ecaa_workflow_core::blocker::BlockerKind;
+        let reason = "[data_shape_mismatch] expected=raw sequence reads (data:2044) \
+             actual=processed count matrix (data:3917) — data_acquisition obtained only a \
+             deposited count matrix for this accession, but the composed pipeline still \
+             includes read-processing stages (sequence_trimming / alignment / quantification) \
+             that require raw reads. Recovery: recompose counts-first, or supply an accession \
+             that provides raw reads (SRA).";
+        match parse_harness_blocker_kind(reason) {
+            BlockerKind::DataShapeMismatch { expected, actual } => {
+                assert_eq!(expected, "raw sequence reads (data:2044)");
+                assert!(
+                    actual.starts_with("processed count matrix (data:3917)"),
+                    "actual should begin with the produced product: {actual}"
+                );
+                assert!(
+                    actual.contains("Recovery: recompose counts-first"),
+                    "actual must preserve the recovery guidance: {actual}"
+                );
+                assert!(
+                    !expected.contains("data_shape_mismatch")
+                        && !actual.contains("[data_shape_mismatch]"),
+                    "the raw marker must not leak into the typed fields"
+                );
+            }
+            other => panic!("expected DataShapeMismatch, got {other:?}"),
+        }
     }
 }
