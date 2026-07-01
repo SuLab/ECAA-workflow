@@ -898,11 +898,17 @@ const MANIFEST_IRI: &str = "data:2531";
 ///
 /// First match wins: (1) a surviving `sequence_trimming`/`alignment` consumer
 /// => `data:2044` (raw reads); (2) a surviving `peptide_search`/`hla_peptide_search`
-/// => `data:2536` (raw mass-spec); (3) otherwise the pipeline is downstream-first,
-/// so return the ontology IRI of `data_acquisition`'s primary (non-validator,
-/// non-manifest) consumer's input port — the exact product it must materialize
-/// (a `count_matrix` consumer => `data:3917`); (4) else fall back to raw reads.
-pub fn derive_required_input_stage(dag: &WorkflowDag) -> String {
+/// => `data:2536` (raw mass-spec); (3) otherwise the pipeline is downstream-first
+/// — prefer a non-raw `declared` entry point (the product IRI the classifier's
+/// `detect_input_data_stage` stamped into `goal.modifiers["available_input_stage"]`
+/// when the SME DECLARED a supplied product: peaks `data:1255`, VCF `data:3498`,
+/// abundance `data:2976`, etc.); else read the ontology/local-extension IRI of
+/// `data_acquisition`'s primary (non-validator, non-manifest) consumer's input
+/// port (a `count_matrix` consumer => `data:3917`, covering the
+/// excluded-but-not-declared counts-first path); (4) else fall back to raw reads.
+///
+/// `declared` is the resolved `available_input_stage` modifier (or `None`).
+pub fn derive_required_input_stage(dag: &WorkflowDag, declared: Option<&str>) -> String {
     use crate::workflow_contracts::semantic_type::SemanticType;
     let eff_ids = |n: &TaskNode| -> (String, String) {
         let stage = n
@@ -932,9 +938,20 @@ pub fn derive_required_input_stage(dag: &WorkflowDag) -> String {
     if has_stage(&["peptide_search", "hla_peptide_search"]) {
         return RAW_MS_INPUT_STAGE_IRI.to_string();
     }
-    // Downstream-first: the entry point is whatever `data_acquisition`'s
-    // primary consumer needs. Read that consumer's input-port ontology IRI
-    // off the edge (skip validators + the cohort-manifest metadata port).
+    // Downstream-first. When the SME DECLARED a supplied product, the classifier
+    // stamped its type into `available_input_stage`; prefer that — it is
+    // authoritative for peaks/VCF/abundance/etc. whose downstream-consumer ports
+    // the structural lookup below may not cleanly resolve. (The raw defaults are
+    // excluded so the exclusion-pruned counts-first path — where the modifier is
+    // the raw default — still falls through to the structural lookup.)
+    if let Some(d) = declared {
+        if d != RAW_INPUT_STAGE_IRI && d != RAW_MS_INPUT_STAGE_IRI && d != MANIFEST_IRI {
+            return d.to_string();
+        }
+    }
+    // Otherwise the entry point is whatever `data_acquisition`'s primary
+    // consumer needs. Read that consumer's input-port IRI off the edge (skip
+    // validators + the cohort-manifest metadata port).
     let anchor_ids: std::collections::BTreeSet<&str> = dag
         .nodes
         .iter()
@@ -955,6 +972,16 @@ pub fn derive_required_input_stage(dag: &WorkflowDag) -> String {
             .chain(consumer.inputs.iter())
             .find_map(|p| match &p.semantic_type {
                 SemanticType::OntologyTerm { iri, .. } if iri != MANIFEST_IRI => Some(iri.clone()),
+                // A local-extension port (e.g. proteomics
+                // `ecaax:protein_abundance_matrix`) carries its EDAM parent(s)
+                // in `proposed_parent_terms`; use the first non-manifest one.
+                SemanticType::LocalExtension {
+                    proposed_parent_terms,
+                    ..
+                } => proposed_parent_terms
+                    .iter()
+                    .find(|i| i.as_str() != MANIFEST_IRI)
+                    .cloned(),
                 _ => None,
             })
     };
@@ -990,12 +1017,13 @@ pub fn derive_required_input_stage(dag: &WorkflowDag) -> String {
 }
 
 fn stamp_required_input_stage(dag: &mut WorkflowDag, goal: &GoalSpec) {
-    // The entry point is now derived from the post-prune DAG structure; the
-    // classifier goal is no longer the authority (it missed the
-    // exclusion-pruned counts-first path). Kept in the signature for the
-    // call site's stability.
-    let _ = goal;
-    let iri = derive_required_input_stage(dag);
+    // Entry point derived from the post-prune DAG structure, with the
+    // classifier's declared `available_input_stage` (when the SME declared a
+    // supplied product) as the preferred non-raw source.
+    let iri = derive_required_input_stage(
+        dag,
+        goal.modifiers.get("available_input_stage").map(String::as_str),
+    );
     const ANCHOR: &str = "data_acquisition";
     for node in dag.nodes.iter_mut() {
         let stage_id = node
@@ -3723,6 +3751,69 @@ mod tests {
         n.attributes
             .insert("atom_id".into(), serde_json::Value::String(atom_id.into()));
         n
+    }
+
+    /// Adversarial-audit regression: `derive_required_input_stage` must resolve
+    /// the entry point for downstream-first plans across modalities — preferring
+    /// a non-raw DECLARED product (peaks/VCF/abundance, whose consumer ports the
+    /// structural lookup may not resolve), reading a `local_extension` consumer
+    /// port's proposed parent (proteomics), reading a plain ontology consumer
+    /// port (counts-first via exclusions), and pinning raw only when a raw stage
+    /// actually survives.
+    #[test]
+    fn derive_required_input_stage_declared_and_local_extension() {
+        use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind};
+        use crate::workflow_contracts::evidence::AssumptionLedger;
+        use crate::workflow_contracts::port::PortContract;
+        use crate::workflow_contracts::semantic_type::{default_minted, SemanticType};
+
+        fn node(id: &str, input: SemanticType) -> TaskNode {
+            let mut n = TaskNode::skeleton(id, "n");
+            n.attributes
+                .insert("stage_id".into(), serde_json::Value::String(id.into()));
+            n.inputs = vec![PortContract::with_semantic_type("in", input)];
+            n
+        }
+        fn edge(from: &str, to: &str) -> EdgeContract {
+            EdgeContract {
+                from_node: from.into(),
+                from_port: "out".into(),
+                to_node: to.into(),
+                to_port: "in".into(),
+                proof: CompatibilityProof::default(),
+                kind: EdgeKind::TypedDataFlow,
+                chain_of_custody: None,
+            }
+        }
+        let ont = |iri: &str| SemanticType::edam(iri, "");
+        let wf = |consumer: SemanticType| WorkflowDag {
+            id: "t".into(),
+            nodes: vec![node("data_acquisition", ont("data:2531")), node("downstream", consumer)],
+            edges: vec![edge("data_acquisition", "downstream")],
+            assumptions: AssumptionLedger::default(),
+            source_template: None,
+        };
+
+        // Declared peaks / VCF win even when the consumer port is generic.
+        assert_eq!(derive_required_input_stage(&wf(ont("data:0006")), Some("data:1255")), "data:1255");
+        assert_eq!(derive_required_input_stage(&wf(ont("data:0006")), Some("data:3498")), "data:3498");
+        // Declared raw default is ignored -> structural consumer lookup (counts).
+        assert_eq!(derive_required_input_stage(&wf(ont("data:3917")), Some("data:2044")), "data:3917");
+        // No declaration -> the consumer's ontology input port.
+        assert_eq!(derive_required_input_stage(&wf(ont("data:3498")), None), "data:3498");
+        // local_extension consumer (proteomics abundance) -> proposed parent IRI.
+        let le = SemanticType::LocalExtension {
+            namespace: "ecaax".into(),
+            id: "protein_abundance_matrix".into(),
+            proposed_parent_terms: vec!["data:2976".into()],
+            definition: String::new(),
+            maturity: default_minted(),
+        };
+        assert_eq!(derive_required_input_stage(&wf(le), None), "data:2976");
+        // A surviving raw stage pins raw regardless of a declared product.
+        let mut w = wf(ont("data:3917"));
+        w.nodes.push(node("alignment", ont("data:2044")));
+        assert_eq!(derive_required_input_stage(&w, Some("data:1255")), "data:2044");
     }
 
     /// Pillar B (Task 3.3) — a node whose backing atom is affiliated

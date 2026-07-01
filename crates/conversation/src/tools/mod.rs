@@ -2520,10 +2520,23 @@ pub(crate) fn rebuild_dag(
 /// derivation itself lives in core
 /// (`composer_v4::planner::derive_required_input_stage`).
 fn restamp_required_input_stage(session: &mut Session) {
+    // The declared entry point (when the SME named a supplied product) — the
+    // classifier stamps it into the goal's `available_input_stage` modifier;
+    // it is authoritative for peaks/VCF/abundance downstream-first plans whose
+    // consumer ports the structural lookup may not resolve.
+    let declared = session
+        .classification
+        .as_ref()
+        .and_then(|c| c.goal.as_ref())
+        .and_then(|g| g.modifiers.get("available_input_stage"))
+        .cloned();
     let Some(wf) = session.workflow_dag.as_mut() else {
         return;
     };
-    let iri = ecaa_workflow_core::composer_v4::planner::derive_required_input_stage(wf);
+    let iri = ecaa_workflow_core::composer_v4::planner::derive_required_input_stage(
+        wf,
+        declared.as_deref(),
+    );
     for node in wf.nodes.iter_mut() {
         let stage_id = node
             .attributes

@@ -320,6 +320,10 @@ impl IntakeFacts {
             "single_cell_rnaseq",
             "long_read_rnaseq",
             "spatial_transcriptomics",
+            // ribo_seq's `quantification` atom emits a footprint count matrix
+            // (data:3917) exactly like the other RNA-counts modalities, so a
+            // supplied-counts declaration must seed the counts-first entry.
+            "ribo_seq",
         ];
         const COUNTS_NOUNS: &[&str] = &["counts matrix", "count matrix", "counts"];
         if RNA_COUNTS_MODALITIES.contains(&modality) && bound(COUNTS_NOUNS) {
@@ -329,7 +333,9 @@ impl IntakeFacts {
         }
 
         // Called peaks: gate on peak-calling modalities + a peak NOUN.
-        const PEAK_MODALITIES: &[&str] = &["chip_seq", "atac_seq", "cut_tag", "chip_exo"];
+        // hi_chip carries a `peak_calling` atom (alongside its contact/loop
+        // atoms), so a supplied-peaks declaration seeds the peaks entry.
+        const PEAK_MODALITIES: &[&str] = &["chip_seq", "atac_seq", "cut_tag", "chip_exo", "hi_chip"];
         const PEAK_NOUNS: &[&str] =
             &["called peaks", "peak calls", "narrowpeak", "peak set", "peaks"];
         if PEAK_MODALITIES.contains(&modality) && bound(PEAK_NOUNS) {
