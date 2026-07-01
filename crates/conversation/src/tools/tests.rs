@@ -3925,6 +3925,37 @@ fn restamp_required_input_stage_reflects_postprune_entry() {
         Some("data:2044"),
         "raw-first DAG must keep required_input_stage at raw reads"
     );
+
+    // Declared path (adversarial-audit regression): the SME named a supplied
+    // product ("called peaks") in prose whose GOAL wording the classifier may
+    // not recognize (so `available_input_stage` never lands on the goal), and
+    // the downstream consumer's input port is NOT peaks (so the structural
+    // lookup would mislead). restamp must detect the declared product directly
+    // from intake prose + modality and prefer it => data:1255, not the
+    // consumer's data:0863.
+    let peaks_wf = WorkflowDag {
+        id: "t".into(),
+        nodes: vec![
+            node_with("data_acquisition", "data:2531", "data:1255"),
+            node_with("differential_binding", "data:0863", "data:0951"),
+        ],
+        edges: vec![edge("data_acquisition", "differential_binding")],
+        assumptions: AssumptionLedger::default(),
+        source_template: None,
+    };
+    let mut s3 = session_with(peaks_wf);
+    s3.classification = Some(ecaa_workflow_core::classify::ClassificationResult {
+        modality: "chip_seq".into(),
+        intake_text: "ChIP-seq differential binding in human. I already have the called peaks."
+            .into(),
+        ..Default::default()
+    });
+    super::restamp_required_input_stage(&mut s3);
+    assert_eq!(
+        stamped(&s3).as_deref(),
+        Some("data:1255"),
+        "a declared supplied product (peaks) must win over an unresolved consumer port"
+    );
 }
 
 // ───────────────────────────────────────────────────────────────────────

@@ -2520,16 +2520,25 @@ pub(crate) fn rebuild_dag(
 /// derivation itself lives in core
 /// (`composer_v4::planner::derive_required_input_stage`).
 fn restamp_required_input_stage(session: &mut Session) {
-    // The declared entry point (when the SME named a supplied product) — the
-    // classifier stamps it into the goal's `available_input_stage` modifier;
-    // it is authoritative for peaks/VCF/abundance downstream-first plans whose
-    // consumer ports the structural lookup may not resolve.
-    let declared = session
-        .classification
-        .as_ref()
-        .and_then(|c| c.goal.as_ref())
-        .and_then(|g| g.modifiers.get("available_input_stage"))
-        .cloned();
+    // The declared entry point (when the SME named a supplied product), the
+    // authoritative source for peaks/VCF/abundance downstream-first plans whose
+    // consumer ports the structural lookup may not resolve. Run the
+    // deterministic supplied-product detector over the intake prose + modality
+    // DIRECTLY — reading `goal.modifiers["available_input_stage"]` is
+    // unreliable because the classifier only attaches that modifier when it
+    // ALSO recognized a goal PHRASE, so a declared product on prose whose goal
+    // wording isn't a known pattern would be silently lost.
+    let declared = session.classification.as_ref().and_then(|c| {
+        use ecaa_workflow_core::workflow_contracts::semantic_type::SemanticType;
+        ecaa_workflow_core::intake_facts::IntakeFacts::detect_input_data_stage(
+            &c.intake_text,
+            Some(c.modality.as_str()),
+        )
+        .and_then(|p| match p.semantic_type {
+            SemanticType::OntologyTerm { iri, .. } => Some(iri),
+            _ => None,
+        })
+    });
     let Some(wf) = session.workflow_dag.as_mut() else {
         return;
     };
