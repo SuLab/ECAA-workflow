@@ -3352,6 +3352,226 @@ mod d11_proposal_signoff_freshness {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// Phase 5: structural confirmation gate for the "agent silently picks a
+// raw pipeline" gap. When the probed dataset deposits ONLY a processed
+// product (no raw reads) but the composed DAG still carries a
+// raw-read-processing stage (sequence_trimming / alignment /
+// peptide_search), `propose_summary_confirmation` must REFUSE to raise a
+// plan card that can never be satisfied, and steer the agent to start
+// downstream-first. Once the read stages are pruned the gate clears.
+// ─────────────────────────────────────────────────────────────────────
+#[cfg(test)]
+mod processed_only_confirmation_gate {
+    use super::*;
+    use crate::session::Session;
+
+    /// Seed a raw-first RNA-seq DAG (still carries the read-processing
+    /// stages) onto the session via the v4 workflow_dag lowering path,
+    /// mirroring the existing `dag_has_bound_analysis` fixtures.
+    fn seed_raw_first_dag(s: &mut Session) {
+        s.workflow_dag = Some(linear_workflow_dag(&[
+            "data_acquisition",
+            "sequence_trimming",
+            "alignment",
+            "differential_expression",
+            "generic_summary",
+        ]));
+        // Confirm the lowering produced the raw-processing stages.
+        let dag = s.current_dag().expect("raw-first workflow lowers");
+        assert!(dag.tasks.contains_key("sequence_trimming"));
+        assert!(dag.tasks.contains_key("alignment"));
+    }
+
+    /// Seed a downstream-first RNA-seq DAG (read-processing stages
+    /// pruned) — the shape after set_intake_excluded_atoms.
+    fn seed_downstream_first_dag(s: &mut Session) {
+        s.workflow_dag = Some(linear_workflow_dag(&[
+            "data_acquisition",
+            "differential_expression",
+            "generic_summary",
+        ]));
+        let dag = s.current_dag().expect("downstream-first workflow lowers");
+        assert!(!dag.tasks.contains_key("sequence_trimming"));
+        assert!(!dag.tasks.contains_key("alignment"));
+    }
+
+    // (a) processed-only probe + a DAG with raw stages → refused.
+    #[test]
+    fn refused_when_processed_only_and_dag_has_raw_stages() {
+        let mut s = Session::new(false);
+        s.probed_processed_only = true;
+        seed_raw_first_dag(&mut s);
+        let r = super::conversational::propose_summary_confirmation(&mut s, "Here is the plan.");
+        assert!(
+            r.is_error,
+            "must refuse a guaranteed-broken raw-pipeline card, got {:?}",
+            r.content
+        );
+        let body = serde_json::to_string(&r.content).unwrap();
+        assert_eq!(r.content["error_kind"], "precondition_failure", "body={body}");
+        // Names the offending raw-processing stage.
+        assert!(
+            body.contains("sequence_trimming"),
+            "error must name the raw-processing stage: {body}"
+        );
+        // Steers the agent to start downstream-first.
+        assert!(
+            body.contains("set_intake_excluded_atoms") && body.contains("downstream-first"),
+            "hint must steer to downstream-first via set_intake_excluded_atoms: {body}"
+        );
+        // The gate returns BEFORE the emission id is minted.
+        assert!(
+            s.pending_emission_id.is_none(),
+            "refused gate must not mint a pending_emission_id"
+        );
+    }
+
+    // (b) after excluding the read stages (downstream-first DAG) → succeeds
+    // even though the processed-only flag is still set (no permanent wedge).
+    #[test]
+    fn passes_after_read_stages_pruned_even_with_flag_still_set() {
+        let mut s = Session::new(false);
+        s.probed_processed_only = true; // flag intentionally still set
+        seed_downstream_first_dag(&mut s);
+        let r = super::conversational::propose_summary_confirmation(&mut s, "Here is the plan.");
+        assert!(
+            !r.is_error,
+            "downstream-first DAG must clear the gate even with the flag set, got {:?}",
+            r.content
+        );
+    }
+
+    // (c) both-forms probe (raw reads present ⇒ flag false) → NOT blocked,
+    // even though the DAG still carries raw-processing stages (a
+    // satisfiable raw-first plan).
+    #[test]
+    fn not_blocked_when_both_forms_available() {
+        let mut s = Session::new(false);
+        s.probed_processed_only = false; // both-forms deposit
+        seed_raw_first_dag(&mut s);
+        let r = super::conversational::propose_summary_confirmation(&mut s, "Here is the plan.");
+        assert!(
+            !r.is_error,
+            "both-forms deposit must not block a satisfiable raw-first plan, got {:?}",
+            r.content
+        );
+    }
+
+    // (d) no probe / no processed-only deposit → NOT blocked, even with a
+    // raw-first DAG (the default flag is false).
+    #[test]
+    fn not_blocked_when_no_probe_ran() {
+        let mut s = Session::new(false);
+        assert!(
+            !s.probed_processed_only,
+            "fresh session must default the flag to false"
+        );
+        seed_raw_first_dag(&mut s);
+        let r = super::conversational::propose_summary_confirmation(&mut s, "Here is the plan.");
+        assert!(
+            !r.is_error,
+            "no probe ⇒ gate must not fire, got {:?}",
+            r.content
+        );
+    }
+
+    // Guard: the flag alone (no DAG composed yet) does not fire the gate —
+    // there is no raw-processing stage to be unsatisfiable.
+    #[test]
+    fn not_blocked_when_flag_set_but_no_dag() {
+        let mut s = Session::new(false);
+        s.probed_processed_only = true;
+        assert!(s.current_dag().is_none(), "no workflow_dag composed yet");
+        let r = super::conversational::propose_summary_confirmation(&mut s, "Here is the plan.");
+        assert!(
+            !r.is_error,
+            "flag with no composed DAG must not block, got {:?}",
+            r.content
+        );
+    }
+
+    // Proteomics: the peptide_search raw-spectra stage is also gated.
+    #[test]
+    fn refused_for_proteomics_peptide_search_stage() {
+        let mut s = Session::new(false);
+        s.probed_processed_only = true;
+        s.workflow_dag = Some(linear_workflow_dag(&[
+            "data_acquisition",
+            "peptide_search",
+            "differential_expression",
+            "generic_summary",
+        ]));
+        let r = super::conversational::propose_summary_confirmation(&mut s, "Here is the plan.");
+        assert!(
+            r.is_error,
+            "processed-only proteomics deposit + peptide_search must be refused, got {:?}",
+            r.content
+        );
+        let body = serde_json::to_string(&r.content).unwrap();
+        assert!(
+            body.contains("peptide_search"),
+            "error must name the raw-processing stage: {body}"
+        );
+    }
+
+    // Documents the exact rule the ProbeDataset dispatch applies when
+    // setting `session.probed_processed_only`: processed product present
+    // AND no raw SRA reads. Fed real SOFT-brief-parsed ProbeResults so
+    // the dispatch formula and the parser stay in agreement.
+    #[test]
+    fn dispatch_flag_rule_matches_probe_result_shape() {
+        use crate::dataset_probe::{parse_geo_soft, ProbeResult, RawReadsSra};
+
+        // Helper mirroring the exact boolean the ProbeDataset dispatch sets.
+        let processed_only =
+            |p: &ProbeResult| !p.deposited_products.is_empty() && p.raw_reads_sra.is_none();
+
+        // Both-forms (count matrix + SRA) ⇒ NOT processed-only.
+        let both = parse_geo_soft(
+            "GSE164073",
+            "!Series_type = Expression profiling by high throughput sequencing\n\
+             !Series_supplementary_file = ftp://x/GSE164073_Eye_count_matrix.csv.gz\n\
+             !Series_relation = SRA: https://www.ncbi.nlm.nih.gov/sra?term=SRP299835\n",
+        );
+        assert!(!both.deposited_products.is_empty());
+        assert!(both.raw_reads_sra.is_some());
+        assert!(
+            !processed_only(&both),
+            "both-forms deposit must NOT be processed-only"
+        );
+
+        // Processed-only: a deposited product, drop the SRA relation.
+        let mut only = both.clone();
+        only.raw_reads_sra = None;
+        assert!(
+            processed_only(&only),
+            "deposited product + no raw reads must be processed-only"
+        );
+
+        // Raw-only / microarray: no recognized product ⇒ NOT processed-only.
+        let neither = parse_geo_soft(
+            "GSE2034",
+            "!Series_type = Expression profiling by array\n\
+             !Series_supplementary_file = ftp://x/GSE2034_RAW.tar\n",
+        );
+        assert!(neither.deposited_products.is_empty());
+        assert!(
+            !processed_only(&neither),
+            "no deposited product must NOT be processed-only"
+        );
+
+        // Explicit raw-reads-only shape: SRA present, no products.
+        let raw_only = ProbeResult {
+            raw_reads_sra: Some(RawReadsSra {
+                study: "SRP1".into(),
+            }),
+            ..neither.clone()
+        };
+        assert!(!processed_only(&raw_only));
+    }
+}
+
 /// `try_build_via_composer` must back-fill
 /// `session.classification.archetype_id` from `composition.matched_archetype`
 /// so that the emitted RO-Crate carries a non-null `matchedArchetype`.

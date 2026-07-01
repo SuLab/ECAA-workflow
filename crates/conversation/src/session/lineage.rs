@@ -341,6 +341,12 @@ impl Session {
             // child recomputes it on its next compose (same as the
             // inherited compose_outcome/workflow_dag above).
             coverage_confidence: parent.coverage_confidence.clone(),
+            // The processed-only probe outcome is a fact about the
+            // dataset, which the branch shares (it inherits the parent's
+            // intake_prose / workflow_dag). Inherit it so the same
+            // "processed-only ⇒ don't raise a broken plan card" gate
+            // stays armed on the child until its read stages are pruned.
+            probed_processed_only: parent.probed_processed_only,
         }
     }
 }
@@ -353,8 +359,8 @@ mod branch_from_exhaustiveness {
     //! "does the branched child inherit, or reset?" question for that
     //! field. Without a gate, missed fields silently default to whatever
     //! `Self {.. }` syntax fills (which `branch_from` doesn't use — but
-    //! a future refactor could). This test pins the answer to the
-    //! current 50 fields: every field is named explicitly. Adding a new
+    //! a future refactor could). This test pins the answer to every
+    //! current field: each is named explicitly. Adding a new
     //! `Session` field forces the test to fail-to-compile until the test
     //! and `branch_from` agree on the inheritance decision.
     //!
@@ -436,6 +442,7 @@ mod branch_from_exhaustiveness {
             last_emitted_run_id: _,
             audit_writer_secret: _,
             coverage_confidence: _,
+            probed_processed_only: _,
         } = child;
     }
 }

@@ -25,6 +25,25 @@ pub(crate) fn summary_hash_of(summary_markdown: &str) -> String {
     sha256_hex(summary_markdown.as_bytes())
 }
 
+/// Raw-read-processing stage ids that can ONLY be satisfied when raw
+/// sequence reads exist. `sequence_trimming` and `alignment` are the
+/// RNA/DNA-seq read-processing atoms; `peptide_search` is the proteomics
+/// raw-spectra processing atom. When the probed dataset deposits only a
+/// processed product (no raw reads), a DAG that still contains any of
+/// these is guaranteed unsatisfiable — the confirmation gate refuses it.
+const RAW_PROCESSING_STAGE_IDS: &[&str] = &["sequence_trimming", "alignment", "peptide_search"];
+
+/// The raw-processing stage id (if any) still present in the session's
+/// composed DAG. `None` when there is no DAG yet or none of the
+/// read-processing stages remain (e.g. after a downstream-first prune).
+fn raw_processing_stage_in_dag(session: &Session) -> Option<String> {
+    let dag = session.current_dag()?;
+    RAW_PROCESSING_STAGE_IDS
+        .iter()
+        .find(|id| dag.tasks.contains_key(**id))
+        .map(|id| id.to_string())
+}
+
 pub(super) fn propose_summary_confirmation(
     session: &mut Session,
     summary_markdown: &str,
@@ -35,6 +54,37 @@ pub(super) fn propose_summary_confirmation(
             valid_alternatives: vec![],
             hint: "Provide a non-empty plain-language summary.".into(),
         });
+    }
+    // Refuse to raise a plan-confirmation card that is GUARANTEED broken:
+    // the probed dataset deposits ONLY an already-processed product (no
+    // raw reads — no linked SRA study), yet the composed DAG still carries
+    // a raw-read-processing stage (`sequence_trimming` / `alignment` /
+    // `peptide_search`) that can never be satisfied because there are no
+    // raw reads to feed it. Steer the agent to start downstream-first.
+    //
+    // The gate is on (flag AND the DAG still has a raw-processing stage),
+    // so it does NOT permanently wedge a session: once the read stages are
+    // pruned (via set_intake_excluded_atoms → downstream-first DAG) the
+    // block clears naturally even if `probed_processed_only` is still set.
+    // The "both forms" case (raw reads ALSO present) leaves the flag false,
+    // so a satisfiable raw-first plan is never blocked.
+    if session.probed_processed_only {
+        if let Some(stage) = raw_processing_stage_in_dag(session) {
+            return ToolResult::err(ToolError::PreconditionFailure {
+                reason: format!(
+                    "the probed dataset provides only a deposited, already-processed product \
+                     (no raw reads are available), but the composed plan still contains the \
+                     raw-read-processing stage `{stage}`, which can never run without raw reads"
+                ),
+                hint: "Start downstream-first: call set_intake_excluded_atoms to prune the \
+                       read-processing stages (e.g. \
+                       [\"sequence_trimming\",\"alignment\",\"quantification\"] for an RNA-seq \
+                       count matrix, or [\"peptide_search\"] for a proteomics abundance matrix) \
+                       so the plan begins from the deposited product. Do not call \
+                       propose_summary_confirmation again until those stages are gone from the DAG."
+                    .into(),
+            });
+        }
     }
     // Refuse to put up the emit-confirmation card while
     // any hypothesized proposal is still pending SME action. Without
