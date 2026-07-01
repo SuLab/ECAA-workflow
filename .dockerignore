@@ -1,0 +1,19 @@
+target/
+**/node_modules/
+ui/dist/
+# Exclude local docs but KEEP docs/ecaa-spec — core::emitter::ecaa and
+# conversation::emit::validation include_str! the subgraph schemas at compile time.
+docs/*
+!docs/ecaa-spec
+runtime/
+.venv-validator/
+.playwright-mcp/
+.pytest_cache/
+.worktrees/
+*.log
+# .cargo/config.toml forces host-only tools (rustc-wrapper=sccache, -fuse-ld=mold)
+# that aren't in the build image; cargo-chef also bakes it into recipe.json. Exclude it
+# so the container build uses the default rustc + linker. The remap-path-prefix it sets
+# is for cross-checkout binary parity (moot in a fixed /app build) and does not affect
+# the emitted-package reproducibility gate.
+.cargo/

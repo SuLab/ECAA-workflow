@@ -1,0 +1,7 @@
+# Automatic HTTPS (Let's Encrypt) + reverse proxy. App stays loopback-bound.
+# Set the auth token as defense-in-depth on a multi-user host (loopback != per-user isolation).
+your.domain.example {
+    reverse_proxy 127.0.0.1:3000 {
+        header_up X-ECAA-Auth-Token {$ECAA_SERVER_AUTH_TOKEN}
+    }
+}

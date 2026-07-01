@@ -94,6 +94,14 @@ tokio-util = { version = "0.7", features = ["rt", "io"] }
 tower = { version = "0.5", features = ["util"] }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
+[build-dependencies]
+# `build.rs` stamps VERGEN_GIT_SHA + VERGEN_GIT_DESCRIBE into the binary at
+# compile time. `default-features = false` + only the `build` feature keeps the
+# instruction surface to git (no sysinfo/rustc probes); the emitter itself is
+# driven explicitly in build.rs. NO build timestamp / dirty flag is emitted so
+# emitted-package byte-reproducibility holds.
+vergen-gitcl = { version = "1", default-features = false, features = ["build"] }
+
 [dev-dependencies]
 http-body-util = "0.1"
 tempfile.workspace = true

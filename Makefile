@@ -10,6 +10,7 @@
         test-ui conformance test-substrate-utility roc-gate lint-ui clippy fmt check types e2e e2e-playwright bench \
         verify-reproducibility \
         bio-min dev-server dev-ui clean doctor lint deny install-hooks \
+        image release-image release-sbom release-sign release-checksums release-publish release \
         eval eval-dryrun eval-e2e eval-full \
         eval-biomnibench eval-biomnibench-smoke eval-nekrutenko eval-nekrutenko-smoke eval-tests \
         eval-biomnibench-dryrun eval-nekrutenko-dryrun \
@@ -39,6 +40,41 @@ bio-min: ## Build the agent execution container (bio-min)
 ROCM_AGENT_TAG ?= ghcr.io/scripps/bio-min-rocm:v0.1.0
 rocm-agent: ## Build the ROCm-enabled agent image for AMD GPUs (multi-GB; operator-run). Override ROCM_AGENT_TAG / ROCM_IMAGE.
 	docker build -t $(ROCM_AGENT_TAG) $(if $(ROCM_IMAGE),--build-arg ROCM_IMAGE=$(ROCM_IMAGE),) -f docker/rocm-agent.Dockerfile docker/
+
+# ── Release ──────────────────────────────────────────────────────────────────
+
+SERVER_IMAGE ?= ghcr.io/scripps/ecaa-workflow-server:local
+BIO_MIN_IMAGE ?= ghcr.io/scripps/bio-min:local
+image: ## Build the server OCI image locally (single-arch)
+	bash scripts/build-server-image.sh ecaa-workflow-server:local
+
+release-image: ## Build + push multi-arch server + bio-min images to GHCR (operator-run)
+	bash scripts/build-server-image.sh $(SERVER_IMAGE) --push
+	bash scripts/build-bio-min.sh $(BIO_MIN_IMAGE) --push
+
+release-sbom: ## SBOMs + vuln scan for the images (operator-run; needs syft + grype)
+	mkdir -p dist/sbom
+	syft "$(SERVER_IMAGE)" -o spdx-json=dist/sbom/server.spdx.json -o cyclonedx-json=dist/sbom/server.cdx.json
+	-grype sbom:dist/sbom/server.spdx.json
+
+release-sign: ## cosign-sign images + attach SBOM (operator-run; needs cosign + COSIGN_KEY)
+	cosign sign --yes --key "$(COSIGN_KEY)" "$(SERVER_IMAGE)"
+	cosign attest --yes --key "$(COSIGN_KEY)" --type spdxjson --predicate dist/sbom/server.spdx.json "$(SERVER_IMAGE)"
+
+release-checksums: ## SHA256SUMS over release assets in dist/
+	cd dist && sha256sum sbom/* > SHA256SUMS && echo "wrote dist/SHA256SUMS"
+
+release-publish: ## Create a GitHub release with local assets (operator-run; needs gh + TAG)
+	gh release create "$(TAG)" dist/SHA256SUMS dist/sbom/*.json --title "$(TAG)" --notes "ECAA-workflow $(TAG). Verify: sha256sum -c SHA256SUMS."
+
+release: ## Full local release (operator-run): TAG=vX.Y.Z make release
+	@git describe --dirty --always | grep -q -- '-dirty' && { echo "refusing: dirty tree"; exit 1; } || true
+	@test -n "$(TAG)" || { echo "set TAG=vX.Y.Z"; exit 1; }
+	$(MAKE) release-image
+	$(MAKE) release-sbom
+	-$(MAKE) release-sign
+	$(MAKE) release-checksums
+	$(MAKE) release-publish TAG=$(TAG)
 
 # ── Test ─────────────────────────────────────────────────────────────────────
 

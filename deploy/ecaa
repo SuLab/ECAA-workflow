@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# ecaa — one-command launcher for the ECAA-workflow server (container-runtime-only).
+set -euo pipefail
+ECAA_IMAGE="${ECAA_IMAGE:-ecaa-workflow-server:local}"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+COMPOSE_FILE="${ECAA_COMPOSE_FILE:-$REPO_ROOT/compose.yaml}"
+detect_runtime() {
+  if command -v podman >/dev/null 2>&1 && podman info >/dev/null 2>&1; then echo podman
+  elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then echo docker
+  else echo "ecaa: no working docker or podman found" >&2; exit 1; fi
+}
+discover_sock() {
+  local rt="$1" s=""
+  if [ "$rt" = podman ]; then
+    s="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/podman/podman.sock"
+    if [ ! -S "$s" ]; then podman system service --time=0 >/dev/null 2>&1 & sleep 1; fi
+  else
+    for c in "/var/run/docker.sock" "$HOME/.docker/run/docker.sock" "${DOCKER_HOST:+${DOCKER_HOST#unix://}}"; do
+      [ -n "$c" ] && [ -S "$c" ] && { s="$c"; break; }
+    done
+  fi
+  [ -n "$s" ] && [ -S "$s" ] || { echo "ecaa: runtime socket not found for $rt" >&2; exit 1; }
+  echo "$s"
+}
+compose() { local rt="$1"; shift; "$rt" compose -f "$COMPOSE_FILE" "$@"; }
+main() {
+  local cmd="${1:-up}"; shift || true
+  local rt; rt="$(detect_runtime)"
+  export ECAA_UID; ECAA_UID="$(id -u)"
+  export ECAA_GID; ECAA_GID="$(id -g)"
+  export DOCKER_GID; DOCKER_GID="$(getent group docker 2>/dev/null | cut -d: -f3 || echo 0)"
+  export ECAA_DOCKER_SOCK; ECAA_DOCKER_SOCK="$(discover_sock "$rt")"
+  export ECAA_IMAGE
+  case "$cmd" in
+    up)     mkdir -p "$HOME/.ecaa-workflow" "$HOME/.claude"
+            [ -f "$REPO_ROOT/.env" ] || cp "$REPO_ROOT/deploy/env.compose.example" "$REPO_ROOT/.env"
+            compose "$rt" up -d
+            echo "ecaa: up on http://127.0.0.1:3000  (runtime=$rt sock=$ECAA_DOCKER_SOCK)"
+            echo "ecaa: if you'll run analyses, log in Claude Code once so ~/.claude has creds." ;;
+    down)   compose "$rt" down ;;
+    logs)   compose "$rt" logs -f ;;
+    pull)   compose "$rt" pull ;;
+    doctor) echo "runtime : $rt"; echo "socket  : $ECAA_DOCKER_SOCK"
+            echo "uid:gid : $ECAA_UID:$ECAA_GID  docker_gid=$DOCKER_GID"; echo "image   : $ECAA_IMAGE"
+            [ -d "$HOME/.claude" ] && echo "creds   : ~/.claude present" || echo "creds   : ~/.claude MISSING (needed for execution)"
+            "$rt" info >/dev/null 2>&1 && echo "engine  : reachable" || echo "engine  : UNREACHABLE" ;;
+    *)      echo "usage: ecaa {up|down|logs|pull|doctor}" >&2; exit 2 ;;
+  esac
+}
+main "$@"

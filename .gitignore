@@ -71,3 +71,6 @@ runtime/eval-runs/
 
 # Validator venv (Task 1 — roc-validator harness)
 .venv-validator/
+
+# Release assets (SBOMs, checksums; operator-run `make release`)
+dist/
