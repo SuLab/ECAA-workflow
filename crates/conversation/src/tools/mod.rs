@@ -781,8 +781,13 @@ const SPEC_PROPOSE_QUICK_REPLIES: ToolSpec = ToolSpec {
 };
 const SPEC_PROBE_DATASET: ToolSpec = ToolSpec {
     name: "probe_dataset",
-    // Read-only network lookup; records nothing on the session (the SME's
-    // chosen entry point is persisted separately via set_intake_field).
+    // Read-only network lookup. The SME's chosen entry point is persisted
+    // separately via set_intake_field. The dispatch does stash one derived
+    // internal gating flag (`probed_processed_only`) so the confirmation
+    // gate can refuse a guaranteed-broken plan card; that is a cache of
+    // what the probe read, not an SME-authored mutation, so this stays
+    // `is_mutation: false` (no `last_activity` bump, not in the pinned
+    // mutation set).
     is_mutation: false,
     state_trigger: None,
     post_handler: None,
@@ -1680,6 +1685,19 @@ fn dispatch_batchable(
                     "dataset probe unavailable in this runtime context",
                 ),
             };
+            // Stash the gating-relevant outcome onto the session so
+            // `propose_summary_confirmation` can refuse to raise a plan
+            // card that is guaranteed broken. "Processed-only" = the
+            // probe found at least one deposited processed product AND
+            // no raw reads (no linked SRA study): a DAG that still
+            // carries raw-read-processing stages can never be satisfied.
+            // The "both forms" case (raw reads ALSO present) is
+            // satisfiable, so it clears the flag (false). This never
+            // wedges a session — the confirmation gate is on
+            // (flag AND the DAG still has a raw-processing stage), so
+            // pruning the read stages resolves the block naturally.
+            session.probed_processed_only =
+                !probed.deposited_products.is_empty() && probed.raw_reads_sra.is_none();
             match serde_json::to_value(&probed) {
                 Ok(v) => ToolResult::ok(v),
                 Err(_) => ToolResult::ok(serde_json::json!({

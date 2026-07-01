@@ -286,6 +286,10 @@ impl Session {
             pending_disambiguation: None,
             // Populated by the compose path; None until a v4 composition runs.
             coverage_confidence: None,
+            // No dataset probed yet on a fresh session; set by the
+            // `probe_dataset` dispatch when it observes a processed-only
+            // deposit (deposited product present, no raw SRA reads).
+            probed_processed_only: false,
         }
     }
 }

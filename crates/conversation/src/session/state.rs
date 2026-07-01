@@ -757,6 +757,33 @@ pub struct Session {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(skip)]
     pub coverage_confidence: Option<CoverageConfidence>,
+
+    /// True when the most recent `probe_dataset` call found that the
+    /// probed GEO accession deposits ONLY an already-processed product
+    /// (a count/expression matrix, peaks, VCF, abundance matrix, etc.)
+    /// and NO raw reads (no linked SRA study). In that unambiguous
+    /// "processed-only" case a composed DAG that still carries
+    /// raw-read-processing stages (`sequence_trimming` / `alignment` /
+    /// `peptide_search`) can never be satisfied — there are no raw reads
+    /// to feed them — so `propose_summary_confirmation` refuses to raise
+    /// the plan-confirmation card and steers the agent to start
+    /// downstream-first (via `set_intake_excluded_atoms`).
+    ///
+    /// Set by the `probe_dataset` dispatch: `true` when
+    /// `deposited_products` is non-empty AND `raw_reads_sra` is `None`;
+    /// `false` otherwise (including the "both forms" case where raw
+    /// reads ALSO exist — that plan is satisfiable and a separate signal
+    /// handles fetching). The gate is on
+    /// `(this flag AND the DAG still has a raw-processing stage)`, so
+    /// once the read stages are pruned the block clears naturally even
+    /// if the flag stays set.
+    ///
+    /// `#[serde(default)]` (defaults `false`) so sessions persisted
+    /// before this field existed load unchanged. `#[ts(skip)]` — it is
+    /// an internal intake-gating signal, not surfaced to the browser.
+    #[serde(default)]
+    #[ts(skip)]
+    pub probed_processed_only: bool,
 }
 
 /// SME-legible projection of catalog-coverage confidence. Derived purely
