@@ -4,6 +4,24 @@ A deterministic, offline compiler that turns a natural-language description of a
 
 The compiler classifies the intake, selects an archetype, builds a task DAG, emits a package, and an execution harness drives an agent (Claude Code, a shell script, anything callable with a package path) against the emitted DAG. The emitted package is an **ECAA** (Evidence-Carrying Analysis Artifact) v0.2 package — a typed RO-Crate that carries, alongside the analysis itself, the claims it supports, the evidence backing each claim, and the decision record that produced them. An embedded **ECAA validator** checks the package against a machine-checkable contract over those subgraphs. Emit-time validation defaults to pure-Rust JSON Schema (`schema_only`) and is **advisory (warn-only)** on a plain emit unless `ECAA_VALIDATION_BLOCK_ON_FAIL=1`; the local conformance gate (`make conformance`, `ECAA_CONFORMANCE_MODE=1`) runs it block-on-fail. The contract establishes machine-checkable **consistency** between an analysis's claims, evidence, decisions, and execution provenance — it does **not** establish biological validity; treat verdicts as a hygiene floor, not a quality ceiling.
 
+## Quick start (Docker)
+
+The only host dependency is a container runtime — Docker, or (preferred) rootless Podman. From a clone of this repo:
+
+```bash
+make up            # build the server image and run it → http://127.0.0.1:3000
+make down          # stop it   (make logs to tail)
+```
+
+Or run a **prebuilt release image** instead of building it — point `ECAA_IMAGE` at a published tag (or digest) and run it through the same compose:
+
+```bash
+export ECAA_IMAGE=ghcr.io/<org>/ecaa-workflow-server:v0.1.0   # tag or ...@sha256:<digest>
+./deploy/ecaa pull && ./deploy/ecaa up                        # → http://127.0.0.1:3000
+```
+
+The server binds the host loopback (auth-free, like a local process) and launches per-task agent containers as *siblings* over the mounted runtime socket. Configuration comes from a `.env` beside [`compose.yaml`](compose.yaml) — auto-created from [`deploy/env.compose.example`](deploy/env.compose.example) on first run; set `ECAA_ANTHROPIC_API_KEY` there for live chat (omit it for offline mock chat). To run analyses, log in to Claude Code once so `~/.claude` holds subscription credentials (mounted read-only). `./deploy/ecaa doctor` runs a preflight; shared-server / cloud / HPC deployment is in [`deploy/`](deploy/); building and publishing release images is [below](#build--publish-the-release-image-operator-run--no-ci).
+
 ## Layout
 
 | Component | Crate / dir | Role |
@@ -17,7 +35,31 @@ The compiler classifies the intake, selects an archetype, builds a task DAG, emi
 
 Current ECAA profile IRI: `https://w3id.org/ecaa/v0.2`. The active spec files are in [`docs/ecaa-spec/`](docs/ecaa-spec/): `v0.2.md`, `ecaa-v0.2.ttl`, `ecaa-v0.2.shacl.ttl`, and `ecaa-v0.2.jsonld`.
 
-## Setup
+## Build & publish the release image (operator-run — no CI)
+
+Release images are multi-arch (`linux/amd64,linux/arm64`) and pushed to a container registry (e.g. GHCR). There is **no CI** — an operator builds and pushes them locally. Authenticate, then build with your own registry namespace and a versioned tag:
+
+```bash
+echo "$GHCR_PAT" | docker login ghcr.io -u <user> --password-stdin   # PAT needs write:packages
+
+# build + push BOTH the server and the bio-min task image; prints the pushed manifest digest:
+make release-image \
+  SERVER_IMAGE=ghcr.io/<org>/ecaa-workflow-server:v0.1.0 \
+  BIO_MIN_IMAGE=ghcr.io/<org>/bio-min:v0.1.0
+```
+
+Pin consumers to the printed `sha256:` digest (tags are mutable; digests are not). The registry repo must already exist (`gh repo` / registry UI) — the tooling can push but cannot create remotes. For a full signed release (SBOM + cosign signature + `SHA256SUMS` + GitHub release):
+
+```bash
+TAG=v0.1.0 make release \
+  SERVER_IMAGE=ghcr.io/<org>/ecaa-workflow-server:v0.1.0 \
+  BIO_MIN_IMAGE=ghcr.io/<org>/bio-min:v0.1.0 \
+  COSIGN_KEY=cosign.key
+```
+
+`make release` refuses a dirty tree; `release-sbom` / `release-sign` require `syft`/`grype` / `cosign` on `PATH`. Honest ceiling without CI: SLSA build **L1** self-attested provenance + a cosign-signed SBOM (L2/L3 need a hosted builder). `make help` lists the individual `release-*` targets.
+
+## Development (build from source)
 
 Linux x86-64 is the primary supported target. macOS works for dev. Windows requires WSL2.
 
@@ -34,39 +76,25 @@ source "$HOME/.cargo/env"
 # 3. Cargo dev tools
 cargo install --locked cargo-nextest cargo-hakari
 
-# 4. Node.js 20+ (for the UI + Playwright)
-# install per your platform; verify: node --version  # ≥ 20
+# 4. Node.js 20+ (for the UI + Playwright); verify: node --version  # ≥ 20
 
-# 5. Build everything
-make build           # Rust workspace (debug)
-make install         # binaries to ~/.cargo/bin
+# 5. Build + install binaries + UI deps
+make build && make install
 (cd ui && npm install)
 ```
 
 `make doctor` prints toolchain readiness; `make help` lists targets.
 
-## Run
-
-Two terminals:
+Run the stack from source in two terminals:
 
 ```bash
-# terminal A — chat server on :3000
-make dev-server
-
-# terminal B — Vite dev UI on :5173 (proxies /api/* to :3000)
-make dev-ui
+make dev-server    # chat server on :3000  (cargo run)
+make dev-ui        # Vite dev UI on :5173  (proxies /api/* to :3000)
 ```
 
-> **Execution requires the installed harness binary.** `make dev-server` / `make dev-ui` run from source (`cargo run` / Vite), so they work without `make install`. But the **Start execution** button spawns the `ecaa-workflow-harness` *binary* by name from `PATH` (override with `ECAA_HARNESS_BIN_PATH`). If you skipped `make install` (Setup step 5), execution fails with `failed to spawn harness: No such file or directory`; run `make install` to fix it.
+> **Execution requires the installed harness binary.** `make dev-server` / `make dev-ui` run from source, so they work without `make install`. But the **Start execution** button spawns the `ecaa-workflow-harness` *binary* by name from `PATH` (override with `ECAA_HARNESS_BIN_PATH`). If you skipped `make install`, execution fails with `failed to spawn harness: No such file or directory`; run `make install` to fix it. (The Docker path above bundles the harness, so this only affects from-source runs.)
 
-The chat surface boots in offline mode without an API key (the UI renders but assistant turns are mocked). For LLM-mediated chat:
-
-```bash
-export ECAA_ANTHROPIC_API_KEY=<your key>
-make dev-server
-```
-
-For local production configuration, start from [`.env.example`](.env.example). Its active defaults are loopback/local and durable under `$HOME/.ecaa-workflow`; live API, eval, debug, AWS, SLURM, and external-validator knobs are commented until deliberately enabled.
+The chat surface boots in offline mode without an API key (the UI renders but assistant turns are mocked). For LLM-mediated chat, `export ECAA_ANTHROPIC_API_KEY=<your key>` before `make dev-server`. For local production configuration, start from [`.env.example`](.env.example) — its active defaults are loopback/local and durable under `$HOME/.ecaa-workflow`; live API, eval, debug, AWS, SLURM, and external-validator knobs are commented until deliberately enabled.
 
 Smoke-test the compiler against a bundled scenario:
 
@@ -76,20 +104,6 @@ ecaa-workflow intake \
   --output /tmp/ibd-package
 ecaa-workflow dag --package /tmp/ibd-package
 ```
-
-## Operate (container-runtime-only)
-
-With only Docker or (preferred) rootless Podman installed:
-
-```bash
-make up                   # build the latest image, then run it via compose + .env on http://127.0.0.1:3000
-./deploy/ecaa up          # run the existing local image (no rebuild); same compose + .env
-./deploy/ecaa doctor      # preflight: runtime, socket, creds
-make down                 # stop it   (make logs to tail)
-```
-
-To run analyses, log in to Claude Code once so `~/.claude` holds subscription credentials
-(mounted read-only into the server). For shared-server / cloud / HPC, see [`deploy/`](deploy/).
 
 ## Test
 
