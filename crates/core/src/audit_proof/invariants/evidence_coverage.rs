@@ -15,7 +15,7 @@
 //! so they cannot be the source here.
 
 use crate::audit_proof::loader::LoadedPackage;
-use crate::audit_proof::output_source::analytical_outputs;
+use crate::audit_proof::output_source::{analytical_outputs, same_task_basename_match};
 use crate::audit_proof::{InvariantId, InvariantStatus, InvariantVerdict};
 use std::collections::BTreeSet;
 
@@ -57,20 +57,15 @@ pub fn check_evidence_coverage(pkg: &LoadedPackage) -> InvariantVerdict {
                 .collect()
         })
         .unwrap_or_default();
-    // Basename index of the supported references. A verified claim's
-    // `supported_by` is recorded by the runtime verifier as a BASENAME and then
-    // path-reconstructed by `claim_sink::evidence_ref_for` assuming a direct
-    // child of the task output dir; a nested table (e.g. `…/<task>/tables/de.tsv`)
-    // therefore yields a reconstructed path that differs from the registered
-    // output `@id` even though the SAME basename is referenced. Matching on
-    // basename as a FALLBACK keeps this reader consistent with Inv 5
-    // (`cross_graph_integrity`), which applies the identical fallback, WITHOUT
-    // weakening it: an output whose basename is referenced by no claim still
-    // counts as uncovered.
-    let supported_basenames: BTreeSet<String> = supported
-        .iter()
-        .map(|s| s.rsplit('/').next().unwrap_or(s).to_string())
-        .collect();
+    // A verified claim's `supported_by` is recorded by the runtime verifier as a
+    // BASENAME then path-reconstructed by `claim_sink::evidence_ref_for`; a nested
+    // table (`…/<task>/tables/de.tsv`) yields a reconstructed path that differs
+    // from the registered output `@id` even though the SAME basename is
+    // referenced UNDER THE SAME TASK. An output counts as covered if a claim ref
+    // names it exactly OR resolves to it via `same_task_basename_match` (the
+    // intra-task nested-table gap) — never via a cross-task basename collision,
+    // so an output referenced only by a wrong-directory ref still counts as
+    // uncovered. Inv 5 (`cross_graph_integrity`) applies the identical rule.
     let unused: BTreeSet<String> = pkg
         .assumptions
         .iter()
@@ -79,9 +74,9 @@ pub fn check_evidence_coverage(pkg: &LoadedPackage) -> InvariantVerdict {
         .collect();
     let mut violators = Vec::new();
     for o in &outputs {
-        let basename = o.rsplit('/').next().unwrap_or(o);
-        if !supported.contains(o) && !supported_basenames.contains(basename) && !unused.contains(o)
-        {
+        let covered = supported.contains(o)
+            || supported.iter().any(|r| same_task_basename_match(o, r));
+        if !covered && !unused.contains(o) {
             violators.push(o.clone());
         }
     }

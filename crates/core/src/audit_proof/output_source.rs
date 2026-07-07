@@ -99,6 +99,26 @@ fn producer_task_from_path(path: &str) -> Option<String> {
     }
 }
 
+/// True iff `a` and `b` name the same basename UNDER THE SAME
+/// `runtime/outputs/<task>/` subtree. This is the ONLY case in which a basename
+/// fallback may bridge the direct-child-vs-nested-table reconstruction gap
+/// (a claim's reconstructed `…/<task>/de.tsv` vs the registered
+/// `…/<task>/tables/de.tsv`). It deliberately does NOT match a cross-task,
+/// wrong-directory reference (`…/<taskA>/de.tsv` vs `…/<taskB>/de.tsv`), which
+/// stays a violation. Shared by Inv 3 (`evidence_coverage`) and Inv 5
+/// (`cross_graph_integrity`) so the two never disagree about the same C→V link.
+/// A `#fragment` on either side is ignored.
+pub fn same_task_basename_match(a: &str, b: &str) -> bool {
+    fn strip(p: &str) -> &str {
+        p.split('#').next().unwrap_or(p)
+    }
+    let (a, b) = (strip(a), strip(b));
+    match (producer_task_from_path(a), producer_task_from_path(b)) {
+        (Some(ta), Some(tb)) if ta == tb => a.rsplit('/').next() == b.rsplit('/').next(),
+        _ => false,
+    }
+}
+
 /// Classify an output path into a V node kind by its extension / location.
 fn kind_for_path(path: &str, was_image_entity: bool) -> OutputKind {
     if was_image_entity
@@ -195,6 +215,32 @@ pub fn analytical_outputs(output_entities: &[Value], proofs: &[Value]) -> Vec<An
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn same_task_basename_match_bridges_intra_task_only() {
+        // Nested-table reconstruction gap WITHIN one task → matches.
+        assert!(same_task_basename_match(
+            "runtime/outputs/de/de.tsv",
+            "runtime/outputs/de/tables/de.tsv"
+        ));
+        // A `#fragment` on either side is ignored.
+        assert!(same_task_basename_match(
+            "runtime/outputs/de/de.tsv#row-3",
+            "runtime/outputs/de/de.tsv"
+        ));
+        // Cross-task, wrong-directory ref → does NOT match (the finding #2 masking).
+        assert!(!same_task_basename_match(
+            "runtime/outputs/final_reporting/de_results.tsv",
+            "runtime/outputs/differential_expression/de_results.tsv"
+        ));
+        // Same task, different basename → no match.
+        assert!(!same_task_basename_match(
+            "runtime/outputs/de/a.tsv",
+            "runtime/outputs/de/b.tsv"
+        ));
+        // Non-`runtime/outputs/` paths never resolve by basename fallback.
+        assert!(!same_task_basename_match("results/tables/de.csv", "results/other/de.csv"));
+    }
 
     #[test]
     fn image_entity_anywhere_is_a_figure() {
