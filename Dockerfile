@@ -36,10 +36,12 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
       --bin ecaa-workflow-server \
       --bin ecaa-workflow-harness \
       --bin ecaa-workflow \
+      --bin ecaa-workflow-audit-proof \
  && mkdir -p /out \
  && cp target/release/ecaa-workflow-server \
        target/release/ecaa-workflow-harness \
-       target/release/ecaa-workflow /out/
+       target/release/ecaa-workflow \
+       target/release/ecaa-workflow-audit-proof /out/
 
 ########## Runtime ##########
 FROM debian:trixie-slim@sha256:28de0877c2189802884ccd20f15ee41c203573bd87bb6b883f5f46362d24c5c2 AS runtime
@@ -59,9 +61,10 @@ RUN set -eux; \
       | tar -xz -C /usr/local/bin --strip-components=1 docker/docker; \
     docker --version
 WORKDIR /app
-COPY --from=builder /out/ecaa-workflow-server  /usr/local/bin/
-COPY --from=builder /out/ecaa-workflow-harness /usr/local/bin/
-COPY --from=builder /out/ecaa-workflow         /usr/local/bin/
+COPY --from=builder /out/ecaa-workflow-server      /usr/local/bin/
+COPY --from=builder /out/ecaa-workflow-harness     /usr/local/bin/
+COPY --from=builder /out/ecaa-workflow             /usr/local/bin/
+COPY --from=builder /out/ecaa-workflow-audit-proof /usr/local/bin/
 COPY config/  /app/config/
 COPY lib/     /app/lib/
 COPY scripts/ /app/scripts/
