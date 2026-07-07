@@ -28,8 +28,9 @@ import type { ReplayVerdict } from '../../types/ReplayVerdict'
 import {
   getAuditProof,
   getReplay,
+  replayVerify,
   reverifyAuditProof,
-  startReplay,
+  startReplayReproduce,
 } from '../../api/chatClient'
 
 interface Props {
@@ -157,6 +158,22 @@ export function ReproducibilityTab({ sessionId }: Props): JSX.Element {
       .catch(() => {
         if (!cancelled) setReport(null)
       })
+    // Rehydrate a Tier-2 replay job that is still running (or already finished)
+    // server-side, so switching away from and back to the tab doesn't lose it.
+    void getReplay(sessionId)
+      .then((s) => {
+        if (cancelled) return
+        if (s.status === 'running') {
+          setReproStatus('running')
+        } else if (s.status === 'done' || s.status === 'failed') {
+          setReproStatus(s.status)
+          setReproReport(s.report ?? null)
+          if (s.status === 'failed' && s.error) setErr(s.error)
+        }
+      })
+      .catch(() => {
+        /* no replay job for this session yet — leave idle */
+      })
     return () => {
       cancelled = true
     }
@@ -180,7 +197,7 @@ export function ReproducibilityTab({ sessionId }: Props): JSX.Element {
     setIntegrityRunning(true)
     setErr(null)
     try {
-      setIntegrity(await startReplay(sessionId, { tier: 'verify' }))
+      setIntegrity(await replayVerify(sessionId))
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
     } finally {
@@ -194,9 +211,9 @@ export function ReproducibilityTab({ sessionId }: Props): JSX.Element {
     setReproReport(null)
     setReproStatus('running')
     try {
-      // Tier-2 returns 202; the terminal report arrives via the poll
-      // below (SSE replay_completed is advisory).
-      await startReplay(sessionId, { tier: 'all' })
+      // Tier-2 returns 202 { replay_id }; the terminal report arrives via the
+      // poll below (SSE replay_completed is advisory).
+      await startReplayReproduce(sessionId)
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
       setReproStatus('idle')
@@ -217,10 +234,12 @@ export function ReproducibilityTab({ sessionId }: Props): JSX.Element {
             setReproReport(s.report ?? null)
             if (s.status === 'failed' && s.error) setErr(s.error)
           }
-        } catch (e) {
+        } catch {
+          // Transient GET failure — keep polling; the server-side job is
+          // unaffected. Only an explicit status:'failed' payload (handled
+          // above) surfaces an error, so one network blip won't abandon a
+          // live replay.
           if (cancelled) return
-          setErr(e instanceof Error ? e.message : String(e))
-          setReproStatus('idle')
         }
       })()
     }, 3000)

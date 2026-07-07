@@ -1295,19 +1295,30 @@ export async function getAuditProof(
 }
 
 /**
- * POST `…/replay` — kick off a replay run. `tier: 'verify'` returns the
- * `ReplayReport` synchronously; `tier: 'execute' | 'all'` re-run compute
- * and the server backgrounds them (202) — poll [`getReplay`] for the
- * terminal report.
+ * POST `…/replay` with `tier: 'verify'` — the offline integrity / tamper
+ * check. Returns the `ReplayReport` synchronously (200).
  */
-export async function startReplay(
-  sessionId: string,
-  req: { tier: 'verify' | 'execute' | 'all'; strict?: boolean },
-): Promise<ReplayReport> {
+export async function replayVerify(sessionId: string): Promise<ReplayReport> {
   return jsonFetch(sessionUrl(sessionId, 'replay'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req),
+    body: JSON.stringify({ tier: 'verify' }),
+  })
+}
+
+/**
+ * POST `…/replay` with a heavy tier (`execute` | `all`) — the server
+ * backgrounds it and returns `202 { replay_id }` (NOT a `ReplayReport`).
+ * Poll [`getReplay`] for the terminal report.
+ */
+export async function startReplayReproduce(
+  sessionId: string,
+  opts: { tier?: 'execute' | 'all'; strict?: boolean } = {},
+): Promise<{ replay_id: string }> {
+  return jsonFetch(sessionUrl(sessionId, 'replay'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tier: opts.tier ?? 'all', strict: opts.strict ?? false }),
   })
 }
 

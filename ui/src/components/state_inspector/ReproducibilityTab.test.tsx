@@ -7,22 +7,25 @@ import type { ReplayReport } from '../../types/ReplayReport'
 import {
   getAuditProof,
   getReplay,
+  replayVerify,
   reverifyAuditProof,
-  startReplay,
+  startReplayReproduce,
 } from '../../api/chatClient'
 import { ReproducibilityTab } from './ReproducibilityTab'
 
 vi.mock('../../api/chatClient', () => ({
   getAuditProof: vi.fn(),
   getReplay: vi.fn(),
+  replayVerify: vi.fn(),
   reverifyAuditProof: vi.fn(),
-  startReplay: vi.fn(),
+  startReplayReproduce: vi.fn(),
 }))
 
 const mockGetAuditProof = vi.mocked(getAuditProof)
 const mockGetReplay = vi.mocked(getReplay)
+const mockReplayVerify = vi.mocked(replayVerify)
 const mockReverify = vi.mocked(reverifyAuditProof)
-const mockStartReplay = vi.mocked(startReplay)
+const mockStartReplayReproduce = vi.mocked(startReplayReproduce)
 
 const INVARIANT_IDS = [
   'claim_completeness',
@@ -51,6 +54,8 @@ function fullReport(): AuditProofReport {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // Default: no backgrounded replay job (the tab rehydrates one on mount).
+  mockGetReplay.mockResolvedValue({ status: 'idle' })
 })
 
 describe('ReproducibilityTab', () => {
@@ -107,7 +112,7 @@ describe('ReproducibilityTab', () => {
       skipped: [],
       verdict: 'pass',
     }
-    mockStartReplay.mockResolvedValue(replay)
+    mockReplayVerify.mockResolvedValue(replay)
 
     render(<ReproducibilityTab sessionId="s1" />)
     await screen.findByText('claim_completeness')
@@ -117,13 +122,13 @@ describe('ReproducibilityTab', () => {
     await waitFor(() =>
       expect(screen.getByTestId('integrity-verdict')).toHaveTextContent(/pass/i),
     )
-    expect(mockStartReplay).toHaveBeenCalledWith('s1', { tier: 'verify' })
+    expect(mockReplayVerify).toHaveBeenCalledWith('s1')
   })
 
   it('polls the backgrounded full-reproduce job and explains an unprovisionable runtime', async () => {
     mockGetAuditProof.mockResolvedValue(fullReport())
-    // POST …/replay {tier:'all'} returns 202 (no synchronous body used).
-    mockStartReplay.mockResolvedValue({} as ReplayReport)
+    // POST …/replay {tier:'all'} returns 202 { replay_id } (no synchronous report).
+    mockStartReplayReproduce.mockResolvedValue({ replay_id: 'r1' })
     const doneReport: ReplayReport = {
       schema_version: '0.2',
       package_iri: 'pkg',
@@ -134,16 +139,19 @@ describe('ReproducibilityTab', () => {
       skipped: [],
       verdict: 'partial',
     }
-    mockGetReplay.mockResolvedValue({ status: 'done', report: doneReport })
+    // Mount rehydrate sees no job (idle); the poll after the click sees it done.
+    mockGetReplay
+      .mockResolvedValueOnce({ status: 'idle' })
+      .mockResolvedValue({ status: 'done', report: doneReport })
 
-    // Real timers: the tab polls getReplay on a 3s interval, so the
-    // waitFor below is given a > 3s budget. Fake timers deadlock against
-    // vi.waitFor's own polling, so we intentionally use wall-clock here.
+    // Real timers: the tab polls getReplay on a 3s interval, so the waitFor
+    // below is given a > 3s budget. Fake timers deadlock against vi.waitFor's
+    // own polling, so we intentionally use wall-clock here.
     render(<ReproducibilityTab sessionId="s1" />)
     await screen.findByText('claim_completeness')
 
     await userEvent.click(screen.getByTestId('reproduce-button'))
-    expect(mockStartReplay).toHaveBeenCalledWith('s1', { tier: 'all' })
+    expect(mockStartReplayReproduce).toHaveBeenCalledWith('s1')
     // Button flips to the in-flight label immediately.
     expect(screen.getByTestId('reproduce-button')).toHaveTextContent(/reproducing/i)
 
