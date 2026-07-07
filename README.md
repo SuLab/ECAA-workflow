@@ -82,8 +82,10 @@ ecaa-workflow dag --package /tmp/ibd-package
 With only Docker or (preferred) rootless Podman installed:
 
 ```bash
-./deploy/ecaa up          # builds/pulls, starts the server on http://127.0.0.1:3000
+make up                   # build the latest image, then run it via compose + .env on http://127.0.0.1:3000
+./deploy/ecaa up          # run the existing local image (no rebuild); same compose + .env
 ./deploy/ecaa doctor      # preflight: runtime, socket, creds
+make down                 # stop it   (make logs to tail)
 ```
 
 To run analyses, log in to Claude Code once so `~/.claude` holds subscription credentials

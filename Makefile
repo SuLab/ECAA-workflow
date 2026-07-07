@@ -10,7 +10,7 @@
         test-ui conformance test-substrate-utility roc-gate lint-ui clippy fmt check types e2e e2e-playwright bench \
         verify-reproducibility \
         bio-min dev-server dev-ui clean doctor lint deny install-hooks \
-        image release-image release-sbom release-sign release-checksums release-publish release \
+        image up down logs release-image release-sbom release-sign release-checksums release-publish release \
         eval eval-dryrun eval-e2e eval-full \
         eval-biomnibench eval-biomnibench-smoke eval-nekrutenko eval-nekrutenko-smoke eval-tests \
         eval-biomnibench-dryrun eval-nekrutenko-dryrun \
@@ -47,6 +47,15 @@ SERVER_IMAGE ?= ghcr.io/scripps/ecaa-workflow-server:local
 BIO_MIN_IMAGE ?= ghcr.io/scripps/bio-min:local
 image: ## Build the server OCI image locally (single-arch)
 	bash scripts/build-server-image.sh ecaa-workflow-server:local
+
+up: image ## Build the latest server image, then run it via compose + .env (deploy/ecaa up)
+	bash deploy/ecaa up
+
+down: ## Stop the running server container (deploy/ecaa down)
+	bash deploy/ecaa down
+
+logs: ## Follow the running server container logs (deploy/ecaa logs)
+	bash deploy/ecaa logs
 
 release-image: ## Build + push multi-arch server + bio-min images to GHCR (operator-run)
 	bash scripts/build-server-image.sh $(SERVER_IMAGE) --push
