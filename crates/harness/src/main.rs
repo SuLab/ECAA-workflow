@@ -3859,10 +3859,17 @@ fn run_loop(
                 // task with a typed reason the server promotes to
                 // `BlockerKind::ValidationFailed`. Empty bundle = no
                 // validators run = no sidecar lines appended.
+                // Order-stable UNION (not concatenation): an obligation
+                // declared on more than one of the task's required artifacts
+                // must run — and be recorded — exactly once. Without the dedup
+                // it emitted a byte-identical duplicate validation row per extra
+                // artifact carrying the same obligation id.
+                let mut seen_obligations = std::collections::HashSet::new();
                 let obligations: Vec<String> = task
                     .required_artifacts
                     .iter()
                     .flat_map(|a| a.validation_obligations.iter().cloned())
+                    .filter(|id| seen_obligations.insert(id.clone()))
                     .collect();
                 if !obligations.is_empty() {
                     // Validators inspect artifacts under
