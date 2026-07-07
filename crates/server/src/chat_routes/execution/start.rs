@@ -969,16 +969,22 @@ pub(crate) async fn spawn_harness_for_session(
             });
         }
     }
-    // Mutual exclusion with a backgrounded reproducibility replay:
-    // re-running recorded compute while the harness produces fresh
-    // compute for the same package would race artifact writes.
-    if let Some(r) = app.replays.get(&session_id) {
-        if r.value().is_running() {
-            return Err(SpawnHarnessError::ReplayInProgress);
-        }
-    }
+    // Two-flag mutual exclusion with a backgrounded reproducibility replay:
+    // re-running recorded compute while the harness produces fresh compute for
+    // the same package would race artifact writes. RESERVE the spawn slot FIRST
+    // (set), THEN check `replays` (check) — the mirror of start_replay's
+    // reserve-then-check. Both sides must be set-then-check for the two-flag
+    // exclusion to be sound; a check-then-set here reopens a both-proceed window
+    // (replay's check runs before this reserve while this check runs before
+    // replay's reserve). Roll back the reservation if a replay is running.
     if !app.starting_executions.insert(session_id) {
         return Err(SpawnHarnessError::AlreadyStarting);
+    }
+    if let Some(r) = app.replays.get(&session_id) {
+        if r.value().is_running() {
+            app.starting_executions.remove(&session_id); // roll back our reservation
+            return Err(SpawnHarnessError::ReplayInProgress);
+        }
     }
 
     let spawn_result = spawn_harness_for_session_reserved(

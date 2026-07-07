@@ -166,36 +166,21 @@ pub(super) async fn start_replay(
     }
 
     // ── Tier-2: heavy, backgrounded ──────────────────────────────────────
-    // Mutual exclusion with a running execution (harness/agent loop):
-    // reproducing recorded compute while the agent is still producing it
-    // would race artifact writes.
-    if let Some(e) = app.executions.get(&session_id) {
-        if e.value().exit_status_get().is_none() {
-            return (
-                StatusCode::CONFLICT,
-                "cannot replay while an execution is running",
-            )
-                .into_response();
-        }
-    }
-    // Also refuse during the execution SPAWN WINDOW: `spawn_harness_for_session`
-    // reserves `starting_executions` before the `ExecutionHandle` is inserted into
-    // `executions`, so checking only `executions` above would miss an execution
-    // that is mid-spawn and let a Tier-2 replay race the harness's artifact writes.
-    if app.starting_executions.contains(&session_id) {
-        return (
-            StatusCode::CONFLICT,
-            "cannot replay while an execution is starting",
-        )
-            .into_response();
-    }
-
+    // Two-flag mutual exclusion with the execution-spawn path: reproducing
+    // recorded compute while the harness produces fresh compute for the same
+    // package would race artifact writes.
+    //
+    // BOTH sides are "reserve (set) THEN check, roll back on conflict". Here we
+    // reserve the replay slot in `replays` first (the `entry` write-lock also
+    // rejects a second concurrent replay — TOCTOU), then check `executions` +
+    // `starting_executions`. `spawn_harness_for_session` mirrors this: it
+    // reserves `starting_executions`, THEN checks `replays`. Set-then-check on
+    // BOTH sides is required — a check-then-set on either reopens a window where
+    // a replay and an execution both proceed. Worst case under exact
+    // simultaneity is that both refuse (safe — the caller retries); there is no
+    // interleaving where both run.
     let replay_id = Uuid::new_v4();
     let status = std::sync::Arc::new(std::sync::Mutex::new(ReplayJobStatus::Running));
-    // Atomically reserve the replay slot: hold the DashMap shard write-lock across
-    // the running-check AND the insert so two concurrent POSTs cannot both start a
-    // replay (TOCTOU). No `.await` happens while the entry guard is held; it is
-    // dropped at the end of this block, before the broadcast below.
     {
         use dashmap::mapref::entry::Entry;
         match app.replays.entry(session_id) {
@@ -217,12 +202,33 @@ pub(super) async fn start_replay(
             }
         }
     }
+    // We now hold the replay slot. Refuse (and roll back) if an execution is
+    // running or mid-spawn.
+    let execution_active = app
+        .executions
+        .get(&session_id)
+        .map(|e| e.value().exit_status_get().is_none())
+        .unwrap_or(false)
+        || app.starting_executions.contains(&session_id);
+    if execution_active {
+        app.replays.remove(&session_id); // roll back our reservation
+        return (
+            StatusCode::CONFLICT,
+            "cannot replay while an execution is running or starting",
+        )
+            .into_response();
+    }
     let rv = reader_version();
     let tier_label = req.tier.clone();
     let app2 = app.clone();
-    app.broadcast(session_id, SsePayload::ReplayStarted { tier: tier_label })
-        .await;
+    // There is NO `.await` between reserving the replay slot (above) and this
+    // spawn, so handler-future cancellation (client disconnect) cannot leave a
+    // Running handle wedged in `app.replays` — the spawned task always owns the
+    // reservation's terminal transition. The ReplayStarted SSE is fired from
+    // inside the task for the same reason (it is advisory; the tab self-polls).
     tokio::spawn(async move {
+        app2.broadcast(session_id, SsePayload::ReplayStarted { tier: tier_label })
+            .await;
         let joined = tokio::task::spawn_blocking(move || {
             let opts = ReplayOptions {
                 tier,
@@ -547,6 +553,14 @@ mod tests {
             resp.status(),
             StatusCode::CONFLICT,
             "replay refused during execution spawn window"
+        );
+        // The reserve-first-then-check path must ROLL BACK its reservation on
+        // refusal — no lingering Running handle that would wedge future replays.
+        assert!(
+            app.replays
+                .get(&id)
+                .map_or(true, |h| !h.value().is_running()),
+            "replay reservation rolled back after refusal"
         );
     }
 }
