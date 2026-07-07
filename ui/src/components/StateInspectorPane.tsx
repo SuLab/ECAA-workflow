@@ -12,6 +12,7 @@ import { useEventsContext, useSessionContext } from '../hooks/contexts'
 import StartExecutionCard from './StartExecutionCard'
 import TaskLogDrawer from './TaskLogDrawer'
 import RunningTasksPanel from './RunningTasksPanel'
+import { ReproducibilityTab } from './state_inspector/ReproducibilityTab'
 import {
   DocumentsPane,
   JobsFeed,
@@ -339,6 +340,12 @@ export default function StateInspectorPane() {
         // runs `claim_extractor` + `claim_verifier` on per-task
         // narratives against result tables.
         return <ClaimsTab sessionId={sessionId} dag={dag} />
+      case 'reproducibility':
+        // Deterministic reproducibility surface: re-run the 6 audit-proof
+        // invariants with the session secret + drive the offline replay
+        // re-verifier (Tier-1 integrity, Tier-2 full re-execute). Self-
+        // fetches; no shared context slice needed.
+        return <ReproducibilityTab sessionId={sessionId} />
       default: {
         // F5 Gate C — compile-time exhaustiveness fence on `Tab`. Adding
         // a new `Tab` variant to `state_inspector/index.ts::Tab` without

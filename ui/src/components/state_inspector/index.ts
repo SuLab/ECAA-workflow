@@ -46,6 +46,7 @@ export type Tab =
   | 'verifier_decisions'
   | 'repairs'
   | 'claims'
+  | 'reproducibility'
 
 export interface TabConfig {
   id: Tab
@@ -88,4 +89,11 @@ export const TABS: readonly TabConfig[] = [
   { id: 'verifier_decisions', label: 'Composer trace' },
   { id: 'history', label: 'History' },
   { id: 'compare', label: 'Compare' },
+  // Reproducibility surface: re-run the 6 audit-proof invariants with
+  // the session HMAC secret (de-vacuifies claim-completeness) and drive
+  // the deterministic `replay` re-verifier (Tier-1 integrity / Tier-2
+  // full re-execute). Distinct from Claims (runtime narrative check) and
+  // Composer trace (compile-time port unification) — this one attests
+  // the emitted package against its own recorded provenance.
+  { id: 'reproducibility', label: 'Reproducibility' },
 ]

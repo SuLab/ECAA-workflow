@@ -26,6 +26,7 @@ describe('TABS registry', () => {
       'verifier_decisions',
       'history',
       'compare',
+      'reproducibility',
     ]
     const ids = TABS.map((t) => t.id)
     for (const t of expected) {

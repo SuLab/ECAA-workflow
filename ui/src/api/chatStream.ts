@@ -130,6 +130,11 @@ type ChatSsePayload =
       proposal_id: string
       rationale: string | null
     }
+  // A backgrounded Tier-2 replay job started. Advisory — the
+  // Reproducibility tab polls GET …/replay for the terminal report.
+  | { type: 'replay_started'; tier: string }
+  // A backgrounded replay job reached a terminal verdict.
+  | { type: 'replay_completed'; verdict: string }
 
 export type ChatSseEvent = ChatSsePayload & { seq?: number }
 

@@ -609,6 +609,14 @@ export function useSseChatEvents(
             },
           }
         }),
+      // Backgrounded Tier-2 replay lifecycle. No-op surface handlers:
+      // the Reproducibility tab owns replay UI and polls GET …/replay
+      // (every 3s while running) for the authoritative status + terminal
+      // report, so these events don't drive shared hook state. Registered
+      // only to satisfy the exhaustiveness check over ChatSseEvent['type']
+      // (mirrors `package_amended` above).
+      replay_started: () => {},
+      replay_completed: () => {},
     }
 
     // The callback fields read `optsRef.current.*` at dispatch time

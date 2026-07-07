@@ -78,6 +78,8 @@ import type { RepairProposal } from '../types/RepairProposal'
 import type { HypothesizedProposal } from '../types/HypothesizedProposal'
 import type { SendTurnRequest } from '../types/SendTurnRequest'
 import type { DispositionStatus } from '../types/DispositionStatus'
+import type { AuditProofReport } from '../types/AuditProofReport'
+import type { ReplayReport } from '../types/ReplayReport'
 import {
   ApiClientError,
   FetchError,
@@ -1259,6 +1261,75 @@ export async function verifyTask(
     `/api/chat/session/${encodeURIComponent(sessionId)}/task/${encodeURIComponent(taskId)}/verify`,
     { method: 'POST' },
   )
+}
+
+// ── Reproducibility (audit-proof re-verify + replay) ───────────────────
+// Deterministic server endpoints (no LLM Tool). The server holds the
+// per-session HMAC secret in-process; re-verify re-runs the 6
+// audit-proof invariants with that secret so claim-completeness is no
+// longer vacuous. Replay drives the offline re-verifier: Tier-1
+// (`verify`) is a synchronous integrity/drift check; Tier-2
+// (`execute`/`all`) re-runs recorded compute and is backgrounded
+// (POST returns 202, poll `getReplay`).
+
+/**
+ * POST `…/audit-proof/reverify` — re-run the 6 audit-proof invariants
+ * with the session secret and return the fresh report.
+ */
+export async function reverifyAuditProof(
+  sessionId: string,
+): Promise<AuditProofReport> {
+  return jsonFetch(sessionUrl(sessionId, 'audit-proof/reverify'), {
+    method: 'POST',
+  })
+}
+
+/**
+ * GET `…/audit-proof` — the last-written audit-proof report, or `null`
+ * when none has been produced yet (404 / 204).
+ */
+export async function getAuditProof(
+  sessionId: string,
+): Promise<AuditProofReport | null> {
+  return jsonFetchOrNull(sessionUrl(sessionId, 'audit-proof'))
+}
+
+/**
+ * POST `…/replay` — kick off a replay run. `tier: 'verify'` returns the
+ * `ReplayReport` synchronously; `tier: 'execute' | 'all'` re-run compute
+ * and the server backgrounds them (202) — poll [`getReplay`] for the
+ * terminal report.
+ */
+export async function startReplay(
+  sessionId: string,
+  req: { tier: 'verify' | 'execute' | 'all'; strict?: boolean },
+): Promise<ReplayReport> {
+  return jsonFetch(sessionUrl(sessionId, 'replay'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  })
+}
+
+/**
+ * Terminal / in-flight status of a backgrounded Tier-2 replay job.
+ * `status` is `idle | running | done | failed`; `report` is present on
+ * `done`, `error` on `failed`.
+ */
+export interface ReplayStatusResponse {
+  status: string
+  report?: ReplayReport
+  error?: string
+}
+
+/**
+ * GET `…/replay` — poll the backgrounded replay job's status. Returns
+ * `{ status: 'idle' }` when no job has been started for the session.
+ */
+export async function getReplay(
+  sessionId: string,
+): Promise<ReplayStatusResponse> {
+  return jsonFetch(sessionUrl(sessionId, 'replay'), { method: 'GET' })
 }
 
 /// Build a URL the browser can GET/<img src> for an artifact served out
