@@ -178,22 +178,45 @@ pub(super) async fn start_replay(
                 .into_response();
         }
     }
-    // Refuse a second concurrent replay for the same session.
-    if let Some(h) = app.replays.get(&session_id) {
-        if h.value().is_running() {
-            return (StatusCode::CONFLICT, "a replay is already running").into_response();
-        }
+    // Also refuse during the execution SPAWN WINDOW: `spawn_harness_for_session`
+    // reserves `starting_executions` before the `ExecutionHandle` is inserted into
+    // `executions`, so checking only `executions` above would miss an execution
+    // that is mid-spawn and let a Tier-2 replay race the harness's artifact writes.
+    if app.starting_executions.contains(&session_id) {
+        return (
+            StatusCode::CONFLICT,
+            "cannot replay while an execution is starting",
+        )
+            .into_response();
     }
 
     let replay_id = Uuid::new_v4();
     let status = std::sync::Arc::new(std::sync::Mutex::new(ReplayJobStatus::Running));
-    app.replays.insert(
-        session_id,
-        ReplayHandle {
-            started_at: chrono::Utc::now(),
-            status: status.clone(),
-        },
-    );
+    // Atomically reserve the replay slot: hold the DashMap shard write-lock across
+    // the running-check AND the insert so two concurrent POSTs cannot both start a
+    // replay (TOCTOU). No `.await` happens while the entry guard is held; it is
+    // dropped at the end of this block, before the broadcast below.
+    {
+        use dashmap::mapref::entry::Entry;
+        match app.replays.entry(session_id) {
+            Entry::Occupied(mut o) => {
+                if o.get().is_running() {
+                    return (StatusCode::CONFLICT, "a replay is already running")
+                        .into_response();
+                }
+                o.insert(ReplayHandle {
+                    started_at: chrono::Utc::now(),
+                    status: status.clone(),
+                });
+            }
+            Entry::Vacant(v) => {
+                v.insert(ReplayHandle {
+                    started_at: chrono::Utc::now(),
+                    status: status.clone(),
+                });
+            }
+        }
+    }
     let rv = reader_version();
     let tier_label = req.tier.clone();
     let app2 = app.clone();
@@ -496,5 +519,34 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::CONFLICT, "replay refused while execution runs");
+    }
+
+    /// A replay is refused with 409 during the execution SPAWN WINDOW: the
+    /// session is reserved in `starting_executions` before its `ExecutionHandle`
+    /// lands in `executions`, so checking only `executions` would let a Tier-2
+    /// replay race the harness's artifact writes.
+    #[tokio::test]
+    async fn replay_refused_while_execution_starting() {
+        let pkg = tempfile::TempDir::new().unwrap();
+        let (router, app) = make_router(vec![]).await;
+        let id =
+            seed_session_with_completed_task(&app, "t_demo", Some(pkg.path().to_path_buf())).await;
+        app.starting_executions.insert(id);
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/chat/session/{id}/replay"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"tier":"execute"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::CONFLICT,
+            "replay refused during execution spawn window"
+        );
     }
 }
