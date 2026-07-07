@@ -9,31 +9,83 @@ use ecaa_workflow_types::consts::{ECAA_VERSION, MIN_READER_VERSION};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
-/// Sink path under the BagIt-excluded, never-agent-trusted reports dir.
+/// Sink filename relative to the package RUNTIME dir. **NDJSON despite the
+/// `.json` extension**: one independently HMAC-signed row per finalized task —
+/// readers MUST parse line-by-line, never as a single JSON document (see
+/// [`persist_signed_verdicts`]). Single source for the loader's
+/// runtime-relative join so the writer and reader paths cannot drift.
+pub const SIGNED_SINK_UNDER_RUNTIME: &str =
+    "verification-reports/claim-verification.signed.json";
+
+/// Sink path under the BagIt-excluded, never-agent-trusted reports dir,
+/// relative to the PACKAGE ROOT. Kept in lockstep with
+/// [`SIGNED_SINK_UNDER_RUNTIME`] by the `signed_sink_paths_agree` test.
 pub const SIGNED_SINK_REL: &str = "runtime/verification-reports/claim-verification.signed.json";
 
 /// Build the package-relative Evidence (V) reference for a verified claim's
 /// `source_table`. The runtime verifier records the table it confirmed against
-/// by basename (e.g. `de_results.tsv`); a bare basename is resolved to its
-/// produced location under the task's output dir
-/// (`runtime/outputs/<task>/<file>`) — the SAME `@id`
+/// by basename (e.g. `de_results.tsv`); a bare basename is resolved to the
+/// output that actually holds it, then the resulting `@id` matches what
 /// [`crate::ro_crate::register_produced_output_tables`] assigns — so the C→V
-/// `supported_by` reference resolves in `cross_graph_integrity` (Inv 5) and
-/// `evidence_coverage` (Inv 3) agree on the same link. A reference that already
-/// carries a path separator is treated as an explicit package-relative path and
-/// kept verbatim (e.g. a claim citing `results/tables/de.csv`).
-fn evidence_ref_for(task_id: &str, source_table: &str) -> String {
+/// `supported_by` link resolves and `cross_graph_integrity` (Inv 5) and
+/// `evidence_coverage` (Inv 3) agree.
+///
+/// Resolution order (deterministic, on-disk):
+///   1. verbatim if `source_table` already carries a path separator (an
+///      explicit package-relative path, e.g. `results/tables/de.csv`);
+///   2. the CLAIMING task's own dir `runtime/outputs/<task>/<basename>` when
+///      that file exists (backward-compatible, and correct for stages that
+///      summarize their own output);
+///   3. otherwise the UNIQUE `runtime/outputs/<producer>/<basename>` that
+///      exists on disk — a terminal reporting stage cites an UPSTREAM table
+///      (e.g. `final_reporting` citing `differential_expression/de_results.tsv`),
+///      so anchoring the `@id` to the claiming task's dir dangled;
+///   4. otherwise the claiming task's path (previous behaviour) as a last
+///      resort, so an absent file still yields a stable, if unresolved, ref.
+fn evidence_ref_for(package_root: &Path, task_id: &str, source_table: &str) -> String {
     if source_table.contains('/') {
-        source_table.to_string()
-    } else {
-        format!("runtime/outputs/{task_id}/{source_table}")
+        return source_table.to_string();
     }
+    let same_task = format!("runtime/outputs/{task_id}/{source_table}");
+    if package_root.join(&same_task).exists() {
+        return same_task;
+    }
+    unique_output_bearing(package_root, source_table).unwrap_or(same_task)
+}
+
+/// Return `runtime/outputs/<producer>/<basename>` iff exactly one task output
+/// dir directly holds a file named `basename`. `None` when zero or more than
+/// one match (ambiguous → the caller keeps the claiming-task fallback rather
+/// than guess). Task dirs are visited in sorted order for determinism.
+fn unique_output_bearing(package_root: &Path, basename: &str) -> Option<String> {
+    let outputs = package_root.join("runtime/outputs");
+    let mut task_dirs: Vec<std::ffi::OsString> = std::fs::read_dir(&outputs)
+        .ok()?
+        .flatten()
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .map(|e| e.file_name())
+        .collect();
+    task_dirs.sort();
+    let mut hit: Option<String> = None;
+    for d in task_dirs {
+        if outputs.join(&d).join(basename).exists() {
+            if hit.is_some() {
+                return None; // ambiguous: same basename in >1 producer dir
+            }
+            hit = Some(format!("runtime/outputs/{}/{}", d.to_string_lossy(), basename));
+        }
+    }
+    hit
 }
 
 /// Project live verdicts into the audit-proof C-graph row shape
 /// (`{claim_id, status, supported_by}`). Deterministic; `claim_id` is
 /// positional (`<task_id>#claim-<i>`) so it is collision-free within a task.
-pub fn project_verdict_rows(report: &ClaimVerificationReport, task_id: &str) -> Vec<Value> {
+pub fn project_verdict_rows(
+    report: &ClaimVerificationReport,
+    task_id: &str,
+    package_root: &Path,
+) -> Vec<Value> {
     report
         .verdicts
         .iter()
@@ -45,7 +97,7 @@ pub fn project_verdict_rows(report: &ClaimVerificationReport, task_id: &str) -> 
                         .claim
                         .source_table
                         .iter()
-                        .map(|t| evidence_ref_for(task_id, t))
+                        .map(|t| evidence_ref_for(package_root, task_id, t))
                         .collect();
                     ("verified", supported)
                 }
@@ -63,7 +115,7 @@ pub fn project_verdict_rows(report: &ClaimVerificationReport, task_id: &str) -> 
                         .claim
                         .source_table
                         .iter()
-                        .map(|t| evidence_ref_for(task_id, t))
+                        .map(|t| evidence_ref_for(package_root, task_id, t))
                         .collect();
                     ("suspicious", supported)
                 }
@@ -102,6 +154,7 @@ pub fn build_sink_doc(
     report: &ClaimVerificationReport,
     task_id: &str,
     coverage: Option<&CoverageResult>,
+    package_root: &Path,
 ) -> Value {
     use crate::ablation::{AblationFlag, AblationFlagExt};
     // Site 1 of the two-site benchmark toggle (Aim 3A). Under
@@ -125,7 +178,7 @@ pub fn build_sink_doc(
         "n_unverifiable": if ablated { 0 } else { report.n_unverifiable },
         "n_pending": if ablated { 0 } else { report.n_pending },
         "n_suspicious": if ablated { 0 } else { report.n_suspicious },
-        "verdicts": if ablated { Vec::new() } else { project_verdict_rows(report, task_id) },
+        "verdicts": if ablated { Vec::new() } else { project_verdict_rows(report, task_id, package_root) },
     });
     // The coverage block (recall floor) is signed-sink content the reframed
     // Inv 1 reads; suppress it on the ablated arm alongside the verdicts.
@@ -165,7 +218,7 @@ pub fn persist_signed_verdicts(
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let doc = build_sink_doc(report, task_id, coverage);
+    let doc = build_sink_doc(report, task_id, coverage, package_root);
     let mut buf = Vec::new();
     writer.write_signed_row(&mut buf, &doc)?;
     // `buf` already ends in '\n' (write_signed_row uses writeln!).
@@ -278,7 +331,7 @@ pub fn refresh_plaintext_sidecar(
 
     // Append this task's fresh rows (suppressed under the ablation flag).
     if !AblationFlag::ClaimConsistency.is_active() {
-        merged.extend(project_verdict_rows(report, task_id));
+        merged.extend(project_verdict_rows(report, task_id, package_root));
     }
 
     // Recompute the counts from the merged row set so the counts always
@@ -352,6 +405,17 @@ mod tests {
     }
 
     #[test]
+    fn signed_sink_paths_agree() {
+        // The package-root-relative and runtime-relative sink consts must stay
+        // in lockstep so the writer and the loader never point at different files.
+        assert_eq!(
+            SIGNED_SINK_REL,
+            format!("runtime/{SIGNED_SINK_UNDER_RUNTIME}"),
+            "SIGNED_SINK_REL must be `runtime/` + SIGNED_SINK_UNDER_RUNTIME"
+        );
+    }
+
+    #[test]
     fn suspicious_status_is_soft_counted_separately_and_projects_with_evidence() {
         // Foundation contract for the new Suspicious verdict: it increments its
         // OWN counter (not n_mismatch), does not trip the session block, and
@@ -374,7 +438,7 @@ mod tests {
             !report.has_mismatch(),
             "Suspicious must not trip the session-blocking mismatch gate"
         );
-        let rows = project_verdict_rows(&report, "diff_expr");
+        let rows = project_verdict_rows(&report, "diff_expr", std::path::Path::new("."));
         assert_eq!(rows[0]["status"], json!("suspicious"));
         assert_eq!(
             rows[0]["supported_by"],
@@ -399,7 +463,7 @@ mod tests {
             )],
             runtime_decision_log_path: None,
         };
-        let rows = project_verdict_rows(&report, "diff_expr");
+        let rows = project_verdict_rows(&report, "diff_expr", std::path::Path::new("."));
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0]["claim_id"], json!("diff_expr#claim-0"));
         assert_eq!(rows[0]["status"], json!("verified"));
@@ -423,7 +487,7 @@ mod tests {
             )],
             runtime_decision_log_path: None,
         };
-        let rows = project_verdict_rows(&report, "diff_expr");
+        let rows = project_verdict_rows(&report, "diff_expr", std::path::Path::new("."));
         assert_eq!(rows[0]["status"], json!("pending"));
         assert_eq!(rows[0]["supported_by"], json!([]));
     }
@@ -445,9 +509,79 @@ mod tests {
             )],
             runtime_decision_log_path: None,
         };
-        let rows = project_verdict_rows(&report, "diff_expr");
+        let rows = project_verdict_rows(&report, "diff_expr", std::path::Path::new("."));
         assert_eq!(rows[0]["status"], json!("mismatch"));
         assert_eq!(rows[0]["supported_by"], json!([]));
+    }
+
+    #[test]
+    fn evidence_ref_resolves_upstream_basename_to_producing_task_dir() {
+        // A terminal reporting stage cites an UPSTREAM table by basename; the
+        // evidence @id must point at the PRODUCING task's dir, not the claiming
+        // task's dir (which would dangle — the finding #2 defect).
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        let producer = root.join("runtime/outputs/differential_expression");
+        std::fs::create_dir_all(&producer).expect("mk producer");
+        std::fs::write(producer.join("de_results.tsv"), b"gene\tlog2fc\n").expect("write table");
+        // The claiming task has no such file of its own.
+        std::fs::create_dir_all(root.join("runtime/outputs/final_reporting")).expect("mk claimer");
+
+        let report = ClaimVerificationReport {
+            n_checked: 1,
+            n_verified: 1,
+            n_mismatch: 0,
+            n_unverifiable: 0,
+            n_pending: 0,
+            n_suspicious: 0,
+            verdicts: vec![verdict(
+                claim("KLF15", Some("de_results.tsv")),
+                ClaimStatus::Verified,
+            )],
+            runtime_decision_log_path: None,
+        };
+        let rows = project_verdict_rows(&report, "final_reporting", root);
+        assert_eq!(
+            rows[0]["supported_by"],
+            json!(["runtime/outputs/differential_expression/de_results.tsv"]),
+            "upstream basename must resolve to the producing task dir, not the claimer"
+        );
+    }
+
+    #[test]
+    fn evidence_ref_prefers_same_task_then_falls_back_when_ambiguous() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        // Same-task file present → keep the claiming task's own dir.
+        let own = root.join("runtime/outputs/reporting");
+        std::fs::create_dir_all(&own).expect("mk own");
+        std::fs::write(own.join("summary.tsv"), b"x").expect("write own");
+        // A different basename lives, ambiguously, in TWO producer dirs.
+        for t in ["a_stage", "b_stage"] {
+            let p = root.join(format!("runtime/outputs/{t}"));
+            std::fs::create_dir_all(&p).expect("mk producer");
+            std::fs::write(p.join("dup.tsv"), b"x").expect("write dup");
+        }
+        let mk = |basename: &str| ClaimVerificationReport {
+            n_checked: 1,
+            n_verified: 1,
+            n_mismatch: 0,
+            n_unverifiable: 0,
+            n_pending: 0,
+            n_suspicious: 0,
+            verdicts: vec![verdict(
+                claim("G", Some(basename)),
+                ClaimStatus::Verified,
+            )],
+            runtime_decision_log_path: None,
+        };
+        // same-task wins even though nothing else has summary.tsv
+        let same = project_verdict_rows(&mk("summary.tsv"), "reporting", root);
+        assert_eq!(same[0]["supported_by"], json!(["runtime/outputs/reporting/summary.tsv"]));
+        // ambiguous basename (two producers, none is the claimer) → stable
+        // claiming-task fallback rather than an arbitrary guess.
+        let ambiguous = project_verdict_rows(&mk("dup.tsv"), "reporting", root);
+        assert_eq!(ambiguous[0]["supported_by"], json!(["runtime/outputs/reporting/dup.tsv"]));
     }
 
     #[test]
@@ -473,7 +607,7 @@ mod tests {
             ],
             runtime_decision_log_path: None,
         };
-        let doc = build_sink_doc(&report, "diff_expr", None);
+        let doc = build_sink_doc(&report, "diff_expr", None, std::path::Path::new("."));
         assert_eq!(doc["schema_version"], json!("1"));
         assert_eq!(doc["n_checked"], json!(2));
         assert_eq!(doc["n_mismatch"], json!(1));
@@ -503,11 +637,11 @@ mod tests {
             required_absent: 1,
             per_entity,
         };
-        let doc = build_sink_doc(&report, "diff_expr", Some(&cov));
+        let doc = build_sink_doc(&report, "diff_expr", Some(&cov), std::path::Path::new("."));
         assert_eq!(doc["coverage"]["required_absent"], json!(1));
         assert_eq!(doc["coverage"]["required_total"], json!(1));
         // Absent the coverage arg, no coverage key is written (Phase-1 shape).
-        let bare = build_sink_doc(&report, "diff_expr", None);
+        let bare = build_sink_doc(&report, "diff_expr", None, std::path::Path::new("."));
         assert!(bare.get("coverage").is_none());
     }
 
@@ -619,7 +753,7 @@ mod tests {
             ],
             runtime_decision_log_path: None,
         };
-        let doc = build_sink_doc(&report, "diff_expr", None);
+        let doc = build_sink_doc(&report, "diff_expr", None, std::path::Path::new("."));
         std::env::remove_var(env);
         // Site 1: under ClaimConsistency the populated sink is suppressed —
         // the doc carries ZERO verdicts and an explicit ablation marker that
@@ -651,7 +785,7 @@ mod tests {
             required_absent: 1,
             per_entity,
         };
-        let doc = build_sink_doc(&report, "diff_expr", Some(&cov));
+        let doc = build_sink_doc(&report, "diff_expr", Some(&cov), std::path::Path::new("."));
         std::env::remove_var(env);
         // The recall floor reads the coverage block from the signed sink; the
         // ablated arm must not carry it, else the floor sees real content and
@@ -769,7 +903,7 @@ mod tests {
             )],
             runtime_decision_log_path: None,
         };
-        let doc = build_sink_doc(&report, "diff_expr", None);
+        let doc = build_sink_doc(&report, "diff_expr", None, std::path::Path::new("."));
         assert_eq!(doc["ablated"], json!(false));
         assert_eq!(doc["verdicts"].as_array().unwrap().len(), 1);
     }

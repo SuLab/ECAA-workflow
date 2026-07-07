@@ -130,7 +130,9 @@ fn load_claims(
     rt: &Path,
     verifier: Option<&crate::audit_writer::AuditWriter>,
 ) -> Result<(Option<Value>, bool)> {
-    let signed = rt.join("verification-reports/claim-verification.signed.json");
+    // Runtime-relative sink path, single-sourced from the writer's const so the
+    // reader and writer paths cannot drift (NDJSON — parsed line-by-line below).
+    let signed = rt.join(crate::claim_sink::SIGNED_SINK_UNDER_RUNTIME);
     if let Some(v) = verifier {
         if signed.exists() {
             let raw = fs::read_to_string(&signed)
