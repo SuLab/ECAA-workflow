@@ -243,6 +243,9 @@ impl ServiceEventSink for BroadcastEventSink {
                 Err(execution::SpawnHarnessError::AlreadyStarting) => {
                     tracing::info!(?session_id, "execution_requested: already starting");
                 }
+                Err(execution::SpawnHarnessError::ReplayInProgress) => {
+                    tracing::info!(?session_id, "execution_requested: replay in progress");
+                }
                 Err(e) => {
                     let reason = match e {
                         execution::SpawnHarnessError::SessionNotFound => {
@@ -256,6 +259,7 @@ impl ServiceEventSink for BroadcastEventSink {
                         execution::SpawnHarnessError::NoPid => "no pid".to_string(),
                         execution::SpawnHarnessError::AlreadyRunning { .. } => unreachable!(),
                         execution::SpawnHarnessError::AlreadyStarting => unreachable!(),
+                        execution::SpawnHarnessError::ReplayInProgress => unreachable!(),
                     };
                     tracing::warn!(
                         ?session_id,

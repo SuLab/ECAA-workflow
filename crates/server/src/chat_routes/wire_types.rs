@@ -223,6 +223,19 @@ pub enum SsePayload {
         /// Human-readable copy the UI renders in the chat pane.
         user_copy: String,
     },
+    /// A backgrounded Tier-2 replay job has just started.
+    /// Serializes as `{"type":"replay_started","tier":...}`.
+    ReplayStarted {
+        /// Requested replay tier (`"execute"` | `"all"`).
+        tier: String,
+    },
+    /// A backgrounded Tier-2 replay job has reached a terminal status.
+    /// Serializes as `{"type":"replay_completed","verdict":...}`.
+    ReplayCompleted {
+        /// Terminal verdict string (`"pass"` | `"partial"` | `"fail"`),
+        /// or `"fail"` when the job errored before producing a report.
+        verdict: String,
+    },
     /// Fires when an amendment package has just been re-emitted.
     PackageAmended {
         /// Session whose package was amended.

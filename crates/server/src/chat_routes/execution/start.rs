@@ -310,6 +310,11 @@ async fn start_execution_inner(
             "execution is already starting".to_string(),
         )
             .into_response(),
+        Err(SpawnHarnessError::ReplayInProgress) => (
+            StatusCode::CONFLICT,
+            "cannot start execution while a replay is running".to_string(),
+        )
+            .into_response(),
         Err(SpawnHarnessError::SpawnFailed(e)) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("failed to spawn harness: {}", e),
@@ -333,6 +338,10 @@ pub(crate) enum SpawnHarnessError {
     NotEmitted,
     AlreadyRunning { pid: u32 },
     AlreadyStarting,
+    /// A backgrounded reproducibility replay is in flight for this
+    /// session; starting the harness would race the replay's recorded
+    /// compute re-execution. Mapped to 409 at the REST call site.
+    ReplayInProgress,
     SpawnFailed(std::io::Error),
     SentinelCleanup(std::io::Error),
     NoPid,
@@ -889,6 +898,9 @@ fn spawn_race_winning_pid(err: &SpawnHarnessError) -> Option<Option<u32>> {
     match err {
         SpawnHarnessError::AlreadyRunning { pid } => Some(Some(*pid)),
         SpawnHarnessError::AlreadyStarting => Some(None),
+        // A running replay is a legitimate reason to skip auto-relaunch,
+        // not a genuine spawn error — treat it as a benign lost race.
+        SpawnHarnessError::ReplayInProgress => Some(None),
         _ => None,
     }
 }
@@ -918,6 +930,8 @@ fn spawn_error_message(e: SpawnHarnessError) -> String {
         SpawnHarnessError::NotEmitted => "not emitted".to_string(),
         SpawnHarnessError::AlreadyRunning { .. } => unreachable!(),
         SpawnHarnessError::AlreadyStarting => unreachable!(),
+        // Filtered upstream as a benign race by `spawn_race_winning_pid`.
+        SpawnHarnessError::ReplayInProgress => unreachable!(),
         SpawnHarnessError::SpawnFailed(io) => format!("spawn failed: {}", io),
         SpawnHarnessError::SentinelCleanup(io) => {
             format!("sentinel cleanup failed: {}", io)
@@ -955,6 +969,14 @@ pub(crate) async fn spawn_harness_for_session(
             });
         }
     }
+    // Mutual exclusion with a backgrounded reproducibility replay:
+    // re-running recorded compute while the harness produces fresh
+    // compute for the same package would race artifact writes.
+    if let Some(r) = app.replays.get(&session_id) {
+        if r.value().is_running() {
+            return Err(SpawnHarnessError::ReplayInProgress);
+        }
+    }
     if !app.starting_executions.insert(session_id) {
         return Err(SpawnHarnessError::AlreadyStarting);
     }
@@ -963,6 +985,7 @@ pub(crate) async fn spawn_harness_for_session(
         app,
         session_id,
         package_dir,
+        session.audit_writer_secret,
         agent_path,
         max_iterations,
         frozen_method_source,
@@ -976,6 +999,7 @@ async fn spawn_harness_for_session_reserved(
     app: &ChatAppState,
     session_id: SessionId,
     package_dir: std::path::PathBuf,
+    audit_secret: [u8; 32],
     agent_path: Option<String>,
     max_iterations: Option<u32>,
     frozen_method_source: bool,
@@ -1110,6 +1134,12 @@ async fn spawn_harness_for_session_reserved(
         Sha256::digest(harness_token.as_bytes()).into()
     };
     cmd.env("ECAA_HARNESS_TOKEN", &harness_token);
+    // Hand the harness the SAME audit secret the server holds for this
+    // session, as lowercase 64-hex. The harness-written signed verdict
+    // sink + audit-proof report are then HMAC-consistent with a later UI
+    // re-verify (POST …/audit-proof/reverify), which re-derives the key
+    // from the in-process `session.audit_writer_secret`.
+    cmd.env("ECAA_AUDIT_SECRET", hex::encode(audit_secret));
 
     clean_stale_sentinels(&package_dir).map_err(SpawnHarnessError::SentinelCleanup)?;
     // R3.4: clear any prior run's execution-status sidecar so the
@@ -1380,6 +1410,25 @@ mod tests {
     use tempfile::TempDir;
     use tower::util::ServiceExt;
     use uuid::Uuid;
+
+    /// The audit secret handed to the harness at spawn via
+    /// `ECAA_AUDIT_SECRET` is the lowercase 64-hex encoding of the
+    /// session's `[u8; 32]` secret (the exact `hex::encode` call the
+    /// spawn path uses), so the harness-written signed verdict sink is
+    /// HMAC-consistent with a later UI re-verify.
+    #[test]
+    fn audit_secret_encodes_as_lowercase_64_hex() {
+        let secret = [0xABu8; 32];
+        let encoded = hex::encode(secret);
+        assert_eq!(encoded.len(), 64, "32 bytes → 64 hex chars");
+        assert_eq!(encoded, "ab".repeat(32));
+        assert!(
+            encoded
+                .chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+            "encoding must be lowercase hex"
+        );
+    }
 
     #[test]
     fn clean_stale_sentinels_removes_files_before_return() {

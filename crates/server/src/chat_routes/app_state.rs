@@ -132,6 +132,47 @@ impl ExecutionHandle {
     }
 }
 
+/// Terminal + in-flight states for a backgrounded replay job (Tier-2
+/// re-execute / `all`). Tier-1 (`verify`) runs synchronously and never
+/// mints one of these; only the heavy container-re-execution path is
+/// tracked as a job so the UI can poll `GET …/replay` for progress.
+#[derive(Debug, Clone)]
+pub enum ReplayJobStatus {
+    /// The replay job is still running on a spawned task.
+    Running,
+    /// The replay job finished; holds the full report.
+    /// Boxed so the enum's size isn't dominated by the large report.
+    Done(Box<ecaa_workflow_core::replay::ReplayReport>),
+    /// The replay job failed (join error or `run_replay` error).
+    Failed(String),
+}
+
+/// Per-session backgrounded replay handle tracked by
+/// `ChatAppState::replays`. Mirrors `ExecutionHandle` for the replay
+/// domain: a spawned tokio task drives `run_replay` under
+/// `spawn_blocking` and writes the terminal status into `status`.
+#[derive(Clone)]
+pub struct ReplayHandle {
+    /// Timestamp when the replay job was launched.
+    pub started_at: chrono::DateTime<chrono::Utc>,
+    /// Shared status slot; the spawned job flips it to a terminal
+    /// variant, and `GET …/replay` reads it. `std::sync::Mutex` (not
+    /// tokio) because both the reader and the writer touch it from short
+    /// non-async critical sections, never across an `.await`.
+    pub status: Arc<std::sync::Mutex<ReplayJobStatus>>,
+}
+
+impl ReplayHandle {
+    /// True while the job has not yet reached a terminal status. Used by
+    /// the replay-side and execution-side mutual-exclusion checks.
+    pub fn is_running(&self) -> bool {
+        matches!(
+            *self.status.lock().unwrap_or_else(|p| p.into_inner()),
+            ReplayJobStatus::Running
+        )
+    }
+}
+
 /// Per-session token-bucket rate limiter for progress POSTs. Throttles
 /// runaway agents at `PROGRESS_RATE_PER_SEC` with `PROGRESS_RATE_BURST`
 /// allowance.
@@ -314,6 +355,12 @@ pub struct ChatAppState {
     pub sse_seq: Arc<DashMap<SessionId, Arc<AtomicU64>>>,
     /// Active harness subprocess per session.
     pub executions: Arc<DashMap<SessionId, ExecutionHandle>>,
+    /// Active backgrounded replay job per session (Tier-2 re-execute).
+    /// Distinct from `executions`: a replay re-runs recorded compute for
+    /// reproducibility rather than driving the agent loop. Mutually
+    /// exclusive with `executions` per session (see the 409 checks in
+    /// `reproducibility::start_replay` + `execution::start`).
+    pub replays: Arc<DashMap<SessionId, ReplayHandle>>,
     /// Sessions with a harness spawn in progress. This reserves the
     /// per-session spawn slot while slow filesystem work and
     /// `cmd.spawn()` run outside the `executions` map lock.
@@ -500,6 +547,7 @@ impl ChatAppState {
             broadcasters,
             sse_seq,
             executions: Arc::new(DashMap::new()),
+            replays: Arc::new(DashMap::new()),
             starting_executions: Arc::new(DashSet::new()),
             progress_rate_limits: Arc::new(DashMap::new()),
             artifact_cache: Arc::new(DashMap::new()),
@@ -587,6 +635,7 @@ impl ChatAppState {
             broadcasters,
             sse_seq,
             executions: Arc::new(DashMap::new()),
+            replays: Arc::new(DashMap::new()),
             starting_executions: Arc::new(DashSet::new()),
             progress_rate_limits: Arc::new(DashMap::new()),
             artifact_cache: Arc::new(DashMap::new()),
@@ -762,6 +811,7 @@ impl ChatAppState {
         self.broadcasters.remove(&id);
         self.sse_seq.remove(&id);
         self.executions.remove(&id);
+        self.replays.remove(&id);
         self.starting_executions.remove(&id);
         self.progress_rate_limits.remove(&id);
         self.reconciled_progress_cache.remove(&id);

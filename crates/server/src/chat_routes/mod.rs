@@ -71,6 +71,7 @@ pub fn router(app: ChatAppState) -> Router {
         .merge(execution::routes())
         .merge(tasks::routes())
         .merge(verification::routes())
+        .merge(reproducibility::routes())
         .merge(dashboard::routes())
         .merge(summary::routes())
         .merge(share::routes())
@@ -152,6 +153,7 @@ pub const ALL_ROUTES: &[&[(&str, &str)]] = &[
     execution::ROUTES,
     tasks::ROUTES,
     verification::ROUTES,
+    reproducibility::ROUTES,
     dashboard::ROUTES,
     summary::ROUTES,
     share::ROUTES,
@@ -233,6 +235,7 @@ mod population_coverage;
 mod proposal;
 mod remediation;
 mod repair_proposals;
+mod reproducibility;
 mod sessions;
 // `pub mod` so `read_only.rs` can call
 // `share::hash_share_token` for the constant-time hash compare.
@@ -314,8 +317,8 @@ pub use _client_ip::client_ip_from;
 // `chat_routes::ExecutionHandle` / etc. without knowing they live
 // in `app_state.rs`.
 pub use app_state::{
-    ArtifactCache, ChatAppState, ExecutionHandle, LlmRateBuckets, RateBucket, ScorerCache,
-    PROGRESS_RATE_BURST, PROGRESS_RATE_PER_SEC, SCORER_CACHE_TTL_SECS,
+    ArtifactCache, ChatAppState, ExecutionHandle, LlmRateBuckets, RateBucket, ReplayHandle,
+    ReplayJobStatus, ScorerCache, PROGRESS_RATE_BURST, PROGRESS_RATE_PER_SEC, SCORER_CACHE_TTL_SECS,
 };
 
 // Re-export wire types so the rest of the server crate (handlers in

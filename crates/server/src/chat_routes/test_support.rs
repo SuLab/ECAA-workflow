@@ -115,6 +115,20 @@ pub async fn make_router_with_harness_bin(
     (router, app)
 }
 
+/// Insert a running `ExecutionHandle` (exit_status = UNSET) into
+/// `app.executions` for `session_id`, so tests that assert
+/// replay↔execution mutual exclusion can simulate an in-flight harness
+/// without actually spawning one. Mirrors the production
+/// `ExecutionHandle::for_running` construction with a stub pid/token.
+pub fn insert_running_execution(
+    app: &ChatAppState,
+    session_id: uuid::Uuid,
+    package_dir: std::path::PathBuf,
+) {
+    let handle = super::ExecutionHandle::for_running(1, 1, package_dir, "test-agent".into(), [0u8; 32]);
+    app.executions.insert(session_id, handle);
+}
+
 pub async fn body_json(body: Body) -> serde_json::Value {
     let bytes = to_bytes(body, 1_000_000).await.unwrap();
     serde_json::from_slice(&bytes).unwrap()
