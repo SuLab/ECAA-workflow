@@ -719,7 +719,9 @@ fn prune_content_empty_outputs(dst: &Path) -> Result<usize> {
 }
 
 fn dedup_duplicate_output_tables(dst: &Path) -> Result<usize> {
-    use std::collections::HashMap;
+    // BTreeMap (not HashMap) per the emit-path determinism invariant
+    // (`check-no-hashmap-in-emitter`): a stable digest→files grouping order.
+    use std::collections::BTreeMap;
 
     // How many times each relative path is mentioned anywhere in the crate
     // descriptor — a proxy for "how connected / consumed" a table is. The
@@ -744,7 +746,7 @@ fn dedup_duplicate_output_tables(dst: &Path) -> Result<usize> {
         // Group same-directory result tables by the digest of their DATA rows
         // (everything after the first/header line): identical digest ⇒ identical
         // data ⇒ a true duplicate regardless of the header column name.
-        let mut groups: HashMap<String, Vec<PathBuf>> = HashMap::new();
+        let mut groups: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
         let Ok(entries) = std::fs::read_dir(&task) else {
             continue;
         };
