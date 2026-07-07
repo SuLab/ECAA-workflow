@@ -1,31 +1,40 @@
 use serde::{Deserialize, Serialize};
 use crate::reexecution::{ReexecutionReport, ReexecutionBucket};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum ReplayVerdict { Pass, Partial, Fail }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export)]
 pub struct VerifierDiff {
     pub check: String,
+    #[ts(type = "unknown")]
     pub recorded: serde_json::Value,
+    #[ts(type = "unknown")]
     pub fresh: serde_json::Value,
     pub diverged: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub note: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export)]
 pub struct ReverifyResult { pub checks: Vec<VerifierDiff>, pub reader_matches_writer: bool }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export)]
 pub struct ReexecuteResult { pub env_tier: String, pub report: ReexecutionReport,
     pub unprovisionable: bool }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export)]
 pub struct SkippedStage { pub task: String, pub reason: String }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export)]
 pub struct ReplayReport {
     pub schema_version: String, pub package_iri: String,
     pub reader_version: String, pub min_reader_version: Option<String>,
