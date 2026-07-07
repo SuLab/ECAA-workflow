@@ -293,26 +293,46 @@ pub(super) fn write_audit_report(dst: &Path) -> Result<()> {
     }
 
     // ── Validation obligations ───────────────────────────────────────────
-    let vrep = read_jsonl(&rt.join("validation-reports.jsonl"));
+    let vrep_raw = read_jsonl(&rt.join("validation-reports.jsonl"));
+    // De-duplicate identical rows: an obligation declared on more than one of a
+    // task's required artifacts is recorded once per artifact, so the same
+    // (task_id, obligation_id, outcome) triple can appear multiple times. Count
+    // and list the distinct obligations, preserving first-seen order.
+    let mut seen_obl = std::collections::HashSet::new();
+    let vrep: Vec<&Value> = vrep_raw
+        .iter()
+        .filter(|v| {
+            seen_obl.insert((
+                s(g(v, "task_id")).to_string(),
+                s(g(v, "obligation_id")).to_string(),
+                s(g(v, "outcome")).to_string(),
+            ))
+        })
+        .collect();
     if !vrep.is_empty() {
+        // `outcome` has four serialized forms: `passed`, `failed:…`,
+        // `errored:…`, `unimplemented:…`. Anything that is not `passed` is
+        // review-worthy — count and list it, so `errored`/`unimplemented`
+        // obligations are not hidden behind a clean "0 failed".
         let passed = vrep.iter().filter(|v| s(g(v, "outcome")) == "passed").count();
-        let failed: Vec<&Value> = vrep
+        let not_passing: Vec<&Value> = vrep
             .iter()
-            .filter(|v| s(g(v, "outcome")).starts_with("failed"))
+            .copied()
+            .filter(|v| s(g(v, "outcome")) != "passed")
             .collect();
         let _ = writeln!(m, "## Validation obligations\n");
         let _ = writeln!(
             m,
             "Grounding & contract obligations checked across tasks: **{} passed, \
-             {} failed** of {} recorded.\n",
+             {} not passing** of {} recorded.\n",
             passed,
-            failed.len(),
+            not_passing.len(),
             vrep.len()
         );
-        if !failed.is_empty() {
+        if !not_passing.is_empty() {
             let _ = writeln!(m, "| Task | Obligation | Outcome |");
             let _ = writeln!(m, "| :---- | :---- | :---- |");
-            for v in failed {
+            for v in not_passing {
                 let _ = writeln!(
                     m,
                     "| {} | {} | {} |",
@@ -359,18 +379,37 @@ pub(super) fn write_audit_report(dst: &Path) -> Result<()> {
             cell(s(g(&rs, "verdict")), 24),
             g(&rs, "rounds").as_u64().unwrap_or(0)
         );
+        let _ = writeln!(
+            m,
+            "_This is the end-of-repair snapshot, taken before the final \
+             audit-proof re-record and deposit-entity registration; its counts \
+             may differ from the Audit-proof invariants table above._\n"
+        );
         if let Some(review) = rs.get("review").and_then(Value::as_array) {
             if !review.is_empty() {
                 let _ = writeln!(m, "Items routed to review:\n");
-                let _ = writeln!(m, "| Failure | Why |");
+                let _ = writeln!(m, "| Failure | Detail |");
                 let _ = writeln!(m, "| :---- | :---- |");
                 for r in review {
-                    let _ = writeln!(
-                        m,
-                        "| {} | {} |",
-                        cell(s(g(r, "failure")), 60),
-                        cell(s(g(r, "why")), 110),
-                    );
+                    // `failure` is a structured object (task, subject, detail,
+                    // source, …), not a string — identify it by task + subject
+                    // and surface the concrete `detail` a reviewer needs.
+                    let f = g(r, "failure");
+                    let task = s(g(f, "task"));
+                    let subject = s(g(f, "subject"));
+                    let label = match (task.is_empty(), subject.is_empty()) {
+                        (false, false) => format!("{task} — {subject}"),
+                        (true, false) => subject.to_string(),
+                        (false, true) => task.to_string(),
+                        (true, true) => s(g(f, "id")).to_string(),
+                    };
+                    let detail = s(g(f, "detail"));
+                    let reason = if detail.is_empty() {
+                        s(g(r, "why"))
+                    } else {
+                        detail
+                    };
+                    let _ = writeln!(m, "| {} | {} |", cell(&label, 60), cell(reason, 110));
                 }
                 let _ = writeln!(m);
             }
@@ -443,4 +482,141 @@ pub(super) fn write_audit_report(dst: &Path) -> Result<()> {
     std::fs::write(dst.join("AUDIT-REPORT.md"), m)
         .with_context(|| format!("writing audit report under {}", dst.display()))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    /// The "Items routed to review" table must identify each failure. The
+    /// `failure` field of a review item is a structured object (task, subject,
+    /// detail, source, …), NOT a string — rendering it through `s()` blanks the
+    /// cell. Regression guard: the Failure column must carry the task + subject
+    /// and the reviewer-facing detail, not an empty cell.
+    #[test]
+    fn repair_review_rows_render_failure_identity() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let rt = dir.path().join("runtime");
+        fs::create_dir_all(&rt).expect("mk runtime");
+
+        let status = serde_json::json!({
+            "verdict": "mostly_passing",
+            "rounds": 1,
+            "review": [
+                {
+                    "failure": {
+                        "id": "abc123",
+                        "source": "ClaimMismatch",
+                        "class": "narrative_correction",
+                        "task": "differential_expression",
+                        "subject": "2,197 genes upregulated",
+                        "detail": "count claim: narrative says 2197, de_results.tsv has 3993",
+                        "retry_count": 1,
+                        "status": "InReview"
+                    },
+                    "why": "unresolved after repair (InReview)"
+                },
+                {
+                    "failure": {
+                        "id": "def456",
+                        "source": { "InvariantFailure": "claim_completeness" },
+                        "class": "coverage_gap",
+                        "task": "audit",
+                        "subject": "claim_completeness",
+                        "detail": "4 claim(s) with empty supported_by and not pending",
+                        "retry_count": 1,
+                        "status": "InReview"
+                    },
+                    "why": "unresolved after repair (InReview)"
+                }
+            ]
+        });
+        fs::write(
+            rt.join("repair-status.json"),
+            serde_json::to_string_pretty(&status).expect("ser"),
+        )
+        .expect("write sidecar");
+
+        write_audit_report(dir.path()).expect("write report");
+        let md = fs::read_to_string(dir.path().join("AUDIT-REPORT.md")).expect("read report");
+
+        assert!(
+            md.contains("## End-of-run repair pass"),
+            "repair section must be present"
+        );
+        // Failure cell carries the task identity + subject (was blank under the bug).
+        assert!(
+            md.contains("differential_expression"),
+            "review row must render the failing task; got:\n{md}"
+        );
+        assert!(
+            md.contains("2,197 genes upregulated"),
+            "review row must render the failure subject; got:\n{md}"
+        );
+        assert!(
+            md.contains("audit") && md.contains("claim_completeness"),
+            "invariant-sourced failure must render task + subject; got:\n{md}"
+        );
+        // The concrete reason (detail) is what a reviewer needs, not boilerplate.
+        assert!(
+            md.contains("narrative says 2197"),
+            "review row must render the failure detail; got:\n{md}"
+        );
+        // Regression: no review row with a blank leading Failure cell.
+        assert!(
+            !md.contains("|  | unresolved after repair"),
+            "Failure column must not be blank; got:\n{md}"
+        );
+    }
+
+    /// Validation obligation outcomes have four serialized forms —
+    /// `passed`, `failed:…`, `errored:…`, `unimplemented:…`. Anything that is
+    /// not `passed` is review-worthy and must be counted as not-passing AND
+    /// listed; recognizing only `passed`/`failed*` hides `errored`/
+    /// `unimplemented` behind a clean "0 failed".
+    #[test]
+    fn validation_obligations_count_and_list_all_non_passing() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let rt = dir.path().join("runtime");
+        fs::create_dir_all(&rt).expect("mk runtime");
+
+        let rows = [
+            serde_json::json!({"task_id":"t1","obligation_id":"ob_ok","outcome":"passed"}),
+            serde_json::json!({"task_id":"t2","obligation_id":"ob_fail","outcome":"failed:threshold not met"}),
+            serde_json::json!({"task_id":"t3","obligation_id":"ob_err","outcome":"errored:no annotation table in package"}),
+            // Duplicate of the row above (same obligation declared on two
+            // artifacts of one task) — must be de-duplicated, not double-counted.
+            serde_json::json!({"task_id":"t3","obligation_id":"ob_err","outcome":"errored:no annotation table in package"}),
+            serde_json::json!({"task_id":"t4","obligation_id":"ob_todo","outcome":"unimplemented:foo_check"}),
+        ];
+        let jsonl: String = rows
+            .iter()
+            .map(|r| serde_json::to_string(r).expect("ser"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        fs::write(rt.join("validation-reports.jsonl"), jsonl).expect("write sidecar");
+
+        write_audit_report(dir.path()).expect("write report");
+        let md = fs::read_to_string(dir.path().join("AUDIT-REPORT.md")).expect("read report");
+
+        // 1 passed, 3 not passing of 4 — must reconcile to the total.
+        assert!(
+            md.contains("**1 passed, 3 not passing** of 4 recorded"),
+            "count line must include errored/unimplemented as not-passing; got:\n{md}"
+        );
+        // Every non-passing obligation must appear in the table.
+        assert!(
+            md.contains("errored:no annotation table in package"),
+            "errored obligation must be listed; got:\n{md}"
+        );
+        assert!(
+            md.contains("unimplemented:foo_check"),
+            "unimplemented obligation must be listed; got:\n{md}"
+        );
+        assert!(
+            md.contains("failed:threshold not met"),
+            "failed obligation must still be listed; got:\n{md}"
+        );
+    }
 }
