@@ -10,6 +10,7 @@ mod blocker_queue_appends;
 mod branch_task_scoped;
 mod documented_constants;
 mod force_classify_on_first_intake;
+mod import_reconstruct;
 mod intake_followup_convergence;
 mod no_silent_transition_drops;
 mod session_save_update_race;

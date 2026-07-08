@@ -34,6 +34,8 @@ pub mod confirmation_token;
 pub mod cross_session_aggregator;
 pub mod decision_helpers;
 pub mod derived_dag;
+/// Reconstruct a read-only `Session` from an uploaded, emitted ECAA package.
+mod import;
 /// Per-button single-use execution token (gates `start_execution`).
 pub mod execution_token;
 pub mod invalidation_guard;
@@ -193,6 +195,9 @@ impl Session {
             execution_token: None,
             pending_emission_id: None,
             emitted_package_path: None,
+            // Fresh, locally-created sessions are never imported; only
+            // `Session::from_imported_package` flips this to true.
+            imported: false,
             harness_events: vec![],
             tool_call_log: vec![],
             decisions: vec![],

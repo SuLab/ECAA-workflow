@@ -162,6 +162,14 @@ pending_emission_id: string | null,
  */
 emitted_package_path: string | null, 
 /**
+ * True when this session was reconstructed from an uploaded package
+ * (read-only: no branch/amend/rerun/emit/start-execution). Set by
+ * `Session::from_imported_package`; false for every locally-created
+ * session. `#[serde(default)]` so sessions persisted before this
+ * field existed load unchanged (as `false`).
+ */
+imported: boolean, 
+/**
  * Streaming progress events posted by the harness (batch-flushed into a synthetic assistant turn).
  */
 harness_events: Array<HarnessEvent>, 

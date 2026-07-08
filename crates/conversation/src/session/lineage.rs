@@ -208,6 +208,8 @@ impl Session {
             execution_token: None,
             pending_emission_id: None,
             emitted_package_path: None,
+            // A branch is a fresh authored session, not a read-only import.
+            imported: false,
             harness_events: vec![],
             tool_call_log: vec![],
             // Branches INHERIT the parent's decision history so audit
@@ -414,6 +416,7 @@ mod branch_from_exhaustiveness {
             execution_token: _,
             pending_emission_id: _,
             emitted_package_path: _,
+            imported: _,
             harness_events: _,
             tool_call_log: _,
             decisions: _,

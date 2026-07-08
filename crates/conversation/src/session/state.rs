@@ -405,6 +405,13 @@ pub struct Session {
     #[serde(default)]
     #[ts(type = "string | null")]
     pub emitted_package_path: Option<PathBuf>,
+    /// True when this session was reconstructed from an uploaded package
+    /// (read-only: no branch/amend/rerun/emit/start-execution). Set by
+    /// `Session::from_imported_package`; false for every locally-created
+    /// session. `#[serde(default)]` so sessions persisted before this
+    /// field existed load unchanged (as `false`).
+    #[serde(default)]
+    pub imported: bool,
     /// Streaming progress events posted by the harness (batch-flushed into a synthetic assistant turn).
     #[serde(default)]
     pub harness_events: Vec<HarnessEvent>,
