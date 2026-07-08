@@ -46,6 +46,7 @@ runtime/outputs/
 .DS_Store
 
 # ── Local working artifacts (not tracked) ────────────────────────────────────
+compose.wadmin.yaml
 .archive/
 .tmp/
 tmp/
