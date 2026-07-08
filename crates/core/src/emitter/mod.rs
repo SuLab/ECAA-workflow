@@ -909,6 +909,15 @@ pub fn reseal_audit_report(
     )
     .context("writing runtime/audit-proof-report.json")?;
     audit_report::write_audit_report(pkg).context("regenerating AUDIT-REPORT.md")?;
+    // AUDIT-REPORT.md is a BagIt payload file (the audit-proof/reexecution
+    // sidecars are on the manifest exclusion list, but the human report is
+    // not). Regenerating it invalidates the recorded checksum, so reseal the
+    // BagIt manifest when this package is a bag, keeping `bagit --validate`
+    // green after the fold-back.
+    if pkg.join("bagit.txt").exists() {
+        regenerate_bagit_manifest(pkg, &crate::clock::WallClock)
+            .context("resealing BagIt manifest after AUDIT-REPORT.md regeneration")?;
+    }
     Ok(())
 }
 
