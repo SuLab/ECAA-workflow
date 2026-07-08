@@ -29,17 +29,47 @@ fn bad_request(msg: impl Into<String>) -> (StatusCode, String) {
     (StatusCode::BAD_REQUEST, msg.into())
 }
 
+/// RAII cleanup for import staging + extraction paths. While `armed`, every
+/// tracked path is removed on `Drop` — so a partially-extracted `imported/
+/// <token>/` dir (or the staging `.bin`) is reclaimed on *every* early exit,
+/// including a client disconnect that drops the `spawn_blocking().await`
+/// future mid-flight. Disarm the dest guard only once the imported session is
+/// durably saved; staging is never kept. `Drop` uses `let _ =` so a
+/// double-remove (path already gone) never panics.
+struct CleanupPaths {
+    paths: Vec<PathBuf>,
+    armed: bool,
+}
+
+impl Drop for CleanupPaths {
+    fn drop(&mut self) {
+        if self.armed {
+            for p in &self.paths {
+                if p.is_dir() {
+                    let _ = std::fs::remove_dir_all(p);
+                } else {
+                    let _ = std::fs::remove_file(p);
+                }
+            }
+        }
+    }
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Archive extraction (path-jailed)
 // ────────────────────────────────────────────────────────────────────────────
 
 /// Sniff the archive format by leading magic bytes and dispatch to the right
 /// extractor. Every entry is path-jailed under `dest`; symlink entries and
-/// traversal are rejected; `max_entries` bounds a zip bomb by count.
+/// traversal are rejected; `max_entries` bounds a zip bomb by count and
+/// `max_extracted_bytes` bounds a decompression bomb by total decompressed
+/// size (the compressed-upload cap can't bound how large a tiny archive
+/// expands to).
 pub(super) fn extract_archive(
     archive: &Path,
     dest: &Path,
     max_entries: usize,
+    max_extracted_bytes: u64,
 ) -> Result<(), (StatusCode, String)> {
     let mut head = [0u8; 4];
     {
@@ -51,9 +81,9 @@ pub(super) fn extract_archive(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("mkdir dest: {e}")))?;
 
     if head == MAGIC_ZIP {
-        extract_zip(archive, dest, max_entries)
+        extract_zip(archive, dest, max_entries, max_extracted_bytes)
     } else if head[..2] == MAGIC_GZIP {
-        extract_targz(archive, dest, max_entries)
+        extract_targz(archive, dest, max_entries, max_extracted_bytes)
     } else {
         Err(bad_request(
             "unrecognized archive format (expected .zip or .tar.gz)",
@@ -65,6 +95,7 @@ fn extract_zip(
     archive: &Path,
     dest: &Path,
     max_entries: usize,
+    max_extracted_bytes: u64,
 ) -> Result<(), (StatusCode, String)> {
     let file = std::fs::File::open(archive)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("open zip: {e}")))?;
@@ -75,6 +106,7 @@ fn extract_zip(
             zip.len()
         )));
     }
+    let mut total_extracted: u64 = 0;
     for i in 0..zip.len() {
         let mut entry = zip
             .by_index(i)
@@ -104,8 +136,21 @@ fn extract_zip(
         }
         let mut w = std::fs::File::create(&out)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("create file: {e}")))?;
-        std::io::copy(&mut entry, &mut w)
+        // Bounded copy: cap the running decompressed total so a tiny archive
+        // can't expand to terabytes and fill the host disk. The `+1` lets a
+        // single over-cap entry push `total_extracted` past the cap so the
+        // check below fires even on the last allowed byte.
+        let remaining = max_extracted_bytes.saturating_sub(total_extracted);
+        let mut limited = std::io::Read::take(&mut entry, remaining + 1);
+        let n = std::io::copy(&mut limited, &mut w)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("write file: {e}")))?;
+        total_extracted += n;
+        if total_extracted > max_extracted_bytes {
+            return Err((
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "extracted size exceeds cap".into(),
+            ));
+        }
         assert_under_root(dest, &out).map_err(|e| bad_request(format!("escaped root: {e}")))?;
     }
     Ok(())
@@ -115,12 +160,14 @@ fn extract_targz(
     archive: &Path,
     dest: &Path,
     max_entries: usize,
+    max_extracted_bytes: u64,
 ) -> Result<(), (StatusCode, String)> {
     let file = std::fs::File::open(archive)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("open tar.gz: {e}")))?;
     let gz = flate2::read::GzDecoder::new(file);
     let mut tar = tar::Archive::new(gz);
     let mut count = 0usize;
+    let mut total_extracted: u64 = 0;
     for entry in tar
         .entries()
         .map_err(|e| bad_request(format!("bad tar: {e}")))?
@@ -151,8 +198,19 @@ fn extract_targz(
         }
         let mut w = std::fs::File::create(&out)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("create file: {e}")))?;
-        std::io::copy(&mut entry, &mut w)
+        // Bounded copy: cap the running decompressed total (decompression-bomb
+        // defense). See `extract_zip` for the `+1` rationale.
+        let remaining = max_extracted_bytes.saturating_sub(total_extracted);
+        let mut limited = std::io::Read::take(&mut entry, remaining + 1);
+        let n = std::io::copy(&mut limited, &mut w)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("write file: {e}")))?;
+        total_extracted += n;
+        if total_extracted > max_extracted_bytes {
+            return Err((
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "extracted size exceeds cap".into(),
+            ));
+        }
         assert_under_root(dest, &out).map_err(|e| bad_request(format!("escaped root: {e}")))?;
     }
     Ok(())
@@ -274,8 +332,11 @@ pub(super) async fn import_package(
     headers: axum::http::HeaderMap,
     request: Request,
 ) -> Response {
-    // `owner_user_from_headers` returns `Option<String>`; `apply_owner_user`
-    // is a no-op when None, so the anonymous/CLI path stays valid.
+    // `owner_user_from_headers` returns `Option<String>` (None on the
+    // anonymous/CLI path). We stamp it onto the reconstructed `Session`
+    // *before* the save below so ownership is atomic with persistence — a
+    // failed owner stamp can never leave the imported package at the
+    // world-readable "local" sentinel (fail-open).
     let owner_user = super::sessions::owner_user_from_headers(&headers);
     let import_root = app.config.package_root.join("imported");
     let staging_dir = import_root.join(".staging");
@@ -289,6 +350,15 @@ pub(super) async fn import_package(
     let token = Uuid::new_v4().to_string();
     let staging_path = staging_dir.join(format!("{token}.bin"));
 
+    // Staging is never kept — this guard reclaims the `.bin` on every exit
+    // path (stream error, extraction failure, save failure, and — crucially —
+    // a client disconnect that drops the `spawn_blocking().await` future).
+    // It is never disarmed.
+    let _staging_cleanup = CleanupPaths {
+        paths: vec![staging_path.clone()],
+        armed: true,
+    };
+
     if let Err(resp) =
         stream_body_to_file(request, &staging_path, app.config.max_import_bytes).await
     {
@@ -297,11 +367,23 @@ pub(super) async fn import_package(
 
     let dest = import_root.join(&token);
     let max_entries = app.config.max_import_entries;
+    let max_extracted = app.config.max_import_extracted_bytes;
     let staging_for_task = staging_path.clone();
+    let dest_for_task = dest.clone();
+
+    // The extracted `imported/<token>/` dir is removed on every failure path
+    // (locate miss, missing ro-crate, reconstruct error, join error, save
+    // error, cancellation) and disarmed only once the session is durably
+    // saved on the success path below.
+    let mut dest_cleanup = CleanupPaths {
+        paths: vec![dest.clone()],
+        armed: true,
+    };
+
     let joined = tokio::task::spawn_blocking(
         move || -> Result<(Session, PackageCapabilities), (StatusCode, String)> {
-            extract_archive(&staging_for_task, &dest, max_entries)?;
-            let root = locate_package_root(&dest).ok_or_else(|| {
+            extract_archive(&staging_for_task, &dest_for_task, max_entries, max_extracted)?;
+            let root = locate_package_root(&dest_for_task).ok_or_else(|| {
                 (
                     StatusCode::BAD_REQUEST,
                     "not an ECAA package (missing WORKFLOW.json)".to_string(),
@@ -321,19 +403,28 @@ pub(super) async fn import_package(
     )
     .await;
 
+    // Prompt async removal of staging on the normal path; `_staging_cleanup`
+    // is the belt that also fires on cancellation. Double-remove is harmless.
     let _ = tokio::fs::remove_file(&staging_path).await;
 
     match joined {
-        Ok(Ok((session, capabilities))) => {
+        Ok(Ok((mut session, capabilities))) => {
+            // Owner-before-save: stamp ownership atomically with persistence so
+            // a header-derived owner is never lost to the "local" sentinel.
+            if let Some(u) = owner_user {
+                session.owner_user = u;
+            }
             let id = session.id;
             if let Err(e) = app.conversation.store_handle().save(&session).await {
+                // dest_cleanup stays armed → the extracted dir is reclaimed.
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!("save session: {e}"),
                 )
                     .into_response();
             }
-            super::sessions::apply_owner_user(&app, id, owner_user, "import_package").await;
+            // Save succeeded — the extracted package is now a durable session.
+            dest_cleanup.armed = false;
             Json(ImportResponse {
                 session_id: id,
                 imported: true,
@@ -412,7 +503,7 @@ mod tests {
         let archive = dir.path().join("a.zip");
         std::fs::write(&archive, zip_with(&[("WORKFLOW.json", b"{}")])).unwrap();
         let dest = dir.path().join("out");
-        extract_archive(&archive, &dest, 1000).unwrap();
+        extract_archive(&archive, &dest, 1000, 1 << 30).unwrap();
         assert!(dest.join("WORKFLOW.json").exists());
     }
 
@@ -422,9 +513,64 @@ mod tests {
         let archive = dir.path().join("evil.zip");
         std::fs::write(&archive, zip_with(&[("../escape.txt", b"pwned")])).unwrap();
         let dest = dir.path().join("out");
-        let err = extract_archive(&archive, &dest, 1000).unwrap_err();
+        let err = extract_archive(&archive, &dest, 1000, 1 << 30).unwrap_err();
         assert_eq!(err.0, axum::http::StatusCode::BAD_REQUEST);
         assert!(!dir.path().join("escape.txt").exists());
+    }
+
+    #[test]
+    fn extract_rejects_decompression_bomb() {
+        let dir = tempfile::tempdir().unwrap();
+        let archive = dir.path().join("bomb.zip");
+        // A single entry whose *uncompressed* size far exceeds the tiny cap we
+        // pass — the compressed archive on disk is tiny (highly-repetitive
+        // data deflates well), which is exactly the decompression-bomb shape.
+        let payload = vec![b'A'; 4096];
+        std::fs::write(&archive, zip_with(&[("WORKFLOW.json", &payload)])).unwrap();
+        let dest = dir.path().join("out");
+        let err = extract_archive(&archive, &dest, 1000, 256).unwrap_err();
+        assert_eq!(err.0, axum::http::StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[test]
+    fn cleanup_paths_removes_when_armed_keeps_when_disarmed() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Armed: both a dir and a file are reclaimed on drop.
+        let armed_dir = dir.path().join("armed");
+        std::fs::create_dir_all(&armed_dir).unwrap();
+        std::fs::write(armed_dir.join("nested"), b"x").unwrap();
+        let armed_file = dir.path().join("armed.bin");
+        std::fs::write(&armed_file, b"y").unwrap();
+        {
+            let _g = CleanupPaths {
+                paths: vec![armed_dir.clone(), armed_file.clone()],
+                armed: true,
+            };
+        }
+        assert!(!armed_dir.exists(), "armed guard should remove the dir");
+        assert!(!armed_file.exists(), "armed guard should remove the file");
+
+        // Disarmed: the path survives.
+        let kept_dir = dir.path().join("kept");
+        std::fs::create_dir_all(&kept_dir).unwrap();
+        {
+            let _g = CleanupPaths {
+                paths: vec![kept_dir.clone()],
+                armed: false,
+            };
+        }
+        assert!(kept_dir.exists(), "disarmed guard should keep the dir");
+
+        // Double-remove (path already gone) must not panic.
+        let gone = dir.path().join("never-existed");
+        {
+            let _g = CleanupPaths {
+                paths: vec![gone.clone()],
+                armed: true,
+            };
+        }
+        assert!(!gone.exists());
     }
 
     #[test]
