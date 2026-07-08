@@ -186,11 +186,18 @@ fn run_task(
         }
     };
 
-    // Collect all regular files (not directories); skip none by extension.
+    // Collect the files we will attempt to run. The recorded runs write logs,
+    // manifests, and data files (`.log`, `.json`, `.tsv`, …) into `scripts/`
+    // alongside the real compute scripts; executing those as scripts made the
+    // whole task fail on an unknown-interpreter error even though the real
+    // script succeeded. Keep only files with a runnable interpreter extension
+    // — plus any agent entrypoint (by name), so the agent-free guard below
+    // still fires loudly rather than silently ignoring a `claude` invocation.
     let mut scripts: Vec<PathBuf> = read_dir
         .filter_map(|e| e.ok())
         .map(|e| e.path())
         .filter(|p| p.is_file())
+        .filter(|p| crate::replay::env_provision::is_runnable_script(p) || is_agent_script(p))
         .collect();
     scripts.sort();
 
@@ -900,6 +907,73 @@ mod tests {
         assert_eq!(
             package_val, scratch_str,
             "PACKAGE must equal scratch root; got: {package_val:?}"
+        );
+    }
+
+    /// A co-located NON-script file in `scripts/` (e.g. the agent's own
+    /// `deseq2_run.log` or `00_install.log`) must be IGNORED, not executed.
+    /// The recorded runs write logs/manifests alongside the real `.R`/`.py`/`.sh`
+    /// scripts; treating those as executable scripts made every such task fail
+    /// (unknown-interpreter error → ok:false) even though the real script
+    /// succeeded.  Only files with a runnable interpreter extension are executed.
+    #[test]
+    fn co_located_non_script_files_are_not_executed() {
+        let pkg_tmp = tempdir().unwrap();
+        let scratch_tmp = tempdir().unwrap();
+        let pkg = pkg_tmp.path();
+        let scratch = scratch_tmp.path();
+
+        let scripts_dir = pkg.join("runtime/outputs/differential_expression/scripts");
+        std::fs::create_dir_all(&scripts_dir).unwrap();
+        std::fs::write(
+            pkg.join("runtime/outputs/differential_expression/de_results.tsv"),
+            "gene\tpadj\n",
+        )
+        .unwrap();
+
+        // The real script — succeeds. (The test `Shell` env runs every script
+        // via `bash`, so the body is bash; the point is that the `.R` extension
+        // is treated as runnable while the `.log`/`.json` below are not.)
+        std::fs::write(
+            scripts_dir.join("01_run_deseq2.R"),
+            "#!/usr/bin/env bash\necho ok\n",
+        )
+        .unwrap();
+        // Co-located artifacts the agent wrote into scripts/ — must be ignored.
+        std::fs::write(scripts_dir.join("deseq2_run.log"), "[12:00] running\n").unwrap();
+        std::fs::write(scripts_dir.join("manifest.json"), "{}\n").unwrap();
+
+        let task = ComputeTask {
+            task_id: "differential_expression".to_string(),
+            scripts_dir: scripts_dir.clone(),
+            result_tables: vec!["de_results.tsv".to_string()],
+        };
+
+        let outcomes = stage_and_run(
+            pkg,
+            scratch,
+            &[task],
+            &[],
+            &shell_env(),
+            "/irrelevant",
+            &BTreeMap::new(),
+        )
+        .unwrap();
+
+        assert_eq!(outcomes.len(), 1);
+        let outcome = &outcomes[0];
+        assert!(
+            outcome.ok,
+            "co-located non-script files must be ignored; task should succeed. stderr: {}",
+            outcome.stderr
+        );
+        // The non-script files must NOT have been staged into scratch scripts/
+        // as executable scripts (they are not scripts).
+        let staged_log = scratch
+            .join("runtime/outputs/differential_expression/scripts/deseq2_run.log");
+        assert!(
+            !staged_log.exists(),
+            "a co-located .log must not be staged/executed as a script"
         );
     }
 

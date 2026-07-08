@@ -377,6 +377,18 @@ fn find_build_spec(pkg: &Path, task_dir: Option<&Path>) -> Option<PathBuf> {
     None
 }
 
+/// Return `true` when `script` has an extension this runner knows how to
+/// dispatch (`.R`, `.py`, `.sh`) — i.e. `interpreter_for` would succeed.
+///
+/// The recorded runs write logs/manifests/data files (`.log`, `.json`, `.tsv`,
+/// …) into the same `scripts/` directory as the real compute scripts. The
+/// replay runner must execute only genuine scripts and treat everything else as
+/// inert co-located artifacts; this predicate is that gate (single source of
+/// truth with `interpreter_for`).
+pub fn is_runnable_script(script: &Path) -> bool {
+    interpreter_for(script).is_ok()
+}
+
 /// Return the interpreter string for a script based on file extension.
 fn interpreter_for(script: &Path) -> io::Result<&'static str> {
     match script.extension().and_then(|e| e.to_str()) {

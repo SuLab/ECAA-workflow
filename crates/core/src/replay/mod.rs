@@ -149,32 +149,7 @@ pub fn run_replay(pkg: &Path, opts: &ReplayOptions) -> anyhow::Result<ReplayRepo
         let mut reexec_report = classify_reexecution(pkg, &scratch, policy_path, bounds)?;
 
         // ── ok:false → Failed reconciliation ────────────────────────────────
-        // Build the set of task_ids that ran and failed.
-        let failed_task_ids: std::collections::BTreeSet<String> = outcomes
-            .iter()
-            .filter(|o| !o.ok)
-            .map(|o| o.task_id.clone())
-            .collect();
-
-        if !failed_task_ids.is_empty() {
-            for ac in &mut reexec_report.per_artifact {
-                if ac.bucket == ReexecutionBucket::Unavailable {
-                    // Extract task_id from `runtime/outputs/<task_id>/…`.
-                    // artifact_path is relative to pkg, forward-slash separated.
-                    if let Some(task_id) = extract_task_id_from_artifact_path(&ac.artifact_path) {
-                        if failed_task_ids.contains(task_id) {
-                            ac.bucket = ReexecutionBucket::Failed;
-                            ac.reason = Some(format!(
-                                "task '{task_id}' ran and exited with ok:false; \
-                                 classified Failed rather than Unavailable"
-                            ));
-                        }
-                    }
-                }
-            }
-            // Re-finalize bucket_counts after overrides.
-            reexec_report.finalize_counts();
-        }
+        reconcile_failed_task_buckets(&mut reexec_report, &outcomes);
 
         report.reexecute = Some(crate::replay::report::ReexecuteResult {
             env_tier: env.tier_name().to_string(),
@@ -391,6 +366,67 @@ fn read_package_meta(pkg: &Path) -> (String, Option<String>) {
     (iri, min_rv)
 }
 
+/// Reconcile comparator buckets with task run outcomes.
+///
+/// `classify_reexecution` only inspects files on disk: a task that ran but
+/// exited `ok:false` typically leaves its output missing, so the comparator
+/// marks it `Unavailable` — indistinguishable from "environment could not run
+/// it at all". We override `Unavailable` → `Failed` for any artifact whose
+/// producing task ran and failed, and attach a TAIL of that task's stderr to
+/// the reason so a human reading `.replay-report.json` (or the audit report)
+/// can see WHY it failed without re-running. The task_id is the 3rd path
+/// component of `runtime/outputs/<task_id>/…`.
+fn reconcile_failed_task_buckets(
+    report: &mut crate::reexecution::ReexecutionReport,
+    outcomes: &[crate::replay::script_runner::RunOutcome],
+) {
+    let failed: BTreeMap<&str, &str> = outcomes
+        .iter()
+        .filter(|o| !o.ok)
+        .map(|o| (o.task_id.as_str(), o.stderr.as_str()))
+        .collect();
+    if failed.is_empty() {
+        return;
+    }
+    for ac in &mut report.per_artifact {
+        if ac.bucket != ReexecutionBucket::Unavailable {
+            continue;
+        }
+        let Some(task_id) = extract_task_id_from_artifact_path(&ac.artifact_path) else {
+            continue;
+        };
+        if let Some(stderr) = failed.get(task_id) {
+            ac.bucket = ReexecutionBucket::Failed;
+            ac.reason = Some(format!(
+                "task '{task_id}' ran and exited with ok:false; classified Failed \
+                 rather than Unavailable. stderr tail: {}",
+                stderr_tail(stderr)
+            ));
+        }
+    }
+    report.finalize_counts();
+}
+
+/// The last ~1200 chars of a stderr blob, trimmed, prefixed with an ellipsis
+/// when truncated. Empty input renders as `(no stderr captured)` so the reason
+/// is never a dangling "stderr tail: ".
+fn stderr_tail(stderr: &str) -> String {
+    const MAX: usize = 1200;
+    let trimmed = stderr.trim();
+    if trimmed.is_empty() {
+        return "(no stderr captured)".to_string();
+    }
+    // Take the last MAX bytes on a char boundary.
+    if trimmed.len() <= MAX {
+        return trimmed.to_string();
+    }
+    let start = trimmed.len() - MAX;
+    let start = (start..trimmed.len())
+        .find(|&i| trimmed.is_char_boundary(i))
+        .unwrap_or(trimmed.len());
+    format!("…{}", &trimmed[start..])
+}
+
 /// Extract the task_id component from an artifact_path of the form
 /// `runtime/outputs/<task_id>/…`.  Returns `None` for paths that don't
 /// match this shape.
@@ -573,6 +609,44 @@ mod tests {
         // Sanity: reverify was populated, reexecute was not.
         assert!(report.reverify.is_some(), "reverify must be Some for Tier::Verify");
         assert!(report.reexecute.is_none(), "reexecute must be None for Tier::Verify");
+    }
+
+    /// A task that ran and exited `ok:false` produces a missing artifact the
+    /// comparator marks `Unavailable`. Reconciliation must reclassify it
+    /// `Failed` AND attach a tail of the task's stderr, so a human reading the
+    /// replay report can see WHY it failed without re-running.
+    #[test]
+    fn reconcile_attaches_stderr_tail_to_failed_task_reason() {
+        use crate::reexecution::{ReexecutionReport, ArtifactClassification, ReexecutionBucket};
+        use crate::replay::script_runner::RunOutcome;
+
+        let mut rep = ReexecutionReport::empty("0.1");
+        rep.per_artifact.push(ArtifactClassification {
+            artifact_path: "runtime/outputs/data_acquisition/cohort_manifest.tsv".into(),
+            bucket: ReexecutionBucket::Unavailable,
+            reason: Some("replay artifact missing".into()),
+        });
+
+        let outcomes = vec![RunOutcome {
+            task_id: "data_acquisition".into(),
+            ok: false,
+            stderr: "Traceback (most recent call last):\nRuntimeError: network unreachable\n".into(),
+        }];
+
+        reconcile_failed_task_buckets(&mut rep, &outcomes);
+
+        let ac = &rep.per_artifact[0];
+        assert_eq!(ac.bucket, ReexecutionBucket::Failed);
+        let reason = ac.reason.as_deref().unwrap();
+        assert!(
+            reason.contains("network unreachable"),
+            "reason must carry the failing task's stderr tail; got: {reason}"
+        );
+        assert_eq!(
+            rep.bucket_counts.get("failed").copied(),
+            Some(1),
+            "counts must be re-finalized"
+        );
     }
 
     /// Helper to verify extract_task_id_from_artifact_path.
