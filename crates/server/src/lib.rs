@@ -33,8 +33,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tower_governor::governor::GovernorConfigBuilder;
 use tower_governor::GovernorLayer;
+use axum::extract::DefaultBodyLimit;
 use tower_http::classify::{ServerErrorsAsFailures, SharedClassifier};
-use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::{DefaultOnRequest, DefaultOnResponse, TraceLayer};
@@ -42,13 +42,15 @@ use tracing::Level;
 
 /// Resolve the per-request body size cap from `ECAA_REQUEST_BODY_LIMIT_KB`
 /// (default 256 KiB). Returned value is bytes; consumed by the global
-/// `tower_http::RequestBodyLimitLayer` so a single malicious POST cannot
-/// exhaust memory.
+/// axum `DefaultBodyLimit::max(..)` so a single malicious POST cannot
+/// exhaust memory via the Json/Bytes extractors.
 ///
-/// The chunked-upload endpoint (`/api/chat/session/:id/inputs/upload`)
-/// opts out via `DefaultBodyLimit::disable()` on its sub-router; the
-/// chunk handler enforces its own 32 MiB hard cap (see
-/// `chat_routes::inputs::upload::MAX_UPLOAD_CHUNK_BYTES`).
+/// The upload/import endpoints (`/api/chat/session/:id/inputs/upload`,
+/// `/api/chat/package/import`) opt out via `DefaultBodyLimit::disable()`
+/// on their sub-routers and enforce their own caps in the handler (32 MiB
+/// per chunk; `ECAA_MAX_IMPORT_BYTES` while streaming the archive to disk).
+/// axum's `DefaultBodyLimit` honours that inner opt-out; tower_http's
+/// `RequestBodyLimitLayer` did not, which 413'd every upload.
 pub fn resolve_request_body_limit_bytes() -> usize {
     let kb = std::env::var("ECAA_REQUEST_BODY_LIMIT_KB")
         .ok()
@@ -333,12 +335,14 @@ pub async fn run() {
         .layer(axum::middleware::from_fn(crate::sec_fetch::sec_fetch_guard))
         .layer(crate::cors::build_cors())
         // Global per-request body cap + timeout.
-        // Placed outermost so an oversized body / slowloris connection is
-        // rejected before any auth / CORS / read-only machinery runs.
-        // `/inputs/upload` opts out of the body cap via
-        // `DefaultBodyLimit::disable()` on its sub-router and enforces a
-        // 32 MiB per-chunk hard cap in the handler instead.
-        .layer(RequestBodyLimitLayer::new(body_limit))
+        // Uses axum's `DefaultBodyLimit` (not tower_http's `RequestBodyLimitLayer`)
+        // so the upload/import sub-routers can genuinely opt out via
+        // `DefaultBodyLimit::disable()` — tower_http's layer ignored that
+        // opt-out and 413'd every upload, including `/inputs/upload` and
+        // `/package/import`, which self-cap in their handlers (32 MiB per
+        // chunk; `ECAA_MAX_IMPORT_BYTES` while streaming to disk). Extractor-
+        // based routes (Json/Bytes) are still capped at `body_limit`.
+        .layer(DefaultBodyLimit::max(body_limit))
         .layer(TimeoutLayer::with_status_code(
             axum::http::StatusCode::REQUEST_TIMEOUT,
             request_timeout,
