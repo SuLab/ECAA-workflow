@@ -21,9 +21,16 @@ pub(crate) struct ExportArgs {
     /// copied; caches, logs, `.git`, and regenerable manifests are dropped).
     #[arg(long)]
     package: PathBuf,
-    /// Destination `.zip` path for the depositable package.
+    /// Destination `.zip` path for the depositable package. Mutually exclusive
+    /// with `--dir`; exactly one must be given.
     #[arg(long)]
-    out: PathBuf,
+    out: Option<PathBuf>,
+    /// Destination DIRECTORY for the depositable package (written in place, not
+    /// zipped). Use this when the deposit must preserve symlinks — e.g. a
+    /// `re-executable` profile that ships a per-run conda env, whose relative
+    /// symlinks a `.zip` round-trip would drop. Mutually exclusive with `--out`.
+    #[arg(long)]
+    dir: Option<PathBuf>,
     /// Deposit profile: `full` (everything A+B), `re-executable` (drops the
     /// policy-doc catalog + redundant artifacts, keeps the re-execution tier;
     /// still replays), or `minimal` (also drops the re-execution tier —
@@ -33,36 +40,54 @@ pub(crate) struct ExportArgs {
 }
 
 pub(crate) fn run(args: ExportArgs) -> Result<()> {
-    // Export the A+B surface into a scratch tempdir; it is deleted when
-    // `staging` drops at end of scope.
     let profile: DepositProfile = args
         .profile
         .parse()
         .map_err(|e: String| anyhow::anyhow!(e))?;
-    let staging = tempfile::tempdir().context("creating export staging tempdir")?;
-    let export_root = staging.path().join("export");
-    let report = export_depositable_package_with_profile(&args.package, &export_root, profile)
-        .with_context(|| format!("exporting package {}", args.package.display()))?;
 
-    // Zip the clean tree into `--out`. Parent dirs are created so a caller
-    // can target a fresh path.
-    if let Some(parent) = args.out.parent() {
-        if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("creating output parent {}", parent.display()))?;
+    match (args.out.as_ref(), args.dir.as_ref()) {
+        (Some(_), Some(_)) | (None, None) => {
+            anyhow::bail!("exactly one of --out <FILE.zip> or --dir <DIR> must be given");
+        }
+        // Directory export: write the deposit tree in place, preserving
+        // symlinks (a `.zip` round-trip via `zip_dir` would drop them, breaking
+        // a shipped conda env).
+        (None, Some(dir)) => {
+            let report = export_depositable_package_with_profile(&args.package, dir, profile)
+                .with_context(|| format!("exporting package {}", args.package.display()))?;
+            println!(
+                "export[{}]: {} kept / {} dropped → {}",
+                profile,
+                report.kept,
+                report.dropped,
+                dir.display()
+            );
+            Ok(())
+        }
+        // Zip export: build the tree in a scratch tempdir, then zip into `--out`.
+        (Some(out), None) => {
+            let staging = tempfile::tempdir().context("creating export staging tempdir")?;
+            let export_root = staging.path().join("export");
+            let report = export_depositable_package_with_profile(&args.package, &export_root, profile)
+                .with_context(|| format!("exporting package {}", args.package.display()))?;
+            if let Some(parent) = out.parent() {
+                if !parent.as_os_str().is_empty() {
+                    std::fs::create_dir_all(parent)
+                        .with_context(|| format!("creating output parent {}", parent.display()))?;
+                }
+            }
+            let mut out_file = std::fs::File::create(out)
+                .with_context(|| format!("creating {}", out.display()))?;
+            zip_dir(&export_root, &mut out_file)
+                .with_context(|| format!("zipping export into {}", out.display()))?;
+            println!(
+                "export[{}]: {} kept / {} dropped → {}",
+                profile,
+                report.kept,
+                report.dropped,
+                out.display()
+            );
+            Ok(())
         }
     }
-    let mut out_file = std::fs::File::create(&args.out)
-        .with_context(|| format!("creating {}", args.out.display()))?;
-    zip_dir(&export_root, &mut out_file)
-        .with_context(|| format!("zipping export into {}", args.out.display()))?;
-
-    println!(
-        "export[{}]: {} kept / {} dropped → {}",
-        profile,
-        report.kept,
-        report.dropped,
-        args.out.display()
-    );
-    Ok(())
 }
