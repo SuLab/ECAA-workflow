@@ -1860,6 +1860,34 @@ if [ -n "${ECAA_TASK_ID:-}" ]; then
   } > "$_DET_OUT_DIR/determinism-env.json" 2>/dev/null || true
 fi
 
+# Per-task EXPLICIT conda lock (install-from-log re-execution). When the task
+# used a per-run conda env, record a deterministic `conda list --explicit`
+# (pinned URL+md5) lock so replay can re-INSTALL the exact env from the package
+# rather than ship its ~GB of bytes (see replay `InstallFromLock`). conda + the
+# env live in the container, so dump via a short container run; the env's
+# conda-meta is all `--explicit` needs. Additive, timeout- + `|| true`-guarded,
+# and only when exactly one env exists (unambiguous) — never fails the task.
+if [ -n "${ECAA_TASK_ID:-}" ] && [ -n "${TASK_CONTAINER_DIGEST:-}" ] \
+   && command -v docker >/dev/null 2>&1; then
+  _ENVS_DIR="${CONDA_ENVS_DIRS:-${ECAA_SESSION_CACHE_DIR:-}/conda-envs}"
+  if [ -d "$_ENVS_DIR" ]; then
+    _ENV_N=$(find "$_ENVS_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+    if [ "$_ENV_N" = "1" ]; then
+      _ENV_P=$(find "$_ENVS_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -1)
+      _DET_OUT_DIR="${_DET_OUT_DIR:-$PACKAGE/runtime/outputs/$ECAA_TASK_ID}"
+      mkdir -p "$_DET_OUT_DIR" 2>/dev/null || true
+      timeout 180 docker run --rm -v "$_ENV_P:$_ENV_P" "$TASK_CONTAINER_DIGEST" \
+        conda list -p "$_ENV_P" --explicit --md5 \
+        > "$_DET_OUT_DIR/env.explicit.lock" 2>/dev/null \
+        || { rm -f "$_DET_OUT_DIR/env.explicit.lock" 2>/dev/null; true; }
+      # Drop an empty/failed capture so it never masquerades as a valid lock.
+      [ -s "$_DET_OUT_DIR/env.explicit.lock" ] \
+        && grep -q '@EXPLICIT' "$_DET_OUT_DIR/env.explicit.lock" 2>/dev/null \
+        || { rm -f "$_DET_OUT_DIR/env.explicit.lock" 2>/dev/null; true; }
+    fi
+  fi
+fi
+
 # Per-package dependency-lock resolved-version fold (D5, OPERATOR-GATED).
 # When the agent emitted a runtime/install-log.jsonl of
 # {"registry","package","resolved_version"} lines AND a requested-side
