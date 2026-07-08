@@ -98,6 +98,7 @@ pub fn router(app: ChatAppState) -> Router {
         .merge(value_add_metrics::routes())
         .merge(atoms::routes())
         .merge(literature_context::routes())
+        .merge(package_import::routes())
         .merge(stall_signal::routes());
     let canonical: Router = chat.with_state(app);
     let canonical_for_v1 = canonical.clone();
@@ -179,6 +180,7 @@ pub const ALL_ROUTES: &[&[(&str, &str)]] = &[
     value_add_metrics::ROUTES,
     atoms::ROUTES,
     literature_context::ROUTES,
+    package_import::ROUTES,
     stall_signal::ROUTES,
 ];
 
@@ -231,6 +233,7 @@ mod inputs;
 mod install_log;
 mod literature_context;
 mod llm_availability;
+mod package_import;
 mod population_coverage;
 mod proposal;
 mod remediation;

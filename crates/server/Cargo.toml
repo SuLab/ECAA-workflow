@@ -23,6 +23,13 @@ tower-http = { version = "0.6", features = ["cors", "fs", "limit", "timeout", "t
 tokio-stream = "0.1"
 tar = "0.4"
 flate2 = "1"
+# `chat_routes::package_import::extract_zip` opens uploaded `.zip` packages.
+# Mirrors the workspace pin (`version = "8", default-features = false,
+# features = ["deflate"]`) already used by the dev-dependency below.
+zip.workspace = true
+# Streaming request-body read in `chat_routes::package_import::import_package`
+# (`request.into_body().into_data_stream()` + `StreamExt::next`).
+futures-util = "0.3"
 # `get_deposit_package` stages the depositable A+B export tree and the
 # streamed `.zip` in scratch temp files before handing the body to axum.
 tempfile.workspace = true

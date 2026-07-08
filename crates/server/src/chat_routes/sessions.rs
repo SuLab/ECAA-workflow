@@ -279,7 +279,7 @@ pub async fn create_session_from_intent(
     }
 }
 
-fn owner_user_from_headers(headers: &axum::http::HeaderMap) -> Option<String> {
+pub(crate) fn owner_user_from_headers(headers: &axum::http::HeaderMap) -> Option<String> {
     headers
         .get("X-Scripps-User")
         .or_else(|| headers.get("X-Forwarded-User"))
@@ -288,7 +288,12 @@ fn owner_user_from_headers(headers: &axum::http::HeaderMap) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-async fn apply_owner_user(app: &ChatAppState, id: Uuid, owner_user: Option<String>, label: &str) {
+pub(crate) async fn apply_owner_user(
+    app: &ChatAppState,
+    id: Uuid,
+    owner_user: Option<String>,
+    label: &str,
+) {
     let Some(user) = owner_user else {
         return;
     };

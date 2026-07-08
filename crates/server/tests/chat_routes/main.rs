@@ -1,4 +1,5 @@
 mod idempotency_key_replay;
+mod package_import_roundtrip;
 mod pagination_contract;
 mod session_load_reconciles_workflow_json;
 mod sse_contract_completeness;

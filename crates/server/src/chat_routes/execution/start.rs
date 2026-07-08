@@ -226,6 +226,13 @@ async fn start_execution_inner(
     granted_by: ecaa_workflow_conversation::audit_actor::AuditActor,
     body: Option<BoundedJson<StartExecutionRequest>>,
 ) -> axum::response::Response {
+    // Imported (read-only) packages have no live execution surface — refuse
+    // before burning a rate-limit token or minting an execution latch.
+    if let Some(session) = app.conversation.get_session(session_id).await {
+        if let Err(resp) = crate::chat_routes::package_import::ensure_not_imported(&session) {
+            return resp;
+        }
+    }
     // Every
     // /start-execution spawns a harness subprocess (potentially an AWS
     // EC2 instance + agent tree). Cap at 12/min per session — easily

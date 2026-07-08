@@ -98,6 +98,12 @@ pub async fn post_amend_method(
     Path((session_id, task_id)): Path<(Uuid, String)>,
     BoundedJson(req): BoundedJson<AmendMethodRequest>,
 ) -> impl IntoResponse {
+    // Imported (read-only) packages cannot be amended.
+    if let Some(session) = app.conversation.get_session(session_id).await {
+        if let Err(resp) = crate::chat_routes::package_import::ensure_not_imported(&session) {
+            return resp;
+        }
+    }
     match app
         .conversation
         .amend_stage_method_from_rest(session_id, task_id.clone(), req.method_prose, req.rationale)
@@ -168,6 +174,12 @@ pub async fn post_rerun(
     let req = body
         .map(|BoundedJson(r)| r)
         .unwrap_or(RerunRequest { reason: None });
+    // Imported (read-only) packages cannot be rerun.
+    if let Some(session) = app.conversation.get_session(session_id).await {
+        if let Err(resp) = crate::chat_routes::package_import::ensure_not_imported(&session) {
+            return resp;
+        }
+    }
     match app
         .conversation
         .rerun_task_from_rest(session_id, task_id.clone(), req.reason)

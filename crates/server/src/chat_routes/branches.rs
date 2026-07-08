@@ -24,6 +24,11 @@ pub async fn branch_session_endpoint(
     // forks downstream lineage from the wrong substrate. Run before
     // the idempotency short-circuit so a 412 isn't cached.
     if let Some(s) = app.conversation.get_session(parent_id).await {
+        // Imported (read-only) packages cannot be branched — no lineage
+        // substrate to fork and no live session to re-emit from.
+        if let Err(resp) = crate::chat_routes::package_import::ensure_not_imported(&s) {
+            return resp;
+        }
         if let super::IfMatchOutcome::Mismatch { server, client } =
             super::check_if_match(&headers, &s, "branch_session")
         {

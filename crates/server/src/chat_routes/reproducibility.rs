@@ -49,10 +49,19 @@ pub(super) async fn reverify_audit_proof(
         return crate::error::ApiError::NotFound("package not yet emitted".into()).into_response();
     };
     let secret = session.audit_writer_secret;
+    // Imported packages carry no originating HMAC secret (it never leaves the
+    // origin's process), so re-verify runs verifier-less — structural
+    // invariants only, no signed-verdict-sink read. Locally-created emitted
+    // sessions still verify against the in-process secret.
+    let imported = session.imported;
     let joined = tokio::task::spawn_blocking(move || {
-        let writer = AuditWriter::with_secret(secret);
         let validator = NoopWrrocValidator;
-        run_audit_proof_with_verifier(&root, &validator, &WallClock, Some(&writer))
+        if imported {
+            run_audit_proof_with_verifier(&root, &validator, &WallClock, None)
+        } else {
+            let writer = AuditWriter::with_secret(secret);
+            run_audit_proof_with_verifier(&root, &validator, &WallClock, Some(&writer))
+        }
     })
     .await;
     match joined {
@@ -163,6 +172,30 @@ pub(super) async fn start_replay(
             Ok(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
             Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("join: {e}")).into_response(),
         };
+    }
+
+    // ── Tier-2 availability gate (imported packages) ─────────────────────
+    // Re-probe the physical completeness of an IMPORTED package: a Tier-2
+    // (execute/all) replay needs re-executable task surfaces (scripts +
+    // tables + provisionable env). Minimal-audit / incomplete deposits return
+    // 412 rather than backgrounding a job that would immediately fail
+    // unprovisionable. Scoped to imported sessions: locally-created emitted
+    // sessions keep their existing Tier-2 semantics (the reservation/exec-lock
+    // checks below), and are re-executable by construction once run.
+    if session.imported && matches!(tier, Tier::Execute | Tier::All) {
+        let probe_root = root.clone();
+        let caps = tokio::task::spawn_blocking(move || {
+            ecaa_workflow_core::package_import::probe_package_capabilities(&probe_root)
+        })
+        .await
+        .ok();
+        if !caps.map(|c| c.replay_tier2).unwrap_or(false) {
+            return (
+                StatusCode::PRECONDITION_FAILED,
+                "package is not re-executable (Tier-2 replay unavailable for this completeness tier)",
+            )
+                .into_response();
+        }
     }
 
     // ── Tier-2: heavy, backgrounded ──────────────────────────────────────

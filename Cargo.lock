@@ -1065,6 +1065,7 @@ dependencies = [
  "ecaa-workflow-conversation",
  "ecaa-workflow-core",
  "flate2",
+ "futures-util",
  "governor",
  "hex",
  "http-body-util",
