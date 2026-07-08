@@ -28,11 +28,18 @@ const EXCLUDE_PREFIX: &[&str] = &[
 ///
 /// Exclusion is checked in order:
 /// 1. Task appears in `runtime/determinism-shim.json` `non_deterministic_stages`.
-/// 2. Task id starts with a known non-compute prefix.
-/// 3. Task id is `reporting`, `final_reporting`, or ends with `_reporting`.
+/// 2. Task is the data-ingestion stage (`data_acquisition`).
+/// 3. Task id starts with a known non-compute prefix.
+/// 4. Task id is `reporting`, `final_reporting`, or ends with `_reporting`.
 fn is_excluded(id: &str, shim_excludes: &[String]) -> Option<&'static str> {
     if shim_excludes.iter().any(|s| s == id) {
         return Some("declared non-deterministic in determinism-shim.json");
+    }
+    // Data ingestion reads the original external inputs (a host path outside
+    // the package); an offline hermetic replay cannot reach that source, so
+    // re-running it always fails. Its staged inputs are byte-compared anyway.
+    if id == "data_acquisition" {
+        return Some("data-ingestion stage (external source not reproducible offline)");
     }
     if EXCLUDE_PREFIX.iter().any(|p| id.starts_with(p)) {
         return Some("discovery/validation/literature stage");
@@ -164,6 +171,37 @@ mod tests {
         if let Some(t) = table {
             std::fs::write(d.join(t), "a\tb\n").unwrap();
         }
+    }
+
+    /// `data_acquisition` is a data-INGESTION stage: its script reads the
+    /// original external SME inputs (a host path outside the package) and
+    /// stages them in. Offline replay cannot reproduce that — the source is
+    /// absent and not mounted into the hermetic container — so it must be
+    /// SKIPPED, not run (running it fails with FileNotFoundError and
+    /// spuriously marks the package's re-execution FAILED). Its staged inputs
+    /// (`data/…`) are still byte-compared by the comparator regardless.
+    #[test]
+    fn excludes_data_acquisition_ingestion_stage() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        mk(root, "data_acquisition", true, Some("cohort_manifest.tsv"));
+        mk(root, "differential_expression", true, Some("de_results.tsv"));
+
+        let (sel, skipped) = select_compute_tasks(root).unwrap();
+        assert_eq!(
+            sel.iter().map(|t| t.task_id.as_str()).collect::<Vec<_>>(),
+            ["differential_expression"],
+            "data_acquisition must not be selected for re-execution"
+        );
+        let da = skipped
+            .iter()
+            .find(|s| s.task == "data_acquisition")
+            .expect("data_acquisition must be skipped");
+        assert!(
+            da.reason.contains("ingestion"),
+            "skip reason should identify it as a data-ingestion stage; got: '{}'",
+            da.reason
+        );
     }
 
     #[test]
