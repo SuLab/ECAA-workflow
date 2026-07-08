@@ -104,8 +104,14 @@ pub fn run_replay(pkg: &Path, opts: &ReplayOptions) -> anyhow::Result<ReplayRepo
         let (tasks, skipped) = select_compute_tasks(pkg)?;
         report.skipped = skipped;
 
+        // Determine the recorded root + environment first: the recorded root
+        // (from determinism-env.json `pkg_root`) is where a shipped conda env
+        // was created, so provisioning needs it to mount that env back at its
+        // baked path when the package has been relocated.
+        let (recorded_root, recorded_env) = read_recorded_env(pkg);
+
         // Provision an execution environment with real system probes.
-        let env = provision_env(pkg, opts.allow_rebuild);
+        let env = provision_env(pkg, opts.allow_rebuild, &recorded_root);
         let unprovisionable = matches!(env, ExecEnv::None);
 
         // Allocate scratch: caller-supplied or a fresh directory under the
@@ -126,9 +132,6 @@ pub fn run_replay(pkg: &Path, opts: &ReplayOptions) -> anyhow::Result<ReplayRepo
 
         // Read topological order from runtime/execution-order.json.
         let order = read_execution_order(pkg);
-
-        // Determine the recorded root and the recorded environment.
-        let (recorded_root, recorded_env) = read_recorded_env(pkg);
 
         // Run the tasks.
         let outcomes = stage_and_run(pkg, &scratch, &tasks, &order, &env, &recorded_root, &recorded_env)?;
@@ -187,13 +190,13 @@ fn which_conda() -> bool {
 }
 
 /// Provision an execution environment with real system probes.
-fn provision_env(pkg: &Path, allow_rebuild: bool) -> ExecEnv {
+fn provision_env(pkg: &Path, allow_rebuild: bool, recorded_root: &str) -> ExecEnv {
     let opts = ProvisionOpts {
         allow_rebuild,
         docker_probe: which_docker,
         conda_probe: which_conda,
     };
-    crate::replay::env_provision::provision(pkg, &opts)
+    crate::replay::env_provision::provision(pkg, &opts, recorded_root)
 }
 
 /// Read `runtime/execution-order.json` and return the task ids in topo order.

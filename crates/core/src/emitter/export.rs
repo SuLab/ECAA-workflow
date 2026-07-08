@@ -278,6 +278,24 @@ fn collect_provenance_referenced_paths(src: &Path) -> std::collections::BTreeSet
     out
 }
 
+/// Keep the shipped per-run conda env (`runtime/cache/conda-envs/…`) for the
+/// re-execution-bearing profiles (`Full`, `ReExecutable`), overriding its
+/// Tier-E (`runtime/cache/`) classification.
+///
+/// When the analysis libraries were materialised into a per-run conda env at
+/// execution time (e.g. R + DESeq2 under `ecaa-bioc`) rather than baked into the
+/// container image, that env IS the re-execution runtime — dropping it as
+/// "regenerable cache" would make the deposit non-replayable, breaking the
+/// profile's "still replays" contract. `MinimalAudit` (audit-only, explicitly
+/// NOT re-executable) still drops it via the ordinary Tier-E gate.
+fn keep_shipped_conda_env(profile: DepositProfile, rel: &Path) -> bool {
+    if !matches!(profile, DepositProfile::Full | DepositProfile::ReExecutable) {
+        return false;
+    }
+    let rel_str = rel.to_string_lossy().replace('\\', "/");
+    rel_str.starts_with("runtime/cache/conda-envs/")
+}
+
 /// Extra per-profile drop, applied on top of the [`is_kept`] tier gate. `Full`
 /// drops nothing extra. The lean profiles drop the policy-doc catalog and the
 /// redundant/convenience artifacts the deposit adversarial audit flagged as
@@ -483,7 +501,9 @@ pub fn export_depositable_package_with_profile(
             .strip_prefix(src)
             .with_context(|| format!("stripping {} from {}", src.display(), abs.display()))?;
 
-        if is_kept(classify(rel)) && !profile_extra_drop(profile, rel, &protected) {
+        if (is_kept(classify(rel)) || keep_shipped_conda_env(profile, rel))
+            && !profile_extra_drop(profile, rel, &protected)
+        {
             let dest_path = dst.join(rel);
             if let Some(parent) = dest_path.parent() {
                 std::fs::create_dir_all(parent)
@@ -989,6 +1009,32 @@ mod tests {
         assert!(!is_kept(DepositTier::C), "tier C must be dropped");
         assert!(!is_kept(DepositTier::D), "tier D must be dropped");
         assert!(!is_kept(DepositTier::E), "tier E must be dropped");
+    }
+
+    /// The shipped per-run conda env is Tier E (`runtime/cache/`), so the plain
+    /// tier gate drops it — but `Full`/`ReExecutable` must override that and keep
+    /// it (it's the re-execution runtime), while `MinimalAudit` still drops it.
+    #[test]
+    fn keep_shipped_conda_env_only_for_re_executable_profiles() {
+        let env_file = Path::new("runtime/cache/conda-envs/ecaa-bioc/bin/Rscript");
+        assert!(!is_kept(classify(env_file)), "conda env is Tier E under the plain gate");
+        assert!(
+            keep_shipped_conda_env(DepositProfile::Full, env_file),
+            "full must keep the shipped conda env"
+        );
+        assert!(
+            keep_shipped_conda_env(DepositProfile::ReExecutable, env_file),
+            "re-executable must keep the shipped conda env (it is the runtime)"
+        );
+        assert!(
+            !keep_shipped_conda_env(DepositProfile::MinimalAudit, env_file),
+            "minimal (audit-only, not re-executable) must NOT keep the conda env"
+        );
+        // A non-conda cache path is never kept by this override.
+        assert!(
+            !keep_shipped_conda_env(DepositProfile::ReExecutable, Path::new("runtime/cache/pip/x")),
+            "the override is scoped to conda-envs, not all of runtime/cache/"
+        );
     }
 
     // --- Task 2: export_depositable_package ------------------------------
