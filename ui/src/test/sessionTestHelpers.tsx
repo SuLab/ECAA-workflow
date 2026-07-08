@@ -48,6 +48,8 @@ export function makeMockSessionValue(
     markFresh: vi.fn(),
     executionRunning: false,
     startExecutionAction: vi.fn().mockResolvedValue(undefined),
+    capabilities: null,
+    importAndOpen: vi.fn().mockResolvedValue(undefined),
   }
   return { ...base, ...overrides }
 }

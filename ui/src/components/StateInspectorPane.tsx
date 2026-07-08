@@ -73,6 +73,13 @@ export default function StateInspectorPane() {
   // surface for a freshly-blocked task because it read a stale
   // `state.status`.
   const dag = conv.dag
+  // Physical-presence capability probe for an imported (read-only)
+  // package. `caps` is the granular flag set; `imported` gates whether
+  // the tab filter + Reproducibility disabling apply at all. Both are
+  // undefined/false for ordinary in-session packages, leaving the
+  // existing behaviour untouched.
+  const caps = conv.capabilities?.capabilities
+  const imported = Boolean(conv.capabilities?.imported)
   const harnessProgress = sse.harnessProgress
   const pilot = sse.pilot
   const stallSignals = sse.stallSignals
@@ -344,8 +351,15 @@ export default function StateInspectorPane() {
         // Deterministic reproducibility surface: re-run the 6 audit-proof
         // invariants with the session secret + drive the offline replay
         // re-verifier (Tier-1 integrity, Tier-2 full re-execute). Self-
-        // fetches; no shared context slice needed.
-        return <ReproducibilityTab sessionId={sessionId} />
+        // fetches; capabilities gate the verifier-less note + Tier-2
+        // disabling for imported packages.
+        return (
+          <ReproducibilityTab
+            sessionId={sessionId}
+            imported={imported}
+            capabilities={caps}
+          />
+        )
       default: {
         // F5 Gate C — compile-time exhaustiveness fence on `Tab`. Adding
         // a new `Tab` variant to `state_inspector/index.ts::Tab` without
@@ -390,6 +404,25 @@ export default function StateInspectorPane() {
           style={{ display: 'flex', gap: '0.25rem', flexShrink: 0 }}
         >
           {TABS.filter((t) => {
+            // Imported (read-only) packages: composition / metrics /
+            // compare are backed by intake/chat-time state that never
+            // lands in a package, so they degrade to empty — hide them.
+            // The Composer trace tab follows the probe's `composer_trace`
+            // flag (WORKFLOW-side `verifier-decisions.jsonl` presence);
+            // the tab id here is `verifier_decisions` but the probe keys
+            // it under `composer_trace`.
+            if (imported && caps) {
+              if (
+                t.id === 'composition' ||
+                t.id === 'metrics' ||
+                t.id === 'compare'
+              ) {
+                return false
+              }
+              if (t.id === 'verifier_decisions') {
+                return caps.tabs['composer_trace'] === true
+              }
+            }
             // Compare tab only shows when the session has a parent to
             // compare against. Hide for pure root sessions so the
             // tablist doesn't get cluttered.

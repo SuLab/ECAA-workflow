@@ -2,14 +2,17 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   confirmChatSession,
   createChatSession,
+  getCapabilities,
   getChatDag,
   getChatState,
   getChatTranscript,
   getExecution,
+  importPackage,
   rejectChatSession,
   sendChatTurn,
   startExecution,
   unblockChatSession,
+  type CapabilitiesResponse,
   type SessionStateSnapshot,
 } from '../api/chatClient'
 import type { CheckpointMode, DAG, SessionMode, SessionState, Turn } from '../types'
@@ -158,6 +161,18 @@ interface UseConversation {
   /// `executionRunning = true` before the next /execution poll picks
   /// up the real status so the inline panel hides without a 3s gap.
   startExecutionAction: () => Promise<void>
+  /// Physical-presence capability probe for the current session's
+  /// package. Non-null only for imported (or emitted) packages; a
+  /// freshly-created session has none until it emits (the server 404s
+  /// and we store `null`). `capabilities.imported === true` flags a
+  /// read-only uploaded package — the StateInspector gates tabs and the
+  /// Reproducibility tab disables Tier-2 replay off these flags.
+  capabilities: CapabilitiesResponse | null
+  /// Upload an ECAA package archive then switch the UI onto the
+  /// reconstructed read-only session. Sets `capabilities` immediately
+  /// from the import response so the read-only badge appears without
+  /// waiting on the follow-up capabilities fetch.
+  importAndOpen: (file: File) => Promise<void>
 }
 
 export function useConversation(): UseConversation {
@@ -182,6 +197,7 @@ export function useConversation(): UseConversation {
   const turnAbortRef = useRef<AbortController | null>(null)
   const [staleSources, setStaleSources] = useState<Set<string>>(() => new Set())
   const [executionRunning, setExecutionRunning] = useState(false)
+  const [capabilities, setCapabilities] = useState<CapabilitiesResponse | null>(null)
   const startedRef = useRef(false)
   // D8 mitigation — array of timer ids that escalate the in-flight-turn
   // chip through 8s/30s/60s/90s thresholds. The previous single-timer
@@ -785,6 +801,48 @@ export function useConversation(): UseConversation {
     }
   }, [sessionId])
 
+  // Capability probe fetch. Runs whenever the active session changes
+  // (create / switch / attach / popstate all flow through `sessionId`).
+  // A freshly-created session has no emitted package, so the server
+  // 404s and we store `null`. Static per session, so once-per-session
+  // is enough — no polling.
+  useEffect(() => {
+    if (!sessionId) {
+      setCapabilities(null)
+      return
+    }
+    const probeSessionId = sessionId
+    let cancelled = false
+    void (async () => {
+      try {
+        const caps = await getCapabilities(probeSessionId)
+        if (!cancelled && currentSessionRef.current === probeSessionId) {
+          setCapabilities(caps)
+        }
+      } catch {
+        // 404 (no package emitted yet) / network error — no capabilities.
+        if (!cancelled && currentSessionRef.current === probeSessionId) {
+          setCapabilities(null)
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [sessionId])
+
+  const importAndOpen = useCallback(
+    async (file: File) => {
+      const resp = await importPackage(file)
+      // Set capabilities eagerly from the import response so the
+      // read-only badge renders immediately; the sessionId-keyed effect
+      // above re-confirms them on the switch.
+      setCapabilities({ imported: resp.imported, capabilities: resp.capabilities })
+      await switchToSession(resp.session_id)
+    },
+    [switchToSession],
+  )
+
   const refreshCurrentState = useCallback(async () => {
     if (!sessionId) return
     // Refresh both state AND dag so the SSE state_advanced handler
@@ -928,5 +986,7 @@ export function useConversation(): UseConversation {
     markFresh,
     executionRunning,
     startExecutionAction,
+    capabilities,
+    importAndOpen,
   }
 }

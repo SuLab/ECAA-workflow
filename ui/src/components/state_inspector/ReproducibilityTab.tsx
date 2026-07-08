@@ -23,6 +23,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { AuditProofReport } from '../../types/AuditProofReport'
 import type { InvariantStatus } from '../../types/InvariantStatus'
+import type { PackageCapabilities } from '../../types/PackageCapabilities'
 import type { ReplayReport } from '../../types/ReplayReport'
 import type { ReplayVerdict } from '../../types/ReplayVerdict'
 import {
@@ -35,6 +36,15 @@ import {
 
 interface Props {
   sessionId: string | null
+  /// True when the session was reconstructed from an uploaded package.
+  /// The originating HMAC signing secret never leaves its process, so
+  /// re-verification is structural (verifier-less) — surfaced via the
+  /// note near the Re-verify control.
+  imported?: boolean
+  /// Physical-presence capability probe. Used to disable Tier-2 full
+  /// reproduce when the package is not re-executable
+  /// (`replay_tier2 === false`).
+  capabilities?: PackageCapabilities
 }
 
 const HEADING_STYLE: React.CSSProperties = {
@@ -132,7 +142,11 @@ function verdictPillStyle(verdict: ReplayVerdict): React.CSSProperties {
   }
 }
 
-export function ReproducibilityTab({ sessionId }: Props): JSX.Element {
+export function ReproducibilityTab({
+  sessionId,
+  imported,
+  capabilities,
+}: Props): JSX.Element {
   const [report, setReport] = useState<AuditProofReport | null>(null)
   const [busy, setBusy] = useState(false)
   const [integrity, setIntegrity] = useState<ReplayReport | null>(null)
@@ -320,6 +334,22 @@ export function ReproducibilityTab({ sessionId }: Props): JSX.Element {
         {busy ? 'Re-verifying…' : 'Re-verify'}
       </button>
 
+      {imported ? (
+        <p
+          data-testid="verifierless-note"
+          style={{
+            fontSize: 12,
+            marginTop: 8,
+            color: 'var(--color-text-muted, #666)',
+          }}
+        >
+          Structural re-verification only — the originating signing secret is
+          not available for uploaded packages, so claim-completeness is
+          attested against the package's own recorded provenance rather than
+          the origin signature.
+        </p>
+      ) : null}
+
       <div style={SECTION_STYLE}>
         <div style={HEADING_STYLE}>Replay — integrity check (offline)</div>
         <div style={SUBHEAD_STYLE}>
@@ -355,11 +385,21 @@ export function ReproducibilityTab({ sessionId }: Props): JSX.Element {
         <button
           type="button"
           onClick={() => void onReproduce()}
-          disabled={reproStatus === 'running'}
+          disabled={reproStatus === 'running' || capabilities?.replay_tier2 === false}
+          title={
+            capabilities?.replay_tier2 === false
+              ? 'Requires a re-executable package (scripts + result tables + a provisionable environment). This package is not re-executable.'
+              : undefined
+          }
           style={{
             ...BUTTON_STYLE,
             marginTop: 0,
-            cursor: reproStatus === 'running' ? 'wait' : 'pointer',
+            cursor:
+              reproStatus === 'running'
+                ? 'wait'
+                : capabilities?.replay_tier2 === false
+                  ? 'not-allowed'
+                  : 'pointer',
           }}
           data-testid="reproduce-button"
         >

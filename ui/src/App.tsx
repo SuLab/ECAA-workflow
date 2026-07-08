@@ -68,6 +68,10 @@ export default function App() {
   const chatPaneRef = useRef<HTMLDivElement>(null)
   const statePaneRef = useRef<HTMLDivElement>(null)
   const previousMobileView = useRef<'chat' | 'state'>('chat')
+  // Hidden file input backing the "Open a package" button — uploads an
+  // externally-obtained ECAA package (.zip/.tar.gz) and switches the UI
+  // onto the reconstructed read-only session.
+  const openPkgRef = useRef<HTMLInputElement>(null)
 
   const { mode: themeMode, setPreference: setThemePreference } = useTheme()
 
@@ -207,6 +211,57 @@ export default function App() {
           void conv.reset()
         }}
       />
+      <input
+        data-testid="open-package-input"
+        type="file"
+        accept=".zip,.tar.gz,.tgz"
+        style={{ display: 'none' }}
+        ref={openPkgRef}
+        onChange={(e) => {
+          const f = e.target.files?.[0]
+          // Reset the input value so re-selecting the same file re-fires onChange.
+          e.target.value = ''
+          if (f) void conv.importAndOpen(f)
+        }}
+      />
+      <button
+        type="button"
+        onClick={() => openPkgRef.current?.click()}
+        title="Open an externally-obtained ECAA package (read-only)"
+        style={{
+          background: 'transparent',
+          border: '1px solid var(--color-chrome-border-strong)',
+          color: 'var(--color-chrome-fg-muted)',
+          padding: '0.3rem 0.55rem',
+          borderRadius: 4,
+          cursor: 'pointer',
+          fontSize: '0.72rem',
+          marginRight: '0.35rem',
+        }}
+      >
+        Open a package
+      </button>
+      {conv.capabilities?.imported && (
+        <span
+          data-testid="imported-badge"
+          role="status"
+          aria-live="polite"
+          title="Imported package — read-only"
+          style={{
+            padding: '0.2rem 0.55rem',
+            marginRight: '0.4rem',
+            fontSize: '0.7rem',
+            fontWeight: 600,
+            color: 'var(--color-info-fg)',
+            background: 'var(--color-info-bg)',
+            border: '1px solid var(--color-info-border)',
+            borderRadius: 999,
+            textTransform: 'capitalize',
+          }}
+        >
+          {conv.capabilities.capabilities.tier_label.replace(/_/g, ' ')} · read-only
+        </span>
+      )}
       {readOnly && (
         <span
           role="status"

@@ -168,4 +168,56 @@ describe('ReproducibilityTab', () => {
     render(<ReproducibilityTab sessionId={null} />)
     expect(screen.getByText(/no session selected/i)).toBeInTheDocument()
   })
+
+  it('shows the verifier-less note and disables Tier-2 reproduce for an imported non-re-executable package', async () => {
+    mockGetAuditProof.mockResolvedValue(fullReport())
+    const capabilities = {
+      tier_label: 'minimal_audit' as const,
+      explore: true,
+      reverify: true,
+      replay_tier1: true,
+      replay_tier2: false,
+      tabs: {} as Record<string, boolean>,
+    }
+    render(
+      <ReproducibilityTab
+        sessionId="s1"
+        imported
+        capabilities={capabilities}
+      />,
+    )
+    await screen.findByText('claim_completeness')
+
+    expect(screen.getByTestId('verifierless-note')).toBeInTheDocument()
+    const reproduce = screen.getByTestId('reproduce-button')
+    expect(reproduce).toBeDisabled()
+    expect(reproduce).toHaveAttribute(
+      'title',
+      expect.stringMatching(/re-executable/i),
+    )
+  })
+
+  it('omits the verifier-less note and enables Tier-2 for a re-executable imported package', async () => {
+    mockGetAuditProof.mockResolvedValue(fullReport())
+    const capabilities = {
+      tier_label: 're_executable' as const,
+      explore: true,
+      reverify: true,
+      replay_tier1: true,
+      replay_tier2: true,
+      tabs: {} as Record<string, boolean>,
+    }
+    render(
+      <ReproducibilityTab
+        sessionId="s1"
+        imported
+        capabilities={capabilities}
+      />,
+    )
+    await screen.findByText('claim_completeness')
+
+    // Note still renders (imported), but Tier-2 is enabled.
+    expect(screen.getByTestId('verifierless-note')).toBeInTheDocument()
+    expect(screen.getByTestId('reproduce-button')).not.toBeDisabled()
+  })
 })

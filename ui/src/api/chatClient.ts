@@ -80,6 +80,7 @@ import type { SendTurnRequest } from '../types/SendTurnRequest'
 import type { DispositionStatus } from '../types/DispositionStatus'
 import type { AuditProofReport } from '../types/AuditProofReport'
 import type { ReplayReport } from '../types/ReplayReport'
+import type { PackageCapabilities } from '../types/PackageCapabilities'
 import {
   ApiClientError,
   FetchError,
@@ -1341,6 +1342,55 @@ export async function getReplay(
   sessionId: string,
 ): Promise<ReplayStatusResponse> {
   return jsonFetch(sessionUrl(sessionId, 'replay'), { method: 'GET' })
+}
+
+// ── Package import (upload & explore) ──────────────────────────────────
+// Deterministic endpoints (no LLM Tool). `importPackage` streams a raw
+// `.zip`/`.tar.gz` archive as the request body; the server extracts it
+// under a path-jail, reconstructs a read-only `Session`, and returns the
+// physical-presence capability probe. `getCapabilities` re-reads that
+// probe for an already-open session so the UI can gate tabs +
+// reproducibility affordances by what the package physically contains.
+
+// HTTP-DTO. POST /api/chat/package/import response body.
+export interface ImportPackageResponse {
+  session_id: string
+  imported: boolean
+  capabilities: PackageCapabilities
+}
+
+// HTTP-DTO. GET /api/chat/session/:id/capabilities response body.
+export interface CapabilitiesResponse {
+  imported: boolean
+  capabilities: PackageCapabilities
+}
+
+/**
+ * Upload an externally-obtained ECAA package archive (`.zip`/`.tar.gz`).
+ * The raw `File` is streamed as the request body
+ * (`application/octet-stream`); the server sniffs the archive format by
+ * magic bytes rather than trusting the content type.
+ */
+export async function importPackage(
+  file: File,
+): Promise<ImportPackageResponse> {
+  return jsonFetch('/api/chat/package/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/octet-stream' },
+    body: file,
+  })
+}
+
+/**
+ * Probe which reproducibility features a session's emitted/imported
+ * package physically supports. Throws (via `jsonFetch`) on 404 when the
+ * session has no emitted package yet — callers treat that as
+ * "not imported / no capabilities".
+ */
+export async function getCapabilities(
+  sessionId: string,
+): Promise<CapabilitiesResponse> {
+  return jsonFetch(sessionUrl(sessionId, 'capabilities'))
 }
 
 /// Build a URL the browser can GET/<img src> for an artifact served out

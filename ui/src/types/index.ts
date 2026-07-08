@@ -100,6 +100,11 @@ export type { ParameterMapping } from "./ParameterMapping";
 export type { WorkflowParameter } from "./WorkflowParameter";
 export type { ValidationRule } from "./ValidationRule";
 export type { WorkflowMetadata } from "./WorkflowMetadata";
+
+// Package-import completeness surface (probe of physical file presence).
+// Drives read-only capability gating for uploaded ECAA packages.
+export type { PackageCapabilities } from "./PackageCapabilities";
+export type { PackageTier } from "./PackageTier";
 // Note: SessionStateSnapshot is exported from chatClient.ts since the
 // hand-maintained shape there is the contract UI components consume;
 // the generated SessionStateSnapshot.ts is available for direct use
