@@ -278,6 +278,17 @@ pub(super) async fn start_replay(
     }
     let rv = reader_version();
     let tier_label = req.tier.clone();
+    // Tier-2 replay re-executes compute in sibling containers (DooD). Those
+    // mounts are resolved by the HOST docker daemon, so the replay scratch must
+    // live on a path the host can see — NOT the server container's private
+    // `/tmp`. `package_root` is bind-mounted at an identical host path (see
+    // compose), so a scratch under it is visible to both. Best-effort removed
+    // when the job finishes.
+    let scratch_path = app
+        .config
+        .package_root
+        .join(".replay-scratch")
+        .join(replay_id.to_string());
     let app2 = app.clone();
     // There is NO `.await` between reserving the replay slot (above) and this
     // spawn, so handler-future cancellation (client disconnect) cannot leave a
@@ -290,12 +301,15 @@ pub(super) async fn start_replay(
         let joined = tokio::task::spawn_blocking(move || {
             let opts = ReplayOptions {
                 tier,
-                scratch_dir: None,
+                scratch_dir: Some(scratch_path.clone()),
                 bounds: None,
                 allow_rebuild: false,
                 reader_version: rv,
             };
-            run_replay(&root, &opts)
+            let r = run_replay(&root, &opts);
+            // Best-effort scratch cleanup (host-visible path under package_root).
+            let _ = std::fs::remove_dir_all(&scratch_path);
+            r
         })
         .await;
         let (new_status, verdict) = match joined {
