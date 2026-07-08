@@ -62,6 +62,13 @@ pub async fn post_undo_amendment(
     Path((session_id, task_id)): Path<(Uuid, String)>,
     BoundedJson(req): BoundedJson<UndoAmendmentRequest>,
 ) -> impl IntoResponse {
+    // Imported (read-only) packages cannot be amended (undo included).
+    // Mirrors the guard on `post_amend_method` / `post_rerun` in this file.
+    if let Some(session) = app.conversation.get_session(session_id).await {
+        if let Err(resp) = crate::chat_routes::package_import::ensure_not_imported(&session) {
+            return resp;
+        }
+    }
     match app
         .conversation
         .undo_amendment_from_rest(session_id, task_id.clone(), req.reverted_prose)

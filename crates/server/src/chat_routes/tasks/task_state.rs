@@ -53,6 +53,14 @@ pub(crate) async fn post_set_task_state(
     if let Err(e) = super::super::safe_segment_join(StdPath::new(""), &task_id) {
         return (StatusCode::BAD_REQUEST, format!("invalid task_id: {}", e)).into_response();
     }
+    // Imported (read-only) packages must not have their task states mutated —
+    // no harness runs against them, so any write here is illegitimate.
+    let Some(session) = app.conversation.get_session(session_id).await else {
+        return (StatusCode::NOT_FOUND, "session not found").into_response();
+    };
+    if let Err(resp) = crate::chat_routes::package_import::ensure_not_imported(&session) {
+        return resp;
+    }
     let task_id_for_closure = task_id.clone();
     let new_state = req.state.clone();
     // Capture both the pre-mutation status (so we can decrement the

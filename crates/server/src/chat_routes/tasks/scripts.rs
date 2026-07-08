@@ -64,6 +64,10 @@ pub async fn post_rerun_script(
     let Some(session) = app.conversation.get_session(session_id).await else {
         return (StatusCode::NOT_FOUND, "session not found").into_response();
     };
+    // Imported (read-only) packages must never execute host scripts.
+    if let Err(resp) = crate::chat_routes::package_import::ensure_not_imported(&session) {
+        return resp;
+    }
     let Some(pkg) = session.emitted_package_path.clone() else {
         return (StatusCode::BAD_REQUEST, "session has no emitted package").into_response();
     };

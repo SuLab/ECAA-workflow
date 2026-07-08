@@ -621,6 +621,18 @@ pub(crate) async fn maybe_auto_relaunch_harness(
         );
         return;
     };
+    // Imported (read-only) packages never execute — never auto-relaunch a
+    // harness against one. This is the primary choke for the auto-relaunch
+    // class: sme-selection / sme-decisions / unblock all funnel through here.
+    if session.imported {
+        tracing::info!(
+            session_id = %session_id,
+            trigger = %trigger,
+            reason = "session is imported (read-only)",
+            "auto-relaunch skipped"
+        );
+        return;
+    }
     let package_dir = session.emitted_package_path.clone();
 
     if !auto_relaunch_should_proceed(app, session_id, trigger, &session, package_dir).await {
@@ -964,6 +976,23 @@ pub(crate) async fn spawn_harness_for_session(
         .get_session(session_id)
         .await
         .ok_or(SpawnHarnessError::SessionNotFound)?;
+    // Imported (read-only) packages have no live execution surface. This is
+    // the single funnel every spawn path flows through (REST /start-execution,
+    // auto-relaunch, and the chat StartExecution tool sink), so refusing here
+    // is the airtight backstop that closes the whole execution class for
+    // imported sessions. The REST handler (`start_execution_inner`) and
+    // `maybe_auto_relaunch_harness` also guard earlier with cleaner
+    // 412 / info-skip semantics; this catches any other caller.
+    //
+    // Reuses `SpawnFailed` rather than a dedicated variant so the exhaustive
+    // (wildcard-free) matches in `event_sink.rs` and `start_execution_inner`
+    // stay valid without touching non-listed files.
+    if session.imported {
+        return Err(SpawnHarnessError::SpawnFailed(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "imported (read-only) package: execution refused",
+        )));
+    }
     let package_dir = session
         .emitted_package_path
         .clone()

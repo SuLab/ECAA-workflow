@@ -253,6 +253,10 @@ async fn write_stage_confirm_sidecar(
     // rejects '..' / absolute / separator-bearing stage_ids with 400.
     let filename = format!("sme-review-confirmed-{}.json", stage_id);
     if let Some(s) = app.conversation.get_session(session_id).await {
+        // Imported (read-only) packages must not have stage confirms written.
+        if let Err(resp) = crate::chat_routes::package_import::ensure_not_imported(&s) {
+            return resp;
+        }
         if let Some(pkg) = &s.emitted_package_path {
             let runtime_dir = pkg.join("runtime");
             let path = match super::safe_segment_join(&runtime_dir, &filename) {
