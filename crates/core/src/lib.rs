@@ -133,6 +133,10 @@ pub mod migration;
 pub mod modality_bounds;
 pub mod modality_registry;
 pub mod ontology_scope;
+// Import-side helpers: probe an uploaded package's completeness (which
+// reproducibility features it physically supports) and reconstruct a
+// WorkflowDag from the on-disk crate. Pure, sync, no tokio.
+pub mod package_import;
 pub mod plot_affordance;
 /// Deterministic zero-JS `ro-crate-preview.html` renderer. Pure function of
 /// the `@graph`; no clock, no RNG, no HashMap, no host paths.

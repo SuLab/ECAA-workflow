@@ -64,6 +64,14 @@ const DEFAULT_LIT_EVIDENCE_MAX_MB: u64 = 200;
 /// `ECAA_UPLOAD_DISK_RESERVE_GB`.
 const DEFAULT_UPLOAD_DISK_RESERVE_GB: u64 = 50;
 
+/// Default max uploaded package archive size (bytes). Documented under
+/// `ECAA_MAX_IMPORT_BYTES`. 2 GiB.
+const DEFAULT_MAX_IMPORT_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+
+/// Default max entries in an uploaded package archive. Documented under
+/// `ECAA_MAX_IMPORT_ENTRIES`. Zip/tar-bomb defense.
+const DEFAULT_MAX_IMPORT_ENTRIES: usize = 200_000;
+
 /// Default chat-server bind interface. Documented under `ECAA_BIND_ADDR`.
 const DEFAULT_BIND_ADDR: &str = "127.0.0.1";
 
@@ -318,6 +326,12 @@ pub struct Config {
     /// `ECAA_INPUT_ROOTS`. Colon- (or comma-)separated allowlist of
     /// filesystem roots an SME may point `local_path` inputs at.
     pub input_roots: Vec<String>,
+    /// `ECAA_MAX_IMPORT_BYTES`. Max uploaded package archive size in bytes.
+    /// Default 2 GiB. Enforced by the server package-import endpoint.
+    pub max_import_bytes: u64,
+    /// `ECAA_MAX_IMPORT_ENTRIES`. Max entries in an uploaded package archive.
+    /// Default 200_000. Zip/tar-bomb defense for the package-import endpoint.
+    pub max_import_entries: usize,
 
     // Bind / port --------------------------------------------------------
     /// `ECAA_BIND_ADDR`. Default `127.0.0.1`. `0.0.0.0` requires
@@ -504,6 +518,15 @@ impl Config {
             DEFAULT_UPLOAD_DISK_RESERVE_GB,
             None,
         )?;
+        // Package-import bounds (server upload endpoint zip/tar-bomb defense).
+        let max_import_bytes =
+            parse_u64_bounded(env, "ECAA_MAX_IMPORT_BYTES", DEFAULT_MAX_IMPORT_BYTES, None)?;
+        let max_import_entries = parse_u64_bounded(
+            env,
+            "ECAA_MAX_IMPORT_ENTRIES",
+            DEFAULT_MAX_IMPORT_ENTRIES as u64,
+            None,
+        )? as usize;
         // The documented separator is colon (POSIX `$PATH` style); we
         // also accept comma to match the ECAA_AWS_SUBNET_IDS and
         // ECAA_AWS_INSTANCE_TYPE_ALLOWLIST precedents elsewhere in the
@@ -587,6 +610,8 @@ impl Config {
             upload_root,
             upload_disk_reserve_gb,
             input_roots,
+            max_import_bytes,
+            max_import_entries,
             bind_addr,
             port,
             git_enabled,
@@ -707,6 +732,8 @@ impl Default for ConfigBuilder {
                 upload_root: None,
                 upload_disk_reserve_gb: DEFAULT_UPLOAD_DISK_RESERVE_GB,
                 input_roots: Vec::new(),
+                max_import_bytes: DEFAULT_MAX_IMPORT_BYTES,
+                max_import_entries: DEFAULT_MAX_IMPORT_ENTRIES,
                 bind_addr: DEFAULT_BIND_ADDR.to_string(),
                 port: DEFAULT_PORT,
                 git_enabled: true,
