@@ -1314,12 +1314,18 @@ export async function replayVerify(sessionId: string): Promise<ReplayReport> {
  */
 export async function startReplayReproduce(
   sessionId: string,
-  opts: { tier?: 'execute' | 'all'; strict?: boolean } = {},
+  opts: { tier?: 'execute' | 'all'; strict?: boolean; confirmed?: boolean } = {},
 ): Promise<{ replay_id: string }> {
   return jsonFetch(sessionUrl(sessionId, 'replay'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tier: opts.tier ?? 'all', strict: opts.strict ?? false }),
+    body: JSON.stringify({
+      tier: opts.tier ?? 'all',
+      strict: opts.strict ?? false,
+      // Server requires this for a Tier-2 replay of an IMPORTED (untrusted)
+      // package; ignored for locally-created sessions. Defaults false.
+      confirmed: opts.confirmed ?? false,
+    }),
   })
 }
 

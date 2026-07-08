@@ -109,6 +109,14 @@ pub(super) struct ReplayRequest {
     #[serde(default)]
     #[allow(dead_code)]
     pub(super) strict: bool,
+    /// SME confirmation that they accept executing code recorded in an
+    /// UNTRUSTED, imported package (a Tier-2 replay pulls the package's
+    /// container image and re-runs its scripts). Required only for imported
+    /// sessions requesting Tier-2; ignored for locally-created sessions,
+    /// which the operator authored. Defaults false so an un-annotated body
+    /// is treated as "not confirmed".
+    #[serde(default)]
+    pub(super) confirmed: bool,
 }
 
 fn parse_tier(s: &str) -> Option<Tier> {
@@ -142,6 +150,7 @@ pub(super) async fn start_replay(
     let req = body.map(|b| b.0).unwrap_or(ReplayRequest {
         tier: "verify".into(),
         strict: false,
+        confirmed: false,
     });
     let Some(tier) = parse_tier(&req.tier) else {
         return (StatusCode::BAD_REQUEST, "tier must be verify|execute|all").into_response();
@@ -172,6 +181,22 @@ pub(super) async fn start_replay(
             Ok(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
             Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("join: {e}")).into_response(),
         };
+    }
+
+    // ── Tier-2 confirmation gate (imported packages) ─────────────────────
+    // A Tier-2 replay of an IMPORTED package pulls that package's container
+    // image and re-executes the scripts recorded inside it — attacker-supplied
+    // code from an untrusted deposit. Require an explicit SME confirmation
+    // (the `confirmed` flag, set by a `window.confirm` in the UI) before we
+    // background such a job. Locally-created sessions are authored by the
+    // operator and need no confirmation; Tier-1 (verify) never executes code
+    // and returned above.
+    if session.imported && matches!(tier, Tier::Execute | Tier::All) && !req.confirmed {
+        return (
+            StatusCode::PRECONDITION_FAILED,
+            "confirmation required to execute code from an imported package",
+        )
+            .into_response();
     }
 
     // ── Tier-2 availability gate (imported packages) ─────────────────────
@@ -594,6 +619,83 @@ mod tests {
                 .get(&id)
                 .map_or(true, |h| !h.value().is_running()),
             "replay reservation rolled back after refusal"
+        );
+    }
+
+    /// Mark an already-seeded session as reconstructed from an uploaded
+    /// (untrusted) package.
+    async fn mark_imported(app: &crate::chat_routes::ChatAppState, id: uuid::Uuid) {
+        app.conversation
+            .store_handle()
+            .update(id, |s| {
+                s.imported = true;
+                Ok(())
+            })
+            .await
+            .unwrap();
+    }
+
+    /// A Tier-2 replay of an IMPORTED package pulls that package's image and
+    /// re-executes attacker-supplied scripts, so it is refused 412 (before any
+    /// code runs) unless the SME explicitly confirms.
+    #[tokio::test]
+    async fn imported_tier2_without_confirmation_is_412() {
+        let pkg = tempfile::TempDir::new().unwrap();
+        let (router, app) = make_router(vec![]).await;
+        let id =
+            seed_session_with_completed_task(&app, "t_demo", Some(pkg.path().to_path_buf())).await;
+        mark_imported(&app, id).await;
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/chat/session/{id}/replay"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"tier":"all"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::PRECONDITION_FAILED,
+            "imported Tier-2 replay without confirmation must be refused"
+        );
+        let bytes = to_bytes(resp.into_body(), 1 << 20).await.unwrap();
+        let body = String::from_utf8_lossy(&bytes);
+        assert!(
+            body.contains("confirmation required"),
+            "refusal must name the confirmation gate, got: {body}"
+        );
+    }
+
+    /// With `confirmed: true` the confirmation gate is passed. The empty
+    /// fixture package is not re-executable, so the request then falls through
+    /// to the downstream Tier-2 availability probe — a DIFFERENT 412 whose body
+    /// is NOT the confirmation message, proving the gate no longer blocks it.
+    #[tokio::test]
+    async fn imported_tier2_with_confirmation_passes_confirmation_gate() {
+        let pkg = tempfile::TempDir::new().unwrap();
+        let (router, app) = make_router(vec![]).await;
+        let id =
+            seed_session_with_completed_task(&app, "t_demo", Some(pkg.path().to_path_buf())).await;
+        mark_imported(&app, id).await;
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/chat/session/{id}/replay"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"tier":"all","confirmed":true}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let bytes = to_bytes(resp.into_body(), 1 << 20).await.unwrap();
+        let body = String::from_utf8_lossy(&bytes);
+        assert!(
+            !body.contains("confirmation required"),
+            "with confirmed:true the confirmation gate must NOT fire, got: {body}"
         );
     }
 }

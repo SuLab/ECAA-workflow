@@ -196,6 +196,20 @@ impl ExecEnv {
                     "docker".to_string(),
                     "run".to_string(),
                     "--rm".to_string(),
+                    // Hardening for replay re-execution. Replay must be hermetic
+                    // (no external inputs → deterministic, correct for
+                    // reproducibility) AND must bound an untrusted image pulled
+                    // from an imported package: no network egress, no Linux
+                    // capabilities, no privilege escalation, and a bounded
+                    // process table so a fork-bomb can't wedge the host.
+                    "--network".to_string(),
+                    "none".to_string(),
+                    "--cap-drop".to_string(),
+                    "ALL".to_string(),
+                    "--security-opt".to_string(),
+                    "no-new-privileges".to_string(),
+                    "--pids-limit".to_string(),
+                    "512".to_string(),
                     "-v".to_string(),
                     format!("{cwd_str}:{cwd_str}"),
                     "-w".to_string(),
@@ -732,6 +746,45 @@ mod tests {
         assert_eq!(argv[n - 3], "sha256:abc123");
         assert_eq!(argv[n - 2], "python3");
         assert_eq!(argv[n - 1], script.display().to_string());
+    }
+
+    /// Replay re-execution must be hermetic + safe against an untrusted imported
+    /// image: the docker argv carries `--network none`, `--cap-drop ALL`,
+    /// `--security-opt no-new-privileges`, and a bounded `--pids-limit`, all
+    /// positioned after `--rm` and before the image reference.
+    #[test]
+    fn build_command_container_is_hardened() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cwd = tmp.path();
+        let env_obj = ExecEnv::Container { digest: "sha256:abc123".to_string(), conda_prefix: None };
+        let env = BTreeMap::new();
+        let script = cwd.join("run.py");
+
+        let argv = env_obj.build_command(&script, &env, cwd).unwrap();
+
+        assert!(
+            argv.windows(2).any(|w| w[0] == "--network" && w[1] == "none"),
+            "replay container must have no network egress: {argv:?}"
+        );
+        assert!(
+            argv.windows(2).any(|w| w[0] == "--cap-drop" && w[1] == "ALL"),
+            "replay container must drop all capabilities: {argv:?}"
+        );
+        assert!(
+            argv.windows(2)
+                .any(|w| w[0] == "--security-opt" && w[1] == "no-new-privileges"),
+            "replay container must forbid privilege escalation: {argv:?}"
+        );
+        assert!(
+            argv.windows(2).any(|w| w[0] == "--pids-limit" && w[1] == "512"),
+            "replay container must bound its process table: {argv:?}"
+        );
+        // The hardening flags precede the image reference (argv[n-3] is the
+        // digest for a python script with no conda env).
+        let net = argv.iter().position(|a| a == "--network").unwrap();
+        let img = argv.len() - 3;
+        assert!(net < img, "hardening flags must come before the image: {argv:?}");
+        assert_eq!(argv[img], "sha256:abc123");
     }
 
     /// With a recorded conda env, the Container tier must run the script THROUGH

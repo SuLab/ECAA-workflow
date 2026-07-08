@@ -221,18 +221,30 @@ export function ReproducibilityTab({
 
   const onReproduce = useCallback(async () => {
     if (!sessionId) return
+    // A Tier-2 replay of an IMPORTED (untrusted) package pulls its container
+    // image and re-executes the code recorded inside it. Gate that behind an
+    // explicit SME confirmation; locally-authored packages are unaffected.
+    if (imported) {
+      const ok = window.confirm(
+        'This will execute code recorded in the uploaded package inside a sandbox, including pulling its container image. Continue?',
+      )
+      if (!ok) return
+    }
     setErr(null)
     setReproReport(null)
     setReproStatus('running')
     try {
       // Tier-2 returns 202 { replay_id }; the terminal report arrives via the
       // poll below (SSE replay_completed is advisory).
-      await startReplayReproduce(sessionId)
+      await startReplayReproduce(
+        sessionId,
+        imported ? { confirmed: true } : {},
+      )
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
       setReproStatus('idle')
     }
-  }, [sessionId])
+  }, [sessionId, imported])
 
   // Poll the backgrounded replay job while it's running.
   useEffect(() => {

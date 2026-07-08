@@ -151,7 +151,8 @@ describe('ReproducibilityTab', () => {
     await screen.findByText('claim_completeness')
 
     await userEvent.click(screen.getByTestId('reproduce-button'))
-    expect(mockStartReplayReproduce).toHaveBeenCalledWith('s1')
+    // Non-imported session: no confirm dialog, no `confirmed` flag.
+    expect(mockStartReplayReproduce).toHaveBeenCalledWith('s1', {})
     // Button flips to the in-flight label immediately.
     expect(screen.getByTestId('reproduce-button')).toHaveTextContent(/reproducing/i)
 
@@ -195,6 +196,55 @@ describe('ReproducibilityTab', () => {
       'title',
       expect.stringMatching(/re-executable/i),
     )
+  })
+
+  it('confirms before a Tier-2 reproduce of an imported package and passes confirmed:true', async () => {
+    mockGetAuditProof.mockResolvedValue(fullReport())
+    mockStartReplayReproduce.mockResolvedValue({ replay_id: 'r1' })
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const capabilities = {
+      tier_label: 're_executable' as const,
+      explore: true,
+      reverify: true,
+      replay_tier1: true,
+      replay_tier2: true,
+      tabs: {} as Record<string, boolean>,
+    }
+    render(
+      <ReproducibilityTab sessionId="s1" imported capabilities={capabilities} />,
+    )
+    await screen.findByText('claim_completeness')
+
+    await userEvent.click(screen.getByTestId('reproduce-button'))
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    expect(mockStartReplayReproduce).toHaveBeenCalledWith('s1', {
+      confirmed: true,
+    })
+    confirmSpy.mockRestore()
+  })
+
+  it('does not start a reproduce when the imported-package confirm is dismissed', async () => {
+    mockGetAuditProof.mockResolvedValue(fullReport())
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const capabilities = {
+      tier_label: 're_executable' as const,
+      explore: true,
+      reverify: true,
+      replay_tier1: true,
+      replay_tier2: true,
+      tabs: {} as Record<string, boolean>,
+    }
+    render(
+      <ReproducibilityTab sessionId="s1" imported capabilities={capabilities} />,
+    )
+    await screen.findByText('claim_completeness')
+
+    await userEvent.click(screen.getByTestId('reproduce-button'))
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    expect(mockStartReplayReproduce).not.toHaveBeenCalled()
+    confirmSpy.mockRestore()
   })
 
   it('omits the verifier-less note and enables Tier-2 for a re-executable imported package', async () => {
