@@ -288,6 +288,22 @@ fn collect_provenance_referenced_paths(src: &Path) -> std::collections::BTreeSet
 /// "regenerable cache" would make the deposit non-replayable, breaking the
 /// profile's "still replays" contract. `MinimalAudit` (audit-only, explicitly
 /// NOT re-executable) still drops it via the ordinary Tier-E gate.
+/// Recreate a symlink `link` pointing at `target` (verbatim). Unix uses a real
+/// symlink; other platforms have no portable equivalent for arbitrary targets,
+/// so this is a no-op-safe error there (the deposit paths are Unix in practice).
+#[cfg(unix)]
+fn symlink_verbatim(target: &Path, link: &Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(target, link)
+}
+
+#[cfg(not(unix))]
+fn symlink_verbatim(_target: &Path, _link: &Path) -> std::io::Result<()> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "symlink recreation is only supported on Unix",
+    ))
+}
+
 fn keep_shipped_conda_env(profile: DepositProfile, rel: &Path) -> bool {
     if !matches!(profile, DepositProfile::Full | DepositProfile::ReExecutable) {
         return false;
@@ -493,7 +509,13 @@ pub fn export_depositable_package_with_profile(
         })
     {
         let entry = entry.with_context(|| format!("walking {}", src.display()))?;
-        if !entry.file_type().is_file() {
+        let ft = entry.file_type();
+        // Plain directories are created implicitly when their contents are
+        // written. Symlinks (even to directories) are NOT skipped here: the
+        // shipped conda env carries ~1.5k relative symlinks that must survive
+        // the export or the env is broken. `WalkDir` does not follow symlinks,
+        // so a symlinked dir is yielded once as a symlink and never descended.
+        if ft.is_dir() {
             continue;
         }
         let abs = entry.path();
@@ -501,21 +523,32 @@ pub fn export_depositable_package_with_profile(
             .strip_prefix(src)
             .with_context(|| format!("stripping {} from {}", src.display(), abs.display()))?;
 
-        if (is_kept(classify(rel)) || keep_shipped_conda_env(profile, rel))
-            && !profile_extra_drop(profile, rel, &protected)
-        {
-            let dest_path = dst.join(rel);
-            if let Some(parent) = dest_path.parent() {
-                std::fs::create_dir_all(parent)
-                    .with_context(|| format!("creating {}", parent.display()))?;
-            }
+        let keep = (is_kept(classify(rel)) || keep_shipped_conda_env(profile, rel))
+            && !profile_extra_drop(profile, rel, &protected);
+        if !keep {
+            dropped += 1;
+            continue;
+        }
+        let dest_path = dst.join(rel);
+        if let Some(parent) = dest_path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("creating {}", parent.display()))?;
+        }
+        if ft.is_symlink() {
+            // Recreate the link verbatim; shipped conda-env targets are
+            // relative and resolve after relocation. Idempotent over re-export.
+            let target = std::fs::read_link(abs)
+                .with_context(|| format!("reading symlink {}", abs.display()))?;
+            let _ = std::fs::remove_file(&dest_path);
+            symlink_verbatim(&target, &dest_path).with_context(|| {
+                format!("recreating symlink {} -> {}", dest_path.display(), target.display())
+            })?;
+        } else {
             std::fs::copy(abs, &dest_path).with_context(|| {
                 format!("copying {} -> {}", abs.display(), dest_path.display())
             })?;
-            kept += 1;
-        } else {
-            dropped += 1;
         }
+        kept += 1;
     }
 
     // Drop byte-data-duplicate output tables the per-task agent sometimes writes
@@ -1136,6 +1169,44 @@ mod tests {
         assert!(report.kept >= 3, "expected >=3 kept files, got {}", report.kept);
         assert!(report.dropped >= 3, "expected >=3 dropped files, got {}", report.dropped);
         assert_eq!(report.dst, dst, "report.dst must echo the dst arg");
+    }
+
+    /// The Full/ReExecutable profiles must keep the shipped conda env AND
+    /// preserve its relative symlinks as symlinks (a broken/symlink-less env is
+    /// not re-executable). Regular env files are copied; symlinks are recreated
+    /// verbatim.
+    #[test]
+    #[cfg(unix)]
+    fn export_preserves_shipped_conda_env_and_symlinks() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let src = tmp.path().join("src");
+        let dst = tmp.path().join("dst");
+        build_fixture_package(&src);
+
+        // A shipped conda env: one regular file + one RELATIVE symlink.
+        let envbin = src.join("runtime/cache/conda-envs/ecaa-bioc/bin");
+        std::fs::create_dir_all(&envbin).unwrap();
+        std::fs::write(envbin.join("Rscript"), b"#!/bin/sh\necho hi\n").unwrap();
+        std::os::unix::fs::symlink("Rscript", envbin.join("R")).unwrap();
+
+        // Full profile (export_depositable_package) keeps the re-execution tier.
+        export_depositable_package(&src, &dst).expect("export succeeds");
+
+        assert!(
+            dst.join("runtime/cache/conda-envs/ecaa-bioc/bin/Rscript").is_file(),
+            "shipped conda-env regular file must be kept"
+        );
+        let link = dst.join("runtime/cache/conda-envs/ecaa-bioc/bin/R");
+        let meta = std::fs::symlink_metadata(&link).expect("env symlink must exist");
+        assert!(
+            meta.file_type().is_symlink(),
+            "env symlink must be preserved AS a symlink, not dereferenced/skipped"
+        );
+        assert_eq!(
+            std::fs::read_link(&link).unwrap(),
+            std::path::PathBuf::from("Rscript"),
+            "symlink target must be recreated verbatim (relative)"
+        );
     }
 
     /// Regression: export must RE-RECORD `runtime/audit-proof-report.json` over
