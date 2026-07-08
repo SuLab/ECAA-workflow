@@ -844,6 +844,88 @@ pub fn regenerate_bagit_manifest(
         .context("re-sealing BagIt manifest post-execution")
 }
 
+/// Re-seal a package's audit trail in place after a re-execution result has
+/// been folded into `runtime/reexecution.json`.
+///
+/// Re-records `runtime/audit-proof-report.json` — so Invariant 5
+/// (`equivalence_failure`) reads the freshly-populated re-execution sidecar
+/// and Invariant 6 (`substrate_validity`) reflects the supplied `validator`
+/// (pass the harness `PythonRuncrateWrrocValidator` for a real runcrate check,
+/// or `NoopWrrocValidator` to leave it Unverified) — and regenerates
+/// `AUDIT-REPORT.md` from the refreshed sidecars.
+///
+/// Pass the session's `AuditWriter` as `verifier` to keep the claim invariants
+/// non-vacuous (reads + HMAC-verifies the signed verdict sink); `None` uses the
+/// legacy stub-only path (which would render `claim_completeness` Unverified).
+pub fn reseal_audit_report(
+    pkg: &Path,
+    validator: &dyn crate::wrroc_validator::WrrocValidator,
+    verifier: Option<&crate::audit_writer::AuditWriter>,
+) -> Result<()> {
+    let report = crate::audit_proof::run_audit_proof_with_verifier(
+        pkg,
+        validator,
+        &crate::clock::WallClock,
+        verifier,
+    )
+    .context("re-running audit-proof invariants for reseal")?;
+    let json = serde_json::to_string_pretty(&report).context("serializing audit-proof report")?;
+    std::fs::write(
+        pkg.join("runtime").join("audit-proof-report.json"),
+        format!("{json}\n"),
+    )
+    .context("writing runtime/audit-proof-report.json")?;
+    audit_report::write_audit_report(pkg).context("regenerating AUDIT-REPORT.md")?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod reseal_tests {
+    use super::*;
+
+    fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+        std::fs::create_dir_all(dst)?;
+        for e in std::fs::read_dir(src)? {
+            let e = e?;
+            let d = dst.join(e.file_name());
+            if e.file_type()?.is_dir() {
+                copy_dir_all(&e.path(), &d)?;
+            } else {
+                std::fs::copy(e.path(), &d)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// `reseal_audit_report` must (re-)record `runtime/audit-proof-report.json`
+    /// AND regenerate `AUDIT-REPORT.md` from the package's runtime sidecars,
+    /// even when neither existed beforehand.
+    #[test]
+    fn reseal_regenerates_audit_proof_and_markdown() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        let fx = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../ecaa-conformance/tests/fixtures/cross-graph-ok");
+        copy_dir_all(&fx, pkg).unwrap();
+
+        let ap = pkg.join("runtime/audit-proof-report.json");
+        let md = pkg.join("AUDIT-REPORT.md");
+        let _ = std::fs::remove_file(&ap);
+        let _ = std::fs::remove_file(&md);
+
+        let validator = crate::wrroc_validator::NoopWrrocValidator;
+        reseal_audit_report(pkg, &validator, None).expect("reseal must succeed");
+
+        assert!(ap.exists(), "audit-proof-report.json must be re-recorded");
+        assert!(md.exists(), "AUDIT-REPORT.md must be regenerated");
+        let md_txt = std::fs::read_to_string(&md).unwrap();
+        assert!(
+            md_txt.contains("re-execution"),
+            "AUDIT-REPORT.md must contain the re-execution-equivalence section"
+        );
+    }
+}
+
 /// Derive a deterministic `FrozenClock` from the session's intake text
 /// so any emit-pipeline artifact that lands in the BagIt manifest
 /// (today: `amendment-lineage.json::created_at`; planned:
