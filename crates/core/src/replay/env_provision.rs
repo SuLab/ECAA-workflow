@@ -23,10 +23,22 @@ use std::process::{Command, Output};
 /// The execution environment chosen by `provision`.
 #[derive(Debug, PartialEq, Eq)]
 pub enum ExecEnv {
-    /// Re-use the exact image by digest recorded in the package.
-    Container { digest: String },
+    /// Re-use the exact image by digest recorded in the package. `conda_prefix`
+    /// is the package's runtime-provisioned conda env (e.g.
+    /// `runtime/cache/conda-envs/<name>`) that the agent activated via
+    /// `conda run` at record time; when `Some`, the script is run through
+    /// `conda run -p <prefix>` inside the container (the interpreter's libraries
+    /// live in that env, not the base image), and the prefix is bind-mounted at
+    /// its recorded path so the env's baked absolute paths resolve.
+    Container {
+        digest: String,
+        conda_prefix: Option<PathBuf>,
+    },
     /// A locally rebuilt image (from a Dockerfile or build spec in the package).
-    RebuiltImage { tag: String },
+    RebuiltImage {
+        tag: String,
+        conda_prefix: Option<PathBuf>,
+    },
     /// A host conda environment reconstructed from the task's `env.lock`.
     HostConda { prefix: PathBuf },
     /// No suitable environment found; re-execution is unavailable.
@@ -73,7 +85,10 @@ pub fn provision(pkg: &Path, opts: &ProvisionOpts) -> ExecEnv {
         if let Some(ref task_dir) = first_task_dir {
             let digest = read_container_digest(task_dir);
             if !digest.is_empty() {
-                return ExecEnv::Container { digest };
+                return ExecEnv::Container {
+                    digest,
+                    conda_prefix: detect_shipped_conda_prefix(pkg),
+                };
             }
         }
     }
@@ -91,7 +106,10 @@ pub fn provision(pkg: &Path, opts: &ProvisionOpts) -> ExecEnv {
                     .map(|n| n.to_string_lossy().into_owned())
                     .unwrap_or_else(|| "pkg".to_string())
             );
-            return ExecEnv::RebuiltImage { tag };
+            return ExecEnv::RebuiltImage {
+                tag,
+                conda_prefix: detect_shipped_conda_prefix(pkg),
+            };
         }
     }
 
@@ -113,6 +131,31 @@ pub fn provision(pkg: &Path, opts: &ProvisionOpts) -> ExecEnv {
     }
 
     ExecEnv::None
+}
+
+/// The package's runtime-provisioned conda env, if exactly one is shipped under
+/// `runtime/cache/conda-envs/<name>`. That directory is where the execution
+/// agent materialised the per-run conda env (e.g. `ecaa-bioc` carrying R +
+/// DESeq2); the interpreter's libraries live there, not in the base image, so
+/// the Container tier must run scripts through `conda run -p <this>`. Returns
+/// `None` when the dir is absent or holds anything other than exactly one env
+/// (ambiguous — fall back to the bare interpreter rather than guess).
+fn detect_shipped_conda_prefix(pkg: &Path) -> Option<PathBuf> {
+    let dir = pkg.join("runtime/cache/conda-envs");
+    let mut envs: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .ok()?
+        .flatten()
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .map(|e| e.path())
+        .collect();
+    envs.sort();
+    // Exactly one env → use it; zero or many (ambiguous) → fall back to the
+    // bare interpreter rather than guess the wrong env.
+    if envs.len() == 1 {
+        envs.pop()
+    } else {
+        None
+    }
 }
 
 impl ExecEnv {
@@ -147,7 +190,8 @@ impl ExecEnv {
         let cwd_str = cwd.display().to_string();
 
         match self {
-            ExecEnv::Container { digest } | ExecEnv::RebuiltImage { tag: digest } => {
+            ExecEnv::Container { digest, conda_prefix }
+            | ExecEnv::RebuiltImage { tag: digest, conda_prefix } => {
                 let mut args = vec![
                     "docker".to_string(),
                     "run".to_string(),
@@ -157,6 +201,14 @@ impl ExecEnv {
                     "-w".to_string(),
                     cwd_str.clone(),
                 ];
+                // Bind-mount the recorded conda env at its own absolute path so
+                // `conda run -p <prefix>` (below) resolves the env and its baked
+                // paths; the env lives outside the staged scratch (`cwd`).
+                if let Some(prefix) = conda_prefix {
+                    let p = prefix.display().to_string();
+                    args.push("-v".to_string());
+                    args.push(format!("{p}:{p}"));
+                }
                 // Run as the OWNER of the working dir. The image may default to a
                 // non-root user (e.g. bio-min runs as uid 1001), which cannot
                 // write into the host-owned scratch tree mounted at `cwd` — a
@@ -185,6 +237,17 @@ impl ExecEnv {
                     args.push(format!("HOME={cwd_str}"));
                 }
                 args.push(digest.clone());
+                // Run the interpreter THROUGH the recorded conda env when present:
+                // its libraries (e.g. DESeq2) live in that env, not the base image,
+                // so a bare `Rscript` would fail. `--no-capture-output` keeps the
+                // child's stderr intact for failed-run diagnosis (mirrors HostConda).
+                if let Some(prefix) = conda_prefix {
+                    args.push("conda".to_string());
+                    args.push("run".to_string());
+                    args.push("--no-capture-output".to_string());
+                    args.push("-p".to_string());
+                    args.push(prefix.display().to_string());
+                }
                 args.push(interp.to_string());
                 args.push(script_str);
                 Ok(args)
@@ -456,7 +519,8 @@ mod tests {
         assert_eq!(
             env,
             ExecEnv::Container {
-                digest: digest.to_string()
+                digest: digest.to_string(),
+                conda_prefix: None,
             }
         );
         assert_eq!(env.tier_name(), "container");
@@ -536,11 +600,11 @@ mod tests {
     #[test]
     fn tier_name_all_variants() {
         assert_eq!(
-            ExecEnv::Container { digest: "d".into() }.tier_name(),
+            ExecEnv::Container { digest: "d".into(), conda_prefix: None }.tier_name(),
             "container"
         );
         assert_eq!(
-            ExecEnv::RebuiltImage { tag: "t".into() }.tier_name(),
+            ExecEnv::RebuiltImage { tag: "t".into(), conda_prefix: None }.tier_name(),
             "rebuilt"
         );
         assert_eq!(
@@ -626,7 +690,7 @@ mod tests {
         let md = std::fs::metadata(cwd).unwrap();
         let user = format!("{}:{}", md.uid(), md.gid());
 
-        let env_obj = ExecEnv::Container { digest: "sha256:abc123".to_string() };
+        let env_obj = ExecEnv::Container { digest: "sha256:abc123".to_string(), conda_prefix: None };
         let mut env = BTreeMap::new();
         env.insert("SOURCE_DATE_EPOCH".to_string(), "1000000".to_string());
         env.insert("PYTHONHASHSEED".to_string(), "0".to_string());
@@ -658,6 +722,62 @@ mod tests {
         assert_eq!(argv[n - 1], script.display().to_string());
     }
 
+    /// With a recorded conda env, the Container tier must run the script THROUGH
+    /// `conda run -p <prefix>` (its libraries live in that env, not the base
+    /// image) and bind-mount the prefix at its own path.
+    #[test]
+    fn build_command_container_activates_conda_env() {
+        let prefix = PathBuf::from("/pkg/runtime/cache/conda-envs/ecaa-bioc");
+        let env_obj = ExecEnv::Container {
+            digest: "sha256:abc".to_string(),
+            conda_prefix: Some(prefix.clone()),
+        };
+        let env = BTreeMap::new();
+        let script = Path::new("/scratch/differential_expression/scripts/01_run_deseq2.R");
+        let argv = env_obj.build_command(script, &env, Path::new("/scratch")).unwrap();
+        let joined = argv.join(" ");
+        let p = prefix.display().to_string();
+        assert!(
+            argv.windows(2).any(|w| w[0] == "-v" && w[1] == format!("{p}:{p}")),
+            "must bind-mount the conda prefix at its own path; got: {joined}"
+        );
+        assert!(
+            joined.contains(&format!("conda run --no-capture-output -p {p}")),
+            "must invoke the interpreter via `conda run -p <prefix>`; got: {joined}"
+        );
+        let ci = argv.iter().position(|a| a == "conda").expect("conda present");
+        let ri = argv.iter().position(|a| a == "Rscript").expect("Rscript present");
+        let si = argv.iter().position(|a| a == script.display().to_string().as_str()).unwrap();
+        assert!(ci < ri && ri < si, "conda run must wrap the interpreter+script; got: {joined}");
+    }
+
+    /// provision() must detect the single runtime-provisioned conda env shipped
+    /// under runtime/cache/conda-envs/ and attach it to the Container tier.
+    #[test]
+    fn provision_container_detects_single_shipped_conda_env() {
+        let tmp = tempfile::tempdir().unwrap();
+        let task = tmp.path().join("runtime/outputs/differential_expression");
+        std::fs::create_dir_all(&task).unwrap();
+        std::fs::write(
+            task.join("determinism-env.json"),
+            r#"{"task_container_digest":"sha256:deadbeef"}"#,
+        )
+        .unwrap();
+        let env_dir = tmp.path().join("runtime/cache/conda-envs/ecaa-bioc");
+        std::fs::create_dir_all(&env_dir).unwrap();
+        let opts = ProvisionOpts {
+            allow_rebuild: false,
+            docker_probe: || true,
+            conda_probe: || false,
+        };
+        match provision(tmp.path(), &opts) {
+            ExecEnv::Container { conda_prefix, .. } => {
+                assert_eq!(conda_prefix, Some(env_dir), "must detect the single shipped conda env");
+            }
+            other => panic!("expected Container tier, got {other:?}"),
+        }
+    }
+
     /// RebuiltImage variant produces the same docker structure as Container
     /// (same code path), verified here with a .sh script → bash interpreter.
     #[test]
@@ -669,7 +789,7 @@ mod tests {
         let md = std::fs::metadata(cwd).unwrap();
         let user = format!("{}:{}", md.uid(), md.gid());
 
-        let env_obj = ExecEnv::RebuiltImage { tag: "ecaa-replay:mypkg".to_string() };
+        let env_obj = ExecEnv::RebuiltImage { tag: "ecaa-replay:mypkg".to_string(), conda_prefix: None };
         let env: BTreeMap<String, String> = BTreeMap::new();
         let script = cwd.join("setup.sh");
 
