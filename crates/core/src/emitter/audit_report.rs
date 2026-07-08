@@ -58,6 +58,54 @@ fn cell(v: &str, max: usize) -> String {
     }
 }
 
+/// Where a reviewer finds the full record for a routed-to-review `failure` and
+/// how to act on it. The report cell clamps `detail` to keep the table
+/// readable; this points at the authoritative sidecar (which carries the
+/// untruncated list), the UI surface, and — for the two offline-operator
+/// invariants — the exact command that clears the "unverified" state. Keyed on
+/// the failure `source` (`"ClaimMismatch"` or `{"InvariantFailure": "<name>"}`).
+fn review_locus(f: &Value) -> String {
+    if let Some(name) = g(f, "source").get("InvariantFailure").and_then(Value::as_str) {
+        return match name {
+            "equivalence_failure" => {
+                "offline step — run `ecaa-workflow replay --tier all <package>` to re-execute \
+                 the recorded compute and populate re-execution equivalence"
+                    .to_string()
+            }
+            "substrate_validity" => {
+                "offline step — install runcrate (≥0.5) then `ecaa-workflow replay --tier \
+                 verify <package>` to record WRROC substrate validity"
+                    .to_string()
+            }
+            "evidence_coverage" => {
+                "runtime/audit-proof-report.json → verdicts[evidence_coverage].detail (full \
+                 unreferenced-output list); Repairs + Documents tabs"
+                    .to_string()
+            }
+            "claim_completeness" => {
+                "runtime/audit-proof-report.json → verdicts[claim_completeness].detail + \
+                 runtime/claim-verification.json (empty-supported_by claims); Claims tab"
+                    .to_string()
+            }
+            "cross_graph_integrity" => {
+                "runtime/audit-proof-report.json → verdicts[cross_graph_integrity].detail \
+                 (dangling @ids); cross-check ro-crate-metadata.json"
+                    .to_string()
+            }
+            other => format!("runtime/audit-proof-report.json → verdicts[{other}].detail"),
+        };
+    }
+    if g(f, "source").as_str() == Some("ClaimMismatch") {
+        let task = s(g(f, "task"));
+        return format!(
+            "runtime/claim-verification.json (claim {}); narrative runtime/outputs/{}/; Claims tab",
+            s(g(f, "id")),
+            task
+        );
+    }
+    format!("runtime/repair-status.json (failure {})", s(g(f, "id")))
+}
+
 /// Write `dst/AUDIT-REPORT.md` from the package's audit/provenance sidecars.
 /// Best-effort per section; returns `Err` only if the file cannot be written.
 pub(super) fn write_audit_report(dst: &Path) -> Result<()> {
@@ -128,6 +176,15 @@ pub(super) fn write_audit_report(dst: &Path) -> Result<()> {
             );
         }
         let _ = writeln!(m);
+        let _ = writeln!(
+            m,
+            "_Detail is clamped above; the full per-invariant violation list is in \
+             `runtime/audit-proof-report.json` (`verdicts[].detail`). Review `warn`/`fail` \
+             invariants in the UI Repairs, Claims, and Reproducibility tabs. An `unverified` \
+             status is an offline operator step, not a failure: `equivalence_failure` clears \
+             after `ecaa-workflow replay --tier all <package>`, and `substrate_validity` after \
+             installing runcrate and running `ecaa-workflow replay --tier verify <package>`._\n"
+        );
     }
 
     // ── Claim verification ───────────────────────────────────────────────
@@ -388,8 +445,10 @@ pub(super) fn write_audit_report(dst: &Path) -> Result<()> {
         if let Some(review) = rs.get("review").and_then(Value::as_array) {
             if !review.is_empty() {
                 let _ = writeln!(m, "Items routed to review:\n");
-                let _ = writeln!(m, "| Failure | Detail |");
-                let _ = writeln!(m, "| :---- | :---- |");
+                // The "Where to find & review" column is load-bearing: a reviewer
+                // must be able to locate the full record and know how to act.
+                let _ = writeln!(m, "| Failure | Detail | Where to find & review |");
+                let _ = writeln!(m, "| :---- | :---- | :---- |");
                 for r in review {
                     // `failure` is a structured object (task, subject, detail,
                     // source, …), not a string — identify it by task + subject
@@ -409,9 +468,22 @@ pub(super) fn write_audit_report(dst: &Path) -> Result<()> {
                     } else {
                         detail
                     };
-                    let _ = writeln!(m, "| {} | {} |", cell(&label, 60), cell(reason, 110));
+                    let _ = writeln!(
+                        m,
+                        "| {} | {} | {} |",
+                        cell(&label, 60),
+                        cell(reason, 100),
+                        cell(&review_locus(f), 130),
+                    );
                 }
                 let _ = writeln!(m);
+                let _ = writeln!(
+                    m,
+                    "_Each item's untruncated record is in the sidecar named in the last \
+                     column; open the matching UI tab to review, or re-verify offline with \
+                     `ecaa-workflow replay --tier verify <package>`. Every routed item is also \
+                     a typed `DecisionRecord` in `runtime/decisions.jsonl`._\n"
+                );
             }
         }
     }
@@ -563,10 +635,56 @@ mod tests {
             md.contains("narrative says 2197"),
             "review row must render the failure detail; got:\n{md}"
         );
+        // Findability: each item must point at WHERE to find + how to review it.
+        assert!(
+            md.contains("Where to find & review"),
+            "review table must carry the findability column; got:\n{md}"
+        );
+        assert!(
+            md.contains("narrative runtime/outputs/differential_expression/"),
+            "claim-mismatch item must point at its narrative dir; got:\n{md}"
+        );
+        assert!(
+            md.contains("verdicts[claim_completeness]"),
+            "invariant item must point at its audit-proof-report.json verdict; got:\n{md}"
+        );
         // Regression: no review row with a blank leading Failure cell.
         assert!(
             !md.contains("|  | unresolved after repair"),
             "Failure column must not be blank; got:\n{md}"
+        );
+    }
+
+    #[test]
+    fn review_locus_points_offline_invariants_at_commands() {
+        let eq = serde_json::json!({
+            "id": "x", "source": {"InvariantFailure": "equivalence_failure"},
+            "task": "audit", "subject": "equivalence_failure",
+            "detail": "no re-execution performed (Q absent)"
+        });
+        let sv = serde_json::json!({
+            "id": "y", "source": {"InvariantFailure": "substrate_validity"},
+            "task": "audit", "subject": "substrate_validity", "detail": "runcrate not run"
+        });
+        let cm = serde_json::json!({
+            "id": "z", "source": "ClaimMismatch", "task": "final_reporting",
+            "subject": "KLF15", "detail": "..."
+        });
+        assert!(
+            review_locus(&eq).contains("replay --tier all"),
+            "equivalence_failure must name the re-execution command; got: {}",
+            review_locus(&eq)
+        );
+        let svl = review_locus(&sv);
+        assert!(
+            svl.contains("runcrate") && svl.contains("replay --tier verify"),
+            "substrate_validity must name runcrate + the re-verify command; got: {svl}"
+        );
+        assert!(
+            review_locus(&cm).contains("claim-verification.json")
+                && review_locus(&cm).contains("final_reporting"),
+            "claim mismatch must point at claim-verification.json + its task; got: {}",
+            review_locus(&cm)
         );
     }
 
