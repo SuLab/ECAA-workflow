@@ -89,8 +89,21 @@ fn reseal(dest_pkg: &std::path::Path) -> Result<()> {
         Some(hex) => Some(writer_from_hex(&hex)?),
         None => None,
     };
-    ecaa_workflow_core::emitter::reseal_audit_report(dest_pkg, validator.as_ref(), writer.as_ref())
-        .context("resealing audit-proof report + AUDIT-REPORT.md")?;
+    // Scope the reseal to the two deferred offline verifications: fold in the
+    // re-execution equivalence + runcrate substrate verdicts, and PRESERVE every
+    // compile-time invariant at its recorded value (re-grading them here could
+    // drift across builds and is out of scope for a re-execution fold-back).
+    let refresh = [
+        ecaa_workflow_core::audit_proof::InvariantId::EquivalenceFailure,
+        ecaa_workflow_core::audit_proof::InvariantId::SubstrateValidity,
+    ];
+    ecaa_workflow_core::emitter::reseal_audit_report(
+        dest_pkg,
+        validator.as_ref(),
+        writer.as_ref(),
+        Some(&refresh),
+    )
+    .context("resealing audit-proof report + AUDIT-REPORT.md")?;
     println!(
         "reexec: resealed audit-proof report + AUDIT-REPORT.md under {} (runcrate={}, signed_sink={})",
         dest_pkg.display(),

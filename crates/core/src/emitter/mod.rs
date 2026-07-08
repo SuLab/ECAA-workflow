@@ -857,18 +857,51 @@ pub fn regenerate_bagit_manifest(
 /// Pass the session's `AuditWriter` as `verifier` to keep the claim invariants
 /// non-vacuous (reads + HMAC-verifies the signed verdict sink); `None` uses the
 /// legacy stub-only path (which would render `claim_completeness` Unverified).
+///
+/// `refresh_only` scopes which invariant verdicts the reseal adopts from the
+/// fresh run: `None` re-records all six; `Some(ids)` updates only those
+/// invariants and PRESERVES every other verdict from the package's existing
+/// recorded report (so folding in the deferred re-execution + substrate checks
+/// cannot silently regrade the compile-time invariants across a verifier drift).
 pub fn reseal_audit_report(
     pkg: &Path,
     validator: &dyn crate::wrroc_validator::WrrocValidator,
     verifier: Option<&crate::audit_writer::AuditWriter>,
+    refresh_only: Option<&[crate::audit_proof::InvariantId]>,
 ) -> Result<()> {
-    let report = crate::audit_proof::run_audit_proof_with_verifier(
+    let mut report = crate::audit_proof::run_audit_proof_with_verifier(
         pkg,
         validator,
         &crate::clock::WallClock,
         verifier,
     )
     .context("re-running audit-proof invariants for reseal")?;
+
+    if let Some(ids) = refresh_only {
+        let existing_path = pkg.join("runtime").join("audit-proof-report.json");
+        let existing: crate::audit_proof::AuditProofReport = serde_json::from_str(
+            &std::fs::read_to_string(&existing_path)
+                .with_context(|| format!("reading existing {}", existing_path.display()))?,
+        )
+        .context("parsing existing audit-proof-report.json for scoped reseal")?;
+        report.verdicts = report
+            .verdicts
+            .into_iter()
+            .map(|fresh_v| {
+                if ids.contains(&fresh_v.id) {
+                    fresh_v
+                } else {
+                    existing
+                        .verdicts
+                        .iter()
+                        .find(|e| e.id == fresh_v.id)
+                        .cloned()
+                        .unwrap_or(fresh_v)
+                }
+            })
+            .collect();
+    }
+
     let json = serde_json::to_string_pretty(&report).context("serializing audit-proof report")?;
     std::fs::write(
         pkg.join("runtime").join("audit-proof-report.json"),
@@ -914,7 +947,7 @@ mod reseal_tests {
         let _ = std::fs::remove_file(&md);
 
         let validator = crate::wrroc_validator::NoopWrrocValidator;
-        reseal_audit_report(pkg, &validator, None).expect("reseal must succeed");
+        reseal_audit_report(pkg, &validator, None, None).expect("reseal must succeed");
 
         assert!(ap.exists(), "audit-proof-report.json must be re-recorded");
         assert!(md.exists(), "AUDIT-REPORT.md must be regenerated");
@@ -922,6 +955,57 @@ mod reseal_tests {
         assert!(
             md_txt.contains("re-execution"),
             "AUDIT-REPORT.md must contain the re-execution-equivalence section"
+        );
+    }
+
+    /// A scoped reseal (`refresh_only`) must PRESERVE the recorded verdict of
+    /// every invariant NOT named, guarding against a reseal silently regrading
+    /// a compile-time invariant (e.g. claim_completeness) across verifier drift.
+    #[test]
+    fn scoped_reseal_preserves_unrefreshed_verdicts() {
+        use crate::audit_proof::{InvariantId, InvariantStatus};
+
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        let fx = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../ecaa-conformance/tests/fixtures/cross-graph-ok");
+        copy_dir_all(&fx, pkg).unwrap();
+
+        let validator = crate::wrroc_validator::NoopWrrocValidator;
+        let mut seed = crate::audit_proof::run_audit_proof(pkg, &validator, &crate::clock::WallClock)
+            .expect("seed report");
+        for v in &mut seed.verdicts {
+            if v.id == InvariantId::ClaimCompleteness {
+                v.status = InvariantStatus::Pass;
+            }
+        }
+        std::fs::write(
+            pkg.join("runtime/audit-proof-report.json"),
+            format!("{}\n", serde_json::to_string_pretty(&seed).unwrap()),
+        )
+        .unwrap();
+
+        reseal_audit_report(
+            pkg,
+            &validator,
+            None,
+            Some(&[InvariantId::EquivalenceFailure]),
+        )
+        .expect("scoped reseal must succeed");
+
+        let out: crate::audit_proof::AuditProofReport = serde_json::from_str(
+            &std::fs::read_to_string(pkg.join("runtime/audit-proof-report.json")).unwrap(),
+        )
+        .unwrap();
+        let cc = out
+            .verdicts
+            .iter()
+            .find(|v| v.id == InvariantId::ClaimCompleteness)
+            .unwrap();
+        assert_eq!(
+            cc.status,
+            InvariantStatus::Pass,
+            "claim_completeness must be preserved from the existing report, not regraded"
         );
     }
 }
