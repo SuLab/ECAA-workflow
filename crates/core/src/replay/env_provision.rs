@@ -46,6 +46,15 @@ pub enum ExecEnv {
         conda_prefix: Option<PathBuf>,
         conda_mount_at: Option<PathBuf>,
     },
+    /// Install a conda env from the package's recorded EXPLICIT lock
+    /// (`env.explicit.lock` — a `conda create --file`-compatible pinned
+    /// URL+md5 spec) into a fresh prefix inside `digest`, then run scripts
+    /// through it. The install is a deterministic, network-bearing step
+    /// performed once by `run_replay` before the task loop; execution then
+    /// behaves like `Container { conda_prefix: <installed> }` run hermetically.
+    /// This is the portable, self-contained re-execution path for packages that
+    /// LOG their environment rather than ship its bytes.
+    InstallFromLock { digest: String, lock: PathBuf },
     /// A host conda environment reconstructed from the task's `env.lock`.
     HostConda { prefix: PathBuf },
     /// No suitable environment found; re-execution is unavailable.
@@ -94,6 +103,21 @@ pub fn provision(pkg: &Path, opts: &ProvisionOpts, recorded_root: &str) -> ExecE
         if let Some(ref task_dir) = first_task_dir {
             let digest = read_container_digest(task_dir);
             if !digest.is_empty() {
+                // 1a. A conda env shipped in the package → run through it.
+                if conda_prefix.is_some() {
+                    return ExecEnv::Container {
+                        digest,
+                        conda_prefix,
+                        conda_mount_at,
+                    };
+                }
+                // 1b. No shipped env, but a recorded EXPLICIT lock → install the
+                // env deterministically from the lock into the image (the lean,
+                // self-contained re-execution path).
+                if let Some(lock) = detect_explicit_lock(pkg) {
+                    return ExecEnv::InstallFromLock { digest, lock };
+                }
+                // 1c. Neither → run the image's bare interpreter.
                 return ExecEnv::Container {
                     digest,
                     conda_prefix,
@@ -196,12 +220,102 @@ fn recorded_conda_mount(
     (mount_at != on_disk).then_some(mount_at)
 }
 
+/// The package's recorded EXPLICIT conda lock, if present — a
+/// `conda create --file`-compatible pinned (URL+md5) spec that lets replay
+/// deterministically re-install the analysis environment rather than ship its
+/// bytes. Preference: a package-level `runtime/env.explicit.lock`, else the
+/// first `runtime/outputs/<task>/env.explicit.lock` in lexicographic order.
+/// (`env.lock` — R `sessionInfo()` — is NOT a lock and is deliberately ignored.)
+fn detect_explicit_lock(pkg: &Path) -> Option<PathBuf> {
+    let pkg_level = pkg.join("runtime/env.explicit.lock");
+    if pkg_level.is_file() {
+        return Some(pkg_level);
+    }
+    let outputs = pkg.join("runtime/outputs");
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(&outputs)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect();
+    dirs.sort();
+    dirs.into_iter()
+        .map(|d| d.join("env.explicit.lock"))
+        .find(|p| p.is_file())
+}
+
+/// Build the `docker run …` argv that deterministically installs a conda env
+/// from `lock` into `env_target` (a fresh prefix under the replay scratch)
+/// inside `image`. Pure + unit-testable. The install is the ONE network-bearing
+/// replay step; the subsequent script runs are network-isolated.
+///
+/// `env_target` must live under the caller's writable scratch; its parent is
+/// bind-mounted so the freshly-created env persists on the host for the run,
+/// and the container runs as the scratch owner so conda can write it.
+fn build_install_command(image: &str, lock: &Path, env_target: &Path) -> Vec<String> {
+    let lock_s = lock.display().to_string();
+    let target_s = env_target.display().to_string();
+    // Mount the scratch parent so the created env is host-visible + persists.
+    let parent = env_target
+        .parent()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| target_s.clone());
+    let mut args = vec![
+        "docker".to_string(),
+        "run".to_string(),
+        "--rm".to_string(),
+        // conda create must reach the package registries recorded in the lock,
+        // so (unlike script execution) this step is NOT network-isolated. It is
+        // still deterministic: the lock pins every package by URL + md5.
+        "-v".to_string(),
+        format!("{parent}:{parent}"),
+        "-v".to_string(),
+        format!("{lock_s}:{lock_s}:ro"),
+    ];
+    if let Ok(md) = std::fs::metadata(&parent) {
+        use std::os::unix::fs::MetadataExt;
+        args.push("--user".to_string());
+        args.push(format!("{}:{}", md.uid(), md.gid()));
+    }
+    // conda needs a writable HOME/pkgs cache; point them at the scratch parent.
+    args.push("--env".to_string());
+    args.push(format!("HOME={parent}"));
+    args.push(image.to_string());
+    args.push("conda".to_string());
+    args.push("create".to_string());
+    args.push("-y".to_string());
+    args.push("-p".to_string());
+    args.push(target_s);
+    args.push("--file".to_string());
+    args.push(lock_s);
+    args
+}
+
+/// Run [`build_install_command`], returning `Ok(())` on a zero exit. Stderr is
+/// surfaced in the error so a failed install is diagnosable.
+pub fn install_conda_env_from_lock(image: &str, lock: &Path, env_target: &Path) -> io::Result<()> {
+    let argv = build_install_command(image, lock, env_target);
+    let (program, rest) = argv.split_first().expect("non-empty argv");
+    let out = Command::new(program).args(rest).output()?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!(
+            "conda create from lock {} failed (status {:?}): {}",
+            lock.display(),
+            out.status.code(),
+            String::from_utf8_lossy(&out.stderr)
+        )))
+    }
+}
+
 impl ExecEnv {
     /// Short label for the chosen tier.
     pub fn tier_name(&self) -> &'static str {
         match self {
             ExecEnv::Container { .. } => "container",
             ExecEnv::RebuiltImage { .. } => "rebuilt",
+            ExecEnv::InstallFromLock { .. } => "install-from-lock",
             ExecEnv::HostConda { .. } => "host",
             ExecEnv::None => "none",
             #[cfg(test)]
@@ -334,6 +448,12 @@ impl ExecEnv {
             ExecEnv::None => Err(io::Error::new(
                 io::ErrorKind::Unsupported,
                 "no execution environment available (ExecEnv::None)",
+            )),
+
+            ExecEnv::InstallFromLock { .. } => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "InstallFromLock must be materialized into a Container (conda env installed \
+                 from the lock) by run_replay before scripts are run",
             )),
 
             #[cfg(test)]
@@ -892,6 +1012,78 @@ mod tests {
             !joined.contains(&format!("-p {}", on_disk.display())),
             "must NOT run against the on-disk path; got: {joined}"
         );
+    }
+
+    /// With a recorded digest + an explicit lock + NO shipped conda env,
+    /// provision selects the InstallFromLock tier (install the env from the
+    /// pinned lock into the image at replay time) rather than a bare Container.
+    #[test]
+    fn provision_install_from_lock_when_lock_present_no_shipped_env() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_det_env(tmp.path(), "differential_expression", "sha256:deadbeef");
+        // Package-level explicit lock, no shipped conda env dir.
+        let rt = tmp.path().join("runtime");
+        fs::create_dir_all(&rt).unwrap();
+        fs::write(rt.join("env.explicit.lock"), "@EXPLICIT\nhttps://x/p.tar.bz2#abc\n").unwrap();
+
+        let opts = ProvisionOpts {
+            allow_rebuild: false,
+            docker_probe: || true,
+            conda_probe: || false,
+        };
+        match provision(tmp.path(), &opts, "") {
+            ExecEnv::InstallFromLock { digest, lock } => {
+                assert_eq!(digest, "sha256:deadbeef");
+                assert_eq!(lock, rt.join("env.explicit.lock"));
+            }
+            other => panic!("expected InstallFromLock, got {other:?}"),
+        }
+    }
+
+    /// detect_explicit_lock prefers the package-level lock over a per-task one.
+    #[test]
+    fn detect_explicit_lock_prefers_package_level() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rt = tmp.path().join("runtime");
+        let task = rt.join("outputs/differential_expression");
+        fs::create_dir_all(&task).unwrap();
+        fs::write(task.join("env.explicit.lock"), "@EXPLICIT\n").unwrap();
+        // Only per-task present → returns the per-task lock.
+        assert_eq!(
+            detect_explicit_lock(tmp.path()),
+            Some(task.join("env.explicit.lock"))
+        );
+        // Add a package-level lock → now preferred.
+        fs::write(rt.join("env.explicit.lock"), "@EXPLICIT\n").unwrap();
+        assert_eq!(
+            detect_explicit_lock(tmp.path()),
+            Some(rt.join("env.explicit.lock"))
+        );
+    }
+
+    /// build_install_command emits a deterministic `conda create -p <target>
+    /// --file <lock>` docker invocation with the scratch parent bind-mounted.
+    #[test]
+    fn build_install_command_shape() {
+        let tmp = tempfile::tempdir().unwrap();
+        let target = tmp.path().join(".replay-conda-env");
+        let lock = tmp.path().join("env.explicit.lock");
+        fs::write(&lock, "@EXPLICIT\n").unwrap();
+        let argv = build_install_command("sha256:img", &lock, &target);
+        let joined = argv.join(" ");
+        assert_eq!(argv[0], "docker");
+        assert!(joined.contains("run --rm"), "got: {joined}");
+        let parent = tmp.path().display().to_string();
+        assert!(
+            argv.windows(2).any(|w| w[0] == "-v" && w[1] == format!("{parent}:{parent}")),
+            "must mount the scratch parent so the created env persists; got: {joined}"
+        );
+        assert!(
+            joined.contains(&format!("conda create -y -p {} --file {}", target.display(), lock.display())),
+            "must be a pinned conda create from the lock; got: {joined}"
+        );
+        // Network is NOT disabled for the install step (it must fetch packages).
+        assert!(!joined.contains("--network none"), "install step must reach registries; got: {joined}");
     }
 
     /// provision() must detect the single runtime-provisioned conda env shipped

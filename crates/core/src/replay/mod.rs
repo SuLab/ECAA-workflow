@@ -111,7 +111,7 @@ pub fn run_replay(pkg: &Path, opts: &ReplayOptions) -> anyhow::Result<ReplayRepo
         let (recorded_root, recorded_env) = read_recorded_env(pkg);
 
         // Provision an execution environment with real system probes.
-        let env = provision_env(pkg, opts.allow_rebuild, &recorded_root);
+        let mut env = provision_env(pkg, opts.allow_rebuild, &recorded_root);
         let unprovisionable = matches!(env, ExecEnv::None);
 
         // Allocate scratch: caller-supplied or a fresh directory under the
@@ -129,6 +129,27 @@ pub fn run_replay(pkg: &Path, opts: &ReplayOptions) -> anyhow::Result<ReplayRepo
                 anyhow::anyhow!("could not create scratch dir {}: {e}", scratch.display())
             })?;
         };
+
+        // Materialize an InstallFromLock env: deterministically install the
+        // recorded explicit conda lock into a fresh prefix inside the image
+        // (one network-bearing step), then run scripts through it hermetically.
+        if let ExecEnv::InstallFromLock { digest, lock } = &env {
+            let env_target = scratch.join(".replay-conda-env");
+            tracing::info!(
+                "replay: installing conda env from lock {} into {}",
+                lock.display(),
+                env_target.display()
+            );
+            crate::replay::env_provision::install_conda_env_from_lock(digest, lock, &env_target)
+                .map_err(|e| anyhow::anyhow!("installing conda env from recorded lock: {e}"))?;
+            // The env was created AT `env_target`, so its baked prefixes already
+            // match — no relocation remap needed.
+            env = ExecEnv::Container {
+                digest: digest.clone(),
+                conda_prefix: Some(env_target),
+                conda_mount_at: None,
+            };
+        }
 
         // Read topological order from runtime/execution-order.json.
         let order = read_execution_order(pkg);

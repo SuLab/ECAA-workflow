@@ -304,14 +304,6 @@ fn symlink_verbatim(_target: &Path, _link: &Path) -> std::io::Result<()> {
     ))
 }
 
-fn keep_shipped_conda_env(profile: DepositProfile, rel: &Path) -> bool {
-    if !matches!(profile, DepositProfile::Full | DepositProfile::ReExecutable) {
-        return false;
-    }
-    let rel_str = rel.to_string_lossy().replace('\\', "/");
-    rel_str.starts_with("runtime/cache/conda-envs/")
-}
-
 /// Extra per-profile drop, applied on top of the [`is_kept`] tier gate. `Full`
 /// drops nothing extra. The lean profiles drop the policy-doc catalog and the
 /// redundant/convenience artifacts the deposit adversarial audit flagged as
@@ -523,8 +515,7 @@ pub fn export_depositable_package_with_profile(
             .strip_prefix(src)
             .with_context(|| format!("stripping {} from {}", src.display(), abs.display()))?;
 
-        let keep = (is_kept(classify(rel)) || keep_shipped_conda_env(profile, rel))
-            && !profile_extra_drop(profile, rel, &protected);
+        let keep = is_kept(classify(rel)) && !profile_extra_drop(profile, rel, &protected);
         if !keep {
             dropped += 1;
             continue;
@@ -1044,32 +1035,6 @@ mod tests {
         assert!(!is_kept(DepositTier::E), "tier E must be dropped");
     }
 
-    /// The shipped per-run conda env is Tier E (`runtime/cache/`), so the plain
-    /// tier gate drops it — but `Full`/`ReExecutable` must override that and keep
-    /// it (it's the re-execution runtime), while `MinimalAudit` still drops it.
-    #[test]
-    fn keep_shipped_conda_env_only_for_re_executable_profiles() {
-        let env_file = Path::new("runtime/cache/conda-envs/ecaa-bioc/bin/Rscript");
-        assert!(!is_kept(classify(env_file)), "conda env is Tier E under the plain gate");
-        assert!(
-            keep_shipped_conda_env(DepositProfile::Full, env_file),
-            "full must keep the shipped conda env"
-        );
-        assert!(
-            keep_shipped_conda_env(DepositProfile::ReExecutable, env_file),
-            "re-executable must keep the shipped conda env (it is the runtime)"
-        );
-        assert!(
-            !keep_shipped_conda_env(DepositProfile::MinimalAudit, env_file),
-            "minimal (audit-only, not re-executable) must NOT keep the conda env"
-        );
-        // A non-conda cache path is never kept by this override.
-        assert!(
-            !keep_shipped_conda_env(DepositProfile::ReExecutable, Path::new("runtime/cache/pip/x")),
-            "the override is scoped to conda-envs, not all of runtime/cache/"
-        );
-    }
-
     // --- Task 2: export_depositable_package ------------------------------
 
     /// Build a tiny fixture package under `root` exercising each tier.
@@ -1171,40 +1136,33 @@ mod tests {
         assert_eq!(report.dst, dst, "report.dst must echo the dst arg");
     }
 
-    /// The Full/ReExecutable profiles must keep the shipped conda env AND
-    /// preserve its relative symlinks as symlinks (a broken/symlink-less env is
-    /// not re-executable). Regular env files are copied; symlinks are recreated
-    /// verbatim.
+    /// The export must preserve symlinks under KEPT paths as symlinks (recreated
+    /// verbatim), not dereference or skip them. Uses a symlink under a Tier-B
+    /// `scripts/` dir (the shipped conda env is no longer bundled — the
+    /// re-executable deposit installs its env from the recorded lock instead).
     #[test]
     #[cfg(unix)]
-    fn export_preserves_shipped_conda_env_and_symlinks() {
+    fn export_preserves_symlinks_under_kept_paths() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let src = tmp.path().join("src");
         let dst = tmp.path().join("dst");
         build_fixture_package(&src);
 
-        // A shipped conda env: one regular file + one RELATIVE symlink.
-        let envbin = src.join("runtime/cache/conda-envs/ecaa-bioc/bin");
-        std::fs::create_dir_all(&envbin).unwrap();
-        std::fs::write(envbin.join("Rscript"), b"#!/bin/sh\necho hi\n").unwrap();
-        std::os::unix::fs::symlink("Rscript", envbin.join("R")).unwrap();
+        // A relative symlink alongside a kept (Tier-B) script.
+        let scripts = src.join("runtime/outputs/t/scripts");
+        std::os::unix::fs::symlink("s.R", scripts.join("s-link.R")).unwrap();
 
-        // Full profile (export_depositable_package) keeps the re-execution tier.
         export_depositable_package(&src, &dst).expect("export succeeds");
 
-        assert!(
-            dst.join("runtime/cache/conda-envs/ecaa-bioc/bin/Rscript").is_file(),
-            "shipped conda-env regular file must be kept"
-        );
-        let link = dst.join("runtime/cache/conda-envs/ecaa-bioc/bin/R");
-        let meta = std::fs::symlink_metadata(&link).expect("env symlink must exist");
+        let link = dst.join("runtime/outputs/t/scripts/s-link.R");
+        let meta = std::fs::symlink_metadata(&link).expect("kept symlink must exist");
         assert!(
             meta.file_type().is_symlink(),
-            "env symlink must be preserved AS a symlink, not dereferenced/skipped"
+            "symlink under a kept path must be preserved AS a symlink, not dereferenced/skipped"
         );
         assert_eq!(
             std::fs::read_link(&link).unwrap(),
-            std::path::PathBuf::from("Rscript"),
+            std::path::PathBuf::from("s.R"),
             "symlink target must be recreated verbatim (relative)"
         );
     }
