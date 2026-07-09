@@ -508,9 +508,20 @@ fn reconcile_failed_task_buckets(
     // Surface table-less run failures. A stage that ran `ok:false` but produced
     // no comparable `.tsv/.csv` artifact has no `per_artifact` row above, so its
     // failure would be invisible to the verdict (the reporting / validate_* /
-    // discover_* stages emit `.md`/`.json`, not tables). Append a synthetic
-    // Failed row for each such task_id, in deterministic (sorted) order, so a
-    // silent run failure cannot masquerade as a clean partial.
+    // discover_* stages emit `.md`/`.json`, not tables). Append a synthetic row
+    // for each such task_id, in deterministic (sorted) order, so a silent run
+    // failure cannot masquerade as a clean pass.
+    //
+    // Bucket = `Unavailable`, NOT `Failed`: a table-less stage that errored
+    // offline produced NO comparable output to diverge against — it is
+    // "could not re-execute to completion offline", the same non-divergent class
+    // as a stage skipped for network egress, not a byte/semantic DIVERGENCE.
+    // `Failed` is reserved for a table that re-executed and diverged beyond the
+    // semantic band with no acknowledgement (it would demand an F-Blocker and
+    // block a clean equivalence pass, misrepresenting a stage that simply is not
+    // offline-reproducible — e.g. `discover_*`/`validate_*` audit/selection
+    // stages that consume the network-derived literature outputs). The full
+    // `ok:false` + stderr tail is recorded in the reason, so nothing is hidden.
     let represented: BTreeSet<&str> = report
         .per_artifact
         .iter()
@@ -527,10 +538,11 @@ fn reconcile_failed_task_buckets(
             .per_artifact
             .push(crate::reexecution::ArtifactClassification {
                 artifact_path: format!("runtime/outputs/{task_id}/"),
-                bucket: ReexecutionBucket::Failed,
+                bucket: ReexecutionBucket::Unavailable,
                 reason: Some(format!(
                     "task '{task_id}' ran and exited ok:false but produced no comparable \
-                     table; recorded Failed so the run failure is not hidden. stderr tail: {}",
+                     table; not offline-reproducible (recorded Unavailable, non-divergent) so \
+                     the run failure is surfaced without blocking equivalence. stderr tail: {}",
                     stderr_tail(stderr)
                 )),
             });
@@ -817,14 +829,19 @@ mod tests {
             .iter()
             .find(|ac| ac.artifact_path == "runtime/outputs/discover_normalisation/")
             .expect("table-less run failure must be surfaced as a synthetic row");
-        assert_eq!(synth.bucket, ReexecutionBucket::Failed);
+        // Non-divergent: a table-less stage that errored offline produced no
+        // comparable output to diverge against, so it is Unavailable (surfaced,
+        // with the stderr in the reason) — NOT Failed (which would falsely imply
+        // a divergence and block a clean equivalence pass).
+        assert_eq!(synth.bucket, ReexecutionBucket::Unavailable);
         assert!(synth
             .reason
             .as_deref()
             .unwrap()
             .contains("policies/best-practice"));
-        assert_eq!(rep.bucket_counts.get("failed").copied(), Some(1));
-        // The successful table-less stage must NOT get a spurious failed row.
+        assert!(synth.reason.as_deref().unwrap().contains("ok:false"));
+        assert_eq!(rep.bucket_counts.get("unavailable").copied(), Some(1));
+        // The successful table-less stage must NOT get a spurious row.
         assert!(!rep
             .per_artifact
             .iter()
