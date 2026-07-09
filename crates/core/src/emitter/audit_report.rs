@@ -106,6 +106,43 @@ fn review_locus(f: &Value) -> String {
     format!("runtime/repair-status.json (failure {})", s(g(f, "id")))
 }
 
+/// The audit-proof invariant id a routed-to-review `failure` maps to, if any.
+/// Audit-invariant failures carry `source: {"InvariantFailure": "<id>"}` (or an
+/// `audit` task whose `subject` names the invariant); other failures (e.g.
+/// `ClaimMismatch`) map to no invariant and return `None`.
+fn review_invariant_id(f: &Value) -> Option<&str> {
+    if let Some(inv) = f
+        .get("source")
+        .and_then(|src| src.get("InvariantFailure"))
+        .and_then(Value::as_str)
+    {
+        return Some(inv);
+    }
+    if s(g(f, "task")) == "audit" {
+        let subject = s(g(f, "subject"));
+        if !subject.is_empty() {
+            return Some(subject);
+        }
+    }
+    None
+}
+
+/// Current status (`pass`/`warn`/`fail`/`unverified`) of an audit-proof
+/// invariant, read from the (post-reseal) `audit-proof-report.json` verdicts.
+/// This is what lets the historical repair-pass snapshot reconcile against the
+/// live invariant table: an offline step the pass routed for later (e.g.
+/// `equivalence_failure` / `substrate_validity`) shows its cleared status once a
+/// subsequent `replay` / `reexec --reseal` has run.
+fn invariant_status<'a>(ap: &'a Value, id: &str) -> Option<&'a str> {
+    let st = ap
+        .get("verdicts")
+        .and_then(Value::as_array)?
+        .iter()
+        .find(|v| s(g(v, "id")) == id)
+        .map(|v| s(g(v, "status")))?;
+    (!st.is_empty()).then_some(st)
+}
+
 /// Write `dst/AUDIT-REPORT.md` from the package's audit/provenance sidecars.
 /// Best-effort per section; returns `Err` only if the file cannot be written.
 pub(super) fn write_audit_report(dst: &Path) -> Result<()> {
@@ -438,17 +475,25 @@ pub(super) fn write_audit_report(dst: &Path) -> Result<()> {
         );
         let _ = writeln!(
             m,
-            "_This is the end-of-repair snapshot, taken before the final \
-             audit-proof re-record and deposit-entity registration; its counts \
-             may differ from the Audit-proof invariants table above._\n"
+            "_This is the end-of-repair snapshot, taken during the original run \
+             before the final audit-proof re-record; its counts may differ from \
+             the Audit-proof invariants table above. The **Now (current \
+             invariant)** column reconciles the two timepoints: it reads each \
+             routed item's live status from `audit-proof-report.json` and marks \
+             ✅ cleared any invariant a later `replay` / `reexec --reseal` has \
+             since brought to `pass` — e.g. the offline re-execution and runcrate \
+             steps this pass routed for later._\n"
         );
         if let Some(review) = rs.get("review").and_then(Value::as_array) {
             if !review.is_empty() {
                 let _ = writeln!(m, "Items routed to review:\n");
                 // The "Where to find & review" column is load-bearing: a reviewer
-                // must be able to locate the full record and know how to act.
-                let _ = writeln!(m, "| Failure | Detail | Where to find & review |");
-                let _ = writeln!(m, "| :---- | :---- | :---- |");
+                // must be able to locate the full record and know how to act. The
+                // "Now (current invariant)" column reconciles this historical
+                // snapshot against the live (post-reseal) invariant verdicts.
+                let _ =
+                    writeln!(m, "| Failure | Detail | Now (current invariant) | Where to find & review |");
+                let _ = writeln!(m, "| :---- | :---- | :---- | :---- |");
                 for r in review {
                     // `failure` is a structured object (task, subject, detail,
                     // source, …), not a string — identify it by task + subject
@@ -468,11 +513,20 @@ pub(super) fn write_audit_report(dst: &Path) -> Result<()> {
                     } else {
                         detail
                     };
+                    // Reconcile against the live verdict: an audit item whose
+                    // invariant is now `pass` was an offline step this snapshot
+                    // routed for later and which has since been performed.
+                    let now = match review_invariant_id(f).and_then(|id| invariant_status(&ap, id)) {
+                        Some("pass") => "✅ cleared — now `pass`".to_string(),
+                        Some(st) => format!("now `{st}`"),
+                        None => "—".to_string(),
+                    };
                     let _ = writeln!(
                         m,
-                        "| {} | {} | {} |",
+                        "| {} | {} | {} | {} |",
                         cell(&label, 60),
                         cell(reason, 100),
+                        cell(&now, 40),
                         cell(&review_locus(f), 130),
                     );
                 }
@@ -652,6 +706,107 @@ mod tests {
         assert!(
             !md.contains("|  | unresolved after repair"),
             "Failure column must not be blank; got:\n{md}"
+        );
+    }
+
+    /// The repair pass is a HISTORICAL snapshot from the original run; some
+    /// items it routes to review (equivalence_failure "Q absent",
+    /// substrate_validity "runcrate not run") are offline operator steps that a
+    /// later `replay`/`reexec --reseal` performs. The report must reconcile the
+    /// two timepoints: each routed item carries a "Now (current invariant)"
+    /// cell drawn from the (post-reseal) `audit-proof-report.json` verdicts, and
+    /// an item whose invariant is now `pass` is marked cleared — so the section
+    /// no longer reads as a contradiction of the invariants table above.
+    #[test]
+    fn repair_review_annotates_later_cleared_invariants() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let rt = dir.path().join("runtime");
+        fs::create_dir_all(&rt).expect("mk runtime");
+
+        // Current (post-reseal) verdicts: the two offline invariants now pass;
+        // evidence_coverage is still a non-pass warn.
+        let ap = serde_json::json!({
+            "verdicts": [
+                {"id": "equivalence_failure", "status": "pass", "n_violations": 0, "n_inspected": 1},
+                {"id": "substrate_validity",  "status": "pass", "n_violations": 0, "n_inspected": 1},
+                {"id": "evidence_coverage",   "status": "warn", "n_violations": 62, "n_inspected": 64}
+            ]
+        });
+        fs::write(
+            rt.join("audit-proof-report.json"),
+            serde_json::to_string_pretty(&ap).expect("ser"),
+        )
+        .expect("write ap");
+
+        // Original-run repair snapshot routed these BEFORE any re-execution.
+        let status = serde_json::json!({
+            "verdict": "mostly_passing",
+            "rounds": 1,
+            "review": [
+                {"failure": {"id": "e1", "source": {"InvariantFailure": "equivalence_failure"},
+                    "task": "audit", "subject": "equivalence_failure",
+                    "detail": "no re-execution performed (Q absent)", "status": "InReview"},
+                 "why": "unresolved after repair (InReview)"},
+                {"failure": {"id": "s1", "source": {"InvariantFailure": "substrate_validity"},
+                    "task": "audit", "subject": "substrate_validity",
+                    "detail": "runcrate not run", "status": "InReview"},
+                 "why": "unresolved after repair (InReview)"},
+                {"failure": {"id": "v1", "source": {"InvariantFailure": "evidence_coverage"},
+                    "task": "audit", "subject": "evidence_coverage",
+                    "detail": "62 output(s) not referenced and not marked unused", "status": "InReview"},
+                 "why": "unresolved after repair (InReview)"},
+                {"failure": {"id": "c1", "source": "ClaimMismatch", "class": "narrative_correction",
+                    "task": "differential_expression", "subject": "2,197 genes upregulated",
+                    "detail": "count claim mismatch", "status": "InReview"},
+                 "why": "unresolved after repair (InReview)"}
+            ]
+        });
+        fs::write(
+            rt.join("repair-status.json"),
+            serde_json::to_string_pretty(&status).expect("ser"),
+        )
+        .expect("write sidecar");
+
+        write_audit_report(dir.path()).expect("write report");
+        let md = fs::read_to_string(dir.path().join("AUDIT-REPORT.md")).expect("read report");
+
+        // New reconciliation column present.
+        assert!(
+            md.contains("Now (current invariant)"),
+            "repair table must carry the current-invariant column; got:\n{md}"
+        );
+        // The two offline invariants, now pass, are marked cleared on their repair rows
+        // (disambiguated from the invariants table by their repair detail text).
+        let eq = md
+            .lines()
+            .find(|l| l.contains("no re-execution performed"))
+            .unwrap_or("");
+        assert!(
+            eq.contains("cleared") && eq.contains("pass"),
+            "equivalence_failure routed item must be annotated cleared/pass; got:\n{eq}"
+        );
+        let sv = md.lines().find(|l| l.contains("runcrate not run")).unwrap_or("");
+        assert!(
+            sv.contains("cleared"),
+            "substrate_validity routed item must be annotated cleared; got:\n{sv}"
+        );
+        // A still-non-pass invariant is NOT marked cleared.
+        let ev = md
+            .lines()
+            .find(|l| l.contains("62 output(s) not referenced"))
+            .unwrap_or("");
+        assert!(
+            !ev.contains("cleared") && ev.contains("warn"),
+            "evidence_coverage (still warn) must NOT be marked cleared; got:\n{ev}"
+        );
+        // A non-audit failure has no invariant to reconcile against.
+        let cm = md
+            .lines()
+            .find(|l| l.contains("2,197 genes upregulated"))
+            .unwrap_or("");
+        assert!(
+            cm.contains("—"),
+            "non-audit item must show no current-invariant status; got:\n{cm}"
         );
     }
 
