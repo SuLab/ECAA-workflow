@@ -80,7 +80,7 @@ fn config_dir() -> PathBuf {
 }
 
 fn ctx() -> ToolContext {
-    ToolContext::new(config_dir(), "claude-sonnet-4-6")
+    ToolContext::new(config_dir(), "claude-sonnet-5")
 }
 
 /// Which `SessionState` the case targets. Each variant maps to a

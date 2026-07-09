@@ -35,9 +35,18 @@ pub enum ModelId {
     // around the digit boundary (`sonnet_4_6`, not `sonnet46`). These
     // show up as map keys in SessionMetrics.per_model_* BTreeMaps and
     // in the sidecar per_model field.
-    /// Claude Sonnet 4.6 — default model for all turns.
+    /// Claude Sonnet 4.6. Retained for historical deserialization —
+    /// sidecars and metrics written while Sonnet 4.6 was the default
+    /// still round-trip and keep rolling up under the `sonnet_4_6`
+    /// map key. Superseded as the default by `Sonnet5`; mirrors the
+    /// `Opus46` (historical) alongside `Opus48` (current) pattern.
     #[serde(rename = "sonnet_4_6")]
     Sonnet46,
+    /// Claude Sonnet 5 — default model for all turns. Same rate card as
+    /// Sonnet 4.6 pending a distinct published price. Escalations still
+    /// route to `Opus48` (careful_mode / Blocked / low-confidence).
+    #[serde(rename = "sonnet_5")]
+    Sonnet5,
     /// Claude Opus 4.6. Retained so historical sidecars written while
     /// Opus 4.6 was the escalation target still deserialize cleanly and
     /// their spend continues to roll up under `opus_cost_usd`. New
@@ -67,6 +76,7 @@ impl ModelId {
     pub fn api_id(self) -> &'static str {
         match self {
             ModelId::Sonnet46 => "claude-sonnet-4-6",
+            ModelId::Sonnet5 => "claude-sonnet-5",
             ModelId::Opus46 => "claude-opus-4-6",
             ModelId::Opus47 => "claude-opus-4-7",
             ModelId::Opus48 => "claude-opus-4-8",
@@ -87,6 +97,7 @@ impl ModelId {
     /// pricing would otherwise silently fall through to `Sonnet46` rates.
     pub const ALL: &'static [ModelId] = &[
         ModelId::Sonnet46,
+        ModelId::Sonnet5,
         ModelId::Opus46,
         ModelId::Opus47,
         ModelId::Opus48,
@@ -224,7 +235,7 @@ mod tests {
     #[test]
     fn default_is_sonnet() {
         let s = Session::new(false);
-        assert_eq!(ModelPolicy::choose(&s), ModelId::Sonnet46);
+        assert_eq!(ModelPolicy::choose(&s), ModelId::Sonnet5);
     }
 
     #[test]
@@ -244,7 +255,7 @@ mod tests {
             confidence: 0.9,
             ..Default::default()
         });
-        assert_eq!(ModelPolicy::choose(&s), ModelId::Sonnet46);
+        assert_eq!(ModelPolicy::choose(&s), ModelId::Sonnet5);
     }
 
     #[test]
@@ -276,7 +287,7 @@ mod tests {
             context: None,
         };
         s.blocked_opus_escalation_consumed = true;
-        assert_eq!(ModelPolicy::choose(&s), ModelId::Sonnet46);
+        assert_eq!(ModelPolicy::choose(&s), ModelId::Sonnet5);
     }
 
     #[test]
@@ -319,7 +330,7 @@ mod tests {
             confidence: 0.9,
             ..Default::default()
         });
-        assert_eq!(ModelPolicy::choose(&s), ModelId::Sonnet46);
+        assert_eq!(ModelPolicy::choose(&s), ModelId::Sonnet5);
     }
 
     #[test]
@@ -358,13 +369,14 @@ mod tests {
         let sonnet = Session::new(false);
         assert_eq!(
             ModelPolicy::choose_with_reason(&sonnet),
-            (ModelId::Sonnet46, None)
+            (ModelId::Sonnet5, None)
         );
     }
 
     #[test]
     fn api_ids_are_correct() {
         assert_eq!(ModelId::Sonnet46.api_id(), "claude-sonnet-4-6");
+        assert_eq!(ModelId::Sonnet5.api_id(), "claude-sonnet-5");
         assert_eq!(ModelId::Opus46.api_id(), "claude-opus-4-6");
         assert_eq!(ModelId::Opus47.api_id(), "claude-opus-4-7");
         assert_eq!(ModelId::Opus48.api_id(), "claude-opus-4-8");
@@ -377,6 +389,7 @@ mod tests {
         assert!(ModelId::Opus47.is_opus());
         assert!(ModelId::Opus48.is_opus());
         assert!(!ModelId::Sonnet46.is_opus());
+        assert!(!ModelId::Sonnet5.is_opus());
         assert!(!ModelId::Haiku45.is_opus());
     }
 
@@ -395,6 +408,6 @@ mod tests {
         // If a new variant is added, ModelId::ALL must be extended so the
         // metrics pricing-coverage test can fail loudly. This test pins
         // the count; bump it alongside ALL when adding a variant.
-        assert_eq!(ModelId::ALL.len(), 5);
+        assert_eq!(ModelId::ALL.len(), 6);
     }
 }

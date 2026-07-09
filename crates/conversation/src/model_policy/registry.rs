@@ -328,8 +328,22 @@ impl ModelRoutingTable {
         use std::sync::OnceLock;
         static SEED: OnceLock<ModelRoutingTable> = OnceLock::new();
         SEED.get_or_init(|| {
-            ModelRoutingTable::parse(DEFAULT_SEED_YAML)
-                .expect("embedded model-policy.yaml seed must parse")
+            let mut table = ModelRoutingTable::parse(DEFAULT_SEED_YAML)
+                .expect("embedded model-policy.yaml seed must parse");
+            // The embedded seed pins the historical `always` fallback to
+            // Sonnet 4.6. The live default is Sonnet 5 — upgrade the
+            // fallback here rather than in `config/model-policy.yaml` so
+            // the committed seed stays a stable historical reference and
+            // the default flip lives in code alongside the `ModelId`
+            // change. Escalation rules (careful_mode / blocked /
+            // low_confidence → Opus 4.8, side calls → Haiku/Opus) are
+            // untouched; only the unconditional Sonnet fallback moves.
+            if let Some(last) = table.rules.last_mut() {
+                if last.predicate == Predicate::Always && last.model == ModelId::Sonnet46 {
+                    last.model = ModelId::Sonnet5;
+                }
+            }
+            table
         })
     }
 
@@ -380,10 +394,10 @@ impl ModelRoutingTable {
             false,
             "ModelRoutingTable::resolve fell through with no matching rule"
         );
-        // Fall-back fallback — Sonnet, no escalation. Only reachable
-        // if parse validation was bypassed.
+        // Fall-back fallback — the default Sonnet, no escalation. Only
+        // reachable if parse validation was bypassed.
         RoutingDecision {
-            model: ModelId::Sonnet46,
+            model: ModelId::Sonnet5,
             reason: None,
         }
     }
@@ -478,7 +492,7 @@ rules:
             session: Some(&s),
             side_call_kind: None,
         });
-        assert_eq!(dec.model, ModelId::Sonnet46);
+        assert_eq!(dec.model, ModelId::Sonnet5);
         assert_eq!(dec.reason, None);
     }
 
@@ -519,13 +533,14 @@ rules:
         assert_eq!(dec.model, ModelId::Opus48);
         assert_eq!(dec.reason, Some(EscalationReason::Blocked));
 
-        // After the consumed flag flips → Sonnet (the always fallback).
+        // After the consumed flag flips → the default Sonnet (the always
+        // fallback, upgraded to Sonnet 5 in `default_seed`).
         s.blocked_opus_escalation_consumed = true;
         let dec = table.resolve(&EvalContext {
             session: Some(&s),
             side_call_kind: None,
         });
-        assert_eq!(dec.model, ModelId::Sonnet46);
+        assert_eq!(dec.model, ModelId::Sonnet5);
         assert_eq!(dec.reason, None);
     }
 

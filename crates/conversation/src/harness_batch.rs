@@ -744,7 +744,7 @@ mod tests {
                 0,
                 0,
                 0,
-                crate::model_policy::ModelId::Sonnet46,
+                crate::model_policy::ModelId::Sonnet5,
             )
             .await;
 

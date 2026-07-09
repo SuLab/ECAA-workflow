@@ -276,7 +276,7 @@ mod tests {
         // The propose_hypothesized_node handler only reads
         // `ctx.event_sink` + `ctx.session_id`; both are None in tests
         // so the fire-and-forget SSE block is a no-op.
-        ToolContext::new(PathBuf::from("/tmp"), "claude-sonnet-4-6")
+        ToolContext::new(PathBuf::from("/tmp"), "claude-sonnet-5")
     }
 
     #[test]

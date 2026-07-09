@@ -246,7 +246,7 @@ async fn with_store_does_not_panic_while_unrelated_transaction_yields() {
         // `in_transaction()` is false. The pre-fix thread-local
         // could observe A's flag from B's task; the task-local fix
         // returns false here because B is a different task.
-        let _ctx = ToolContext::new(std::path::PathBuf::from("/tmp"), "claude-sonnet-4-6")
+        let _ctx = ToolContext::new(std::path::PathBuf::from("/tmp"), "claude-sonnet-5")
             .with_store(store_b);
         let _ = b_done_tx.send(());
     });
@@ -277,7 +277,7 @@ async fn with_store_panics_when_called_inside_same_task_transaction() {
                 // Same task as the transaction closure — the
                 // task-local flag IS visible here and the guard MUST
                 // panic.
-                let _ctx = ToolContext::new(std::path::PathBuf::from("/tmp"), "claude-sonnet-4-6")
+                let _ctx = ToolContext::new(std::path::PathBuf::from("/tmp"), "claude-sonnet-5")
                     .with_store(store_inner);
                 Ok(())
             })

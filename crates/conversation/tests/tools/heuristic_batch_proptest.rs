@@ -43,7 +43,7 @@ fn config_dir() -> PathBuf {
 }
 
 fn ctx() -> ToolContext {
-    ToolContext::new(config_dir(), "claude-sonnet-4-6")
+    ToolContext::new(config_dir(), "claude-sonnet-5")
 }
 
 /// Strategy producing a single `Tool` chosen uniformly from the
