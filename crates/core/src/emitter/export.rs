@@ -328,14 +328,20 @@ fn profile_extra_drop(
         rel.components()
             .any(|c| matches!(c, std::path::Component::Normal(s) if s.to_string_lossy() == name))
     };
-    // Lean profiles (re-executable + minimal): the policy-doc catalog + the
-    // redundant Turtle copy, the human preview, the informational
-    // self-assessment, and the informational git-log lineage. The lineage is
-    // also skipped at the write site, but dropping it here as well makes the
-    // exclusion robust when the *source* already carries one (e.g. re-exporting
-    // a previously-exported full deposit, which appends it post-copy).
-    if rel_str.starts_with("policies/")
-        || rel_str == "package.ttl"
+    // Lean profiles (re-executable + minimal): the redundant Turtle copy, the
+    // human preview, the informational self-assessment, and the informational
+    // git-log lineage. The lineage is also skipped at the write site, but
+    // dropping it here as well makes the exclusion robust when the *source*
+    // already carries one (e.g. re-exporting a previously-exported full deposit,
+    // which appends it post-copy).
+    //
+    // NOTE: the `policies/` best-practice catalog is NOT dropped here. The
+    // re-execution tier's `discover_*`/`validate_*` stages read
+    // `policies/best-practice-scoring-policy.json` at replay, so `ReExecutable`
+    // must retain it (else those stages fail with FileNotFoundError); it is
+    // dropped only under `MinimalAudit` below (which also drops the whole
+    // re-execution tier).
+    if rel_str == "package.ttl"
         || rel_str == "ro-crate-preview.html"
         || rel_str == "runtime/ed-cf-self-assessment.json"
         || rel_str == "runtime/execution-lineage.txt"
@@ -344,7 +350,8 @@ fn profile_extra_drop(
     }
     // Minimal only: also drop the re-execution tier …
     if matches!(profile, DepositProfile::MinimalAudit) {
-        if has_component("scripts")
+        if rel_str.starts_with("policies/")
+            || has_component("scripts")
             || basename == "env.lock"
             || rel_str.starts_with("runtime/plotting/")
             || rel_str.starts_with("runtime/plotting_r/")
@@ -1428,14 +1435,18 @@ mod tests {
 
         // Re-executable: drops policy docs + bloat; keeps re-exec tier + audit + results.
         let re = run(DepositProfile::ReExecutable);
-        for f in ["policies/interpretation-policy.json", "policies/container.json",
-                  "package.ttl", "ro-crate-preview.html", "runtime/ed-cf-self-assessment.json",
+        for f in ["package.ttl", "ro-crate-preview.html", "runtime/ed-cf-self-assessment.json",
                   "runtime/execution-lineage.txt"] {
             assert!(!re.join(f).exists(), "re-executable must drop {f}");
         }
         for f in ["runtime/outputs/de/scripts/01.R", "inputs/counts.tsv", "lib/measure.py",
                   "runtime/audit-proof-report.json", "runtime/claim-verification.json",
                   "runtime/outputs/de/de_results.tsv",
+                  // re-executable RETAINS the policies/ best-practice catalog: the
+                  // discover_*/validate_* re-execution stages read
+                  // policies/best-practice-scoring-policy.json at replay, so it must
+                  // survive (only MinimalAudit drops it).
+                  "policies/interpretation-policy.json", "policies/container.json",
                   // re-executable KEEPS stage working data (it is re-executable)
                   "runtime/outputs/a_step/normalized_counts/sct_residuals.rds",
                   "runtime/outputs/a_step/normalized_counts/raw_hvg.h5ad",

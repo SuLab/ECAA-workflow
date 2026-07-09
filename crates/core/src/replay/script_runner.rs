@@ -136,6 +136,40 @@ pub fn stage_and_run(
         copy_dir_all(&inputs_src, &inputs_dst)?;
     }
 
+    // Stage package-ROOT inputs that re-run scripts read at PKG-relative paths
+    // but which live OUTSIDE `runtime/outputs/` (so the per-stage pass above
+    // misses them): the best-practice policy catalog (`policies/`), the shared
+    // code library (`lib/`), and every top-level `runtime/*` file/dir EXCEPT
+    // `outputs/` — e.g. `runtime/env_capability.json`,
+    // `runtime/sme-review-confirmed-*.json`, `runtime/execution-order.json`,
+    // `runtime/inputs/`. Without these, discover_*/validate_* re-runs hit
+    // FileNotFoundError on paths like `policies/best-practice-scoring-policy.json`.
+    for root in ["policies", "lib"] {
+        let src = pkg.join(root);
+        if src.is_dir() {
+            copy_dir_all(&src, &scratch.join(root))?;
+        }
+    }
+    if let Ok(entries) = std::fs::read_dir(pkg.join("runtime")) {
+        let mut children: Vec<_> = entries.filter_map(|e| e.ok()).collect();
+        children.sort_by_key(|e| e.file_name());
+        for e in children {
+            if e.file_name() == "outputs" {
+                continue; // staged per-stage above
+            }
+            let src = e.path();
+            let dst = scratch.join("runtime").join(e.file_name());
+            if src.is_dir() {
+                copy_dir_all(&src, &dst)?;
+            } else if src.is_file() {
+                if let Some(parent) = dst.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::copy(&src, &dst)?;
+            }
+        }
+    }
+
     // Resolve run order: tasks listed in `order` first (in that order), then
     // remaining tasks in stable (original slice) order.
     let ordered_ids: Vec<&str> = order.iter().map(|s| s.as_str()).collect();
@@ -1157,6 +1191,80 @@ mod tests {
         assert!(
             !staged_script.exists(),
             "skipped stage's scripts/ subdir must be excluded from staging"
+        );
+    }
+
+    /// Package-ROOT inputs read by re-run scripts — the `policies/` catalog,
+    /// `lib/`, and top-level `runtime/*` files such as `env_capability.json` —
+    /// live OUTSIDE `runtime/outputs/`, so the per-stage staging pass misses
+    /// them. `stage_and_run` must stage them, else discover_*/validate_* re-runs
+    /// hit FileNotFoundError on e.g. `policies/best-practice-scoring-policy.json`.
+    #[test]
+    fn stages_package_root_inputs_into_scratch() {
+        let pkg_tmp = tempdir().unwrap();
+        let scratch_tmp = tempdir().unwrap();
+        let pkg = pkg_tmp.path();
+        let scratch = scratch_tmp.path();
+
+        std::fs::create_dir_all(pkg.join("policies")).unwrap();
+        std::fs::write(
+            pkg.join("policies/best-practice-scoring-policy.json"),
+            "{\"weights\":{}}",
+        )
+        .unwrap();
+        std::fs::create_dir_all(pkg.join("runtime")).unwrap();
+        std::fs::write(pkg.join("runtime/env_capability.json"), "{\"cpu\":1}").unwrap();
+        std::fs::create_dir_all(pkg.join("lib")).unwrap();
+        std::fs::write(pkg.join("lib/helper.py"), "x = 1\n").unwrap();
+
+        // A run-set stage that reads the package-root policy + capability files;
+        // fails (exit non-zero) if they are not staged.
+        let scripts = pkg.join("runtime/outputs/discover_normalisation/scripts");
+        std::fs::create_dir_all(&scripts).unwrap();
+        std::fs::write(
+            scripts.join("01_score.sh"),
+            "#!/usr/bin/env bash\nset -e\n\
+             test -f \"$PKG_ROOT/policies/best-practice-scoring-policy.json\"\n\
+             test -f \"$PKG_ROOT/runtime/env_capability.json\"\n\
+             mkdir -p \"$PKG_ROOT/runtime/outputs/discover_normalisation\"\n\
+             echo '{}' > \"$PKG_ROOT/runtime/outputs/discover_normalisation/decision.json\"\n",
+        )
+        .unwrap();
+
+        let task = ComputeTask {
+            task_id: "discover_normalisation".to_string(),
+            scripts_dir: scripts.clone(),
+            result_tables: vec![],
+        };
+        let outcomes = stage_and_run(
+            pkg,
+            scratch,
+            &[task],
+            &["discover_normalisation".to_string()],
+            &shell_env(),
+            "/irrelevant",
+            &BTreeMap::new(),
+        )
+        .unwrap();
+
+        assert!(
+            outcomes[0].ok,
+            "discover stage must find staged package-root inputs; stderr: {}",
+            outcomes[0].stderr
+        );
+        assert!(
+            scratch
+                .join("policies/best-practice-scoring-policy.json")
+                .exists(),
+            "policies/ must be staged into scratch"
+        );
+        assert!(
+            scratch.join("runtime/env_capability.json").exists(),
+            "top-level runtime/*.json must be staged into scratch"
+        );
+        assert!(
+            scratch.join("lib/helper.py").exists(),
+            "lib/ must be staged into scratch"
         );
     }
 }

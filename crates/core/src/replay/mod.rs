@@ -7,7 +7,7 @@ pub mod script_runner;
 pub mod select;
 pub use report::{ReplayReport, ReplayVerdict, ReverifyResult, ReexecuteResult, VerifierDiff, SkippedStage, compute_verdict};
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use crate::reexecution::{classify_reexecution, ReexecutionBucket};
@@ -504,6 +504,37 @@ fn reconcile_failed_task_buckets(
             ));
         }
     }
+
+    // Surface table-less run failures. A stage that ran `ok:false` but produced
+    // no comparable `.tsv/.csv` artifact has no `per_artifact` row above, so its
+    // failure would be invisible to the verdict (the reporting / validate_* /
+    // discover_* stages emit `.md`/`.json`, not tables). Append a synthetic
+    // Failed row for each such task_id, in deterministic (sorted) order, so a
+    // silent run failure cannot masquerade as a clean partial.
+    let represented: BTreeSet<&str> = report
+        .per_artifact
+        .iter()
+        .filter_map(|ac| extract_task_id_from_artifact_path(&ac.artifact_path))
+        .collect();
+    let mut unrepresented: Vec<(&str, &str)> = failed
+        .iter()
+        .filter(|(tid, _)| !represented.contains(*tid))
+        .map(|(tid, se)| (*tid, *se))
+        .collect();
+    unrepresented.sort_by_key(|(tid, _)| *tid);
+    for (task_id, stderr) in unrepresented {
+        report
+            .per_artifact
+            .push(crate::reexecution::ArtifactClassification {
+                artifact_path: format!("runtime/outputs/{task_id}/"),
+                bucket: ReexecutionBucket::Failed,
+                reason: Some(format!(
+                    "task '{task_id}' ran and exited ok:false but produced no comparable \
+                     table; recorded Failed so the run failure is not hidden. stderr tail: {}",
+                    stderr_tail(stderr)
+                )),
+            });
+    }
     report.finalize_counts();
 }
 
@@ -748,6 +779,56 @@ mod tests {
             Some(1),
             "counts must be re-finalized"
         );
+    }
+
+    /// A stage that ran `ok:false` but produced NO comparable `.tsv/.csv` table
+    /// has no `per_artifact` row, so its failure would be invisible. It must be
+    /// surfaced as a synthetic `Failed` row keyed by its output dir. A
+    /// successful table-less stage gets no such row.
+    #[test]
+    fn reconcile_surfaces_tableless_run_failure() {
+        use crate::reexecution::{ArtifactClassification, ReexecutionBucket, ReexecutionReport};
+        use crate::replay::script_runner::RunOutcome;
+
+        let mut rep = ReexecutionReport::empty("0.1");
+        rep.per_artifact.push(ArtifactClassification {
+            artifact_path: "runtime/outputs/normalisation/hvg_list.tsv".into(),
+            bucket: ReexecutionBucket::ByteIdentical,
+            reason: None,
+        });
+
+        let outcomes = vec![
+            RunOutcome {
+                task_id: "normalisation".into(),
+                ok: true,
+                stderr: String::new(),
+            },
+            RunOutcome {
+                task_id: "discover_normalisation".into(),
+                ok: false,
+                stderr: "FileNotFoundError: policies/best-practice-scoring-policy.json\n".into(),
+            },
+        ];
+
+        reconcile_failed_task_buckets(&mut rep, &outcomes);
+
+        let synth = rep
+            .per_artifact
+            .iter()
+            .find(|ac| ac.artifact_path == "runtime/outputs/discover_normalisation/")
+            .expect("table-less run failure must be surfaced as a synthetic row");
+        assert_eq!(synth.bucket, ReexecutionBucket::Failed);
+        assert!(synth
+            .reason
+            .as_deref()
+            .unwrap()
+            .contains("policies/best-practice"));
+        assert_eq!(rep.bucket_counts.get("failed").copied(), Some(1));
+        // The successful table-less stage must NOT get a spurious failed row.
+        assert!(!rep
+            .per_artifact
+            .iter()
+            .any(|ac| ac.artifact_path == "runtime/outputs/normalisation/"));
     }
 
     /// Helper to verify extract_task_id_from_artifact_path.
