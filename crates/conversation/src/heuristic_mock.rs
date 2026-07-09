@@ -658,7 +658,7 @@ mod tests {
             system_prompt: vec![],
             conversation: Arc::new(vec![]),
             tool_schemas: vec![],
-            model: ModelId::Sonnet46,
+            model: ModelId::Sonnet5,
             temperature: 0.4,
             max_tokens: 1024,
             tool_exchange: vec![],

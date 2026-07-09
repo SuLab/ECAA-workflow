@@ -67,7 +67,7 @@ fn config_dir() -> PathBuf {
 }
 
 fn ctx() -> ToolContext {
-    ToolContext::new(config_dir(), "claude-sonnet-4-6")
+    ToolContext::new(config_dir(), "claude-sonnet-5")
 }
 
 #[tokio::test]
@@ -3243,7 +3243,7 @@ mod d11_proposal_signoff_freshness {
 
         // Wire the store into the ToolContext exactly as the production
         // tool_loop does via `.with_store(self.store_handle())`.
-        let ctx = ToolContext::new(config_dir(), "claude-sonnet-4-6").with_store(store.clone());
+        let ctx = ToolContext::new(config_dir(), "claude-sonnet-5").with_store(store.clone());
 
         let res = dispatch_one(
             &Tool::Batchable(BatchableTool::ProposeSummaryConfirmation {
@@ -3316,7 +3316,7 @@ mod d11_proposal_signoff_freshness {
             ProposalLifecycle::AwaitingSignoff,
         );
 
-        let ctx = ToolContext::new(config_dir(), "claude-sonnet-4-6").with_store(store.clone());
+        let ctx = ToolContext::new(config_dir(), "claude-sonnet-5").with_store(store.clone());
 
         let res = dispatch_one(
             &Tool::Batchable(BatchableTool::ProposeSummaryConfirmation {

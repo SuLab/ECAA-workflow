@@ -23,7 +23,7 @@ fn config_dir() -> PathBuf {
 
 async fn boot_session_with_dag() -> Session {
     let mut session = Session::test_fixture_with_dag();
-    let ctx = ToolContext::new(config_dir(), "claude-sonnet-4-6");
+    let ctx = ToolContext::new(config_dir(), "claude-sonnet-5");
     dispatch_one(
         &Tool::Batchable(BatchableTool::AppendIntakeProse {
             prose: "single cell scRNA-seq from human IVD samples comparing degenerated and healthy"

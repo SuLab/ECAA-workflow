@@ -209,7 +209,7 @@ mod tests {
         // C-3: the LLM can no longer choose; the response always echoes
         // the production default so the SME can audit the trail.
         let mut s = emitted_session();
-        let ctx = ToolContext::new(config_dir(), "claude-sonnet-4-6");
+        let ctx = ToolContext::new(config_dir(), "claude-sonnet-5");
         let res = start_execution_tool(&mut s, None, &ctx);
         assert!(!res.is_error, "tool returned an error: {:?}", res);
         assert_eq!(res.content["agent_path"], "scripts/agent-claude.sh");
@@ -218,7 +218,7 @@ mod tests {
     #[test]
     fn max_iterations_default_is_twenty() {
         let mut s = emitted_session();
-        let ctx = ToolContext::new(config_dir(), "claude-sonnet-4-6");
+        let ctx = ToolContext::new(config_dir(), "claude-sonnet-5");
         let res = start_execution_tool(&mut s, None, &ctx);
         assert_eq!(res.content["max_iterations"], 20);
     }
@@ -226,7 +226,7 @@ mod tests {
     #[test]
     fn explicit_max_iterations_is_echoed() {
         let mut s = emitted_session();
-        let ctx = ToolContext::new(config_dir(), "claude-sonnet-4-6");
+        let ctx = ToolContext::new(config_dir(), "claude-sonnet-5");
         let res = start_execution_tool(&mut s, Some(7), &ctx);
         assert_eq!(res.content["max_iterations"], 7);
     }
@@ -236,7 +236,7 @@ mod tests {
         // No token minted → the LLM tool must refuse (the human hasn't
         // pressed Start yet).
         let mut s = emitted_session_no_token();
-        let ctx = ToolContext::new(config_dir(), "claude-sonnet-4-6");
+        let ctx = ToolContext::new(config_dir(), "claude-sonnet-5");
         let denied = start_execution_tool(&mut s, None, &ctx);
         assert!(
             denied.is_error,

@@ -29,7 +29,7 @@ fn config_dir() -> PathBuf {
 /// `emit_package` has something to lower.
 async fn boot_session_with_dag() -> Session {
     let mut session = Session::test_fixture_with_dag();
-    let ctx = ToolContext::new(config_dir(), "claude-sonnet-4-6");
+    let ctx = ToolContext::new(config_dir(), "claude-sonnet-5");
     dispatch_one(
         &Tool::Batchable(BatchableTool::AppendIntakeProse {
             prose: "single cell scRNA-seq from human IVD samples comparing degenerated and healthy"
@@ -138,7 +138,7 @@ async fn model_policy_sidecar_emitted_with_prompt_hash() {
         serde_json::from_str(&std::fs::read_to_string(&sidecar).unwrap()).unwrap();
     assert_eq!(body["schema_version"], "1");
     // active_model_id is the Debug-formatted ModelId variant; one of
-    // Sonnet46 / Opus48 / Opus46 / Haiku45.
+    // Sonnet5 / Sonnet46 / Opus48 / Opus46 / Haiku45.
     let model_id = body["active_model_id"]
         .as_str()
         .expect("active_model_id must be a string");

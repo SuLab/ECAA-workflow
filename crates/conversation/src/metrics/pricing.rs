@@ -27,6 +27,19 @@ pub const SONNET_4_6: ModelPrices = ModelPrices {
     cache_read_per_mtok: 0.30,
 };
 
+/// Claude Sonnet 5 list pricing. Placeholder = Sonnet 4.6 rates — no
+/// distinct published Sonnet 5 rate card yet. Kept as its own constant
+/// so agent runs / metrics reported as `claude-sonnet-5` price against
+/// a dedicated entry rather than falling through, and so the row is
+/// ready to diverge the moment a distinct price ships.
+pub const SONNET_5: ModelPrices = ModelPrices {
+    // placeholder = Sonnet 4.6 rates
+    input_per_mtok: 3.00,
+    output_per_mtok: 15.00,
+    cache_write_per_mtok: 3.75,
+    cache_read_per_mtok: 0.30,
+};
+
 /// Opus 4.6 list pricing. Retained so legacy sidecars written while
 /// Opus 4.6 was the escalation target continue to price accurately
 /// on rehydration. Rates are identical to Opus 4.8. Verified against
@@ -80,6 +93,7 @@ pub const HAIKU_4_5: ModelPrices = ModelPrices {
 pub fn prices_for(model: ModelId) -> &'static ModelPrices {
     match model {
         ModelId::Sonnet46 => &SONNET_4_6,
+        ModelId::Sonnet5 => &SONNET_5,
         ModelId::Opus46 => &OPUS_4_6,
         ModelId::Opus47 => &OPUS_4_7,
         ModelId::Opus48 => &OPUS_4_8,
