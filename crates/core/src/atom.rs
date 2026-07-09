@@ -329,6 +329,19 @@ pub struct AtomDefinition {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub governance: Option<AtomGovernance>,
+
+    /// Declared, justified sources of non-determinism in this atom's outputs
+    /// (Rec 1 declaration surface). The emit-time projection folds these into
+    /// the package's `determinism-shim.json::non_deterministic_artifacts` (the
+    /// single source the re-execution comparator + audit-proof
+    /// equivalence-failure invariant both read), so a >±5% divergence on a
+    /// column declared here is bucketed `AcknowledgedNonDeterminism` rather than
+    /// `Failed`, while an UN-declared divergence still fails. Optional +
+    /// additive; empty on every legacy atom. `#[ts(skip)]` — this is a
+    /// compiler-internal declaration, not part of the UI type surface.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(skip)]
+    pub non_determinism: Vec<crate::determinism_shim::NonDetAck>,
 }
 
 /// One typed parameter on an atom — the paper-D.1 parameter axis.
@@ -508,6 +521,7 @@ impl AtomDefinition {
             estimated_duration: None,
             safety: SafetyPolicy::default(),
             governance: None,
+            non_determinism: Vec::new(),
         }
     }
 }
@@ -1418,6 +1432,7 @@ mod tests {
             estimated_duration: None,
             safety: Default::default(),
             governance: None,
+            non_determinism: Vec::new(),
         };
         let yaml = serde_yaml_ng::to_string(&atom).expect("serialize");
         let back: AtomDefinition = serde_yaml_ng::from_str(&yaml).expect("roundtrip");
@@ -1466,6 +1481,7 @@ mod tests {
             estimated_duration: None,
             safety: Default::default(),
             governance: None,
+            non_determinism: Vec::new(),
         };
         let yaml = serde_yaml_ng::to_string(&atom).unwrap();
         assert!(yaml.contains("discovery_kind: method"));
@@ -1518,6 +1534,7 @@ mod tests {
             estimated_duration: None,
             safety: Default::default(),
             governance: None,
+            non_determinism: Vec::new(),
         };
         let yaml = serde_yaml_ng::to_string(&atom).unwrap();
         // Default arch is suppressed by skip_serializing_if so the
@@ -1644,6 +1661,7 @@ mod tests {
             estimated_duration: None,
             safety: Default::default(),
             governance: None,
+            non_determinism: Vec::new(),
         };
         let yaml = serde_yaml_ng::to_string(&atom).unwrap();
         let a_pos = yaml.find("- a").unwrap();

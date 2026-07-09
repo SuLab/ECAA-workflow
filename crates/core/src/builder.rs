@@ -993,6 +993,7 @@ mod tests {
             estimated_duration: None,
             safety: Default::default(),
             governance: None,
+            non_determinism: Vec::new(),
         };
         let downstream = AtomDefinition {
             id: "differential_expression".into(),
@@ -1034,6 +1035,7 @@ mod tests {
             estimated_duration: None,
             safety: Default::default(),
             governance: None,
+            non_determinism: Vec::new(),
         };
         let composition = CompositionResult {
             matched_archetype: Some("test_archetype".into()),
@@ -1164,6 +1166,7 @@ mod tests {
             estimated_duration: None,
             safety: Default::default(),
             governance: None,
+            non_determinism: Vec::new(),
         };
         let discover_b = AtomDefinition {
             id: "discover_alignment__rerun_2".into(),
@@ -1205,6 +1208,7 @@ mod tests {
             estimated_duration: None,
             safety: Default::default(),
             governance: None,
+            non_determinism: Vec::new(),
         };
         let composition = CompositionResult {
             matched_archetype: Some("test_archetype".into()),
@@ -1305,6 +1309,7 @@ mod tests {
             estimated_duration: None,
             safety: Default::default(),
             governance: None,
+            non_determinism: Vec::new(),
         };
         let composition = CompositionResult {
             matched_archetype: Some("test_archetype".into()),
@@ -1388,6 +1393,7 @@ mod tests {
             estimated_duration: None,
             safety: Default::default(),
             governance: None,
+            non_determinism: Vec::new(),
         };
         let composition = CompositionResult {
             matched_archetype: Some("cross_omics_test".into()),
@@ -1512,6 +1518,7 @@ mod tests {
             estimated_duration: None,
             safety: Default::default(),
             governance: None,
+            non_determinism: Vec::new(),
         };
         let composition = CompositionResult {
             matched_archetype: None,

@@ -14,7 +14,7 @@
 //! suppression that writes the file lives in the conversation crate.
 
 use ecaa_workflow_core::determinism_shim::{
-    DeterminismShimSidecar, EnvCapture, SeedPolicy, TempPathPolicy,
+    DeterminismShimSidecar, EnvCapture, NonDetAck, NonDetKind, SeedPolicy, TempPathPolicy,
 };
 use ecaa_workflow_core::reexecution::{classify_reexecution, ReexecutionBucket, ReexecutionReport};
 use std::collections::BTreeMap;
@@ -50,7 +50,6 @@ fn minimal_shim_with_seed() -> DeterminismShimSidecar {
     DeterminismShimSidecar {
         schema_version: "1".to_string(),
         env_capture: EnvCapture {
-            // PYTHONHASHSEED is listed → deterministic; seed is set → no ack.
             captured_env_vars: vec!["PYTHONHASHSEED".to_string()],
             redacted_env_vars: vec![],
         },
@@ -65,19 +64,21 @@ fn minimal_shim_with_seed() -> DeterminismShimSidecar {
         locale: "C".to_string(),
         timezone: "UTC".to_string(),
         ablation_engaged: false,
+        // No declared acks: an out-of-band divergence must Fail (soundness).
+        non_deterministic_artifacts: vec![],
     }
 }
 
+/// A shim that declares a single `NonDetAck` for `de.tsv` covering `log2FC`.
 fn minimal_shim_no_seed_no_pythonhash() -> DeterminismShimSidecar {
     DeterminismShimSidecar {
         schema_version: "1".to_string(),
         env_capture: EnvCapture {
-            // PYTHONHASHSEED absent → non-deterministic hash seed active.
             captured_env_vars: vec![],
             redacted_env_vars: vec![],
         },
         seed_policy: SeedPolicy {
-            random_seed: None, // no explicit seed
+            random_seed: None,
             seed_source: "process-default".to_string(),
         },
         temp_path_policy: TempPathPolicy {
@@ -87,6 +88,14 @@ fn minimal_shim_no_seed_no_pythonhash() -> DeterminismShimSidecar {
         locale: "C".to_string(),
         timezone: "UTC".to_string(),
         ablation_engaged: false,
+        // Rec 1: the divergence is now acknowledged by an explicit per-column
+        // NonDetAck, not by a blanket no-seed flag.
+        non_deterministic_artifacts: vec![NonDetAck {
+            artifact: "de.tsv".to_string(),
+            columns: Some(vec!["log2FC".to_string()]),
+            kind: NonDetKind::UnseededRng,
+            reason: "no explicit RNG seed; log2FC drift acknowledged".to_string(),
+        }],
     }
 }
 
@@ -356,4 +365,94 @@ fn configured_modality_tightens_band() {
     let bounds = provider.bounds_for("bulk_rnaseq"); // 2% band
     assert!(bounds.within(100.0, 101.0), "1% within 2% band");
     assert!(!bounds.within(100.0, 104.0), "4% exceeds 2% band");
+}
+
+// ---------------------------------------------------------------------------
+// Rec 1 (soundness / column-scoped) + Rec 2 (CSV) at the public-API level.
+// ---------------------------------------------------------------------------
+
+/// Build a shim declaring one `NonDetAck` for `artifact` (optionally column-scoped).
+fn shim_with_ack(artifact: &str, columns: Option<Vec<&str>>) -> DeterminismShimSidecar {
+    let mut shim = minimal_shim_with_seed();
+    shim.non_deterministic_artifacts = vec![NonDetAck {
+        artifact: artifact.to_string(),
+        columns: columns.map(|c| c.into_iter().map(str::to_string).collect()),
+        kind: NonDetKind::AdaptiveShrinkage,
+        reason: "declared".to_string(),
+    }];
+    shim
+}
+
+#[test]
+fn scenario_out_of_band_unacked_column_fails() {
+    // SOUNDNESS: a no-seed shim with NO matching NonDetAck must NOT mask an
+    // out-of-band divergence — it Fails.
+    let root = TempDir::new().unwrap();
+    let parent = make_package_dirs(&root, "parent");
+    let replay = make_package_dirs(&root, "replay");
+    write_table(&parent, "de.tsv", "gene\tlog2FC\nGENE1\t2.0\n");
+    write_table(&replay, "de.tsv", "gene\tlog2FC\nGENE1\t5.0\n"); // 150%, out of band
+    write_shim(&parent, &minimal_shim_with_seed()); // no acks
+
+    let report = classify_reexecution(
+        &parent,
+        &replay,
+        None,
+        ecaa_workflow_core::reexecution_bounds::ModalityBounds::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        report.per_artifact[0].bucket,
+        ReexecutionBucket::Failed,
+        "un-acked out-of-band divergence must Fail"
+    );
+}
+
+#[test]
+fn scenario_column_scoped_ack_fails_when_other_column_diverges() {
+    // COLUMN-SCOPED: ack covers only log2FoldChange; a divergence in `stat`
+    // (un-acked) must Fail.
+    let root = TempDir::new().unwrap();
+    let parent = make_package_dirs(&root, "parent");
+    let replay = make_package_dirs(&root, "replay");
+    write_table(&parent, "de.tsv", "gene\tlog2FoldChange\tstat\nGENE1\t1.0\t3.0\n");
+    write_table(&replay, "de.tsv", "gene\tlog2FoldChange\tstat\nGENE1\t1.0\t9.0\n");
+    write_shim(&parent, &shim_with_ack("de.tsv", Some(vec!["log2FoldChange"])));
+
+    let report = classify_reexecution(
+        &parent,
+        &replay,
+        None,
+        ecaa_workflow_core::reexecution_bounds::ModalityBounds::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        report.per_artifact[0].bucket,
+        ReexecutionBucket::Failed,
+        "divergence in an un-acked column must Fail"
+    );
+}
+
+#[test]
+fn scenario_csv_comma_within_band_is_semantic_equivalent() {
+    // CSV (Rec 2): a comma-delimited `.csv` with a within-band numeric cell must
+    // classify SemanticEquivalent, not be mis-parsed as one tab-delimited column.
+    let root = TempDir::new().unwrap();
+    let parent = make_package_dirs(&root, "parent");
+    let replay = make_package_dirs(&root, "replay");
+    write_table(&parent, "de.csv", "gene,log2FC,padj\nGENE1,2.00,0.01\n");
+    write_table(&replay, "de.csv", "gene,log2FC,padj\nGENE1,2.05,0.01\n"); // 2.5%, in band
+
+    let report = classify_reexecution(
+        &parent,
+        &replay,
+        None,
+        ecaa_workflow_core::reexecution_bounds::ModalityBounds::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        report.per_artifact[0].bucket,
+        ReexecutionBucket::SemanticEquivalent,
+        "within-band comma-delimited CSV must be SemanticEquivalent"
+    );
 }

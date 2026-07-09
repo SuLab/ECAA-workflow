@@ -1,8 +1,16 @@
 //! Invariant 4: equivalence-failure.
-//! Every re-execution divergence must be acknowledged by an F Blocker
-//! (`unprovable_edge` / `policy_exception`). Per spec §4, the predicate ranges
-//! over `Q.RerunOutcomes`: any outcome whose `class` is `failed` or
-//! `acknowledged_non_determinism` requires a corresponding Blocker.
+//! Every re-execution divergence must be acknowledged. Per spec §4, the
+//! predicate ranges over `Q.RerunOutcomes`: any outcome whose `class` is
+//! `failed` or `acknowledged_non_determinism` requires an acknowledgment from
+//! EITHER an `assumptions.jsonl` F Blocker (`unprovable_edge` /
+//! `policy_exception`, the historical source) OR — for an
+//! `acknowledged_non_determinism` outcome — a matching `NonDetAck` in
+//! `runtime/determinism-shim.json::non_deterministic_artifacts`. The shim ack
+//! is the SAME declaration the re-execution comparator consulted when it
+//! assigned the `acknowledged_non_determinism` bucket, so the comparator and
+//! this invariant are unified on one source. A `failed` outcome is NOT
+//! satisfiable by a bare shim match (the comparator emits `failed` when the ack
+//! did not cover the divergence), so it still requires an F Blocker.
 //!
 //! The five-class `RerunOutcome` typing
 //! (`byte_identical` / `semantic_equivalent` / `acknowledged_non_determinism` /
@@ -21,6 +29,7 @@
 
 use crate::audit_proof::loader::LoadedPackage;
 use crate::audit_proof::{InvariantId, InvariantStatus, InvariantVerdict};
+use crate::determinism_shim::{ack_for, DeterminismShimSidecar};
 use serde_json::Value;
 use std::collections::BTreeSet;
 
@@ -51,27 +60,38 @@ pub fn check_equivalence_failure(pkg: &LoadedPackage) -> InvariantVerdict {
     // class lives in `bucket` (canonical `ReexecutionBucket` serialization),
     // and the outcome id is `artifact_path`. (`class`/`id` are accepted as
     // forward-compatible aliases for hand-authored rows.)
-    let mut needs_ack: Vec<String> = outcomes
+    //
+    // Each entry carries a `shim_eligible` flag: an
+    // `acknowledged_non_determinism` row may be satisfied by a shim `NonDetAck`
+    // (the comparator already certified the ack COVERS the divergence when it
+    // assigned that bucket — see `reexecution::classify_single_artifact`). A
+    // `failed` row must NOT be satisfiable by a bare artifact-level shim match
+    // (the comparator emits `failed` precisely when the ack did NOT cover the
+    // divergence, e.g. an un-acked column), so `failed` requires an explicit
+    // F.Blocker. This keeps the comparator bucket and the invariant unified on
+    // the SAME `NonDetAck` source without reintroducing column-level masking.
+    let mut needs_ack: Vec<(String, bool)> = outcomes
         .iter()
         .filter_map(|o| {
             let class = o
                 .get("bucket")
                 .and_then(Value::as_str)
-                .or_else(|| o.get("class").and_then(Value::as_str));
-            if class.is_some_and(|c| DIVERGED_CLASSES.contains(&c)) {
-                o.get("artifact_path")
-                    .and_then(Value::as_str)
-                    .or_else(|| o.get("id").and_then(Value::as_str))
-                    .map(String::from)
-            } else {
-                None
+                .or_else(|| o.get("class").and_then(Value::as_str))?;
+            if !DIVERGED_CLASSES.contains(&class) {
+                return None;
             }
+            let id = o
+                .get("artifact_path")
+                .and_then(Value::as_str)
+                .or_else(|| o.get("id").and_then(Value::as_str))?;
+            Some((id.to_string(), class == "acknowledged_non_determinism"))
         })
         .collect();
     // The compile-time port-unification trace (`event:"prove"`/`outcome:"failed"`)
     // stays in `verifier-decisions.jsonl`. An unacknowledged prove-failure is the
     // second silent-corruption shape this invariant escalates to `Fail`. It is
-    // NOT re-execution evidence — it cannot, on its own, make Q "present".
+    // NOT re-execution evidence — it cannot, on its own, make Q "present". A
+    // prove-failure is never shim-eligible (it is not a re-execution divergence).
     needs_ack.extend(pkg.verifier_decisions.iter().filter_map(|v| {
         let is_prove_failed = v.get("event").and_then(Value::as_str) == Some("prove")
             && v.get("outcome").and_then(Value::as_str) == Some("failed");
@@ -79,7 +99,7 @@ pub fn check_equivalence_failure(pkg: &LoadedPackage) -> InvariantVerdict {
             v.get("edge_id")
                 .and_then(Value::as_str)
                 .or_else(|| v.get("id").and_then(Value::as_str))
-                .map(String::from)
+                .map(|id| (id.to_string(), false))
         } else {
             None
         }
@@ -113,10 +133,24 @@ pub fn check_equivalence_failure(pkg: &LoadedPackage) -> InvariantVerdict {
                 .map(String::from)
         })
         .collect();
+    // The determinism shim is the SECOND acknowledgment source (unification):
+    // an `acknowledged_non_determinism` divergence is satisfied by a matching
+    // `NonDetAck` even when no `assumptions.jsonl` F.Blocker exists. Read via
+    // the already-loaded `pkg.determinism_shim` (loader reads
+    // `runtime/determinism-shim.json`); a partial/absent shim → no shim acks.
+    let shim: Option<DeterminismShimSidecar> = pkg
+        .determinism_shim
+        .as_ref()
+        .and_then(|v| serde_json::from_value(v.clone()).ok());
     let violators: Vec<String> = needs_ack
         .iter()
-        .filter(|e| !ack.iter().any(|a| a == *e || a.contains(e.as_str())))
-        .cloned()
+        .filter(|(e, shim_eligible)| {
+            let acked_by_blocker = ack.iter().any(|a| a == e || a.contains(e.as_str()));
+            let acked_by_shim = *shim_eligible
+                && shim.as_ref().and_then(|s| ack_for(s, e)).is_some();
+            !(acked_by_blocker || acked_by_shim)
+        })
+        .map(|(e, _)| e.clone())
         .collect();
     let n_inspected = needs_ack.len();
     let n_violations = violators.len();

@@ -582,6 +582,83 @@ fn equivalence_failure_passes_when_rerun_divergence_acknowledged() {
     assert_eq!(v.status, InvariantStatus::Pass);
 }
 
+/// Build a full determinism-shim JSON `Value` carrying the given
+/// `non_deterministic_artifacts` array.
+fn shim_doc(non_det_acks: serde_json::Value) -> serde_json::Value {
+    json!({
+        "schema_version": "1",
+        "env_capture": {"captured_env_vars": [], "redacted_env_vars": []},
+        "seed_policy": {"random_seed": null, "seed_source": "process-default"},
+        "temp_path_policy": {"strategy": "stable-by-task-id", "root": "runtime/scratch"},
+        "locale": "C",
+        "timezone": "UTC",
+        "ablation_engaged": false,
+        "non_deterministic_artifacts": non_det_acks,
+    })
+}
+
+#[test]
+fn equivalence_failure_passes_when_acknowledged_via_shim_nondet_ack() {
+    // UNIFICATION: an `acknowledged_non_determinism` RerunOutcome plus a matching
+    // shim `NonDetAck` is satisfied WITHOUT any assumptions.jsonl F.Blocker. The
+    // shim is the SAME source the comparator used to assign the acknowledged
+    // bucket, so the two layers agree on one declaration.
+    let pkg = LoadedPackage {
+        reexecution: Some(reexecution_doc(vec![json!({
+            "artifact_path": "runtime/outputs/differential_expression/de_results.tsv",
+            "bucket": "acknowledged_non_determinism"
+        })])),
+        // NO F.Blocker in assumptions — the shim alone must satisfy.
+        assumptions: vec![],
+        determinism_shim: Some(shim_doc(json!([{
+            "artifact": "de_results.tsv",
+            "columns": ["log2FoldChange"],
+            "kind": "adaptive_shrinkage",
+            "reason": "apeglm shrinkage of log2 fold changes"
+        }]))),
+        ..Default::default()
+    };
+    let v = check_equivalence_failure(&pkg);
+    assert_eq!(
+        v.status,
+        InvariantStatus::Pass,
+        "acknowledged divergence + matching shim NonDetAck must Pass with no F.Blocker: {:?}",
+        v.detail
+    );
+    assert!(
+        pkg.assumptions.is_empty(),
+        "unification test must carry NO assumptions.jsonl entry"
+    );
+}
+
+#[test]
+fn equivalence_failure_failed_row_not_satisfied_by_shim_ack() {
+    // A `failed` RerunOutcome must NOT be satisfied by a bare artifact-level shim
+    // match: the comparator emits `failed` precisely when the ack did not cover
+    // the divergence (e.g. an un-acked column), so only an explicit F.Blocker can
+    // acknowledge it — a shim match here would reintroduce column-level masking.
+    let pkg = LoadedPackage {
+        reexecution: Some(reexecution_doc(vec![json!({
+            "artifact_path": "runtime/outputs/differential_expression/de_results.tsv",
+            "bucket": "failed"
+        })])),
+        assumptions: vec![],
+        determinism_shim: Some(shim_doc(json!([{
+            "artifact": "de_results.tsv",
+            "columns": ["log2FoldChange"],
+            "kind": "adaptive_shrinkage",
+            "reason": "apeglm shrinkage of log2 fold changes"
+        }]))),
+        ..Default::default()
+    };
+    let v = check_equivalence_failure(&pkg);
+    assert_eq!(
+        v.status,
+        InvariantStatus::Fail,
+        "a failed rerun row must not be masked by a shim NonDetAck"
+    );
+}
+
 #[test]
 fn equivalence_failure_ignores_non_divergent_rerun_classes() {
     // byte_identical / semantic_equivalent / unavailable are not in the

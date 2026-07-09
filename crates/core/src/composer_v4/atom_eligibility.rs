@@ -141,6 +141,7 @@ mod tests {
             estimated_duration: None,
             safety: Default::default(),
             governance: None,
+            non_determinism: Vec::new(),
         }
     }
 

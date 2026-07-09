@@ -3481,6 +3481,7 @@ fn placeholder_atom(node: &TaskNode) -> AtomDefinition {
         estimated_duration: None,
         safety: crate::atom::SafetyPolicy::default(),
         governance: None,
+        non_determinism: Vec::new(),
     }
 }
 
