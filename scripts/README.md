@@ -67,6 +67,7 @@ Operational scripts used by the Make targets and manual end-to-end runs, organiz
 | `test_agent_fixture_plots.py`, `test_harness_fixture_plots.py` | — | Tests for the fixture-plot agent + harness path. |
 | `test-atom-proposal.py`, `test-inputs-upload.py`, `test-small-subset-dag.py` | — | Targeted integration checks. |
 | `tests/test_agent_literature_fetch.py` | — | Unit tests for `agent_literature_fetch.py`. |
+| `tests/explicit_lock_test.sh` | — | Deterministic, docker-stubbed unit test for `lib/explicit_lock.sh`'s exec-time EXPLICIT conda lock capture. |
 
 ## QA / breadth utilities
 
@@ -90,6 +91,7 @@ Operational scripts used by the Make targets and manual end-to-end runs, organiz
 | `helpers/cngb_fetch.py` | CNGB dataset fetch helper. |
 | `helpers/provision_r_bioconductor.sh` | Provision R + Bioconductor inside the agent container. |
 | `lib/test-helpers.sh` | Shared shell test helpers. |
+| `lib/explicit_lock.sh` | `capture_explicit_lock`: per-task EXPLICIT conda lock capture, sourced by `agent-claude.sh` and unit-tested by `tests/explicit_lock_test.sh`. |
 | `hooks/pre-push` | The repo-local pre-push hook installed by `make install-hooks`; runs `make lint`. |
 
 ## Eval harness (`scripts/eval/`, operator-run)

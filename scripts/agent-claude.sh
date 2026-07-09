@@ -11,6 +11,10 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
 # Shared defaults. Each value is `: "${VAR:=default}"`, so any env override
 # in the calling shell wins.
 source "$SCRIPT_DIR/agent-claude-common.sh"
+# Per-task EXPLICIT conda lock capture (capture_explicit_lock). Extracted so
+# it can be unit-tested directly (scripts/tests/explicit_lock_test.sh)
+# without invoking a live agent run.
+source "$SCRIPT_DIR/lib/explicit_lock.sh"
 
 # Security remediation validate
 # ECAA_CHAT_SESSION_ID is a syntactically-correct UUID before any code
@@ -1867,25 +1871,11 @@ fi
 # env live in the container, so dump via a short container run; the env's
 # conda-meta is all `--explicit` needs. Additive, timeout- + `|| true`-guarded,
 # and only when exactly one env exists (unambiguous) — never fails the task.
-if [ -n "${ECAA_TASK_ID:-}" ] && [ -n "${TASK_CONTAINER_DIGEST:-}" ] \
-   && command -v docker >/dev/null 2>&1; then
+# See scripts/lib/explicit_lock.sh::capture_explicit_lock for the guard logic.
+if [ -n "${ECAA_TASK_ID:-}" ] && [ -n "${TASK_CONTAINER_DIGEST:-}" ]; then
   _ENVS_DIR="${CONDA_ENVS_DIRS:-${ECAA_SESSION_CACHE_DIR:-}/conda-envs}"
-  if [ -d "$_ENVS_DIR" ]; then
-    _ENV_N=$(find "$_ENVS_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
-    if [ "$_ENV_N" = "1" ]; then
-      _ENV_P=$(find "$_ENVS_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -1)
-      _DET_OUT_DIR="${_DET_OUT_DIR:-$PACKAGE/runtime/outputs/$ECAA_TASK_ID}"
-      mkdir -p "$_DET_OUT_DIR" 2>/dev/null || true
-      timeout 180 docker run --rm -v "$_ENV_P:$_ENV_P" "$TASK_CONTAINER_DIGEST" \
-        conda list -p "$_ENV_P" --explicit --md5 \
-        > "$_DET_OUT_DIR/env.explicit.lock" 2>/dev/null \
-        || { rm -f "$_DET_OUT_DIR/env.explicit.lock" 2>/dev/null; true; }
-      # Drop an empty/failed capture so it never masquerades as a valid lock.
-      [ -s "$_DET_OUT_DIR/env.explicit.lock" ] \
-        && grep -q '@EXPLICIT' "$_DET_OUT_DIR/env.explicit.lock" 2>/dev/null \
-        || { rm -f "$_DET_OUT_DIR/env.explicit.lock" 2>/dev/null; true; }
-    fi
-  fi
+  _DET_OUT_DIR="${_DET_OUT_DIR:-$PACKAGE/runtime/outputs/$ECAA_TASK_ID}"
+  capture_explicit_lock "$ECAA_TASK_ID" "$_ENVS_DIR" "$TASK_CONTAINER_DIGEST" "$_DET_OUT_DIR"
 fi
 
 # Per-package dependency-lock resolved-version fold (D5, OPERATOR-GATED).
