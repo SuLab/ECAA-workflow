@@ -466,6 +466,45 @@
         "supersedes": { "type": "string", "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$", "description": "Atom id this revision supersedes." }
       }
     },
+    "non_determinism": {
+      "type": "array",
+      "description": "Rec 1 — declared, justified sources of non-determinism in this atom's outputs. Projected at emit time into determinism-shim.json::non_deterministic_artifacts (the single source the re-execution comparator + audit-proof equivalence-failure invariant read). A >±5% divergence on a declared column is bucketed AcknowledgedNonDeterminism; an un-declared divergence still Fails. Mirrors crates/core/src/determinism_shim.rs::NonDetAck.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["artifact", "kind", "reason"],
+        "properties": {
+          "artifact": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Bare filename (e.g. de_results.tsv) or package-relative path this ack applies to.",
+            "not": { "pattern": "(^/|(^|/)\\.\\.(/|$))" }
+          },
+          "columns": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "uniqueItems": true,
+            "description": "Columns whose divergence is acknowledged. Absent = whole-artifact ack (covers every column); present = covers only these columns, so a divergence in an un-listed column still Fails."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "multithreaded_reduction",
+              "unseeded_rng",
+              "adaptive_shrinkage",
+              "floating_point_associativity",
+              "other"
+            ],
+            "description": "Class of non-determinism."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Human-readable justification (surfaced in provenance)."
+          }
+        }
+      }
+    },
     "iterate": {
       "type": "object",
       "description": "Plan §S10.1 — iterate-until block. Required when the atom's compiled stage carries Cardinality::IterateUntil; the builder emits a 4-template-task scaffold (iterate_gate / placeholder / iterate_check / validate) and the agent fans out a linear chain of <id>_iter_N tasks until convergence.",

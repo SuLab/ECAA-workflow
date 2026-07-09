@@ -446,6 +446,7 @@ mod tests {
             estimated_duration: None,
             safety: Default::default(),
             governance: None,
+            non_determinism: Vec::new(),
         }
     }
 
@@ -831,6 +832,7 @@ mod tests {
             estimated_duration: None,
             safety: Default::default(),
             governance: None,
+            non_determinism: Vec::new(),
         };
         composition.atoms.insert(
             0,

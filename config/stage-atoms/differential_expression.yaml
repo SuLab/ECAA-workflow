@@ -130,3 +130,20 @@ outputs:
     units: "log2 fold change"
     statistical_state: "de_tested"
     privacy_class: internal
+# Declared non-determinism (Rec 1). The shrunken log2FoldChange column is the
+# output of an empirical-Bayes adaptive-shrinkage step (e.g. DESeq2/apeglm)
+# whose fitted prior shifts the estimate within the tolerance band across runs.
+# Projected at emit time into determinism-shim.json::non_deterministic_artifacts
+# so a within-tolerance divergence in this ONE column is bucketed
+# AcknowledgedNonDeterminism, while a divergence in any other column (e.g. stat,
+# pvalue, padj) or beyond the band still Fails.
+non_determinism:
+  - artifact: de_results.tsv
+    columns:
+      - log2FoldChange
+    kind: adaptive_shrinkage
+    reason: >-
+      Empirical-Bayes adaptive shrinkage of log2 fold changes (e.g.
+      DESeq2/apeglm) fits a prior from the data whose shrinkage of the
+      log2FoldChange column is not bit-reproducible across BLAS threadings; the
+      shrunken value may vary within the semantic band without indicating error.

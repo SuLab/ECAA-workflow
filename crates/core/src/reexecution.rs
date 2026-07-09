@@ -7,23 +7,36 @@
 //!   resolved by the caller from the classified modality; the
 //!   default-constructed `ModalityBounds` reproduces the historical ±5%
 //!   relative band for unconfigured modalities. See [`classify_reexecution`].
-//! - `AcknowledgedNonDeterminism`: artifact differs but the source package's
-//!   `determinism-shim.json::env_capture` records a known non-determinism
-//!   source (e.g. `PYTHONHASHSEED` absent from captured vars, or
-//!   `random_seed` absent from `seed_policy`).
+//! - `AcknowledgedNonDeterminism`: artifact differs beyond the band, but the
+//!   source package's `determinism-shim.json::non_deterministic_artifacts`
+//!   declares a matching [`NonDetAck`](crate::determinism_shim::NonDetAck)
+//!   that COVERS every diverging column (a whole-artifact ack, or a
+//!   column-scoped ack listing all the diverged columns).
 //! - `Unavailable`: replay artifact is missing.
-//! - `Failed`: replay produced an error or output that diverges beyond
-//!   semantic-equivalence bounds.
+//! - `Failed`: replay produced an error, diverges beyond
+//!   semantic-equivalence bounds on an UN-acknowledged column, or diverges
+//!   structurally (differing row/column shape) with no whole-artifact ack.
+//!
+//! Rec 1 (soundness): a blanket "the shim documents a no-seed / hashed source"
+//! flag NO LONGER acknowledges arbitrary divergence — an out-of-band divergence
+//! on a column with no matching `NonDetAck` FAILS. The `NonDetAck` set is the
+//! single source shared with the audit-proof equivalence-failure invariant.
 //!
 //! The primary entry point is [`classify_reexecution`].
 
-use crate::determinism_shim::DeterminismShimSidecar;
+use crate::determinism_shim::{ack_for, DeterminismShimSidecar, NonDetAck};
 use crate::hash_utils::sha256_hex;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io;
 use std::path::Path;
+
+/// Synthetic diverging-column identifier used when two tables differ in shape
+/// (differing row count, or a row with a differing field count, or a parse
+/// error). A structural divergence can only be acknowledged by a WHOLE-artifact
+/// ack — a column-scoped ack never lists this token, so it stays `Failed`.
+const STRUCTURE_SENTINEL: &str = "<table-shape>";
 
 /// The five re-execution buckets per PAR-26-040 §Aim 3A primary endpoint.
 ///
@@ -274,10 +287,20 @@ fn classify_single_artifact(
     // BEFORE AcknowledgedNonDeterminism on purpose: a within-band reproduction
     // is a NON-divergent outcome (spec §5.6, "byte_identical / semantic_equivalent
     // / unavailable are non-divergent and need no ack") and must not be relabeled
-    // as a divergent acknowledged outcome merely because the parent shim happens
-    // to document a non-determinism source. The default is the historical ±5%
-    // relative band.
-    if let Ok(true) = check_semantic_equivalence(&parent_bytes, &replay_bytes, bounds) {
+    // as a divergent acknowledged outcome. The default is the historical ±5%
+    // relative band. The delimiter is derived from the artifact extension
+    // (Rec 2: `.csv` → comma, else tab) so a comma-delimited table is no longer
+    // mis-parsed as a single tab-delimited column.
+    let delimiter = delimiter_for(parent_artifact);
+    let diverging = match check_semantic_equivalence(&parent_bytes, &replay_bytes, delimiter, bounds)
+    {
+        Ok(cols) => cols,
+        // A parse failure (e.g. invalid UTF-8) is a structural divergence: only
+        // a whole-artifact ack can cover it.
+        Err(_e) => BTreeSet::from([STRUCTURE_SENTINEL.to_string()]),
+    };
+
+    if diverging.is_empty() {
         return ArtifactClassification {
             artifact_path: rel_path.to_string(),
             bucket: ReexecutionBucket::SemanticEquivalent,
@@ -287,102 +310,167 @@ fn classify_single_artifact(
             )),
         };
     }
-    // Diverges beyond the band, or is not numerically comparable: fall
-    // through to the acknowledged-source / hard-failure decision.
 
-    // AcknowledgedNonDeterminism: diverges beyond the semantic band but a known
-    // non-determinism source is declared in the parent's determinism shim.
+    // AcknowledgedNonDeterminism: diverges beyond the semantic band on one or
+    // more columns, and the parent's determinism shim declares a matching
+    // `NonDetAck` that COVERS every diverging column. A whole-artifact ack
+    // (`columns: None`) covers everything; a column-scoped ack covers only its
+    // listed columns. This is the ONLY path to the acknowledged bucket — a
+    // no-seed / hashed-source flag no longer masks an undeclared divergence.
     if let Some(shim) = shim {
-        if has_acknowledged_nondeterminism(shim) {
-            return ArtifactClassification {
-                artifact_path: rel_path.to_string(),
-                bucket: ReexecutionBucket::AcknowledgedNonDeterminism,
-                reason: Some(
-                    "differs beyond semantic bounds but a non-determinism source is documented in determinism-shim.json"
-                        .to_string(),
-                ),
-            };
+        if let Some(ack) = ack_for(shim, rel_path) {
+            if ack_covers(ack, &diverging) {
+                return ArtifactClassification {
+                    artifact_path: rel_path.to_string(),
+                    bucket: ReexecutionBucket::AcknowledgedNonDeterminism,
+                    reason: Some(format!(
+                        "diverging column(s) [{}] acknowledged by determinism-shim.json ({:?}: {})",
+                        diverging.iter().cloned().collect::<Vec<_>>().join(", "),
+                        ack.kind,
+                        ack.reason
+                    )),
+                };
+            }
         }
     }
 
-    // Failed: diverges beyond bounds with no acknowledged non-determinism source.
+    // Failed: diverges on a column with no covering acknowledgment.
     ArtifactClassification {
         artifact_path: rel_path.to_string(),
         bucket: ReexecutionBucket::Failed,
-        reason: Some(
-            "numeric divergence exceeds per-modality semantic-equivalence bounds with no acknowledged non-determinism source".to_string(),
-        ),
+        reason: Some(format!(
+            "diverging column(s) [{}] exceed per-modality semantic-equivalence bounds with no covering non-determinism acknowledgment",
+            diverging.iter().cloned().collect::<Vec<_>>().join(", ")
+        )),
     }
 }
 
-/// Semantic-equivalence check: every numeric cell in the replay must be
-/// within the supplied per-modality `bounds` of the corresponding parent
-/// cell. Non-numeric cells must match exactly (case-insensitive trim).
+/// Derive the delimiter for a tabular artifact from its extension:
+/// `.csv` → comma, `.tsv` / anything else → tab (the historical default).
+fn delimiter_for(path: &Path) -> u8 {
+    match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("csv") => b',',
+        _ => b'\t',
+    }
+}
+
+/// True when `ack` covers every diverging column identifier: a whole-artifact
+/// ack (`columns: None`) covers all; a column-scoped ack covers a divergence
+/// only when every diverging identifier is in its `columns` list.
+fn ack_covers(ack: &NonDetAck, diverging: &BTreeSet<String>) -> bool {
+    match &ack.columns {
+        None => true,
+        Some(cols) => {
+            let covered: BTreeSet<&str> = cols.iter().map(String::as_str).collect();
+            diverging.iter().all(|d| covered.contains(d.as_str()))
+        }
+    }
+}
+
+/// Column-aware semantic-equivalence check (Rec 1 + Rec 2). Parses BOTH sides
+/// with the `csv` crate using the supplied `delimiter` (so quoted fields with
+/// embedded delimiters are handled correctly), then compares cell-by-cell:
+/// numeric cells must be within `bounds`; non-numeric cells must match exactly
+/// (case-insensitive trim).
 ///
-/// Returns `Ok(true)` when all cells satisfy the bounds, `Ok(false)` when
-/// any cell diverges, and `Err` on parse failure. The default-constructed
-/// `bounds` reproduces the historical ±5% relative band.
+/// Returns the SET of diverging column identifiers — the header name when the
+/// first row is a header (any non-numeric cell in row 0), else the 0-based
+/// column index as a string. An empty set means fully equivalent. A structural
+/// mismatch (differing row count, or a row with a differing field count) yields
+/// the [`STRUCTURE_SENTINEL`] token. `Err` only on a reader error.
 fn check_semantic_equivalence(
     parent: &[u8],
     replay: &[u8],
+    delimiter: u8,
     bounds: &crate::reexecution_bounds::ModalityBounds,
-) -> Result<bool, String> {
-    let parent_str = std::str::from_utf8(parent).map_err(|e| e.to_string())?;
-    let replay_str = std::str::from_utf8(replay).map_err(|e| e.to_string())?;
+) -> Result<BTreeSet<String>, String> {
+    let parent_rows = parse_delimited(parent, delimiter)?;
+    let replay_rows = parse_delimited(replay, delimiter)?;
 
-    let parent_rows: Vec<Vec<&str>> = parent_str
-        .lines()
-        .map(|l| l.split('\t').collect())
-        .collect();
-    let replay_rows: Vec<Vec<&str>> = replay_str
-        .lines()
-        .map(|l| l.split('\t').collect())
-        .collect();
+    let mut diverging: BTreeSet<String> = BTreeSet::new();
 
     if parent_rows.len() != replay_rows.len() {
-        return Ok(false);
+        diverging.insert(STRUCTURE_SENTINEL.to_string());
+        return Ok(diverging);
     }
 
-    for (pr, rr) in parent_rows.iter().zip(replay_rows.iter()) {
-        if pr.len() != rr.len() {
-            return Ok(false);
+    // Header presence: the first parent row is a header when it carries any
+    // cell that does not parse as a number.
+    let has_header = parent_rows
+        .first()
+        .map(|r| r.iter().any(|c| c.trim().parse::<f64>().is_err()))
+        .unwrap_or(false);
+
+    let col_id = |idx: usize| -> String {
+        if has_header {
+            parent_rows[0]
+                .get(idx)
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| idx.to_string())
+        } else {
+            idx.to_string()
         }
-        for (pc, rc) in pr.iter().zip(rr.iter()) {
+    };
+
+    for (row_idx, (pr, rr)) in parent_rows.iter().zip(replay_rows.iter()).enumerate() {
+        if pr.len() != rr.len() {
+            diverging.insert(STRUCTURE_SENTINEL.to_string());
+            continue;
+        }
+        for (col_idx, (pc, rc)) in pr.iter().zip(rr.iter()).enumerate() {
             let pc = pc.trim();
             let rc = rc.trim();
-            // Try numeric comparison first.
+            // Header row: exact (case-insensitive) match required per cell.
+            if has_header && row_idx == 0 {
+                if !pc.eq_ignore_ascii_case(rc) {
+                    diverging.insert(col_id(col_idx));
+                }
+                continue;
+            }
             match (pc.parse::<f64>(), rc.parse::<f64>()) {
                 (Ok(pv), Ok(rv)) => {
                     if !bounds.within(pv, rv) {
-                        return Ok(false);
+                        diverging.insert(col_id(col_idx));
                     }
                 }
                 // Both non-numeric: exact (case-insensitive) match required.
                 (Err(_), Err(_)) => {
                     if !pc.eq_ignore_ascii_case(rc) {
-                        return Ok(false);
+                        diverging.insert(col_id(col_idx));
                     }
                 }
                 // One numeric, one not: divergent.
-                _ => return Ok(false),
+                _ => {
+                    diverging.insert(col_id(col_idx));
+                }
             }
         }
     }
-    Ok(true)
+    Ok(diverging)
 }
 
-/// Returns `true` when the shim records a known source of non-determinism:
-/// - `PYTHONHASHSEED` is absent from `captured_env_vars` (not set at
-///   emit time, meaning Python hash randomization was active), or
-/// - `seed_policy.random_seed` is `None` (no explicit seed was committed).
-fn has_acknowledged_nondeterminism(shim: &DeterminismShimSidecar) -> bool {
-    let pythonhashseed_absent = !shim
-        .env_capture
-        .captured_env_vars
-        .iter()
-        .any(|v| v == "PYTHONHASHSEED");
-    let random_seed_absent = shim.seed_policy.random_seed.is_none();
-    pythonhashseed_absent || random_seed_absent
+/// Parse delimited bytes into rows of owned string fields using the `csv`
+/// crate. `has_headers(false)` keeps every row (we detect the header
+/// ourselves); `flexible(true)` tolerates ragged rows so a shape mismatch is
+/// surfaced as divergence rather than a hard parse error.
+fn parse_delimited(bytes: &[u8], delimiter: u8) -> Result<Vec<Vec<String>>, String> {
+    let mut rdr = csv::ReaderBuilder::new()
+        .delimiter(delimiter)
+        .has_headers(false)
+        .flexible(true)
+        .from_reader(bytes);
+    let mut rows: Vec<Vec<String>> = Vec::new();
+    for rec in rdr.records() {
+        let rec = rec.map_err(|e| e.to_string())?;
+        rows.push(rec.iter().map(str::to_string).collect());
+    }
+    Ok(rows)
 }
 
 /// Load the determinism shim from the parent package's runtime directory, or
@@ -490,23 +578,36 @@ mod tests {
         );
     }
 
-    // Shim JSON that triggers `has_acknowledged_nondeterminism`
-    // (random_seed: null, PYTHONHASHSEED not captured) — mirrors the deposited
-    // Himes package's determinism-shim.json structure so it deserializes.
-    const ACK_SHIM_JSON: &str = "{\"schema_version\":\"1\",\"env_capture\":{\"captured_env_vars\":[\"LANG\"],\"redacted_env_vars\":[]},\"seed_policy\":{\"random_seed\":null,\"seed_source\":\"process-default\"},\"temp_path_policy\":{\"strategy\":\"stable-by-task-id\",\"root\":\"runtime/scratch\"},\"locale\":\"en_US.UTF-8\",\"timezone\":\"UTC\",\"ablation_engaged\":false}";
+    /// Build a full determinism-shim JSON string with the given
+    /// `non_deterministic_artifacts` array literal spliced in.
+    fn shim_json_with_acks(acks: &str) -> String {
+        format!(
+            "{{\"schema_version\":\"1\",\"env_capture\":{{\"captured_env_vars\":[\"LANG\"],\
+             \"redacted_env_vars\":[]}},\"seed_policy\":{{\"random_seed\":null,\
+             \"seed_source\":\"process-default\"}},\"temp_path_policy\":{{\
+             \"strategy\":\"stable-by-task-id\",\"root\":\"runtime/scratch\"}},\
+             \"locale\":\"en_US.UTF-8\",\"timezone\":\"UTC\",\"ablation_engaged\":false,\
+             \"non_deterministic_artifacts\":{acks}}}"
+        )
+    }
 
     #[test]
     fn semantic_equivalent_beats_acknowledged_when_shim_present() {
         // Regression: a within-band reproduction must classify SemanticEquivalent
-        // even when the parent's determinism shim documents a non-determinism
-        // source. Previously the shim short-circuited every non-identical table
-        // to AcknowledgedNonDeterminism before the semantic check could run.
+        // even when the parent's determinism shim declares a NonDetAck for the
+        // artifact — the ack is never consulted when nothing diverges.
         let parent = tempfile::tempdir().expect("parent tempdir");
         let replay = tempfile::tempdir().expect("replay tempdir");
         let rel = "runtime/outputs/differential_expression/de_results.tsv";
         write_file(&parent.path().join(rel), "gene\tlog2fc\nGENE1\t100.0\n");
         write_file(&replay.path().join(rel), "gene\tlog2fc\nGENE1\t102.0\n"); // 2%, in band
-        write_file(&parent.path().join("runtime/determinism-shim.json"), ACK_SHIM_JSON);
+        write_file(
+            &parent.path().join("runtime/determinism-shim.json"),
+            &shim_json_with_acks(
+                "[{\"artifact\":\"de_results.tsv\",\"columns\":[\"log2fc\"],\
+                 \"kind\":\"adaptive_shrinkage\",\"reason\":\"apeglm shrinkage\"}]",
+            ),
+        );
 
         let report =
             classify_reexecution(parent.path(), replay.path(), None, ModalityBounds::default())
@@ -515,7 +616,7 @@ mod tests {
         assert_eq!(
             ac.bucket,
             ReexecutionBucket::SemanticEquivalent,
-            "within-band change must be SemanticEquivalent even with a non-determinism shim, got {:?} ({:?})",
+            "within-band change must be SemanticEquivalent even with a NonDetAck present, got {:?} ({:?})",
             ac.bucket,
             ac.reason
         );
@@ -523,14 +624,20 @@ mod tests {
 
     #[test]
     fn out_of_band_with_shim_is_acknowledged() {
-        // Negative: beyond the semantic band, a documented non-determinism
-        // source still yields AcknowledgedNonDeterminism (fallback preserved).
+        // Beyond the semantic band, a NonDetAck that COVERS the diverging column
+        // yields AcknowledgedNonDeterminism.
         let parent = tempfile::tempdir().expect("parent tempdir");
         let replay = tempfile::tempdir().expect("replay tempdir");
         let rel = "runtime/outputs/pathway_enrichment/enrichment.tsv";
         write_file(&parent.path().join(rel), "pathway\tnes\nP1\t1.0\n");
         write_file(&replay.path().join(rel), "pathway\tnes\nP1\t2.0\n"); // 100%, out of band
-        write_file(&parent.path().join("runtime/determinism-shim.json"), ACK_SHIM_JSON);
+        write_file(
+            &parent.path().join("runtime/determinism-shim.json"),
+            &shim_json_with_acks(
+                "[{\"artifact\":\"enrichment.tsv\",\"columns\":[\"nes\"],\
+                 \"kind\":\"unseeded_rng\",\"reason\":\"GSEA permutation seed unset\"}]",
+            ),
+        );
 
         let report =
             classify_reexecution(parent.path(), replay.path(), None, ModalityBounds::default())
@@ -539,8 +646,164 @@ mod tests {
         assert_eq!(
             ac.bucket,
             ReexecutionBucket::AcknowledgedNonDeterminism,
-            "out-of-band change with a non-determinism shim must be Acknowledged, got {:?}",
+            "out-of-band change on a covered column must be Acknowledged, got {:?}",
             ac.bucket
+        );
+    }
+
+    #[test]
+    fn out_of_band_without_matching_ack_fails() {
+        // SOUNDNESS: an out-of-band divergence on a column with NO covering ack
+        // must FAIL — even when a no-seed shim is present. Previously the blanket
+        // no-seed / hashed-source flag masked this as AcknowledgedNonDeterminism.
+        let parent = tempfile::tempdir().expect("parent tempdir");
+        let replay = tempfile::tempdir().expect("replay tempdir");
+        let rel = "runtime/outputs/pathway_enrichment/enrichment.tsv";
+        write_file(&parent.path().join(rel), "pathway\tnes\nP1\t1.0\n");
+        write_file(&replay.path().join(rel), "pathway\tnes\nP1\t2.0\n"); // 100%, out of band
+                                                                         // No-seed shim, but NO NonDetAck for this artifact.
+        write_file(
+            &parent.path().join("runtime/determinism-shim.json"),
+            &shim_json_with_acks("[]"),
+        );
+
+        let report =
+            classify_reexecution(parent.path(), replay.path(), None, ModalityBounds::default())
+                .expect("classify_reexecution must succeed");
+        let ac = classification_for(&report, rel);
+        assert_eq!(
+            ac.bucket,
+            ReexecutionBucket::Failed,
+            "un-acknowledged out-of-band divergence must FAIL under a no-seed shim, got {:?} ({:?})",
+            ac.bucket,
+            ac.reason
+        );
+    }
+
+    #[test]
+    fn column_scoped_ack_fails_on_unacked_column() {
+        // COLUMN-SCOPED: an ack that covers only `log2FoldChange` acknowledges a
+        // divergence there, but a divergence in an un-acked column (`stat`) must
+        // still FAIL.
+        let parent = tempfile::tempdir().expect("parent tempdir");
+        let replay = tempfile::tempdir().expect("replay tempdir");
+        let rel = "runtime/outputs/differential_expression/de_results.tsv";
+        // log2FoldChange diverges (acked); stat diverges (NOT acked).
+        write_file(
+            &parent.path().join(rel),
+            "gene\tlog2FoldChange\tstat\nGENE1\t1.00\t3.00\n",
+        );
+        write_file(
+            &replay.path().join(rel),
+            "gene\tlog2FoldChange\tstat\nGENE1\t2.00\t9.00\n",
+        );
+        write_file(
+            &parent.path().join("runtime/determinism-shim.json"),
+            &shim_json_with_acks(
+                "[{\"artifact\":\"de_results.tsv\",\"columns\":[\"log2FoldChange\"],\
+                 \"kind\":\"adaptive_shrinkage\",\"reason\":\"apeglm shrinkage\"}]",
+            ),
+        );
+
+        let report =
+            classify_reexecution(parent.path(), replay.path(), None, ModalityBounds::default())
+                .expect("classify_reexecution must succeed");
+        let ac = classification_for(&report, rel);
+        assert_eq!(
+            ac.bucket,
+            ReexecutionBucket::Failed,
+            "divergence in an un-acked column must FAIL, got {:?} ({:?})",
+            ac.bucket,
+            ac.reason
+        );
+    }
+
+    #[test]
+    fn column_scoped_ack_acknowledges_when_only_acked_column_diverges() {
+        // COLUMN-SCOPED (positive): only the acked `log2FoldChange` column
+        // diverges → AcknowledgedNonDeterminism.
+        let parent = tempfile::tempdir().expect("parent tempdir");
+        let replay = tempfile::tempdir().expect("replay tempdir");
+        let rel = "runtime/outputs/differential_expression/de_results.tsv";
+        write_file(
+            &parent.path().join(rel),
+            "gene\tlog2FoldChange\tstat\nGENE1\t1.00\t3.00\n",
+        );
+        write_file(
+            &replay.path().join(rel),
+            "gene\tlog2FoldChange\tstat\nGENE1\t2.00\t3.00\n",
+        );
+        write_file(
+            &parent.path().join("runtime/determinism-shim.json"),
+            &shim_json_with_acks(
+                "[{\"artifact\":\"de_results.tsv\",\"columns\":[\"log2FoldChange\"],\
+                 \"kind\":\"adaptive_shrinkage\",\"reason\":\"apeglm shrinkage\"}]",
+            ),
+        );
+
+        let report =
+            classify_reexecution(parent.path(), replay.path(), None, ModalityBounds::default())
+                .expect("classify_reexecution must succeed");
+        let ac = classification_for(&report, rel);
+        assert_eq!(
+            ac.bucket,
+            ReexecutionBucket::AcknowledgedNonDeterminism,
+            "divergence only in the acked column must be Acknowledged, got {:?} ({:?})",
+            ac.bucket,
+            ac.reason
+        );
+    }
+
+    #[test]
+    fn csv_within_band_is_semantic_equivalent() {
+        // CSV (Rec 2): a comma-delimited `.csv` with a within-band numeric cell
+        // must classify SemanticEquivalent — it must NOT be parsed as a single
+        // tab-delimited column (which would make the whole row one string cell
+        // and diverge).
+        let parent = tempfile::tempdir().expect("parent tempdir");
+        let replay = tempfile::tempdir().expect("replay tempdir");
+        let rel = "runtime/outputs/differential_expression/de_results.csv";
+        write_file(&parent.path().join(rel), "gene,log2FC\nGENE1,2.00\n");
+        write_file(&replay.path().join(rel), "gene,log2FC\nGENE1,2.05\n"); // 2.5%, in band
+        let report =
+            classify_reexecution(parent.path(), replay.path(), None, ModalityBounds::default())
+                .expect("classify_reexecution must succeed");
+        let ac = classification_for(&report, rel);
+        assert_eq!(
+            ac.bucket,
+            ReexecutionBucket::SemanticEquivalent,
+            "within-band comma-delimited CSV must be SemanticEquivalent, got {:?} ({:?})",
+            ac.bucket,
+            ac.reason
+        );
+    }
+
+    #[test]
+    fn csv_quoted_field_with_embedded_comma_parses_correctly() {
+        // CSV (Rec 2): a quoted field containing a comma must be parsed as a
+        // single field by the csv crate, so column alignment is preserved and a
+        // within-band numeric value still classifies SemanticEquivalent.
+        let parent = tempfile::tempdir().expect("parent tempdir");
+        let replay = tempfile::tempdir().expect("replay tempdir");
+        let rel = "runtime/outputs/differential_expression/de_results.csv";
+        write_file(
+            &parent.path().join(rel),
+            "gene,note,log2FC\nGENE1,\"hello, world\",2.00\n",
+        );
+        write_file(
+            &replay.path().join(rel),
+            "gene,note,log2FC\nGENE1,\"hello, world\",2.05\n",
+        );
+        let report =
+            classify_reexecution(parent.path(), replay.path(), None, ModalityBounds::default())
+                .expect("classify_reexecution must succeed");
+        let ac = classification_for(&report, rel);
+        assert_eq!(
+            ac.bucket,
+            ReexecutionBucket::SemanticEquivalent,
+            "quoted CSV field with embedded comma must parse correctly, got {:?} ({:?})",
+            ac.bucket,
+            ac.reason
         );
     }
 

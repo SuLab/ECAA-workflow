@@ -368,6 +368,7 @@ mod tests {
             estimated_duration: None,
             safety: crate::atom::SafetyPolicy::default(),
             governance: None,
+            non_determinism: Vec::new(),
         }
     }
 

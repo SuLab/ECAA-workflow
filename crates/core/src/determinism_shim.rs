@@ -48,6 +48,88 @@ pub struct DeterminismShimSidecar {
     /// suppression that empties `per_artifact` lives in
     /// `crates/conversation::emit::sidecars::write_reexecution_sidecar`.
     pub ablation_engaged: bool,
+
+    /// Per-artifact / per-column non-determinism acknowledgments.
+    ///
+    /// This is the SINGLE SOURCE that the re-execution comparator
+    /// (`crate::reexecution::classify_reexecution`) AND the audit-proof
+    /// equivalence-failure invariant
+    /// (`crate::audit_proof::invariants::equivalence_failure`) both read: a
+    /// divergence that exceeds the semantic band is only bucketed
+    /// `AcknowledgedNonDeterminism` (comparator) / satisfied (invariant) when a
+    /// matching ack COVERS every diverging column here — a whole-artifact ack
+    /// (`columns: None`) covers everything, a column-scoped ack covers only its
+    /// listed columns. An undeclared divergence FAILS.
+    ///
+    /// Old shims that predate this field deserialize to an empty vec via serde
+    /// `default`. An empty list is `skip_serializing_if`-omitted so the
+    /// compiler-host snapshot stays byte-identical to pre-field shims (the
+    /// byte-reproducibility contract — `determinism-shim.json` is NOT in the
+    /// byte-diff exclusion set). `serialize_active_settings` emits it empty; the
+    /// emit-time projection (atom `non_determinism` decl → this field) is wired
+    /// separately and should assign through
+    /// [`DeterminismShimSidecar::set_non_deterministic_artifacts`] to stay
+    /// byte-stable.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub non_deterministic_artifacts: Vec<NonDetAck>,
+}
+
+/// One acknowledged source of non-determinism, scoped to an artifact and
+/// (optionally) a set of columns within it.
+///
+/// The `artifact` string may be a bare filename (`de_results.tsv`) or a
+/// package-relative path
+/// (`runtime/outputs/differential_expression/de_results.tsv`);
+/// [`ack_for`] matches either form against a re-execution outcome id.
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, schemars::JsonSchema,
+)]
+pub struct NonDetAck {
+    /// Artifact this ack applies to (bare filename or package-relative path).
+    pub artifact: String,
+    /// Columns within the artifact whose divergence is acknowledged. `None`
+    /// (absent) is a WHOLE-ARTIFACT ack covering every column; `Some(cols)`
+    /// covers only the named columns, so a divergence in an un-listed column
+    /// still fails.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub columns: Option<Vec<String>>,
+    /// The class of non-determinism.
+    pub kind: NonDetKind,
+    /// Human-readable justification (surfaced in provenance; never parsed).
+    pub reason: String,
+}
+
+/// Class of an acknowledged non-determinism source. `#[non_exhaustive]` per
+/// the public-enum SemVer contract — adding a future class is a non-breaking
+/// minor change for downstream RO-Crate / schema consumers.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Serialize,
+    Deserialize,
+    schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum NonDetKind {
+    /// Order-dependent multithreaded reduction (e.g. thread-count-sensitive
+    /// BLAS sum ordering) that changes low-order bits run-to-run.
+    MultithreadedReduction,
+    /// An RNG that was never seeded, so draws differ across runs.
+    UnseededRng,
+    /// Empirical-Bayes / adaptive shrinkage whose fitted prior shifts the
+    /// shrunken estimate within the tolerance band (e.g. DESeq2/apeglm
+    /// log2 fold-change shrinkage).
+    AdaptiveShrinkage,
+    /// Floating-point non-associativity across differing summation orders.
+    FloatingPointAssociativity,
+    /// Any other declared, justified source.
+    Other,
 }
 
 /// Determinism-relevant env vars: presence-captured (never value-captured)
@@ -142,6 +224,62 @@ pub fn serialize_active_settings() -> DeterminismShimSidecar {
             .unwrap_or_else(|_| "C".into()),
         timezone: env::var("TZ").unwrap_or_else(|_| "UTC".into()),
         ablation_engaged: AblationFlag::ReexecutionClass.is_active(),
+        // The compiler-host snapshot never declares acks — they are projected
+        // from atom `non_determinism` declarations at emit time by a separate
+        // pass. Empty here keeps the host snapshot byte-stable.
+        non_deterministic_artifacts: Vec::new(),
+    }
+}
+
+impl DeterminismShimSidecar {
+    /// Assign the non-determinism acknowledgments, keeping them sorted +
+    /// deduplicated for byte-stable serialization. The emit-time projection
+    /// (atom `non_determinism` decl → this field) calls this so the sidecar is
+    /// reproducible regardless of the order atoms were visited.
+    pub fn set_non_deterministic_artifacts(&mut self, mut acks: Vec<NonDetAck>) {
+        acks.sort();
+        acks.dedup();
+        self.non_deterministic_artifacts = acks;
+    }
+}
+
+/// Return the acknowledgment that covers `artifact_path`, if the shim declares
+/// one. Matching is exact on the declared `artifact` string, then by trailing
+/// path segment, then by file name — so a shim that declares a bare
+/// `de_results.tsv` still matches a re-execution outcome id of
+/// `runtime/outputs/differential_expression/de_results.tsv`.
+///
+/// This is the shared lookup both the comparator and the equivalence-failure
+/// invariant use, so the comparator's `AcknowledgedNonDeterminism` bucket and
+/// the invariant's satisfied verdict are driven by the SAME declaration.
+pub fn ack_for<'a>(shim: &'a DeterminismShimSidecar, artifact_path: &str) -> Option<&'a NonDetAck> {
+    shim.non_deterministic_artifacts
+        .iter()
+        .find(|a| artifact_ack_matches(&a.artifact, artifact_path))
+}
+
+/// True when a shim-declared `artifact` string identifies the same artifact as
+/// a re-execution outcome id (`artifact_path`).
+fn artifact_ack_matches(declared: &str, artifact_path: &str) -> bool {
+    if declared == artifact_path {
+        return true;
+    }
+    // Trailing path-segment match: artifact_path == ".../<declared>".
+    if let Some(prefix_len) = artifact_path.len().checked_sub(declared.len()) {
+        if artifact_path.ends_with(declared) && artifact_path[..prefix_len].ends_with('/') {
+            return true;
+        }
+    }
+    // File-name match: a bare filename declared against a full relative path.
+    let file_name = |p: &str| {
+        std::path::Path::new(p)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .map(str::to_owned)
+    };
+    match (file_name(declared), file_name(artifact_path)) {
+        (Some(a), Some(b)) => a == b,
+        _ => false,
     }
 }
 
@@ -223,6 +361,92 @@ mod tests {
             ],
             "merge must dedupe + sort (BTreeSet union) for byte-stability"
         );
+    }
+
+    #[test]
+    fn host_snapshot_has_empty_acks() {
+        let s = serialize_active_settings();
+        assert!(
+            s.non_deterministic_artifacts.is_empty(),
+            "the compiler-host snapshot must never declare acks"
+        );
+    }
+
+    #[test]
+    fn old_shim_without_field_deserializes_to_empty_acks() {
+        // A shim written before the field existed must load with an empty ack
+        // set via serde default, not fail to parse.
+        let json = "{\"schema_version\":\"1\",\"env_capture\":{\"captured_env_vars\":[],\
+            \"redacted_env_vars\":[]},\"seed_policy\":{\"random_seed\":null,\
+            \"seed_source\":\"process-default\"},\"temp_path_policy\":{\
+            \"strategy\":\"stable-by-task-id\",\"root\":\"runtime/scratch\"},\
+            \"locale\":\"C\",\"timezone\":\"UTC\",\"ablation_engaged\":false}";
+        let shim: DeterminismShimSidecar =
+            serde_json::from_str(json).expect("old shim must deserialize");
+        assert!(shim.non_deterministic_artifacts.is_empty());
+    }
+
+    #[test]
+    fn set_acks_sorts_and_dedups() {
+        let mut shim = serialize_active_settings();
+        shim.set_non_deterministic_artifacts(vec![
+            NonDetAck {
+                artifact: "z.tsv".into(),
+                columns: None,
+                kind: NonDetKind::UnseededRng,
+                reason: "b".into(),
+            },
+            NonDetAck {
+                artifact: "a.tsv".into(),
+                columns: Some(vec!["c1".into()]),
+                kind: NonDetKind::AdaptiveShrinkage,
+                reason: "a".into(),
+            },
+            NonDetAck {
+                artifact: "a.tsv".into(),
+                columns: Some(vec!["c1".into()]),
+                kind: NonDetKind::AdaptiveShrinkage,
+                reason: "a".into(),
+            },
+        ]);
+        // Sorted by artifact, duplicate collapsed.
+        assert_eq!(shim.non_deterministic_artifacts.len(), 2);
+        assert_eq!(shim.non_deterministic_artifacts[0].artifact, "a.tsv");
+        assert_eq!(shim.non_deterministic_artifacts[1].artifact, "z.tsv");
+    }
+
+    #[test]
+    fn ack_for_matches_by_filename_path_suffix_and_exact() {
+        let mut shim = serialize_active_settings();
+        shim.set_non_deterministic_artifacts(vec![NonDetAck {
+            artifact: "de_results.tsv".into(),
+            columns: Some(vec!["log2FoldChange".into()]),
+            kind: NonDetKind::AdaptiveShrinkage,
+            reason: "shrinkage".into(),
+        }]);
+        // File-name match against a full relative path.
+        assert!(
+            ack_for(&shim, "runtime/outputs/differential_expression/de_results.tsv").is_some(),
+            "bare filename ack must match a full rel path by file name"
+        );
+        // Exact match.
+        assert!(ack_for(&shim, "de_results.tsv").is_some());
+        // Non-match.
+        assert!(ack_for(&shim, "other.tsv").is_none());
+    }
+
+    #[test]
+    fn ack_for_exact_path_match() {
+        let mut shim = serialize_active_settings();
+        shim.set_non_deterministic_artifacts(vec![NonDetAck {
+            artifact: "results/tables/de.tsv".into(),
+            columns: None,
+            kind: NonDetKind::Other,
+            reason: "whole artifact".into(),
+        }]);
+        assert!(ack_for(&shim, "results/tables/de.tsv").is_some());
+        // A different directory with the same basename still matches by name.
+        assert!(ack_for(&shim, "elsewhere/de.tsv").is_some());
     }
 
     #[test]
