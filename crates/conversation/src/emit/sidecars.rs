@@ -203,9 +203,10 @@ mod nondet_projection_tests {
             .expect("load stage-atoms registry")
     }
 
-    /// The `differential_expression` atom declares its shrunken `log2FoldChange`
-    /// column as adaptive-shrinkage non-determinism; the projection must expand
-    /// that to the task's FULL package-relative artifact path.
+    /// The `differential_expression` atom declares its shrunken effect-size
+    /// columns (`log2FoldChange` + `lfcSE`) as adaptive-shrinkage
+    /// non-determinism; the projection must expand that to the task's FULL
+    /// package-relative artifact path, preserving all declared columns.
     #[test]
     fn projects_de_atom_shrinkage_ack_to_full_path() {
         let reg = registry();
@@ -214,7 +215,10 @@ mod nondet_projection_tests {
             .iter()
             .find(|a| a.artifact == "runtime/outputs/differential_expression/de_results.tsv")
             .expect("DE de_results.tsv ack projected to full path");
-        assert_eq!(de.columns.as_deref(), Some(&["log2FoldChange".to_string()][..]));
+        assert_eq!(
+            de.columns.as_deref(),
+            Some(&["log2FoldChange".to_string(), "lfcSE".to_string()][..])
+        );
         assert_eq!(
             de.kind,
             ecaa_workflow_core::determinism_shim::NonDetKind::AdaptiveShrinkage

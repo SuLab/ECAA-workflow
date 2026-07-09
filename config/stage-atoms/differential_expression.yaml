@@ -130,20 +130,28 @@ outputs:
     units: "log2 fold change"
     statistical_state: "de_tested"
     privacy_class: internal
-# Declared non-determinism (Rec 1). The shrunken log2FoldChange column is the
-# output of an empirical-Bayes adaptive-shrinkage step (e.g. DESeq2/apeglm)
-# whose fitted prior shifts the estimate within the tolerance band across runs.
+# Declared non-determinism (Rec 1). Both shrunken effect-size columns —
+# log2FoldChange AND lfcSE — are outputs of an empirical-Bayes adaptive-shrinkage
+# step (e.g. DESeq2/apeglm or ashr) whose fitted prior shifts both estimates
+# within the tolerance band across runs, and which is itself environment-sensitive
+# (the recorded shrinkage engine may be absent from a re-execution's env, so the
+# effect-size columns fall back to a different estimator). The Wald stat/pvalue/padj
+# come from the UNSHRUNKEN model, so the significant set is shrinkage-independent.
 # Projected at emit time into determinism-shim.json::non_deterministic_artifacts
-# so a within-tolerance divergence in this ONE column is bucketed
+# so a divergence confined to these two columns is bucketed
 # AcknowledgedNonDeterminism, while a divergence in any other column (e.g. stat,
 # pvalue, padj) or beyond the band still Fails.
 non_determinism:
   - artifact: de_results.tsv
     columns:
       - log2FoldChange
+      - lfcSE
     kind: adaptive_shrinkage
     reason: >-
-      Empirical-Bayes adaptive shrinkage of log2 fold changes (e.g.
-      DESeq2/apeglm) fits a prior from the data whose shrinkage of the
-      log2FoldChange column is not bit-reproducible across BLAS threadings; the
-      shrunken value may vary within the semantic band without indicating error.
+      Empirical-Bayes adaptive shrinkage of effect sizes (e.g. DESeq2/apeglm or
+      ashr) fits a prior from the data whose shrinkage of the log2FoldChange and
+      lfcSE columns is not bit-reproducible across BLAS threadings, and whose
+      chosen engine may differ between the recorded run and a re-execution; the
+      shrunken values may vary within the semantic band without indicating error.
+      The unshrunken Wald stat/pvalue/padj (and thus the significant set) are
+      unaffected.
