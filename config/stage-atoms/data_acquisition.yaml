@@ -42,6 +42,19 @@ resource_profile:
   memory: medium
   gpu: false
   runtime_class: minutes
+safety:
+  # Fetches raw experimental data from public repositories (SRA / GEO /
+  # ArrayExpress / ENA / PRIDE / Synapse) over the internet. Without this
+  # block the atom defaults to no-network (Compute / None{[]}) — a false
+  # "hermetic" claim that a downstream offline-replay capability check
+  # would trust. The repository host set is broad and mirror/CDN-backed
+  # (SRA alone routes through NCBI + AWS + GCP mirrors), so this declares
+  # the open Bridge policy rather than a fragile curated allowlist. The
+  # controlled-access variant (dbGaP / EGA) is a separate atom that stays
+  # isolated for its no-egress-backend contract.
+  level: network
+  network:
+    kind: bridge
 # Explicit rich ports.
 # Inputs are SME-declared accessions / paths from intake (modeled as a
 # ecaax:accession_descriptor local extension since EDAM lacks a clean
