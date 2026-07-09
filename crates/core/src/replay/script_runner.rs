@@ -90,18 +90,46 @@ pub fn stage_and_run(
     run_env.insert("PKG_ROOT".to_string(), scratch_root.clone());
     run_env.insert("PACKAGE".to_string(), scratch_root.clone());
 
-    // Stage the entire data_acquisition/data/ subtree once (idempotent).
-    // The input directory label is chosen by the package author (e.g. "himes-inputs/",
-    // "inputs/", etc.); copying the whole data/ tree preserves whatever label(s) exist.
-    let data_src = pkg.join("runtime/outputs/data_acquisition/data");
-    let data_dst = scratch.join("runtime/outputs/data_acquisition/data");
-    if data_src.is_dir() {
-        copy_dir_all(&data_src, &data_dst)?;
+    // Comprehensive upstream staging: make every SKIPPED stage's recorded
+    // output available to downstream re-run stages. A re-run stage (e.g.
+    // `reporting`) reads inputs produced by stages we do NOT re-execute (e.g.
+    // `contextualize_findings_with_literature/claims_evidence_matrix.csv`,
+    // `data_acquisition/data/<label>/counts.tsv`); those recorded outputs must
+    // be present in scratch before the run loop.
+    //
+    // For every stage directory under `runtime/outputs/` whose task_id is NOT
+    // in the run set (`tasks`), copy its recorded contents into scratch,
+    // EXCLUDING that stage's `scripts/` subdir (skipped stages are never
+    // executed, so their scripts are not needed, and this keeps a run-set
+    // stage's freshly-staged scripts untouched). Run-set stages are skipped
+    // here — they overwrite their own dir with fresh output when they run
+    // (execution order guarantees upstream-before-downstream). This subsumes
+    // the historical `data_acquisition/data/` staging (data_acquisition is a
+    // skipped stage, so its whole dir — including any `data/<label>/` subtree —
+    // is now staged by the general pass).
+    let run_set: BTreeSet<&str> = tasks.iter().map(|t| t.task_id.as_str()).collect();
+    let outputs_root = pkg.join("runtime/outputs");
+    if let Ok(entries) = std::fs::read_dir(&outputs_root) {
+        let mut dirs: Vec<_> = entries
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_dir())
+            .collect();
+        dirs.sort_by_key(|e| e.file_name());
+        for e in dirs {
+            let id = e.file_name().to_string_lossy().to_string();
+            if run_set.contains(id.as_str()) {
+                continue;
+            }
+            let dst = scratch.join("runtime/outputs").join(&id);
+            copy_dir_excluding(&e.path(), &dst, "scripts")?;
+        }
     }
 
     // Stage the top-level `inputs/` tree (the registered user inputs). Data
     // ingestion scripts read from `$PACKAGE/inputs/<file>`; without this they
-    // re-execute against a missing path and the task fails.
+    // re-execute against a missing path and the task fails. (This tree lives
+    // OUTSIDE `runtime/outputs/`, so the upstream-staging pass above does not
+    // cover it.)
     let inputs_src = pkg.join("inputs");
     let inputs_dst = scratch.join("inputs");
     if inputs_src.is_dir() {
@@ -349,6 +377,30 @@ fn mirror_subdirs(src: &Path, dst: &Path) {
             mirror_subdirs(&entry.path(), &sub_dst);
         }
     }
+}
+
+/// Copy `src` tree into `dst`, skipping any TOP-LEVEL entry named `exclude`.
+/// Used to stage a skipped stage's recorded output into scratch without its
+/// `scripts/` subdir. Subtrees are copied in full via `copy_dir_all`.
+fn copy_dir_excluding(src: &Path, dst: &Path, exclude: &str) -> io::Result<()> {
+    if !dst.exists() {
+        std::fs::create_dir_all(dst)?;
+    }
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        if name.to_string_lossy() == exclude {
+            continue;
+        }
+        let src_path = entry.path();
+        let dst_path = dst.join(&name);
+        if src_path.is_dir() {
+            copy_dir_all(&src_path, &dst_path)?;
+        } else {
+            std::fs::copy(&src_path, &dst_path)?;
+        }
+    }
+    Ok(())
 }
 
 /// Recursively copy a directory tree from `src` to `dst`.
@@ -1023,6 +1075,88 @@ mod tests {
         assert!(
             !outcome.stderr.is_empty(),
             "stderr must contain a reason; got empty string"
+        );
+    }
+
+    /// Comprehensive upstream staging: a run-set stage that reads a SKIPPED
+    /// upstream stage's recorded output must find it. `stage_and_run` stages
+    /// every non-run-set output dir (EXCLUDING its `scripts/` subdir) into
+    /// scratch before the run loop, so downstream re-run stages see inputs
+    /// produced by stages we do not re-execute.
+    #[test]
+    fn stages_skipped_upstream_output_into_scratch() {
+        let pkg_tmp = tempdir().unwrap();
+        let scratch_tmp = tempdir().unwrap();
+        let pkg = pkg_tmp.path();
+        let scratch = scratch_tmp.path();
+
+        // Skipped upstream stage (NOT in the run set): a recorded output CSV
+        // plus a scripts/ subdir that must NOT be copied into scratch.
+        let up = pkg.join("runtime/outputs/contextualize_findings_with_literature");
+        std::fs::create_dir_all(up.join("scripts")).unwrap();
+        std::fs::write(
+            up.join("claims_evidence_matrix.csv"),
+            "claim,pmid\nA,123\n",
+        )
+        .unwrap();
+        std::fs::write(
+            up.join("scripts/agent-claude.sh"),
+            "#!/bin/bash\nclaude go\n",
+        )
+        .unwrap();
+
+        // Run-set stage: reads the skipped upstream CSV; fails if it is absent.
+        let rep_scripts = pkg.join("runtime/outputs/reporting/scripts");
+        std::fs::create_dir_all(&rep_scripts).unwrap();
+        let script = "#!/usr/bin/env bash\n\
+             set -e\n\
+             m=\"$PKG_ROOT/runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv\"\n\
+             if [ ! -f \"$m\" ]; then echo \"MISSING: $m\" >&2; exit 1; fi\n\
+             mkdir -p \"$PKG_ROOT/runtime/outputs/reporting\"\n\
+             cp \"$m\" \"$PKG_ROOT/runtime/outputs/reporting/used_matrix.csv\"\n";
+        std::fs::write(rep_scripts.join("01_assemble_report.sh"), script).unwrap();
+
+        // reporting produces no result table — result_tables is empty.
+        let task = ComputeTask {
+            task_id: "reporting".to_string(),
+            scripts_dir: rep_scripts.clone(),
+            result_tables: vec![],
+        };
+
+        let outcomes = stage_and_run(
+            pkg,
+            scratch,
+            &[task],
+            &["reporting".to_string()],
+            &shell_env(),
+            "/irrelevant",
+            &BTreeMap::new(),
+        )
+        .unwrap();
+
+        assert_eq!(outcomes.len(), 1);
+        assert!(
+            outcomes[0].ok,
+            "reporting must find the staged upstream matrix; stderr: {}",
+            outcomes[0].stderr
+        );
+
+        // The skipped upstream CSV must be staged into scratch.
+        let staged = scratch.join(
+            "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv",
+        );
+        assert!(
+            staged.exists(),
+            "skipped upstream output must be staged into scratch"
+        );
+
+        // The skipped stage's scripts/ subdir must NOT be copied.
+        let staged_script = scratch.join(
+            "runtime/outputs/contextualize_findings_with_literature/scripts/agent-claude.sh",
+        );
+        assert!(
+            !staged_script.exists(),
+            "skipped stage's scripts/ subdir must be excluded from staging"
         );
     }
 }
