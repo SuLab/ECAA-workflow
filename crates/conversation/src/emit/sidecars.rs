@@ -104,18 +104,129 @@ pub(super) async fn write_claim_verification(output_dir: &Path) -> Result<()> {
 /// Always written — the env capture itself records whether the
 /// re-execution-class ablation is engaged, so reviewers see both arms
 /// in the same payload shape.
-pub(super) async fn write_determinism_shim(output_dir: &Path) -> Result<()> {
+pub(super) async fn write_determinism_shim(
+    session: &Session,
+    output_dir: &Path,
+    config_dir: &Path,
+) -> Result<()> {
     let runtime = output_dir.join("runtime");
     tokio::fs::create_dir_all(&runtime).await?;
     let path = runtime.join("determinism-shim.json");
 
-    let payload = ecaa_workflow_core::determinism_shim::serialize_active_settings();
+    let mut payload = ecaa_workflow_core::determinism_shim::serialize_active_settings();
+
+    // Project each composed atom's declared non-determinism into per-artifact
+    // acknowledgments (`non_deterministic_artifacts`). The re-execution
+    // comparator and the audit-proof `equivalence_failure` invariant BOTH read
+    // this list: an out-of-band divergence on a declared column is
+    // `acknowledged_non_determinism`, while any UNdeclared divergence FAILS — so
+    // a package self-declares exactly which artifact/column jitter is expected
+    // (e.g. adaptive-shrinkage LFC), rather than a blanket no-seed mask. Atom
+    // declarations name a bare output basename; expand to the task's full
+    // `runtime/outputs/<task_id>/<file>` path. Registry-load failure is
+    // non-fatal (warn + no acks), preserving the "always emits" contract.
+    let atoms_dir = config_dir.join("stage-atoms");
+    match ecaa_workflow_core::atom_registry::AtomRegistry::load_from_dir(&atoms_dir) {
+        Ok(registry) => {
+            let acks = project_non_det_acks(session, &registry);
+            if !acks.is_empty() {
+                payload.set_non_deterministic_artifacts(acks);
+            }
+        }
+        Err(e) => tracing::warn!(
+            "write_determinism_shim: AtomRegistry load from {} failed: {} \
+             (continuing emit with no non-determinism acknowledgments)",
+            atoms_dir.display(),
+            e
+        ),
+    }
+
     let body = serde_json::to_vec_pretty(&payload).context("serializing determinism-shim.json")?;
 
     tokio::fs::write(&path, body)
         .await
         .with_context(|| format!("writing {}", path.display()))?;
     Ok(())
+}
+
+/// Expand every composed atom's declared `non_determinism` into shim
+/// [`NonDetAck`]s keyed by the task's full package-relative artifact path.
+///
+/// Each DAG node id IS the atom id AND the task output-dir name, so an atom
+/// declaration `{ artifact: "de_results.tsv", columns: [...] }` on the
+/// `differential_expression` node becomes an ack for
+/// `runtime/outputs/differential_expression/de_results.tsv`. A missing DAG
+/// (legacy emit) or a node absent from the registry yields fewer acks, never a
+/// panic. Pure + unit-testable.
+fn project_non_det_acks(
+    session: &Session,
+    registry: &ecaa_workflow_core::atom_registry::AtomRegistry,
+) -> Vec<ecaa_workflow_core::determinism_shim::NonDetAck> {
+    let Some(dag) = session.workflow_dag.as_ref() else {
+        return Vec::new();
+    };
+    let ids: Vec<&str> = dag.nodes.iter().map(|n| n.id.as_str()).collect();
+    acks_for_task_ids(&ids, registry)
+}
+
+/// The registry-lookup core of [`project_non_det_acks`], taking bare task ids
+/// (= atom ids = output-dir names) so it is unit-testable without a `Session`.
+fn acks_for_task_ids(
+    task_ids: &[&str],
+    registry: &ecaa_workflow_core::atom_registry::AtomRegistry,
+) -> Vec<ecaa_workflow_core::determinism_shim::NonDetAck> {
+    let mut acks = Vec::new();
+    for id in task_ids {
+        let Some(atom) = registry.get(id) else {
+            continue;
+        };
+        for decl in &atom.non_determinism {
+            acks.push(ecaa_workflow_core::determinism_shim::NonDetAck {
+                artifact: format!("runtime/outputs/{}/{}", id, decl.artifact),
+                columns: decl.columns.clone(),
+                kind: decl.kind.clone(),
+                reason: decl.reason.clone(),
+            });
+        }
+    }
+    acks
+}
+
+#[cfg(test)]
+mod nondet_projection_tests {
+    use super::acks_for_task_ids;
+
+    fn registry() -> ecaa_workflow_core::atom_registry::AtomRegistry {
+        let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../config/stage-atoms");
+        ecaa_workflow_core::atom_registry::AtomRegistry::load_from_dir(&dir)
+            .expect("load stage-atoms registry")
+    }
+
+    /// The `differential_expression` atom declares its shrunken `log2FoldChange`
+    /// column as adaptive-shrinkage non-determinism; the projection must expand
+    /// that to the task's FULL package-relative artifact path.
+    #[test]
+    fn projects_de_atom_shrinkage_ack_to_full_path() {
+        let reg = registry();
+        let acks = acks_for_task_ids(&["differential_expression"], &reg);
+        let de = acks
+            .iter()
+            .find(|a| a.artifact == "runtime/outputs/differential_expression/de_results.tsv")
+            .expect("DE de_results.tsv ack projected to full path");
+        assert_eq!(de.columns.as_deref(), Some(&["log2FoldChange".to_string()][..]));
+        assert_eq!(
+            de.kind,
+            ecaa_workflow_core::determinism_shim::NonDetKind::AdaptiveShrinkage
+        );
+    }
+
+    /// An unknown task id contributes no acks (non-fatal, never panics).
+    #[test]
+    fn unknown_task_id_yields_no_acks() {
+        let reg = registry();
+        assert!(acks_for_task_ids(&["not_a_real_atom_xyz"], &reg).is_empty());
+    }
 }
 
 /// D3 — write `runtime/security-policy.json`.
@@ -189,7 +300,7 @@ pub async fn write_dependency_lock(
 
 /// D4 — write `runtime/model-policy.json`.
 ///
-/// Records the active Anthropic model (Sonnet 4.6 default; Opus 4.8 on
+/// Records the active Anthropic model (Sonnet 5 default; Opus 4.8 on
 /// careful-mode / Blocked / low-confidence), API version, SHA-256 of
 /// the fully-assembled system prompt, tool-schema version
 /// ([`crate::tool_schemas::SCHEMA_VERSION`]), tool count

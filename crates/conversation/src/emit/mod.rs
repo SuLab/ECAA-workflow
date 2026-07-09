@@ -537,7 +537,7 @@ async fn emit_steps(
     // regardless of arm). The RO-Crate patcher below picks all four
     // up automatically (presence-gated registration loop).
     sidecars::write_claim_verification(output_dir).await?;
-    sidecars::write_determinism_shim(output_dir).await?;
+    sidecars::write_determinism_shim(session, output_dir, config_dir).await?;
     // D5 — 5-bucket re-execution classification sidecar. ALWAYS written
     // (uniform presence): classified buckets when a parent package exists;
     // present-but-empty on first emit and under ECAA_ABLATE_REEXECUTION_CLASS.
