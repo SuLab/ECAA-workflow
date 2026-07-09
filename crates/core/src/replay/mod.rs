@@ -209,6 +209,17 @@ pub fn run_replay(pkg: &Path, opts: &ReplayOptions) -> anyhow::Result<ReplayRepo
         // Run the tasks.
         let outcomes = stage_and_run(pkg, &scratch, &tasks, &order, &env, &recorded_root, &recorded_env)?;
 
+        // Un-stage the carried-forward outputs of stages that were NOT
+        // re-executed. `stage_and_run` copies every skipped stage's recorded
+        // outputs into scratch so downstream run-set stages can read their
+        // inputs; if left in place the comparator would classify those copies as
+        // `ByteIdentical` — a false "reproduced" claim for a stage that never ran
+        // offline. Removing them now makes a skipped stage's tables classify
+        // `Unavailable` (honest: not re-executed), while run-set stages'
+        // freshly-produced outputs remain for a true comparison.
+        let run_ids: Vec<String> = tasks.iter().map(|t| t.task_id.clone()).collect();
+        unstage_non_run_outputs(&scratch, &run_ids);
+
         // Determine bounds: caller-supplied directory or the generic default.
         let bounds = match &opts.bounds {
             Some(dir) => {
@@ -245,6 +256,29 @@ pub fn run_replay(pkg: &Path, opts: &ReplayOptions) -> anyhow::Result<ReplayRepo
 // ---------------------------------------------------------------------------
 
 /// Return `true` when `docker` is on the PATH.
+/// Remove from `scratch/runtime/outputs/` the directories of stages that were
+/// NOT in the re-execution run set. Those were staged (see
+/// `script_runner::stage_and_run`) only so downstream run-set stages could read
+/// their inputs; keeping them would let the comparator report a carried-forward
+/// copy as `ByteIdentical` — a false reproduction claim for a stage that never
+/// ran offline. After removal a skipped stage's outputs classify `Unavailable`
+/// (not re-executed). `inputs/` (outside `runtime/outputs/`) is left untouched.
+fn unstage_non_run_outputs(scratch: &Path, run_task_ids: &[String]) {
+    let outputs = scratch.join("runtime/outputs");
+    let Ok(entries) = std::fs::read_dir(&outputs) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if !entry.path().is_dir() {
+            continue;
+        }
+        let id = entry.file_name().to_string_lossy().to_string();
+        if !run_task_ids.iter().any(|t| t == &id) {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
 fn which_docker() -> bool {
     std::process::Command::new("which")
         .arg("docker")
@@ -818,6 +852,43 @@ mod tests {
             root,
             format!("/orig/emit/path/{basename}"),
             "multi-byte delimiter must not panic; expected correct path recovery"
+        );
+    }
+
+    /// `stage_and_run` copies skipped stages' outputs into scratch for downstream
+    /// input availability; `unstage_non_run_outputs` must then remove them so the
+    /// comparator sees them `Unavailable` (not re-executed) rather than
+    /// `ByteIdentical`-by-copy, while keeping run-set stages' fresh outputs.
+    #[test]
+    fn unstage_removes_skipped_outputs_keeps_run_set() {
+        let tmp = tempfile::tempdir().unwrap();
+        let out = tmp.path().join("runtime/outputs");
+        for d in [
+            "normalisation",
+            "differential_expression",
+            "data_acquisition",
+            "review_prior_work",
+        ] {
+            fs::create_dir_all(out.join(d)).unwrap();
+            fs::write(out.join(d).join("t.tsv"), b"x").unwrap();
+        }
+        let run = vec![
+            "normalisation".to_string(),
+            "differential_expression".to_string(),
+        ];
+        unstage_non_run_outputs(tmp.path(), &run);
+        assert!(out.join("normalisation/t.tsv").exists(), "run-set kept");
+        assert!(
+            out.join("differential_expression/t.tsv").exists(),
+            "run-set kept"
+        );
+        assert!(
+            !out.join("data_acquisition").exists(),
+            "skipped stage un-staged"
+        );
+        assert!(
+            !out.join("review_prior_work").exists(),
+            "skipped stage un-staged"
         );
     }
 }
