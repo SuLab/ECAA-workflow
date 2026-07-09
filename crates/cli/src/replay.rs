@@ -13,7 +13,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use ecaa_workflow_core::replay::{run_replay, ReplayOptions, ReplayVerdict, Tier};
+use ecaa_workflow_core::replay::{run_replay, PackageTrust, ReplayOptions, ReplayVerdict, Tier};
 
 #[derive(clap::Args, Debug)]
 pub(crate) struct ReplayArgs {
@@ -73,6 +73,8 @@ pub(crate) fn run(args: ReplayArgs) -> Result<()> {
         bounds: args.bounds,
         allow_rebuild: args.allow_rebuild,
         reader_version: ecaa_workflow_types::consts::ECAA_VERSION.to_string(),
+        // Operator-run CLI replays act on a package the operator controls.
+        trust: PackageTrust::Trusted,
     };
 
     let report = run_replay(&args.package, &opts)

@@ -22,7 +22,7 @@ use crate::chat_routes::{ChatAppState, ReplayHandle, ReplayJobStatus};
 use ecaa_workflow_core::audit_proof::{run_audit_proof_with_verifier, AuditProofReport};
 use ecaa_workflow_core::audit_writer::AuditWriter;
 use ecaa_workflow_core::clock::WallClock;
-use ecaa_workflow_core::replay::{run_replay, ReplayOptions, ReplayReport, Tier};
+use ecaa_workflow_core::replay::{run_replay, PackageTrust, ReplayOptions, ReplayReport, Tier};
 use ecaa_workflow_core::wrroc_validator::NoopWrrocValidator;
 
 /// The ECAA spec version this build of the reader implements. Threaded
@@ -162,6 +162,16 @@ pub(super) async fn start_replay(
         return crate::error::ApiError::NotFound("package not yet emitted".into()).into_response();
     };
 
+    // An imported (uploaded) package is untrusted; a locally-authored one is
+    // trusted. Carried into `ReplayOptions.trust`. Note the install-from-lock
+    // registry gate is enforced regardless of trust (defense-in-depth); trust
+    // is recorded for provenance + the confirm gate, not to relax that check.
+    let trust = if session.imported {
+        PackageTrust::Untrusted
+    } else {
+        PackageTrust::Trusted
+    };
+
     // ── Tier-1: synchronous re-verify ────────────────────────────────────
     if tier == Tier::Verify {
         let rv = reader_version();
@@ -172,6 +182,7 @@ pub(super) async fn start_replay(
                 bounds: None,
                 allow_rebuild: false,
                 reader_version: rv,
+                trust,
             };
             run_replay(&root, &opts)
         })
@@ -305,6 +316,7 @@ pub(super) async fn start_replay(
                 bounds: None,
                 allow_rebuild: false,
                 reader_version: rv,
+                trust,
             };
             let r = run_replay(&root, &opts);
             // Best-effort scratch cleanup (host-visible path under package_root).
