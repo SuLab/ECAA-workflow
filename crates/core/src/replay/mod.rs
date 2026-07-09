@@ -522,6 +522,19 @@ fn reconcile_failed_task_buckets(
     // offline-reproducible — e.g. `discover_*`/`validate_*` audit/selection
     // stages that consume the network-derived literature outputs). The full
     // `ok:false` + stderr tail is recorded in the reason, so nothing is hidden.
+    //
+    // KNOWN LIMITATION (deliberate): this cannot distinguish "failed because a
+    // network-derived upstream input is legitimately unavailable offline"
+    // (honestly `Unavailable`) from "failed despite being hermetic with every
+    // input present" (a genuine reproduction failure). A divergence detectable
+    // ONLY via a non-table assertion (`.json`/`.md`/figure) inside such a stage
+    // is therefore surfaced as `Unavailable`/`Partial`, not `Failed`/`Fail`. A
+    // divergence in any actual `.tsv`/`.csv` result table is unaffected — it is
+    // caught independently by that table's own comparator row (and a table-BEARING
+    // `ok:false` task is upgraded to `Failed` by the first loop above, never
+    // reaching this path). Erring toward `Unavailable` keeps the verdict honest
+    // for a package whose analytical result tables reproduce while its
+    // literature-dependent audit stages cannot run offline.
     let represented: BTreeSet<&str> = report
         .per_artifact
         .iter()
@@ -795,8 +808,9 @@ mod tests {
 
     /// A stage that ran `ok:false` but produced NO comparable `.tsv/.csv` table
     /// has no `per_artifact` row, so its failure would be invisible. It must be
-    /// surfaced as a synthetic `Failed` row keyed by its output dir. A
-    /// successful table-less stage gets no such row.
+    /// surfaced as a synthetic `Unavailable` row (non-divergent; the stderr tail
+    /// is recorded in the reason) keyed by its output dir. A successful
+    /// table-less stage gets no such row.
     #[test]
     fn reconcile_surfaces_tableless_run_failure() {
         use crate::reexecution::{ArtifactClassification, ReexecutionBucket, ReexecutionReport};

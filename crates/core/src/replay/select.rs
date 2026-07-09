@@ -15,34 +15,55 @@ pub struct ComputeTask {
     pub result_tables: Vec<String>,
 }
 
+/// Literature-retrieval task-id prefixes: a SECONDARY exclusion net behind the
+/// primary [`stage_requires_egress`] capability check, for packages whose
+/// recorded task-spec omits/malforms its network policy (older, hand-authored,
+/// or mangled deposits) — `stage_requires_egress` fails OPEN there, so this
+/// name net guarantees a literature fetcher is never run offline. Does NOT
+/// include `discover_*` (hermetic — they score from the staged survey output)
+/// nor the `validate_*` companions, which are meant to run.
+const LITERATURE_PREFIX: &[&str] = &["review_", "survey_", "contextualize_"];
+
 /// Returns `Some(reason)` when a stage should be EXCLUDED from re-execution.
 ///
 /// Capability predicate: a stage is offline-reproducible (eligible to run)
 /// UNLESS ANY of the following holds:
 /// 1. It is declared non-deterministic in `runtime/determinism-shim.json`.
-/// 2. It is the `data_acquisition` ingestion stage (the ONLY name-based
-///    exact-match). Its emitted network policy is a stale `none{[]}`, but it
-///    reads an external data source a hermetic offline replay cannot reach.
-///    (A separate emit-side change will declare `Bridge` for it; until then
-///    this exact-match stands in.)
-/// 3. Its recorded network policy requires egress (see [`stage_requires_egress`]).
-///    This single capability check handles ALL literature/egress stages —
-///    `review_*`/`survey_*`/`contextualize_*` carry non-empty host allowlists
-///    and are excluded here — while fully-isolated stages (`discover_*`,
-///    `reporting`, `final_reporting`, `validate_*`: `kind none`, EMPTY
-///    allowlist) are NOT excluded and therefore run.
+/// 2. It is the `data_acquisition` ingestion stage (a name-based exact-match):
+///    it reads an external data source a hermetic offline replay cannot reach.
+///    (The atom now also declares `Bridge`, so a fresh emit is caught by rule 3
+///    too; this exact-match keeps older deposits — whose emitted policy is a
+///    stale `none{[]}` — correct.)
+/// 3. PRIMARY: its recorded network policy requires egress (see
+///    [`stage_requires_egress`]) — well-formed `review_*`/`survey_*`/
+///    `contextualize_*` carry non-empty host allowlists and are caught here with
+///    an accurate reason.
+/// 4. SECONDARY belt-and-suspenders: it matches [`LITERATURE_PREFIX`] (catches a
+///    literature fetcher even when rule 3 fails open on a missing/malformed
+///    task-spec). Fully-isolated stages (`discover_*`, `reporting`,
+///    `final_reporting`, `validate_*`: `kind none`, EMPTY allowlist) match none
+///    of these rules and therefore run.
 fn is_excluded(pkg: &Path, id: &str, shim_excludes: &[String]) -> Option<&'static str> {
     if shim_excludes.iter().any(|s| s == id) {
         return Some("declared non-deterministic in determinism-shim.json");
     }
-    // Data ingestion reads the original external inputs (a host path outside
-    // the package); an offline hermetic replay cannot reach that source, so
-    // re-running it always fails. Its staged inputs are byte-compared anyway.
+    // Data ingestion reads the original external source (a host path / public
+    // repository outside the package); an offline hermetic replay cannot reach
+    // it, so a re-run cannot reproduce it. Its recorded output is NOT
+    // asserted-by-copy: `run_replay::unstage_non_run_outputs` removes the staged
+    // copy before the comparator runs, so its tables classify Unavailable.
     if id == "data_acquisition" {
         return Some("data-ingestion stage (external source not reproducible offline)");
     }
+    // PRIMARY capability check.
     if stage_requires_egress(pkg, id) {
         return Some("network egress required by recorded safety policy (not offline-reproducible)");
+    }
+    // SECONDARY belt-and-suspenders net for literature fetchers whose recorded
+    // task-spec is missing/malformed (rule 3 fails open there). Does not match
+    // `discover_*` (hermetic) or the `validate_*` companions.
+    if LITERATURE_PREFIX.iter().any(|p| id.starts_with(p)) {
+        return Some("literature-retrieval stage (network egress by construction)");
     }
     None
 }
@@ -366,6 +387,41 @@ mod tests {
         );
     }
 
+    /// SECONDARY belt-and-suspenders net: a literature fetcher whose recorded
+    /// task-spec is ABSENT (older / hand-authored / mangled deposit) makes the
+    /// primary `stage_requires_egress` check fail OPEN, so the `LITERATURE_PREFIX`
+    /// name net must still exclude it — a literature stage must never be run
+    /// offline. A hermetic `discover_*` stage with no task-spec still runs.
+    #[test]
+    fn excludes_literature_stage_without_task_spec_via_secondary_net() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        // Literature fetchers: script + table, but NO task-spec written.
+        mk(root, "review_prior_work", true, Some("prior_claims_matrix.csv"));
+        mk(root, "survey_method_landscape", true, Some("method_landscape.csv"));
+        mk(root, "contextualize_findings_with_literature", true, Some("claims.csv"));
+        // Hermetic discover_ with no task-spec must still be selected.
+        mk(root, "discover_normalisation", true, Some("score.tsv"));
+
+        let (sel, skipped) = select_compute_tasks(root).unwrap();
+        let sel_ids: Vec<_> = sel.iter().map(|t| t.task_id.as_str()).collect();
+        let sk: Vec<_> = skipped.iter().map(|s| s.task.as_str()).collect();
+        for lit in [
+            "review_prior_work",
+            "survey_method_landscape",
+            "contextualize_findings_with_literature",
+        ] {
+            assert!(
+                sk.contains(&lit),
+                "{lit} must be excluded via the literature secondary net even with no task-spec; sel={sel_ids:?}"
+            );
+        }
+        assert!(
+            sel_ids.contains(&"discover_normalisation"),
+            "hermetic discover_ must still run without a task-spec; sel={sel_ids:?}"
+        );
+    }
+
     /// A run-eligible, non-excluded stage that has a script but ZERO result
     /// tables must be RETURNED as a ComputeTask (with empty `result_tables`),
     /// NOT skipped. Reporting/validate stages produce figures/reports, not
@@ -399,8 +455,10 @@ mod tests {
     /// stages them in. Offline replay cannot reproduce that — the source is
     /// absent and not mounted into the hermetic container — so it must be
     /// SKIPPED, not run (running it fails with FileNotFoundError and
-    /// spuriously marks the package's re-execution FAILED). Its staged inputs
-    /// (`data/…`) are still byte-compared by the comparator regardless.
+    /// spuriously marks the package's re-execution FAILED). Its recorded output
+    /// is NOT asserted-by-copy: `run_replay::unstage_non_run_outputs` removes the
+    /// staged skipped-stage dir before comparison, so its tables classify
+    /// `Unavailable` (honest — not re-executed), not `ByteIdentical`.
     #[test]
     fn excludes_data_acquisition_ingestion_stage() {
         let tmp = tempfile::tempdir().unwrap();
