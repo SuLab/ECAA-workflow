@@ -376,6 +376,19 @@ pub struct Config {
     /// list resolve at `RegistryTier::Community`. Empty by default.
     pub external_curated_dirs: Vec<PathBuf>,
 
+    // Replay -------------------------------------------------------------
+    /// `ECAA_REPLAY_LOCK_REGISTRY_ALLOWLIST`. Comma-separated host allowlist
+    /// gating the replay install-from-lock tier: materializing that tier runs
+    /// `conda create --file <lock>`, which FETCHES every package URL in the
+    /// recorded EXPLICIT lock, so an untrusted imported package could point
+    /// those URLs at attacker-controlled hosts. Every URL's host must match
+    /// (exact or dotted-subdomain) an entry here or the install is refused
+    /// (defense-in-depth: enforced regardless of package trust). Default =
+    /// [`crate::replay::lock_policy::DEFAULT_LOCK_ALLOWLIST`]
+    /// (`conda.anaconda.org`, `repo.anaconda.com`, `anaconda.org` — covering
+    /// conda-forge / bioconda / defaults).
+    pub replay_lock_registry_allowlist: Vec<String>,
+
     // Core classifier policy ---------------------------------------------
     /// `ECAA_MODALITY_DRIFT_MODE`. Controls how `Classifier::load`
     /// reacts to a non-empty legacy `modalities:` block in
@@ -592,6 +605,15 @@ impl Config {
             .map(PathBuf::from)
             .collect();
 
+        // `ECAA_REPLAY_LOCK_REGISTRY_ALLOWLIST` — comma-separated host allowlist
+        // for the replay install-from-lock tier. Unset/empty → the default conda
+        // registry set. Parsed via the shared `lock_policy` resolver so the
+        // typed catalog entry and `run_replay`'s runtime read never diverge.
+        let replay_lock_registry_allowlist =
+            crate::replay::lock_policy::resolve_allowlist_from_env_value(
+                env.get("ECAA_REPLAY_LOCK_REGISTRY_ALLOWLIST").copied(),
+            );
+
         // -- Core classifier policy ------------------------------------
         let modality_drift_mode = match env.get("ECAA_MODALITY_DRIFT_MODE").copied() {
             Some(v) if v.eq_ignore_ascii_case("fail") => ModalityDriftMode::Fail,
@@ -636,6 +658,7 @@ impl Config {
             compose_strict,
             compose_interpretation,
             external_curated_dirs,
+            replay_lock_registry_allowlist,
             modality_drift_mode,
         })
     }
@@ -694,6 +717,10 @@ impl std::fmt::Debug for Config {
             .field("git_enabled", &self.git_enabled)
             .field("compose_strict", &self.compose_strict)
             .field("compose_interpretation", &self.compose_interpretation)
+            .field(
+                "replay_lock_registry_allowlist",
+                &self.replay_lock_registry_allowlist,
+            )
             .field("modality_drift_mode", &self.modality_drift_mode)
             .finish()
     }
@@ -759,6 +786,10 @@ impl Default for ConfigBuilder {
                 compose_strict: false,
                 compose_interpretation: false,
                 external_curated_dirs: Vec::new(),
+                replay_lock_registry_allowlist: crate::replay::lock_policy::DEFAULT_LOCK_ALLOWLIST
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
                 modality_drift_mode: ModalityDriftMode::Warn,
             },
         }
@@ -903,6 +934,12 @@ impl ConfigBuilder {
     /// Modality drift mode.
     pub fn modality_drift_mode(mut self, m: ModalityDriftMode) -> Self {
         self.inner.modality_drift_mode = m;
+        self
+    }
+
+    /// Replay install-from-lock registry allowlist (host list).
+    pub fn replay_lock_registry_allowlist(mut self, hosts: Vec<String>) -> Self {
+        self.inner.replay_lock_registry_allowlist = hosts;
         self
     }
 
@@ -1311,6 +1348,36 @@ mod tests {
     fn external_curated_dirs_default_empty() {
         let cfg = Config::from_env_map(&HashMap::new()).unwrap();
         assert!(cfg.external_curated_dirs.is_empty());
+    }
+
+    #[test]
+    fn replay_lock_allowlist_defaults_to_conda_registries() {
+        let cfg = Config::from_env_map(&HashMap::new()).unwrap();
+        assert_eq!(
+            cfg.replay_lock_registry_allowlist,
+            crate::replay::lock_policy::DEFAULT_LOCK_ALLOWLIST
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>(),
+            "unset ECAA_REPLAY_LOCK_REGISTRY_ALLOWLIST must fall back to the conda default set"
+        );
+    }
+
+    #[test]
+    fn replay_lock_allowlist_override_is_parsed() {
+        let mut env = HashMap::new();
+        env.insert(
+            "ECAA_REPLAY_LOCK_REGISTRY_ALLOWLIST",
+            "mirror.internal, conda.anaconda.org",
+        );
+        let cfg = Config::from_env_map(&env).unwrap();
+        assert_eq!(
+            cfg.replay_lock_registry_allowlist,
+            vec![
+                "mirror.internal".to_string(),
+                "conda.anaconda.org".to_string()
+            ]
+        );
     }
 
     #[test]

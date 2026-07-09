@@ -4,12 +4,18 @@
 //
 // Given a downloaded ECAA package, chooses the best available execution
 // environment for re-running the saved compute scripts, in order of
-// reproducibility:
+// reproducibility. The tier waterfall is:
 //
-//   Tier 1  Container — exact recorded image digest (best)
-//   Tier 2  RebuiltImage — rebuild from a Dockerfile/build spec in the package
-//   Tier 3  HostConda — conda env reconstructed from the task's env.lock
-//   Tier 4  None — no environment available; re-execution is not possible
+//   Container → InstallFromLock → RebuiltImage → None
+//
+//   Container       — exact recorded image digest (best). When a conda env
+//                     shipped in the package is present, scripts run through it.
+//   InstallFromLock — recorded image digest + a pinned EXPLICIT conda lock but
+//                     no shipped env: install the env from the lock into the
+//                     image at replay time (one gated, network-bearing step),
+//                     then run hermetically. Chosen inside the Container tier.
+//   RebuiltImage    — rebuild from a Dockerfile/build spec in the package.
+//   None            — no environment available; re-execution is not possible.
 
 use std::collections::BTreeMap;
 use std::io;
@@ -55,8 +61,6 @@ pub enum ExecEnv {
     /// This is the portable, self-contained re-execution path for packages that
     /// LOG their environment rather than ship its bytes.
     InstallFromLock { digest: String, lock: PathBuf },
-    /// A host conda environment reconstructed from the task's `env.lock`.
-    HostConda { prefix: PathBuf },
     /// No suitable environment found; re-execution is unavailable.
     None,
     /// Test-only variant: run `bash <script>` directly on the host shell.
@@ -67,16 +71,14 @@ pub enum ExecEnv {
 
 /// Options that control and instrument the provisioning decision.
 ///
-/// Both probe functions are injected so tests can run hermetically without
-/// making any real Docker or conda system calls.
+/// The probe function is injected so tests can run hermetically without
+/// making any real Docker system calls.
 pub struct ProvisionOpts {
     /// Allow rebuilding the image from a Dockerfile/build spec found in the
     /// package when the recorded digest is unavailable.
     pub allow_rebuild: bool,
     /// Returns `true` when Docker is available on the host.
     pub docker_probe: fn() -> bool,
-    /// Returns `true` when conda is available on the host.
-    pub conda_probe: fn() -> bool,
 }
 
 /// Select an execution environment for re-running the compute tasks in `pkg`.
@@ -84,12 +86,12 @@ pub struct ProvisionOpts {
 /// Reads the first compute task's `runtime/outputs/<task>/determinism-env.json`
 /// for the `task_container_digest`, then applies the tier waterfall:
 ///
-/// 1. **Container** — `opts.docker_probe()` true, digest non-empty.
+/// 1. **Container** — `opts.docker_probe()` true, digest non-empty. Inside
+///    this tier, a recorded EXPLICIT lock with no shipped env selects the
+///    **InstallFromLock** variant.
 /// 2. **RebuiltImage** — `opts.allow_rebuild` true, a Dockerfile is present
 ///    directly under `runtime/outputs/<task>/` or at the package root.
-/// 3. **HostConda** — `opts.conda_probe()` true, `env.lock` exists under
-///    `runtime/outputs/<task>/`.
-/// 4. **None** — fallback.
+/// 3. **None** — fallback.
 pub fn provision(pkg: &Path, opts: &ProvisionOpts, recorded_root: &str) -> ExecEnv {
     // Find the first eligible compute task by scanning runtime/outputs/ in
     // lexicographic order. A task is "eligible" if it has a determinism-env.json.
@@ -145,23 +147,6 @@ pub fn provision(pkg: &Path, opts: &ProvisionOpts, recorded_root: &str) -> ExecE
                 conda_prefix,
                 conda_mount_at,
             };
-        }
-    }
-
-    // --- Tier 3: Host conda ---
-    if (opts.conda_probe)() {
-        if let Some(ref task_dir) = first_task_dir {
-            let lock = task_dir.join("env.lock");
-            if lock.exists() {
-                // The conda prefix lives adjacent to the package under a
-                // `.conda-envs/` directory named after the package root.
-                let prefix = pkg.join(".conda-envs").join(
-                    pkg.file_name()
-                        .map(|n| n.to_string_lossy().into_owned())
-                        .unwrap_or_else(|| "ecaa-replay-env".to_string()),
-                );
-                return ExecEnv::HostConda { prefix };
-            }
         }
     }
 
@@ -266,7 +251,21 @@ fn build_install_command(image: &str, lock: &Path, env_target: &Path) -> Vec<Str
         "--rm".to_string(),
         // conda create must reach the package registries recorded in the lock,
         // so (unlike script execution) this step is NOT network-isolated. It is
-        // still deterministic: the lock pins every package by URL + md5.
+        // still deterministic: the lock pins every package by URL + md5, and its
+        // hosts are gated against the registry allowlist before this runs.
+        //
+        // Even with network ON, bound the install of an UNTRUSTED lock: drop all
+        // Linux capabilities, forbid privilege escalation, cap the process table
+        // (fork-bomb defense), and cap memory so a hostile post-install hook
+        // can't wedge the host. The lock is mounted read-only.
+        "--cap-drop".to_string(),
+        "ALL".to_string(),
+        "--security-opt".to_string(),
+        "no-new-privileges".to_string(),
+        "--pids-limit".to_string(),
+        "512".to_string(),
+        "--memory".to_string(),
+        "4g".to_string(),
         "-v".to_string(),
         format!("{parent}:{parent}"),
         "-v".to_string(),
@@ -316,7 +315,6 @@ impl ExecEnv {
             ExecEnv::Container { .. } => "container",
             ExecEnv::RebuiltImage { .. } => "rebuilt",
             ExecEnv::InstallFromLock { .. } => "install-from-lock",
-            ExecEnv::HostConda { .. } => "host",
             ExecEnv::None => "none",
             #[cfg(test)]
             ExecEnv::Shell => "shell",
@@ -409,7 +407,7 @@ impl ExecEnv {
                 // Run the interpreter THROUGH the recorded conda env when present:
                 // its libraries (e.g. DESeq2) live in that env, not the base image,
                 // so a bare `Rscript` would fail. `--no-capture-output` keeps the
-                // child's stderr intact for failed-run diagnosis (mirrors HostConda).
+                // child's stderr intact for failed-run diagnosis.
                 if let Some(prefix) = conda_prefix {
                     let dst = conda_mount_at.as_deref().unwrap_or(prefix).display().to_string();
                     args.push("conda".to_string());
@@ -417,28 +415,6 @@ impl ExecEnv {
                     args.push("--no-capture-output".to_string());
                     args.push("-p".to_string());
                     args.push(dst);
-                }
-                args.push(interp.to_string());
-                args.push(script_str);
-                Ok(args)
-            }
-
-            ExecEnv::HostConda { prefix } => {
-                // `--no-capture-output` prevents conda ≥ 4.9 from buffering the
-                // child's stdout/stderr into its own wrapper, ensuring the
-                // `Output` returned to the caller contains the interpreter's
-                // actual output (especially stderr, needed for failed-run
-                // diagnosis).
-                let mut args = vec![
-                    "conda".to_string(),
-                    "run".to_string(),
-                    "--no-capture-output".to_string(),
-                    "-p".to_string(),
-                    prefix.display().to_string(),
-                    "env".to_string(),
-                ];
-                for (k, v) in env {
-                    args.push(format!("{k}={v}"));
                 }
                 args.push(interp.to_string());
                 args.push(script_str);
@@ -494,9 +470,8 @@ impl ExecEnv {
         let (program, args) = argv.split_first().expect("build_command returns non-empty vec");
         let mut cmd = Command::new(program);
         cmd.args(args);
-        // For HostConda, conda run manages the working directory via `-p`; for
-        // docker, it is set inside the container via `-w`. For safety we also
-        // set the process cwd to match in both cases.
+        // The container tiers set the working directory inside the container via
+        // `-w`; for safety we also set the process cwd to match.
         cmd.current_dir(cwd);
         cmd.output()
     }
@@ -618,18 +593,17 @@ mod tests {
         fs::write(task_dir.join("env.lock"), "# conda lock stub\n").unwrap();
     }
 
-    // ---- Tier 4 (None) tests ----
+    // ---- None-tier tests ----
 
-    /// With both probes returning false and no fallback, provision → None.
+    /// Docker absent + no rebuild + no fallback tier → None.
     #[test]
-    fn provision_none_when_both_probes_false() {
+    fn provision_none_when_docker_absent() {
         let tmp = tempfile::tempdir().unwrap();
         write_det_env(tmp.path(), "differential_expression", "sha256:abcd1234");
 
         let opts = ProvisionOpts {
             allow_rebuild: false,
             docker_probe: || false,
-            conda_probe: || false,
         };
         let env = provision(tmp.path(), &opts, "");
         assert_eq!(env, ExecEnv::None);
@@ -637,56 +611,38 @@ mod tests {
     }
 
     /// With an empty package (no runtime/outputs), provision → None regardless
-    /// of probes.
+    /// of the docker probe.
     #[test]
     fn provision_none_empty_package() {
         let tmp = tempfile::tempdir().unwrap();
         let opts = ProvisionOpts {
             allow_rebuild: true,
             docker_probe: || true,
-            conda_probe: || true,
         };
         let env = provision(tmp.path(), &opts, "");
         assert_eq!(env, ExecEnv::None);
     }
 
-    // ---- Tier 3 (HostConda) tests ----
-
-    /// conda_probe=true + env.lock present + docker_probe=false → HostConda.
+    /// The HostConda tier is retired: a package that ships only an `env.lock`
+    /// (no container digest, no EXPLICIT lock, no Dockerfile) has NO
+    /// re-executable environment → None. `env.lock` (R `sessionInfo()`) is not
+    /// a provisioning source.
     #[test]
-    fn provision_host_conda_when_docker_absent_and_lock_present() {
+    fn provision_none_when_only_env_lock_present() {
         let tmp = tempfile::tempdir().unwrap();
-        write_det_env(tmp.path(), "differential_expression", "sha256:abcd1234");
-        write_env_lock(tmp.path(), "differential_expression");
+        write_det_env(tmp.path(), "differential_expression", ""); // no digest
+        write_env_lock(tmp.path(), "differential_expression"); // only an env.lock
 
         let opts = ProvisionOpts {
             allow_rebuild: false,
-            docker_probe: || false,
-            conda_probe: || true,
+            docker_probe: || true, // even WITH docker there is no lock/digest to use
         };
         let env = provision(tmp.path(), &opts, "");
-        assert!(
-            matches!(env, ExecEnv::HostConda { .. }),
-            "expected HostConda, got {:?}",
-            env
+        assert_eq!(
+            env,
+            ExecEnv::None,
+            "env.lock alone must not provision any tier (HostConda retired)"
         );
-        assert_eq!(env.tier_name(), "host");
-    }
-
-    /// conda_probe=true but no env.lock present → falls through to None.
-    #[test]
-    fn provision_none_when_conda_available_but_no_lock() {
-        let tmp = tempfile::tempdir().unwrap();
-        write_det_env(tmp.path(), "differential_expression", "sha256:abcd1234");
-        // No env.lock written.
-
-        let opts = ProvisionOpts {
-            allow_rebuild: false,
-            docker_probe: || false,
-            conda_probe: || true,
-        };
-        let env = provision(tmp.path(), &opts, "");
-        assert_eq!(env, ExecEnv::None);
     }
 
     // ---- Tier 1 (Container) tests ----
@@ -701,7 +657,6 @@ mod tests {
         let opts = ProvisionOpts {
             allow_rebuild: false,
             docker_probe: || true,
-            conda_probe: || false,
         };
         let env = provision(tmp.path(), &opts, "");
         assert_eq!(
@@ -715,9 +670,11 @@ mod tests {
         assert_eq!(env.tier_name(), "container");
     }
 
-    /// docker_probe=true but digest is empty string → falls through past container tier.
+    /// docker_probe=true but digest is empty string → Container tier is skipped;
+    /// with no EXPLICIT lock and no Dockerfile the result is None (the retired
+    /// HostConda tier no longer catches an `env.lock`).
     #[test]
-    fn provision_skips_container_when_digest_empty() {
+    fn provision_none_when_digest_empty_and_env_lock_only() {
         let tmp = tempfile::tempdir().unwrap();
         write_det_env(tmp.path(), "differential_expression", "");
         write_env_lock(tmp.path(), "differential_expression");
@@ -725,13 +682,12 @@ mod tests {
         let opts = ProvisionOpts {
             allow_rebuild: false,
             docker_probe: || true,
-            conda_probe: || true,
         };
         let env = provision(tmp.path(), &opts, "");
-        // Should fall through to HostConda since conda_probe=true + env.lock present.
-        assert!(
-            matches!(env, ExecEnv::HostConda { .. }),
-            "expected HostConda fallback when digest empty, got {:?}",
+        assert_eq!(
+            env,
+            ExecEnv::None,
+            "empty digest + only env.lock must yield None, got {:?}",
             env
         );
     }
@@ -750,7 +706,6 @@ mod tests {
         let opts = ProvisionOpts {
             allow_rebuild: true,
             docker_probe: || true, // Docker required for RebuiltImage (Tier 2 guard)
-            conda_probe: || false,
         };
         let env = provision(tmp.path(), &opts, "");
         assert!(
@@ -773,7 +728,6 @@ mod tests {
         let opts = ProvisionOpts {
             allow_rebuild: true,
             docker_probe: || true, // Docker present — required for Tier 2
-            conda_probe: || false,
         };
         let env = provision(tmp.path(), &opts, "");
         assert!(
@@ -797,11 +751,8 @@ mod tests {
             "rebuilt"
         );
         assert_eq!(
-            ExecEnv::HostConda {
-                prefix: PathBuf::from("/env")
-            }
-            .tier_name(),
-            "host"
+            ExecEnv::InstallFromLock { digest: "d".into(), lock: PathBuf::from("/l") }.tier_name(),
+            "install-from-lock"
         );
         assert_eq!(ExecEnv::None.tier_name(), "none");
     }
@@ -834,38 +785,6 @@ mod tests {
     }
 
     // ---- build_command arg-vector tests ----
-
-    /// HostConda with sorted env vars produces the expected argument vector,
-    /// including `--no-capture-output` immediately after `run`.
-    #[test]
-    fn build_command_host_conda_arg_vector() {
-        let prefix = PathBuf::from("/opt/conda/envs/ecaa-replay");
-        let env_obj = ExecEnv::HostConda { prefix: prefix.clone() };
-        let mut env = BTreeMap::new();
-        env.insert("TZ".to_string(), "UTC".to_string());
-        env.insert("LC_ALL".to_string(), "C.UTF-8".to_string());
-        let script = Path::new("/work/analysis.R");
-        let cwd = Path::new("/work");
-
-        let argv = env_obj.build_command(script, &env, cwd).unwrap();
-
-        // BTreeMap iterates in sorted key order: LC_ALL before TZ.
-        assert_eq!(
-            argv,
-            vec![
-                "conda",
-                "run",
-                "--no-capture-output",
-                "-p",
-                "/opt/conda/envs/ecaa-replay",
-                "env",
-                "LC_ALL=C.UTF-8",
-                "TZ=UTC",
-                "Rscript",
-                "/work/analysis.R",
-            ]
-        );
-    }
 
     /// Container variant produces the expected docker arg vector, including
     /// `--user <owner>` (so a non-root image default user can write the
@@ -1029,7 +948,6 @@ mod tests {
         let opts = ProvisionOpts {
             allow_rebuild: false,
             docker_probe: || true,
-            conda_probe: || false,
         };
         match provision(tmp.path(), &opts, "") {
             ExecEnv::InstallFromLock { digest, lock } => {
@@ -1084,6 +1002,30 @@ mod tests {
         );
         // Network is NOT disabled for the install step (it must fetch packages).
         assert!(!joined.contains("--network none"), "install step must reach registries; got: {joined}");
+        // ...but the install of an UNTRUSTED lock is still hardened: no caps,
+        // no privilege escalation, a bounded process table, and a memory cap.
+        assert!(
+            argv.windows(2).any(|w| w[0] == "--cap-drop" && w[1] == "ALL"),
+            "install step must drop all capabilities; got: {joined}"
+        );
+        assert!(
+            argv.windows(2)
+                .any(|w| w[0] == "--security-opt" && w[1] == "no-new-privileges"),
+            "install step must forbid privilege escalation; got: {joined}"
+        );
+        assert!(
+            argv.windows(2).any(|w| w[0] == "--pids-limit" && w[1] == "512"),
+            "install step must bound its process table; got: {joined}"
+        );
+        assert!(
+            argv.windows(2).any(|w| w[0] == "--memory" && w[1] == "4g"),
+            "install step must cap memory; got: {joined}"
+        );
+        // The lock is mounted read-only.
+        assert!(
+            joined.contains(&format!("{}:{}:ro", lock.display(), lock.display())),
+            "lock must be mounted read-only; got: {joined}"
+        );
     }
 
     /// provision() must detect the single runtime-provisioned conda env shipped
@@ -1103,7 +1045,6 @@ mod tests {
         let opts = ProvisionOpts {
             allow_rebuild: false,
             docker_probe: || true,
-            conda_probe: || false,
         };
         match provision(tmp.path(), &opts, "") {
             ExecEnv::Container { conda_prefix, .. } => {
@@ -1151,24 +1092,32 @@ mod tests {
     }
 
     /// Interpreter dispatch within build_command: .R → Rscript, .py → python3,
-    /// .sh → bash (spot-checked via HostConda to keep it concise).
+    /// .sh → bash (spot-checked via the Container tier, whose argv ends
+    /// `… <image> <interpreter> <script>` when no conda env is present).
+    fn container_env() -> ExecEnv {
+        ExecEnv::Container {
+            digest: "sha256:img".to_string(),
+            conda_prefix: None,
+            conda_mount_at: None,
+        }
+    }
+
     #[test]
     fn build_command_interpreter_dispatch_by_extension() {
-        let prefix = PathBuf::from("/env");
         let env: BTreeMap<String, String> = BTreeMap::new();
         let cwd = Path::new("/w");
 
-        let r_argv = ExecEnv::HostConda { prefix: prefix.clone() }
+        let r_argv = container_env()
             .build_command(Path::new("/w/a.R"), &env, cwd)
             .unwrap();
         assert_eq!(r_argv[r_argv.len() - 2], "Rscript");
 
-        let py_argv = ExecEnv::HostConda { prefix: prefix.clone() }
+        let py_argv = container_env()
             .build_command(Path::new("/w/b.py"), &env, cwd)
             .unwrap();
         assert_eq!(py_argv[py_argv.len() - 2], "python3");
 
-        let sh_argv = ExecEnv::HostConda { prefix: prefix.clone() }
+        let sh_argv = container_env()
             .build_command(Path::new("/w/c.sh"), &env, cwd)
             .unwrap();
         assert_eq!(sh_argv[sh_argv.len() - 2], "bash");

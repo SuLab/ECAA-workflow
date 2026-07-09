@@ -35,6 +35,7 @@ fn replay_himes_verify_tier_passes_offline() {
         bounds: None,
         allow_rebuild: false,
         reader_version: "0.2".into(),
+        trust: ecaa_workflow_core::replay::PackageTrust::Trusted,
     };
     let rep = ecaa_workflow_core::replay::run_replay(std::path::Path::new(pkg), &opts)
         .expect("run_replay must not error on the himes fixture");
@@ -145,6 +146,7 @@ fn replay_himes_execute_tier_reproduces_de_table() {
         bounds: None,
         allow_rebuild: false,
         reader_version: "0.2".into(),
+        trust: ecaa_workflow_core::replay::PackageTrust::Trusted,
     };
     let rep = ecaa_workflow_core::replay::run_replay(std::path::Path::new(pkg), &opts)
         .expect("run_replay must not error on the himes fixture");

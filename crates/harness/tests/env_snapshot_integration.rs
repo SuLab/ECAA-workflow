@@ -192,6 +192,7 @@ fn snapshot_build_then_replay_is_byte_identical() {
         bounds: None,
         allow_rebuild: false,
         reader_version: "0.2".to_string(),
+        trust: ecaa_workflow_core::replay::PackageTrust::Trusted,
     };
 
     let report = run_replay(&pkg, &replay_opts)

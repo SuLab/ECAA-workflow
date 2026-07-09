@@ -1,5 +1,6 @@
 //! Agent-free replay: re-verify + re-execute a downloaded ECAA package.
 pub mod env_provision;
+pub mod lock_policy;
 pub mod report;
 pub mod reverify;
 pub mod script_runner;
@@ -31,6 +32,23 @@ pub enum Tier {
     All,
 }
 
+/// Provenance-trust classification of the package being replayed.
+///
+/// Set by callers: the server marks an imported (uploaded) package
+/// [`PackageTrust::Untrusted`] and a locally-authored one
+/// [`PackageTrust::Trusted`]; operator-run CLI replays are `Trusted`. Carried
+/// through `run_replay` so the server's confirm gate has a single source of
+/// truth. Note the registry-allowlist gate on install-from-lock is enforced
+/// **regardless of trust** (defense-in-depth); `trust` never relaxes it.
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PackageTrust {
+    /// Locally authored by the operator running the replay.
+    Trusted,
+    /// Reconstructed from an uploaded, attacker-controllable deposit.
+    Untrusted,
+}
+
 /// Options for `run_replay`.
 pub struct ReplayOptions {
     /// Which tier(s) to execute.
@@ -49,6 +67,10 @@ pub struct ReplayOptions {
     /// distinguish real tampering (reader_matches_writer=true) from version
     /// drift (reader_matches_writer=false) in the re-verify result.
     pub reader_version: String,
+    /// Provenance trust of the package. Callers set this explicitly (there is
+    /// no default): the server derives it from `session.imported`, CLI/tests
+    /// use [`PackageTrust::Trusted`].
+    pub trust: PackageTrust,
 }
 
 // ---------------------------------------------------------------------------
@@ -112,7 +134,7 @@ pub fn run_replay(pkg: &Path, opts: &ReplayOptions) -> anyhow::Result<ReplayRepo
 
         // Provision an execution environment with real system probes.
         let mut env = provision_env(pkg, opts.allow_rebuild, &recorded_root);
-        let unprovisionable = matches!(env, ExecEnv::None);
+        let mut unprovisionable = matches!(env, ExecEnv::None);
 
         // Allocate scratch: caller-supplied or a fresh directory under the
         // system temp root (named with a UUID for uniqueness).
@@ -133,22 +155,52 @@ pub fn run_replay(pkg: &Path, opts: &ReplayOptions) -> anyhow::Result<ReplayRepo
         // Materialize an InstallFromLock env: deterministically install the
         // recorded explicit conda lock into a fresh prefix inside the image
         // (one network-bearing step), then run scripts through it hermetically.
+        //
+        // BEFORE any install (and therefore any network fetch), gate the lock's
+        // package URLs against the registry allowlist. `conda create --file`
+        // fetches every `@EXPLICIT` URL; an untrusted imported package could
+        // point those at attacker-controlled hosts. On a violation we REFUSE
+        // the install and degrade to `ExecEnv::None` (unprovisionable) so the
+        // verdict is a clean PARTIAL — never a silent fetch. The gate is
+        // enforced regardless of `opts.trust` (defense-in-depth).
         if let ExecEnv::InstallFromLock { digest, lock } = &env {
-            let env_target = scratch.join(".replay-conda-env");
-            tracing::info!(
-                "replay: installing conda env from lock {} into {}",
-                lock.display(),
-                env_target.display()
-            );
-            crate::replay::env_provision::install_conda_env_from_lock(digest, lock, &env_target)
-                .map_err(|e| anyhow::anyhow!("installing conda env from recorded lock: {e}"))?;
-            // The env was created AT `env_target`, so its baked prefixes already
-            // match — no relocation remap needed.
-            env = ExecEnv::Container {
-                digest: digest.clone(),
-                conda_prefix: Some(env_target),
-                conda_mount_at: None,
+            let allowlist = {
+                #[allow(clippy::disallowed_methods)]
+                let raw = std::env::var("ECAA_REPLAY_LOCK_REGISTRY_ALLOWLIST").ok();
+                crate::replay::lock_policy::resolve_allowlist_from_env_value(raw.as_deref())
             };
+            match crate::replay::lock_policy::validate_lock_registries(lock, &allowlist) {
+                Ok(()) => {
+                    let env_target = scratch.join(".replay-conda-env");
+                    tracing::info!(
+                        "replay: installing conda env from lock {} into {} (trust={:?})",
+                        lock.display(),
+                        env_target.display(),
+                        opts.trust
+                    );
+                    crate::replay::env_provision::install_conda_env_from_lock(
+                        digest,
+                        lock,
+                        &env_target,
+                    )
+                    .map_err(|e| anyhow::anyhow!("installing conda env from recorded lock: {e}"))?;
+                    // The env was created AT `env_target`, so its baked prefixes
+                    // already match — no relocation remap needed.
+                    env = ExecEnv::Container {
+                        digest: digest.clone(),
+                        conda_prefix: Some(env_target),
+                        conda_mount_at: None,
+                    };
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "replay: refusing install-from-lock (trust={:?}): {e}",
+                        opts.trust
+                    );
+                    env = ExecEnv::None;
+                    unprovisionable = true;
+                }
+            }
         }
 
         // Read topological order from runtime/execution-order.json.
@@ -201,21 +253,11 @@ fn which_docker() -> bool {
         .unwrap_or(false)
 }
 
-/// Return `true` when `conda` is on the PATH.
-fn which_conda() -> bool {
-    std::process::Command::new("which")
-        .arg("conda")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-}
-
 /// Provision an execution environment with real system probes.
 fn provision_env(pkg: &Path, allow_rebuild: bool, recorded_root: &str) -> ExecEnv {
     let opts = ProvisionOpts {
         allow_rebuild,
         docker_probe: which_docker,
-        conda_probe: which_conda,
     };
     crate::replay::env_provision::provision(pkg, &opts, recorded_root)
 }
@@ -621,6 +663,7 @@ mod tests {
             bounds: None,
             allow_rebuild: false,
             reader_version: "0.2".to_string(),
+            trust: PackageTrust::Trusted,
         };
 
         let report = run_replay(pkg, &opts).expect("run_replay must not error");
