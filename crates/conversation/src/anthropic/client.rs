@@ -1012,6 +1012,17 @@ enum ContentBlock {
         name: String,
         input: serde_json::Value,
     },
+    /// Extended-thinking block (Sonnet 5 and newer models emit these). It
+    /// carries no SME-facing text and no tool call, so it is skipped; its
+    /// `thinking`/`signature` fields are ignored (serde drops unknown fields on
+    /// a fieldless struct variant). Without this variant the whole-response
+    /// parse fails ("parsing anthropic response") on any thinking-enabled model.
+    Thinking {},
+    /// Forward-compat catch-all for any other block type the API introduces
+    /// (`redacted_thinking`, `server_tool_use`, …) — skip rather than fail the
+    /// entire response parse on an unrecognized block.
+    #[serde(other)]
+    Other,
 }
 
 fn parse_response(body: &str) -> Result<TurnResponse> {
@@ -1060,6 +1071,9 @@ fn parse_response(body: &str) -> Result<TurnResponse> {
                 });
                 tool_uses.push((uid, tool));
             }
+            // Extended-thinking + forward-compat blocks carry no SME-facing
+            // text and no tool call — skip them.
+            ContentBlock::Thinking {} | ContentBlock::Other => {}
         }
     }
 
