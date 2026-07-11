@@ -79,6 +79,37 @@ pub struct ProvisionOpts {
     pub allow_rebuild: bool,
     /// Returns `true` when Docker is available on the host.
     pub docker_probe: fn() -> bool,
+    /// Returns `true` when the given image (by digest/ID/tag) is present
+    /// locally. Injected so tests can drive the fallback deterministically.
+    pub image_probe: fn(&str) -> bool,
+    /// A current base image to fall back to when the recorded per-task snapshot
+    /// image is absent (e.g. garbage-collected). `None` disables the fallback,
+    /// in which case an absent recorded image is kept (and fails loudly at run
+    /// time, preserving exact-image reproducibility semantics).
+    pub fallback_image: Option<String>,
+}
+
+/// Resolve the recorded image against local availability. Returns the effective
+/// digest to use. When the recorded image is absent and a `fallback_image` is
+/// configured and present, swaps to it and logs a loud **image-drift** warning —
+/// the replay then reproduces against a DIFFERENT image than recorded, trading
+/// exact-image fidelity for availability. `run_replay` surfaces the drift in the
+/// report's `env_tier`. When no usable fallback exists the recorded digest is
+/// returned unchanged (it fails loudly downstream).
+fn resolve_recorded_image(recorded: &str, opts: &ProvisionOpts) -> String {
+    if recorded.is_empty() || (opts.image_probe)(recorded) {
+        return recorded.to_string();
+    }
+    if let Some(fb) = &opts.fallback_image {
+        if !fb.is_empty() && (opts.image_probe)(fb) {
+            tracing::warn!(
+                "replay: recorded image {recorded} is absent locally; falling back to {fb} \
+                 (IMAGE DRIFT — reproducing against a different image than was recorded)"
+            );
+            return fb.clone();
+        }
+    }
+    recorded.to_string()
 }
 
 /// Select an execution environment for re-running the compute tasks in `pkg`.
@@ -103,7 +134,10 @@ pub fn provision(pkg: &Path, opts: &ProvisionOpts, recorded_root: &str) -> ExecE
     // --- Tier 1: Container by digest ---
     if (opts.docker_probe)() {
         if let Some(ref task_dir) = first_task_dir {
-            let digest = read_container_digest(task_dir);
+            // Resolve the recorded image against local availability, falling back
+            // to a current base image (with a loud drift warning) when the exact
+            // recorded snapshot has been garbage-collected.
+            let digest = resolve_recorded_image(&read_container_digest(task_dir), opts);
             if !digest.is_empty() {
                 // 1a. A conda env shipped in the package → run through it.
                 if conda_prefix.is_some() {
@@ -321,6 +355,20 @@ impl ExecEnv {
         }
     }
 
+    /// The image the env will actually run against (digest/ID/tag), if any. Used
+    /// by `run_replay` to detect image drift (effective image ≠ recorded).
+    pub(crate) fn effective_image(&self) -> Option<&str> {
+        match self {
+            ExecEnv::Container { digest, .. } | ExecEnv::InstallFromLock { digest, .. } => {
+                Some(digest.as_str())
+            }
+            ExecEnv::RebuiltImage { tag, .. } => Some(tag.as_str()),
+            ExecEnv::None => None,
+            #[cfg(test)]
+            ExecEnv::Shell => None,
+        }
+    }
+
     /// Build the full argument vector (program + args) for running `script`
     /// inside this execution environment.
     ///
@@ -338,6 +386,21 @@ impl ExecEnv {
         let interp = interpreter_for(script)?;
         let script_str = script.display().to_string();
         let cwd_str = cwd.display().to_string();
+
+        // Route the interpreter THROUGH the recorded conda env only for R.
+        //
+        // The ECAA execution model builds the shipped/installed conda env for the
+        // R + Bioconductor stack — DESeq2 / clusterProfiler / GO.db live there,
+        // not in the base image — while Python and shell stages run against the
+        // base image's scientific-Python stack (numpy / pandas / matplotlib).
+        // This mirrors the per-task environments the agent actually recorded (R
+        // stages' `sessionInfo()` → the conda env; Python stages → the base
+        // image's python 3.11). Wrapping a Python script in `conda run -p <R-env>`
+        // resolves `python3` to the R env's interpreter, which lacks numpy, and
+        // fails with `ModuleNotFoundError` — the reason multi-language replay
+        // never reproduced. So the conda env is bind-mounted and activated only
+        // when the script is R; Python/shell run the base image interpreter.
+        let route_through_conda = interp == "Rscript";
 
         match self {
             ExecEnv::Container { digest, conda_prefix, conda_mount_at }
@@ -370,11 +433,15 @@ impl ExecEnv {
                 // so `conda run -p <that path>` (below) resolves the env and its
                 // baked R-lib / interpreter prefixes even when the package was
                 // relocated (e.g. a deposit whose env now lives at a new path).
-                if let Some(prefix) = conda_prefix {
-                    let src = prefix.display().to_string();
-                    let dst = conda_mount_at.as_deref().unwrap_or(prefix).display().to_string();
-                    args.push("-v".to_string());
-                    args.push(format!("{src}:{dst}"));
+                // Only mounted for R scripts (see `route_through_conda`): a Python
+                // stage runs against the base image and never touches this env.
+                if route_through_conda {
+                    if let Some(prefix) = conda_prefix {
+                        let src = prefix.display().to_string();
+                        let dst = conda_mount_at.as_deref().unwrap_or(prefix).display().to_string();
+                        args.push("-v".to_string());
+                        args.push(format!("{src}:{dst}"));
+                    }
                 }
                 // Run as the OWNER of the working dir. The image may default to a
                 // non-root user (e.g. bio-min runs as uid 1001), which cannot
@@ -404,17 +471,21 @@ impl ExecEnv {
                     args.push(format!("HOME={cwd_str}"));
                 }
                 args.push(digest.clone());
-                // Run the interpreter THROUGH the recorded conda env when present:
-                // its libraries (e.g. DESeq2) live in that env, not the base image,
-                // so a bare `Rscript` would fail. `--no-capture-output` keeps the
-                // child's stderr intact for failed-run diagnosis.
-                if let Some(prefix) = conda_prefix {
-                    let dst = conda_mount_at.as_deref().unwrap_or(prefix).display().to_string();
-                    args.push("conda".to_string());
-                    args.push("run".to_string());
-                    args.push("--no-capture-output".to_string());
-                    args.push("-p".to_string());
-                    args.push(dst);
+                // Run the R interpreter THROUGH the recorded conda env: its
+                // libraries (e.g. DESeq2) live in that env, not the base image, so
+                // a bare `Rscript` would fail. `--no-capture-output` keeps the
+                // child's stderr intact for failed-run diagnosis. Python/shell
+                // stages skip this and run the base image interpreter directly
+                // (see `route_through_conda`).
+                if route_through_conda {
+                    if let Some(prefix) = conda_prefix {
+                        let dst = conda_mount_at.as_deref().unwrap_or(prefix).display().to_string();
+                        args.push("conda".to_string());
+                        args.push("run".to_string());
+                        args.push("--no-capture-output".to_string());
+                        args.push("-p".to_string());
+                        args.push(dst);
+                    }
                 }
                 args.push(interp.to_string());
                 args.push(script_str);
@@ -499,9 +570,18 @@ fn find_first_task_dir(outputs: &Path) -> Option<PathBuf> {
         .find(|d| d.join("determinism-env.json").exists())
 }
 
+/// The recorded `task_container_digest` of the package's first eligible compute
+/// task (lex order), or empty when none. `run_replay` compares this to the
+/// env's effective image to detect fallback-induced image drift.
+pub(crate) fn recorded_image(pkg: &Path) -> String {
+    find_first_task_dir(&pkg.join("runtime/outputs"))
+        .map(|d| read_container_digest(&d))
+        .unwrap_or_default()
+}
+
 /// Read `task_container_digest` from `<task_dir>/determinism-env.json`.
 /// Returns an empty string if the file is absent or the field is missing.
-fn read_container_digest(task_dir: &Path) -> String {
+pub(crate) fn read_container_digest(task_dir: &Path) -> String {
     let path = task_dir.join("determinism-env.json");
     std::fs::read_to_string(&path)
         .ok()
@@ -604,6 +684,8 @@ mod tests {
         let opts = ProvisionOpts {
             allow_rebuild: false,
             docker_probe: || false,
+            image_probe: |_| true,
+            fallback_image: None,
         };
         let env = provision(tmp.path(), &opts, "");
         assert_eq!(env, ExecEnv::None);
@@ -618,6 +700,8 @@ mod tests {
         let opts = ProvisionOpts {
             allow_rebuild: true,
             docker_probe: || true,
+            image_probe: |_| true,
+            fallback_image: None,
         };
         let env = provision(tmp.path(), &opts, "");
         assert_eq!(env, ExecEnv::None);
@@ -636,6 +720,8 @@ mod tests {
         let opts = ProvisionOpts {
             allow_rebuild: false,
             docker_probe: || true, // even WITH docker there is no lock/digest to use
+            image_probe: |_| true,
+            fallback_image: None,
         };
         let env = provision(tmp.path(), &opts, "");
         assert_eq!(
@@ -657,6 +743,8 @@ mod tests {
         let opts = ProvisionOpts {
             allow_rebuild: false,
             docker_probe: || true,
+            image_probe: |_| true,
+            fallback_image: None,
         };
         let env = provision(tmp.path(), &opts, "");
         assert_eq!(
@@ -682,6 +770,8 @@ mod tests {
         let opts = ProvisionOpts {
             allow_rebuild: false,
             docker_probe: || true,
+            image_probe: |_| true,
+            fallback_image: None,
         };
         let env = provision(tmp.path(), &opts, "");
         assert_eq!(
@@ -706,6 +796,8 @@ mod tests {
         let opts = ProvisionOpts {
             allow_rebuild: true,
             docker_probe: || true, // Docker required for RebuiltImage (Tier 2 guard)
+            image_probe: |_| true,
+            fallback_image: None,
         };
         let env = provision(tmp.path(), &opts, "");
         assert!(
@@ -728,6 +820,8 @@ mod tests {
         let opts = ProvisionOpts {
             allow_rebuild: true,
             docker_probe: || true, // Docker present — required for Tier 2
+            image_probe: |_| true,
+            fallback_image: None,
         };
         let env = provision(tmp.path(), &opts, "");
         assert!(
@@ -933,6 +1027,59 @@ mod tests {
         );
     }
 
+    /// Python and shell stages must NOT be wrapped in `conda run -p <prefix>`:
+    /// the shipped/installed conda env is the agent-built R + Bioconductor env,
+    /// and its python lacks the scientific-Python stack (numpy / pandas). At
+    /// record time the Python stages ran against the BASE IMAGE's python, so
+    /// replay must run them there too — wrapping them in the R env's `conda run`
+    /// resolves `python3` to that env and fails with `ModuleNotFoundError: numpy`
+    /// (the reason multi-language replay never reproduced). R scripts still route
+    /// through the env, and the R env is not even mounted into a Python container.
+    #[test]
+    fn build_command_python_bypasses_conda_env_r_uses_it() {
+        let prefix = PathBuf::from("/pkg/runtime/cache/conda-envs/ecaa-bioc");
+        let env_obj = ExecEnv::Container {
+            digest: "sha256:abc".to_string(),
+            conda_prefix: Some(prefix.clone()),
+            conda_mount_at: None,
+        };
+        let env = BTreeMap::new();
+        let cwd = Path::new("/scratch");
+
+        // R → routed through the conda env (DESeq2 lives there).
+        let r_argv = env_obj
+            .build_command(Path::new("/scratch/de/scripts/01_de.R"), &env, cwd)
+            .unwrap();
+        assert!(
+            r_argv.windows(2).any(|w| w[0] == "conda" && w[1] == "run"),
+            "R must run via `conda run`; got: {}",
+            r_argv.join(" ")
+        );
+
+        // Python → base image python3, NOT `conda run`.
+        let py_argv = env_obj
+            .build_command(Path::new("/scratch/qc/scripts/01_qc.py"), &env, cwd)
+            .unwrap();
+        assert!(
+            !py_argv.windows(2).any(|w| w[0] == "conda" && w[1] == "run"),
+            "Python must NOT run via `conda run`; got: {}",
+            py_argv.join(" ")
+        );
+        assert_eq!(
+            py_argv[py_argv.len() - 2],
+            "python3",
+            "python3 must be invoked directly; got: {}",
+            py_argv.join(" ")
+        );
+        // The R env must not be bind-mounted into a Python container.
+        let p = prefix.display().to_string();
+        assert!(
+            !py_argv.windows(2).any(|w| w[0] == "-v" && w[1] == format!("{p}:{p}")),
+            "Python container must not mount the R conda env; got: {}",
+            py_argv.join(" ")
+        );
+    }
+
     /// With a recorded digest + an explicit lock + NO shipped conda env,
     /// provision selects the InstallFromLock tier (install the env from the
     /// pinned lock into the image at replay time) rather than a bare Container.
@@ -948,6 +1095,8 @@ mod tests {
         let opts = ProvisionOpts {
             allow_rebuild: false,
             docker_probe: || true,
+            image_probe: |_| true,
+            fallback_image: None,
         };
         match provision(tmp.path(), &opts, "") {
             ExecEnv::InstallFromLock { digest, lock } => {
@@ -955,6 +1104,60 @@ mod tests {
                 assert_eq!(lock, rt.join("env.explicit.lock"));
             }
             other => panic!("expected InstallFromLock, got {other:?}"),
+        }
+    }
+
+    /// `resolve_recorded_image`: keep the recorded image when present; swap to a
+    /// present fallback when it's absent (image drift); keep the recorded image
+    /// when there is no usable fallback (fails loudly downstream, preserving
+    /// exact-image semantics).
+    #[test]
+    fn resolve_recorded_image_falls_back_only_when_recorded_absent() {
+        let with_fb = |probe: fn(&str) -> bool| ProvisionOpts {
+            allow_rebuild: false,
+            docker_probe: || true,
+            image_probe: probe,
+            fallback_image: Some("bio-min:local".to_string()),
+        };
+        // Recorded present → unchanged (no drift).
+        assert_eq!(resolve_recorded_image("sha256:abc", &with_fb(|_| true)), "sha256:abc");
+        // Recorded absent, fallback present → fallback.
+        assert_eq!(
+            resolve_recorded_image("sha256:gone", &with_fb(|i| i == "bio-min:local")),
+            "bio-min:local"
+        );
+        // Recorded absent, fallback ALSO absent → keep recorded.
+        assert_eq!(resolve_recorded_image("sha256:gone", &with_fb(|_| false)), "sha256:gone");
+        // Recorded absent, fallback disabled (None) → keep recorded.
+        let no_fb = ProvisionOpts {
+            allow_rebuild: false,
+            docker_probe: || true,
+            image_probe: |_| false,
+            fallback_image: None,
+        };
+        assert_eq!(resolve_recorded_image("sha256:gone", &no_fb), "sha256:gone");
+    }
+
+    /// End-to-end: when the recorded snapshot image is absent, `provision` binds
+    /// the InstallFromLock tier to the fallback image instead of failing.
+    #[test]
+    fn provision_uses_fallback_image_when_recorded_absent() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_det_env(tmp.path(), "differential_expression", "sha256:gone");
+        let rt = tmp.path().join("runtime");
+        fs::create_dir_all(&rt).unwrap();
+        fs::write(rt.join("env.explicit.lock"), "@EXPLICIT\nhttps://x/p.tar.bz2#abc\n").unwrap();
+        let opts = ProvisionOpts {
+            allow_rebuild: false,
+            docker_probe: || true,
+            image_probe: |i| i == "bio-min:local", // recorded absent; fallback present
+            fallback_image: Some("bio-min:local".to_string()),
+        };
+        match provision(tmp.path(), &opts, "") {
+            ExecEnv::InstallFromLock { digest, .. } => {
+                assert_eq!(digest, "bio-min:local", "must bind to the fallback image");
+            }
+            other => panic!("expected InstallFromLock on the fallback image, got {other:?}"),
         }
     }
 
@@ -1045,6 +1248,8 @@ mod tests {
         let opts = ProvisionOpts {
             allow_rebuild: false,
             docker_probe: || true,
+            image_probe: |_| true,
+            fallback_image: None,
         };
         match provision(tmp.path(), &opts, "") {
             ExecEnv::Container { conda_prefix, .. } => {

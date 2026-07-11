@@ -238,8 +238,27 @@ pub fn run_replay(pkg: &Path, opts: &ReplayOptions) -> anyhow::Result<ReplayRepo
         // ── ok:false → Failed reconciliation ────────────────────────────────
         reconcile_failed_task_buckets(&mut reexec_report, &outcomes);
 
+        // Surface image drift (the fallback swapped in a base image because the
+        // recorded snapshot was absent) in `env_tier` so a reproduced verdict
+        // never silently hides that a DIFFERENT image than recorded was used.
+        let recorded_img = crate::replay::env_provision::recorded_image(pkg);
+        let effective_img = env.effective_image().unwrap_or("");
+        let env_tier = if !recorded_img.is_empty()
+            && !effective_img.is_empty()
+            && recorded_img != effective_img
+        {
+            format!(
+                "{} [image-fallback: recorded {} absent → {}]",
+                env.tier_name(),
+                recorded_img,
+                effective_img
+            )
+        } else {
+            env.tier_name().to_string()
+        };
+
         report.reexecute = Some(crate::replay::report::ReexecuteResult {
-            env_tier: env.tier_name().to_string(),
+            env_tier,
             report: reexec_report,
             unprovisionable,
         });
@@ -292,8 +311,44 @@ fn provision_env(pkg: &Path, allow_rebuild: bool, recorded_root: &str) -> ExecEn
     let opts = ProvisionOpts {
         allow_rebuild,
         docker_probe: which_docker,
+        image_probe: docker_image_exists,
+        fallback_image: replay_fallback_image(),
     };
     crate::replay::env_provision::provision(pkg, &opts, recorded_root)
+}
+
+/// `true` when `img` (digest/ID/tag) is present locally, via `docker image
+/// inspect`. Empty input is never present.
+fn docker_image_exists(img: &str) -> bool {
+    if img.is_empty() {
+        return false;
+    }
+    std::process::Command::new("docker")
+        .args(["image", "inspect", img])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// The base image the replay falls back to when a recorded per-task snapshot
+/// image is absent (garbage-collected), or `None` when the fallback is disabled.
+/// Enabled by default so old packages remain re-executable; set
+/// `ECAA_REPLAY_IMAGE_FALLBACK=0` to require the exact recorded image. The image
+/// is `ECAA_DEFAULT_CONTAINER_IMAGE` (default `bio-min:local`).
+fn replay_fallback_image() -> Option<String> {
+    #[allow(clippy::disallowed_methods)]
+    let enabled = std::env::var("ECAA_REPLAY_IMAGE_FALLBACK")
+        .map(|v| v != "0" && !v.eq_ignore_ascii_case("false"))
+        .unwrap_or(true);
+    if !enabled {
+        return None;
+    }
+    #[allow(clippy::disallowed_methods)]
+    let img = std::env::var("ECAA_DEFAULT_CONTAINER_IMAGE")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "bio-min:local".to_string());
+    Some(img)
 }
 
 /// Read `runtime/execution-order.json` and return the task ids in topo order.
