@@ -471,6 +471,43 @@ pub fn export_depositable_package(src: &Path, dst: &Path) -> Result<ExportReport
     export_depositable_package_with_profile(src, dst, DepositProfile::Full)
 }
 
+/// GAP-5 completion helper: find the per-task `env.explicit.lock` that captured
+/// the most complete conda env. The agent snapshots the run's conda env after
+/// each stage into `runtime/outputs/<task>/env.explicit.lock`; because the env
+/// grows incrementally across stages, the snapshot with the most pinned
+/// packages is the final env state — carrying every tool the R stages installed
+/// (DESeq2 + clusterProfiler + GO.db + …). Returns the winning lock path, or
+/// `None` when no non-empty per-task lock exists. Deterministic: directories are
+/// scanned in sorted order and a later candidate wins only on a strictly greater
+/// package count, so ties resolve to the lexicographically-first path.
+fn fullest_per_task_lock(src: &Path) -> Option<PathBuf> {
+    let outputs = src.join("runtime/outputs");
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(&outputs)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect();
+    dirs.sort();
+    let mut best: Option<(usize, PathBuf)> = None;
+    for d in dirs {
+        let lock = d.join("env.explicit.lock");
+        let Ok(content) = std::fs::read_to_string(&lock) else {
+            continue;
+        };
+        // Count pinned-package URL lines (a `@EXPLICIT` conda lock lists one
+        // `https://…` per package); comment/marker lines carry no `://`.
+        let count = content.lines().filter(|l| l.contains("://")).count();
+        if count == 0 {
+            continue;
+        }
+        if best.as_ref().is_none_or(|(bc, _)| count > *bc) {
+            best = Some((count, lock));
+        }
+    }
+    best.map(|(_, p)| p)
+}
+
 /// [`export_depositable_package`] with an explicit [`DepositProfile`]. `Full`
 /// reproduces the historical behavior; the lean profiles additionally apply
 /// [`profile_extra_drop`] in the copy loop and skip the execution-lineage write.
@@ -559,6 +596,33 @@ pub fn export_depositable_package_with_profile(
         .context("de-duplicating output tables over export")?;
     kept = kept.saturating_sub(deduped);
     dropped += deduped;
+
+    // GAP-5 completion: for re-execution-bearing profiles, ensure a canonical
+    // package-level `runtime/env.explicit.lock` exists so the replay's
+    // install-from-lock resolves a single authoritative env. The agent captures
+    // a per-task lock snapshot at each stage but does not promote one to the
+    // package root; `detect_explicit_lock` would otherwise pick the
+    // lexicographically-first per-task snapshot, which may predate the full R
+    // toolchain. Promote the fullest snapshot when no package-level lock is
+    // already present. `MinimalAudit` drops the re-execution tier, so skip it.
+    if !matches!(profile, DepositProfile::MinimalAudit) {
+        let pkg_lock = dst.join("runtime/env.explicit.lock");
+        if !pkg_lock.is_file() {
+            if let Some(best) = fullest_per_task_lock(src) {
+                if let Some(parent) = pkg_lock.parent() {
+                    std::fs::create_dir_all(parent).ok();
+                }
+                std::fs::copy(&best, &pkg_lock).with_context(|| {
+                    format!(
+                        "promoting per-task lock {} -> {}",
+                        best.display(),
+                        pkg_lock.display()
+                    )
+                })?;
+                kept += 1;
+            }
+        }
+    }
 
     // Minimal: drop per-task sidecars that carry NO information — `agent-code.json`
     // holding only the ~57 KB boilerplate prompt (empty `executed_code` +
@@ -996,6 +1060,44 @@ pub fn zip_dir(src_dir: &Path, out: &mut (impl std::io::Write + std::io::Seek)) 
 mod tests {
     use super::*;
     use std::io::{Cursor, Read};
+
+    // --- GAP-5: package-level lock promotion -----------------------------
+
+    /// `fullest_per_task_lock` picks the per-task `env.explicit.lock` with the
+    /// most pinned packages (the final, fullest env state), skips empty locks,
+    /// and returns `None` when there are none.
+    #[test]
+    fn fullest_per_task_lock_picks_the_largest_snapshot() {
+        let tmp = tempfile::tempdir().unwrap();
+        let out = tmp.path().join("runtime/outputs");
+        let mk = |task: &str, n: usize| {
+            let d = out.join(task);
+            std::fs::create_dir_all(&d).unwrap();
+            let mut body = String::from("# conda lock\n@EXPLICIT\n");
+            for i in 0..n {
+                body.push_str(&format!("https://conda.anaconda.org/x/p{i}.conda#a\n"));
+            }
+            std::fs::write(d.join("env.explicit.lock"), body).unwrap();
+        };
+        // normalisation captured 3 pkgs early; pathway_enrichment 5 (fullest);
+        // a validate task captured an empty lock (0 pkgs).
+        mk("normalisation", 3);
+        mk("pathway_enrichment", 5);
+        std::fs::create_dir_all(out.join("validate_x")).unwrap();
+        std::fs::write(out.join("validate_x/env.explicit.lock"), "# empty\n@EXPLICIT\n").unwrap();
+
+        let best = fullest_per_task_lock(tmp.path()).expect("a non-empty lock exists");
+        assert_eq!(
+            best,
+            out.join("pathway_enrichment/env.explicit.lock"),
+            "must promote the fullest (5-pkg) snapshot"
+        );
+
+        // No per-task locks at all → None.
+        let empty = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(empty.path().join("runtime/outputs")).unwrap();
+        assert!(fullest_per_task_lock(empty.path()).is_none());
+    }
 
     // --- Task 1: tier classifier ----------------------------------------
 
