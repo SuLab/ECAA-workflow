@@ -40,7 +40,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-        ca-certificates curl git gnupg procps less file unzip zip rsync \
+        ca-certificates curl git gnupg procps less file unzip zip rsync jq \
         build-essential pkg-config cmake ninja-build meson gfortran clang \
         rustc cargo \
         openjdk-17-jre-headless \
