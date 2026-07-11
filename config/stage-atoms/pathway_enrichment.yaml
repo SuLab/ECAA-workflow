@@ -58,12 +58,18 @@ inputs:
     statistical_state: "de_tested"
     privacy_class: internal
   # Gene-set collection (GMT) the pathway databases above are tested
-  # against (KEGG / Reactome / GO / MSigDB hallmark). Required: without a
-  # sourced gene-set collection the enrichment test has nothing to test
-  # the ranked DE list against, so the composer prunes this atom when no
-  # gene-set source is registered. Typed `data:2600` ("Pathway or
-  # network") — the shared GENE_SET_SEMANTIC_IRI the source-typing pass
-  # surfaces on the ingest anchor — so producer/consumer types unify.
+  # against (KEGG / Reactome / GO / MSigDB hallmark). OPTIONAL: the default
+  # Enrichr tool fetches its gene-set libraries over the network (see the
+  # `safety.network` egress allowlist below), so a locally-registered GMT is
+  # not required for the atom to run — only the OFFLINE tools (fgsea /
+  # clusterProfiler) consume it. Marked optional so the composer does NOT
+  # prune enrichment when no local gene-set source is registered; instead the
+  # stage runs over the network and offline re-execution (replay) SKIPS it as
+  # not-offline-reproducible (Unavailable), exactly like the literature stages,
+  # rather than pushing the network work into the shared `reporting` atom.
+  # Typed `data:2600` ("Pathway or network") — the shared GENE_SET_SEMANTIC_IRI
+  # the source-typing pass surfaces on the ingest anchor — so producer/consumer
+  # types still unify when a GMT IS registered.
   - name: gene_set_collection
     semantic_type:
       kind: ontology_term
@@ -74,6 +80,7 @@ inputs:
       iri: "format:3475"
       label: "Tabular text"
       extension: "gmt"
+    cardinality: { kind: optional }
     privacy_class: internal
 outputs:
   - name: pathway_results
@@ -87,3 +94,16 @@ outputs:
       label: "Tabular text"
     statistical_state: "multiple_testing_corrected"
     privacy_class: internal
+# Network egress: the default Enrichr tool fetches gene-set libraries + computes
+# enrichment against the maayanlab.cloud API. Declared as egress (level: network
+# + non-empty allowlist) so the replay selector's `stage_requires_egress` treats
+# this stage as not-offline-reproducible and SKIPS it (Unavailable) — like the
+# literature stages — instead of running it offline where the network call fails.
+# `level` MUST be `network` (compute + a non-empty allowlist trips
+# atom_safety::validate_atom_safety → ComputeAtomHasNetwork → hard load failure).
+safety:
+  level: network
+  network:
+    kind: none
+    allowlist:
+      - maayanlab.cloud

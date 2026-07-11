@@ -884,7 +884,13 @@ pub async fn sync_user_inputs_to_package(
              The `data_acquisition` stage MUST consume these as its primary input \
              (selected method should be `sme_supplied_local_path` or \
              `sme_supplied_uploaded_files`); fall back to public-repo fetchers \
-             ONLY if a registered source is unreadable.\n\n",
+             ONLY if a registered source is unreadable. `data_acquisition` copies \
+             each registered source into a package-internal staged copy under \
+             `runtime/outputs/data_acquisition/data/<label>/`. Every stage AFTER \
+             `data_acquisition` MUST read these inputs from that package-internal \
+             staged path (relative to `$PACKAGE`/`$PKG_ROOT`) — NEVER from the \
+             external `Root:` path below — so each stage is self-contained and \
+             offline re-execution (replay) can reproduce it.\n\n",
         );
         for input in inputs {
             let total_bytes: u64 = input.files.iter().map(|f| f.size_bytes).sum();
@@ -893,7 +899,7 @@ pub async fn sync_user_inputs_to_package(
                 crate::session::state::UserInputKind::UploadedFiles => "uploaded files",
             };
             narrative.push_str(&format!(
-                "### `{label}` ({kind_label})\n- Root: `{root}`\n- {n_files} file(s), {bytes} bytes total\n- Manifest: `runtime/inputs.json` (entry `{input_id}`)\n\n",
+                "### `{label}` ({kind_label})\n- Root (external; `data_acquisition` ingestion only): `{root}`\n- Staged (read from here in every stage AFTER data_acquisition): `runtime/outputs/data_acquisition/data/{label}/`\n- {n_files} file(s), {bytes} bytes total\n- Manifest: `runtime/inputs.json` (entry `{input_id}`)\n\n",
                 label = input.label,
                 root = input.root_path,
                 n_files = input.files.len(),

@@ -1869,7 +1869,24 @@ fn scan_linear_fold_positions(sentence: &str) -> Vec<(usize, f64)> {
 }
 
 pub(crate) fn scan_table_reference(sentence: &str) -> Option<String> {
-    TABLE_REF_RE.find(sentence).map(|m| m.as_str().to_string())
+    // Return the first match whose "table" is a STANDALONE word — not part of a
+    // hyphenated/compound word. A narrative phrase like "DE-table Ensembl ID"
+    // otherwise captured "table Ensembl" as a source_table, which claim_sink
+    // coerced into a fabricated `runtime/outputs/<task>/table Ensembl` path that
+    // dangled the C→V edge and failed cross_graph_integrity (Inv 5). Rust regex
+    // has no lookbehind, so we reject matches preceded by a word char, hyphen,
+    // or underscore here rather than in the pattern (keeping the broad label
+    // class so real refs like `Table C`, `Table Z9`, `Table S1` still match).
+    TABLE_REF_RE
+        .find_iter(sentence)
+        .find(|m| {
+            m.start() == 0
+                || !sentence[..m.start()]
+                    .chars()
+                    .next_back()
+                    .is_some_and(|c| c.is_alphanumeric() || c == '-' || c == '_')
+        })
+        .map(|m| m.as_str().to_string())
 }
 
 /// Static regex collapsing `<num> × 10<exp>` (after Unicode→ASCII mapping)
@@ -2106,6 +2123,30 @@ mod tests {
         // There's no interpretation-policy.bioinformatics.json, so the
         // base policy carries through.
         assert_eq!(cfg.effect_size_columns, vec!["log2FC", "logFC"]);
+    }
+
+    #[test]
+    fn scan_table_reference_rejects_hyphenated_table_word() {
+        // Regression: a "table" that is part of a hyphenated/compound word
+        // ("DE-table Ensembl ID") is narrative prose, not a real "Table N"
+        // citation. Capturing "table Ensembl" as a source_table caused
+        // claim_sink to fabricate a runtime/outputs/<task>/table Ensembl path
+        // that dangled the C→V edge and failed cross_graph_integrity (Inv 5).
+        assert_eq!(
+            scan_table_reference("Genes not resolvable to a DE-table Ensembl ID are excluded"),
+            None,
+            "a 'table' inside 'DE-table' must not be captured as a table reference"
+        );
+        // Real standalone references still capture (broad label class retained).
+        assert_eq!(
+            scan_table_reference("see Table 2 for details").as_deref(),
+            Some("Table 2")
+        );
+        assert_eq!(scan_table_reference("(Table C)").as_deref(), Some("Table C"));
+        assert_eq!(
+            scan_table_reference("upregulated (log2FC=3.0, Table Z9)").as_deref(),
+            Some("Table Z9")
+        );
     }
 
     #[test]

@@ -112,15 +112,23 @@ $(printf '%s\n' "$__files" | sed 's|^|    - |')"
   done <<< "$__deps"
   __in_block=""
   if [ -f "$PACKAGE/runtime/inputs.json" ]; then
-    while IFS=$'\t' read -r __root __rel; do
+    while IFS=$'\t' read -r __root __lbl __rel; do
       [ -n "$__rel" ] || continue
+      # Portable, replay-safe read path: the package-INTERNAL copy that the
+      # data_acquisition stage stages under runtime/outputs/data_acquisition/
+      # data/<label>/. Every stage AFTER data_acquisition MUST read registered
+      # inputs from here (under $PACKAGE) — never from the external registered
+      # root — so the stage is self-contained and offline re-execution (replay)
+      # can path-rewrite it into the scratch tree. (Header preview is read from
+      # the host-visible external copy; the agent still reads the staged path.)
+      __staged="runtime/outputs/data_acquisition/data/${__lbl}/${__rel}"
       case "$__rel" in
         *.csv|*.tsv|*.CSV|*.TSV)
           __hdr="$(head -n 1 "$__root/$__rel" 2>/dev/null | head -c 400 || true)"
           [ -n "$__hdr" ] && __in_block="${__in_block}
-    - \`${__rel}\` columns: ${__hdr}" ;;
+    - \`${__staged}\` (package-internal staged copy — read THIS path, not the external root) columns: ${__hdr}" ;;
       esac
-    done < <(jq -r '.[]? | select(.kind=="local_path") | .root_path as $r | (.files[]? | [$r, .relpath] | @tsv)' "$PACKAGE/runtime/inputs.json" 2>/dev/null || true)
+    done < <(jq -r '.[]? | select(.kind=="local_path") | .root_path as $r | .label as $l | (.files[]? | [$r, $l, .relpath] | @tsv)' "$PACKAGE/runtime/inputs.json" 2>/dev/null || true)
   fi
   if [ -n "$__dep_block" ] || [ -n "$__in_block" ]; then
     RESOLVED_CONTEXT_BLOCK="
@@ -1233,17 +1241,31 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   # task to block with `missing_input` even after the SME has
   # registered the directory. read-only since the agent must not
   # mutate SME-owned source data.
+  #
+  # INGESTION-ONLY: the external registered root is mounted ONLY for the
+  # ingestion stage(s) (data_acquisition / data_import), whose job is to READ
+  # the external source and stage a package-INTERNAL copy under
+  # runtime/outputs/data_acquisition/data/<label>/. Every downstream stage must
+  # read that internal copy (under $PACKAGE, already bound), NOT the external
+  # root — so each stage is self-contained and offline re-execution (replay)
+  # can path-rewrite its inputs into the scratch tree. Gating the mount here
+  # makes a downstream stage that hardcodes the external path fail LOUDLY at
+  # run time (ENOENT) instead of passing at run time and only breaking on replay.
   DOCKER_INPUT_BIND_ARGS=()
-  if [ -f "$PACKAGE/runtime/inputs.json" ] && command -v jq >/dev/null 2>&1; then
-    while IFS= read -r __root_path; do
-      [ -z "$__root_path" ] && continue
-      [ ! -e "$__root_path" ] && continue
-      case "$__root_path" in
-        "$PACKAGE"/*) continue ;;  # already covered by the package bind
-      esac
-      DOCKER_INPUT_BIND_ARGS+=(-v "$__root_path":"$__root_path":ro)
-    done < <(jq -r '.[]? | select(.kind == "local_path") | .root_path // empty' "$PACKAGE/runtime/inputs.json" 2>/dev/null)
-  fi
+  case "${ECAA_TASK_ID:-}" in
+    data_acquisition|data_import)
+      if [ -f "$PACKAGE/runtime/inputs.json" ] && command -v jq >/dev/null 2>&1; then
+        while IFS= read -r __root_path; do
+          [ -z "$__root_path" ] && continue
+          [ ! -e "$__root_path" ] && continue
+          case "$__root_path" in
+            "$PACKAGE"/*) continue ;;  # already covered by the package bind
+          esac
+          DOCKER_INPUT_BIND_ARGS+=(-v "$__root_path":"$__root_path":ro)
+        done < <(jq -r '.[]? | select(.kind == "local_path") | .root_path // empty' "$PACKAGE/runtime/inputs.json" 2>/dev/null)
+      fi
+      ;;
+  esac
 
   # Eval fault-injection shim mounts (STRICT no-op unless ECAA_EVAL_SHIM_DIR is
   # set; empty array otherwise so the production `docker run` is byte-identical).
@@ -1316,6 +1338,29 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   fi
   AGENT_CLAUDE_DIR="$AGENT_HOME_DIR/.claude"
   AGENT_CLAUDE_JSON="$AGENT_HOME_DIR/.claude.json"
+  # Self-heal a ROOT-OWNED agent-home / session-cache before we try to write it.
+  # When the docker daemon (root) auto-creates a missing `-v src:dst` source
+  # before a uid-mapped container runs, the agent-home (or its session-cache
+  # parent) lands root-owned. The subsequent `--user <uid>` agent container then
+  # cannot write HOME → the claude CLI silently no-ops (exit 0, empty output, no
+  # state patch) and the task never completes. The invoking uid cannot chown a
+  # root-owned tree and the sudo fallback was removed for security; repair it
+  # instead with a bounded `docker run --user 0` chown scoped to the offending
+  # path — the same container runtime the agent already uses, no host privilege
+  # escalation. `! -O` = "not owned by the current effective uid".
+  __heal_target=""
+  if [ -e "$AGENT_HOME_DIR" ] && [ ! -O "$AGENT_HOME_DIR" ]; then
+    __heal_target="$AGENT_HOME_DIR"
+  elif [ ! -e "$AGENT_HOME_DIR" ] && [ -n "${ECAA_SESSION_CACHE_DIR:-}" ] \
+       && [ -e "$ECAA_SESSION_CACHE_DIR" ] && [ ! -O "$ECAA_SESSION_CACHE_DIR" ]; then
+    __heal_target="$ECAA_SESSION_CACHE_DIR"
+  fi
+  if [ -n "$__heal_target" ] && command -v docker >/dev/null 2>&1; then
+    __heal_img="${CONTAINER_IMAGE:-${ECAA_DEFAULT_CONTAINER_IMAGE:-bio-min:local}}"
+    docker run --rm --user 0:0 -v "$__heal_target":"$__heal_target" \
+      --entrypoint chown "$__heal_img" -R "$(id -u):$(id -g)" "$__heal_target" >/dev/null 2>&1 \
+      && printf '[agent] self-healed root-owned agent-home ownership: %s\n' "$__heal_target" >&2 || true
+  fi
   mkdir -p "$AGENT_HOME_DIR" "$AGENT_CLAUDE_DIR" 2>/dev/null || true
   # Repair docker's bind-mount auto-create gotcha. When a `-v src:dst`
   # source path doesn't exist, the docker daemon (running as root)
@@ -1872,10 +1917,17 @@ fi
 # conda-meta is all `--explicit` needs. Additive, timeout- + `|| true`-guarded,
 # and only when exactly one env exists (unambiguous) — never fails the task.
 # See scripts/lib/explicit_lock.sh::capture_explicit_lock for the guard logic.
-if [ -n "${ECAA_TASK_ID:-}" ] && [ -n "${TASK_CONTAINER_DIGEST:-}" ]; then
+# Gate on CONTAINER_IMAGE, not TASK_CONTAINER_DIGEST: a LOCALLY-BUILT image
+# (e.g. bio-min:local) has no RepoDigests, so the digest resolution above leaves
+# TASK_CONTAINER_DIGEST empty and the lock capture was silently skipped — which
+# left the deposit with no installable env.explicit.lock and forced a manual
+# derivation before install-from-lock replay could run. capture_explicit_lock
+# only needs a conda-bearing image to run `conda list -p <env> --explicit`,
+# which CONTAINER_IMAGE always provides.
+if [ -n "${ECAA_TASK_ID:-}" ] && [ -n "${CONTAINER_IMAGE:-}" ]; then
   _ENVS_DIR="${CONDA_ENVS_DIRS:-${ECAA_SESSION_CACHE_DIR:-}/conda-envs}"
   _DET_OUT_DIR="${_DET_OUT_DIR:-$PACKAGE/runtime/outputs/$ECAA_TASK_ID}"
-  capture_explicit_lock "$ECAA_TASK_ID" "$_ENVS_DIR" "$TASK_CONTAINER_DIGEST" "$_DET_OUT_DIR"
+  capture_explicit_lock "$ECAA_TASK_ID" "$_ENVS_DIR" "$CONTAINER_IMAGE" "$_DET_OUT_DIR"
 fi
 
 # Per-package dependency-lock resolved-version fold (D5, OPERATOR-GATED).

@@ -40,8 +40,15 @@ fn workflow_dag_node_ids(s: &Session) -> Vec<String> {
         .unwrap_or_default()
 }
 
+// NOTE: `pathway_enrichment`'s `gene_set_collection` input is now OPTIONAL, so
+// the unsourced-prune pass no longer drops enrichment when no gene-set is
+// registered (gene-set was the sole prunable input class). Enrichment instead
+// survives in its own network-egress stage that offline replay SKIPS. This test
+// asserts that SURVIVAL (the former "prunes when unsourced" behavior is
+// intentionally reversed to keep the Enrichr call out of the shared `reporting`
+// atom).
 #[tokio::test]
-async fn rebuild_dag_prunes_pathway_enrichment_when_no_gene_set_registered() {
+async fn rebuild_dag_keeps_egress_pathway_enrichment_when_no_gene_set_registered() {
     let mut s = Session::new(false);
 
     // No gene-set collection is registered (no intake `available_data`
@@ -74,25 +81,31 @@ async fn rebuild_dag_prunes_pathway_enrichment_when_no_gene_set_registered() {
         "excluded_atoms must remain empty across the rebuild"
     );
 
-    // The authoritative workflow_dag must NOT contain `pathway_enrichment`
-    // (its required `gene_set_collection` input is unsourceable).
+    // The authoritative workflow_dag MUST contain `pathway_enrichment`. Its
+    // `gene_set_collection` input is now OPTIONAL (the default Enrichr tool
+    // fetches gene sets over the network egress the atom declares), so the
+    // unsourced-prune pass no longer drops enrichment when no local gene-set is
+    // registered. Instead the stage survives in its own egress-declared stage
+    // and offline replay SKIPS it as not-offline-reproducible — rather than the
+    // Enrichr call collapsing into the shared `reporting` atom (which would
+    // run-and-fail offline replay).
     let wf_ids = workflow_dag_node_ids(&s);
     assert!(
         !wf_ids.is_empty(),
         "a workflow_dag must have been composed for the bulk RNA-seq intent"
     );
     assert!(
-        !wf_ids.iter().any(|id| id == "pathway_enrichment"),
-        "pathway_enrichment must be pruned (unsourced gene_set_collection input); \
-         workflow_dag nodes = {wf_ids:?}"
+        wf_ids.iter().any(|id| id == "pathway_enrichment"),
+        "pathway_enrichment must SURVIVE (gene_set_collection is optional; Enrichr \
+         supplies gene sets over network egress); workflow_dag nodes = {wf_ids:?}"
     );
 
-    // The lowered cache (`session.dag`) must agree — no task whose id is
-    // exactly `pathway_enrichment` survives the re-lowering.
+    // The lowered cache (`session.dag`) must agree — the pathway_enrichment
+    // task survives the re-lowering.
     if let Some(dag) = s.dag.as_ref() {
         assert!(
-            !dag.tasks.keys().any(|k| k.as_str() == "pathway_enrichment"),
-            "lowered dag must not retain a pathway_enrichment task; tasks = {:?}",
+            dag.tasks.keys().any(|k| k.as_str() == "pathway_enrichment"),
+            "lowered dag must retain a pathway_enrichment task; tasks = {:?}",
             dag.tasks.keys().collect::<Vec<_>>()
         );
     }

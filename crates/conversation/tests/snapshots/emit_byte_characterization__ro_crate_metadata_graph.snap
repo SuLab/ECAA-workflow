@@ -1,5 +1,6 @@
 ---
 source: crates/conversation/tests/emit_byte_characterization.rs
+assertion_line: 329
 expression: value
 ---
 {
@@ -152,6 +153,9 @@ expression: value
           "@id": "runtime/outputs/normalisation/figures/hvg_count_bar.png"
         },
         {
+          "@id": "runtime/outputs/pathway_enrichment/figures/top_enriched_terms.png"
+        },
+        {
           "@id": "runtime/outputs/qc_preprocessing/figures/per_sample_metric_violin.png"
         },
         {
@@ -256,6 +260,9 @@ expression: value
           "@id": "#step-discover_quantification"
         },
         {
+          "@id": "#step-discover_pathway_enrichment"
+        },
+        {
           "@id": "#step-discover_normalisation"
         },
         {
@@ -341,6 +348,12 @@ expression: value
         },
         {
           "@id": "#step-validate_differential_expression"
+        },
+        {
+          "@id": "#step-pathway_enrichment"
+        },
+        {
+          "@id": "#step-validate_pathway_enrichment"
         },
         {
           "@id": "#step-contextualize_findings_with_literature"
@@ -591,249 +604,270 @@ expression: value
       "position": 9
     },
     {
+      "@id": "#step-discover_pathway_enrichment",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for pathway_enrichment (options: fgsea, clusterprofiler, gsea, enrichr). Surface set_intake_method.",
+      "position": 10
+    },
+    {
       "@id": "#step-discover_normalisation",
       "@type": "HowToStep",
       "additionalType": "discovery",
       "name": "Discover method for normalisation (options: deseq2_vst, edger_tmm, scran, seurat_lognormalize, sctransform). Surface set_intake_method.",
-      "position": 10
+      "position": 11
     },
     {
       "@id": "#step-discover_dimensionality_reduction",
       "@type": "HowToStep",
       "additionalType": "discovery",
       "name": "Discover method for dimensionality_reduction (options: pca, umap, tsne, phate). Surface set_intake_method.",
-      "position": 11
+      "position": 12
     },
     {
       "@id": "#step-discover_differential_expression",
       "@type": "HowToStep",
       "additionalType": "discovery",
       "name": "Discover method for differential_expression (options: deseq2, edger, limma_voom, mast, wilcoxon). Surface set_intake_method.",
-      "position": 12
+      "position": 13
     },
     {
       "@id": "#step-discover_clustering",
       "@type": "HowToStep",
       "additionalType": "discovery",
       "name": "Discover method for clustering (options: leiden, louvain, kmeans, hierarchical). Surface set_intake_method.",
-      "position": 13
+      "position": 14
     },
     {
       "@id": "#step-discover_cell_type_annotation",
       "@type": "HowToStep",
       "additionalType": "discovery",
       "name": "Discover method for cell_type_annotation (options: celltypist, singler, azimuth, sctype, marker_panel). Surface set_intake_method.",
-      "position": 14
+      "position": 15
     },
     {
       "@id": "#step-discover_batch_correction",
       "@type": "HowToStep",
       "additionalType": "discovery",
       "name": "Discover method for batch_correction (options: harmony, scvi, bbknn, mnn_correct, combat, seurat_cca). Surface set_intake_method.",
-      "position": 15
+      "position": 16
     },
     {
       "@id": "#step-discover_alignment",
       "@type": "HowToStep",
       "additionalType": "discovery",
       "name": "Discover method for alignment (options: star, hisat2, bwa_mem2, bwa_mem, minimap2, bowtie2). Surface set_intake_method.",
-      "position": 16
+      "position": 17
     },
     {
       "@id": "#step-sequence_trimming",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
-      "position": 17
+      "position": 18
     },
     {
       "@id": "#step-validate_sequence_trimming",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
-      "position": 18
+      "position": 19
     },
     {
       "@id": "#step-alignment",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
-      "position": 19
+      "position": 20
     },
     {
       "@id": "#step-validate_alignment",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
-      "position": 20
+      "position": 21
     },
     {
       "@id": "#step-quantification",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Quantify gene- or transcript-level expression from aligned reads. Method\nneutrality: featureCounts / HTSeq / Salmon / kallisto / RSEM are selected\nat runtime. Emits a count matrix consumed by downstream normalisation.\n",
-      "position": 21
+      "position": 22
     },
     {
       "@id": "#step-validate_quantification",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Quantify gene- or transcript-level expression from aligned reads. Method\nneutrality: featureCounts / HTSeq / Salmon / kallisto / RSEM are selected\nat runtime. Emits a count matrix consumed by downstream normalisation.\n",
-      "position": 22
+      "position": 23
     },
     {
       "@id": "#step-qc_preprocessing",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
-      "position": 23
+      "position": 24
     },
     {
       "@id": "#step-validate_qc_preprocessing",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
-      "position": 24
+      "position": 25
     },
     {
       "@id": "#step-normalisation",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Standardise expression values to remove library-size and composition biases.\nMethod neutrality: DESeq2 VST / edgeR TMM / scran pooling / Seurat\nLogNormalize / scnorm / sctransform are selected at runtime.\n",
-      "position": 25
+      "position": 26
     },
     {
       "@id": "#step-validate_normalisation",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Standardise expression values to remove library-size and composition biases.\nMethod neutrality: DESeq2 VST / edgeR TMM / scran pooling / Seurat\nLogNormalize / scnorm / sctransform are selected at runtime.\n",
-      "position": 26
+      "position": 27
     },
     {
       "@id": "#step-batch_correction",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Remove technical batch effects between donors / runs / sequencing centres\nwhile preserving biological signal. ecaax namespace per EDAM audit —\noperation:3435 conflates with normalisation.\n",
-      "position": 27
+      "position": 28
     },
     {
       "@id": "#step-validate_batch_correction",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Remove technical batch effects between donors / runs / sequencing centres\nwhile preserving biological signal. ecaax namespace per EDAM audit —\noperation:3435 conflates with normalisation.\n",
-      "position": 28
+      "position": 29
     },
     {
       "@id": "#step-integration",
       "@type": "HowToStep",
       "additionalType": "gate",
       "name": "Sensitivity comparison across batch-correction methods (Harmony / scVI /\nBBKNN / Scanorama). Materialises method-vs-method concordance metrics so\nthe SME can pick a winner via `select_sensitivity_winner`. Aggregator role\nbecause it fans in multiple corrected matrices.\n",
-      "position": 29
+      "position": 30
     },
     {
       "@id": "#step-validate_integration",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Sensitivity comparison across batch-correction methods (Harmony / scVI /\nBBKNN / Scanorama). Materialises method-vs-method concordance metrics so\nthe SME can pick a winner via `select_sensitivity_winner`. Aggregator role\nbecause it fans in multiple corrected matrices.\n",
-      "position": 30
+      "position": 31
     },
     {
       "@id": "#step-dimensionality_reduction",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Project the (normalised, batch-corrected) feature matrix to a low-dimensional\nembedding for visualization and clustering. PCA followed by UMAP or t-SNE is\nthe default; method choice deferred to runtime.\n",
-      "position": 31
+      "position": 32
     },
     {
       "@id": "#step-validate_dimensionality_reduction",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Project the (normalised, batch-corrected) feature matrix to a low-dimensional\nembedding for visualization and clustering. PCA followed by UMAP or t-SNE is\nthe default; method choice deferred to runtime.\n",
-      "position": 32
+      "position": 33
     },
     {
       "@id": "#step-clustering",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Group cells / samples by transcriptional similarity in the reduced embedding.\nLeiden / Louvain / k-means / hierarchical methods selected at runtime.\nResolution sweep is part of the emitted artifact so downstream review can\nre-pick without recomputation.\n",
-      "position": 33
+      "position": 34
     },
     {
       "@id": "#step-validate_clustering",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Group cells / samples by transcriptional similarity in the reduced embedding.\nLeiden / Louvain / k-means / hierarchical methods selected at runtime.\nResolution sweep is part of the emitted artifact so downstream review can\nre-pick without recomputation.\n",
-      "position": 34
+      "position": 35
     },
     {
       "@id": "#step-cell_type_annotation",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Label each cluster with a cell-identity from marker-gene panels or reference\nmapping (CellTypist / SingleR / Azimuth / sctype). ecaax namespace per the\nEDAM audit — operation:0361 (sequence annotation) is a semantic mismatch\nfor cell-identity calling on count matrices.\n",
-      "position": 35
+      "position": 36
     },
     {
       "@id": "#step-validate_cell_type_annotation",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Label each cluster with a cell-identity from marker-gene panels or reference\nmapping (CellTypist / SingleR / Azimuth / sctype). ecaax namespace per the\nEDAM audit — operation:0361 (sequence annotation) is a semantic mismatch\nfor cell-identity calling on count matrices.\n",
-      "position": 36
+      "position": 37
     },
     {
       "@id": "#step-differential_expression",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n\nRECORD-WHAT-YOU-DID (audit, not instruction): in result.json, write down the\nmodel you actually fit so it can be audited — this does NOT tell you which\nmodel/test to use, only to state your own choice. Record:\n  - design_formula: the model formula you fit (e.g. \"~ condition + sex + RIN\").\n  - response_variable: the model's outcome / left-hand side (the thing being\n    explained). For a contrast-based DE this is the expression/count response;\n    for a regression against an outcome it is that outcome variable.\n  - available_covariates: the covariate columns you observed in the sample\n    metadata (your honest list of what was available, e.g.\n    [\"condition\",\"sex\",\"age\",\"RIN\"]).\n  - primary_variable: the main comparison variable for the contrast (e.g.\n    \"condition\").\n  - stated_outcome: the SME's stated outcome for the task, when the task names\n    one (otherwise omit).\nThese are YOUR record of YOUR choices and of the data/task — a domain-correctness\ncontract checks them for internal + task consistency (e.g. the design adjusts\nfor an available covariate; the response matches the stated outcome). It never\nprescribes a model.\n",
-      "position": 37
+      "position": 38
     },
     {
       "@id": "#step-validate_differential_expression",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n\nRECORD-WHAT-YOU-DID (audit, not instruction): in result.json, write down the\nmodel you actually fit so it can be audited — this does NOT tell you which\nmodel/test to use, only to state your own choice. Record:\n  - design_formula: the model formula you fit (e.g. \"~ condition + sex + RIN\").\n  - response_variable: the model's outcome / left-hand side (the thing being\n    explained). For a contrast-based DE this is the expression/count response;\n    for a regression against an outcome it is that outcome variable.\n  - available_covariates: the covariate columns you observed in the sample\n    metadata (your honest list of what was available, e.g.\n    [\"condition\",\"sex\",\"age\",\"RIN\"]).\n  - primary_variable: the main comparison variable for the contrast (e.g.\n    \"condition\").\n  - stated_outcome: the SME's stated outcome for the task, when the task names\n    one (otherwise omit).\nThese are YOUR record of YOUR choices and of the data/task — a domain-correctness\ncontract checks them for internal + task consistency (e.g. the design adjusts\nfor an available covariate; the response matches the stated outcome). It never\nprescribes a model.\n",
-      "position": 38
+      "position": 39
+    },
+    {
+      "@id": "#step-pathway_enrichment",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
+      "position": 40
+    },
+    {
+      "@id": "#step-validate_pathway_enrichment",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
+      "position": 41
     },
     {
       "@id": "#step-contextualize_findings_with_literature",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
-      "position": 39
+      "position": 42
     },
     {
       "@id": "#step-validate_contextualize_findings_with_literature",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
-      "position": 40
+      "position": 43
     },
     {
       "@id": "#step-reporting",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "position": 41
+      "position": 44
     },
     {
       "@id": "#step-validate_reporting",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "position": 42
+      "position": 45
     },
     {
       "@id": "#step-final_reporting",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
-      "position": 43
+      "position": 46
     },
     {
       "@id": "#step-validate_final_reporting",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
-      "position": 44
+      "position": 47
     },
     {
       "@id": "runtime/outputs/batch_correction/figures/mixing_score_bar.png",
@@ -1015,6 +1049,19 @@ expression: value
       "name": "normalisation — hvg_count_bar",
       "schema:about": {
         "@id": "#step-normalisation"
+      }
+    },
+    {
+      "@id": "runtime/outputs/pathway_enrichment/figures/top_enriched_terms.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'top_enriched_terms' produced by stage 'pathway_enrichment' via runtime/plotting/stages/pathway_enrichment.py.",
+      "encodingFormat": "image/png",
+      "name": "pathway_enrichment — top_enriched_terms",
+      "schema:about": {
+        "@id": "#step-pathway_enrichment"
       }
     },
     {
@@ -1364,6 +1411,16 @@ expression: value
       }
     },
     {
+      "@id": "#parameter-connection/survey_method_landscape__to__discover_pathway_enrichment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-discover_pathway_enrichment#input"
+      }
+    },
+    {
       "@id": "#parameter-connection/survey_method_landscape__to__discover_quantification",
       "@type": "ParameterConnection",
       "sourceParameter": {
@@ -1424,6 +1481,26 @@ expression: value
       }
     },
     {
+      "@id": "#parameter-connection/differential_expression__to__pathway_enrichment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-differential_expression#output"
+      },
+      "targetParameter": {
+        "@id": "#step-pathway_enrichment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/discover_pathway_enrichment__to__pathway_enrichment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-discover_pathway_enrichment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-pathway_enrichment#input"
+      }
+    },
+    {
       "@id": "#parameter-connection/quantification__to__qc_preprocessing",
       "@type": "ParameterConnection",
       "sourceParameter": {
@@ -1478,6 +1555,16 @@ expression: value
       "@type": "ParameterConnection",
       "sourceParameter": {
         "@id": "#step-differential_expression#output"
+      },
+      "targetParameter": {
+        "@id": "#step-reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/pathway_enrichment__to__reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-pathway_enrichment#output"
       },
       "targetParameter": {
         "@id": "#step-reporting#input"
@@ -1631,6 +1718,16 @@ expression: value
       },
       "targetParameter": {
         "@id": "#step-validate_normalisation#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/pathway_enrichment__to__validate_pathway_enrichment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-pathway_enrichment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-validate_pathway_enrichment#input"
       }
     },
     {

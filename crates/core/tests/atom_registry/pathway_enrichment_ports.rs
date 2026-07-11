@@ -61,11 +61,18 @@ fn pathway_enrichment_gene_set_input_is_required_and_typed_data_2600() {
         "gene_set_collection must be typed {GENE_SET_SEMANTIC_IRI}"
     );
 
-    // It must be REQUIRED (cardinality One) — an Optional input would not
-    // justify pruning the atom when unsourced, defeating the feature.
+    // It must be OPTIONAL. The default Enrichr tool fetches gene-set libraries
+    // over the network (see the atom's `safety.network` egress allowlist), so a
+    // locally-registered GMT is not required for the stage to run — only the
+    // offline fgsea/clusterProfiler tools consume it. Marking it optional keeps
+    // the composer from PRUNING enrichment when no local gene-set is registered;
+    // instead the stage runs over the network and offline replay SKIPS it as
+    // not-offline-reproducible, rather than pushing the Enrichr call into the
+    // shared `reporting` atom (which would run-and-fail offline replay).
     assert!(
-        matches!(gene_set.cardinality, Cardinality::One),
-        "gene_set_collection must be a required (One) input; got {:?}",
+        matches!(gene_set.cardinality, Cardinality::Optional),
+        "gene_set_collection must be an optional input (Enrichr supplies gene \
+         sets over the network); got {:?}",
         gene_set.cardinality
     );
 }
