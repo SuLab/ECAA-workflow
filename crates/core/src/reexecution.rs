@@ -167,13 +167,30 @@ pub fn classify_reexecution(
 
     let mut classifications: Vec<ArtifactClassification> = vec![];
 
+    // Absolute-path roots used to normalize text artifacts before the semantic
+    // comparison. The recorded run baked its own package root into any output
+    // that names a file (e.g. a validation `detail` column); the replay re-runs
+    // under the scratch root. Rewriting both to a common placeholder keeps a
+    // path-only difference from reading as an analytical divergence. Empty when
+    // unknown (then normalization is a no-op).
+    let recorded_root = crate::replay::read_recorded_env(parent_pkg).0;
+    let scratch_root = replay_pkg.to_string_lossy().to_string();
+
     for (rel_path, path) in &parent_tables {
         // Resolve the replay file by the same relative path. Preserve the
         // existing fallback: when `path` is somehow not under `parent_pkg`,
         // join the relative string directly.
         let replay_path = replay_pkg.join(rel_path);
 
-        let ac = classify_single_artifact(path, &replay_path, rel_path, shim.as_ref(), &bounds);
+        let ac = classify_single_artifact(
+            path,
+            &replay_path,
+            rel_path,
+            shim.as_ref(),
+            &bounds,
+            &recorded_root,
+            &scratch_root,
+        );
         classifications.push(ac);
     }
 
@@ -236,12 +253,15 @@ fn collect_tables_recursive(
 }
 
 /// Classify a single artifact by comparing `parent_artifact` to `replay_artifact`.
+#[allow(clippy::too_many_arguments)]
 fn classify_single_artifact(
     parent_artifact: &Path,
     replay_artifact: &Path,
     rel_path: &str,
     shim: Option<&DeterminismShimSidecar>,
     bounds: &crate::reexecution_bounds::ModalityBounds,
+    recorded_root: &str,
+    scratch_root: &str,
 ) -> ArtifactClassification {
     // Unavailable: replay artifact missing.
     if !replay_artifact.exists() {
@@ -291,8 +311,19 @@ fn classify_single_artifact(
     // relative band. The delimiter is derived from the artifact extension
     // (Rec 2: `.csv` → comma, else tab) so a comma-delimited table is no longer
     // mis-parsed as a single tab-delimited column.
+    // Path-normalize BEFORE the semantic comparison (but after the byte-identical
+    // check above): a text artifact that embeds the absolute package root — a
+    // validation-report `detail` column naming an input file, a logged output
+    // path — differs between the recorded run and the replay only in that
+    // environmental prefix. Rewrite the recorded run's root (in the parent) and
+    // the replay scratch's root (in the replay) to a common placeholder so a
+    // path-only difference classifies `semantic_equivalent`, not a spurious
+    // `failed`. Mirrors the `recorded_root → scratch_root` rewrite the replay
+    // applies to scripts. A byte-identical artifact never reaches here.
+    let parent_norm = normalize_root(&parent_bytes, recorded_root);
+    let replay_norm = normalize_root(&replay_bytes, scratch_root);
     let delimiter = delimiter_for(parent_artifact);
-    let diverging = match check_semantic_equivalence(&parent_bytes, &replay_bytes, delimiter, bounds)
+    let diverging = match check_semantic_equivalence(&parent_norm, &replay_norm, delimiter, bounds)
     {
         Ok(cols) => cols,
         // A parse failure (e.g. invalid UTF-8) is a structural divergence: only
@@ -356,6 +387,23 @@ fn delimiter_for(path: &Path) -> u8 {
     {
         Some("csv") => b',',
         _ => b'\t',
+    }
+}
+
+/// Replace every occurrence of the absolute package root `root` with a stable
+/// placeholder so a text artifact that embeds it (a validation `detail` path, a
+/// logged output path) compares equal across the recorded run and the replay
+/// scratch. No-op when `root` is empty or the bytes are not valid UTF-8 text (a
+/// non-text artifact won't contain the root substring, and a binary buffer must
+/// not be lossily rewritten). Used only for the semantic comparison, never the
+/// byte-identical check.
+fn normalize_root(bytes: &[u8], root: &str) -> Vec<u8> {
+    if root.is_empty() {
+        return bytes.to_vec();
+    }
+    match std::str::from_utf8(bytes) {
+        Ok(s) if s.contains(root) => s.replace(root, "<PKG_ROOT>").into_bytes(),
+        _ => bytes.to_vec(),
     }
 }
 
@@ -492,6 +540,42 @@ fn load_determinism_shim(
 mod tests {
     use super::*;
     use crate::reexecution_bounds::ModalityBounds;
+
+    #[test]
+    fn normalize_root_rewrites_embedded_package_path() {
+        let b = b"check,status,detail\nx,PASS,/runs/abc/runtime/outputs/y.csv\n";
+        assert_eq!(
+            normalize_root(b, "/runs/abc"),
+            b"check,status,detail\nx,PASS,<PKG_ROOT>/runtime/outputs/y.csv\n".to_vec()
+        );
+        // No-op on empty root or a root not present in the bytes.
+        assert_eq!(normalize_root(b, ""), b.to_vec());
+        assert_eq!(normalize_root(b, "/other/root"), b.to_vec());
+    }
+
+    /// A validation report whose only difference is the absolute package root
+    /// embedded in a `detail` column must classify `semantic_equivalent` after
+    /// per-side root normalization — not a spurious `failed`. Without
+    /// normalization the same difference diverges.
+    #[test]
+    fn path_only_divergence_is_semantic_equivalent_after_normalization() {
+        let parent =
+            b"check,status,detail\nm,PASS,/runs/orig/runtime/outputs/m.csv\nn,PASS,rows=57\n";
+        let replay =
+            b"check,status,detail\nm,PASS,/scratch/xyz/runtime/outputs/m.csv\nn,PASS,rows=57\n";
+        let bounds = ModalityBounds::default();
+
+        let raw = check_semantic_equivalence(parent, replay, b',', &bounds).unwrap();
+        assert!(!raw.is_empty(), "raw absolute-path difference should diverge");
+
+        let pn = normalize_root(parent, "/runs/orig");
+        let rn = normalize_root(replay, "/scratch/xyz");
+        let normed = check_semantic_equivalence(&pn, &rn, b',', &bounds).unwrap();
+        assert!(
+            normed.is_empty(),
+            "path-only difference must not diverge after normalization; got {normed:?}"
+        );
+    }
 
     /// Helper: write a file, creating parent dirs as needed.
     fn write_file(path: &Path, contents: &str) {
