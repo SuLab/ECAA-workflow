@@ -2838,11 +2838,26 @@ fn verify_literature_grounded_at(
     // genuine single-foundational-paper concordance — e.g. every airway gene
     // validated against Himes et al. 2014 — carries exactly one prior PMID and
     // would otherwise be stranded by the default `>= 2 papers` bar).
+    //
+    // The fallback signal is an EMPTY citation set, NOT the absence of the
+    // LiteratureEvidence wrapper: the extractor attaches a wrapper to EVERY
+    // LiteratureGrounded claim (`finding_id` = the entity, `cited_pmids` bound
+    // from any inline PMID), so `literature_evidence == None` never occurs on real
+    // extractor output — a bare "Concordant genes: SPARCL1, DUSP1, …" enumeration
+    // whose PMID sits in a separate header arrives as `Some { finding_id: "SPARCL1",
+    // cited_pmids: [] }`. Keying the waiver on `cited_pmids.is_empty()` is what
+    // lets those genes bind by symbol; the finding_id (= entity) or, absent a
+    // wrapper, the claim entity supplies the resolvable identifier.
     let (finding_id, cited_pmids, symbol_fallback): (String, Vec<u64>, bool) =
         match claim.literature_evidence.as_ref() {
-            Some(evidence) => (evidence.finding_id.clone(), evidence.cited_pmids.clone(), false),
-            None if !claim.entity.trim().is_empty() => (claim.entity.clone(), Vec::new(), true),
-            None => {
+            Some(evidence) if !evidence.cited_pmids.is_empty() => {
+                (evidence.finding_id.clone(), evidence.cited_pmids.clone(), false)
+            }
+            Some(evidence) if !evidence.finding_id.trim().is_empty() => {
+                (evidence.finding_id.clone(), Vec::new(), true)
+            }
+            _ if !claim.entity.trim().is_empty() => (claim.entity.clone(), Vec::new(), true),
+            _ => {
                 return ClaimStatus::Unverifiable {
                     reason: "literature-grounded claim carries no finding_id / cited PMIDs and no entity to resolve".into(),
                 };
@@ -4018,8 +4033,20 @@ pub fn verify_claims_with_discovery(
         // them before the table-discovery branch.
         if claim.contract == ClaimContract::LiteratureGrounded {
             let status = verify_literature_grounded_at(claim, package_root, cfg);
+            let mut out = claim.clone();
+            // Record the matrix as the supporting evidence for an ADJUDICATED
+            // verdict (Verified/Suspicious project `supported_by` from
+            // `source_table`; the sink drops it for the non-adjudicated arms).
+            // Without this a verified literature claim carries an empty
+            // `supported_by`, breaking the C→V evidence link the audit-proof
+            // `evidence_coverage`/`cross_graph_integrity` invariants rely on.
+            if matches!(status, ClaimStatus::Verified | ClaimStatus::Suspicious { .. }) {
+                if let Some(matrix) = resolve_evidence_literature(package_root, "", &[], cfg) {
+                    out.source_table = Some(package_relative_label(&matrix, package_root));
+                }
+            }
             verdicts.push(ClaimVerdict {
-                claim: claim.clone(),
+                claim: out,
                 status,
                 strength: ClaimStrength::Exploratory,
             });
@@ -7021,6 +7048,119 @@ mod tests {
         assert!(
             matches!(status, ClaimStatus::Verified),
             "symbol-bound same_direction claim must verify without an in-sentence PMID; got {status:?}"
+        );
+    }
+
+    /// Regression (real-extractor shape). The extractor attaches a
+    /// LiteratureGrounded wrapper to EVERY such claim — `Some(LiteratureEvidence
+    /// { finding_id: <entity>, cited_pmids: [] })` when the sentence carries no
+    /// inline PMID (the concordant-gene list and the "### PMID …" header sit on
+    /// separate lines). The symbol-fallback waiver must therefore key on an EMPTY
+    /// citation set, NOT on the wrapper being `None` (which real output never is),
+    /// so a single-foundational-paper concordance gene still verifies. Before this
+    /// fix the claim matched the `Some(..)` arm → `symbol_fallback=false` → hit the
+    /// `min_papers >= 2` bar (each airway gene carries exactly one Himes-2014 PMID)
+    /// → Unverifiable, collapsing the whole airway package's verified count.
+    #[test]
+    fn literature_grounded_binds_by_symbol_when_wrapper_present_but_no_cited_pmid() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        // No `verified` column and a SINGLE prior PMID — the real airway
+        // claims_evidence_matrix.csv shape (grounding rests on the
+        // `same_direction` flag; every gene carries exactly one Himes-2014 PMID).
+        write_lit_matrix(
+            tmp.path(),
+            "finding_id,entity,prior_pmids,concordance_flag,source_kind\n\
+             ENSG00000152583,SPARCL1,24926665,same_direction,pmc_oa_full_text\n",
+        );
+        // Faithful to production: wrapper present, finding_id = entity, EMPTY
+        // cited_pmids (no inline PMID in the enumeration sentence).
+        let mut claim = lit_claim("SPARCL1", vec![]);
+        claim.entity = "SPARCL1".into();
+        claim.excerpt = "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA".into();
+        let status = verify_literature_grounded_at(&claim, tmp.path(), &cfg);
+        assert!(
+            matches!(status, ClaimStatus::Verified),
+            "wrapper-present/empty-cited single-PMID same_direction gene must verify by symbol; got {status:?}"
+        );
+    }
+
+    /// End-to-end regression through the REAL extractor + discovery path (the
+    /// production route the hand-built fixtures bypassed by forcing
+    /// `literature_evidence: None`). A bare concordance enumeration whose PMID
+    /// lives in a separate header must verify each listed gene against the
+    /// single-PMID matrix. This is the exact shape that collapsed the airway
+    /// package's verified count from 147 to 5.
+    #[test]
+    fn extracted_concordance_enumeration_verifies_against_single_pmid_matrix() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_lit_matrix(
+            tmp.path(),
+            "finding_id,entity,prior_pmids,concordance_flag,source_kind\n\
+             ENSG00000152583,SPARCL1,24926665,same_direction,pmc_oa_full_text\n",
+        );
+        let claims =
+            extract_claims("Concordant genes (first 10): SPARCL1, DUSP1, PER1, KLF15", &cfg);
+        let sparcl1 = claims
+            .iter()
+            .find(|c| c.entity == "SPARCL1")
+            .cloned()
+            .expect("extracted SPARCL1 claim");
+        assert_eq!(
+            sparcl1.contract,
+            crate::claim_contract::ClaimContract::LiteratureGrounded
+        );
+        // Faithful to production: the wrapper is present with an EMPTY citation set.
+        let ev = sparcl1
+            .literature_evidence
+            .as_ref()
+            .expect("extractor attaches a LiteratureGrounded wrapper");
+        assert!(
+            ev.cited_pmids.is_empty(),
+            "enumeration sentence carried no inline PMID"
+        );
+        let verdicts = verify_claims_with_discovery(&[sparcl1], tmp.path(), tmp.path(), &cfg);
+        assert!(
+            matches!(verdicts[0].status, ClaimStatus::Verified),
+            "concordance-enumeration gene must verify by symbol; got {:?}",
+            verdicts[0].status
+        );
+    }
+
+    /// A symbol-bound literature claim that VERIFIES must record the matrix as
+    /// its supporting evidence, so the projected `supported_by` points at
+    /// claims_evidence_matrix.csv. Before this, the discovery path pushed the
+    /// original claim (`source_table: None`) for LiteratureGrounded verdicts, so
+    /// a Verified literature claim carried an EMPTY supported_by — degrading
+    /// audit-proof evidence_coverage and diverging from the provenance the
+    /// baseline recorded for every verified gene.
+    #[test]
+    fn literature_verified_verdict_records_matrix_as_supported_evidence() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_lit_matrix(
+            tmp.path(),
+            "finding_id,entity,prior_pmids,concordance_flag,source_kind\n\
+             ENSG00000152583,SPARCL1,24926665,same_direction,pmc_oa_full_text\n",
+        );
+        let claims =
+            extract_claims("Concordant genes (first 10): SPARCL1, DUSP1, PER1, KLF15", &cfg);
+        let sparcl1 = claims
+            .iter()
+            .find(|c| c.entity == "SPARCL1")
+            .cloned()
+            .expect("extracted SPARCL1 claim");
+        let verdicts = verify_claims_with_discovery(&[sparcl1], tmp.path(), tmp.path(), &cfg);
+        assert!(
+            matches!(verdicts[0].status, ClaimStatus::Verified),
+            "{:?}",
+            verdicts[0].status
+        );
+        let src = verdicts[0].claim.source_table.as_deref().unwrap_or("");
+        assert!(
+            src.contains("claims_evidence_matrix.csv"),
+            "verified literature claim must record the matrix as source_table (→ supported_by); got {src:?}"
         );
     }
 
