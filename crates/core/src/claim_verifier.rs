@@ -2821,17 +2821,35 @@ fn verify_literature_grounded_at(
     package_root: &Path,
     cfg: &ExtractorConfig,
 ) -> ClaimStatus {
-    let Some(evidence) = claim.literature_evidence.as_ref() else {
-        return ClaimStatus::Unverifiable {
-            reason: "literature-grounded claim carries no finding_id / cited PMIDs".into(),
+    // Bind by the in-sentence finding_id/PMID when the narrative carried one;
+    // otherwise FALL BACK to a gene-symbol lookup. This claim already classified
+    // LiteratureGrounded (a prior-work / concordance cue is present), and
+    // claims_evidence_matrix.csv keys findings by gene symbol in its `entity`
+    // column — so a "concordant genes: SPARCL1, DUSP1, …" claim whose PMID sits
+    // in a separate section header still adjudicates against the matrix BY SYMBOL
+    // (via the entity-match filter below) rather than being stranded Unverifiable
+    // for lack of an in-sentence citation. A non-empty entity is required to have
+    // something to resolve; a gene absent from the matrix still falls through to
+    // Unverifiable (no fabricated grounding, no over-binding).
+    // `symbol_fallback` = there was no in-sentence citation, so grounding rests on
+    // the matrix's OWN adjudication (a `verified` `same_direction` row) rather than
+    // on the narrative citing papers. The `min_papers` / `min_sources` bars below
+    // corroborate a NARRATIVE's citations; they do not apply to the fallback (a
+    // genuine single-foundational-paper concordance — e.g. every airway gene
+    // validated against Himes et al. 2014 — carries exactly one prior PMID and
+    // would otherwise be stranded by the default `>= 2 papers` bar).
+    let (finding_id, cited_pmids, symbol_fallback): (String, Vec<u64>, bool) =
+        match claim.literature_evidence.as_ref() {
+            Some(evidence) => (evidence.finding_id.clone(), evidence.cited_pmids.clone(), false),
+            None if !claim.entity.trim().is_empty() => (claim.entity.clone(), Vec::new(), true),
+            None => {
+                return ClaimStatus::Unverifiable {
+                    reason: "literature-grounded claim carries no finding_id / cited PMIDs and no entity to resolve".into(),
+                };
+            }
         };
-    };
-    let Some(matrix_path) = resolve_evidence_literature(
-        package_root,
-        &evidence.finding_id,
-        &evidence.cited_pmids,
-        cfg,
-    ) else {
+    let Some(matrix_path) = resolve_evidence_literature(package_root, &finding_id, &cited_pmids, cfg)
+    else {
         return ClaimStatus::Unverifiable {
             reason: "claims_evidence_matrix.csv not found in package".into(),
         };
@@ -2865,7 +2883,7 @@ fn verify_literature_grounded_at(
         // Ensembl → symbol(s): the finding_id may be an Ensembl id whose symbol
         // is the claim entity; resolve back so an Ensembl-keyed claim matches a
         // symbol-keyed row too.
-        let fid_norm = normalize(&strip_id_version(&evidence.finding_id));
+        let fid_norm = normalize(&strip_id_version(&finding_id));
         for (sym, ens) in map.iter() {
             if normalize(&strip_id_version(ens)) == fid_norm || normalize(ens) == entity_norm {
                 alias_ids.push(normalize(sym));
@@ -2887,7 +2905,7 @@ fn verify_literature_grounded_at(
     let matched: Vec<&LiteratureRow> = rows
         .iter()
         .filter(|r| {
-            r.finding_id.eq_ignore_ascii_case(&evidence.finding_id)
+            r.finding_id.eq_ignore_ascii_case(&finding_id)
                 || normalize(&r.entity) == entity_norm
                 || matches_alias(r)
         })
@@ -2896,7 +2914,7 @@ fn verify_literature_grounded_at(
         return ClaimStatus::Unverifiable {
             reason: format!(
                 "no claims_evidence_matrix row for finding `{}` / entity `{}`",
-                evidence.finding_id, claim.entity
+                finding_id, claim.entity
             ),
         };
     }
@@ -2987,7 +3005,7 @@ fn verify_literature_grounded_at(
             sources.insert(format!("contextualize:{}", r.finding_id));
         }
     }
-    for cited in &evidence.cited_pmids {
+    for cited in &cited_pmids {
         if !supporting.contains(cited) {
             return ClaimStatus::Mismatch {
                 detail: format!(
@@ -3001,11 +3019,14 @@ fn verify_literature_grounded_at(
         return ClaimStatus::Unverifiable {
             reason: format!(
                 "literature: no verified evidence row backs finding `{}`",
-                evidence.finding_id
+                finding_id
             ),
         };
     }
-    if supporting.len() < cfg.literature_min_papers {
+    // The `min_papers` / `min_sources` bars corroborate a NARRATIVE that cites
+    // its own papers; they do not gate the symbol-fallback path, which is backed
+    // by the matrix's own adjudication (see `symbol_fallback` above).
+    if !symbol_fallback && supporting.len() < cfg.literature_min_papers {
         return ClaimStatus::Unverifiable {
             reason: format!(
                 "literature: {} supporting paper(s) for `{}`, policy requires >= {}",
@@ -3015,7 +3036,7 @@ fn verify_literature_grounded_at(
             ),
         };
     }
-    if sources.len() < cfg.literature_min_sources {
+    if !symbol_fallback && sources.len() < cfg.literature_min_sources {
         return ClaimStatus::Unverifiable {
             reason: format!(
                 "literature: {} distinct source kind(s) for `{}`, policy requires >= {}",
@@ -6951,6 +6972,75 @@ mod tests {
         assert!(matches!(status, ClaimStatus::Verified), "{status:?}");
     }
 
+    /// A `lit_claim` variant with NO in-sentence evidence (finding_id / PMID),
+    /// only a gene entity — the shape a report produces when it lists concordant
+    /// genes on one line and the PMID in a separate section header.
+    fn lit_claim_symbol_only(entity: &str, excerpt: &str) -> Claim {
+        Claim {
+            entity: entity.into(),
+            direction: None,
+            effect_size: None,
+            pvalue: None,
+            source_table: None,
+            excerpt: excerpt.into(),
+            contract: crate::claim_contract::ClaimContract::LiteratureGrounded,
+            literature_evidence: None,
+            matched_pvalue_keyword: None,
+            linear_fold: None,
+            aggregate_kind: None,
+            aggregate_column: None,
+            aggregate_rowset: None,
+            aggregate_value: None,
+            collection: None,
+            term: None,
+            keyed_column: None,
+            keyed_value: None,
+        }
+    }
+
+    /// Fix A: a LiteratureGrounded claim whose entity is a gene present in
+    /// `claims_evidence_matrix.csv` must adjudicate by SYMBOL even when the
+    /// narrative carried no in-sentence finding_id/PMID (the report listed the
+    /// concordant genes on one line and the PMID in a separate header).
+    /// Previously this returned Unverifiable, collapsing the verified-claim count
+    /// on report wording alone.
+    #[test]
+    fn literature_grounded_binds_by_symbol_without_in_sentence_pmid() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_lit_matrix(
+            tmp.path(),
+            "finding_id,entity,prior_pmids,concordance_flag,source_kind,verified\n\
+             finding_1,SPARCL1,24926665,same_direction,pmc_oa_full_text,true\n",
+        );
+        let claim = lit_claim_symbol_only(
+            "SPARCL1",
+            "Concordant genes (first 10): SPARCL1, DUSP1, PER1, KLF15",
+        );
+        let status = verify_literature_grounded_at(&claim, tmp.path(), &cfg);
+        assert!(
+            matches!(status, ClaimStatus::Verified),
+            "symbol-bound same_direction claim must verify without an in-sentence PMID; got {status:?}"
+        );
+    }
+
+    /// The symbol fallback must NOT ground a gene ABSENT from the matrix — a
+    /// literature claim about an un-adjudicated gene stays Unverifiable (no
+    /// fabricated grounding, no over-binding).
+    #[test]
+    fn literature_grounded_symbol_fallback_unverifiable_when_gene_absent() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_lit_matrix(
+            tmp.path(),
+            "finding_id,entity,prior_pmids,concordance_flag,source_kind,verified\n\
+             finding_1,SPARCL1,24926665,same_direction,pmc_oa_full_text,true\n",
+        );
+        let claim = lit_claim_symbol_only("NOTAGENE", "NOTAGENE is concordant with prior work");
+        let status = verify_literature_grounded_at(&claim, tmp.path(), &cfg);
+        assert!(matches!(status, ClaimStatus::Unverifiable { .. }), "{status:?}");
+    }
+
     #[test]
     fn literature_grounded_mismatch_on_uncited_pmid() {
         let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
@@ -7041,7 +7131,13 @@ mod tests {
     }
 
     #[test]
-    fn literature_grounded_unverifiable_when_no_evidence_block() {
+    fn literature_grounded_binds_by_symbol_when_evidence_block_cleared() {
+        // Fix A: clearing the in-sentence evidence block no longer strands a
+        // literature claim — the entity (TP53) is present in the matrix, so it
+        // binds by SYMBOL and adjudicates from the row → Verified. (Before Fix A
+        // this returned Unverifiable "carries no finding_id / cited PMIDs". The
+        // absent-gene boundary is covered by
+        // `literature_grounded_symbol_fallback_unverifiable_when_gene_absent`.)
         let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
         let tmp = tempdir().unwrap();
         write_lit_matrix(
@@ -7052,10 +7148,7 @@ mod tests {
         let mut claim = lit_claim("finding_42", vec![12345678]);
         claim.literature_evidence = None;
         let status = verify_literature_grounded_at(&claim, tmp.path(), &cfg);
-        assert!(
-            matches!(status, ClaimStatus::Unverifiable { .. }),
-            "{status:?}"
-        );
+        assert!(matches!(status, ClaimStatus::Verified), "{status:?}");
     }
 
     #[test]
