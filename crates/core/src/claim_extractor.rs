@@ -156,6 +156,16 @@ static SENTENCE_SPLITTER_RE: LazyLock<Regex> = LazyLock::new(|| {
 static TABLE_REF_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)Table\s+S?[0-9A-Za-z_\-]+").expect("static regex"));
 
+/// Uppercased tokens the broad `[A-Z][A-Z0-9]+` gene pattern captures but which
+/// are never gene symbols: the journal-name fragment "ONE" (from "PLoS ONE"),
+/// the literal placeholder word "GENE" (from format strings like
+/// `GENE chrN:start-end …`), the airway-tissue abbreviation "HASM", and the
+/// sequencing term "LIBRARY". Dropped alongside the policy's
+/// `entity_exclude_patterns` so they never become spurious (unbindable) claims
+/// that pad the pending bucket and deflate the verified-claim fraction. None is
+/// an HGNC gene symbol, so filtering them cannot drop a real finding.
+static ENTITY_STOPLIST: &[&str] = &["ONE", "GENE", "HASM", "LIBRARY"];
+
 /// Pre-built regex set for the dynamic per-keyword scanners in
 /// `extract_claims`. Built once from `ExtractorConfig` (plus the
 /// baked-in default keywords) so the per-sentence scan loop reuses
@@ -1022,10 +1032,12 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
         for pat in &cfg.entity_patterns {
             for m in pat.find_iter(trimmed) {
                 let token = m.as_str();
+                let tok_upper = token.to_ascii_uppercase();
                 let excluded = cfg
                     .entity_exclude_patterns
                     .iter()
-                    .any(|excl| excl.is_match(token));
+                    .any(|excl| excl.is_match(token))
+                    || ENTITY_STOPLIST.contains(&tok_upper.as_str());
                 if excluded
                     || is_embedded_in_alnum_token(trimmed, m.start(), m.end())
                     || table_ref_spans
@@ -2165,6 +2177,33 @@ mod tests {
         );
         assert!((acan.pvalue.unwrap() - 0.001).abs() < 1e-9);
         assert!(acan.source_table.as_deref().unwrap().starts_with("Table"));
+    }
+
+    /// Fix B: journal-name fragments ("ONE" from "PLoS ONE"), format-string
+    /// placeholders ("GENE" from `GENE chrN:start-end`), and tissue abbreviations
+    /// ("HASM") that the broad `[A-Z][A-Z0-9]+` gene pattern captures must NOT
+    /// become entities — they can never bind to a result table / matrix and only
+    /// pad the pending bucket, deflating the verified-claim fraction. A real gene
+    /// in the same text (ACAN) is still extracted.
+    #[test]
+    fn extract_claims_drops_nongene_false_entities() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let text = "ACAN is concordant with prior work published in PLoS ONE. \
+                    Row format: GENE chrN:start-end. Profiled 4 HASM cell lines.";
+        let ents: Vec<String> = extract_claims(text, &cfg)
+            .into_iter()
+            .map(|c| c.entity)
+            .collect();
+        for noise in ["ONE", "GENE", "HASM"] {
+            assert!(
+                !ents.iter().any(|e| e == noise),
+                "`{noise}` must be filtered as a non-gene false entity; entities = {ents:?}"
+            );
+        }
+        assert!(
+            ents.iter().any(|e| e == "ACAN"),
+            "a real gene in the same text must still be extracted; entities = {ents:?}"
+        );
     }
 
     #[test]
