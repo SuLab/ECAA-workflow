@@ -11,6 +11,10 @@ mod chat_llm;
 // package (tier A+B only; caches / logs / `.git` stripped, BagIt + RO-Crate
 // re-sealed).
 mod export;
+// `deposit-check` subcommand (Layer 3). Reads a package's
+// `DEPOSIT-READINESS.json` and refuses a package that was not produced by a
+// self-validating export or whose validation/re-execution failed.
+mod deposit_check;
 // v3 P7 — `migrate-sessions` subcommand. Applies the v3 P7
 // `u32 → SemVer` migrator chain to on-disk session JSON in place.
 mod migrate_sessions;
@@ -173,6 +177,12 @@ enum Commands {
     /// and pack the result into `--out`. Caches, R libraries, logs,
     /// heartbeats, and other reproducible bloat are dropped.
     Export(export::ExportArgs),
+    /// Deposit gate (Layer 3): read a package's `DEPOSIT-READINESS.json` and
+    /// refuse (non-zero exit) any package that was not produced by a
+    /// self-validating export, or whose RO-Crate / BagIt self-validation failed,
+    /// or whose re-execution FAILED. `--strict` also refuses a package whose
+    /// re-execution was never verified. Run before trusting a deposit.
+    DepositCheck(deposit_check::DepositCheckArgs),
 }
 
 #[derive(Clone, Debug, clap::ValueEnum)]
@@ -238,6 +248,9 @@ fn main() -> Result<()> {
         }
         Commands::Export(args) => {
             export::run(args)?;
+        }
+        Commands::DepositCheck(args) => {
+            deposit_check::run(args)?;
         }
     }
     Ok(())

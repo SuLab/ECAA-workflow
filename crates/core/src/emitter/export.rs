@@ -733,6 +733,41 @@ pub fn export_depositable_package_with_profile(
         write_execution_lineage(src, dst);
     }
 
+    // Layer 1 (always-on, blocking): self-validate the deposit we just sealed —
+    // recorded-verdict re-verify (RO-Crate / audit-proof / claim-verification) +
+    // BagIt manifest checksum integrity — and stamp the result into
+    // `DEPOSIT-READINESS.json`. Re-execution is left `NotVerified` here; the CLI
+    // export handler runs it for the `re-executable` profile (Layer 2) since it
+    // requires containers. An export that cannot validate itself is a bug: refuse
+    // to hand out the broken deposit (the attestation still records WHY). The
+    // attestation is manifest-excluded (`emitter::bagit`), so writing it after the
+    // final reseal perturbs no seal.
+    let reader_version = ecaa_workflow_types::consts::ECAA_VERSION;
+    let tier1 = crate::deposit_readiness::validate_deposit_tier1(dst, reader_version)
+        .context("Layer-1 deposit self-validation")?;
+    let image_digest = {
+        let img = crate::replay::env_provision::recorded_image(dst);
+        (!img.is_empty()).then_some(img)
+    };
+    crate::deposit_readiness::write_deposit_readiness(
+        dst,
+        &profile.to_string(),
+        &tier1,
+        crate::deposit_readiness::ReexecStatus::NotVerified,
+        None,
+        image_digest,
+        &clock,
+    )
+    .context("writing DEPOSIT-READINESS.json")?;
+    if !tier1.passed() {
+        anyhow::bail!(
+            "export self-validation failed (RO-Crate/BagIt integrity): {} — see {} in {}",
+            tier1.detail.as_deref().unwrap_or("unknown"),
+            crate::deposit_readiness::DEPOSIT_READINESS_FILE,
+            dst.display()
+        );
+    }
+
     Ok(ExportReport {
         kept,
         dropped,
@@ -1670,7 +1705,12 @@ mod tests {
                 .filter_map(|e| e["@id"].as_str().map(String::from))
                 .collect();
             let structural = ["ro-crate-metadata.json", "ro-crate-preview.html",
-                "bagit.txt", "bag-info.txt", "manifest-sha512.txt", "tagmanifest-sha512.txt"];
+                "bagit.txt", "bag-info.txt", "manifest-sha512.txt", "tagmanifest-sha512.txt",
+                // Deposit self-attestation: a mutable meta file (Layer 1 writes it,
+                // the CLI re-execution check updates it post-export), so — like the
+                // manifest and ro-crate-metadata.json themselves — it is deposit
+                // structure, not a hashed payload entity in the @graph.
+                "DEPOSIT-READINESS.json"];
             for e in walkdir::WalkDir::new(root) {
                 let e = e.unwrap();
                 if !e.file_type().is_file() { continue; }

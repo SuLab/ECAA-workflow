@@ -217,6 +217,38 @@ fn stream_sha512_hex(path: &std::path::Path) -> Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
+/// Verify a sealed BagIt payload manifest: recompute the SHA-512 of every file
+/// listed in `manifest-sha512.txt` and confirm it matches the recorded hex. A
+/// deposit is manifest-valid iff the manifest exists, every listed file is
+/// present + readable, and every checksum matches. Returns `Ok(false)` (not an
+/// error) on any integrity failure so callers can record a `bagit: fail`
+/// attestation rather than aborting. Line format mirrors the writer:
+/// `<hex-sha512><whitespace><relative/posix/path>`.
+pub(crate) fn verify_manifest(dir: &std::path::Path) -> Result<bool> {
+    let manifest_path = dir.join("manifest-sha512.txt");
+    let Ok(manifest) = std::fs::read_to_string(&manifest_path) else {
+        // No manifest at all → not a valid bag.
+        return Ok(false);
+    };
+    for line in manifest.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Some((hex, rel)) = line.split_once(char::is_whitespace) else {
+            return Ok(false);
+        };
+        let rel = rel.trim();
+        let abs = dir.join(rel);
+        match stream_sha512_hex(&abs) {
+            Ok(actual) if actual.eq_ignore_ascii_case(hex.trim()) => {}
+            // Missing/unreadable manifested file, or checksum mismatch.
+            _ => return Ok(false),
+        }
+    }
+    Ok(true)
+}
+
 /// Recursively collect every file under `current` (relative to `root`),
 /// excluding the manifest itself and, depending on `mode`, paths under
 /// `runtime/outputs/` (agent-written artifacts; excluded at emit because
@@ -338,6 +370,12 @@ fn walk_for_manifest(
             // kept out of the byte-reproducibility baseline like the other
             // post-manifest sidecars.
             || rel == std::path::Path::new("package.ttl")
+            // Deposit-readiness attestation: written by `export` AFTER the final
+            // reseal (Layer 1 self-validation) and updated post-export by the
+            // re-execution check (Layer 2). Carries a wall-clock `verified_at` +
+            // a verdict computed at export time, so — like audit-proof-report.json
+            // — it is intentionally off the byte-reproducibility manifest.
+            || rel == std::path::Path::new("DEPOSIT-READINESS.json")
         {
             continue;
         }

@@ -7,7 +7,7 @@
 
 .PHONY: help build build-release install bootstrap test test-runner test-doc \
         test-fast test-core test-conversation test-harness test-server test-cli \
-        test-ui conformance test-substrate-utility roc-gate lint-ui clippy fmt check types e2e e2e-playwright bench \
+        test-ui conformance test-substrate-utility roc-gate lint-ui clippy fmt check types e2e e2e-playwright deposit-check bench \
         verify-reproducibility \
         bio-min dev-server dev-ui clean doctor lint deny install-hooks \
         image up down logs release-image release-sbom release-sign release-checksums release-publish release \
@@ -168,6 +168,9 @@ types: ## Regenerate ts-rs TypeScript bindings into ui/src/types/
 
 e2e: ## Quick smoke: build + emit + inspect a sample package
 	bash scripts/test-e2e.sh
+
+deposit-check: ## Gate a deposit dir against its DEPOSIT-READINESS.json (DIR=<path> [STRICT=1])
+	cargo run --quiet -p ecaa-workflow-cli --bin ecaa-workflow -- deposit-check $(DIR) $(if $(STRICT),--strict,)
 
 e2e-playwright: ## Playwright mocked tier
 	cd e2e && npm install && npx playwright install --with-deps && npx playwright test

@@ -66,6 +66,7 @@ pub mod dag;
 pub mod decision_log;
 pub mod decision_substrate;
 pub mod dependency_lock;
+pub mod deposit_readiness;
 pub mod derived_image;
 pub mod resilient_client;
 pub mod saga;
