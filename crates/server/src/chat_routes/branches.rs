@@ -70,9 +70,64 @@ async fn branch_session_inner(
             .into_response();
     }
 
-    let (rationale, task_id) = body
-        .map(|BoundedJson(b)| (b.rationale, b.task_id))
-        .unwrap_or((None, None));
+    let (rationale, task_id, edits) = body
+        .map(|BoundedJson(b)| (b.rationale, b.task_id, b.edits))
+        .unwrap_or((None, None, None));
+
+    // Guard the parent's state + the task boundary BEFORE forking. Load the
+    // parent once (the endpoint's If-Match check reads it too, but that scope
+    // has closed by here). A branch from a disallowed state or an unknown task
+    // would otherwise silently produce a full-inherit branch masquerading as
+    // task-scoped.
+    let parent = match app.conversation.get_session(parent_id).await {
+        Some(p) => p,
+        None => return StatusCode::NOT_FOUND.into_response(),
+    };
+    // Disallowed source states: mid-intake (Greeting), mid-emit (Emitting), and
+    // mid-amend (Amending) have no stable substrate to fork. `Blocked` is
+    // allowed ONLY for a task-scoped branch — an SME forking a blocked task to
+    // try an alternative is legitimate; a session-scoped branch of a blocked
+    // session is not. Mirrors the tool-level guard in `tools/branch.rs`.
+    match &parent.state {
+        ecaa_workflow_conversation::SessionState::Greeting
+        | ecaa_workflow_conversation::SessionState::Emitting
+        | ecaa_workflow_conversation::SessionState::Amending { .. } => {
+            return (
+                StatusCode::CONFLICT,
+                format!(
+                    "cannot branch a session in state {:?}; wait for it to settle first",
+                    parent.state
+                ),
+            )
+                .into_response();
+        }
+        ecaa_workflow_conversation::SessionState::Blocked { .. } if task_id.is_none() => {
+            return (
+                StatusCode::CONFLICT,
+                "a blocked session can only be branched from a specific task; \
+                 pass task_id to fork the blocked task"
+                    .to_string(),
+            )
+                .into_response();
+        }
+        _ => {}
+    }
+    // Task-membership guard: an unknown task_id is a 400, not a silent
+    // full-inherit branch. `branch_from_at_task` now propagates the reset error;
+    // validating here gives the SME a clean 400 with the offending id.
+    if let Some(tid) = &task_id {
+        let known = parent
+            .current_dag()
+            .map(|d| d.tasks.contains_key(tid.as_str()))
+            .unwrap_or(false);
+        if !known {
+            return (
+                StatusCode::BAD_REQUEST,
+                format!("unknown task_id `{tid}`: not a member of the session DAG"),
+            )
+                .into_response();
+        }
+    }
 
     // Step 1: create the lineage record + save the child session. The
     // ConversationService handles (a) `Session::branch_from` in memory
@@ -81,7 +136,7 @@ async fn branch_session_inner(
     // session store has no expose-delete API so we log only).
     let child_id = match app
         .conversation
-        .branch_session_with_rationale_and_task(parent_id, false, rationale, task_id)
+        .branch_session_with_rationale_and_task(parent_id, false, rationale, task_id.clone())
         .await
     {
         Ok(id) => id,
@@ -92,6 +147,33 @@ async fn branch_session_inner(
             return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
         }
     };
+    // Branch-to-edit: apply the SME's staged method / parameter / bound edits
+    // to the CHILD before it auto-emits, so the emitted child package carries
+    // them. Applied here (not inside `branch_session_with_rationale_and_task`)
+    // so the shared edit logic lives in the conversation crate and the branch's
+    // minted confirmation token is preserved. A bad edit fails the branch with
+    // a 400 — the child session is already persisted (unedited) and can be
+    // retried, matching the fork-then-configure contract.
+    if let Some(edits) = edits {
+        if let Err(e) = app
+            .conversation
+            .apply_branch_edits_from_rest(
+                child_id,
+                task_id.clone(),
+                edits.method,
+                edits.parameters,
+                edits.validation_bounds,
+            )
+            .await
+        {
+            let msg = format!("{e}");
+            let cleaned = msg
+                .strip_prefix("internal error: ")
+                .unwrap_or(&msg)
+                .to_string();
+            return (StatusCode::BAD_REQUEST, cleaned).into_response();
+        }
+    }
     if let Err(e) = app.conversation.try_auto_emit_after_confirm(child_id).await {
         tracing::warn!(
             target: "ecaa::branch",
@@ -946,12 +1028,171 @@ pub(super) fn routes() -> axum::Router<ChatAppState> {
 #[cfg(test)]
 mod tests {
     use crate::chat_routes::test_support::{
-        body_json, make_router, seed_session_with_completed_task,
+        assistant, augmented_config, body_json, make_router, make_router_with_config,
+        seed_session_with_completed_task, tool_use,
     };
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
+    use ecaa_workflow_conversation::{BatchableTool, SessionState, Tool};
     use tower::util::ServiceExt;
     use uuid::Uuid;
+
+    const MIN_LFC_PARAM: &str = "parameters:\n  - name: min_lfc\n    type: number\n    description: \"SME log fold-change floor\"";
+
+    /// Branch endpoint hardening: an unknown `task_id` is a 400, not a silent
+    /// full-inherit branch.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn branch_rejects_unknown_task_id() {
+        let (router, app) = make_router(vec![]).await;
+        let id = seed_session_with_completed_task(&app, "t_known", None).await;
+        // Emitted so the state guard passes and the task-membership check runs.
+        app.conversation
+            .store_handle()
+            .update(id, |s| {
+                s.state = SessionState::Emitted;
+                Ok(())
+            })
+            .await
+            .unwrap();
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/chat/session/{}/branch", id))
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"task_id":"no_such_task"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    /// Branch endpoint hardening: a session still in Greeting has no substrate
+    /// to fork — reject with 409.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn branch_rejects_greeting_state() {
+        let (router, _app) = make_router(vec![]).await;
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/chat/session")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"careful_mode": false}"#))
+            .unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        let parent = body_json(resp.into_body()).await["session_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        // Fresh session is Greeting — the branch must be refused.
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/chat/session/{}/branch", parent))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
+    }
+
+    /// Branch-to-edit: a task-scoped branch carrying `edits.parameters`
+    /// produces a child whose branched task carries the SME override.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn branch_with_edits_applies_parameter_override_to_child() {
+        let cfg = augmented_config("differential_expression", MIN_LFC_PARAM);
+        let (router, app) = make_router_with_config(
+            cfg,
+            vec![
+                tool_use(Tool::Batchable(BatchableTool::AppendIntakeProse {
+                    prose: "bulk rna-seq differential expression in human samples".into(),
+                })),
+                assistant("ok."),
+            ],
+        )
+        .await;
+        let (id, _) = app.conversation.start_session(false).await.unwrap();
+        app.conversation
+            .send_turn(id, "set it up".into(), None)
+            .await
+            .unwrap();
+        let parent = app
+            .conversation
+            .store_handle()
+            .update(id, |s| {
+                // Emitted so the branch state guard passes; keep
+                // emitted_package_path None so the child doesn't auto-emit to
+                // disk (the edit-application is what we're asserting).
+                s.state = SessionState::Emitted;
+                s.emitted_package_path = None;
+                s.ensure_dag_cached();
+                Ok(())
+            })
+            .await
+            .unwrap();
+        let task_id = parent
+            .dag
+            .as_ref()
+            .expect("composed dag")
+            .tasks
+            .iter()
+            .find(|(_, t)| t.source_atom_id.as_deref() == Some("differential_expression"))
+            .map(|(k, _)| k.to_string())
+            .expect("a task backed by the differential_expression atom");
+
+        let body = serde_json::json!({
+            "task_id": task_id,
+            "rationale": "branch to tighten the LFC floor",
+            "edits": { "parameters": { "min_lfc": 2.0 } }
+        })
+        .to_string();
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/chat/session/{}/branch", id))
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK, "branch-to-edit must succeed");
+        let child_id = body_json(resp.into_body()).await["branched_session_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let child = app
+            .conversation
+            .get_session(Uuid::parse_str(&child_id).unwrap())
+            .await
+            .unwrap();
+        let ov = child
+            .sme_parameter_overrides
+            .for_task(&task_id)
+            .expect("child task must carry the branch-edit override");
+        assert_eq!(
+            ov.get("min_lfc").map(|o| &o.value),
+            Some(&serde_json::json!(2.0)),
+            "child override value must match the staged edit"
+        );
+        assert!(
+            child.decisions.iter().any(|d| matches!(
+                &d.decision,
+                ecaa_workflow_core::decision_log::DecisionType::SetTaskParameter { parameter, .. }
+                    if parameter == "min_lfc"
+            )),
+            "a SetTaskParameter decision must be recorded on the child"
+        );
+        // The branched task is still present in the child DAG (forward slice
+        // was reset, not dropped).
+        assert!(
+            child.dag_contains_task(&task_id),
+            "the branched task must remain in the child DAG"
+        );
+    }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn branch_endpoint_forks_session_and_returns_new_id() {
@@ -968,6 +1209,16 @@ mod tests {
             .as_str()
             .unwrap()
             .to_string();
+
+        // Advance past Greeting so the state guard permits the branch.
+        app.conversation
+            .store_handle()
+            .update(Uuid::parse_str(&parent_id).unwrap(), |s| {
+                s.state = ecaa_workflow_conversation::SessionState::Intake;
+                Ok(())
+            })
+            .await
+            .unwrap();
 
         // Branch from it.
         let req = Request::builder()
@@ -1043,6 +1294,16 @@ mod tests {
 
         let parent_id =
             seed_session_with_completed_task(&app, "t_demo", Some(pkg.path().to_path_buf())).await;
+        // Force Emitted so the branch state guard passes; the seeded dag carries
+        // the `t_demo` task the branch pins to.
+        app.conversation
+            .store_handle()
+            .update(parent_id, |s| {
+                s.state = ecaa_workflow_conversation::SessionState::Emitted;
+                Ok(())
+            })
+            .await
+            .unwrap();
         let req = Request::builder()
             .method("POST")
             .uri(format!("/api/chat/session/{}/branch", parent_id))
@@ -1093,7 +1354,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn list_sessions_by_parent_returns_only_children() {
-        let (router, _) = make_router(vec![]).await;
+        let (router, app) = make_router(vec![]).await;
 
         // Create two sessions; branch the first into two children;
         // leave the second alone. The query must surface only the
@@ -1109,6 +1370,16 @@ mod tests {
             .as_str()
             .unwrap()
             .to_string();
+
+        // Advance past Greeting so the branch state guard permits the fork.
+        app.conversation
+            .store_handle()
+            .update(Uuid::parse_str(&parent).unwrap(), |s| {
+                s.state = ecaa_workflow_conversation::SessionState::Intake;
+                Ok(())
+            })
+            .await
+            .unwrap();
 
         let req = Request::builder()
             .method("POST")
@@ -1322,7 +1593,7 @@ mod tests {
     /// fire-and-forget and must not cause a failure response.
     #[tokio::test(flavor = "multi_thread")]
     async fn branch_endpoint_saga_returns_child_id_on_success() {
-        let (router, _app) = make_router(vec![]).await;
+        let (router, app) = make_router(vec![]).await;
 
         // Create a parent session.
         let req = Request::builder()
@@ -1337,6 +1608,16 @@ mod tests {
             .as_str()
             .unwrap()
             .to_string();
+
+        // Advance past Greeting so the state guard permits the branch.
+        app.conversation
+            .store_handle()
+            .update(Uuid::parse_str(&parent_id).unwrap(), |s| {
+                s.state = ecaa_workflow_conversation::SessionState::Intake;
+                Ok(())
+            })
+            .await
+            .unwrap();
 
         // Branch via the Saga-wrapped endpoint.
         let req = Request::builder()

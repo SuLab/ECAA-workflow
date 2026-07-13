@@ -330,7 +330,7 @@ pub use app_state::{
 // etc. without knowing they live in `wire_types.rs`.
 pub(super) use wire_types::session_state_kind;
 pub use wire_types::{
-    AgentUsageWire, ArtifactRef, CheckpointDecisionRequest, CreateSessionRequest,
+    AgentUsageWire, ArtifactRef, BranchEdits, CheckpointDecisionRequest, CreateSessionRequest,
     CreateSessionResponse, EnvelopedEvent, ExecutionStatusResponse, ExecutorInfoWire,
     HarnessProgressEvent, OrphanReapWire, ProgressClientHealthWire, ProgressSummary,
     RemoteExecutionInfoWire, SendTurnRequest, SessionStateSnapshot, SsePayload,

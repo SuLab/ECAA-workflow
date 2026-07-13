@@ -596,6 +596,31 @@ pub struct CheckpointDecisionRequest {
     /// successors reset to Pending. Only consumed by the `/branch` endpoint.
     #[serde(default)]
     pub task_id: Option<String>,
+    /// Staged branch-to-edit changes applied to the CHILD after the fork and
+    /// before its auto-emit (method / parameter / validation-bound edits on the
+    /// branched task). Only consumed by the `/branch` endpoint; additive.
+    #[serde(default)]
+    pub edits: Option<BranchEdits>,
+}
+
+/// Branch-to-edit payload: the method, parameter, and validation-bound changes
+/// an SME stages in the branch modal, applied atomically to the freshly-forked
+/// child before it auto-emits. All fields optional/defaulted so a plain branch
+/// (no edits) keeps its existing wire shape.
+#[derive(Debug, Clone, Default, Deserialize, ts_rs::TS)]
+#[ts(export)]
+#[non_exhaustive]
+pub struct BranchEdits {
+    /// Optional method change on the branched task (the SME's explicit choice).
+    #[serde(default)]
+    pub method: Option<String>,
+    /// Concrete parameter overrides on the branched task (`name -> value`).
+    #[serde(default)]
+    #[ts(type = "Record<string, unknown>")]
+    pub parameters: std::collections::BTreeMap<String, serde_json::Value>,
+    /// SME-authored validation bounds to attach to the child's contract.
+    #[serde(default)]
+    pub validation_bounds: Vec<ecaa_workflow_core::validation_bound::SmeValidationBound>,
 }
 
 /// Request body for `POST /api/chat/session/:id/start-execution`.
