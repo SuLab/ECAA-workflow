@@ -504,6 +504,16 @@ impl Session {
             (Intake | IntakeFollowup, ProposeSummaryConfirmation) => {
                 PendingConfirmation { stage: None }
             }
+            // ReadyToEmit → PendingConfirmation via propose_summary. After an
+            // SME REST edit (amend/rerun/parameter/bound) or a branch of an
+            // emitted parent drains the session to ReadyToEmit, the server
+            // deterministically re-raises the summary confirmation card so the
+            // SME's `/confirm` (PendingConfirmation → ReadyToEmit) drives the
+            // re-emit. Without this arm the post-edit session sat at ReadyToEmit
+            // with no card and `/confirm` returned 400 — every re-emit wedged.
+            // Confirmation discipline holds: no token is minted here, so
+            // `is_confirmed()` stays false until a real SME `/confirm`.
+            (ReadyToEmit, ProposeSummaryConfirmation) => PendingConfirmation { stage: None },
             // PendingConfirmation → ReadyToEmit (button click).
             // Struct pattern matches both the emission-level
             // (stage: None) and stage-scoped (stage: Some(_)) variants

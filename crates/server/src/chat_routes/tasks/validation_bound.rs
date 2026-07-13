@@ -212,9 +212,16 @@ mod tests {
 
         let s = app.conversation.get_session(id).await.unwrap();
         assert!(
-            matches!(s.state, SessionState::ReadyToEmit),
-            "a bound edit must route the session to ReadyToEmit, got {:?}",
+            matches!(s.state, SessionState::PendingConfirmation { .. }),
+            "a bound edit must re-raise the confirmation card (PendingConfirmation), got {:?}",
             s.state
+        );
+        assert!(
+            s.conversation
+                .iter()
+                .rev()
+                .any(|t| t.confirmation_card.is_some()),
+            "a bound edit must raise a confirmation card so /confirm re-emits"
         );
         assert!(
             s.sme_validation_bounds.0.iter().any(|b| b.id == "sme_de_padj"),
@@ -273,6 +280,105 @@ mod tests {
             resp.status(),
             StatusCode::BAD_REQUEST,
             "an assertion_type the harness can't run must be rejected"
+        );
+    }
+
+    /// FIX 3: a bound whose `stage_class` matches no task's stage class in the
+    /// DAG is silently inert (the harness never evaluates it). It must be
+    /// rejected with 400 instead of merged.
+    #[tokio::test]
+    async fn unknown_stage_class_is_rejected() {
+        let (_router, app) = make_router(vec![
+            tool_use(Tool::Batchable(BatchableTool::AppendIntakeProse {
+                prose: "bulk rna-seq differential expression in human samples".into(),
+            })),
+            assistant("ok."),
+        ])
+        .await;
+        let id = emitted_session(&app).await;
+        let router = crate::chat_routes::router(app.clone())
+            .layer(axum::Extension(crate::auth::RequestPrincipal::test_default()));
+
+        let body = serde_json::json!({
+            "bound": {
+                "stage_class": "no_such_stage_class",
+                "assertion_type": "numeric_threshold",
+                "target": "results/tables/de.json",
+                "check": { "json_pointer": "/adjusted_p_max", "op": "lte", "value": 0.01 },
+                "severity": "required",
+                "id": "sme_bad_stage",
+                "description": "bound on a stage that does not exist"
+            }
+        })
+        .to_string();
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/api/chat/session/{}/task/differential_expression/validation-bound",
+                        id
+                    ))
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::BAD_REQUEST,
+            "a bound keyed on an unknown stage_class must be rejected"
+        );
+    }
+
+    /// FIX 4: a bound whose `assertion_type` is supported but whose `check`
+    /// payload is missing fields the harness reads (here numeric_threshold with
+    /// no json_pointer/op/value) would fail-close to false forever, permanently
+    /// re-blocking the stage. It must be rejected at set-time with 400.
+    #[tokio::test]
+    async fn malformed_check_is_rejected() {
+        let (_router, app) = make_router(vec![
+            tool_use(Tool::Batchable(BatchableTool::AppendIntakeProse {
+                prose: "bulk rna-seq differential expression in human samples".into(),
+            })),
+            assistant("ok."),
+        ])
+        .await;
+        let id = emitted_session(&app).await;
+        let router = crate::chat_routes::router(app.clone())
+            .layer(axum::Extension(crate::auth::RequestPrincipal::test_default()));
+
+        let body = serde_json::json!({
+            "bound": {
+                "stage_class": "differential_expression",
+                "assertion_type": "numeric_threshold",
+                "target": "results/tables/de.json",
+                "check": {},
+                "severity": "required",
+                "id": "sme_malformed",
+                "description": "numeric_threshold missing json_pointer/op/value"
+            }
+        })
+        .to_string();
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/api/chat/session/{}/task/differential_expression/validation-bound",
+                        id
+                    ))
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::BAD_REQUEST,
+            "a supported type with a malformed check must be rejected"
         );
     }
 

@@ -317,9 +317,16 @@ mod tests {
 
         let s = app.conversation.get_session(id).await.unwrap();
         assert!(
-            matches!(s.state, SessionState::ReadyToEmit),
-            "a parameter edit must route the session to ReadyToEmit, got {:?}",
+            matches!(s.state, SessionState::PendingConfirmation { .. }),
+            "a parameter edit must re-raise the confirmation card (PendingConfirmation), got {:?}",
             s.state
+        );
+        assert!(
+            s.conversation
+                .iter()
+                .rev()
+                .any(|t| t.confirmation_card.is_some()),
+            "a parameter edit must raise a confirmation card so /confirm re-emits"
         );
         let ov = s
             .sme_parameter_overrides
@@ -332,6 +339,88 @@ mod tests {
                 matches!(&d.decision, ecaa_workflow_core::decision_log::DecisionType::SetTaskParameter { parameter, .. } if parameter == "min_lfc")
             }),
             "a SetTaskParameter decision must be recorded"
+        );
+    }
+
+    /// FIX 8: an explicit `null` value for a key REMOVES that override (so the
+    /// UI can blank a field), and an empty overrides map is a valid "clear all"
+    /// request, not a 400.
+    #[tokio::test]
+    async fn null_value_clears_override_and_empty_map_is_valid_clear() {
+        let cfg = augmented_config("differential_expression", MIN_LFC_PARAM);
+        let (router, app) = make_router_with_config(cfg, compose_script()).await;
+        let (id, task_id) = emitted_diffexpr_session(&app).await;
+
+        // Seed an existing override directly (keep the session Emitted so a
+        // second edit is permitted).
+        app.conversation
+            .store_handle()
+            .update(id, |s| {
+                s.sme_parameter_overrides.set(
+                    &task_id,
+                    "min_lfc",
+                    serde_json::json!(1.0),
+                    ecaa_workflow_core::parameter_override::OverrideSource::Sme,
+                );
+                Ok(())
+            })
+            .await
+            .unwrap();
+
+        // Null value clears the override.
+        let resp = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/api/chat/session/{}/task/{}/parameters",
+                        id, task_id
+                    ))
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"overrides":{"min_lfc":null}}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "a null value must be accepted (clears the override)"
+        );
+        let s = app.conversation.get_session(id).await.unwrap();
+        assert!(
+            s.sme_parameter_overrides.for_task(&task_id).is_none(),
+            "null value must have removed the override for the task"
+        );
+
+        // An empty overrides map on a task with no overrides is a valid clear.
+        app.conversation
+            .store_handle()
+            .update(id, |s| {
+                s.state = SessionState::Emitted;
+                Ok(())
+            })
+            .await
+            .unwrap();
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/api/chat/session/{}/task/{}/parameters",
+                        id, task_id
+                    ))
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"overrides":{}}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "an empty overrides map must be a valid clear, not a 400"
         );
     }
 

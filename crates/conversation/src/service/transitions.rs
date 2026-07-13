@@ -150,6 +150,15 @@ impl ConversationService {
                                 summary_hash.as_bytes(),
                             ));
                         }
+                        // Raise the summary confirmation card + move to
+                        // PendingConfirmation so the child surfaces a Confirm
+                        // card the SME can click; `/confirm` then runs the
+                        // normal emit and `fire_auto_emit_postlogic` inherits
+                        // the parent's completed-task artifacts.
+                        child.raise_reemit_confirmation(
+                            "This branch is ready to emit. Review the plan and click \
+                             Confirm to emit the branched package.",
+                        );
                     }
                     let child_id = child.id;
                     // Persist the child within the transaction. Safe
@@ -764,6 +773,13 @@ impl ConversationService {
                 // explicitly — otherwise the session sticks in `Emitted`
                 // with the triggers queued and never re-emits.
                 crate::tools::drain_deferred_state_triggers_post_ok(s);
+                // Re-raise the summary confirmation card + move to
+                // PendingConfirmation so the SME's `/confirm` re-emits the
+                // amended plan (the REST path has no LLM to re-propose).
+                s.raise_reemit_confirmation(format!(
+                    "Updated the method for **{stage}**. Review the amended plan and \
+                     click Confirm to re-emit."
+                ));
                 Ok(())
             })
             .await
@@ -867,6 +883,11 @@ impl ConversationService {
                 // here (no LLM dispatcher on the REST path) so the session
                 // reaches `ReadyToEmit` instead of sticking in `Emitted`.
                 crate::tools::drain_deferred_state_triggers_post_ok(s);
+                // Re-raise the summary confirmation card so `/confirm` re-emits.
+                s.raise_reemit_confirmation(format!(
+                    "Re-queued **{task_id}** and its downstream tasks. Review and \
+                     click Confirm to re-emit."
+                ));
                 Ok(())
             })
             .await
@@ -896,11 +917,10 @@ impl ConversationService {
         overrides: std::collections::BTreeMap<String, serde_json::Value>,
         rationale: Option<String>,
     ) -> Result<Vec<String>, ServiceError> {
-        if overrides.is_empty() {
-            return Err(ServiceError::Internal(
-                "no parameter overrides supplied — pass at least one {name: value} pair".into(),
-            ));
-        }
+        // An empty overrides map is a valid "clear every override on this task"
+        // request, not a 400 (blanking a field sends the key with a null value;
+        // clearing the last field sends an empty map). apply_parameter_overrides
+        // treats a net no-op as Ok without touching state.
         let config_dir = self.config_dir().clone();
         let invalidated_cell: Arc<std::sync::Mutex<Vec<String>>> =
             Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -914,6 +934,17 @@ impl ConversationService {
                         s.state
                     ));
                 }
+                // Validate every override BEFORE any mutation so an invalid
+                // value can't leave a partially-applied session.
+                s.validate_parameter_overrides(&task_id, &overrides, &config_dir)
+                    .map_err(|e| anyhow::anyhow!("{e}"))?;
+                // Clear both latches BEFORE the fallible rebuild below so a
+                // rebuild failure can never leave a live confirmation/execution
+                // token authorizing the pre-edit plan. A fresh SME `/confirm`
+                // (and Start press) is required to re-arm them.
+                s.clear_confirmation();
+                s.clear_execution_token();
+                s.pending_emission_id = None;
                 let invalidated = s
                     .apply_parameter_overrides(
                         &task_id,
@@ -922,6 +953,13 @@ impl ConversationService {
                         ecaa_workflow_core::decision_log::DecisionActor::Sme,
                     )
                     .map_err(|e| anyhow::anyhow!("{e}"))?;
+                // Net no-op (empty request on a task with no overrides): nothing
+                // changed, so leave the session Emitted with no re-confirm card.
+                if invalidated.is_empty() {
+                    let mut guard = invalidated_writer.lock().unwrap_or_else(|p| p.into_inner());
+                    *guard = Vec::new();
+                    return Ok(());
+                }
                 // Mirror amend: mark the re-emit as an amendment of the prior
                 // package (so the next emit writes lineage), then route
                 // Emitted -> Amending -> ReadyToEmit via the deferred triggers.
@@ -938,13 +976,13 @@ impl ConversationService {
                     invalidated_tasks: invalidated.clone(),
                 });
                 s.deferred_state_triggers.push(StateTrigger::AmendReady);
-                // The emit shape changed; the prior confirmation no longer
-                // authorizes the amended package. Clear both latches so the
-                // SME must re-confirm (and re-press Start) before re-emit.
-                s.clear_confirmation();
-                s.clear_execution_token();
-                s.pending_emission_id = None;
                 crate::tools::drain_deferred_state_triggers_post_ok(s);
+                // Re-raise the summary confirmation card so the SME's `/confirm`
+                // re-emits the amended plan (the REST path has no LLM).
+                s.raise_reemit_confirmation(format!(
+                    "Updated parameters on **{task_id}**. Review the amended plan and \
+                     click Confirm to re-emit."
+                ));
                 let mut guard = invalidated_writer.lock().unwrap_or_else(|p| p.into_inner());
                 *guard = invalidated;
                 Ok(())
@@ -1009,6 +1047,12 @@ impl ConversationService {
                 s.clear_execution_token();
                 s.pending_emission_id = None;
                 crate::tools::drain_deferred_state_triggers_post_ok(s);
+                // Re-raise the summary confirmation card so `/confirm` re-emits
+                // the amended contract.
+                s.raise_reemit_confirmation(format!(
+                    "Updated the validation bound on **{stage_class}**. Review and \
+                     click Confirm to re-emit."
+                ));
                 Ok(())
             })
             .await

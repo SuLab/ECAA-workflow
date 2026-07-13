@@ -617,10 +617,13 @@ async fn emit_test_session() -> (
 
 /// The REST amend wrapper has no LLM dispatcher to drain the
 /// `AmendStart`/`AmendReady` triggers the tool body defers, so it must
-/// drain them itself. Without the drain the session sticks in `Emitted`
-/// with two queued triggers; with it, the session reaches `ReadyToEmit`.
+/// drain them itself, then re-raise the summary confirmation card and move
+/// to `PendingConfirmation` so the SME's `/confirm` can re-emit the amended
+/// plan (FIX 1). Without the drain the session sticks in `Emitted` with two
+/// queued triggers; without the card + PendingConfirmation the `/confirm`
+/// round-trip returned 400 and nothing re-emitted.
 #[tokio::test]
-async fn rest_amend_reaches_ready_to_emit_and_drains_triggers() {
+async fn rest_amend_raises_confirmation_card_and_drains_triggers() {
     let (svc, _env, session_id, stage) = emit_test_session().await;
     svc.amend_stage_method_from_rest(
         session_id,
@@ -632,9 +635,20 @@ async fn rest_amend_reaches_ready_to_emit_and_drains_triggers() {
     .expect("amend ok");
     let s = svc.get_session(session_id).await.expect("session");
     assert!(
-        matches!(s.state, SessionState::ReadyToEmit),
-        "REST amend must leave the session in ReadyToEmit, got {:?}",
+        matches!(s.state, SessionState::PendingConfirmation { .. }),
+        "REST amend must re-raise the confirmation card (PendingConfirmation), got {:?}",
         s.state
+    );
+    assert!(
+        s.conversation
+            .iter()
+            .rev()
+            .any(|t| t.confirmation_card.is_some()),
+        "REST amend must raise a confirmation card on the conversation tail"
+    );
+    assert!(
+        !s.is_confirmed(),
+        "confirmation discipline: no token is minted until a real SME /confirm"
     );
     assert!(
         s.deferred_state_triggers.is_empty(),
@@ -644,11 +658,12 @@ async fn rest_amend_reaches_ready_to_emit_and_drains_triggers() {
 }
 
 /// Task 5.1 — a branch of an ALREADY-EMITTED parent must NOT auto-emit.
-/// The child is staged at `ReadyToEmit` with no `System` confirmation
-/// token and no emitted package, so the SME must explicitly confirm
-/// before the child emits (branch-to-edit may have changed the plan).
+/// The child surfaces a confirmation card (PendingConfirmation) with no
+/// `System` confirmation token and no emitted package, so the SME must
+/// explicitly confirm before the child emits (branch-to-edit may have
+/// changed the plan).
 #[tokio::test]
-async fn branch_of_emitted_parent_stages_ready_to_emit_without_auto_emit() {
+async fn branch_of_emitted_parent_stages_confirmation_without_auto_emit() {
     let (svc, _env, parent_id, _stage) = emit_test_session().await;
     // Make the parent look genuinely emitted so `should_emit_child_package`
     // fires: the parent has a package path and the child inherits the
@@ -670,11 +685,18 @@ async fn branch_of_emitted_parent_stages_ready_to_emit_without_auto_emit() {
         .await
         .expect("branch ok");
     let child = svc.get_session(child_id).await.expect("child session");
-    assert_eq!(
-        child.state,
-        SessionState::ReadyToEmit,
-        "branch of an emitted parent must stage the child at ReadyToEmit, got {:?}",
+    assert!(
+        matches!(child.state, SessionState::PendingConfirmation { .. }),
+        "branch of an emitted parent must stage the child at PendingConfirmation, got {:?}",
         child.state
+    );
+    assert!(
+        child
+            .conversation
+            .iter()
+            .rev()
+            .any(|t| t.confirmation_card.is_some()),
+        "branch child must surface a confirmation card the SME can click"
     );
     assert!(
         child.emitted_package_path.is_none(),
@@ -684,4 +706,102 @@ async fn branch_of_emitted_parent_stages_ready_to_emit_without_auto_emit() {
         !child.is_confirmed(),
         "branch child must NOT carry a System confirmation token (no auto-emit gate open)"
     );
+}
+
+/// FIX 1 (the audit regression) — the FULL post-edit re-emit round-trip. An SME
+/// REST edit raises a confirmation card + moves to PendingConfirmation;
+/// `/confirm` (confirm_with_modes) then drives PendingConfirmation → ReadyToEmit
+/// WITHOUT the "illegal session transition: UserClickedConfirm from ReadyToEmit"
+/// 400 the audit hit, and `try_auto_emit_after_confirm` re-emits a package whose
+/// on-disk `policies/validation-contract.json` reflects the SME edit. Before the
+/// fix this test fails at the `confirm_with_modes` step (400) and never
+/// re-emits.
+#[tokio::test]
+#[serial_test::serial]
+async fn rest_edit_then_confirm_re_emits_and_reflects_edit_on_disk() {
+    let pkg_root = tempfile::tempdir().unwrap();
+    let prev_root = std::env::var("ECAA_PACKAGE_ROOT").ok();
+    std::env::set_var("ECAA_PACKAGE_ROOT", pkg_root.path());
+
+    let (svc, _env, id, stage) = emit_test_session().await;
+    // Key the bound onto the target DAG stage. v4 stages carry no
+    // `spec.stage_class`, so the harness matches the contract block by the bare
+    // task id — use that as the stage_class (FIX 3 accepts a task-id match).
+    let stage_class = stage.clone();
+
+    let bound = ecaa_workflow_core::validation_bound::SmeValidationBound {
+        stage_class: stage_class.clone(),
+        assertion_type: "numeric_threshold".into(),
+        target: "results/tables/de.json".into(),
+        check: serde_json::json!({ "json_pointer": "/adjusted_p_max", "op": "lte", "value": 0.01 }),
+        severity: "required".into(),
+        id: "sme_roundtrip_padj".into(),
+        description: "SME: adjusted p must be <= 0.01".into(),
+    };
+    svc.set_validation_bound_from_rest(
+        id,
+        stage_class.clone(),
+        Some(bound),
+        "sme_roundtrip_padj".into(),
+        None,
+    )
+    .await
+    .expect("set_validation_bound must succeed");
+
+    // The edit re-raises the confirmation card + moves to PendingConfirmation.
+    let s = svc.get_session(id).await.unwrap();
+    assert!(
+        matches!(s.state, SessionState::PendingConfirmation { .. }),
+        "post-edit session must be PendingConfirmation, got {:?}",
+        s.state
+    );
+
+    // The exact audit regression: confirm must NOT 400.
+    svc.confirm_with_modes(id, None, None, None)
+        .await
+        .expect("confirm from PendingConfirmation must succeed (no illegal-transition 400)");
+    let outcome = svc
+        .try_auto_emit_after_confirm(id)
+        .await
+        .expect("auto-emit call ok");
+    assert!(
+        outcome.is_some(),
+        "auto-emit must fire after the SME confirm"
+    );
+
+    let s = svc.get_session(id).await.unwrap();
+    assert!(
+        matches!(s.state, SessionState::Emitted),
+        "session must reach Emitted after confirm + auto-emit, got {:?}",
+        s.state
+    );
+    let pkg = s
+        .emitted_package_path
+        .clone()
+        .expect("emitted package path must be set after auto-emit");
+    assert!(
+        pkg.starts_with(pkg_root.path()),
+        "re-emit must land under the test package root, got {}",
+        pkg.display()
+    );
+
+    // The on-disk re-emitted contract must carry the SME bound.
+    let contract: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(pkg.join("policies/validation-contract.json"))
+            .expect("re-emitted package must carry policies/validation-contract.json"),
+    )
+    .unwrap();
+    let found = contract["stages"][&stage_class]["assertions"]
+        .as_array()
+        .map(|a| a.iter().any(|x| x["id"] == "sme_roundtrip_padj"))
+        .unwrap_or(false);
+    assert!(
+        found,
+        "the re-emitted contract must reflect the SME bound edit, got {contract}"
+    );
+
+    match prev_root {
+        Some(v) => std::env::set_var("ECAA_PACKAGE_ROOT", v),
+        None => std::env::remove_var("ECAA_PACKAGE_ROOT"),
+    }
 }

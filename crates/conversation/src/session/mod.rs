@@ -550,6 +550,47 @@ impl Session {
     /// These are the load-bearing "shape" of the next emit; any of
     /// them changing means the next package is materially different
     /// from what the SME approved.
+    /// After an SME REST edit (amend/rerun/parameter/bound) or a branch of an
+    /// emitted parent has drained the session to `ReadyToEmit`, deterministically
+    /// re-raise the plan summary confirmation card and move to
+    /// `PendingConfirmation` so the UI shows a Confirm card and the SME's
+    /// `/confirm` drives `PendingConfirmation → ReadyToEmit →
+    /// try_auto_emit_after_confirm`. Mirrors, server-side and without an LLM
+    /// turn, what the `propose_summary_confirmation` tool does on intake.
+    ///
+    /// Confirmation discipline is preserved: this raises the card and mints a
+    /// content-addressed `pending_emission_id` (so the eventual `/confirm` binds
+    /// its per-emit token to the current plan shape) but does NOT mint a
+    /// confirmation token — `is_confirmed()` stays false until a real SME
+    /// `/confirm`. No-op unless the session is currently at `ReadyToEmit`.
+    pub fn raise_reemit_confirmation(&mut self, summary_markdown: impl Into<String>) {
+        if !matches!(self.state, crate::session::SessionState::ReadyToEmit) {
+            return;
+        }
+        // REST edits clear pending_emission_id to None; re-derive it from the
+        // canonical plan-shape hash (idempotent on an unchanged plan).
+        if self.pending_emission_id.is_none() {
+            let summary_hash = self.current_summary_hash();
+            self.pending_emission_id =
+                Some(Uuid::new_v5(&Uuid::NAMESPACE_OID, summary_hash.as_bytes()));
+        }
+        let summary_markdown = summary_markdown.into();
+        let summary_hash = crate::tools::conversational::summary_hash_of(&summary_markdown);
+        let card = crate::session::ConfirmationCard {
+            summary_markdown: summary_markdown.clone(),
+            summary_hash,
+            resource_estimate: None,
+            retained_optional_stages: None,
+        };
+        let mut turn = crate::session::Turn::assistant(summary_markdown);
+        turn.intent = Some(crate::session::AssistantIntent::SummaryConfirm);
+        turn.confirmation_card = Some(card);
+        std::sync::Arc::make_mut(&mut self.conversation).push(turn);
+        // ReadyToEmit → PendingConfirmation (added arm). Infallible given the
+        // guard above; tolerate an unexpected state without panicking.
+        let _ = self.try_transition(crate::session::StateTrigger::ProposeSummaryConfirmation);
+    }
+
     pub fn current_summary_hash(&self) -> String {
         use sha2::{Digest, Sha256};
         let mut h = Sha256::new();
