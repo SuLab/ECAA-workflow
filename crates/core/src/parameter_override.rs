@@ -149,6 +149,11 @@ impl ParameterOverrides {
 /// still gates them when non-empty.
 fn type_matches(t: &ParameterType, v: &serde_json::Value) -> bool {
     use ParameterType::*;
+    // The `_` arm is unreachable in-crate (all current variants are listed) but
+    // load-bearing once a future `#[non_exhaustive]` `ParameterType` variant is
+    // added: it fails open on type only (allowed_values still gates). The allow
+    // silences the current in-crate `unreachable_patterns` warning.
+    #[allow(unreachable_patterns)]
     match t {
         String | Enum => v.is_string(),
         Number => v.is_number(),
@@ -156,7 +161,6 @@ fn type_matches(t: &ParameterType, v: &serde_json::Value) -> bool {
         Boolean => v.is_boolean(),
         Array => v.is_array(),
         Object => v.is_object(),
-        // `#[non_exhaustive]` ParameterType: fail-open on type only.
         _ => true,
     }
 }
