@@ -292,14 +292,10 @@ export default function ConversationPane() {
       try {
         const body = await postBranch(conv.sessionId, { rationale: rationale || undefined })
         const childId = body.session_id
-        // Same-tab navigation so the SME doesn't lose the chat scroll.
-        // The TaskDetailDrawer path uses a popup for "Explore in a
-        // branch" but the inline card sits in the conversation flow,
-        // so an in-place navigation is the less-surprising default.
-        if (typeof window !== 'undefined') {
-          const url = `/?session=${childId}&branched_from=${conv.sessionId}`
-          window.location.href = url
-        }
+        // SPA navigation into the child session — pushState-syncs
+        // `?session=` and swaps the transcript/state/dag in place so the
+        // SME keeps the chat scroll instead of a full-page reload.
+        await conv.switchToSession(childId)
       } catch (e) {
         // Surface the error on the conversation banner so the SME
         // sees it without having to open the console.
@@ -307,7 +303,8 @@ export default function ConversationPane() {
         console.error('Branch failed', e)
       }
     },
-    [conv.sessionId],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- dep on .sessionId/.switchToSession method refs is intentional; full conv object would re-run on every render
+    [conv.sessionId, conv.switchToSession],
   )
 
   // Result review: load full TaskResultPayload bodies for each task
