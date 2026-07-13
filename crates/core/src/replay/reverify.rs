@@ -31,6 +31,23 @@ use std::path::Path;
 ///   implements; compared against the `ecaa_version` field in the recorded
 ///   `runtime/audit-proof-report.json` to detect version drift vs. real
 ///   tampering.
+/// A recorded↔fresh invariant-status pair diverges only when BOTH sides carry a
+/// concrete verdict (not `"unverified"`) and they disagree. An `"unverified"` on
+/// EITHER side means that side has no verdict to compare, so it is never a tamper
+/// signal: a reader WITHOUT runcrate cannot re-check `substrate_validity` (fresh
+/// `unverified` vs a recorded runcrate `pass` is "not re-checkable here", not a
+/// contradiction), and a writer that skipped a check recorded nothing to
+/// contradict (recorded `unverified` vs a fresh `pass` is an offline reader that
+/// COULD check — an improvement, not drift). A recorded `pass` vs a fresh `fail`
+/// (a check that ran on both sides and disagreed) still diverges.
+fn status_diverged(recorded: &serde_json::Value, fresh: &serde_json::Value) -> bool {
+    let unverified = serde_json::Value::from("unverified");
+    if *recorded == unverified || *fresh == unverified {
+        return false;
+    }
+    recorded != fresh
+}
+
 pub fn reverify(pkg: &Path, reader_version: &str) -> anyhow::Result<ReverifyResult> {
     let mut checks: Vec<VerifierDiff> = Vec::new();
 
@@ -91,7 +108,7 @@ pub fn reverify(pkg: &Path, reader_version: &str) -> anyhow::Result<ReverifyResu
                 .unwrap_or(serde_json::Value::Null);
 
             if let Some(rec_status) = recorded_verdicts.get(&id_str) {
-                let diverged = rec_status != &fresh_status;
+                let diverged = status_diverged(rec_status, &fresh_status);
                 checks.push(VerifierDiff {
                     check: format!("audit_proof.{id_str}"),
                     recorded: rec_status.clone(),
@@ -242,6 +259,23 @@ mod tests {
     use super::*;
     use std::fs;
     use std::path::Path;
+
+    #[test]
+    fn status_diverged_treats_unverified_as_noncomparable() {
+        let v = |s: &str| serde_json::Value::from(s);
+        // A real disagreement between two concrete verdicts diverges.
+        assert!(status_diverged(&v("pass"), &v("fail")));
+        assert!(status_diverged(&v("pass"), &v("warn")));
+        // Equal verdicts never diverge.
+        assert!(!status_diverged(&v("pass"), &v("pass")));
+        // `unverified` on EITHER side is not re-checkable → never a divergence.
+        // (substrate_validity: recorded runcrate pass, offline reader has no
+        // runcrate → fresh unverified; must NOT fail the deposit's re-verify.)
+        assert!(!status_diverged(&v("pass"), &v("unverified")));
+        assert!(!status_diverged(&v("unverified"), &v("pass")));
+        assert!(!status_diverged(&v("unverified"), &v("unverified")));
+        assert!(!status_diverged(&v("fail"), &v("unverified")));
+    }
 
     /// Recursively copy `src` into `dst` (creating `dst` if needed).
     fn copy_dir_all(src: &Path, dst: &Path) -> anyhow::Result<()> {

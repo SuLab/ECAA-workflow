@@ -48,8 +48,17 @@ FROM debian:trixie-slim@sha256:28de0877c2189802884ccd20f15ee41c203573bd87bb6b883
 ARG TARGETARCH
 ARG DOCKER_CLI_VERSION=27.3.1
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl git jq python3 libssl3 nodejs npm \
+      ca-certificates curl git jq python3 python3-venv libssl3 nodejs npm \
  && rm -rf /var/lib/apt/lists/*
+# WRROC substrate validator (audit-proof Invariant 6). `runcrate` >= 0.5 in an
+# isolated venv, exposed as /usr/local/bin/runcrate so scripts/wrroc-validate.py
+# (system python3, stdlib-only) can shell `runcrate report`. Enables
+# substrate_validity to verify at export time instead of staying `unverified`.
+RUN set -eux; \
+    python3 -m venv /opt/validator-venv; \
+    /opt/validator-venv/bin/pip install --no-cache-dir "runcrate>=0.5.0"; \
+    ln -s /opt/validator-venv/bin/runcrate /usr/local/bin/runcrate; \
+    test -x /opt/validator-venv/bin/runcrate
 RUN set -eux; \
     case "$TARGETARCH" in \
       amd64) A=x86_64 ;; \

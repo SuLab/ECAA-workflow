@@ -54,60 +54,17 @@ pub(crate) struct ReexecArgs {
     reseal: bool,
 }
 
-/// Truthy parse of `ECAA_CONFORMANCE_MODE` (mirrors the audit-proof binary).
-fn conformance_mode() -> bool {
-    matches!(
-        std::env::var("ECAA_CONFORMANCE_MODE").as_deref().unwrap_or("0"),
-        "1" | "true" | "yes" | "on"
-    )
-}
-
-/// Decode the 64-hex-char per-session secret into an [`AuditWriter`].
-fn writer_from_hex(secret_hex: &str) -> Result<ecaa_workflow_core::audit_writer::AuditWriter> {
-    let bytes = hex::decode(secret_hex.trim())
-        .map_err(|e| anyhow::anyhow!("ECAA_AUDIT_SECRET is not valid hex: {e}"))?;
-    let key: [u8; 32] = bytes.as_slice().try_into().map_err(|_| {
-        anyhow::anyhow!(
-            "ECAA_AUDIT_SECRET must decode to exactly 32 bytes (64 hex chars), got {}",
-            bytes.len()
-        )
-    })?;
-    Ok(ecaa_workflow_core::audit_writer::AuditWriter::with_secret(key))
-}
-
 /// Fold-back reseal: re-record the audit-proof report + AUDIT-REPORT.md for
-/// `dest_pkg`, choosing the runcrate validator under conformance mode and the
-/// signed-sink verifier when `ECAA_AUDIT_SECRET` is present.
+/// `dest_pkg`. Preserves the operator surface's conformance-mode-only gate for
+/// the runcrate validator (`select_validator(false)`); the shared reseal logic
+/// lives in [`crate::audit_fold`].
 fn reseal(dest_pkg: &std::path::Path) -> Result<()> {
-    use ecaa_workflow_core::wrroc_validator::{NoopWrrocValidator, WrrocValidator};
-    let validator: Box<dyn WrrocValidator> = if conformance_mode() {
-        Box::new(ecaa_workflow_harness::wrroc_validator_impl::PythonRuncrateWrrocValidator)
-    } else {
-        Box::new(NoopWrrocValidator)
-    };
-    let writer = match std::env::var("ECAA_AUDIT_SECRET").ok() {
-        Some(hex) => Some(writer_from_hex(&hex)?),
-        None => None,
-    };
-    // Scope the reseal to the two deferred offline verifications: fold in the
-    // re-execution equivalence + runcrate substrate verdicts, and PRESERVE every
-    // compile-time invariant at its recorded value (re-grading them here could
-    // drift across builds and is out of scope for a re-execution fold-back).
-    let refresh = [
-        ecaa_workflow_core::audit_proof::InvariantId::EquivalenceFailure,
-        ecaa_workflow_core::audit_proof::InvariantId::SubstrateValidity,
-    ];
-    ecaa_workflow_core::emitter::reseal_audit_report(
-        dest_pkg,
-        validator.as_ref(),
-        writer.as_ref(),
-        Some(&refresh),
-    )
-    .context("resealing audit-proof report + AUDIT-REPORT.md")?;
+    let validator = crate::audit_fold::select_validator(false);
+    crate::audit_fold::reseal_deferred(dest_pkg, validator.as_ref())?;
     println!(
         "reexec: resealed audit-proof report + AUDIT-REPORT.md under {} (runcrate={}, signed_sink={})",
         dest_pkg.display(),
-        conformance_mode(),
+        crate::audit_fold::conformance_mode(),
         std::env::var("ECAA_AUDIT_SECRET").is_ok(),
     );
     Ok(())
@@ -129,14 +86,9 @@ pub(crate) fn run(args: ReexecArgs) -> Result<()> {
 
     // Resolve the destination package dir: --into when given, else --replay.
     let dest_pkg = args.into.as_deref().unwrap_or(&args.replay);
-    let runtime_dir = dest_pkg.join("runtime");
-    std::fs::create_dir_all(&runtime_dir)
-        .with_context(|| format!("creating {}", runtime_dir.display()))?;
-    let out_path = runtime_dir.join("reexecution.json");
-    let body = serde_json::to_vec_pretty(&report)
-        .context("serializing runtime/reexecution.json")?;
-    std::fs::write(&out_path, body)
-        .with_context(|| format!("writing {}", out_path.display()))?;
+    crate::audit_fold::write_reexecution_json(dest_pkg, &report)
+        .context("writing runtime/reexecution.json")?;
+    let out_path = dest_pkg.join("runtime/reexecution.json");
 
     // One-line summary of bucket_counts + artifact total.
     let counts: Vec<String> = report

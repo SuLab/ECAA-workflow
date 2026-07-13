@@ -5,6 +5,7 @@
 //! `migrate-sessions`. The compiler path (`intake`/`build`) is synchronous; only
 //! `chat-llm` and `serve` pull in `tokio`.
 
+mod audit_fold;
 mod chat;
 mod chat_llm;
 // `export` subcommand. Emits a clean, deposit-ready `.zip` of a completed

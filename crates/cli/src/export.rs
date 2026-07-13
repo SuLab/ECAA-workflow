@@ -167,6 +167,34 @@ fn maybe_verify_reexecution(
         reexec_status_from_verdict(&report.verdict)
     };
 
+    // Fold the re-execution result back into the package's audit surface so the
+    // `equivalence_failure` invariant (Invariant 5) reflects the actual verdict
+    // instead of "Q absent", and — when `runcrate` is installed — the WRROC
+    // `substrate_validity` invariant (Invariant 6) is verified too. Without this
+    // the audit report and DEPOSIT-READINESS.json would disagree (the report
+    // would still read the empty emit-time reexecution.json stub). Only when the
+    // comparator actually produced rows (env provisioned + ran); an empty stub
+    // would not clear "Q absent" anyway.
+    if let Some(re) = report.reexecute.as_ref() {
+        if !re.report.per_artifact.is_empty() {
+            crate::audit_fold::write_reexecution_json(dst, &re.report)
+                .context("persisting re-execution result into runtime/reexecution.json")?;
+            let validator = crate::audit_fold::select_validator(true);
+            crate::audit_fold::reseal_deferred(dst, validator.as_ref())
+                .context("folding re-execution + substrate verdicts into the audit report")?;
+            let substrate = if crate::audit_fold::runcrate_available()
+                || crate::audit_fold::conformance_mode()
+            {
+                "verified (runcrate)"
+            } else {
+                "unverified (runcrate absent)"
+            };
+            println!(
+                "  reexec-check: folded into audit report — equivalence_failure refreshed, substrate_validity {substrate}"
+            );
+        }
+    }
+
     let detail = summarize_reexecution(&report);
     update_deposit_readiness_reexecution(dst, status, Some(detail.clone()), None, &WallClock)
         .context("recording re-execution verdict into DEPOSIT-READINESS.json")?;
