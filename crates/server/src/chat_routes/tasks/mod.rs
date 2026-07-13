@@ -32,10 +32,12 @@ pub(super) mod blocker;
 pub(super) mod impact;
 pub(super) mod logs;
 pub(super) mod package_download;
+pub(super) mod parameters;
 pub(super) mod result;
 pub(super) mod scripts;
 pub(super) mod sentinels;
 pub(super) mod task_state;
+pub(super) mod validation_bound;
 
 // Re-export the public handlers so callers that reach in via
 // `chat_routes::tasks::<name>` keep resolving, and so
@@ -51,6 +53,9 @@ pub use result::{
 };
 pub use scripts::{list_task_scripts, post_rerun_script};
 pub use sentinels::get_task_status_sentinels;
+// `parameters` + `validation_bound` handlers are reached through their
+// `routes()` builders merged in `routes()` below — no external callers need the
+// direct symbols, so (like `task_state`) we skip the `pub use` re-export.
 // `task_state` handler is reachable through the `task_state::routes()`
 // builder merged in `routes()` below — no external callers need the
 // direct symbol, so we skip the otherwise-conventional `pub use`.
@@ -86,6 +91,12 @@ pub(super) const ROUTES: &[(&str, &str)] = &[
     ("POST", "/api/chat/session/:id/task/:task_id/note"),
     ("POST", "/api/chat/session/:id/task/:task_id/rerun"),
     ("POST", "/api/chat/session/:id/task/:task_id/state"),
+    ("GET", "/api/chat/session/:id/task/:task_id/parameters"),
+    ("POST", "/api/chat/session/:id/task/:task_id/parameters"),
+    (
+        "POST",
+        "/api/chat/session/:id/task/:task_id/validation-bound",
+    ),
 ];
 
 pub(super) fn routes() -> axum::Router<ChatAppState> {
@@ -97,6 +108,8 @@ pub(super) fn routes() -> axum::Router<ChatAppState> {
         .merge(sentinels::routes())
         .merge(impact::routes())
         .merge(task_state::routes())
+        .merge(parameters::routes())
+        .merge(validation_bound::routes())
 }
 
 // ── Cross-submodule private helpers ───────────────────────────────────

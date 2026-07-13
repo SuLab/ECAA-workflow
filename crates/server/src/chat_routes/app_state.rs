@@ -250,6 +250,9 @@ pub struct LlmRateBuckets {
     pub start_exec: DashMap<SessionId, Arc<DefaultDirectRateLimiter>>,
     /// Bucket for `POST /branch`.
     pub branch: DashMap<SessionId, Arc<DefaultDirectRateLimiter>>,
+    /// Bucket shared by the deterministic SME-edit endpoints
+    /// (`POST /task/:id/parameters` and `POST /task/:id/validation-bound`).
+    pub sme_edit: DashMap<SessionId, Arc<DefaultDirectRateLimiter>>,
 }
 
 impl LlmRateBuckets {

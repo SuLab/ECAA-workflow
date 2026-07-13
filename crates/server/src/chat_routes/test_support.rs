@@ -53,11 +53,21 @@ pub fn tool_use(t: Tool) -> TurnResponse {
 }
 
 pub async fn make_router(scripted: Vec<TurnResponse>) -> (Router, ChatAppState) {
+    make_router_with_config(config_dir(), scripted).await
+}
+
+/// Like [`make_router`] but with a caller-supplied `config_dir` — used by the
+/// SME-parameter + branch-to-edit tests that point the app at an
+/// [`augmented_config`] tree carrying an atom with a `parameters:` block.
+pub async fn make_router_with_config(
+    config_dir: PathBuf,
+    scripted: Vec<TurnResponse>,
+) -> (Router, ChatAppState) {
     let dir = tempfile::tempdir().unwrap();
     let store = SessionStore::open(dir.path()).await.unwrap();
     std::mem::forget(dir);
     let backend: Arc<dyn LlmBackend> = Arc::new(MockLlmBackend::new(scripted));
-    let app = ChatAppState::with_backend(backend, store, config_dir());
+    let app = ChatAppState::with_backend(backend, store, config_dir);
     // Layer a default `RequestPrincipal` extension so handlers that
     // extract `Extension<RequestPrincipal>` (C1 hardening) resolve
     // cleanly under the test router. Production installs this via
@@ -69,6 +79,46 @@ pub async fn make_router(scripted: Vec<TurnResponse>) -> (Router, ChatAppState) 
         crate::auth::RequestPrincipal::test_default(),
     ));
     (router, app)
+}
+
+/// Build a config dir that mirrors the repo `config/` (children symlinked) but
+/// augments one stage-atom with a `parameters:` block, so the SME-parameter
+/// endpoints + branch-to-edit have a real atom carrying a typed parameter
+/// schema to serve/validate against. The temp dir is leaked so the symlinked
+/// tree outlives the app under test.
+pub fn augmented_config(atom_id: &str, param_yaml: &str) -> PathBuf {
+    let repo = config_dir();
+    let tmp = tempfile::tempdir().unwrap();
+    let cfg = tmp.path().join("config");
+    std::fs::create_dir_all(&cfg).unwrap();
+    for entry in std::fs::read_dir(&repo).unwrap() {
+        let entry = entry.unwrap();
+        let name = entry.file_name();
+        if name == "stage-atoms" {
+            continue;
+        }
+        std::os::unix::fs::symlink(entry.path(), cfg.join(&name)).unwrap();
+    }
+    let atoms_src = repo.join("stage-atoms");
+    let atoms_dst = cfg.join("stage-atoms");
+    std::fs::create_dir_all(&atoms_dst).unwrap();
+    let target_file = format!("{atom_id}.yaml");
+    for entry in std::fs::read_dir(&atoms_src).unwrap() {
+        let entry = entry.unwrap();
+        let name = entry.file_name();
+        if name.to_string_lossy() == target_file {
+            continue;
+        }
+        std::os::unix::fs::symlink(entry.path(), atoms_dst.join(&name)).unwrap();
+    }
+    let original = std::fs::read_to_string(atoms_src.join(&target_file)).unwrap();
+    std::fs::write(
+        atoms_dst.join(&target_file),
+        format!("{original}\n{param_yaml}\n"),
+    )
+    .unwrap();
+    std::mem::forget(tmp);
+    cfg
 }
 
 /// Like [`make_router`] but pins `app.auto_title_override = Some(true)`

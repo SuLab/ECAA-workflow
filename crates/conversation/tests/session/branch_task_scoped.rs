@@ -63,7 +63,7 @@ fn session_with_dag() -> Session {
 #[test]
 fn branch_at_task_resets_named_task_and_descendants() {
     let parent = session_with_dag();
-    let child = Session::branch_from_at_task(&parent, false, Some("b".to_string()));
+    let child = Session::branch_from_at_task(&parent, false, Some("b".to_string())).expect("branch at task");
     let child_dag = child.dag.as_ref().expect("child must have a dag");
 
     assert!(
@@ -95,7 +95,7 @@ fn branch_at_task_resets_named_task_and_descendants() {
 #[test]
 fn branch_without_task_id_preserves_full_dag() {
     let parent = session_with_dag();
-    let child = Session::branch_from_at_task(&parent, false, None);
+    let child = Session::branch_from_at_task(&parent, false, None).expect("branch");
     let child_dag = child.dag.as_ref().expect("child must have dag");
 
     // All tasks still Completed — no reset.
@@ -146,7 +146,7 @@ fn branch_at_task_without_dag_returns_error() {
 #[test]
 fn branch_at_root_task_resets_all() {
     let parent = session_with_dag();
-    let child = Session::branch_from_at_task(&parent, false, Some("a".to_string()));
+    let child = Session::branch_from_at_task(&parent, false, Some("a".to_string())).expect("branch at task");
     let child_dag = child.dag.as_ref().unwrap();
 
     assert!(
@@ -167,7 +167,7 @@ fn branch_at_root_task_resets_all() {
 #[test]
 fn session_lineage_serializes_branched_from_task_id() {
     let parent = session_with_dag();
-    let child = Session::branch_from_at_task(&parent, false, Some("b".to_string()));
+    let child = Session::branch_from_at_task(&parent, false, Some("b".to_string())).expect("branch at task");
     let lineage = child.lineage.unwrap();
 
     let json = serde_json::to_value(&lineage).unwrap();

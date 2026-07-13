@@ -100,34 +100,41 @@ impl Session {
         parent: &Session,
         careful_mode: bool,
         task_id: Option<String>,
-    ) -> Self {
+    ) -> Result<Self, String> {
         let mut child = Self::branch_from(parent, careful_mode);
         if let Some(ref tid) = task_id {
             if child.dag.is_none() {
                 child.ensure_dag_cached();
             }
-            // Reset the DAG at the task boundary. If the parent has no
-            // dag or the task id is unknown, log and skip (the caller's
-            // `branch_session_with_task` tool already validated the id).
-            if let Some(dag) = &mut child.dag {
-                let descendants = dag.descendants_of(tid);
-                match dag.reset_to_task_boundary(tid) {
-                    Ok(_) => {
-                        child.task_states.insert(tid.clone(), TaskState::Ready);
-                        for descendant in descendants {
-                            child
-                                .task_states
-                                .insert(descendant.to_string(), TaskState::Pending);
-                        }
-                    }
-                    Err(e) => {
+            // Reset the DAG at the task boundary. The branch endpoint now
+            // validates task membership BEFORE branching, so a failure here is
+            // a hard invariant violation (unknown task / missing dag /
+            // structural corruption), not a recoverable "keep the dag as-is"
+            // case. Propagate it — a swallowed error would silently produce a
+            // full-inherit branch masquerading as task-scoped.
+            match &mut child.dag {
+                Some(dag) => {
+                    let descendants = dag.descendants_of(tid);
+                    dag.reset_to_task_boundary(tid).map_err(|e| {
                         tracing::warn!(
                             target: "ecaa::branch",
                             task_id = %tid,
                             error = %e,
-                            "reset_to_task_boundary on child dag failed; dag kept as-is"
+                            "reset_to_task_boundary on child dag failed"
                         );
+                        e
+                    })?;
+                    child.task_states.insert(tid.clone(), TaskState::Ready);
+                    for descendant in descendants {
+                        child
+                            .task_states
+                            .insert(descendant.to_string(), TaskState::Pending);
                     }
+                }
+                None => {
+                    return Err(format!(
+                        "cannot branch at task '{tid}': child session has no DAG to reset"
+                    ));
                 }
             }
             // Stamp the lineage with the task boundary.
@@ -135,7 +142,7 @@ impl Session {
                 lin.branched_from_task_id = Some(tid.clone());
             }
         }
-        child
+        Ok(child)
     }
 
     /// Fork a new session from

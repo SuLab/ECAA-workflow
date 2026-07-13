@@ -20,6 +20,10 @@ pub struct LlmEndpointRateLimits {
     pub remediation: u32,
     pub start_exec: u32,
     pub branch: u32,
+    /// Cap for the deterministic SME-edit endpoints (`/task/:id/parameters`
+    /// and `/task/:id/validation-bound`). Higher than the LLM-firing caps
+    /// because these are cheap, non-LLM mutations an SME may tweak in bursts.
+    pub sme_edit: u32,
 }
 
 impl LlmEndpointRateLimits {
@@ -32,6 +36,7 @@ impl LlmEndpointRateLimits {
             remediation: env_u32("ECAA_LLM_RATE_LIMIT_REMEDIATION", 6),
             start_exec: env_u32("ECAA_LLM_RATE_LIMIT_START_EXEC", 12),
             branch: env_u32("ECAA_LLM_RATE_LIMIT_BRANCH", 6),
+            sme_edit: env_u32("ECAA_LLM_RATE_LIMIT_SME_EDIT", 30),
         }
     }
 }
@@ -56,6 +61,7 @@ mod tests {
             remediation: 6,
             start_exec: 12,
             branch: 6,
+            sme_edit: 30,
         };
         let from_env = {
             // Ensure no env vars are set in test env.
@@ -67,6 +73,7 @@ mod tests {
                 "ECAA_LLM_RATE_LIMIT_REMEDIATION",
                 "ECAA_LLM_RATE_LIMIT_START_EXEC",
                 "ECAA_LLM_RATE_LIMIT_BRANCH",
+                "ECAA_LLM_RATE_LIMIT_SME_EDIT",
             ] {
                 std::env::remove_var(k);
             }
@@ -79,5 +86,6 @@ mod tests {
         assert_eq!(from_env.remediation, limits.remediation);
         assert_eq!(from_env.start_exec, limits.start_exec);
         assert_eq!(from_env.branch, limits.branch);
+        assert_eq!(from_env.sme_edit, limits.sme_edit);
     }
 }

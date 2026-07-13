@@ -408,7 +408,7 @@ fn branch_from_task_inherits_authoritative_workflow_dag_and_resets_target() {
         },
     );
 
-    let child = Session::branch_from_at_task(&parent, false, Some("data_acquisition".into()));
+    let child = Session::branch_from_at_task(&parent, false, Some("data_acquisition".into())).expect("branch at task");
 
     assert!(
         child.workflow_dag.is_some(),

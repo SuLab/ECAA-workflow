@@ -41,6 +41,7 @@ pub mod execution_token;
 pub mod invalidation_guard;
 pub mod lineage;
 pub mod opaque_aggregator;
+pub mod sme_edits;
 pub mod state;
 pub mod transitions;
 
@@ -54,6 +55,7 @@ pub use confirmation_token::ConfirmationToken;
 pub use execution_token::ExecutionToken;
 pub use invalidation_guard::WorkflowDagMut;
 pub use lineage::{session_lineage_schema_version, SessionLineage};
+pub use sme_edits::SmeEditError;
 pub use state::{
     AssistantIntent, ConfirmationCard, HarnessEvent, PendingAmendment, RemoteExecutionInfo,
     RendererProposal, RendererProposals, RetainedOptionalStage, Session, SessionState, ShareToken,

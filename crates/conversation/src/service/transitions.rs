@@ -123,7 +123,8 @@ impl ConversationService {
                     // Fork from the parent under the held lock so the
                     // child's `branch_from_at_task` sees the freshest
                     // intake + classification state.
-                    let mut child = Session::branch_from_at_task(parent, careful_mode, task_id);
+                    let mut child = Session::branch_from_at_task(parent, careful_mode, task_id)
+                        .map_err(|e| anyhow::anyhow!("branch_from_at_task failed: {e}"))?;
                     let should_emit_child_package =
                         parent.emitted_package_path.is_some() && child.workflow_dag.is_some();
                     if should_emit_child_package {
@@ -856,6 +857,186 @@ impl ConversationService {
                 // here (no LLM dispatcher on the REST path) so the session
                 // reaches `ReadyToEmit` instead of sticking in `Emitted`.
                 crate::tools::drain_deferred_state_triggers_post_ok(s);
+                Ok(())
+            })
+            .await
+            .map_err(|e| ServiceError::Internal(e.to_string()))?;
+        let out = invalidated_cell
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        Ok(out)
+    }
+
+    /// REST wrapper: bind concrete SME parameter values to a task's atom
+    /// `ParameterSpec`. Mirrors `amend_stage_method_from_rest` — holds the
+    /// session update lock, validates every value (rejecting the whole request
+    /// on any error so the handler emits 400), records `SetTaskParameter` per
+    /// key, invalidates the task's forward slice, clears the confirmation +
+    /// execution latches, and drains the deferred triggers so the session
+    /// reaches `ReadyToEmit`. Does NOT re-emit / git-commit / relaunch — the
+    /// amended plan reaches disk only when the SME re-confirms via `/confirm`.
+    ///
+    /// Returns the invalidated task ids so the caller can drive the
+    /// re-confirmation UX + drop the stale artifact cache.
+    pub async fn set_task_parameters_from_rest(
+        &self,
+        id: SessionId,
+        task_id: String,
+        overrides: std::collections::BTreeMap<String, serde_json::Value>,
+        rationale: Option<String>,
+    ) -> Result<Vec<String>, ServiceError> {
+        if overrides.is_empty() {
+            return Err(ServiceError::Internal(
+                "no parameter overrides supplied — pass at least one {name: value} pair".into(),
+            ));
+        }
+        let config_dir = self.config_dir().clone();
+        let invalidated_cell: Arc<std::sync::Mutex<Vec<String>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let invalidated_writer = invalidated_cell.clone();
+        self.store_handle()
+            .update(id, move |s| {
+                if !matches!(s.state, SessionState::Emitted) {
+                    return Err(anyhow::anyhow!(
+                        "task parameters can only be edited on an emitted plan \
+                         (current state: {:?}); re-confirm the plan first",
+                        s.state
+                    ));
+                }
+                let invalidated = s
+                    .apply_parameter_overrides(
+                        &task_id,
+                        &overrides,
+                        &config_dir,
+                        ecaa_workflow_core::decision_log::DecisionActor::Sme,
+                    )
+                    .map_err(|e| anyhow::anyhow!("{e}"))?;
+                // Mirror amend: mark the re-emit as an amendment of the prior
+                // package (so the next emit writes lineage), then route
+                // Emitted -> Amending -> ReadyToEmit via the deferred triggers.
+                if let Some(parent_path) = s.emitted_package_path.clone() {
+                    s.pending_amendment = Some(crate::session::PendingAmendment {
+                        target_stage: task_id.clone(),
+                        invalidated_tasks: invalidated.clone(),
+                        parent_package_path: parent_path,
+                        rationale: rationale.clone(),
+                    });
+                }
+                s.deferred_state_triggers.push(StateTrigger::AmendStart {
+                    target_stage: task_id.clone(),
+                    invalidated_tasks: invalidated.clone(),
+                });
+                s.deferred_state_triggers.push(StateTrigger::AmendReady);
+                // The emit shape changed; the prior confirmation no longer
+                // authorizes the amended package. Clear both latches so the
+                // SME must re-confirm (and re-press Start) before re-emit.
+                s.clear_confirmation();
+                s.clear_execution_token();
+                s.pending_emission_id = None;
+                crate::tools::drain_deferred_state_triggers_post_ok(s);
+                let mut guard = invalidated_writer.lock().unwrap_or_else(|p| p.into_inner());
+                *guard = invalidated;
+                Ok(())
+            })
+            .await
+            .map_err(|e| ServiceError::Internal(e.to_string()))?;
+        let out = invalidated_cell
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        Ok(out)
+    }
+
+    /// REST wrapper: add, replace, or remove an SME-authored validation bound.
+    /// `bound = Some(_)` adds/replaces (harness-runnable `assertion_type` only);
+    /// `bound = None` removes by `(stage_class, bound_id)`. Records
+    /// `SetValidationBound`. A bound changes the emitted contract (a post-hoc
+    /// `result.json` check) but NOT the DAG, so this clears the confirmation and
+    /// routes to `ReadyToEmit` without a forward-slice invalidation.
+    pub async fn set_validation_bound_from_rest(
+        &self,
+        id: SessionId,
+        stage_class: String,
+        bound: Option<ecaa_workflow_core::validation_bound::SmeValidationBound>,
+        bound_id: String,
+        rationale: Option<String>,
+    ) -> Result<(), ServiceError> {
+        self.store_handle()
+            .update(id, move |s| {
+                if !matches!(s.state, SessionState::Emitted) {
+                    return Err(anyhow::anyhow!(
+                        "validation bounds can only be edited on an emitted plan \
+                         (current state: {:?}); re-confirm the plan first",
+                        s.state
+                    ));
+                }
+                s.apply_validation_bound(
+                    &stage_class,
+                    bound,
+                    &bound_id,
+                    ecaa_workflow_core::decision_log::DecisionActor::Sme,
+                    rationale,
+                )
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+                // Bounds are post-hoc; no DAG invalidation. Route
+                // Emitted -> Amending -> ReadyToEmit with an empty slice so a
+                // re-confirm re-emits the contract with the new assertion.
+                s.deferred_state_triggers.push(StateTrigger::AmendStart {
+                    target_stage: stage_class.clone(),
+                    invalidated_tasks: vec![],
+                });
+                s.deferred_state_triggers.push(StateTrigger::AmendReady);
+                if let Some(parent_path) = s.emitted_package_path.clone() {
+                    s.pending_amendment = Some(crate::session::PendingAmendment {
+                        target_stage: stage_class.clone(),
+                        invalidated_tasks: vec![],
+                        parent_package_path: parent_path,
+                        rationale: None,
+                    });
+                }
+                s.clear_confirmation();
+                s.clear_execution_token();
+                s.pending_emission_id = None;
+                crate::tools::drain_deferred_state_triggers_post_ok(s);
+                Ok(())
+            })
+            .await
+            .map_err(|e| ServiceError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Apply staged branch edits to a freshly-branched CHILD session (an
+    /// optional method + parameter overrides on `task_id`, plus validation
+    /// bounds), recording the decisions on the child. Called by the branch
+    /// endpoint after `branch_from_at_task` and before the child's auto-emit,
+    /// so the branch's minted confirmation token is preserved (this method
+    /// does NOT clear it). Returns the invalidated task ids.
+    pub async fn apply_branch_edits_from_rest(
+        &self,
+        child_id: SessionId,
+        task_id: Option<String>,
+        method: Option<String>,
+        parameters: std::collections::BTreeMap<String, serde_json::Value>,
+        validation_bounds: Vec<ecaa_workflow_core::validation_bound::SmeValidationBound>,
+    ) -> Result<Vec<String>, ServiceError> {
+        let config_dir = self.config_dir().clone();
+        let invalidated_cell: Arc<std::sync::Mutex<Vec<String>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let invalidated_writer = invalidated_cell.clone();
+        self.store_handle()
+            .update(child_id, move |child| {
+                let invalidated = child
+                    .apply_branch_edits(
+                        task_id.as_deref(),
+                        method.as_deref(),
+                        &parameters,
+                        &validation_bounds,
+                        &config_dir,
+                    )
+                    .map_err(|e| anyhow::anyhow!("{e}"))?;
+                let mut guard = invalidated_writer.lock().unwrap_or_else(|p| p.into_inner());
+                *guard = invalidated;
                 Ok(())
             })
             .await
