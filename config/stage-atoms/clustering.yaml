@@ -26,6 +26,15 @@ attributes:
     - louvain
     - kmeans
     - hierarchical
+# SME-overridable output-shaping parameters. Resolution shapes how many clusters
+# the emitted assignment carries — NOT the clustering method (that stays
+# agent-selected per method neutrality).
+parameters:
+  - name: resolution
+    type: number
+    required: false
+    default: 1.0
+    description: "Community-detection resolution; higher yields more, smaller clusters."
 resource_profile:
   cpu: moderate
   memory: medium

@@ -28,6 +28,20 @@ attributes:
     - macs3
     - seacr
     - genrich
+# SME-overridable output-shaping parameters. These are the significance cutoff
+# and narrow-vs-broad peak shape — NOT the peak-caller choice (that stays
+# agent-selected per method neutrality).
+parameters:
+  - name: qvalue_threshold
+    type: number
+    required: false
+    default: 0.05
+    description: "FDR q-value cutoff for calling a peak significant."
+  - name: broad_peaks
+    type: boolean
+    required: false
+    default: false
+    description: "Call broad enrichment domains instead of narrow peaks."
 resource_profile:
   cpu: moderate
   memory: medium

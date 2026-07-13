@@ -18,6 +18,30 @@ attributes:
     - featurecounts
     - htseq
     - rsem
+# SME-overridable output-shaping parameters. These shape the emitted count matrix
+# (strandedness assignment, low-count feature pruning, multimapper handling) —
+# NOT the quantifier choice (that stays agent-selected per method neutrality).
+parameters:
+  - name: strandedness
+    type: enum
+    required: false
+    default: auto
+    allowed_values:
+      - auto
+      - unstranded
+      - forward
+      - reverse
+    description: "Library strandedness used when assigning reads to features."
+  - name: min_feature_count
+    type: integer
+    required: false
+    default: 0
+    description: "Drop features whose total count across samples is at or below this value (0 keeps all)."
+  - name: count_multimappers
+    type: boolean
+    required: false
+    default: false
+    description: "Include multi-mapping reads in feature counts."
 resource_profile:
   cpu: heavy
   memory: large

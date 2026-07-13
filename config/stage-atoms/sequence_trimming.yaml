@@ -25,6 +25,20 @@ attributes:
     - cutadapt
     - fastp
     - trim_galore
+# SME-overridable output-shaping parameters. These are read-length / quality
+# trimming thresholds that shape the emitted trimmed FASTQ — NOT the trimmer
+# choice (that stays agent-selected per method neutrality).
+parameters:
+  - name: min_read_length
+    type: integer
+    required: false
+    default: 20
+    description: "Discard reads shorter than this after trimming."
+  - name: quality_cutoff
+    type: integer
+    required: false
+    default: 20
+    description: "3-prime Phred quality threshold for trimming."
 resource_profile:
   cpu: moderate
   memory: medium

@@ -38,6 +38,25 @@ attributes:
   # scripts/agent-claude.sh (gated on attributes.measurement_script) so the
   # agent runs the byte-pinned lib/measure_af_spectrum.py verbatim.
   measurement_script: measure_af_spectrum.py
+# SME-overridable output-shaping parameters. These are quality/depth/missingness
+# thresholds that shape the retained call set — NOT the filtering method (that
+# stays agent-selected per method neutrality).
+parameters:
+  - name: min_qual
+    type: number
+    required: false
+    default: 30.0
+    description: "Minimum variant QUAL to retain."
+  - name: min_depth
+    type: integer
+    required: false
+    default: 10
+    description: "Minimum read depth (DP) to retain a call."
+  - name: max_missing_rate
+    type: number
+    required: false
+    default: 0.1
+    description: "Maximum fraction of missing genotypes allowed per site."
 resource_profile:
   cpu: moderate
   memory: medium

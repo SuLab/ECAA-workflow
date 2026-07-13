@@ -82,6 +82,25 @@ attributes:
       (org.Hs.eg.db / biomaRt) — never hardcoded. This gives the downstream
       gene-symbol↔Ensembl consistency check an INDEPENDENT annotation so a
       literature citation cannot be attached to the wrong gene.
+# SME-overridable output-shaping parameters. These are significance/effect-size
+# thresholds and filtering knobs that shape the reported DE call set — NOT the
+# DE method/test (that stays agent-selected per method neutrality).
+parameters:
+  - name: adjusted_pvalue_threshold
+    type: number
+    required: false
+    default: 0.05
+    description: "FDR-adjusted p-value cutoff for calling a feature differentially expressed."
+  - name: log2fc_threshold
+    type: number
+    required: false
+    default: 1.0
+    description: "Minimum absolute log2 fold-change to call a feature differentially expressed."
+  - name: independent_filtering
+    type: boolean
+    required: false
+    default: true
+    description: "Apply independent filtering of low-information features before multiple-testing correction."
 resource_profile:
   cpu: moderate
   memory: medium

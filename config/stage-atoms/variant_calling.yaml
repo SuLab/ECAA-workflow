@@ -29,6 +29,20 @@ attributes:
   # the per-stage AF-spectrum / per-sample-count assertions read deterministic,
   # operator-authored metrics from result.json on BOTH ends of the comparison.
   measurement_script: measure_af_spectrum.py
+# SME-overridable output-shaping parameters. These are calling-sensitivity knobs
+# (assumed ploidy, base-quality floor) that shape the emitted call set — NOT the
+# caller choice (that stays agent-selected per method neutrality).
+parameters:
+  - name: ploidy
+    type: integer
+    required: false
+    default: 2
+    description: "Assumed sample ploidy for calling."
+  - name: min_base_quality
+    type: integer
+    required: false
+    default: 20
+    description: "Minimum base quality to consider a base during calling."
 resource_profile:
   cpu: heavy
   memory: large

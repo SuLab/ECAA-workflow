@@ -33,6 +33,20 @@ attributes:
     - go_mf
     - go_cc
     - msigdb_hallmark
+# SME-overridable output-shaping parameters. These are the significance cutoff and
+# a minimum gene-set-size filter that shape which terms get reported — NOT the
+# enrichment method or database (those stay agent-selected per method neutrality).
+parameters:
+  - name: pvalue_threshold
+    type: number
+    required: false
+    default: 0.05
+    description: "Significance cutoff for reporting an enriched term/pathway."
+  - name: min_gene_set_size
+    type: integer
+    required: false
+    default: 10
+    description: "Ignore gene sets/pathways smaller than this many genes."
 resource_profile:
   cpu: light
   memory: small

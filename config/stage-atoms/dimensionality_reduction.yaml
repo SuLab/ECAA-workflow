@@ -25,6 +25,15 @@ attributes:
     - umap
     - tsne
     - phate
+# SME-overridable output-shaping parameters. Number of retained components shapes
+# the emitted embedding dimensionality — NOT the reduction method (that stays
+# agent-selected per method neutrality).
+parameters:
+  - name: n_components
+    type: integer
+    required: false
+    default: 50
+    description: "Number of components/dimensions to retain."
 resource_profile:
   cpu: moderate
   memory: medium
