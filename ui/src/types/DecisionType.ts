@@ -472,4 +472,28 @@ n_verified: number,
 /**
  * N mismatch.
  */
-n_mismatch: number, };
+n_mismatch: number, } | { "kind": "set_task_parameter", 
+/**
+ * Task whose parameter was overridden (matches a DAG task id).
+ */
+task_id: string, 
+/**
+ * The atom parameter name the SME set.
+ */
+parameter: string, 
+/**
+ * The concrete value the SME chose.
+ */
+value: unknown, } | { "kind": "set_validation_bound", 
+/**
+ * Stage class the bound applies to (contract `stages.<stage_class>`).
+ */
+stage_class: string, 
+/**
+ * Stable id of the bound (the assertion `id`).
+ */
+bound_id: string, 
+/**
+ * `true` when this decision removed the bound rather than adding it.
+ */
+removed: boolean, };
