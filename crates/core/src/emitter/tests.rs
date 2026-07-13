@@ -165,6 +165,7 @@ fn emit_creates_required_files() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     })
     .expect("emit should succeed");
@@ -217,6 +218,7 @@ fn emit_package_writes_ecaa_runtime_artifacts() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -318,6 +320,7 @@ fn core_emit_writes_workflow_typed_json() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -399,6 +402,7 @@ fn proofs_jsonl_carries_real_edge_kind_when_map_threaded() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: Some(&edge_kinds),
     })
     .expect("emit");
@@ -437,6 +441,7 @@ fn proofs_jsonl_carries_real_edge_kind_when_map_threaded() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -481,6 +486,7 @@ fn emitted_audit_proof_report_carries_version_declaration() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -527,6 +533,7 @@ fn emits_ed_cf_self_assessment_sidecar() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: Some(&stage_atoms),
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -571,6 +578,7 @@ fn emit_copies_af_spectrum_measurement_script_into_lib() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     })
     .expect("emit must succeed");
@@ -616,6 +624,7 @@ fn emit_copies_de_effect_size_measurement_script_and_de_task_carries_it() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     })
     .expect("emit must succeed");
@@ -699,6 +708,7 @@ fn emit_mtdna_heteroplasmy_package_carries_contract_and_obligations() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     })
     .expect("emit must succeed");
@@ -785,6 +795,7 @@ fn emit_copies_plotting_library_into_runtime() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -864,6 +875,7 @@ fn emit_package_deterministic_contents_across_repeated_emissions() {
             per_atom_runtime_prereqs: None,
             stage_atoms_dir: None,
             experimental_archetype: false,
+            sme_parameter_overrides: None,
             edge_kinds: None,
         })
         .expect("emit");
@@ -1011,6 +1023,7 @@ fn emit_plotting_library_is_idempotent_on_reemit() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     };
     emit_package(&cfg).expect("first emit");
@@ -1058,6 +1071,7 @@ fn workflow_json_round_trips() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -1094,6 +1108,7 @@ fn workflow_json_round_trips() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     })
     .expect("re-emit");
@@ -1201,6 +1216,7 @@ fn compute_resource_policy_carries_phase_1_fields() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -1267,6 +1283,7 @@ fn gpu_capability_policy_is_emitted() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -1339,6 +1356,7 @@ fn gpu_capability_schema_violation_fails_emission() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     })
     .unwrap_err();
@@ -1377,6 +1395,7 @@ fn no_compute_profiles_dir_skips_both_policies() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -1421,6 +1440,7 @@ fn ro_crate_is_valid_json_ld() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -1815,6 +1835,7 @@ fn emit_plain(dir: &std::path::Path, policies_dir: &std::path::Path) {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -1874,6 +1895,7 @@ fn emit_writes_runtime_prereqs_with_passed_baseline() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -1927,6 +1949,7 @@ fn emit_writes_dockerfile_when_manifest_is_buildable() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -1994,6 +2017,7 @@ fn emit_copies_install_proxy_when_manifest_is_buildable() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -2216,6 +2240,7 @@ fn emit_package_writes_atom_prereqs_when_map_provided() {
         per_atom_runtime_prereqs: Some(&map),
         stage_atoms_dir: None,
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -2310,6 +2335,7 @@ fn emit_writes_container_spec_with_declared_image() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -2447,6 +2473,7 @@ fn emit_package_rejects_unpinned_container_digest() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     });
     let err = result.expect_err("emit must reject unpinned digests");
@@ -2541,6 +2568,7 @@ fn emit_stamps_experimental_archetype_maturity() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: true,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     })
     .expect("emit should succeed");
@@ -2573,6 +2601,7 @@ fn emit_stamps_experimental_archetype_maturity() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: true,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     })
     .expect("second emit should succeed");
@@ -2607,6 +2636,7 @@ fn emit_does_not_stamp_production_archetype() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     })
     .expect("emit should succeed");
@@ -2674,6 +2704,7 @@ fn amend_from_some_writes_lineage_policy() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     })
     .expect("amend emit");
@@ -2730,6 +2761,7 @@ fn amend_from_some_adds_wasDerivedFrom_and_updateAction() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     })
     .expect("amend emit");
@@ -2794,6 +2826,7 @@ fn branch_emit_adds_wasDerivedFrom_without_updateAction() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     })
     .expect("branch emit");
@@ -2892,6 +2925,7 @@ fn amend_run_id_is_stable_across_parent_absolute_paths() {
             per_atom_runtime_prereqs: None,
             stage_atoms_dir: None,
             experimental_archetype: false,
+            sme_parameter_overrides: None,
             edge_kinds: None,
         })
         .expect("amend emit");
@@ -3032,6 +3066,7 @@ fn emit_package_whole_package_byte_reproducible() {
             per_atom_runtime_prereqs: None,
             stage_atoms_dir: None,
             experimental_archetype: false,
+            sme_parameter_overrides: None,
             edge_kinds: None,
         })
         .expect("emit");
@@ -3207,6 +3242,7 @@ fn amend_emit_is_byte_reproducible() {
             per_atom_runtime_prereqs: None,
             stage_atoms_dir: None,
             experimental_archetype: false,
+            sme_parameter_overrides: None,
             edge_kinds: None,
         })
         .expect("amend emit");

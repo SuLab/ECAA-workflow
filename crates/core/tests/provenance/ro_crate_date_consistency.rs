@@ -112,6 +112,7 @@ fn root_date_created_anchored_to_run_epoch_and_matches_bagging_date() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     });
 
@@ -195,6 +196,7 @@ fn root_has_datepublished_equal_to_datecreated() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     });
 

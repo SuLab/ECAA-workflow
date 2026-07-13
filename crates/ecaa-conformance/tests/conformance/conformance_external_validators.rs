@@ -195,6 +195,7 @@ fn emit_into(out: &Path) -> anyhow::Result<()> {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        sme_parameter_overrides: None,
         edge_kinds: None,
     })
 }

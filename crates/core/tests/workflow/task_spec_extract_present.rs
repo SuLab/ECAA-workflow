@@ -127,6 +127,7 @@ fn task_spec_sidecar_present_for_every_task() {
         stage_atoms_dir: None,
         experimental_archetype: false,
         edge_kinds: None,
+        sme_parameter_overrides: None,
     })
     .expect("emit_package must succeed");
 
@@ -167,6 +168,86 @@ fn task_spec_sidecar_present_for_every_task() {
     }
 }
 
+/// SME parameter overrides threaded through `EmitConfig` must land in both
+/// `WORKFLOW.json` (`tasks.<id>.spec.sme_parameter_overrides`) and the focused
+/// `runtime/outputs/<id>/task-spec.json` slice the agent reads.
+#[test]
+fn emit_folds_sme_parameter_overrides_into_task_spec() {
+    use ecaa_workflow_core::parameter_override::{OverrideSource, ParameterOverrides};
+
+    let tmp = TempDir::new().unwrap();
+    let dag = two_task_dag();
+    let clf = minimal_classification();
+    let policies_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("config/downstream-policy");
+
+    let mut overrides = ParameterOverrides::default();
+    overrides.set(
+        "preprocessing_qc",
+        "min_mapq",
+        serde_json::json!(20),
+        OverrideSource::Sme,
+    );
+
+    emit_package(&EmitConfig {
+        objective: None,
+        output_dir: tmp.path(),
+        dag: &dag,
+        classification: &clf,
+        policies_dir: &policies_dir,
+        policy_allowlist: None,
+        claim_boundary: None,
+        compute_profiles_dir: None,
+        intake_facts: None,
+        amend_from: None,
+        amend_context: None,
+        validation_contract_ref: None,
+        preferred_container: None,
+        runtime_prereqs: None,
+        per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
+        experimental_archetype: false,
+        edge_kinds: None,
+        sme_parameter_overrides: Some(&overrides),
+    })
+    .expect("emit_package must succeed");
+
+    let wf: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(tmp.path().join("WORKFLOW.json")).unwrap()).unwrap();
+    assert_eq!(
+        wf["tasks"]["preprocessing_qc"]["spec"]["sme_parameter_overrides"]["min_mapq"],
+        serde_json::json!(20),
+        "override must reach WORKFLOW.json task spec"
+    );
+
+    let ts: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(
+            tmp.path()
+                .join("runtime/outputs/preprocessing_qc/task-spec.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        ts["spec"]["sme_parameter_overrides"]["min_mapq"],
+        serde_json::json!(20),
+        "override must reach the focused task-spec.json slice"
+    );
+
+    // A task with no override keeps its spec absent (byte-baseline preserved).
+    assert!(
+        wf["tasks"]["data_acquisition_gse000001"]
+            .get("spec")
+            .and_then(|s| s.get("sme_parameter_overrides"))
+            .is_none(),
+        "untouched task must not gain an sme_parameter_overrides key"
+    );
+}
+
 /// The `task_id` field in the sidecar must match the task's map key,
 /// not be null or empty.
 #[test]
@@ -200,6 +281,7 @@ fn task_spec_task_id_matches_map_key() {
         stage_atoms_dir: None,
         experimental_archetype: false,
         edge_kinds: None,
+        sme_parameter_overrides: None,
     })
     .expect("emit_package must succeed");
 

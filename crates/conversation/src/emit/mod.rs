@@ -408,6 +408,7 @@ async fn emit_steps(
         stage_atoms_dir: Some(&stage_atoms_dir),
         experimental_archetype,
         edge_kinds: edge_kinds_owned.as_ref(),
+        sme_parameter_overrides: Some(&session.sme_parameter_overrides),
     };
     emit_package(&cfg).context("core emit_package")?;
 

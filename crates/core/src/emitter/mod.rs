@@ -260,6 +260,16 @@ pub struct EmitConfig<'a> {
     pub edge_kinds: Option<
         &'a std::collections::BTreeMap<(String, String), crate::workflow_contracts::edge::EdgeKind>,
     >,
+    /// SME-authored per-task parameter overrides (`task_id -> param -> value`).
+    /// Lowered onto each `Task.spec["sme_parameter_overrides"]` at emit — the
+    /// same value reaches both `WORKFLOW.json` and the focused
+    /// `runtime/outputs/<id>/task-spec.json` slice, so the execution agent
+    /// applies the SME's concrete choices verbatim. Validated fail-closed at
+    /// emit against the atom's declared `ParameterSpec` (resolved via
+    /// `Task::source_atom_id` + the `stage_atoms_dir` registry) when the atom
+    /// declares typed parameters. `None` (CLI `intake`/`build`, tests) folds
+    /// nothing and keeps the byte-baseline.
+    pub sme_parameter_overrides: Option<&'a crate::parameter_override::ParameterOverrides>,
 }
 
 /// Structured amendment metadata captured at the moment `emit_package`
@@ -369,6 +379,38 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
         return Err(anyhow!("{}", e));
     }
 
+    // SME parameter overrides: validate fail-closed against the atom's declared
+    // `ParameterSpec` before folding onto `Task.spec`. Resolution is
+    // best-effort — when the atom (or its typed parameter block) can't be
+    // resolved, folding still proceeds (the REST layer already validated the
+    // value at set-time); when the atom DOES declare typed parameters, an
+    // out-of-spec value is a hard emit error so an SME-authored value never
+    // ships unchecked. Skipped entirely (no registry load) when there are no
+    // overrides, preserving the byte-baseline.
+    if let Some(overrides) = config.sme_parameter_overrides.filter(|o| !o.is_empty()) {
+        if let Some(registry) = config
+            .stage_atoms_dir
+            .and_then(|d| crate::atom_registry::AtomRegistry::load_cached(d).ok())
+        {
+            for (task_id, task) in &config.dag.tasks {
+                if overrides.for_task(task_id.as_str()).is_none() {
+                    continue;
+                }
+                if let Some(atom) = task
+                    .source_atom_id
+                    .as_deref()
+                    .and_then(|aid| registry.get(aid))
+                {
+                    if !atom.parameters.is_empty() {
+                        overrides
+                            .validate_against(task_id.as_str(), &atom.parameters)
+                            .map_err(|e| anyhow!("SME parameter override rejected: {e}"))?;
+                    }
+                }
+            }
+        }
+    }
+
     // Derive a deterministic package_run_id from a SHA-256 of the intake
     // tuple (workflow_id, modality, edam_topic, edam_operation, lineage
     // parent path). This keeps the id stable across two recompositions of
@@ -422,6 +464,18 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
     let dir = config.output_dir;
     std::fs::create_dir_all(dir.join("runtime/outputs")).context("creating runtime/outputs")?;
 
+    // Build the `{param: value}` object of SME overrides for a task, if any.
+    // `BTreeMap` iteration keeps the emitted object byte-stable. `None` when
+    // the task has no overrides, so untouched tasks keep the byte-baseline.
+    let sme_override_object = |task_id: &str| -> Option<serde_json::Value> {
+        config
+            .sme_parameter_overrides
+            .and_then(|o| o.for_task(task_id))
+            .map(|m| {
+                serde_json::Value::Object(m.iter().map(|(k, v)| (k.clone(), v.value.clone())).collect())
+            })
+    };
+
     // Token-reduction tactic #1: emit runtime/outputs/<task_id>/task-spec.json
     // for every task so the executor agent can read a 1-3 KB focused slice
     // instead of the full 40+ KB WORKFLOW.json on its first turn.
@@ -429,7 +483,7 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
         let task_output_dir = dir.join("runtime/outputs").join(task_id.as_str());
         std::fs::create_dir_all(&task_output_dir)
             .with_context(|| format!("creating task output dir {}", task_id))?;
-        let task_spec = serde_json::json!({
+        let mut task_spec = serde_json::json!({
             "task_id": task_id,
             "kind": task.kind,
             "state": task.state,
@@ -442,6 +496,17 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
             "source_atom_id": task.source_atom_id,
             "spec": task.spec,
         });
+        if let Some(ov) = sme_override_object(task_id.as_str()) {
+            let spec_entry = task_spec
+                .get_mut("spec")
+                .expect("task_spec always carries a `spec` key");
+            if !spec_entry.is_object() {
+                *spec_entry = serde_json::Value::Object(serde_json::Map::new());
+            }
+            if let Some(obj) = spec_entry.as_object_mut() {
+                obj.insert("sme_parameter_overrides".to_string(), ov);
+            }
+        }
         let spec_bytes =
             serde_json::to_vec_pretty(&task_spec).context("serializing task-spec.json")?;
         std::fs::write(task_output_dir.join("task-spec.json"), &spec_bytes)
@@ -493,6 +558,32 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
                 "modality_id".to_string(),
                 serde_json::Value::String(config.classification.modality.clone()),
             );
+        }
+    }
+    // Fold SME parameter overrides onto each task's `spec` in WORKFLOW.json so
+    // the DAG-truth file matches the focused task-spec.json slice. Only tasks
+    // that carry overrides gain the key, so the byte-baseline is preserved.
+    if config
+        .sme_parameter_overrides
+        .map(|o| !o.is_empty())
+        .unwrap_or(false)
+    {
+        if let Some(tasks) = dag_json.get_mut("tasks").and_then(|t| t.as_object_mut()) {
+            for (task_id, task_val) in tasks.iter_mut() {
+                if let Some(ov) = sme_override_object(task_id) {
+                    if let Some(task_obj) = task_val.as_object_mut() {
+                        let spec = task_obj
+                            .entry("spec")
+                            .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+                        if !spec.is_object() {
+                            *spec = serde_json::Value::Object(serde_json::Map::new());
+                        }
+                        if let Some(spec_obj) = spec.as_object_mut() {
+                            spec_obj.insert("sme_parameter_overrides".to_string(), ov);
+                        }
+                    }
+                }
+            }
         }
     }
     // Atomic-write the three top-level package surfaces. WORKFLOW.json
