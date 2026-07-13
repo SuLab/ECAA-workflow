@@ -174,42 +174,41 @@ async fn branch_session_inner(
             return (StatusCode::BAD_REQUEST, cleaned).into_response();
         }
     }
-    if let Err(e) = app.conversation.try_auto_emit_after_confirm(child_id).await {
-        tracing::warn!(
-            target: "ecaa::branch",
-            parent = %parent_id,
-            child = %child_id,
-            error = %e,
-            "branch child auto-emit failed; child session remains persisted"
-        );
-    }
+    // A branch of an already-emitted parent no longer auto-emits: the
+    // child is staged at ReadyToEmit and requires an EXPLICIT SME confirm
+    // (`crates/conversation/src/service/transitions.rs`). The child's own
+    // emit — and the artifact carry-over below — therefore run on the
+    // post-confirm emit path (`chat_routes::turns::fire_auto_emit_postlogic`),
+    // not here. See Task 5.1.
 
-    // Inherit completed-task artifacts from the parent package.
+    // Surface which completed-task artifacts the branch would inherit but
+    // are MISSING in the parent package.
     //
     // `branch_from` (in conversation/src/session/lineage.rs) copies the
     // parent's `task_states` map so inherited tasks land in the child's
-    // DAG as Completed. The emit path writes the child's WORKFLOW.json
-    // with those states intact. What it does NOT do is carry over the
+    // DAG as Completed. The post-confirm emit writes the child's
+    // WORKFLOW.json with those states intact and then carries over the
     // on-disk artifact directories (`runtime/outputs/<task_id>/...`,
-    // `data/`) that the parent's harness wrote when those tasks ran
-    // for real.
+    // `data/`) that the parent's harness wrote when those tasks ran for
+    // real.
     //
     // Without that carry-over, the next harness against the child sees
     // Ready downstream tasks whose `depends_on` parents are nominally
-    // Completed but materially empty: the dispatched compute agent
-    // finds only `task-spec.json` in the upstream task dir, can't
-    // satisfy its inputs, and either fabricates data (silent wrong
-    // answer) or re-derives upstream work (defeats the point of
-    // branching from a partial run). We hit the wrong-answer mode in
-    // the time-series branch — child fit a different SARIMA on
-    // synthesized data and validation correctly flagged the discrepancy.
+    // Completed but materially empty: the dispatched compute agent finds
+    // only `task-spec.json` in the upstream task dir, can't satisfy its
+    // inputs, and either fabricates data (silent wrong answer) or
+    // re-derives upstream work (defeats the point of branching from a
+    // partial run). We hit the wrong-answer mode in the time-series
+    // branch — child fit a different SARIMA on synthesized data and
+    // validation correctly flagged the discrepancy.
     //
-    // Hardlink each inherited file (cheap, atomic, COW-friendly). Fall
-    // back to copy on cross-filesystem EXDEV. Best-effort: a missing
-    // parent artifact is logged and skipped — the downstream agent will
-    // surface its own blocker on the missing input. Skip if the child
-    // emit didn't happen (no `emitted_package_path`).
-    inherit_branch_artifacts(&app, parent_id, child_id).await;
+    // At branch time the child has not emitted yet (no
+    // `emitted_package_path`), so `inherit_branch_artifacts` runs in
+    // preview mode: it does not copy, it just reports which inherited
+    // Completed tasks lack a materialized parent artifact dir. The SME
+    // sees these as `artifacts_missing` before confirming; the real
+    // hardlink/copy carry-over happens at the post-confirm emit.
+    let artifacts_missing = inherit_branch_artifacts(&app, parent_id, child_id).await;
 
     // Steps 2 & 3 are server-side post-branch actions that are
     // independent of the conversation service but must roll back if
@@ -337,6 +336,11 @@ async fn branch_session_inner(
     Json(serde_json::json!({
         "branched_session_id": child_id,
         "session_id": child_id,
+        // Additive: task ids whose inherited-Completed parent artifact dir
+        // is missing (empty when all present). The UI keys a non-blocking
+        // warning banner off this. Always an array so the consumer never
+        // has to guard for null.
+        "artifacts_missing": artifacts_missing,
     }))
     .into_response()
 }
@@ -462,85 +466,48 @@ pub struct ParentQuery {
 }
 
 /// Carry over completed-task artifact directories (and the top-level
-/// `data/` dir) from the parent package into the freshly-emitted
-/// child package, so a downstream task dispatched in the branch sees
-/// real upstream outputs instead of an empty task dir holding only
-/// `task-spec.json`.
+/// `data/` dir) from the parent package into the child package, so a
+/// downstream task dispatched in the branch sees real upstream outputs
+/// instead of an empty task dir holding only `task-spec.json`.
 ///
-/// Returns the count of (task, files) hardlinked/copied. Best-effort:
-/// missing parent files / cross-filesystem fallbacks / IO errors are
-/// logged at WARN and skipped, never aborted — a branch is more
-/// useful with partial inheritance than no inheritance.
-async fn inherit_branch_artifacts(
+/// Returns the list of inherited-Completed task ids whose parent artifact
+/// dir is MISSING (skipped). Empty when every inherited prereq has a
+/// materialized parent dir.
+///
+/// Two call sites, distinguished by whether the child has emitted yet:
+/// - **Branch endpoint (preview).** The child is staged at `ReadyToEmit`
+///   with no `emitted_package_path` — there is no package to copy INTO,
+///   so this only reports the missing set for the `artifacts_missing`
+///   branch response. The real carry-over runs later.
+/// - **Post-confirm emit (copy).** Once the SME confirms and the child
+///   emits its own package, this hardlinks (COW-friendly; copies on
+///   cross-filesystem `EXDEV`) each inherited task dir and returns the
+///   same missing set. Best-effort: missing parent files / IO errors are
+///   logged at WARN and skipped, never aborted.
+pub(crate) async fn inherit_branch_artifacts(
     app: &ChatAppState,
     parent_id: Uuid,
     child_id: Uuid,
-) -> (usize, usize) {
-    let Some(plan) = resolve_branch_inherit_plan(app, parent_id, child_id).await else {
-        return (0, 0);
-    };
-    let BranchInheritPlan {
-        parent_pkg,
-        child_pkg,
-        completed,
-    } = plan;
-
-    let (tasks_inherited, mut files_inherited) =
-        inherit_completed_task_dirs(parent_id, child_id, &parent_pkg, &child_pkg, &completed);
-
-    files_inherited += inherit_parent_data_dir(parent_id, child_id, &parent_pkg, &child_pkg);
-    let assumptions_inherited = inherit_completed_task_assumptions(
-        parent_id,
-        child_id,
-        &parent_pkg,
-        &child_pkg,
-        &completed,
-    );
-
-    tracing::info!(
-        target: "ecaa::branch::inherit",
-        parent = %parent_id,
-        child = %child_id,
-        tasks = tasks_inherited,
-        files = files_inherited,
-        assumptions = assumptions_inherited,
-        "branch artifact inheritance complete"
-    );
-    (tasks_inherited, files_inherited)
-}
-
-/// Resolved inputs for branch inheritance: both package roots and the set of
-/// child-Completed task ids whose artifacts must be carried over.
-struct BranchInheritPlan {
-    parent_pkg: std::path::PathBuf,
-    child_pkg: std::path::PathBuf,
-    completed: Vec<String>,
-}
-
-/// Load both sessions, verify both have emitted packages, and collect the
-/// child's Completed task ids. Returns `None` (with a logged reason) on any
-/// missing precondition so the caller can skip inheritance entirely.
-async fn resolve_branch_inherit_plan(
-    app: &ChatAppState,
-    parent_id: Uuid,
-    child_id: Uuid,
-) -> Option<BranchInheritPlan> {
-    let (child_session, child_pkg) = load_session_with_pkg(
-        app,
-        child_id,
-        "child",
-        "child session not loadable; skipping artifact inheritance",
-        "child has no emitted_package_path (intake-phase branch); nothing to inherit",
-    )
-    .await?;
-    let (_parent_session, parent_pkg) = load_session_with_pkg(
+) -> Vec<String> {
+    let Some((_parent_session, parent_pkg)) = load_session_with_pkg(
         app,
         parent_id,
         "parent",
         "parent session not loadable; skipping artifact inheritance",
         "parent has no emitted_package_path; nothing to inherit",
     )
-    .await?;
+    .await else {
+        return Vec::new();
+    };
+    let Some(child_session) = app.conversation.get_session(child_id).await else {
+        tracing::warn!(
+            target: "ecaa::branch::inherit",
+            role = "child",
+            session = %child_id,
+            "child session not loadable; skipping artifact inheritance"
+        );
+        return Vec::new();
+    };
 
     // Collect the set of task ids the child considers Completed —
     // these are the inherited prereqs whose artifacts the branch needs.
@@ -557,11 +524,47 @@ async fn resolve_branch_inherit_plan(
         })
         .collect();
 
-    Some(BranchInheritPlan {
-        parent_pkg,
-        child_pkg,
-        completed,
-    })
+    // Missing set: inherited-Completed tasks with no parent artifact dir.
+    // Same skip semantics `inherit_completed_task_dirs` uses (it `continue`s
+    // on a non-existent parent dir), computed independently so the preview
+    // (no child pkg) reports the same ids the copy would skip.
+    let parent_outputs_root = parent_pkg.join("runtime").join("outputs");
+    let mut missing: Vec<String> = completed
+        .iter()
+        .filter(|tid| !parent_outputs_root.join(tid.as_str()).exists())
+        .cloned()
+        .collect();
+    missing.sort();
+    missing.dedup();
+
+    // Real carry-over only once the child has emitted its own package
+    // (post-confirm emit path). At branch time the child is `ReadyToEmit`
+    // with no package; `missing` above is the preview and the copy runs
+    // later, when the SME confirms and the child emits.
+    if let Some(child_pkg) = child_session.emitted_package_path.clone() {
+        let (tasks_inherited, mut files_inherited) =
+            inherit_completed_task_dirs(parent_id, child_id, &parent_pkg, &child_pkg, &completed);
+        files_inherited += inherit_parent_data_dir(parent_id, child_id, &parent_pkg, &child_pkg);
+        let assumptions_inherited = inherit_completed_task_assumptions(
+            parent_id,
+            child_id,
+            &parent_pkg,
+            &child_pkg,
+            &completed,
+        );
+        tracing::info!(
+            target: "ecaa::branch::inherit",
+            parent = %parent_id,
+            child = %child_id,
+            tasks = tasks_inherited,
+            files = files_inherited,
+            assumptions = assumptions_inherited,
+            missing = missing.len(),
+            "branch artifact inheritance complete"
+        );
+    }
+
+    missing
 }
 
 /// Load a session and its emitted package path, logging the supplied reasons
@@ -1191,6 +1194,61 @@ mod tests {
         assert!(
             child.dag_contains_task(&task_id),
             "the branched task must remain in the child DAG"
+        );
+    }
+
+    /// Task 5.4: when an inherited-Completed task's parent artifact dir is
+    /// missing, the branch response surfaces its id in `artifacts_missing`
+    /// so the SME sees the gap (the real carry-over runs at the child's
+    /// confirmed emit).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn branch_reports_missing_inherited_artifacts() {
+        use ecaa_workflow_core::dag::TaskState;
+        let pkg = tempfile::tempdir().unwrap();
+        // Parent package exists but the completed task's output dir does NOT.
+        std::fs::create_dir_all(pkg.path().join("runtime").join("outputs")).unwrap();
+
+        let (router, app) = make_router(vec![]).await;
+        let parent_id =
+            seed_session_with_completed_task(&app, "t_done", Some(pkg.path().to_path_buf())).await;
+        // Emitted so the branch state guard passes; task_states must carry
+        // the Completed entry (the inherit path reads task_states, which the
+        // seed helper leaves empty).
+        app.conversation
+            .store_handle()
+            .update(parent_id, |s| {
+                s.state = SessionState::Emitted;
+                s.task_states.insert(
+                    "t_done".to_string(),
+                    TaskState::Completed {
+                        result: serde_json::json!({}),
+                    },
+                );
+                Ok(())
+            })
+            .await
+            .unwrap();
+
+        // Session-scoped branch (no task_id) so t_done stays Completed on
+        // the child and is a carry-over candidate.
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/chat/session/{}/branch", parent_id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp.into_body()).await;
+        let missing = body["artifacts_missing"]
+            .as_array()
+            .expect("artifacts_missing must be an array");
+        assert!(
+            missing.iter().any(|v| v == "t_done"),
+            "branch response must report the missing inherited artifact, got {missing:?}"
         );
     }
 

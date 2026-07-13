@@ -360,6 +360,27 @@ async fn fire_auto_emit_postlogic(
             Some(drop_notifier),
         );
     }
+
+    // Branch children inherit their parent's completed-task artifacts at
+    // their OWN confirmed emit. A branch of an emitted parent no longer
+    // auto-emits at branch time (it requires an explicit SME confirm — see
+    // `branch_session_inner`), so the on-disk carry-over is deferred to
+    // here, once the child has actually emitted a package to copy into.
+    // No-op for non-branch sessions (no lineage parent).
+    if let Some(parent_id) = s.lineage.as_ref().map(|l| l.parent_session_id) {
+        let skipped =
+            crate::chat_routes::branches::inherit_branch_artifacts(app, parent_id, session_id)
+                .await;
+        if !skipped.is_empty() {
+            tracing::warn!(
+                target: "ecaa::branch::inherit",
+                parent = %parent_id,
+                child = %session_id,
+                ?skipped,
+                "some inherited artifacts were missing at the child's confirmed emit"
+            );
+        }
+    }
 }
 
 /// `POST /api/chat/session/:id/reject` — SME rejection; reverts `PendingConfirmation → Intake`.
