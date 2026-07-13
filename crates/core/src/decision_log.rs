@@ -696,6 +696,18 @@ pub enum DecisionType {
         #[ts(type = "unknown")]
         value: serde_json::Value,
     },
+    /// The SME added, edited, or removed a per-stage validation bound that
+    /// merges into the emitted `policies/validation-contract.json` and is
+    /// enforced post-hoc by the harness `run_assertion`. Records the *intent*;
+    /// the merged contract shape is derived deterministically at emit.
+    SetValidationBound {
+        /// Stage class the bound applies to (contract `stages.<stage_class>`).
+        stage_class: String,
+        /// Stable id of the bound (the assertion `id`).
+        bound_id: String,
+        /// `true` when this decision removed the bound rather than adding it.
+        removed: bool,
+    },
 }
 
 /// One audit-trail entry. Append-only; the emitter writes these into
@@ -1009,6 +1021,11 @@ mod tests {
                 task_id: "align".into(),
                 parameter: "min_mapq".into(),
                 value: serde_json::json!(20),
+            },
+            DecisionType::SetValidationBound {
+                stage_class: "differential_expression".into(),
+                bound_id: "sme_de_padj".into(),
+                removed: false,
             },
         ];
         assert_eq!(
