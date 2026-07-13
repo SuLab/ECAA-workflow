@@ -326,6 +326,12 @@ impl Session {
             // not implicitly carried over; the SME re-approves
             // packages on the branch if the same blocker fires there.
             atom_runtime_overrides: std::collections::BTreeMap::new(),
+            // SME parameter overrides ARE inherited: an SME who forks a task
+            // to tweak a parameter expects the prior overrides as the starting
+            // point (branch-to-edit). Unlike the safety-widening
+            // atom_runtime_overrides above, these are the SME's deliberate
+            // method-neutral value choices, which the branch should carry.
+            sme_parameter_overrides: parent.sme_parameter_overrides.clone(),
             // branches start fresh; the parent's followup streak does
             // not carry over.
             intake_followup_streak: 0,
@@ -445,6 +451,7 @@ mod branch_from_exhaustiveness {
             affordance_fallback_counter: _,
             adjudication_queue: _,
             atom_runtime_overrides: _,
+            sme_parameter_overrides: _,
             intake_followup_streak: _,
             last_emitted_run_id: _,
             audit_writer_secret: _,

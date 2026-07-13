@@ -329,6 +329,20 @@ fn amend_start_from_non_emitted_is_rejected() {
 }
 
 #[test]
+fn branch_inherits_parameter_overrides() {
+    let mut parent = Session::new(false);
+    parent.sme_parameter_overrides.set(
+        "align",
+        "aligner",
+        serde_json::json!("star"),
+        ecaa_workflow_core::parameter_override::OverrideSource::Sme,
+    );
+    let child = Session::branch_from(&parent, false);
+    assert_eq!(child.sme_parameter_overrides, parent.sme_parameter_overrides);
+    assert!(!child.sme_parameter_overrides.is_empty());
+}
+
+#[test]
 fn branch_from_inherits_intake_state_and_resets_run_state() {
     let mut parent = Session::new(false);
     parent.try_transition(StateTrigger::AppendProse).unwrap();

@@ -684,6 +684,19 @@ pub struct Session {
         String,
         std::collections::BTreeMap<String, std::collections::BTreeSet<String>>,
     >,
+    /// SME-authored per-task parameter overrides (task_id -> param -> value).
+    /// Lowered onto `Task.spec["sme_parameter_overrides"]` at emit and applied
+    /// verbatim by the execution agent. `#[serde(default,
+    /// skip_serializing_if)]` keeps pre-existing on-disk sessions loading
+    /// unchanged and the byte-baseline preserved when empty. `#[ts(skip)]` —
+    /// the UI reaches these through the parameters REST endpoint, not the
+    /// session DTO.
+    #[serde(
+        default,
+        skip_serializing_if = "ecaa_workflow_core::parameter_override::ParameterOverrides::is_empty"
+    )]
+    #[ts(skip)]
+    pub sme_parameter_overrides: ecaa_workflow_core::parameter_override::ParameterOverrides,
     /// Count of
     /// consecutive turns the session has ended in `IntakeFollowup`.
     /// Bumped by `Session::note_turn_end_intake_followup` (called by

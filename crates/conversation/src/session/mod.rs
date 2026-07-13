@@ -270,6 +270,7 @@ impl Session {
             // overrides on a fresh session. The SME widens this via
             // the `ProvisioningDenied` BlockerCard affordance.
             atom_runtime_overrides: std::collections::BTreeMap::new(),
+            sme_parameter_overrides: Default::default(),
             // starts at 0 on every fresh session; bumped by
             // `note_turn_end_intake_followup` on each per-turn end.
             intake_followup_streak: 0,
