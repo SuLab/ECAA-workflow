@@ -41,6 +41,168 @@ pub fn is_supported_assertion_type(assertion_type: &str) -> bool {
     SUPPORTED_ASSERTION_TYPES.contains(&assertion_type)
 }
 
+/// Severities the merged contract + harness understand. `required` blocks on
+/// violation; `recommended` warns.
+pub const SUPPORTED_SEVERITIES: &[&str] = &["required", "recommended"];
+
+/// True when `severity` is one the contract enforcement understands.
+pub fn is_valid_severity(severity: &str) -> bool {
+    SUPPORTED_SEVERITIES.contains(&severity)
+}
+
+/// Validate that a bound's `check` payload carries the fields the harness
+/// `run_assertion` (`crates/harness/src/main.rs`) actually reads for
+/// `assertion_type`. A supported type with a missing/typo'd check field makes
+/// `run_assertion` fail-closed to `false` forever — a required bound then
+/// permanently re-blocks the stage. Rejecting the malformed shape at set-time
+/// turns that silent permanent-block into a clean 400.
+///
+/// The field lists mirror the `?`-early-return reads in each `run_assertion`
+/// match arm. `Ok(())` for a well-shaped (or check-free) assertion; `Err(msg)`
+/// naming the missing field(s). Assumes `assertion_type` is already known to be
+/// supported (call `is_supported_assertion_type` first); an unsupported type
+/// returns an error naming it.
+pub fn validate_bound_check_shape(assertion_type: &str, check: &Value) -> Result<(), String> {
+    let obj = check.as_object();
+    // A string field present + non-null. `run_assertion` reads these via
+    // `.and_then(|v| v.as_str())`.
+    let has_str = |k: &str| {
+        obj.and_then(|o| o.get(k))
+            .and_then(|v| v.as_str())
+            .is_some()
+    };
+    // A numeric field readable as f64 (matches `.as_f64()`).
+    let has_num = |k: &str| {
+        obj.and_then(|o| o.get(k))
+            .and_then(|v| v.as_f64())
+            .is_some()
+    };
+    let has_array = |k: &str| {
+        obj.and_then(|o| o.get(k))
+            .and_then(|v| v.as_array())
+            .is_some()
+    };
+    // Assemble an error listing every missing field so the SME fixes them all
+    // in one round-trip instead of one 400 per field.
+    let require = |missing: Vec<&str>| -> Result<(), String> {
+        if missing.is_empty() {
+            Ok(())
+        } else {
+            Err(format!(
+                "assertion_type `{assertion_type}` requires check field(s): {}",
+                missing.join(", ")
+            ))
+        }
+    };
+    match assertion_type {
+        // Presence-style: no `check` fields consumed by run_assertion.
+        "artifact_present" | "artifact_non_empty_table" | "artifact_glob_any" => Ok(()),
+        // Needs one of `substrings` / `substrings_any` (array); else false.
+        "string_contains" => {
+            if has_array("substrings") || has_array("substrings_any") {
+                Ok(())
+            } else {
+                Err(format!(
+                    "assertion_type `{assertion_type}` requires check.substrings or \
+                     check.substrings_any (a non-empty array of strings)"
+                ))
+            }
+        }
+        "numeric_threshold" => {
+            let mut missing = Vec::new();
+            if !has_str("json_pointer") {
+                missing.push("json_pointer (string)");
+            }
+            if !has_str("op") {
+                missing.push("op (string)");
+            }
+            if !has_num("value") {
+                missing.push("value (number)");
+            }
+            require(missing)
+        }
+        "numeric_distribution" => {
+            let mut missing = Vec::new();
+            if !has_str("json_pointer") {
+                missing.push("json_pointer (string)");
+            }
+            if !has_str("stat") {
+                missing.push("stat (string)");
+            }
+            if !has_str("op") {
+                missing.push("op (string)");
+            }
+            if !has_num("value") {
+                missing.push("value (number)");
+            }
+            require(missing)
+        }
+        "reference_range_outlier" => {
+            let mut missing = Vec::new();
+            if !has_str("json_pointer") {
+                missing.push("json_pointer (string)");
+            }
+            if !has_num("reference_min") {
+                missing.push("reference_min (number)");
+            }
+            if !has_num("reference_max") {
+                missing.push("reference_max (number)");
+            }
+            require(missing)
+        }
+        "positive_control_present"
+        | "negative_control_present"
+        | "json_pointer_is_bool"
+        | "json_pointer_is_array" => {
+            if has_str("json_pointer") {
+                Ok(())
+            } else {
+                require(vec!["json_pointer (string)"])
+            }
+        }
+        "cross_stage_output_comparison" => {
+            let mut missing = Vec::new();
+            if !has_str("this_pointer") {
+                missing.push("this_pointer (string)");
+            }
+            if !has_str("upstream_task") {
+                missing.push("upstream_task (string)");
+            }
+            if !has_str("upstream_pointer") {
+                missing.push("upstream_pointer (string)");
+            }
+            if !has_str("op") {
+                missing.push("op (string)");
+            }
+            require(missing)
+        }
+        "cross_field_equals" => {
+            let mut missing = Vec::new();
+            if !has_str("this_pointer") {
+                missing.push("this_pointer (string)");
+            }
+            if !has_str("other_pointer") {
+                missing.push("other_pointer (string)");
+            }
+            require(missing)
+        }
+        "formula_references_covariates" => {
+            let mut missing = Vec::new();
+            if !has_str("formula_pointer") {
+                missing.push("formula_pointer (string)");
+            }
+            if !has_str("covariates_pointer") {
+                missing.push("covariates_pointer (string)");
+            }
+            if !has_str("primary_pointer") {
+                missing.push("primary_pointer (string)");
+            }
+            require(missing)
+        }
+        other => Err(format!("assertion_type `{other}` is not harness-runnable")),
+    }
+}
+
 /// One SME-authored validation bound, shaped so it lowers directly into a
 /// validation-contract `stages.<stage_class>.assertions[]` entry.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS, schemars::JsonSchema)]
@@ -262,6 +424,61 @@ mod tests {
         );
         assert!(!is_supported_assertion_type("json_key_equals"));
         assert!(is_supported_assertion_type("numeric_threshold"));
+    }
+
+    #[test]
+    fn check_shape_accepts_well_formed_and_rejects_malformed() {
+        use super::{is_valid_severity, validate_bound_check_shape};
+        // Well-formed numeric_threshold.
+        assert!(validate_bound_check_shape(
+            "numeric_threshold",
+            &serde_json::json!({ "json_pointer": "/p", "op": "lte", "value": 0.05 })
+        )
+        .is_ok());
+        // Missing op + value → error naming both.
+        let err = validate_bound_check_shape(
+            "numeric_threshold",
+            &serde_json::json!({ "json_pointer": "/p" }),
+        )
+        .unwrap_err();
+        assert!(err.contains("op"), "error must name missing op: {err}");
+        assert!(err.contains("value"), "error must name missing value: {err}");
+        // Presence-style needs no check.
+        assert!(validate_bound_check_shape("artifact_present", &serde_json::Value::Null).is_ok());
+        // string_contains needs substrings or substrings_any.
+        assert!(validate_bound_check_shape(
+            "string_contains",
+            &serde_json::json!({ "substrings": ["x"] })
+        )
+        .is_ok());
+        assert!(validate_bound_check_shape(
+            "string_contains",
+            &serde_json::json!({ "json_pointer": "/n" })
+        )
+        .is_err());
+        // reference_range_outlier requires the range bounds.
+        assert!(validate_bound_check_shape(
+            "reference_range_outlier",
+            &serde_json::json!({ "json_pointer": "/vals", "reference_min": 0.0, "reference_max": 1.0 })
+        )
+        .is_ok());
+        assert!(validate_bound_check_shape(
+            "reference_range_outlier",
+            &serde_json::json!({ "json_pointer": "/vals" })
+        )
+        .is_err());
+        // typed presence guards need json_pointer.
+        assert!(validate_bound_check_shape(
+            "json_pointer_is_bool",
+            &serde_json::json!({ "json_pointer": "/converged" })
+        )
+        .is_ok());
+        assert!(validate_bound_check_shape("json_pointer_is_bool", &serde_json::json!({})).is_err());
+        // severity gate.
+        assert!(is_valid_severity("required"));
+        assert!(is_valid_severity("recommended"));
+        assert!(!is_valid_severity("blocking"));
+        assert!(!is_valid_severity(""));
     }
 
     #[test]
