@@ -33,15 +33,15 @@
                     "artifact_glob_any",
                     "string_contains",
                     "numeric_threshold",
-                    "json_key_equals",
-                    "cross_stage_output_comparison",
                     "numeric_distribution",
                     "reference_range_outlier",
                     "positive_control_present",
                     "negative_control_present",
+                    "json_pointer_is_bool",
+                    "json_pointer_is_array",
+                    "cross_stage_output_comparison",
                     "cross_field_equals",
-                    "formula_references_covariates",
-                    "json_pointer_is_array"
+                    "formula_references_covariates"
                   ]
                 },
                 "target": { "type": "string", "minLength": 1 },

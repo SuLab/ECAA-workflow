@@ -775,6 +775,79 @@ fn emit_mtdna_heteroplasmy_package_carries_contract_and_obligations() {
     );
 }
 
+/// An SME validation bound whose `assertion_type` is
+/// harness-runnable (in `SUPPORTED_ASSERTION_TYPES`) but which was
+/// PREVIOUSLY absent from the per-archetype sidecar schema enum used to
+/// schema-validate the merged contract at emit. Before the schema widen,
+/// merging such a bound (e.g. `json_pointer_is_bool`, previously missing
+/// from validation-contract-association.schema.json) into the REAL DE
+/// archetype contract failed `validate_value_as` at emit — a bound
+/// accepted at REST then bricked re-emit. It must now schema-validate and
+/// emit successfully.
+#[test]
+fn emit_merges_previously_missing_assertion_type_into_real_contract() {
+    let tmp = TempDir::new().unwrap();
+    let dag = rnaseq_dag();
+    let clf = test_classification();
+    let policies_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("config/downstream-policy");
+
+    // `json_pointer_is_bool` is in SUPPORTED_ASSERTION_TYPES (so REST accepts
+    // it) but was NOT in validation-contract-association.schema.json's enum.
+    let bounds = crate::validation_bound::SmeValidationBounds(vec![
+        crate::validation_bound::SmeValidationBound {
+            stage_class: "differential_expression".into(),
+            assertion_type: "json_pointer_is_bool".into(),
+            target: "results/tables/de.json".into(),
+            check: serde_json::json!({ "json_pointer": "/converged" }),
+            severity: "required".into(),
+            id: "sme_de_converged".into(),
+            description: "SME: convergence flag must be a bool".into(),
+        },
+    ]);
+
+    emit_package(&EmitConfig {
+        objective: None,
+        output_dir: tmp.path(),
+        dag: &dag,
+        classification: &clf,
+        policies_dir: &policies_dir,
+        policy_allowlist: None,
+        claim_boundary: None,
+        compute_profiles_dir: None,
+        intake_facts: None,
+        amend_from: None,
+        amend_context: None,
+        validation_contract_ref: Some("validation-contract-association.json"),
+        preferred_container: None,
+        runtime_prereqs: None,
+        per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
+        experimental_archetype: false,
+        sme_parameter_overrides: None,
+        sme_validation_bounds: Some(&bounds),
+        edge_kinds: None,
+    })
+    .expect("emit must succeed with a previously-missing (but harness-supported) assertion type");
+
+    let merged: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(tmp.path().join("policies/validation-contract.json")).unwrap(),
+    )
+    .unwrap();
+    let asserts = merged["stages"]["differential_expression"]["assertions"]
+        .as_array()
+        .expect("merged contract must carry the DE stage assertions array");
+    assert!(
+        asserts.iter().any(|a| a["id"] == "sme_de_converged"
+            && a["assertion_type"] == "json_pointer_is_bool"),
+        "merged contract must contain the json_pointer_is_bool SME bound, got {asserts:?}"
+    );
+}
+
 #[test]
 fn emit_copies_plotting_library_into_runtime() {
     let tmp = TempDir::new().unwrap();
