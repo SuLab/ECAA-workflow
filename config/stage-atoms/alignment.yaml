@@ -20,6 +20,28 @@ attributes:
     - bwa_mem
     - minimap2
     - bowtie2
+# SME-overridable output-shaping parameters (paper D.1 parameter axis). These
+# are NOT the aligner choice (that stays agent-selected per method neutrality) —
+# they shape the aligned_reads BAM output and may be pinned by the SME.
+parameters:
+  - name: output_sort_order
+    type: enum
+    required: false
+    default: coordinate
+    allowed_values:
+      - coordinate
+      - queryname
+    description: "Sort order for the aligned_reads BAM output."
+  - name: min_mapping_quality
+    type: integer
+    required: false
+    default: 0
+    description: "Minimum MAPQ to retain in the output BAM (0 keeps all alignments)."
+  - name: emit_unmapped
+    type: boolean
+    required: false
+    default: true
+    description: "Include unmapped reads in the output BAM."
 resource_profile:
   cpu: heavy
   memory: large
