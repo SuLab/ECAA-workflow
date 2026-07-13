@@ -14,7 +14,8 @@ import type { Beat } from '../helpers/types'
  *  3. Open the branch-to-edit modal, stage a parameter change through the
  *     structured TaskParameterEditor (a RadioRow enum + a number input).
  *  4. Submit and assert the POST /branch body carries the task-scoped
- *     `edits` payload with the staged parameter overrides.
+ *     `edits` payload with the staged parameter overrides — and ONLY the
+ *     fields the SME actually touched (the clear-vs-omit delta contract).
  *
  * The full Docker e2e runs separately; this spec is the mocked contract
  * check for the branch-edits wire shape and the SPA (no-reload) submit.
@@ -188,6 +189,13 @@ test.describe('Branch & edit (Phase 4)', () => {
       expect(body.edits?.parameters?.aligner).toBe('hisat2')
       expect(body.edits?.parameters?.min_mapq).toBe(30)
       expect(body.edits?.validation_bounds).toEqual([])
+      // Delta contract: only the two fields the SME touched are sent —
+      // untouched keys are omitted (so the backend keeps their existing
+      // overrides), and no cleared-field null leaks in.
+      expect(Object.keys(body.edits?.parameters ?? {}).sort()).toEqual([
+        'aligner',
+        'min_mapq',
+      ])
 
       // SPA nav: the URL swaps to the child session without a full reload.
       await expect

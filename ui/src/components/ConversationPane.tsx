@@ -282,6 +282,13 @@ export default function ConversationPane() {
     stateKind === 'amending' ||
     !!conv.state?.parent_session_id
 
+  // Non-blocking warning surfaced when a session-scoped branch reports
+  // inherited artifacts it couldn't carry into the child. Mirrors the
+  // TaskDetailDrawer's warning; the inline card navigates immediately so
+  // we surface the note as a dismissible banner that persists across the
+  // SPA session swap.
+  const [branchWarning, setBranchWarning] = useState<string | null>(null)
+
   // Branch handler: dispatch to /branch and route the browser to the
   // child session. Mirrors the TaskDetailDrawer's submit-branch flow
   // but without the modal — the BranchFromHereCard owns the rationale
@@ -292,6 +299,15 @@ export default function ConversationPane() {
       try {
         const body = await postBranch(conv.sessionId, { rationale: rationale || undefined })
         const childId = body.session_id
+        // The child ALREADY exists in the session tree; if some inherited
+        // artifacts couldn't be copied, surface a non-blocking warning
+        // (the missing results just re-run in the branch).
+        const missing = body.artifacts_missing
+        setBranchWarning(
+          missing && missing.length > 0
+            ? `Branch created. Some prior results couldn't be carried over and will re-run: ${missing.join(', ')}`
+            : null,
+        )
         // SPA navigation into the child session — pushState-syncs
         // `?session=` and swaps the transcript/state/dag in place so the
         // SME keeps the chat scroll instead of a full-page reload.
@@ -640,6 +656,41 @@ export default function ConversationPane() {
           }}
         >
           {conv.error}
+        </CardContainer>
+      )}
+      {branchWarning && (
+        <CardContainer
+          palette="warning"
+          role="status"
+          ariaLive="polite"
+          style={{
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 8,
+            padding: '0.6rem 0.85rem',
+            margin: '0.5rem 0.75rem',
+            color: 'var(--color-warning-fg)',
+            fontSize: '0.8rem',
+            borderLeft: '1px solid var(--color-warning-border)',
+          }}
+        >
+          <span style={{ flex: 1 }}>{branchWarning}</span>
+          <button
+            type="button"
+            aria-label="Dismiss"
+            onClick={() => setBranchWarning(null)}
+            style={{
+              border: 'none',
+              background: 'transparent',
+              color: 'inherit',
+              cursor: 'pointer',
+              fontSize: '1rem',
+              lineHeight: 1,
+              padding: 0,
+            }}
+          >
+            ×
+          </button>
         </CardContainer>
       )}
       {/* R1.8: BranchFromHereCard is now wired through ChatTimeline →

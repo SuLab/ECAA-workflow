@@ -118,6 +118,15 @@ interface ConfirmModal {
   parameters?: ParameterSpec[]
   /** SME-edited values collected by TaskParameterEditor (`name -> value`). */
   paramValues?: Record<string, unknown>
+  /**
+   * Names the SME actually touched (changed or cleared). Only these go
+   * into the submit payload — untouched keys are omitted so the backend
+   * keeps their existing overrides. A cleared field carries a `null`
+   * value in `paramValues`, which the backend removes.
+   */
+  dirtyParams?: string[]
+  /** True while any array/object field holds unparseable JSON. */
+  paramsInvalid?: boolean
   /** false while the parameter schema is still loading. */
   paramsLoaded?: boolean
   /** Non-blocking banner text (e.g. skipped inherited artifacts on branch). */
@@ -302,17 +311,32 @@ export default function TaskDetailDrawer({
     color: 'var(--color-text-muted)',
     icon: '•',
   }
+  // The REST edit endpoints (parameters / amend / rerun) only accept an
+  // `Emitted` session — a freshly-branched child rests at
+  // PendingConfirmation until the SME confirms it, so its edit buttons
+  // would 400. Gate the drawer edits on the session accepting edits
+  // (Emitted) as well as the task-state check below. (Editing AT branch
+  // time is handled by the Branch & edit modal, which always stays
+  // enabled; the drawer edits light up once the branch is confirmed +
+  // emitted.)
+  const sessionStateKind = conv.state?.state.kind ?? null
+  const sessionAcceptsEdits = sessionStateKind === 'emitted'
   // Editing (amend / rerun / change-parameters) is allowed once a task
   // has completed, OR — on a branched session — as soon as it is
   // ready/pending, so the SME who branched to edit can change the reset
-  // task before it runs.
+  // task before it runs. Both require the session to be Emitted.
   const editStatus = task.state.status
   const editable =
-    editStatus === 'completed' ||
-    (isBranchSession && (editStatus === 'ready' || editStatus === 'pending'))
-  const editDisabledTitle = isBranchSession
-    ? 'Available once this step is ready to run in the branch'
-    : 'This step has not finished yet — editing is available after it completes'
+    sessionAcceptsEdits &&
+    (editStatus === 'completed' ||
+      (isBranchSession && (editStatus === 'ready' || editStatus === 'pending')))
+  const editDisabledTitle = !sessionAcceptsEdits
+    ? isBranchSession
+      ? 'Confirm the branch first — editing is available once the branched plan is emitted'
+      : 'Editing is available once the plan is emitted'
+    : isBranchSession
+      ? 'Available once this step is ready to run in the branch'
+      : 'This step has not finished yet — editing is available after it completes'
   const stageClass = typeof task.spec === 'object' && task.spec
     ? ((task.spec as Record<string, unknown>)['stage_class'] as string | undefined)
     : undefined
@@ -505,16 +529,20 @@ export default function TaskDetailDrawer({
     if (!modal || !sessionId || !taskId) return
     setModal({ ...modal, busy: true, error: undefined })
     try {
-      // `JSON.stringify` drops `undefined` values, so cleared fields are
-      // simply omitted from the override set.
+      // Send only the fields the SME actually touched: a cleared field
+      // carries `null` (the backend REMOVES that override), a changed
+      // field carries its value (the backend SETS it), and an untouched
+      // field is omitted (the backend KEEPS its existing override). This
+      // matches `apply_parameter_overrides`' null-clears-a-key contract.
       await setTaskParameters(sessionId, taskId, {
-        overrides: modal.paramValues ?? {},
+        overrides: buildOverridesPayload(modal.paramValues, modal.dirtyParams),
         rationale: modal.rationale,
       })
       setModal(null)
-      // The session is now ReadyToEmit; close the drawer and let the
-      // conversation pane surface the re-confirmation card (Phase 0:
-      // /confirm re-emits + git-commits + relaunches).
+      // The edit re-raises the summary confirmation card and moves the
+      // session to PendingConfirmation; close the drawer so the
+      // conversation pane surfaces that confirm card. Clicking Confirm
+      // re-emits + git-commits + relaunches (Phase 0).
       onClose()
     } catch (e) {
       setModal((prev) =>
@@ -526,7 +554,10 @@ export default function TaskDetailDrawer({
     if (!modal || !sessionId) return
     setModal({ ...modal, busy: true, error: undefined })
     try {
-      const overrides = modal.paramValues ?? {}
+      // Only the touched fields form the branch delta — a cleared field
+      // carries `null` (removed on the child), untouched fields are
+      // omitted (the child inherits the parent's overrides).
+      const overrides = buildOverridesPayload(modal.paramValues, modal.dirtyParams)
       const method = modal.newMethod?.trim() ? modal.newMethod.trim() : null
       const hasEdits =
         method !== null || Object.keys(overrides).length > 0
@@ -541,17 +572,17 @@ export default function TaskDetailDrawer({
       const childId = body.session_id
       const missing = body.artifacts_missing
       if (missing && missing.length > 0) {
-        // Phase-5 field: some inherited artifacts couldn't be copied.
-        // Keep the modal open with a non-blocking warning + an explicit
-        // "Continue" so the SME sees which results will re-run before
-        // navigating into the child.
+        // The branch child ALREADY exists (it's in the session tree) —
+        // some inherited artifacts just couldn't be copied and will
+        // re-run. Keep the modal open with a non-blocking warning so the
+        // SME can choose to open the branch now or stay on this session.
         setModal((prev) =>
           prev
             ? {
                 ...prev,
                 busy: false,
                 pendingChildId: childId,
-                warning: `Some prior results couldn't be carried into the branch and will re-run: ${missing.join(', ')}`,
+                warning: `Branch created — it's available in the session tree. Some prior results couldn't be carried over and will re-run: ${missing.join(', ')}`,
               }
             : prev,
         )
@@ -1102,6 +1133,12 @@ function ConfirmModalView({
   const isBranch = modal.kind === 'branch'
   const isParams = modal.kind === 'params'
   const showEditor = isParams || isBranch
+  // A params edit on a task with zero adjustable parameters has nothing
+  // to submit — show the "no parameters" message + a Close button rather
+  // than a submittable form (an empty params edit is a server no-op).
+  const noAdjustableParams =
+    isParams && !!modal.paramsLoaded && (modal.parameters?.length ?? 0) === 0
+  const hasParamChanges = (modal.dirtyParams?.length ?? 0) > 0
   const submit = () => {
     if (modal.pendingChildId) {
       void onContinueBranch(modal.pendingChildId)
@@ -1112,13 +1149,25 @@ function ConfirmModalView({
     else if (modal.kind === 'params') void onParams()
     else void onBranch()
   }
-  const canSubmit =
-    !!modal.pendingChildId ||
-    (!modal.busy &&
-      modal.rationale.trim().length > 0 &&
-      // Method is mandatory only for a method amendment; optional on a
-      // branch (the SME may branch to change only parameters).
-      (modal.kind !== 'amend' || (modal.newMethod ?? '').trim().length > 0))
+  const canSubmit = (() => {
+    if (modal.pendingChildId) return true
+    if (modal.busy) return false
+    // An unparseable array/object field blocks submit on every flow.
+    if (modal.paramsInvalid) return false
+    if (modal.rationale.trim().length === 0) return false
+    if (isParams) {
+      // Apply only once the schema has loaded AND at least one value has
+      // changed or been cleared.
+      return !!modal.paramsLoaded && hasParamChanges
+    }
+    // Method is mandatory only for a method amendment.
+    if (modal.kind === 'amend') {
+      return (modal.newMethod ?? '').trim().length > 0
+    }
+    // branch (may fork with method-only, param-only, or no edits) + rerun
+    // (keeps the current method): rationale is the only requirement.
+    return true
+  })()
   const costRange = modal.preview
     ? `${formatUSD(modal.preview.est_cost_usd_min)} – ${formatUSD(modal.preview.est_cost_usd_max)}`
     : null
@@ -1166,34 +1215,49 @@ function ConfirmModalView({
               <TaskParameterEditor
                 parameters={modal.parameters ?? []}
                 values={modal.paramValues ?? {}}
-                onChange={(name, value) =>
+                onValidityChange={(hasErrors) =>
                   setModal((prev) =>
-                    prev
-                      ? {
-                          ...prev,
-                          paramValues: {
-                            ...(prev.paramValues ?? {}),
-                            [name]: value,
-                          },
-                        }
+                    prev && prev.paramsInvalid !== hasErrors
+                      ? { ...prev, paramsInvalid: hasErrors }
                       : prev,
                   )
+                }
+                onChange={(name, value) =>
+                  setModal((prev) => {
+                    if (!prev) return prev
+                    // Record the touched name so the submit payload sends
+                    // only changed/cleared fields (see buildOverridesPayload).
+                    const dirty = new Set(prev.dirtyParams ?? [])
+                    dirty.add(name)
+                    return {
+                      ...prev,
+                      paramValues: {
+                        ...(prev.paramValues ?? {}),
+                        [name]: value,
+                      },
+                      dirtyParams: Array.from(dirty),
+                    }
+                  })
                 }
               />
             )}
           </div>
         )}
 
-        <label style={{ display: 'block', marginBottom: 12 }}>
-          <div style={modalLabelStyle}>Reason (shown in the decision log)</div>
-          <textarea
-            value={modal.rationale}
-            onChange={(e) => setModal({ ...modal, rationale: e.target.value })}
-            rows={3}
-            style={{ ...modalInputStyle, fontFamily: 'inherit', resize: 'vertical' }}
-            placeholder="A short note helps future-you (and auditors) understand why you made this change."
-          />
-        </label>
+        {/* No adjustable parameters: skip the rationale + submit — there's
+            nothing to apply. */}
+        {!noAdjustableParams && (
+          <label style={{ display: 'block', marginBottom: 12 }}>
+            <div style={modalLabelStyle}>Reason (shown in the decision log)</div>
+            <textarea
+              value={modal.rationale}
+              onChange={(e) => setModal({ ...modal, rationale: e.target.value })}
+              rows={3}
+              style={{ ...modalInputStyle, fontFamily: 'inherit', resize: 'vertical' }}
+              placeholder="A short note helps future-you (and auditors) understand why you made this change."
+            />
+          </label>
+        )}
 
         {modal.warning && (
           <div
@@ -1212,7 +1276,7 @@ function ConfirmModalView({
           </div>
         )}
 
-        {(
+        {!noAdjustableParams && (
           <div style={previewBoxStyle}>
             {modal.previewError && (
               <div style={{ color: 'var(--color-danger-fg)', fontSize: '0.82rem' }}>
@@ -1270,36 +1334,61 @@ function ConfirmModalView({
             disabled={modal.busy}
             style={BTN_SECONDARY}
           >
-            {modal.pendingChildId ? 'Stay here' : 'Cancel'}
+            {noAdjustableParams
+              ? 'Close'
+              : modal.pendingChildId
+                ? 'Stay on this session'
+                : 'Cancel'}
           </button>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={!canSubmit}
-            style={{
-              ...BTN_PRIMARY,
-              opacity: canSubmit ? 1 : 0.55,
-              cursor: canSubmit ? 'pointer' : 'not-allowed',
-            }}
-          >
-            {modal.pendingChildId
-              ? 'Continue to branch'
-              : modal.busy
-                ? 'Applying…'
-                : modal.kind === 'amend'
-                  ? 'Apply amendment'
-                  : modal.kind === 'rerun'
-                    ? 'Rerun now'
-                    : modal.kind === 'params'
-                      ? 'Apply changes'
-                      : 'Create branch'}
-          </button>
+          {!noAdjustableParams && (
+            <button
+              type="button"
+              onClick={submit}
+              disabled={!canSubmit}
+              style={{
+                ...BTN_PRIMARY,
+                opacity: canSubmit ? 1 : 0.55,
+                cursor: canSubmit ? 'pointer' : 'not-allowed',
+              }}
+            >
+              {modal.pendingChildId
+                ? 'Go to branch'
+                : modal.busy
+                  ? 'Applying…'
+                  : modal.kind === 'amend'
+                    ? 'Apply amendment'
+                    : modal.kind === 'rerun'
+                      ? 'Rerun now'
+                      : modal.kind === 'params'
+                        ? 'Apply changes'
+                        : 'Create branch'}
+            </button>
+          )}
         </div>
     </Dialog>
   )
 }
 
 // ── helpers ────────────────────────────────────────────────────────────────
+
+// Build the overrides map to POST from the editor's collected values +
+// the set of names the SME actually touched. Only touched names are
+// emitted; a touched-but-cleared field (value null/undefined) is sent as
+// `null` so the backend removes the override, while a touched-and-set
+// field carries its value. Untouched names are omitted entirely so the
+// backend keeps their existing overrides.
+function buildOverridesPayload(
+  values: Record<string, unknown> | undefined,
+  dirty: string[] | undefined,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  const vals = values ?? {}
+  for (const name of dirty ?? []) {
+    const v = vals[name]
+    out[name] = v === undefined || v === null ? null : v
+  }
+  return out
+}
 
 function computeForwardSlice(dag: DAG, target: string): string[] {
   const rev: Record<string, string[]> = {}

@@ -17,9 +17,18 @@
  * Controlled component: each control reflects `values[name]` when set,
  * otherwise the spec `default`. No form library — plain hooks + inline
  * styles with `var(--color-*)` tokens only.
+ *
+ * Clear-vs-omit contract (mirrors the backend `apply_parameter_overrides`
+ * semantics): blanking a control OR pressing its per-field "Clear" button
+ * fires `onChange(name, null)` — a `null` value tells the backend to
+ * REMOVE that override (reset to the step default). A field the SME never
+ * touches emits no `onChange` at all, so the parent can omit it from the
+ * submit payload (omitting a key KEEPS the existing override). The parent
+ * distinguishes "cleared" (send null) from "untouched" (omit) by tracking
+ * which names fired `onChange`.
  */
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ParameterSpec } from '../types/ParameterSpec'
 import { RadioRow, type RadioOption } from './primitives/RadioRow'
 
@@ -27,8 +36,18 @@ interface Props {
   parameters: ParameterSpec[]
   /** Current SME-set values (`name -> value`). */
   values: Record<string, unknown>
-  /** Fired with the typed value whenever a control changes. */
+  /**
+   * Fired whenever a control changes. A `null` value means the SME
+   * explicitly cleared the field (backend removes the override); any
+   * other value sets it.
+   */
   onChange: (name: string, value: unknown) => void
+  /**
+   * Lifted so the parent modal can disable Apply / Create-branch while
+   * any array/object field holds unparseable JSON. Fired only when the
+   * aggregate "has a parse error" boolean flips.
+   */
+  onValidityChange?: (hasErrors: boolean) => void
   disabled?: boolean
 }
 
@@ -36,6 +55,7 @@ export default function TaskParameterEditor({
   parameters,
   values,
   onChange,
+  onValidityChange,
   disabled,
 }: Props): JSX.Element {
   // Raw textarea text + parse error, keyed by param name, for the
@@ -43,6 +63,26 @@ export default function TaskParameterEditor({
   // edit stays in the box instead of being reverted by the parent.
   const [jsonDrafts, setJsonDrafts] = useState<Record<string, string>>({})
   const [jsonErrors, setJsonErrors] = useState<Record<string, string>>({})
+
+  // Surface the aggregate "has invalid JSON" signal up to the parent so
+  // it can gate submit. Only fire on a flip so an inline arrow prop
+  // doesn't drive a re-render loop.
+  const lastValidityRef = useRef<boolean | null>(null)
+  useEffect(() => {
+    const hasErr = Object.keys(jsonErrors).length > 0
+    if (lastValidityRef.current !== hasErr) {
+      lastValidityRef.current = hasErr
+      onValidityChange?.(hasErr)
+    }
+  }, [jsonErrors, onValidityChange])
+
+  // Reset a field to its cleared state: drop any local JSON draft/error
+  // and tell the parent to remove the override (`null`).
+  const clearField = (name: string) => {
+    setJsonDrafts((d) => omit(d, name))
+    setJsonErrors((er) => omit(er, name))
+    onChange(name, null)
+  }
 
   if (parameters.length === 0) {
     return (
@@ -69,6 +109,10 @@ export default function TaskParameterEditor({
         const usesChoices =
           spec.type === 'enum' ||
           (Array.isArray(spec.allowed_values) && spec.allowed_values.length > 0)
+        const hasClearableValue =
+          current !== undefined &&
+          current !== null &&
+          !(typeof current === 'string' && current.trim() === '')
 
         return (
           <div key={spec.name} style={fieldStyle}>
@@ -85,7 +129,19 @@ export default function TaskParameterEditor({
                   </span>
                 )}
               </label>
-              <span style={typeChipStyle}>{spec.type}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {hasClearableValue && !disabled && (
+                  <button
+                    type="button"
+                    onClick={() => clearField(spec.name)}
+                    title="Remove this override (resets to the step's default)"
+                    style={clearButtonStyle}
+                  >
+                    Clear
+                  </button>
+                )}
+                <span style={typeChipStyle}>{spec.type}</span>
+              </div>
             </div>
             {spec.description && (
               <p style={descStyle}>{spec.description}</p>
@@ -114,7 +170,9 @@ export default function TaskParameterEditor({
                 value={numberInputValue(current)}
                 onChange={(e) => {
                   const raw = e.target.value
-                  onChange(spec.name, raw === '' ? undefined : Number(raw))
+                  // Blanking a number field clears the override (null =
+                  // remove), not "keep the old value".
+                  onChange(spec.name, raw === '' ? null : Number(raw))
                 }}
                 style={inputStyle}
               />
@@ -134,7 +192,8 @@ export default function TaskParameterEditor({
                     setJsonDrafts((d) => ({ ...d, [spec.name]: raw }))
                     if (raw.trim() === '') {
                       setJsonErrors((er) => omit(er, spec.name))
-                      onChange(spec.name, undefined)
+                      // Emptying the box clears the override (null = remove).
+                      onChange(spec.name, null)
                       return
                     }
                     try {
@@ -309,4 +368,13 @@ const inputStyle: React.CSSProperties = {
 const errorTextStyle: React.CSSProperties = {
   color: 'var(--color-danger-fg)',
   fontSize: '0.75rem',
+}
+const clearButtonStyle: React.CSSProperties = {
+  border: 'none',
+  background: 'transparent',
+  color: 'var(--color-text-muted)',
+  fontSize: '0.7rem',
+  textDecoration: 'underline',
+  cursor: 'pointer',
+  padding: 0,
 }

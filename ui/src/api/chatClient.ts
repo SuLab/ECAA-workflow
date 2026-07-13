@@ -1838,9 +1838,18 @@ export interface SetValidationBoundRequest {
 
 /// Add / replace / remove an SME-authored validation bound on a task's
 /// stage. Post-hoc harness enforcement, so it does NOT invalidate the
-/// DAG, but it changes the emit shape (contract file) → clears the
-/// confirmation and leaves the session ReadyToEmit. Returns `{ok:true}`
-/// on success; we ignore the body.
+/// DAG, but it changes the emit shape (contract file) → re-raises the
+/// confirmation card and moves the session to PendingConfirmation (the
+/// SME re-confirms to re-emit). Returns `{ok:true}` on success; we
+/// ignore the body.
+///
+/// INTENTIONAL API-LEVEL SURFACE — deliberately NOT wired into the SME
+/// chat UI. Authoring a validation bound requires json-pointer /
+/// assertion knowledge (a raw pointer into a task's output plus a typed
+/// domain-correctness assertion) that is too low-level for an SME
+/// without curated per-atom output metadata. The method + request types
+/// are kept complete and server-tested so an operator / higher-privilege
+/// surface can drive the endpoint; do not treat this export as dead code.
 export async function setValidationBound(
   sessionId: string,
   taskId: string,
