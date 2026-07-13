@@ -128,6 +128,7 @@ fn task_spec_sidecar_present_for_every_task() {
         experimental_archetype: false,
         edge_kinds: None,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
     })
     .expect("emit_package must succeed");
 
@@ -213,6 +214,7 @@ fn emit_folds_sme_parameter_overrides_into_task_spec() {
         experimental_archetype: false,
         edge_kinds: None,
         sme_parameter_overrides: Some(&overrides),
+        sme_validation_bounds: None,
     })
     .expect("emit_package must succeed");
 
@@ -246,6 +248,69 @@ fn emit_folds_sme_parameter_overrides_into_task_spec() {
             .is_none(),
         "untouched task must not gain an sme_parameter_overrides key"
     );
+}
+
+/// SME validation bounds threaded through `EmitConfig` must merge into (or,
+/// with no archetype contract, synthesize) `policies/validation-contract.json`.
+#[test]
+fn emit_merges_sme_validation_bound_into_contract() {
+    use ecaa_workflow_core::validation_bound::{SmeValidationBound, SmeValidationBounds};
+
+    let tmp = TempDir::new().unwrap();
+    let dag = two_task_dag();
+    let clf = minimal_classification();
+    let policies_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("config/downstream-policy");
+
+    let bounds = SmeValidationBounds(vec![SmeValidationBound {
+        stage_class: "differential_expression".into(),
+        assertion_type: "numeric_threshold".into(),
+        target: "results/tables/de.json".into(),
+        check: serde_json::json!({ "json_pointer": "/adjusted_p_max", "op": "lte", "value": 0.01 }),
+        severity: "required".into(),
+        id: "sme_de_padj".into(),
+        description: "SME: adjusted p must be <= 0.01".into(),
+    }]);
+
+    emit_package(&EmitConfig {
+        objective: None,
+        output_dir: tmp.path(),
+        dag: &dag,
+        classification: &clf,
+        policies_dir: &policies_dir,
+        policy_allowlist: None,
+        claim_boundary: None,
+        compute_profiles_dir: None,
+        intake_facts: None,
+        amend_from: None,
+        amend_context: None,
+        // No archetype contract: the SME bound alone must synthesize one.
+        validation_contract_ref: None,
+        preferred_container: None,
+        runtime_prereqs: None,
+        per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
+        experimental_archetype: false,
+        edge_kinds: None,
+        sme_parameter_overrides: None,
+        sme_validation_bounds: Some(&bounds),
+    })
+    .expect("emit_package must succeed");
+
+    let contract: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(tmp.path().join("policies/validation-contract.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(contract["contract_id"], "sme-authored");
+    let asserts = &contract["stages"]["differential_expression"]["assertions"];
+    assert_eq!(asserts.as_array().unwrap().len(), 1);
+    assert_eq!(asserts[0]["id"], "sme_de_padj");
+    assert_eq!(asserts[0]["assertion_type"], "numeric_threshold");
+    assert_eq!(asserts[0]["severity"], "required");
 }
 
 /// The `task_id` field in the sidecar must match the task's map key,
@@ -282,6 +347,7 @@ fn task_spec_task_id_matches_map_key() {
         experimental_archetype: false,
         edge_kinds: None,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
     })
     .expect("emit_package must succeed");
 

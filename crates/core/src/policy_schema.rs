@@ -33,9 +33,20 @@ use std::path::Path;
 pub fn load_and_validate(policy_path: &Path) -> Result<Value> {
     let policy_raw = fs::read_to_string(policy_path)
         .with_context(|| format!("reading policy at {}", policy_path.display()))?;
-    let mut policy: Value = serde_json::from_str(&policy_raw)
+    let policy: Value = serde_json::from_str(&policy_raw)
         .with_context(|| format!("parsing JSON at {}", policy_path.display()))?;
+    validate_value_as(policy_path, policy)
+}
 
+/// Validate an in-memory policy `Value` *as if* it had been read from
+/// `policy_path` — resolves `$shared` refs + the claim-boundary skeleton +
+/// the sidecar schema found next to `policy_path`, exactly like
+/// `load_and_validate` does for an on-disk file. Used when a policy is
+/// synthesized or merged in memory (SME validation-bound merge) and must be
+/// schema-checked before it is written into the package. Returns the resolved
+/// value; a missing sidecar is a soft pass (same transitional-rollout contract
+/// as `load_and_validate`).
+pub fn validate_value_as(policy_path: &Path, mut policy: Value) -> Result<Value> {
     // Resolve shared-vocab references before any schema validation so the
     // validator sees the final, fully-typed shape.
     let parent = policy_path.parent().unwrap_or_else(|| Path::new("."));

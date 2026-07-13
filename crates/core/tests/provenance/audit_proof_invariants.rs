@@ -1120,6 +1120,7 @@ fn emit_minimal_package(out: &std::path::Path) {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     })
     .expect("emit");

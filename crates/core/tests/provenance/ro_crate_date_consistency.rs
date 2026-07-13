@@ -113,6 +113,7 @@ fn root_date_created_anchored_to_run_epoch_and_matches_bagging_date() {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     });
 
@@ -197,6 +198,7 @@ fn root_has_datepublished_equal_to_datecreated() {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     });
 

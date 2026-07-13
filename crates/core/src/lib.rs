@@ -183,6 +183,7 @@ pub mod stage_labels;
 pub mod strata;
 pub mod taxonomy;
 pub mod time_helpers;
+pub mod validation_bound;
 pub mod validation_obligations;
 pub mod workflow_contracts;
 pub mod wrroc_validator;

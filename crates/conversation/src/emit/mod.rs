@@ -409,6 +409,7 @@ async fn emit_steps(
         experimental_archetype,
         edge_kinds: edge_kinds_owned.as_ref(),
         sme_parameter_overrides: Some(&session.sme_parameter_overrides),
+        sme_validation_bounds: Some(&session.sme_validation_bounds),
     };
     emit_package(&cfg).context("core emit_package")?;
 

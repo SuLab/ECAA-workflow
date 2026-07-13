@@ -270,6 +270,12 @@ pub struct EmitConfig<'a> {
     /// declares typed parameters. `None` (CLI `intake`/`build`, tests) folds
     /// nothing and keeps the byte-baseline.
     pub sme_parameter_overrides: Option<&'a crate::parameter_override::ParameterOverrides>,
+    /// SME-authored per-stage validation bounds merged into the emitted
+    /// `policies/validation-contract.json` (or a synthesized `sme-authored`
+    /// contract when the archetype declares none). Enforced post-hoc by the
+    /// harness `run_assertion`. `None`/empty preserves the byte-baseline
+    /// (legacy copy-only behavior).
+    pub sme_validation_bounds: Option<&'a crate::validation_bound::SmeValidationBounds>,
 }
 
 /// Structured amendment metadata captured at the moment `emit_package`
@@ -730,9 +736,20 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
             .context("injecting expected-claim manifest")?;
     }
 
-    if let Some(contract_name) = config.validation_contract_ref {
-        copy_validation_contract(config.policies_dir, dir, contract_name)
-            .context("copying validation contract")?;
+    // Copy/merge the validation contract when either an archetype contract is
+    // referenced OR the SME authored bounds. SME bounds merge into (or
+    // synthesize) the contract so post-hoc harness enforcement covers the
+    // SME's output constraints for any stage_class.
+    let empty_bounds = crate::validation_bound::SmeValidationBounds::default();
+    let sme_bounds = config.sme_validation_bounds.unwrap_or(&empty_bounds);
+    if config.validation_contract_ref.is_some() || !sme_bounds.is_empty() {
+        copy_validation_contract(
+            config.policies_dir,
+            dir,
+            config.validation_contract_ref,
+            sme_bounds,
+        )
+        .context("copying validation contract")?;
     }
     copy_plotting_library(dir).context("copying plotting library")?;
     copy_r_plotting_library(dir).context("copying R plotting library")?;
@@ -1134,19 +1151,75 @@ fn frozen_clock_from_intake(intake_text: &str) -> crate::clock::FrozenClock {
 /// path regardless of which taxonomy-specific contract was chosen.
 /// The contract is validated against its sidecar `.schema.json` before
 /// being copied.
-fn copy_validation_contract(src_dir: &Path, package_dir: &Path, filename: &str) -> Result<()> {
-    let src = src_dir.join(filename);
-    if !src.exists() {
+fn copy_validation_contract(
+    src_dir: &Path,
+    package_dir: &Path,
+    filename: Option<&str>,
+    sme_bounds: &crate::validation_bound::SmeValidationBounds,
+) -> Result<()> {
+    // Fast path: no SME bounds — byte-identical to the legacy copy+validate
+    // behavior (validate the archetype contract, copy the raw file verbatim).
+    if sme_bounds.is_empty() {
+        let Some(filename) = filename else {
+            return Ok(());
+        };
+        let src = src_dir.join(filename);
+        if !src.exists() {
+            return Ok(());
+        }
+        crate::policy_schema::load_and_validate(&src)
+            .with_context(|| format!("validating validation contract '{}'", filename))?;
+        let dest_dir = package_dir.join("policies");
+        std::fs::create_dir_all(&dest_dir).context("creating policies dir")?;
+        // Predictable name so validators + harness key off a single path.
+        let dest = dest_dir.join("validation-contract.json");
+        std::fs::copy(&src, &dest)
+            .with_context(|| format!("copying validation contract {}", src.display()))?;
         return Ok(());
     }
-    crate::policy_schema::load_and_validate(&src)
-        .with_context(|| format!("validating validation contract '{}'", filename))?;
+
+    // SME bounds present: read the archetype contract (if any), merge the SME
+    // bounds in, schema-validate the merged document against the archetype's
+    // sidecar (when one exists), and write the merged result to the fixed
+    // dest. This also lets an SME attach a bound when the archetype declares
+    // no contract (fixing the CLI-`None` gap for the SME path).
+    let existing: Option<serde_json::Value> = match filename {
+        Some(f) => {
+            let src = src_dir.join(f);
+            if src.exists() {
+                let raw = std::fs::read_to_string(&src)
+                    .with_context(|| format!("reading validation contract '{}'", f))?;
+                Some(
+                    serde_json::from_str(&raw)
+                        .with_context(|| format!("parsing validation contract '{}'", f))?,
+                )
+            } else {
+                None
+            }
+        }
+        None => None,
+    };
+    let merged = crate::validation_bound::merge_into_contract(existing, sme_bounds);
+
+    // Schema-validate the merged contract against the archetype sidecar so the
+    // SME additions are held to the same schema. A synthesized contract
+    // (filename `None`, or no on-disk archetype) has no sidecar and is guarded
+    // only by the merge whitelist (`SUPPORTED_ASSERTION_TYPES`).
+    if let Some(f) = filename {
+        let src = src_dir.join(f);
+        if src.exists() {
+            crate::policy_schema::validate_value_as(&src, merged.clone())
+                .with_context(|| format!("validating merged validation contract '{}'", f))?;
+        }
+    }
+
     let dest_dir = package_dir.join("policies");
     std::fs::create_dir_all(&dest_dir).context("creating policies dir")?;
-    // Predictable name so validators + harness key off a single path.
     let dest = dest_dir.join("validation-contract.json");
-    std::fs::copy(&src, &dest)
-        .with_context(|| format!("copying validation contract {}", src.display()))?;
+    let bytes = serde_json::to_vec_pretty(&merged)
+        .context("serializing merged validation contract")?;
+    crate::fs_helpers::atomic_write_bytes_sync(&dest, &bytes)
+        .context("writing merged validation contract")?;
     Ok(())
 }
 

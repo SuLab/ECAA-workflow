@@ -154,6 +154,7 @@ pub(crate) fn run_chat(config_dir: &str, output: &str) -> Result<()> {
                         stage_atoms_dir: Some(&stage_atoms_dir),
                         experimental_archetype,
                         sme_parameter_overrides: None,
+                        sme_validation_bounds: None,
                         edge_kinds: None,
                     })?;
                     println!(

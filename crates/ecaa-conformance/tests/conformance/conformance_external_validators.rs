@@ -196,6 +196,7 @@ fn emit_into(out: &Path) -> anyhow::Result<()> {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     })
 }

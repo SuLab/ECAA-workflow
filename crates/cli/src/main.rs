@@ -655,6 +655,7 @@ fn run_build(archetype: &str, output: &str, emit_bco_flag: bool) -> Result<()> {
         stage_atoms_dir: Some(&stage_atoms_dir),
         experimental_archetype: !archetype_obj.production_ready,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: edge_kinds.as_ref(),
     })?;
 
@@ -955,6 +956,7 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
             .map(|(_, a)| !a.production_ready)
             .unwrap_or(false),
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: edge_kinds.as_ref(),
     })?;
 

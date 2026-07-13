@@ -697,6 +697,18 @@ pub struct Session {
     )]
     #[ts(skip)]
     pub sme_parameter_overrides: ecaa_workflow_core::parameter_override::ParameterOverrides,
+    /// SME-authored per-stage validation bounds merged into the emitted
+    /// validation contract at emit and enforced post-hoc by the harness.
+    /// `#[serde(default, skip_serializing_if)]` keeps pre-existing on-disk
+    /// sessions loading unchanged and the byte-baseline preserved when empty.
+    /// `#[ts(skip)]` — reached via the validation-bound REST endpoint, not the
+    /// session DTO.
+    #[serde(
+        default,
+        skip_serializing_if = "ecaa_workflow_core::validation_bound::SmeValidationBounds::is_empty"
+    )]
+    #[ts(skip)]
+    pub sme_validation_bounds: ecaa_workflow_core::validation_bound::SmeValidationBounds,
     /// Count of
     /// consecutive turns the session has ended in `IntakeFollowup`.
     /// Bumped by `Session::note_turn_end_intake_followup` (called by

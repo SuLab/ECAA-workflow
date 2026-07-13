@@ -166,6 +166,7 @@ fn emit_creates_required_files() {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     })
     .expect("emit should succeed");
@@ -219,6 +220,7 @@ fn emit_package_writes_ecaa_runtime_artifacts() {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -321,6 +323,7 @@ fn core_emit_writes_workflow_typed_json() {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -403,6 +406,7 @@ fn proofs_jsonl_carries_real_edge_kind_when_map_threaded() {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: Some(&edge_kinds),
     })
     .expect("emit");
@@ -442,6 +446,7 @@ fn proofs_jsonl_carries_real_edge_kind_when_map_threaded() {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -487,6 +492,7 @@ fn emitted_audit_proof_report_carries_version_declaration() {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -534,6 +540,7 @@ fn emits_ed_cf_self_assessment_sidecar() {
         stage_atoms_dir: Some(&stage_atoms),
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -579,6 +586,7 @@ fn emit_copies_af_spectrum_measurement_script_into_lib() {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     })
     .expect("emit must succeed");
@@ -625,6 +633,7 @@ fn emit_copies_de_effect_size_measurement_script_and_de_task_carries_it() {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     })
     .expect("emit must succeed");
@@ -709,6 +718,7 @@ fn emit_mtdna_heteroplasmy_package_carries_contract_and_obligations() {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     })
     .expect("emit must succeed");
@@ -796,6 +806,7 @@ fn emit_copies_plotting_library_into_runtime() {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -876,6 +887,7 @@ fn emit_package_deterministic_contents_across_repeated_emissions() {
             stage_atoms_dir: None,
             experimental_archetype: false,
             sme_parameter_overrides: None,
+            sme_validation_bounds: None,
             edge_kinds: None,
         })
         .expect("emit");
@@ -1024,6 +1036,7 @@ fn emit_plotting_library_is_idempotent_on_reemit() {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     };
     emit_package(&cfg).expect("first emit");
@@ -1072,6 +1085,7 @@ fn workflow_json_round_trips() {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -1109,6 +1123,7 @@ fn workflow_json_round_trips() {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     })
     .expect("re-emit");
@@ -1217,6 +1232,7 @@ fn compute_resource_policy_carries_phase_1_fields() {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -1284,6 +1300,7 @@ fn gpu_capability_policy_is_emitted() {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -1357,6 +1374,7 @@ fn gpu_capability_schema_violation_fails_emission() {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     })
     .unwrap_err();
@@ -1396,6 +1414,7 @@ fn no_compute_profiles_dir_skips_both_policies() {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -1441,6 +1460,7 @@ fn ro_crate_is_valid_json_ld() {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -1836,6 +1856,7 @@ fn emit_plain(dir: &std::path::Path, policies_dir: &std::path::Path) {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -1896,6 +1917,7 @@ fn emit_writes_runtime_prereqs_with_passed_baseline() {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -1950,6 +1972,7 @@ fn emit_writes_dockerfile_when_manifest_is_buildable() {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -2018,6 +2041,7 @@ fn emit_copies_install_proxy_when_manifest_is_buildable() {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -2241,6 +2265,7 @@ fn emit_package_writes_atom_prereqs_when_map_provided() {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -2336,6 +2361,7 @@ fn emit_writes_container_spec_with_declared_image() {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     })
     .expect("emit");
@@ -2474,6 +2500,7 @@ fn emit_package_rejects_unpinned_container_digest() {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     });
     let err = result.expect_err("emit must reject unpinned digests");
@@ -2569,6 +2596,7 @@ fn emit_stamps_experimental_archetype_maturity() {
         stage_atoms_dir: None,
         experimental_archetype: true,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     })
     .expect("emit should succeed");
@@ -2602,6 +2630,7 @@ fn emit_stamps_experimental_archetype_maturity() {
         stage_atoms_dir: None,
         experimental_archetype: true,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     })
     .expect("second emit should succeed");
@@ -2637,6 +2666,7 @@ fn emit_does_not_stamp_production_archetype() {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     })
     .expect("emit should succeed");
@@ -2705,6 +2735,7 @@ fn amend_from_some_writes_lineage_policy() {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     })
     .expect("amend emit");
@@ -2762,6 +2793,7 @@ fn amend_from_some_adds_wasDerivedFrom_and_updateAction() {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     })
     .expect("amend emit");
@@ -2827,6 +2859,7 @@ fn branch_emit_adds_wasDerivedFrom_without_updateAction() {
         stage_atoms_dir: None,
         experimental_archetype: false,
         sme_parameter_overrides: None,
+        sme_validation_bounds: None,
         edge_kinds: None,
     })
     .expect("branch emit");
@@ -2926,6 +2959,7 @@ fn amend_run_id_is_stable_across_parent_absolute_paths() {
             stage_atoms_dir: None,
             experimental_archetype: false,
             sme_parameter_overrides: None,
+            sme_validation_bounds: None,
             edge_kinds: None,
         })
         .expect("amend emit");
@@ -3067,6 +3101,7 @@ fn emit_package_whole_package_byte_reproducible() {
             stage_atoms_dir: None,
             experimental_archetype: false,
             sme_parameter_overrides: None,
+            sme_validation_bounds: None,
             edge_kinds: None,
         })
         .expect("emit");
@@ -3243,6 +3278,7 @@ fn amend_emit_is_byte_reproducible() {
             stage_atoms_dir: None,
             experimental_archetype: false,
             sme_parameter_overrides: None,
+            sme_validation_bounds: None,
             edge_kinds: None,
         })
         .expect("amend emit");

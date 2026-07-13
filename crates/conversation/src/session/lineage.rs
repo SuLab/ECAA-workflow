@@ -332,6 +332,10 @@ impl Session {
             // atom_runtime_overrides above, these are the SME's deliberate
             // method-neutral value choices, which the branch should carry.
             sme_parameter_overrides: parent.sme_parameter_overrides.clone(),
+            // SME validation bounds ARE inherited: a branch-to-edit fork of a
+            // task should carry the SME's prior output constraints as the
+            // starting point, same rationale as sme_parameter_overrides above.
+            sme_validation_bounds: parent.sme_validation_bounds.clone(),
             // branches start fresh; the parent's followup streak does
             // not carry over.
             intake_followup_streak: 0,
@@ -452,6 +456,7 @@ mod branch_from_exhaustiveness {
             adjudication_queue: _,
             atom_runtime_overrides: _,
             sme_parameter_overrides: _,
+            sme_validation_bounds: _,
             intake_followup_streak: _,
             last_emitted_run_id: _,
             audit_writer_secret: _,
