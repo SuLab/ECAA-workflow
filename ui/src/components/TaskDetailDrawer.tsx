@@ -24,6 +24,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useCancelableEffect } from '../hooks/useCancelableFetch'
+import { useSessionContext } from '../hooks/contexts'
 import type { DAG, Task } from '../types'
 import type {
   ImpactPreviewResponse,
@@ -36,6 +37,7 @@ import {
   getDecisions,
   getProgressLog,
   getStageDescriptions,
+  getTaskParameters,
   getTaskResult,
   postAmendMethod,
   postBranch,
@@ -43,12 +45,16 @@ import {
   postRerun,
   postTaskNote,
   postUndoAmendment,
+  setTaskParameters,
   artifactUrl,
   unblockChatSession,
   verifyTask,
 } from '../api/chatClient'
 import type { ClaimVerificationReport } from '../types/ClaimVerificationReport'
 import type { ClaimVerdict } from '../types/ClaimVerdict'
+import type { ParameterSpec } from '../types/ParameterSpec'
+import type { BranchEdits } from '../types/BranchEdits'
+import TaskParameterEditor from './TaskParameterEditor'
 import { useUndoStack } from '../hooks/useUndoStack'
 import { LOG_POLL_MS } from '../lib/polling'
 import { relativeTime } from '../lib/time'
@@ -98,14 +104,8 @@ const BTN_SECONDARY: React.CSSProperties = {
   fontSize: '0.82rem',
   cursor: 'pointer',
 }
-const BTN_DANGER_OUTLINE: React.CSSProperties = {
-  ...BTN_SECONDARY,
-  borderColor: 'var(--color-danger-accent)',
-  color: 'var(--color-danger-fg)',
-}
-
 interface ConfirmModal {
-  kind: 'amend' | 'rerun' | 'branch'
+  kind: 'amend' | 'rerun' | 'branch' | 'params'
   title: string
   prompt: string
   rationale: string
@@ -114,6 +114,16 @@ interface ConfirmModal {
   previewError?: string
   busy: boolean
   error?: string
+  // Structured parameter-editor state (kinds 'params' and 'branch').
+  parameters?: ParameterSpec[]
+  /** SME-edited values collected by TaskParameterEditor (`name -> value`). */
+  paramValues?: Record<string, unknown>
+  /** false while the parameter schema is still loading. */
+  paramsLoaded?: boolean
+  /** Non-blocking banner text (e.g. skipped inherited artifacts on branch). */
+  warning?: string
+  /** Child session id awaiting an explicit "Continue" after a warning. */
+  pendingChildId?: string
 }
 
 export default function TaskDetailDrawer({
@@ -135,6 +145,13 @@ export default function TaskDetailDrawer({
   const [newNote, setNewNote] = useState('')
   const [notePosting, setNotePosting] = useState(false)
   const [noteErr, setNoteErr] = useState<string | null>(null)
+
+  // The single App-owned conversation hook, read via context (same
+  // pattern as ConfirmationTurnCard). Gives us SPA navigation
+  // (`switchToSession`) after a branch and the parent-session flag that
+  // relaxes the edit gate on a freshly-branched Ready/Pending task.
+  const conv = useSessionContext()
+  const isBranchSession = conv.state?.parent_session_id != null
 
   const task: Task | null = useMemo(() => {
     if (!dag || !taskId) return null
@@ -285,6 +302,17 @@ export default function TaskDetailDrawer({
     color: 'var(--color-text-muted)',
     icon: '•',
   }
+  // Editing (amend / rerun / change-parameters) is allowed once a task
+  // has completed, OR — on a branched session — as soon as it is
+  // ready/pending, so the SME who branched to edit can change the reset
+  // task before it runs.
+  const editStatus = task.state.status
+  const editable =
+    editStatus === 'completed' ||
+    (isBranchSession && (editStatus === 'ready' || editStatus === 'pending'))
+  const editDisabledTitle = isBranchSession
+    ? 'Available once this step is ready to run in the branch'
+    : 'This step has not finished yet — editing is available after it completes'
   const stageClass = typeof task.spec === 'object' && task.spec
     ? ((task.spec as Record<string, unknown>)['stage_class'] as string | undefined)
     : undefined
@@ -356,16 +384,75 @@ export default function TaskDetailDrawer({
       busy: false,
     })
   }
-  const openBranchModal = () => {
+  const openParamsModal = async () => {
     setModal({
-      kind: 'branch',
-      title: 'Explore this change in a branch (keep the current analysis intact)',
+      kind: 'params',
+      title: `Change parameters for ${friendlyName}`,
       prompt:
-        'Creates a copy of this session so you can try a different choice without throwing away the current results.',
-      rationale: `Branching to try an alternative for ${friendlyName} — `,
+        'Adjust the SME-set inputs for this step. Changing a value re-runs this step and everything downstream once you re-confirm.',
+      rationale: `Adjusting parameters for ${friendlyName} — `,
       preview: null,
       busy: false,
+      parameters: [],
+      paramValues: {},
+      paramsLoaded: false,
     })
+    if (!sessionId || !taskId) return
+    try {
+      const resp = await getTaskParameters(sessionId, taskId)
+      setModal((prev) =>
+        prev && prev.kind === 'params'
+          ? {
+              ...prev,
+              parameters: resp.parameters,
+              paramValues: { ...resp.current_overrides },
+              paramsLoaded: true,
+            }
+          : prev,
+      )
+    } catch (e) {
+      setModal((prev) =>
+        prev && prev.kind === 'params'
+          ? { ...prev, paramsLoaded: true, error: (e as Error).message }
+          : prev,
+      )
+    }
+  }
+
+  const openBranchModal = async () => {
+    setModal({
+      kind: 'branch',
+      title: `Branch & change ${friendlyName} (keeps the current analysis intact)`,
+      prompt:
+        'Creates a copy of this session with your changes applied to this step, so you can try a different approach without losing the current results.',
+      rationale: `Branching to try an alternative for ${friendlyName} — `,
+      newMethod: '',
+      preview: null,
+      busy: false,
+      parameters: [],
+      paramValues: {},
+      paramsLoaded: false,
+    })
+    if (!sessionId || !taskId) return
+    try {
+      const resp = await getTaskParameters(sessionId, taskId)
+      setModal((prev) =>
+        prev && prev.kind === 'branch'
+          ? {
+              ...prev,
+              parameters: resp.parameters,
+              paramValues: { ...resp.current_overrides },
+              paramsLoaded: true,
+            }
+          : prev,
+      )
+    } catch {
+      // Branching still works without the parameter schema — just show
+      // the rationale + method + blast-radius without the editor.
+      setModal((prev) =>
+        prev && prev.kind === 'branch' ? { ...prev, paramsLoaded: true } : prev,
+      )
+    }
   }
 
   const submitAmend = async () => {
@@ -414,23 +501,75 @@ export default function TaskDetailDrawer({
       )
     }
   }
-  const submitBranch = async () => {
-    if (!modal || !sessionId) return
+  const submitParams = async () => {
+    if (!modal || !sessionId || !taskId) return
     setModal({ ...modal, busy: true, error: undefined })
     try {
-      const body = await postBranch(sessionId, {
-        rationale: modal.rationale || undefined,
-        taskId: taskId ?? undefined,
+      // `JSON.stringify` drops `undefined` values, so cleared fields are
+      // simply omitted from the override set.
+      await setTaskParameters(sessionId, taskId, {
+        overrides: modal.paramValues ?? {},
+        rationale: modal.rationale,
       })
-      const childId = body.session_id
       setModal(null)
-      const url = `/?session=${childId}&branched_from=${sessionId}`
-      window.location.href = url
+      // The session is now ReadyToEmit; close the drawer and let the
+      // conversation pane surface the re-confirmation card (Phase 0:
+      // /confirm re-emits + git-commits + relaunches).
+      onClose()
     } catch (e) {
       setModal((prev) =>
         prev ? { ...prev, busy: false, error: (e as Error).message } : prev,
       )
     }
+  }
+  const submitBranch = async () => {
+    if (!modal || !sessionId) return
+    setModal({ ...modal, busy: true, error: undefined })
+    try {
+      const overrides = modal.paramValues ?? {}
+      const method = modal.newMethod?.trim() ? modal.newMethod.trim() : null
+      const hasEdits =
+        method !== null || Object.keys(overrides).length > 0
+      const edits: BranchEdits | undefined = hasEdits
+        ? { method, parameters: overrides, validation_bounds: [] }
+        : undefined
+      const body = await postBranch(sessionId, {
+        rationale: modal.rationale || undefined,
+        taskId: taskId ?? undefined,
+        edits,
+      })
+      const childId = body.session_id
+      const missing = body.artifacts_missing
+      if (missing && missing.length > 0) {
+        // Phase-5 field: some inherited artifacts couldn't be copied.
+        // Keep the modal open with a non-blocking warning + an explicit
+        // "Continue" so the SME sees which results will re-run before
+        // navigating into the child.
+        setModal((prev) =>
+          prev
+            ? {
+                ...prev,
+                busy: false,
+                pendingChildId: childId,
+                warning: `Some prior results couldn't be carried into the branch and will re-run: ${missing.join(', ')}`,
+              }
+            : prev,
+        )
+        return
+      }
+      setModal(null)
+      // SPA navigation into the child (pushState-syncs `?session=`);
+      // the child's parent_session_id comes from its loaded state.
+      await conv.switchToSession(childId)
+    } catch (e) {
+      setModal((prev) =>
+        prev ? { ...prev, busy: false, error: (e as Error).message } : prev,
+      )
+    }
+  }
+  const continueToBranch = async (childId: string) => {
+    setModal(null)
+    await conv.switchToSession(childId)
   }
 
   // ── render ──────────────────────────────────────────────────────────────
@@ -872,35 +1011,40 @@ export default function TaskDetailDrawer({
           type="button"
           onClick={openAmendModal}
           style={BTN_PRIMARY}
-          disabled={task.state.status !== 'completed'}
-          title={
-            task.state.status !== 'completed'
-              ? 'This step has not finished yet — amend is available after it completes'
-              : 'Change the method this step uses'
-          }
+          disabled={!editable}
+          title={!editable ? editDisabledTitle : 'Change the method this step uses'}
         >
           Change method
         </button>
         <button
           type="button"
+          onClick={() => void openParamsModal()}
+          style={BTN_SECONDARY}
+          disabled={!editable}
+          title={
+            !editable
+              ? editDisabledTitle
+              : 'Set concrete parameter values for this step'
+          }
+        >
+          Change parameters
+        </button>
+        <button
+          type="button"
           onClick={openRerunModal}
           style={BTN_SECONDARY}
-          disabled={task.state.status !== 'completed'}
-          title={
-            task.state.status !== 'completed'
-              ? 'This step has not finished yet — rerun is available after it completes'
-              : 'Rerun this step with the same method'
-          }
+          disabled={!editable}
+          title={!editable ? editDisabledTitle : 'Rerun this step with the same method'}
         >
           Rerun
         </button>
         <button
           type="button"
-          onClick={openBranchModal}
-          style={BTN_DANGER_OUTLINE}
-          title="Try an alternative without changing the current session"
+          onClick={() => void openBranchModal()}
+          style={BTN_SECONDARY}
+          title="Create a copy of this session with your edits applied to this step, leaving the current analysis intact"
         >
-          Explore in a branch
+          Branch &amp; edit
         </button>
       </footer>
 
@@ -926,6 +1070,8 @@ export default function TaskDetailDrawer({
           onAmend={submitAmend}
           onRerun={submitRerun}
           onBranch={submitBranch}
+          onParams={submitParams}
+          onContinueBranch={continueToBranch}
         />
       )}
     </aside>
@@ -940,6 +1086,8 @@ interface ConfirmModalViewProps {
   onAmend: () => Promise<void>
   onRerun: () => Promise<void>
   onBranch: () => Promise<void>
+  onParams: () => Promise<void>
+  onContinueBranch: (childId: string) => Promise<void>
 }
 
 function ConfirmModalView({
@@ -948,16 +1096,29 @@ function ConfirmModalView({
   onAmend,
   onRerun,
   onBranch,
+  onParams,
+  onContinueBranch,
 }: ConfirmModalViewProps): JSX.Element {
+  const isBranch = modal.kind === 'branch'
+  const isParams = modal.kind === 'params'
+  const showEditor = isParams || isBranch
   const submit = () => {
+    if (modal.pendingChildId) {
+      void onContinueBranch(modal.pendingChildId)
+      return
+    }
     if (modal.kind === 'amend') void onAmend()
     else if (modal.kind === 'rerun') void onRerun()
+    else if (modal.kind === 'params') void onParams()
     else void onBranch()
   }
   const canSubmit =
-    !modal.busy &&
-    modal.rationale.trim().length > 0 &&
-    (modal.kind !== 'amend' || (modal.newMethod ?? '').trim().length > 0)
+    !!modal.pendingChildId ||
+    (!modal.busy &&
+      modal.rationale.trim().length > 0 &&
+      // Method is mandatory only for a method amendment; optional on a
+      // branch (the SME may branch to change only parameters).
+      (modal.kind !== 'amend' || (modal.newMethod ?? '').trim().length > 0))
   const costRange = modal.preview
     ? `${formatUSD(modal.preview.est_cost_usd_min)} – ${formatUSD(modal.preview.est_cost_usd_max)}`
     : null
@@ -978,18 +1139,49 @@ function ConfirmModalView({
           {modal.prompt}
         </p>
 
-        {modal.kind === 'amend' && (
+        {(modal.kind === 'amend' || isBranch) && (
           <label style={{ display: 'block', marginBottom: 10 }}>
-            <div style={modalLabelStyle}>New method</div>
+            <div style={modalLabelStyle}>
+              {isBranch ? 'New method (optional)' : 'New method'}
+            </div>
             <input
               type="text"
               value={modal.newMethod ?? ''}
               onChange={(e) => setModal({ ...modal, newMethod: e.target.value, preview: null })}
               placeholder="e.g. two_stage_denovo_with_fibrochondrocyte_pericyte"
               style={modalInputStyle}
-              autoFocus
+              autoFocus={!isBranch}
             />
           </label>
+        )}
+
+        {showEditor && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={modalLabelStyle}>Parameters</div>
+            {!modal.paramsLoaded ? (
+              <div style={{ color: 'var(--color-text-muted)', fontSize: '0.82rem' }}>
+                Loading parameters…
+              </div>
+            ) : (
+              <TaskParameterEditor
+                parameters={modal.parameters ?? []}
+                values={modal.paramValues ?? {}}
+                onChange={(name, value) =>
+                  setModal((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          paramValues: {
+                            ...(prev.paramValues ?? {}),
+                            [name]: value,
+                          },
+                        }
+                      : prev,
+                  )
+                }
+              />
+            )}
+          </div>
         )}
 
         <label style={{ display: 'block', marginBottom: 12 }}>
@@ -1003,7 +1195,24 @@ function ConfirmModalView({
           />
         </label>
 
-        {modal.kind !== 'branch' && (
+        {modal.warning && (
+          <div
+            role="status"
+            style={{
+              background: 'var(--color-warning-bg)',
+              border: '1px solid var(--color-warning-border)',
+              color: 'var(--color-warning-fg)',
+              borderRadius: 6,
+              padding: '8px 10px',
+              fontSize: '0.8rem',
+              marginBottom: 10,
+            }}
+          >
+            {modal.warning}
+          </div>
+        )}
+
+        {(
           <div style={previewBoxStyle}>
             {modal.previewError && (
               <div style={{ color: 'var(--color-danger-fg)', fontSize: '0.82rem' }}>
@@ -1061,7 +1270,7 @@ function ConfirmModalView({
             disabled={modal.busy}
             style={BTN_SECONDARY}
           >
-            Cancel
+            {modal.pendingChildId ? 'Stay here' : 'Cancel'}
           </button>
           <button
             type="button"
@@ -1073,13 +1282,17 @@ function ConfirmModalView({
               cursor: canSubmit ? 'pointer' : 'not-allowed',
             }}
           >
-            {modal.busy
-              ? 'Applying…'
-              : modal.kind === 'amend'
-                ? 'Apply amendment'
-                : modal.kind === 'rerun'
-                  ? 'Rerun now'
-                  : 'Create branch'}
+            {modal.pendingChildId
+              ? 'Continue to branch'
+              : modal.busy
+                ? 'Applying…'
+                : modal.kind === 'amend'
+                  ? 'Apply amendment'
+                  : modal.kind === 'rerun'
+                    ? 'Rerun now'
+                    : modal.kind === 'params'
+                      ? 'Apply changes'
+                      : 'Create branch'}
           </button>
         </div>
     </Dialog>
@@ -1162,6 +1375,10 @@ function decisionLabel(kind: string): string {
       return 'Budget changed'
     case 'user_note':
       return 'Note'
+    case 'set_task_parameter':
+      return 'Parameter changed'
+    case 'set_validation_bound':
+      return 'Validation bound set'
     default:
       return kind
   }
