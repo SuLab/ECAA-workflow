@@ -4,7 +4,7 @@ import { getMarkdownIndex, normalizeDiscoveryDecision } from './chatClient'
 describe('getMarkdownIndex', () => {
   afterEach(() => vi.restoreAllMocks())
   it('returns the docs array from the markdown-index endpoint', async () => {
-    ;(globalThis as unknown as { fetch: typeof fetch }).fetch = vi.fn(
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = vi.fn(
       async () =>
         new Response(
           JSON.stringify({
