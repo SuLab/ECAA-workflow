@@ -1,6 +1,13 @@
 target/
 **/node_modules/
 ui/dist/
+# Local env files carry real secrets (e.g. ECAA_ANTHROPIC_API_KEY). Never bake
+# them into the image layer via `COPY . .`. The tracked .env.example template is
+# fine but the image doesn't need it either; runtime config comes from the
+# process environment (compose `environment:` / `env_file:`), not a baked file.
+.env
+.env.local
+.env.*.local
 # Exclude local docs but KEEP docs/ecaa-spec — core::emitter::ecaa and
 # conversation::emit::validation include_str! the subgraph schemas at compile time.
 docs/*
