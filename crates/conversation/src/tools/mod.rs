@@ -526,7 +526,7 @@ pub struct PostHandlerSpec {
 // `mod.rs` (not in any handler file) so the regression-test grep stays
 // clean.
 
-fn drain_deferred_state_triggers_post_ok(session: &mut Session) {
+pub(crate) fn drain_deferred_state_triggers_post_ok(session: &mut Session) {
     // R3.6 — atomic drain. Handlers like `amend_stage_method` queue a
     // PAIR of triggers (AmendStart → Amending, then AmendReady →
     // ReadyToEmit) that only make sense applied together. If the

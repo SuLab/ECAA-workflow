@@ -744,6 +744,13 @@ impl ConversationService {
                     invalidated_tasks: tids,
                     prior_method_prose: prior,
                 };
+                // Drain the AmendStart → AmendReady pair the tool body
+                // deferred so the session reaches `ReadyToEmit` here. The
+                // LLM tool loop does this via `dispatch_one`'s on-ok
+                // post-handler; the REST path has no dispatcher, so drain
+                // explicitly — otherwise the session sticks in `Emitted`
+                // with the triggers queued and never re-emits.
+                crate::tools::drain_deferred_state_triggers_post_ok(s);
                 Ok(())
             })
             .await
@@ -842,6 +849,11 @@ impl ConversationService {
                     .unwrap_or_default();
                 let mut guard = invalidated_writer.lock().unwrap_or_else(|p| p.into_inner());
                 *guard = tids;
+                // `rerun_task` delegates to `amend_stage_method`, so it
+                // defers the same AmendStart → AmendReady pair. Drain it
+                // here (no LLM dispatcher on the REST path) so the session
+                // reaches `ReadyToEmit` instead of sticking in `Emitted`.
+                crate::tools::drain_deferred_state_triggers_post_ok(s);
                 Ok(())
             })
             .await

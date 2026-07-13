@@ -553,3 +553,92 @@ async fn request_body_timeout_surfaces_as_backend_error_without_retry() {
          that would compound user-visible latency on a stuck call"
     );
 }
+
+/// Build a service whose session carries a composed DAG (classification +
+/// taxonomy present, so `amend`'s internal `rebuild_dag` succeeds) forced
+/// into `Emitted`, plus a known stage id to amend. Mirrors the tools-test
+/// approach in
+/// `tools/tests.rs::amend_stage_method_invalidates_slice_and_advances_to_ready_to_emit`:
+/// build the DAG via AppendIntakeProse, then force `Emitted` directly.
+/// Returns the tempdir guard so the backing store outlives the test.
+async fn emit_test_session() -> (
+    ConversationService,
+    Arc<tempfile::TempDir>,
+    crate::session::SessionId,
+    String,
+) {
+    let dir = Arc::new(tempfile::tempdir().unwrap());
+    let store = SessionStore::open(dir.path()).await.unwrap();
+    let svc = ConversationService::new(
+        Arc::new(MockLlmBackend::new(vec![
+            tool_use(Tool::Batchable(BatchableTool::AppendIntakeProse {
+                prose: "bulk rna-seq differential expression in human samples".into(),
+            })),
+            assistant("ok."),
+        ])),
+        store,
+        config_dir(),
+    );
+    let (id, _) = svc.start_session(false).await.unwrap();
+    svc.send_turn(id, "set it up".into(), None).await.unwrap();
+    let session = svc
+        .store_handle()
+        .update(id, |s| {
+            s.state = SessionState::Emitted;
+            // A real emit warms the `session.dag` cache; force it here so
+            // `amend_stage_method` (which reads `session.dag` directly)
+            // sees the composed plan, matching a genuine Emitted session.
+            s.ensure_dag_cached();
+            Ok(())
+        })
+        .await
+        .unwrap();
+    // `amend_stage_method` validates the stage against `session.dag`
+    // (the composer output), not the lowered `current_dag()` overlay, so
+    // pick the target from the same map amend checks.
+    let dag = session.dag.as_ref().expect("dag built during intake");
+    let stage = dag
+        .tasks
+        .keys()
+        .find(|k| {
+            k.as_str().starts_with("differential_expression")
+                || k.as_str().starts_with("normalization")
+        })
+        .map(|k| k.to_string())
+        .unwrap_or_else(|| {
+            dag.tasks
+                .keys()
+                .next()
+                .expect("dag has tasks")
+                .to_string()
+        });
+    (svc, dir, id, stage)
+}
+
+/// The REST amend wrapper has no LLM dispatcher to drain the
+/// `AmendStart`/`AmendReady` triggers the tool body defers, so it must
+/// drain them itself. Without the drain the session sticks in `Emitted`
+/// with two queued triggers; with it, the session reaches `ReadyToEmit`.
+#[tokio::test]
+async fn rest_amend_reaches_ready_to_emit_and_drains_triggers() {
+    let (svc, _env, session_id, stage) = emit_test_session().await;
+    svc.amend_stage_method_from_rest(
+        session_id,
+        stage.clone(),
+        "star".into(),
+        Some("try STAR".into()),
+    )
+    .await
+    .expect("amend ok");
+    let s = svc.get_session(session_id).await.expect("session");
+    assert!(
+        matches!(s.state, SessionState::ReadyToEmit),
+        "REST amend must leave the session in ReadyToEmit, got {:?}",
+        s.state
+    );
+    assert!(
+        s.deferred_state_triggers.is_empty(),
+        "deferred triggers must be drained after a REST amend, got {:?}",
+        s.deferred_state_triggers
+    );
+}
