@@ -128,6 +128,20 @@ impl ConversationService {
                     let should_emit_child_package =
                         parent.emitted_package_path.is_some() && child.workflow_dag.is_some();
                     if should_emit_child_package {
+                        // Branch of an already-emitted parent: stage the child
+                        // at ReadyToEmit but require an EXPLICIT SME confirm
+                        // before it emits. Do NOT mint a `System` confirmation
+                        // token or auto-emit here — with branch-to-edit the
+                        // child's plan may differ from the parent's, so the SME
+                        // must confirm the child's own package. The child
+                        // surfaces the confirmation card (same resting state as
+                        // a post-amend session); the /confirm path then runs the
+                        // normal emit, and the git-commit + completed-task
+                        // artifact inheritance run on that confirmed emit.
+                        // Seeding `pending_emission_id` keeps the eventual
+                        // confirm's per-emit token bound to the current plan
+                        // shape; `is_confirmed()` stays false until the SME
+                        // clicks, so no auto-emit can fire.
                         child.state = SessionState::ReadyToEmit;
                         if child.pending_emission_id.is_none() {
                             let summary_hash = child.current_summary_hash();
@@ -136,10 +150,6 @@ impl ConversationService {
                                 summary_hash.as_bytes(),
                             ));
                         }
-                        let _ = child.mint_confirmation_token(
-                            chrono::Utc::now(),
-                            crate::audit_actor::AuditActor::System,
-                        );
                     }
                     let child_id = child.id;
                     // Persist the child within the transaction. Safe

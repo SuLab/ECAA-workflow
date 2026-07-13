@@ -642,3 +642,46 @@ async fn rest_amend_reaches_ready_to_emit_and_drains_triggers() {
         s.deferred_state_triggers
     );
 }
+
+/// Task 5.1 — a branch of an ALREADY-EMITTED parent must NOT auto-emit.
+/// The child is staged at `ReadyToEmit` with no `System` confirmation
+/// token and no emitted package, so the SME must explicitly confirm
+/// before the child emits (branch-to-edit may have changed the plan).
+#[tokio::test]
+async fn branch_of_emitted_parent_stages_ready_to_emit_without_auto_emit() {
+    let (svc, _env, parent_id, _stage) = emit_test_session().await;
+    // Make the parent look genuinely emitted so `should_emit_child_package`
+    // fires: the parent has a package path and the child inherits the
+    // composed workflow_dag.
+    svc.store_handle()
+        .update(parent_id, |s| {
+            s.emitted_package_path = Some(std::path::PathBuf::from("/nonexistent/parent-pkg"));
+            assert!(
+                s.workflow_dag.is_some(),
+                "parent must carry a composed workflow_dag for this test"
+            );
+            Ok(())
+        })
+        .await
+        .unwrap();
+
+    let child_id = svc
+        .branch_session_with_rationale_and_task(parent_id, false, None, None)
+        .await
+        .expect("branch ok");
+    let child = svc.get_session(child_id).await.expect("child session");
+    assert_eq!(
+        child.state,
+        SessionState::ReadyToEmit,
+        "branch of an emitted parent must stage the child at ReadyToEmit, got {:?}",
+        child.state
+    );
+    assert!(
+        child.emitted_package_path.is_none(),
+        "branch child must NOT auto-emit a package before an explicit SME confirm"
+    );
+    assert!(
+        !child.is_confirmed(),
+        "branch child must NOT carry a System confirmation token (no auto-emit gate open)"
+    );
+}
