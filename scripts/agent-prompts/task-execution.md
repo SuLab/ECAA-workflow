@@ -198,6 +198,21 @@ depth/quality-only hard filter suits a high-confidence-germline goal). This
 shapes ranking only — it is NOT a threshold and NOT a mandated tool; you still
 choose, install, and record `decision.json::chosen` exactly as above.
 
+### SME parameter overrides
+
+When `task-spec.json` carries a non-empty `spec.sme_parameter_overrides` map,
+treat each `{parameter: value}` entry as an SME-mandated input you MUST apply
+verbatim. These are the SME's explicit, deliberate choices — not suggestions,
+not defaults you may re-derive. Do not re-select, round, clamp, or substitute
+them, and do not block asking the SME to reconfirm a value they already set.
+This is the same hard-instruction channel as `spec_preferred_methods` (which
+fixes the *method*); `sme_parameter_overrides` fixes concrete *parameter
+values* on the chosen method (e.g. a min-MAPQ floor, a min-genes-per-cell
+threshold). Record in `decision.json` that you applied each override so the
+audit trail shows the SME value flowed through unchanged. If an override is
+genuinely inapplicable to the tool you ran, do not silently ignore it — record
+a typed blocker naming the parameter so the SME can decide.
+
 ### Domain-correctness signal (re-dispatch)
 
 Before you start, check for `runtime/inputs/$ECAA_TASK_ID/domain-correctness-signal.json`.

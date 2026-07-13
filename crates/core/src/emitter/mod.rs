@@ -1348,6 +1348,10 @@ When the SME has registered local data (file present at `runtime/inputs.json`, a
 \n\
 This rule is independent of the env_capability and spec_preferred_methods rules above and runs FIRST: an SME-registered input always takes precedence over any other ranking signal.\n\
 \n\
+## SME parameter overrides (hard inputs)\n\
+\n\
+When a task's `spec.sme_parameter_overrides` map is non-empty, each `{{parameter: value}}` entry is an SME-mandated input you MUST apply verbatim — the SME's explicit, deliberate choice, not a default you may re-derive or a hint you may override. This is the value-level analog of `spec_preferred_methods` (which fixes the *method*): it fixes concrete *parameter values* on the chosen method (e.g. a min-MAPQ floor, a min-genes-per-cell threshold). Do not re-select, round, clamp, or substitute an overridden value, and do not block asking the SME to reconfirm a value they already set. Record in `decision.json` that each override was applied so the audit trail shows the SME value flowed through unchanged. If an override is genuinely inapplicable to the tool you ran, raise a typed blocker naming the parameter rather than silently ignoring it.\n\
+\n\
 ## Empty-completion is NOT permitted (with one carve-out)\n\
 \n\
 When you apply the available SME decisions and still cannot produce non-empty output (e.g. header-only tables, all-zero counts, every compartment failing a minimum-samples gate, any sentinel like `overall_<stage>_not_run: true`), you MUST re-block the task rather than mark it `completed` with an empty result. Write a new `blocker.json` with narrower `decision_points_for_sme` (for example: 'sample-level age TSV required', 'pick a different threshold', 'alternative grouping variable'), set `task.state.status = \"blocked\"`, and stop. Do not silently advance the DAG past an empty computation.\n\
