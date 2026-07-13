@@ -97,8 +97,11 @@ pub async fn post_undo_amendment(
 /// REST counterpart of the LLM-callable `amend_stage_method` tool.
 /// Same guards: session must be Emitted, stage must exist, method
 /// must be non-empty, confirmatory+prespecified ⇒ rationale required.
-/// Fires the auto-relaunch hook so the harness resumes against the
-/// amended plan without a separate POST /start-execution.
+/// Leaves the session in `ReadyToEmit` WITHOUT re-emitting: the pre-amend
+/// package is still on disk. The SME must re-confirm to re-emit the
+/// amended plan, which fires the git-commit + auto-relaunch via `/confirm`.
+/// This endpoint therefore never commits or relaunches — doing so here
+/// would act on the stale, pre-amend package.
 #[tracing::instrument(skip(app, req), fields(session_id = %session_id, task_id = %task_id))]
 pub async fn post_amend_method(
     State(app): State<ChatAppState>,
@@ -117,34 +120,12 @@ pub async fn post_amend_method(
         .await
     {
         Ok(amend) => {
-            // Auto-relaunch if there's now ready work; the hook's own
-            // predicate catches the "session still blocked" /
-            // "execution already running" cases and logs a skip reason.
-            super::super::execution::maybe_auto_relaunch_harness(&app, session_id, "amend_method")
-                .await;
-            // git commit on amendment. The
-            // conversation service has already re-emitted the package
-            // by the time `amend_stage_method_from_rest` returns, so
-            // the working tree is ready for `git add`. Per-package
-            // shape: resolve the session's emitted_package_path so the
-            // Hook commits into the right per-package.git directory.
-            if let Some(session) = app.conversation.get_session(session_id).await {
-                if let Some(pkg) = session.emitted_package_path.clone() {
-                    let cfg = app.commit_git_config();
-                    let sid = session_id.to_string();
-                    let stage = task_id.clone();
-                    app.git_hook_pool.spawn("amend", move || {
-                        crate::git_routes::service::hook_commit(
-                            &cfg,
-                            &pkg,
-                            "amend",
-                            &format!("{} amended", stage),
-                            &sid,
-                        );
-                        Ok(())
-                    });
-                }
-            }
+            // No auto-relaunch or git-commit here. An amend leaves the
+            // session in `ReadyToEmit` with the old package still on disk;
+            // the amended plan has NOT been re-emitted. Relaunching or
+            // committing now would act on the stale, pre-amend package.
+            // Re-emit + git-commit + auto-relaunch all fire from `/confirm`
+            // once the SME re-approves the amended plan.
             Json(serde_json::json!({
                 "task_id": task_id,
                 "invalidated_tasks": amend.invalidated_tasks,
@@ -172,7 +153,9 @@ pub async fn post_amend_method(
 
 /// REST counterpart of `rerun_task`. Re-queues a completed stage with
 /// its existing method — use `amend_method` if the method itself is
-/// changing. Fires the auto-relaunch hook.
+/// changing. Leaves the session in `ReadyToEmit` without re-emitting;
+/// the SME re-confirms to re-emit + relaunch via `/confirm`. Does not
+/// relaunch here (that would run against the stale, pre-rerun package).
 pub async fn post_rerun(
     State(app): State<ChatAppState>,
     Path((session_id, task_id)): Path<(Uuid, String)>,
@@ -196,8 +179,10 @@ pub async fn post_rerun(
             // artifact cache for the reset task(s) is
             // now stale — drop it before the agent writes fresh output.
             app.artifact_cache.retain(|(sid, _), _| *sid != session_id);
-            super::super::execution::maybe_auto_relaunch_harness(&app, session_id, "rerun_task")
-                .await;
+            // No auto-relaunch here: rerun (like amend) leaves the session
+            // in `ReadyToEmit` with the pre-rerun package still on disk.
+            // Relaunching now would run the harness against the stale
+            // package; re-emit + relaunch fire from `/confirm`.
             Json(serde_json::json!({
                 "task_id": task_id,
                 "invalidated_tasks": invalidated,
@@ -362,10 +347,12 @@ pub(crate) fn routes() -> axum::Router<ChatAppState> {
 #[cfg(test)]
 mod tests {
     use crate::chat_routes::test_support::{
-        body_json, make_router, seed_session_with_completed_task,
+        assistant, body_json, make_router, make_router_with_harness_bin,
+        seed_session_with_completed_task, tool_use,
     };
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
+    use ecaa_workflow_conversation::{BatchableTool, SessionState, Tool};
     use tower::util::ServiceExt;
 
     // ── impact-preview endpoint ───────────────────────────────────────────
@@ -539,5 +526,110 @@ mod tests {
             .unwrap();
         let resp = router.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    /// The amend endpoint must NOT fire an auto-relaunch (or a git commit)
+    /// against the pre-amend on-disk package. Re-emit + relaunch + commit
+    /// belong on `/confirm`, after the SME re-approves the amended plan.
+    /// Here `/usr/bin/true` stands in for the harness binary: the buggy
+    /// path spawned it against the stale package and registered an
+    /// execution handle; the fixed path registers none.
+    #[tokio::test]
+    async fn amend_endpoint_does_not_commit_or_relaunch_stale_package() {
+        if !std::path::Path::new("/usr/bin/true").exists() {
+            eprintln!("skip: /usr/bin/true missing");
+            return;
+        }
+
+        // A package dir whose WORKFLOW.json carries a Ready task, so the
+        // (buggy) relaunch would find work and actually spawn a harness.
+        let pkg = tempfile::tempdir().unwrap();
+        std::fs::write(
+            pkg.path().join("WORKFLOW.json"),
+            br#"{"tasks":{"align":{"state":{"status":"ready"}}}}"#,
+        )
+        .unwrap();
+
+        // A real composed DAG is required — amend's internal rebuild_dag
+        // needs classification + taxonomy, which the AppendIntakeProse
+        // tool builds.
+        let (router, app) = make_router_with_harness_bin(
+            vec![
+                tool_use(Tool::Batchable(BatchableTool::AppendIntakeProse {
+                    prose: "bulk rna-seq differential expression in human samples".into(),
+                })),
+                assistant("ok."),
+            ],
+            "/usr/bin/true",
+        )
+        .await;
+
+        let (id, _) = app.conversation.start_session(false).await.unwrap();
+        app.conversation
+            .send_turn(id, "set it up".into(), None)
+            .await
+            .unwrap();
+        let pkg_path = pkg.path().to_path_buf();
+        let session = app
+            .conversation
+            .store_handle()
+            .update(id, move |s| {
+                // Force Emitted + warm the dag cache (a real emit does
+                // both) + point at the on-disk package.
+                s.state = SessionState::Emitted;
+                s.emitted_package_path = Some(pkg_path.clone());
+                s.ensure_dag_cached();
+                Ok(())
+            })
+            .await
+            .unwrap();
+        // amend validates the stage against session.dag (the composer
+        // output); pick a real analytical stage from that map.
+        let dag = session.dag.as_ref().expect("composed dag");
+        let stage = dag
+            .tasks
+            .keys()
+            .find(|k| {
+                k.as_str().starts_with("differential_expression")
+                    || k.as_str().starts_with("normalization")
+            })
+            .map(|k| k.to_string())
+            .unwrap_or_else(|| dag.tasks.keys().next().expect("dag has tasks").to_string());
+
+        let before = std::fs::read(pkg.path().join("WORKFLOW.json")).unwrap();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!(
+                "/api/chat/session/{}/task/{}/amend-method",
+                id, stage
+            ))
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"method_prose":"star","rationale":"try STAR"}"#))
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "amend endpoint should succeed"
+        );
+
+        // maybe_auto_relaunch_harness is awaited inside the handler, so by
+        // the time the response returns a (buggy) spawn has already
+        // registered an execution handle; the fire-and-forget git hook
+        // gets a beat too.
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        assert!(
+            app.executions.get(&id).is_none(),
+            "amend must NOT relaunch the harness against the stale package; \
+             re-emit + relaunch belong on /confirm"
+        );
+        let after = std::fs::read(pkg.path().join("WORKFLOW.json")).unwrap();
+        assert_eq!(
+            before, after,
+            "amend must not re-emit or mutate the on-disk package before re-confirm"
+        );
+        drop(pkg);
     }
 }

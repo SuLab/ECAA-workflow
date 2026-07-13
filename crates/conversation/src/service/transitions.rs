@@ -665,9 +665,11 @@ impl ConversationService {
     /// tool body. Holds the session update lock, replays the same
     /// preconditions (Emitted state, stage known, method non-empty,
     /// confirmatory-prespecified ⇒ rationale required), records the
-    /// AmendStage + PostHocDeviation decisions, and leaves the session
-    /// in `ReadyToEmit` so the server's /start-execution or auto-relaunch
-    /// hook can push the amended package back through the harness.
+    /// AmendStage + PostHocDeviation decisions, drains the deferred
+    /// AmendStart → AmendReady triggers, and leaves the session in
+    /// `ReadyToEmit`. It does NOT re-emit: the amended plan reaches disk
+    /// only when the SME re-confirms, which fires the commit + relaunch
+    /// via `/confirm`.
     ///
     /// Returns the list of invalidated task ids on success so the caller
     /// can drive confirmation UX + post a task_reset event to the
