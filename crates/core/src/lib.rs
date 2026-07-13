@@ -138,6 +138,7 @@ pub mod ontology_scope;
 // reproducibility features it physically supports) and reconstruct a
 // WorkflowDag from the on-disk crate. Pure, sync, no tokio.
 pub mod package_import;
+pub mod parameter_override;
 pub mod plot_affordance;
 /// Deterministic zero-JS `ro-crate-preview.html` renderer. Pure function of
 /// the `@graph`; no clock, no RNG, no HashMap, no host paths.
