@@ -542,6 +542,12 @@ function headline(decision: DecisionType): string {
       return `widened ${decision.atom_id}.runtime_packages with ${decision.package} from ${decision.registry}`
     case 'claim_verification':
       return `verified ${decision.n_verified} claim${decision.n_verified === 1 ? '' : 's'} against ${decision.task_id} (${decision.n_mismatch} mismatch${decision.n_mismatch === 1 ? '' : 'es'})`
+    case 'set_task_parameter':
+      return `set ${decision.parameter} on ${decision.task_id}`
+    case 'set_validation_bound':
+      return decision.removed
+        ? `removed validation bound ${decision.bound_id} on ${decision.stage_class}`
+        : `set validation bound ${decision.bound_id} on ${decision.stage_class}`
   }
   // Exhaustiveness: tsc fails when a new DecisionType variant is added
   // upstream and lands in ui/src/types/DecisionType.ts via `make types`.
