@@ -681,6 +681,21 @@ pub enum DecisionType {
         /// N mismatch.
         n_mismatch: usize,
     },
+    /// The SME set (or replaced) a concrete value for a task's declared
+    /// atom parameter via the deterministic parameters REST endpoint. The
+    /// value is the JSON-encoded payload so replay can reconstruct
+    /// `Session.sme_parameter_overrides` exactly. Distinct from
+    /// `SetIntakeField` (which records pre-emission structured intake fields)
+    /// and `AmendStage` (which swaps the *method*, not a parameter value).
+    SetTaskParameter {
+        /// Task whose parameter was overridden (matches a DAG task id).
+        task_id: String,
+        /// The atom parameter name the SME set.
+        parameter: String,
+        /// The concrete value the SME chose.
+        #[ts(type = "unknown")]
+        value: serde_json::Value,
+    },
 }
 
 /// One audit-trail entry. Append-only; the emitter writes these into
@@ -989,6 +1004,11 @@ mod tests {
                 task_id: "differential_expression".into(),
                 n_verified: 18,
                 n_mismatch: 2,
+            },
+            DecisionType::SetTaskParameter {
+                task_id: "align".into(),
+                parameter: "min_mapq".into(),
+                value: serde_json::json!(20),
             },
         ];
         assert_eq!(
