@@ -524,14 +524,18 @@ pub(crate) async fn inherit_branch_artifacts(
         })
         .collect();
 
-    // Missing set: inherited-Completed tasks with no parent artifact dir.
-    // Same skip semantics `inherit_completed_task_dirs` uses (it `continue`s
-    // on a non-existent parent dir), computed independently so the preview
-    // (no child pkg) reports the same ids the copy would skip.
+    // Missing set: inherited-Completed tasks that would inherit ZERO real
+    // artifacts. The preview must mirror what the copy actually delivers, not
+    // mere directory existence: `copy_or_hardlink_tree` skips any file the child
+    // already has (its freshly-emitted `task-spec.json`), so an empty-but-present
+    // parent task dir — or one holding only `task-spec.json` — delivers nothing.
+    // Keying the preview on directory existence alone reported such a task as
+    // present while the copy inherited zero files: the silent-wrong-answer this
+    // feature exists to catch. Count real (non-`task-spec.json`) files instead.
     let parent_outputs_root = parent_pkg.join("runtime").join("outputs");
     let mut missing: Vec<String> = completed
         .iter()
-        .filter(|tid| !parent_outputs_root.join(tid.as_str()).exists())
+        .filter(|tid| parent_task_real_artifact_count(&parent_outputs_root.join(tid.as_str())) == 0)
         .cloned()
         .collect();
     missing.sort();
@@ -861,6 +865,37 @@ fn inherit_completed_task_assumptions(
 /// count of files materialized. Errors propagate from the directory
 /// walk; per-file errors are converted into copy-fallback attempts and
 /// only surface when both link and copy fail.
+/// Count the REAL artifacts a branch would inherit from a parent task dir:
+/// every regular file EXCEPT `task-spec.json`. The child regenerates its own
+/// `task-spec.json` at emit, and `copy_or_hardlink_tree` skips any file the
+/// child already has — so `task-spec.json` never counts as an inherited
+/// artifact. Returns 0 for a missing, empty, or spec-only directory, which is
+/// exactly when the copy delivers nothing. Used by the `artifacts_missing`
+/// preview so it predicts the copy's real delivery rather than mere existence.
+fn parent_task_real_artifact_count(parent_task_dir: &std::path::Path) -> usize {
+    if !parent_task_dir.is_dir() {
+        return 0;
+    }
+    let mut count = 0usize;
+    let mut stack = vec![parent_task_dir.to_path_buf()];
+    while let Some(cur) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&cur) else {
+            continue;
+        };
+        for entry in rd.flatten() {
+            let Ok(ft) = entry.file_type() else {
+                continue;
+            };
+            if ft.is_dir() {
+                stack.push(entry.path());
+            } else if ft.is_file() && entry.file_name() != "task-spec.json" {
+                count += 1;
+            }
+        }
+    }
+    count
+}
+
 fn copy_or_hardlink_tree(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<usize> {
     if !src.exists() {
         return Ok(0);
@@ -1197,6 +1232,95 @@ mod tests {
         );
     }
 
+    /// FIX 5: `apply_branch_edits` validates ALL edits before mutating. A branch
+    /// carrying a valid method AND an invalid parameter must fail 400 and leave
+    /// the child with NO method change (no `AmendStage` decision) — no phantom
+    /// method edit committed ahead of the failed parameter validation.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn branch_with_valid_method_and_invalid_param_leaves_no_phantom_method_edit() {
+        let cfg = augmented_config("differential_expression", MIN_LFC_PARAM);
+        let (router, app) = make_router_with_config(
+            cfg,
+            vec![
+                tool_use(Tool::Batchable(BatchableTool::AppendIntakeProse {
+                    prose: "bulk rna-seq differential expression in human samples".into(),
+                })),
+                assistant("ok."),
+            ],
+        )
+        .await;
+        let (id, _) = app.conversation.start_session(false).await.unwrap();
+        app.conversation
+            .send_turn(id, "set it up".into(), None)
+            .await
+            .unwrap();
+        let parent = app
+            .conversation
+            .store_handle()
+            .update(id, |s| {
+                s.state = SessionState::Emitted;
+                s.emitted_package_path = None;
+                s.ensure_dag_cached();
+                Ok(())
+            })
+            .await
+            .unwrap();
+        let task_id = parent
+            .dag
+            .as_ref()
+            .expect("composed dag")
+            .tasks
+            .iter()
+            .find(|(_, t)| t.source_atom_id.as_deref() == Some("differential_expression"))
+            .map(|(k, _)| k.to_string())
+            .expect("a task backed by the differential_expression atom");
+
+        // Valid method + a type-mismatched min_lfc (declared `number`, sent a
+        // string) — the parameter validation must reject the whole request.
+        let body = serde_json::json!({
+            "task_id": task_id,
+            "edits": {
+                "method": "use DESeq2 with apeglm shrinkage",
+                "parameters": { "min_lfc": "not-a-number" }
+            }
+        })
+        .to_string();
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/chat/session/{}/branch", id))
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::BAD_REQUEST,
+            "an invalid parameter must fail the branch edit with 400"
+        );
+
+        // The child was persisted (unedited) before the edit failed; it must
+        // carry NO AmendStage decision (the phantom method edit the old order
+        // would have committed before validating the bad parameter).
+        let children = app.conversation.children_of(id).await;
+        assert_eq!(children.len(), 1, "exactly one child must be persisted");
+        let child = &children[0];
+        assert!(
+            !child.decisions.iter().any(|d| matches!(
+                &d.decision,
+                ecaa_workflow_core::decision_log::DecisionType::AmendStage { .. }
+            )),
+            "no AmendStage decision (phantom method edit) must be recorded on the child"
+        );
+        assert!(
+            !child.intake_methods.0.contains_key(&task_id),
+            "no method override must be committed for the task on the child"
+        );
+    }
+
     /// Task 5.4: when an inherited-Completed task's parent artifact dir is
     /// missing, the branch response surfaces its id in `artifacts_missing`
     /// so the SME sees the gap (the real carry-over runs at the child's
@@ -1249,6 +1373,225 @@ mod tests {
         assert!(
             missing.iter().any(|v| v == "t_done"),
             "branch response must report the missing inherited artifact, got {missing:?}"
+        );
+    }
+
+    /// FIX 1 (branch leg): a branch of an ALREADY-EMITTED parent stages the
+    /// child at PendingConfirmation; the SME's `/confirm` then drives the child
+    /// all the way to Emitted (no illegal-transition 400) AND
+    /// `fire_auto_emit_postlogic` carries over the parent's completed-task
+    /// artifacts into the child package.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
+    async fn branch_of_emitted_parent_confirm_emits_child_and_inherits_artifacts() {
+        use ecaa_workflow_core::dag::TaskState;
+
+        let pkg_root = tempfile::tempdir().unwrap();
+        let prev_root = std::env::var("ECAA_PACKAGE_ROOT").ok();
+        std::env::set_var("ECAA_PACKAGE_ROOT", pkg_root.path());
+
+        let (router, app) = make_router(vec![
+            tool_use(Tool::Batchable(BatchableTool::AppendIntakeProse {
+                prose: "bulk rna-seq differential expression in human samples".into(),
+            })),
+            assistant("ok."),
+        ])
+        .await;
+        let (parent_id, _) = app.conversation.start_session(false).await.unwrap();
+        app.conversation
+            .send_turn(parent_id, "set it up".into(), None)
+            .await
+            .unwrap();
+
+        // Emit the parent for real so it has a valid package to fork + diff from.
+        let parent_dir = tempfile::tempdir().unwrap();
+        let mut parent_session = app.conversation.get_session(parent_id).await.unwrap();
+        ecaa_workflow_conversation::emit::emit_with_conversation_log(
+            &mut parent_session,
+            parent_dir.path(),
+            &crate::chat_routes::test_support::config_dir(),
+        )
+        .await
+        .expect("parent emit must succeed");
+
+        // Pick a real task and mark it Completed with a materialized artifact.
+        let task_id = parent_session
+            .dag
+            .as_ref()
+            .expect("composed dag")
+            .tasks
+            .keys()
+            .next()
+            .expect("dag has tasks")
+            .to_string();
+        let task_out = parent_dir
+            .path()
+            .join("runtime")
+            .join("outputs")
+            .join(&task_id);
+        std::fs::create_dir_all(&task_out).unwrap();
+        std::fs::write(task_out.join("result.json"), r#"{"ok":true}"#).unwrap();
+
+        app.conversation
+            .store_handle()
+            .update(parent_id, |s| {
+                s.state = SessionState::Emitted;
+                s.emitted_package_path = Some(parent_dir.path().to_path_buf());
+                s.task_states.insert(
+                    task_id.clone(),
+                    TaskState::Completed {
+                        result: serde_json::json!({}),
+                    },
+                );
+                Ok(())
+            })
+            .await
+            .unwrap();
+
+        // Branch (session-scoped) — the child stages at PendingConfirmation.
+        let resp = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/chat/session/{}/branch", parent_id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let child_id = body_json(resp.into_body()).await["branched_session_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let child = app
+            .conversation
+            .get_session(Uuid::parse_str(&child_id).unwrap())
+            .await
+            .unwrap();
+        assert!(
+            matches!(child.state, SessionState::PendingConfirmation { .. }),
+            "branch child must stage at PendingConfirmation, got {:?}",
+            child.state
+        );
+
+        // The SME confirms the child → it must emit (no 400) + inherit artifacts.
+        let resp = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/chat/session/{}/confirm", child_id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::NO_CONTENT,
+            "confirming the branch child must succeed (no illegal-transition 400)"
+        );
+
+        let child = app
+            .conversation
+            .get_session(Uuid::parse_str(&child_id).unwrap())
+            .await
+            .unwrap();
+        assert!(
+            matches!(child.state, SessionState::Emitted),
+            "child must reach Emitted after confirm, got {:?}",
+            child.state
+        );
+        let child_pkg = child
+            .emitted_package_path
+            .clone()
+            .expect("child must have emitted a package");
+        let inherited = child_pkg
+            .join("runtime")
+            .join("outputs")
+            .join(&task_id)
+            .join("result.json");
+        assert!(
+            inherited.is_file(),
+            "child package must inherit the parent's completed-task artifact at {}",
+            inherited.display()
+        );
+
+        match prev_root {
+            Some(v) => std::env::set_var("ECAA_PACKAGE_ROOT", v),
+            None => std::env::remove_var("ECAA_PACKAGE_ROOT"),
+        }
+    }
+
+    /// FIX 7: the `artifacts_missing` preview must key on real files, not mere
+    /// directory existence. An inherited-Completed task whose parent dir is
+    /// present-but-empty (or holds only task-spec.json) delivers zero artifacts,
+    /// so it must be reported missing; a task with a real artifact must not.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn branch_reports_empty_parent_task_dir_as_missing() {
+        use ecaa_workflow_core::dag::TaskState;
+        let pkg = tempfile::tempdir().unwrap();
+        let outputs = pkg.path().join("runtime").join("outputs");
+        // t_empty: present-but-empty dir → delivers nothing.
+        std::fs::create_dir_all(outputs.join("t_empty")).unwrap();
+        // t_spec_only: dir with ONLY task-spec.json → delivers nothing.
+        std::fs::create_dir_all(outputs.join("t_spec_only")).unwrap();
+        std::fs::write(outputs.join("t_spec_only").join("task-spec.json"), "{}").unwrap();
+        // t_real: dir with a real artifact → delivers one file.
+        std::fs::create_dir_all(outputs.join("t_real")).unwrap();
+        std::fs::write(outputs.join("t_real").join("result.json"), "{\"ok\":true}").unwrap();
+
+        let (router, app) = make_router(vec![]).await;
+        let parent_id =
+            seed_session_with_completed_task(&app, "t_real", Some(pkg.path().to_path_buf())).await;
+        app.conversation
+            .store_handle()
+            .update(parent_id, |s| {
+                s.state = SessionState::Emitted;
+                for tid in ["t_empty", "t_spec_only", "t_real"] {
+                    s.task_states.insert(
+                        tid.to_string(),
+                        TaskState::Completed {
+                            result: serde_json::json!({}),
+                        },
+                    );
+                }
+                Ok(())
+            })
+            .await
+            .unwrap();
+
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/chat/session/{}/branch", parent_id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp.into_body()).await;
+        let missing: Vec<String> = body["artifacts_missing"]
+            .as_array()
+            .expect("artifacts_missing array")
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect();
+        assert!(
+            missing.contains(&"t_empty".to_string()),
+            "empty parent task dir must be reported missing, got {missing:?}"
+        );
+        assert!(
+            missing.contains(&"t_spec_only".to_string()),
+            "spec-only parent task dir must be reported missing, got {missing:?}"
+        );
+        assert!(
+            !missing.contains(&"t_real".to_string()),
+            "a parent task dir with a real artifact must NOT be reported missing, got {missing:?}"
         );
     }
 
