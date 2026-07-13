@@ -159,7 +159,7 @@ impl Session {
         } else {
             Some(parent.conversation.len())
         };
-        Self {
+        let mut child = Self {
             // Branched sessions inherit the parent's schema_version
             // so an upcasting migration that's already touched the
             // parent doesn't need to re-run on the child. Per S9.7.
@@ -370,7 +370,35 @@ impl Session {
             // dataset is shared by the branch (inherited intake_prose), so
             // the counts-first default stays armed on the child.
             probed_counts_matrix_available: parent.probed_counts_matrix_available,
-        }
+        };
+
+        // HMAC decision-chain continuity attestation across the fork.
+        // The child inherited the parent's signed `decisions` but minted a
+        // FRESH `audit_writer_secret` above, so a verifier walking the
+        // child's full log would see a key seam at the branch point. Record
+        // the seam explicitly as the child's FIRST own decision — signed
+        // (at the child's emit) under the child key — so the discontinuity
+        // reads as provenance, not corruption. Reuses the existing
+        // `LifecycleTransition` payload (no new `DecisionType`, so
+        // `DecisionType::COUNT` is unchanged). `parent_last_decision_index`
+        // is the count of inherited parent decisions, i.e. the index at
+        // which the child's own chain begins.
+        let attestation_payload = serde_json::json!({
+            "parent_session_id": parent.id.to_string(),
+            "branched_from_turn_index": turn_index,
+            "parent_last_decision_index": parent.decisions.len(),
+        })
+        .to_string();
+        child.record_decision(
+            ecaa_workflow_core::decision_log::DecisionType::LifecycleTransition {
+                transition_kind: "branch_fork".to_string(),
+                payload: attestation_payload,
+            },
+            ecaa_workflow_core::decision_log::DecisionActor::Sme,
+            None,
+        );
+
+        child
     }
 }
 
@@ -471,5 +499,60 @@ mod branch_from_exhaustiveness {
             probed_processed_only: _,
             probed_counts_matrix_available: _,
         } = child;
+    }
+}
+
+#[cfg(test)]
+mod branch_key_seam {
+    //! Task 5.3 — the branch-fork HMAC decision-chain continuity
+    //! attestation. A branched child mints a fresh `audit_writer_secret`
+    //! but inherits the parent's (parent-key-signed) `decisions`; the
+    //! attestation records the key seam as the child's FIRST own decision
+    //! so a verifier reads the discontinuity as provenance.
+    use super::Session;
+    use ecaa_workflow_core::decision_log::{DecisionActor, DecisionType};
+
+    #[test]
+    fn branch_records_key_seam_attestation_as_first_child_decision() {
+        let mut parent = Session::new(false);
+        // Give the parent a couple of pre-fork decisions so the seam sits
+        // after real inherited history, not at index 0.
+        parent.record_decision(DecisionType::Unblock, DecisionActor::Sme, None);
+        parent.record_decision(DecisionType::Unblock, DecisionActor::Sme, None);
+        let parent_len = parent.decisions.len();
+
+        let child = Session::branch_from(&parent, false);
+
+        // The child inherits every parent decision plus exactly one
+        // child-authored attestation appended at the seam.
+        assert_eq!(
+            child.decisions.len(),
+            parent_len + 1,
+            "child must inherit parent decisions and append exactly one attestation"
+        );
+        let seam = &child.decisions[parent_len];
+        match &seam.decision {
+            DecisionType::LifecycleTransition {
+                transition_kind,
+                payload,
+            } => {
+                assert_eq!(transition_kind, "branch_fork");
+                let v: serde_json::Value = serde_json::from_str(payload).unwrap();
+                assert_eq!(v["parent_session_id"], parent.id.to_string());
+                assert_eq!(
+                    v["parent_last_decision_index"],
+                    serde_json::json!(parent_len)
+                );
+            }
+            other => panic!("expected branch_fork LifecycleTransition, got {other:?}"),
+        }
+        // The seam is authored by the SME actor (the fork is an SME action).
+        assert!(matches!(seam.actor, DecisionActor::Sme));
+        // Fresh child key: the seam decision is signed (at the child's
+        // emit) under a key distinct from the parent's.
+        assert_ne!(
+            child.audit_writer_secret, parent.audit_writer_secret,
+            "branched child must mint a fresh audit_writer_secret"
+        );
     }
 }
