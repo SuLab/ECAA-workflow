@@ -180,6 +180,23 @@ async fn emit_steps(
     config_dir: &Path,
     tier: ecaa_workflow_core::provenance_tiers::ProvenanceTier,
 ) -> Result<()> {
+    // Recompute readiness at emit. `ensure_dag_cached` overlays the latest
+    // `task_states` onto the derived DAG; the fresh build's own
+    // `propagate_readiness` ran BEFORE that overlay, so a post-amend /
+    // post-branch frontier task whose upstream deps are now Completed would
+    // otherwise serialize as Pending — and the server's `has_ready_task`
+    // gate (`execution/start.rs`) would find no ready task and skip
+    // auto-relaunch. Re-run `propagate_readiness` on the overlaid DAG, the
+    // same call the harness makes, so the serialized WORKFLOW.json marks
+    // the frontier Ready. Deterministic: `propagate_readiness` is a pure
+    // function of the task states, so a fresh emit (empty `task_states`,
+    // entry tasks already Ready from the build) is byte-unchanged
+    // (idempotent).
+    session.ensure_dag_cached();
+    if let Some(dag) = session.dag.as_mut() {
+        dag.propagate_readiness();
+    }
+
     let dag = session
         .dag
         .as_ref()
@@ -2000,5 +2017,84 @@ mod tests {
                 _ => {}
             }
         }
+    }
+
+    /// Task 5.2 — recompute readiness at emit. After an amend/param edit,
+    /// the completed-upstream overlay lands AFTER the fresh build's
+    /// `propagate_readiness`, so a frontier task whose deps are now
+    /// Completed would serialize as Pending and the server's
+    /// `has_ready_task` gate would skip auto-relaunch. The emit path must
+    /// re-run `propagate_readiness` so the frontier serializes as Ready.
+    #[tokio::test]
+    async fn reemit_marks_frontier_ready_when_upstream_completed() {
+        use ecaa_workflow_core::dag::TaskState;
+
+        let mut session = Session::new(false);
+        let ctx = ToolContext::new(config_dir(), "claude-sonnet-4-6");
+        dispatch_one(
+            &Tool::Batchable(BatchableTool::AppendIntakeProse {
+                prose: "single cell scRNA-seq from human IVD samples".into(),
+            }),
+            &mut session,
+            &ctx,
+        )
+        .await;
+
+        let tmp1 = tempfile::tempdir().unwrap();
+        emit_with_conversation_log(&mut session, tmp1.path(), &config_dir())
+            .await
+            .unwrap();
+
+        // Pick a frontier task: one with at least one dependency and no
+        // conditional-execution spec (so `propagate_readiness` promotes it
+        // to Ready rather than evaluating a condition).
+        let dag = session.current_dag().expect("composed dag");
+        let frontier = dag
+            .tasks
+            .iter()
+            .find(|(_, t)| {
+                !t.depends_on.is_empty()
+                    && t.spec
+                        .as_ref()
+                        .and_then(|s| s.get("condition"))
+                        .is_none()
+            })
+            .map(|(k, _)| k.to_string())
+            .expect("a non-conditional task with dependencies");
+
+        // Mark every OTHER task Completed so the frontier's deps are all
+        // done. This mirrors a post-amend session whose upstream ran.
+        let all_ids: Vec<String> = dag.tasks.keys().map(|k| k.to_string()).collect();
+        for id in &all_ids {
+            if id != &frontier {
+                session.set_task_state(
+                    id,
+                    TaskState::Completed {
+                        result: serde_json::json!({}),
+                    },
+                );
+            }
+        }
+        // Warm the derived cache with the Completed overlay but WITHOUT
+        // readiness propagation, isolating the emit-time recompute from the
+        // cache-repopulation path. Without the fix the frontier stays
+        // Pending here and serializes as "pending"; with the fix the emit
+        // path re-runs propagate_readiness and it serializes as "ready".
+        session.ensure_dag_cached();
+
+        let tmp2 = tempfile::tempdir().unwrap();
+        emit_with_conversation_log(&mut session, tmp2.path(), &config_dir())
+            .await
+            .unwrap();
+
+        let wf: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(tmp2.path().join("WORKFLOW.json")).unwrap())
+                .unwrap();
+        assert_eq!(
+            wf["tasks"][frontier.as_str()]["state"]["status"],
+            serde_json::json!("ready"),
+            "frontier task with all-Completed upstream must serialize as ready; got {:?}",
+            wf["tasks"][frontier.as_str()]["state"]
+        );
     }
 }
