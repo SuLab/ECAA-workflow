@@ -81,6 +81,9 @@ import type { DispositionStatus } from '../types/DispositionStatus'
 import type { AuditProofReport } from '../types/AuditProofReport'
 import type { ReplayReport } from '../types/ReplayReport'
 import type { PackageCapabilities } from '../types/PackageCapabilities'
+import type { TaskParametersResponse } from '../types/TaskParametersResponse'
+import type { BranchEdits } from '../types/BranchEdits'
+import type { SmeValidationBound } from '../types/SmeValidationBound'
 import {
   ApiClientError,
   FetchError,
@@ -1778,6 +1781,81 @@ export async function postRerun(
   })
 }
 
+// ── SME task-parameter overrides ────────────────────────────────────
+// Deterministic REST channel (no LLM Tool) for the SME to bind concrete
+// values to an atom's declared ParameterSpec. Mirrors postAmendMethod's
+// error surfacing (400 with a reason string on any spec-validation
+// failure); the drawer catches and shows the message inline.
+
+/// Fetch the editable parameter schema + current SME overrides for a
+/// task. Pure GET. Powers the TaskParameterEditor.
+export async function getTaskParameters(
+  sessionId: string,
+  taskId: string,
+): Promise<TaskParametersResponse> {
+  const url = `/api/chat/session/${encodeURIComponent(
+    sessionId,
+  )}/task/${encodeURIComponent(taskId)}/parameters`
+  return jsonFetch(url)
+}
+
+export interface SetTaskParametersResponse {
+  task_id: string
+  invalidated_tasks: string[]
+}
+
+/// Set the SME's applied-parameter overrides for a task. The server
+/// validates each value against the atom's ParameterSpec, records a
+/// DecisionRecord per changed key, invalidates the forward slice, and
+/// leaves the session ReadyToEmit (the SME re-confirms to re-emit).
+/// Throws on 400 (value not in allowed set / type mismatch / unknown
+/// parameter); the caller surfaces the reason string inline.
+export async function setTaskParameters(
+  sessionId: string,
+  taskId: string,
+  opts: { overrides: Record<string, unknown>; rationale?: string },
+): Promise<SetTaskParametersResponse> {
+  const url = `/api/chat/session/${encodeURIComponent(
+    sessionId,
+  )}/task/${encodeURIComponent(taskId)}/parameters`
+  return jsonFetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      overrides: opts.overrides,
+      rationale: opts.rationale ?? null,
+    }),
+  })
+}
+
+export interface SetValidationBoundRequest {
+  stage_class?: string
+  /** A full bound to add/replace; `null` removes the bound by `bound_id`. */
+  bound?: SmeValidationBound | null
+  bound_id?: string
+  rationale?: string
+}
+
+/// Add / replace / remove an SME-authored validation bound on a task's
+/// stage. Post-hoc harness enforcement, so it does NOT invalidate the
+/// DAG, but it changes the emit shape (contract file) → clears the
+/// confirmation and leaves the session ReadyToEmit. Returns `{ok:true}`
+/// on success; we ignore the body.
+export async function setValidationBound(
+  sessionId: string,
+  taskId: string,
+  req: SetValidationBoundRequest,
+): Promise<void> {
+  const url = `/api/chat/session/${encodeURIComponent(
+    sessionId,
+  )}/task/${encodeURIComponent(taskId)}/validation-bound`
+  await voidFetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  })
+}
+
 // HTTP-DTO wrapping a list of decisions. The inner shape is
 // structurally the ts-rs `DecisionRecord` (re-exported above) but uses
 // a loose `Record<string, unknown> & { kind: string }` for `decision`
@@ -2043,15 +2121,22 @@ export async function getHarnessEventsBacklog(
 interface BranchResponseWire {
   session_id?: string
   branched_session_id?: string
+  /**
+   * Phase-5 addition: task ids whose inherited artifacts could not be
+   * copied to the child. Consumed defensively — absent on servers that
+   * predate the field, so callers must null-check before use.
+   */
+  artifacts_missing?: string[]
 }
 
 export async function postBranch(
   sessionId: string,
-  opts: { rationale?: string; taskId?: string },
-): Promise<{ session_id: string }> {
-  const body: Record<string, string> = {}
+  opts: { rationale?: string; taskId?: string; edits?: BranchEdits },
+): Promise<{ session_id: string; artifacts_missing?: string[] }> {
+  const body: Record<string, unknown> = {}
   if (opts.rationale) body.rationale = opts.rationale
   if (opts.taskId) body.task_id = opts.taskId
+  if (opts.edits) body.edits = opts.edits
   const response = await jsonFetch<BranchResponseWire>(
     `/api/chat/session/${encodeURIComponent(sessionId)}/branch`,
     {
@@ -2064,7 +2149,7 @@ export async function postBranch(
   if (!childId) {
     throw new Error('branch response did not include a child session id')
   }
-  return { session_id: childId }
+  return { session_id: childId, artifacts_missing: response.artifacts_missing }
 }
 
 // ── SME data inputs ─────────────────────────────────────────────────
