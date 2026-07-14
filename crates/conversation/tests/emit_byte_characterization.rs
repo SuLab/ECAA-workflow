@@ -62,11 +62,26 @@ fn normalize(raw: &str, output_dir: &Path) -> String {
     // normalize it so `runtime/validation-summary.json`'s deterministic
     // fields stay covered without the timing field masking a real diff.
     let dur = regex::Regex::new(r#""duration_ms":\s*\d+"#).unwrap();
+    // Source-commit provenance is legitimately volatile — the `#ecaa-workflow`
+    // compiler `softwareVersion` is the build's git SHA (a bare 7-40 hex run,
+    // distinct from dotted tool/image versions) and varies per checkout, like
+    // `dateCreated`. Normalize it, and strip the dirty-only PropertyValue, so
+    // the golden reflects content + ordering rather than the build's commit.
+    let commit = regex::Regex::new(r#""softwareVersion":\s*"[0-9a-f]{7,40}(?:-dirty)?""#).unwrap();
+    let dirty = regex::Regex::new(
+        r#",\s*"additionalProperty":\s*\[\s*\{[^}]*"source_tree_dirty"[^}]*\}\s*\]"#,
+    )
+    .unwrap();
     let stripped = raw.replace(&output_dir.display().to_string(), "<PKG>");
     let stripped = ts.replace_all(&stripped, "<TS>").into_owned();
     let stripped = wf.replace_all(&stripped, "workflow-<ID>").into_owned();
-    dur.replace_all(&stripped, r#""duration_ms": <DUR>"#)
-        .into_owned()
+    let stripped = dur
+        .replace_all(&stripped, r#""duration_ms": <DUR>"#)
+        .into_owned();
+    let stripped = commit
+        .replace_all(&stripped, r#""softwareVersion": "<COMMIT>""#)
+        .into_owned();
+    dirty.replace_all(&stripped, "").into_owned()
 }
 
 async fn emit_and_read_metadata(dir: &Path) -> String {
