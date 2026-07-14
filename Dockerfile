@@ -30,8 +30,15 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/app/target \
     cargo chef cook --release --recipe-path recipe.json
 COPY . .
+# Host-resolved source commit (build-server-image.sh computes it where git state
+# is accurate). build.rs prefers this over its own in-container `git`, which
+# would falsely see the tree dirty because .dockerignore omits tracked-but-
+# build-irrelevant files (.cargo/config.toml, docs/*). Empty → build.rs falls
+# back to git; the build script always passes a non-empty value.
+ARG ECAA_SOURCE_COMMIT=
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/app/target \
+    ECAA_SOURCE_COMMIT="$ECAA_SOURCE_COMMIT" \
     cargo build --release \
       --bin ecaa-workflow-server \
       --bin ecaa-workflow-harness \
