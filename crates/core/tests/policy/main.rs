@@ -7,6 +7,7 @@ mod authority_provenance;
 mod blocker_variant_count;
 mod boundary_actionability_coverage;
 mod claim_entity_coverage;
+mod claim_status_variant_count;
 mod compatibility_proof_evidence;
 mod config_parse;
 mod cost_arithmetic;

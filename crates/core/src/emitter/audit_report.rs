@@ -264,12 +264,18 @@ pub(super) fn write_audit_report(dst: &Path) -> Result<()> {
                     shown += 1;
                 }
             }
-            let pending = arr.iter().filter(|v| s(g(v, "status")) == "pending").count();
+            let pending = arr
+                .iter()
+                .filter(|v| {
+                    let st = s(g(v, "status"));
+                    st == "pending" || st == "unverifiable"
+                })
+                .count();
             if pending > 0 {
                 let _ = writeln!(
                     m,
-                    "\n_{} pending (literature-direction / interpretation / \
-                     stage-summary) claims not enumerated; see \
+                    "\n_{} unverifiable/pending (literature-direction / \
+                     interpretation / stage-summary) claims not enumerated; see \
                      `runtime/claim-verification.json`._",
                     pending
                 );

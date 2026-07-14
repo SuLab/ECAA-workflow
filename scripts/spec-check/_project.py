@@ -297,10 +297,18 @@ def project_claim_verdicts(claim_doc):
             continue
         cid = v.get("claim_id") or f"claim_{idx:03d}"
         cid_token = _curie_token(cid)
+        raw_status = v.get("status", "pending")
+        # The impl-level sink carries a richer status vocabulary than the closed
+        # §5.5 spec set {verified, pending, contradicted}. `unverifiable`
+        # (checked-but-undeterminable) has no spec home; it collapses to
+        # `pending` — an acknowledged non-grounded state — mirroring the Rust
+        # `ecaa_projection::map_claim_status` boundary so the projected ABox
+        # stays inside the closed enum.
+        status = "pending" if raw_status == "unverifiable" else raw_status
         node = {
             "id": f"ecaa:claim:{cid_token}",
             "type": "Claim",
-            "status": v.get("status", "pending"),
+            "status": status,
         }
         refs = v.get("supported_by")
         if isinstance(refs, list):

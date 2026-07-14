@@ -182,12 +182,39 @@ pub fn build_metadata(
             "name": "ECAA-workflow DAG",
             "version": &dag.version
         }),
-        // Publisher
-        json!({
-            "@id": "#ecaa-workflow",
-            "@type": "Organization",
-            "name": "ecaa-workflow"
-        }),
+        // Publisher — the ecaa-workflow compiler that authored this crate. The
+        // source commit is baked in at build time (build.rs → the
+        // `ECAA_SOURCE_COMMIT` compile-time const), so the emitted crate records
+        // exactly which compiler revision produced it. The const is fixed per
+        // binary, so this stays byte-reproducible across repeated emits.
+        {
+            let source_commit = env!("ECAA_SOURCE_COMMIT");
+            let mut publisher = json!({
+                "@id": "#ecaa-workflow",
+                "@type": "Organization",
+                "name": "ecaa-workflow"
+            });
+            if source_commit != "unknown" {
+                let obj = publisher
+                    .as_object_mut()
+                    .expect("publisher is a JSON object literal above");
+                obj.insert("softwareVersion".to_string(), json!(source_commit));
+                // A `-dirty` suffix means the tree had uncommitted changes at
+                // build time; surface that explicitly so a reader never mistakes
+                // a dirty build for a clean tagged one.
+                if source_commit.ends_with("-dirty") {
+                    obj.insert(
+                        "additionalProperty".to_string(),
+                        json!([{
+                            "@type": "PropertyValue",
+                            "name": "source_tree_dirty",
+                            "value": true
+                        }]),
+                    );
+                }
+            }
+            publisher
+        },
         // SME role — used as agent on actions that record compile-time resolutions
         json!({
             "@id": "#sme",

@@ -39,8 +39,12 @@
     {
       "@type": "Person",
       "givenName": "Alan",
-      "familyName": "Bell",
-      "email": "alan@hueb.org"
+      "familyName": "Huebschen",
+      "email": "ahuebschen@scripps.edu",
+      "affiliation": {
+        "@type": "Organization",
+        "name": "The Scripps Research Institute"
+      }
     }
   ],
   "developmentStatus": "active",
