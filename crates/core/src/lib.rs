@@ -85,6 +85,7 @@ pub mod determinism_shim;
 pub mod disambiguation;
 pub mod disposition;
 pub mod edam;
+pub mod edam_labels;
 pub mod emission_invariants;
 /// Emitter module.
 pub mod emitter;

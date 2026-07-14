@@ -335,24 +335,57 @@ fn run_list(kind: ListKind, config: &str, as_json: bool) -> Result<()> {
             let registry =
                 ecaa_workflow_core::archetype_registry::ArchetypeRegistry::load_from_dir(&dir)?;
             if as_json {
+                use ecaa_workflow_core::edam_labels::edam_label;
+                // Catalog row (Application-Note Table S3): per primary archetype
+                // — id, version, project class, modality hint (fallback: project
+                // class), the goal data/format EDAM IRI + resolved human label
+                // ("N/A" when an IRI is empty or unmapped), description, and an
+                // `executed` flag defaulting false (deposit state is never
+                // hardcoded into the catalog).
                 #[derive(serde::Serialize)]
-                struct Row<'a> {
-                    id: &'a str,
-                    version: &'a str,
-                    project_class: &'a str,
-                    goal_data: &'a str,
-                    goal_format: Option<&'a str>,
-                    description: &'a str,
+                struct Row {
+                    id: String,
+                    version: String,
+                    project_class: String,
+                    modality_hint: String,
+                    goal_data: String,
+                    goal_data_label: String,
+                    goal_format: String,
+                    goal_format_label: String,
+                    description: String,
+                    executed: bool,
                 }
+                let iri_or_na = |iri: &str| -> String {
+                    if iri.trim().is_empty() {
+                        "N/A".to_string()
+                    } else {
+                        iri.to_string()
+                    }
+                };
+                let label_or_na = |iri: &str| -> String {
+                    edam_label(iri)
+                        .map(str::to_string)
+                        .unwrap_or_else(|| "N/A".to_string())
+                };
                 let rows: Vec<Row> = registry
                     .iter()
-                    .map(|(_, a)| Row {
-                        id: &a.id,
-                        version: &a.version,
-                        project_class: &a.project_class,
-                        goal_data: &a.goal_data,
-                        goal_format: a.goal_format.as_deref(),
-                        description: &a.description,
+                    .map(|(_, a)| {
+                        let goal_format = a.goal_format.as_deref().unwrap_or("");
+                        Row {
+                            id: a.id.clone(),
+                            version: a.version.clone(),
+                            project_class: a.project_class.clone(),
+                            modality_hint: a
+                                .modality_hint
+                                .clone()
+                                .unwrap_or_else(|| a.project_class.clone()),
+                            goal_data: iri_or_na(&a.goal_data),
+                            goal_data_label: label_or_na(&a.goal_data),
+                            goal_format: iri_or_na(goal_format),
+                            goal_format_label: label_or_na(goal_format),
+                            description: a.description.clone(),
+                            executed: false,
+                        }
                     })
                     .collect();
                 println!("{}", serde_json::to_string_pretty(&rows)?);
