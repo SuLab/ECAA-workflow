@@ -587,8 +587,20 @@ impl Session {
         turn.confirmation_card = Some(card);
         std::sync::Arc::make_mut(&mut self.conversation).push(turn);
         // ReadyToEmit → PendingConfirmation (added arm). Infallible given the
-        // guard above; tolerate an unexpected state without panicking.
-        let _ = self.try_transition(crate::session::StateTrigger::ProposeSummaryConfirmation);
+        // guard above; tolerate an unexpected state without panicking, but log
+        // it (silent `let _ = ...try_transition` drops are forbidden — they hide
+        // exactly this class of state race).
+        if let Err(e) =
+            self.try_transition(crate::session::StateTrigger::ProposeSummaryConfirmation)
+        {
+            tracing::warn!(
+                session_id = %self.id,
+                trigger = "ProposeSummaryConfirmation",
+                state = ?self.state,
+                error = %e,
+                "raise_reemit_confirmation: unexpected transition failure (tolerated)"
+            );
+        }
     }
 
     pub fn current_summary_hash(&self) -> String {

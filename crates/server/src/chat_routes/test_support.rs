@@ -112,11 +112,19 @@ pub fn augmented_config(atom_id: &str, param_yaml: &str) -> PathBuf {
         std::os::unix::fs::symlink(entry.path(), atoms_dst.join(&name)).unwrap();
     }
     let original = std::fs::read_to_string(atoms_src.join(&target_file)).unwrap();
-    std::fs::write(
-        atoms_dst.join(&target_file),
-        format!("{original}\n{param_yaml}\n"),
-    )
-    .unwrap();
+    // Merge the injected block into the atom, REPLACING any key of the same name
+    // rather than appending. Real atoms now declare their own `parameters:`
+    // block (config/stage-atoms/*.yaml), and a naive text append would produce a
+    // duplicate `parameters:` key that breaks atom load (→ no composed DAG).
+    let mut doc: serde_yaml_ng::Value = serde_yaml_ng::from_str(&original).unwrap();
+    let inject: serde_yaml_ng::Value = serde_yaml_ng::from_str(param_yaml).unwrap();
+    if let (Some(map), Some(inj)) = (doc.as_mapping_mut(), inject.as_mapping()) {
+        for (k, v) in inj {
+            map.insert(k.clone(), v.clone());
+        }
+    }
+    let merged = serde_yaml_ng::to_string(&doc).unwrap();
+    std::fs::write(atoms_dst.join(&target_file), merged).unwrap();
     std::mem::forget(tmp);
     cfg
 }
