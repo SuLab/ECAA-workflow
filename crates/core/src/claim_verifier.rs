@@ -204,7 +204,9 @@ fn package_relative_label(path: &Path, package_root: &Path) -> String {
 }
 
 /// Per-claim verdict.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, PartialEq, TS, strum::EnumCount, schemars::JsonSchema,
+)]
 #[ts(export)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum ClaimStatus {

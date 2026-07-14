@@ -277,11 +277,12 @@ fn pyshacl_shape_verdicts(pkg: &Path) -> BTreeMap<String, bool> {
     v
 }
 
-/// Build a `ClaimVerificationReport` carrying ONE `pending` (Unverifiable)
-/// verdict so the projected ABox contains a real `ecaa:Claim` node — i.e.
-/// `ClaimCompletenessShape` binds NON-vacuously (it has a focus node and
-/// actively evaluates the `pending OR supported_by` `sh:or`). The Rust
-/// `check_claim_completeness` reads the same signed sink.
+/// Build a `ClaimVerificationReport` carrying ONE `Unverifiable` verdict
+/// (impl wire status `unverifiable`, which the spec projection collapses to
+/// the closed-set `pending`) so the projected ABox contains a real
+/// `ecaa:Claim` node — i.e. `ClaimCompletenessShape` binds NON-vacuously (it
+/// has a focus node and actively evaluates the `pending OR supported_by`
+/// `sh:or`). The Rust `check_claim_completeness` reads the same signed sink.
 fn pending_one_claim_report() -> ecaa_workflow_core::claim_verifier::ClaimVerificationReport {
     use ecaa_workflow_core::claim_contract::ClaimContract;
     use ecaa_workflow_core::claim_extractor::Claim;
@@ -316,11 +317,12 @@ fn pending_one_claim_report() -> ecaa_workflow_core::claim_verifier::ClaimVerifi
                 keyed_column: None,
                 keyed_value: None,
             },
-            // Projects to `status: "pending"` with empty supported_by →
-            // satisfies ClaimCompletenessShape AND leaves Inv 5 (no
-            // targetObjectsOf supported_by focus nodes) untouched.
+            // Sink wire status `unverifiable`, collapsed to spec `pending` in
+            // the projected ABox, with empty supported_by → satisfies
+            // ClaimCompletenessShape AND leaves Inv 5 (no targetObjectsOf
+            // supported_by focus nodes) untouched.
             status: ClaimStatus::Unverifiable {
-                reason: "no cited table — pending".into(),
+                reason: "no cited table — unverifiable".into(),
             },
             strength: ClaimStrength::Exploratory,
         }],

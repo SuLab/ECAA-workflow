@@ -101,9 +101,13 @@ pub fn project_verdict_rows(
                         .collect();
                     ("verified", supported)
                 }
-                ClaimStatus::Unverifiable { .. } => ("pending", Vec::new()),
-                // Never-adjudicated claims project the same way as
-                // checked-but-undeterminable ones: a non-verified, non-blocking
+                // A table WAS loaded and checked but yielded nothing
+                // determinable (no effect/p column, entity not in any
+                // configured entity column, etc.). Externally distinct from
+                // never-adjudicated `Pending` so the two coverage buckets stay
+                // honest on the wire.
+                ClaimStatus::Unverifiable { .. } => ("unverifiable", Vec::new()),
+                // Never-adjudicated claims: a non-verified, non-blocking
                 // "pending" audit-proof row carrying no supported_by evidence.
                 ClaimStatus::Pending { .. } => ("pending", Vec::new()),
                 ClaimStatus::Mismatch { .. } => ("mismatch", Vec::new()),
@@ -345,8 +349,10 @@ pub fn refresh_plaintext_sidecar(
             Some("verified") => n_verified += 1,
             Some("mismatch") => n_mismatch += 1,
             Some("suspicious") => n_suspicious += 1,
-            // "pending" projects from Unverifiable; treat anything else as
-            // unverifiable for count purposes (defensive).
+            // "unverifiable" (checked-but-undeterminable) and "pending"
+            // (never-adjudicated) both roll into the single flat
+            // `n_unverifiable` tally here; anything else is defensively
+            // counted the same way.
             _ => n_unverifiable += 1,
         }
     }
@@ -471,7 +477,7 @@ mod tests {
     }
 
     #[test]
-    fn unverifiable_projects_pending_empty() {
+    fn unverifiable_projects_unverifiable_empty() {
         let report = ClaimVerificationReport {
             n_checked: 1,
             n_verified: 0,
@@ -483,6 +489,30 @@ mod tests {
                 claim("BRCA1", None),
                 ClaimStatus::Unverifiable {
                     reason: "no table".into(),
+                },
+            )],
+            runtime_decision_log_path: None,
+        };
+        let rows = project_verdict_rows(&report, "diff_expr", std::path::Path::new("."));
+        // Unverifiable now carries its own external label (distinct from the
+        // never-adjudicated `Pending` → "pending"); it stays evidence-free.
+        assert_eq!(rows[0]["status"], json!("unverifiable"));
+        assert_eq!(rows[0]["supported_by"], json!([]));
+    }
+
+    #[test]
+    fn pending_projects_pending_empty() {
+        let report = ClaimVerificationReport {
+            n_checked: 1,
+            n_verified: 0,
+            n_mismatch: 0,
+            n_unverifiable: 0,
+            n_pending: 1,
+            n_suspicious: 0,
+            verdicts: vec![verdict(
+                claim("BRCA1", None),
+                ClaimStatus::Pending {
+                    reason: "no adjudication site".into(),
                 },
             )],
             runtime_decision_log_path: None,
