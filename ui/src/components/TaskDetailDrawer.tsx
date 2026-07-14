@@ -288,7 +288,14 @@ export default function TaskDetailDrawer({
   // Same rules-of-hooks concern — kept above the early return, guarded by
   // the null-check at the top of the effect body.
   useCancelableEffect(async ({ cancelled }) => {
-    if (!modal || modal.preview || !sessionId || !taskId) return
+    // Fetch at most once per modal-open outcome: bail if we already have a
+    // preview OR already recorded an error. Without the previewError guard the
+    // effect re-fires on every setModal (deps include `modal`), and since a
+    // failed/rate-limited fetch leaves `preview` null it would loop, storming
+    // the impact-preview endpoint into 429s. A method change clears both fields
+    // (below) to allow a fresh fetch.
+    if (!modal || modal.preview || modal.previewError || !sessionId || !taskId)
+      return
     try {
       const preview = await postImpactPreview(
         sessionId,
@@ -1196,7 +1203,14 @@ function ConfirmModalView({
             <input
               type="text"
               value={modal.newMethod ?? ''}
-              onChange={(e) => setModal({ ...modal, newMethod: e.target.value, preview: null })}
+              onChange={(e) =>
+                setModal({
+                  ...modal,
+                  newMethod: e.target.value,
+                  preview: null,
+                  previewError: undefined,
+                })
+              }
               placeholder="e.g. two_stage_denovo_with_fibrochondrocyte_pericyte"
               style={modalInputStyle}
               autoFocus={!isBranch}
