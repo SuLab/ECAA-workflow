@@ -1841,15 +1841,8 @@ export interface SetValidationBoundRequest {
 /// DAG, but it changes the emit shape (contract file) → re-raises the
 /// confirmation card and moves the session to PendingConfirmation (the
 /// SME re-confirms to re-emit). Returns `{ok:true}` on success; we
-/// ignore the body.
-///
-/// INTENTIONAL API-LEVEL SURFACE — deliberately NOT wired into the SME
-/// chat UI. Authoring a validation bound requires json-pointer /
-/// assertion knowledge (a raw pointer into a task's output plus a typed
-/// domain-correctness assertion) that is too low-level for an SME
-/// without curated per-atom output metadata. The method + request types
-/// are kept complete and server-tested so an operator / higher-privilege
-/// surface can drive the endpoint; do not treat this export as dead code.
+/// ignore the body. Driven from the TaskDetailDrawer "Validation checks"
+/// section (add) + the branch-to-edit modal via the ValidationBoundEditor.
 export async function setValidationBound(
   sessionId: string,
   taskId: string,
@@ -1862,6 +1855,22 @@ export async function setValidationBound(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(req),
+  })
+}
+
+/// Remove an SME-authored validation bound by id. Omits `bound` so the
+/// server treats the request as a removal keyed on `(stage_class,
+/// bound_id)`; like `setValidationBound` it re-raises the confirmation
+/// card (the SME re-confirms to re-emit the amended contract).
+export async function removeValidationBound(
+  sessionId: string,
+  taskId: string,
+  opts: { stageClass: string; boundId: string; rationale?: string },
+): Promise<void> {
+  return setValidationBound(sessionId, taskId, {
+    stage_class: opts.stageClass,
+    bound_id: opts.boundId,
+    rationale: opts.rationale,
   })
 }
 

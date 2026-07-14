@@ -46,6 +46,8 @@ import {
   postTaskNote,
   postUndoAmendment,
   setTaskParameters,
+  setValidationBound,
+  removeValidationBound,
   artifactUrl,
   unblockChatSession,
   verifyTask,
@@ -54,7 +56,13 @@ import type { ClaimVerificationReport } from '../types/ClaimVerificationReport'
 import type { ClaimVerdict } from '../types/ClaimVerdict'
 import type { ParameterSpec } from '../types/ParameterSpec'
 import type { BranchEdits } from '../types/BranchEdits'
+import type { SmeValidationBound } from '../types/SmeValidationBound'
 import TaskParameterEditor from './TaskParameterEditor'
+import ValidationBoundEditor, {
+  ValidationBoundStager,
+  SeverityChip,
+  type ValidationBoundDraft,
+} from './ValidationBoundEditor'
 import { useUndoStack } from '../hooks/useUndoStack'
 import { LOG_POLL_MS } from '../lib/polling'
 import { relativeTime } from '../lib/time'
@@ -105,7 +113,7 @@ const BTN_SECONDARY: React.CSSProperties = {
   cursor: 'pointer',
 }
 interface ConfirmModal {
-  kind: 'amend' | 'rerun' | 'branch' | 'params'
+  kind: 'amend' | 'rerun' | 'branch' | 'params' | 'bound'
   title: string
   prompt: string
   rationale: string
@@ -114,6 +122,15 @@ interface ConfirmModal {
   previewError?: string
   busy: boolean
   error?: string
+  // Validation-bound authoring state (kinds 'bound' and 'branch').
+  /** Resolved stage class the bound applies to (`spec.stage_class` ?? task id). */
+  stageClass?: string
+  /** Seed for stable bound-id generation (existing/staged bound count). */
+  boundSeed?: number
+  /** kind 'bound': the composed bound + validity from ValidationBoundEditor. */
+  boundDraft?: ValidationBoundDraft
+  /** kind 'branch': validation bounds the SME staged for the child. */
+  validationBounds?: SmeValidationBound[]
   // Structured parameter-editor state (kinds 'params' and 'branch').
   parameters?: ParameterSpec[]
   /** SME-edited values collected by TaskParameterEditor (`name -> value`). */
@@ -154,6 +171,11 @@ export default function TaskDetailDrawer({
   const [newNote, setNewNote] = useState('')
   const [notePosting, setNotePosting] = useState(false)
   const [noteErr, setNoteErr] = useState<string | null>(null)
+  // SME validation bounds attached to this task's stage (fetched with the
+  // parameter schema). Powers the "Validation checks" section list + remove.
+  const [taskBounds, setTaskBounds] = useState<SmeValidationBound[]>([])
+  const [removingBoundId, setRemovingBoundId] = useState<string | null>(null)
+  const [boundSectionErr, setBoundSectionErr] = useState<string | null>(null)
 
   // The single App-owned conversation hook, read via context (same
   // pattern as ConfirmationTurnCard). Gives us SPA navigation
@@ -186,6 +208,7 @@ export default function TaskDetailDrawer({
     if (!sessionId || !taskId) {
       setTaskResult(null)
       setDecisions([])
+      setTaskBounds([])
       logSinceRef.current = 0
       setLogData(null)
       return
@@ -195,6 +218,15 @@ export default function TaskDetailDrawer({
       if (!cancelled()) setTaskResult(r)
     } catch {
       if (!cancelled()) setTaskResult(null)
+    }
+    // The parameters endpoint also carries the SME validation bounds that
+    // apply to this task's stage — load them for the "Validation checks"
+    // section (best-effort; a non-emitted session / missing atom yields []).
+    try {
+      const p = await getTaskParameters(sessionId, taskId)
+      if (!cancelled()) setTaskBounds(p.current_validation_bounds ?? [])
+    } catch {
+      if (!cancelled()) setTaskBounds([])
     }
     try {
       const d = await getDecisions(sessionId)
@@ -294,7 +326,16 @@ export default function TaskDetailDrawer({
     // failed/rate-limited fetch leaves `preview` null it would loop, storming
     // the impact-preview endpoint into 429s. A method change clears both fields
     // (below) to allow a fresh fetch.
-    if (!modal || modal.preview || modal.previewError || !sessionId || !taskId)
+    // Bound authoring doesn't invalidate the DAG, so it needs no impact
+    // preview — skip the fetch for that modal kind.
+    if (
+      !modal ||
+      modal.kind === 'bound' ||
+      modal.preview ||
+      modal.previewError ||
+      !sessionId ||
+      !taskId
+    )
       return
     try {
       const preview = await postImpactPreview(
@@ -347,6 +388,12 @@ export default function TaskDetailDrawer({
   const stageClass = typeof task.spec === 'object' && task.spec
     ? ((task.spec as Record<string, unknown>)['stage_class'] as string | undefined)
     : undefined
+  // Resolve the stage class the harness way (spec.stage_class, else the bare
+  // task id) so authored bounds key onto the block the harness evaluates.
+  const resolvedStageClass = stageClass ?? taskId
+  // Validation bounds are declarative post-hoc checks: they need only an
+  // emitted session, NOT a completed task (unlike param/method edits).
+  const canEditBounds = sessionAcceptsEdits
   const desc: StageDescription | undefined = stageClass ? descriptions[stageClass] : undefined
   const friendlyName = desc?.sme_friendly_name ?? prettifyTaskId(taskId)
   // Two distinct copy sources:
@@ -463,6 +510,9 @@ export default function TaskDetailDrawer({
       parameters: [],
       paramValues: {},
       paramsLoaded: false,
+      stageClass: resolvedStageClass,
+      boundSeed: taskBounds.length,
+      validationBounds: [],
     })
     if (!sessionId || !taskId) return
     try {
@@ -483,6 +533,41 @@ export default function TaskDetailDrawer({
       setModal((prev) =>
         prev && prev.kind === 'branch' ? { ...prev, paramsLoaded: true } : prev,
       )
+    }
+  }
+
+  const openBoundModal = () => {
+    setModal({
+      kind: 'bound',
+      title: `Add a validation check for ${friendlyName}`,
+      prompt:
+        'Define a rule the results must satisfy. The check runs automatically after this step finishes; a "required" check re-blocks the run if it fails.',
+      rationale: `Adding a validation check for ${friendlyName} — `,
+      preview: null,
+      busy: false,
+      stageClass: resolvedStageClass,
+      boundSeed: taskBounds.length,
+    })
+  }
+
+  const removeBound = async (bound: SmeValidationBound) => {
+    if (!sessionId || !taskId) return
+    setRemovingBoundId(bound.id)
+    setBoundSectionErr(null)
+    try {
+      await removeValidationBound(sessionId, taskId, {
+        stageClass: bound.stage_class,
+        boundId: bound.id,
+        rationale: `Removing validation check ${bound.id}`,
+      })
+      // Removal re-raises the summary confirmation card + moves the session to
+      // PendingConfirmation; close the drawer so the confirm card surfaces
+      // (Confirm re-emits the amended contract — same flow as parameter edits).
+      onClose()
+    } catch (e) {
+      setBoundSectionErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setRemovingBoundId(null)
     }
   }
 
@@ -557,6 +642,26 @@ export default function TaskDetailDrawer({
       )
     }
   }
+  const submitBound = async () => {
+    if (!modal || !sessionId || !taskId || !modal.boundDraft?.valid) return
+    setModal({ ...modal, busy: true, error: undefined })
+    try {
+      await setValidationBound(sessionId, taskId, {
+        stage_class: modal.boundDraft.bound.stage_class,
+        bound: modal.boundDraft.bound,
+        rationale: modal.rationale,
+      })
+      setModal(null)
+      // Adding a bound re-raises the summary confirmation card and moves the
+      // session to PendingConfirmation; close the drawer so the conversation
+      // pane surfaces that confirm card (Confirm re-emits the amended contract).
+      onClose()
+    } catch (e) {
+      setModal((prev) =>
+        prev ? { ...prev, busy: false, error: (e as Error).message } : prev,
+      )
+    }
+  }
   const submitBranch = async () => {
     if (!modal || !sessionId) return
     setModal({ ...modal, busy: true, error: undefined })
@@ -566,10 +671,11 @@ export default function TaskDetailDrawer({
       // omitted (the child inherits the parent's overrides).
       const overrides = buildOverridesPayload(modal.paramValues, modal.dirtyParams)
       const method = modal.newMethod?.trim() ? modal.newMethod.trim() : null
+      const stagedBounds = modal.validationBounds ?? []
       const hasEdits =
-        method !== null || Object.keys(overrides).length > 0
+        method !== null || Object.keys(overrides).length > 0 || stagedBounds.length > 0
       const edits: BranchEdits | undefined = hasEdits
-        ? { method, parameters: overrides, validation_bounds: [] }
+        ? { method, parameters: overrides, validation_bounds: stagedBounds }
         : undefined
       const body = await postBranch(sessionId, {
         rationale: modal.rationale || undefined,
@@ -972,6 +1078,77 @@ export default function TaskDetailDrawer({
           </Section>
         )}
 
+        {sessionId && taskId && (
+          <Section title="Validation checks">
+            <p style={{ margin: '0 0 4px 0', fontSize: '0.8rem', color: 'var(--color-text-muted)', lineHeight: 1.45 }}>
+              Rules the results must satisfy. Each runs automatically after the
+              step finishes — a "required" check re-blocks the run if it fails.
+            </p>
+            {taskBounds.length > 0 ? (
+              <ul style={{ ...listStyle, gap: 6 }}>
+                {taskBounds.map((b) => (
+                  <li key={b.id} style={boundItemStyle}>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: '0.85rem', color: 'var(--color-text-primary)' }}>
+                        <SeverityChip severity={b.severity} />{' '}
+                        {b.description || `${b.assertion_type} on ${b.target}`}
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', marginTop: 2 }}>
+                        <code>{b.assertion_type}</code> · {b.target}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void removeBound(b)}
+                      disabled={!canEditBounds || removingBoundId === b.id}
+                      title={
+                        !canEditBounds
+                          ? 'Confirm the plan first — validation checks are editable once emitted'
+                          : 'Remove this validation check'
+                      }
+                      style={{
+                        ...clearLinkStyle,
+                        opacity: !canEditBounds || removingBoundId === b.id ? 0.55 : 1,
+                        cursor: !canEditBounds || removingBoundId === b.id ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      {removingBoundId === b.id ? 'Removing…' : 'Remove'}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--color-text-faint)', fontStyle: 'italic' }}>
+                No validation checks yet.
+              </p>
+            )}
+            {boundSectionErr && (
+              <div role="alert" style={{ marginTop: 4, color: 'var(--color-danger-fg)', fontSize: '0.76rem' }}>
+                {boundSectionErr}
+              </div>
+            )}
+            <div style={{ marginTop: 8 }}>
+              <button
+                type="button"
+                onClick={openBoundModal}
+                disabled={!canEditBounds}
+                title={
+                  !canEditBounds
+                    ? 'Confirm the plan first — validation checks are editable once emitted'
+                    : 'Add a rule the results must satisfy'
+                }
+                style={{
+                  ...BTN_SECONDARY,
+                  opacity: canEditBounds ? 1 : 0.55,
+                  cursor: canEditBounds ? 'pointer' : 'not-allowed',
+                }}
+              >
+                + Add validation check
+              </button>
+            </div>
+          </Section>
+        )}
+
         <Section title="Notes">
           <textarea
             value={newNote}
@@ -1109,6 +1286,7 @@ export default function TaskDetailDrawer({
           onRerun={submitRerun}
           onBranch={submitBranch}
           onParams={submitParams}
+          onBound={submitBound}
           onContinueBranch={continueToBranch}
         />
       )}
@@ -1125,6 +1303,7 @@ interface ConfirmModalViewProps {
   onRerun: () => Promise<void>
   onBranch: () => Promise<void>
   onParams: () => Promise<void>
+  onBound: () => Promise<void>
   onContinueBranch: (childId: string) => Promise<void>
 }
 
@@ -1135,10 +1314,12 @@ function ConfirmModalView({
   onRerun,
   onBranch,
   onParams,
+  onBound,
   onContinueBranch,
 }: ConfirmModalViewProps): JSX.Element {
   const isBranch = modal.kind === 'branch'
   const isParams = modal.kind === 'params'
+  const isBound = modal.kind === 'bound'
   const showEditor = isParams || isBranch
   // A params edit on a task with zero adjustable parameters has nothing
   // to submit — show the "no parameters" message + a Close button rather
@@ -1154,6 +1335,7 @@ function ConfirmModalView({
     if (modal.kind === 'amend') void onAmend()
     else if (modal.kind === 'rerun') void onRerun()
     else if (modal.kind === 'params') void onParams()
+    else if (modal.kind === 'bound') void onBound()
     else void onBranch()
   }
   const canSubmit = (() => {
@@ -1162,6 +1344,10 @@ function ConfirmModalView({
     // An unparseable array/object field blocks submit on every flow.
     if (modal.paramsInvalid) return false
     if (modal.rationale.trim().length === 0) return false
+    if (isBound) {
+      // Submit only a well-formed bound (mirrors validate_bound_check_shape).
+      return !!modal.boundDraft?.valid
+    }
     if (isParams) {
       // Apply only once the schema has loaded AND at least one value has
       // changed or been cleared.
@@ -1258,6 +1444,32 @@ function ConfirmModalView({
           </div>
         )}
 
+        {isBound && modal.stageClass && (
+          <div style={{ marginBottom: 12 }}>
+            <ValidationBoundEditor
+              stageClass={modal.stageClass}
+              idSeed={modal.boundSeed}
+              onChange={(draft) =>
+                setModal((prev) => (prev ? { ...prev, boundDraft: draft } : prev))
+              }
+            />
+          </div>
+        )}
+
+        {isBranch && modal.stageClass && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={modalLabelStyle}>Validation checks (optional)</div>
+            <ValidationBoundStager
+              stageClass={modal.stageClass}
+              baseSeed={modal.boundSeed}
+              bounds={modal.validationBounds ?? []}
+              onBoundsChange={(next) =>
+                setModal((prev) => (prev ? { ...prev, validationBounds: next } : prev))
+              }
+            />
+          </div>
+        )}
+
         {/* No adjustable parameters: skip the rationale + submit — there's
             nothing to apply. */}
         {!noAdjustableParams && (
@@ -1290,7 +1502,7 @@ function ConfirmModalView({
           </div>
         )}
 
-        {!noAdjustableParams && (
+        {!noAdjustableParams && !isBound && (
           <div style={previewBoxStyle}>
             {modal.previewError && (
               <div style={{ color: 'var(--color-danger-fg)', fontSize: '0.82rem' }}>
@@ -1375,7 +1587,9 @@ function ConfirmModalView({
                       ? 'Rerun now'
                       : modal.kind === 'params'
                         ? 'Apply changes'
-                        : 'Create branch'}
+                        : modal.kind === 'bound'
+                          ? 'Add check'
+                          : 'Create branch'}
             </button>
           )}
         </div>
@@ -1569,6 +1783,24 @@ const decisionItemStyle: React.CSSProperties = {
   borderLeft: '3px solid var(--color-border-default)',
   paddingLeft: 10,
   paddingBottom: 6,
+}
+const boundItemStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  gap: 8,
+  padding: '8px 10px',
+  border: '1px solid var(--color-border-default)',
+  borderRadius: 6,
+  background: 'var(--color-surface-0)',
+}
+const clearLinkStyle: React.CSSProperties = {
+  border: 'none',
+  background: 'transparent',
+  color: 'var(--color-danger-accent)',
+  fontSize: '0.74rem',
+  textDecoration: 'underline',
+  padding: 0,
+  flexShrink: 0,
 }
 const thumbButtonStyle: React.CSSProperties = {
   display: 'flex',

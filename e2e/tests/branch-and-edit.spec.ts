@@ -206,4 +206,115 @@ test.describe('Branch & edit (Phase 4)', () => {
         .toBe('child-branch-edit')
     })
   })
+
+  test('branch modal sends a staged validation bound in the edits payload', async ({
+    page,
+  }) => {
+    const capturedBranchBodies: unknown[] = []
+
+    await withMockBackend(page, { beats }, async () => {
+      await page.route(
+        /\/api\/(?:v1\/)?chat\/session\/[^/]+\/task\/[^/]+\/parameters$/,
+        async (route) => {
+          if (route.request().method() !== 'GET') return route.fallback()
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              task_id: 'align',
+              source_atom_id: 'alignment',
+              parameters: [],
+              current_overrides: {},
+              current_method: null,
+              current_validation_bounds: [],
+            }),
+          })
+        },
+      )
+
+      await page.route(
+        /\/api\/(?:v1\/)?chat\/session\/[^/]+\/task\/[^/]+\/impact-preview$/,
+        async (route) => {
+          if (route.request().method() !== 'POST') return route.fallback()
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              target_task_id: 'align',
+              invalidated_tasks: [],
+              invalidated_count: 0,
+              est_cost_usd_min: 0,
+              est_cost_usd_max: 0,
+            }),
+          })
+        },
+      )
+
+      await page.route(
+        /\/api\/(?:v1\/)?chat\/session\/[^/]+\/branch$/,
+        async (route) => {
+          if (route.request().method() !== 'POST') return route.fallback()
+          try {
+            capturedBranchBodies.push(
+              JSON.parse(route.request().postData() ?? '{}'),
+            )
+          } catch {
+            capturedBranchBodies.push(null)
+          }
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ session_id: 'child-branch-bound' }),
+          })
+        },
+      )
+
+      await page.goto('/')
+      const chat = new Chat(page)
+      await chat.waitForAssistant()
+      await chat.sendUserMessage(beats[0].user)
+      await chat.waitForAssistant({ textContains: 'emitted' })
+
+      await page.evaluate(() => {
+        window.location.hash = '#task=align'
+      })
+      const drawer = page.getByTestId('task-detail-drawer')
+      await drawer.waitFor({ state: 'visible', timeout: 10_000 })
+
+      await page.getByRole('button', { name: /branch & edit/i }).click()
+
+      // Stage an "output file present" validation bound through the guided
+      // editor: it needs only a target path, so it is valid once filled.
+      const checkType = page.getByTestId('vb-check-type')
+      await checkType.waitFor({ state: 'visible', timeout: 10_000 })
+      await checkType.selectOption('artifact_present')
+      await page.getByTestId('vb-target').fill('results/tables/de.json')
+      await page.getByTestId('vb-add-to-branch').click()
+
+      await page.getByRole('button', { name: /create branch/i }).click()
+
+      await expect
+        .poll(() => capturedBranchBodies.length, { timeout: 5_000 })
+        .toBeGreaterThan(0)
+
+      const body = capturedBranchBodies[0] as {
+        task_id?: string
+        edits?: {
+          validation_bounds?: Array<{
+            stage_class?: string
+            assertion_type?: string
+            target?: string
+            severity?: string
+          }>
+        }
+      }
+      expect(body.task_id).toBe('align')
+      const bounds = body.edits?.validation_bounds ?? []
+      expect(bounds).toHaveLength(1)
+      expect(bounds[0]?.assertion_type).toBe('artifact_present')
+      expect(bounds[0]?.target).toBe('results/tables/de.json')
+      expect(bounds[0]?.stage_class).toBe('alignment')
+      expect(bounds[0]?.severity).toBe('required')
+    })
+  })
 })
