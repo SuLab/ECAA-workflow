@@ -42,6 +42,11 @@ pub(crate) struct TaskParametersResponse {
     pub current_overrides: std::collections::BTreeMap<String, serde_json::Value>,
     /// The SME-recorded method for this stage, if any.
     pub current_method: Option<String>,
+    /// The SME-authored validation bounds currently attached to this task's
+    /// stage class (resolved the harness way: `spec.stage_class`, falling back
+    /// to `task_id`). Lets the drawer list + remove the bounds that apply here.
+    pub current_validation_bounds:
+        Vec<ecaa_workflow_core::validation_bound::SmeValidationBound>,
 }
 
 /// Request body for `POST .../task/:task_id/parameters`.
@@ -90,12 +95,14 @@ pub(crate) async fn get_parameters(
         .get(&task_id)
         .map(|r| r.method.clone())
         .filter(|m| !m.is_empty());
+    let current_validation_bounds = session.current_validation_bounds_for_task(&task_id);
     Json(TaskParametersResponse {
         task_id,
         source_atom_id,
         parameters,
         current_overrides,
         current_method,
+        current_validation_bounds,
     })
     .into_response()
 }
@@ -273,6 +280,63 @@ mod tests {
             parsed.parameters
         );
         assert!(parsed.current_overrides.is_empty());
+    }
+
+    #[tokio::test]
+    async fn parameters_endpoint_returns_current_validation_bounds() {
+        let cfg = augmented_config("differential_expression", MIN_LFC_PARAM);
+        let (router, app) = make_router_with_config(cfg, compose_script()).await;
+        let (id, task_id) = emitted_diffexpr_session(&app).await;
+
+        // Attach an SME validation bound keyed on the task's resolved stage
+        // class (the harness way: `spec.stage_class`, else the task id).
+        let tid = task_id.clone();
+        app.conversation
+            .store_handle()
+            .update(id, move |s| {
+                let stage_class = s.task_stage_class(&tid).unwrap_or_else(|| tid.clone());
+                s.sme_validation_bounds.0.push(
+                    ecaa_workflow_core::validation_bound::SmeValidationBound {
+                        stage_class,
+                        assertion_type: "numeric_threshold".into(),
+                        target: "results/tables/de.json".into(),
+                        check: serde_json::json!({
+                            "json_pointer": "/adjusted_p_max", "op": "lte", "value": 0.01
+                        }),
+                        severity: "required".into(),
+                        id: "sme_de_padj".into(),
+                        description: "SME: adjusted p must be <= 0.01".into(),
+                    },
+                );
+                Ok(())
+            })
+            .await
+            .unwrap();
+
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!(
+                        "/api/chat/session/{}/task/{}/parameters",
+                        id, task_id
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp.into_body()).await;
+        let parsed: TaskParametersResponse = serde_json::from_value(body).unwrap();
+        assert!(
+            parsed
+                .current_validation_bounds
+                .iter()
+                .any(|b| b.id == "sme_de_padj" && b.assertion_type == "numeric_threshold"),
+            "endpoint must surface the SME validation bounds for the task's stage; got {:?}",
+            parsed.current_validation_bounds
+        );
     }
 
     #[tokio::test]

@@ -139,6 +139,24 @@ impl Session {
             .unwrap_or_default()
     }
 
+    /// The SME-authored validation bounds attached to this task's stage class.
+    /// The stage class is resolved the same way the harness
+    /// `enforce_validation_contract` looks the contract up — `spec.stage_class`,
+    /// falling back to the bare `task_id` when the task carries none. Used by the
+    /// GET parameters endpoint so the drawer can list + remove the bounds that
+    /// actually apply to this task.
+    pub fn current_validation_bounds_for_task(&self, task_id: &str) -> Vec<SmeValidationBound> {
+        let resolved = self
+            .task_stage_class(task_id)
+            .unwrap_or_else(|| task_id.to_string());
+        self.sme_validation_bounds
+            .0
+            .iter()
+            .filter(|b| b.stage_class == resolved)
+            .cloned()
+            .collect()
+    }
+
     /// Apply SME parameter overrides to `task_id`.
     ///
     /// Validates every value against the atom's `ParameterSpec` (fail-closed —
