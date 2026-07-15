@@ -1401,7 +1401,14 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   # the per-session copy is FRESHER than the host copy. When the host
   # is newer (mtime comparison), reseed — the operator just changed
   # accounts and the per-session cache must follow.
-  if [ "$ECAA_OAUTH_TOKEN_ACTIVE" != "1" ] && [ -f "$HOME/.claude/.credentials.json" ]; then
+  # NEVER seed the mounted subscription credentials in api billing mode: the
+  # CLI prefers a ~/.claude/.credentials.json over ANTHROPIC_API_KEY, so
+  # copying them would silently route the agent to the (possibly rate-limited)
+  # subscription instead of the api key the operator selected — surfacing as
+  # empty agent responses. Only seed them for subscription-via-mounted-creds
+  # (not api, not the long-lived setup-token path).
+  if [ "${ECAA_AGENT_BILLING:-subscription}" != "api" ] \
+     && [ "$ECAA_OAUTH_TOKEN_ACTIVE" != "1" ] && [ -f "$HOME/.claude/.credentials.json" ]; then
     if [ ! -f "$AGENT_CLAUDE_DIR/.credentials.json" ] \
        || [ "$HOME/.claude/.credentials.json" -nt "$AGENT_CLAUDE_DIR/.credentials.json" ]; then
       cp "$HOME/.claude/.credentials.json" "$AGENT_CLAUDE_DIR/.credentials.json" 2>/dev/null || true
