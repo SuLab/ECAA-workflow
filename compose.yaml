@@ -20,6 +20,26 @@ services:
       ECAA_PACKAGE_ROOT: "${HOME}/.ecaa-workflow/packages"
       ECAA_CHAT_SESSIONS_DIR: "${HOME}/.ecaa-workflow/sessions"
       ECAA_AGENT_HOME_DIR: "${HOME}/.ecaa-workflow/agent-home"   # OUTSIDE the package tree
+      # Writable cache for the per-session claude-code CLI install + agent HOME.
+      # Container HOME (/home/<you>) is NOT writable — only ~/.ecaa-workflow and
+      # ~/.claude are bind-mounted rw — so without this the CLI npm-install lands
+      # in a read-only path and the agent silently returns empty responses.
+      ECAA_SESSION_CACHE_DIR: "${HOME}/.ecaa-workflow/session-cache"
+      # npm cache in a writable mount too — HOME/.npm defaults under the
+      # non-writable /home/<you>, which makes the per-session claude-code
+      # `npm install` fail and forces slow/fragile per-sibling npx downloads.
+      npm_config_cache: "${HOME}/.ecaa-workflow/session-cache/npm-cache"
+      # Local trusted single-user deployment: let the agent subprocess inherit
+      # the full harness env instead of the env_clear allowlist. The allowlist
+      # omits several vars the containerized claude CLI needs (subscription
+      # token, session cache, npm cache, and more), which silently yields empty
+      # agent responses in this compose path. Safe here (loopback, one operator,
+      # public data); do NOT set on a shared/multi-tenant server.
+      ECAA_DISABLE_ENV_CLEAR: "1"
+      # Serialize agent dispatch (one agent at a time) so concurrent Claude Code
+      # sessions don't trip the subscription's short-window burst limit.
+      ECAA_HARNESS_CONCURRENCY: "1"
+      ECAA_HARNESS_VALIDATION_LANE: "0"
       ECAA_HARNESS_BIN_PATH: "/usr/local/bin/ecaa-workflow-harness"
     env_file:
       - .env

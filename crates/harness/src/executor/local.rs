@@ -106,6 +106,14 @@ pub(super) const REQUIRED_INHERITED_KEYS: &[&str] = &[
     "ECAA_AGENT_CACHE_DIR",
     "ECAA_AGENT_CACHE_GLOBAL",
     "ECAA_AGENT_CACHE_DISABLE",
+    // Per-session writable cache root for the claude-code CLI install +
+    // agent HOME, and the npm cache that install uses. The container HOME
+    // (/home/<you>) is not writable in the compose deployment — only
+    // ~/.ecaa-workflow is bind-mounted rw — so without these in the
+    // allowlist env_clear strips them, the per-session `npm install` lands
+    // in a read-only path and fails, and the agent silently returns empty.
+    "ECAA_SESSION_CACHE_DIR",
+    "npm_config_cache",
     // Single-model override (operator/eval model pinning) — agent-claude.sh
     // reads this to bypass per-task model tiering. Without it the eval's
     // same-model fairness pin never reaches the agent (tiering picks Opus for

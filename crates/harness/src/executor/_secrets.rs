@@ -22,7 +22,7 @@
 //!   envelope filter consumes both lists; local only consumes the
 //!   base.
 
-/// W3.1 — credentials shared across every executor path (9 credentials;
+/// W3.1 — credentials shared across every executor path (10 credentials;
 /// the count is pinned by `base_secret_keys_count_is_pinned` below). Both
 /// the local executor's `env_clear` allowlist (via the `SECRET_KEYS`
 /// alias in `local.rs`) and the AWS SSM secret-filter use this set as the
@@ -32,6 +32,12 @@
 pub(super) const BASE_SECRET_KEYS: &[&str] = &[
     "ECAA_ANTHROPIC_API_KEY",
     "ANTHROPIC_API_KEY",
+    // Long-lived subscription OAuth token (`claude setup-token`). The local
+    // agent authenticates with it in subscription billing (agent-claude.sh);
+    // without it in this allowlist `env_clear` strips it before the agent
+    // shell runs, so the CLI has no credential and returns empty. Scrubbed
+    // from remote (AWS) envelopes like every other credential.
+    "CLAUDE_CODE_OAUTH_TOKEN",
     "AWS_ACCESS_KEY_ID",
     "AWS_SECRET_ACCESS_KEY",
     "AWS_SESSION_TOKEN",
@@ -66,7 +72,7 @@ mod tests {
     fn base_secret_keys_count_is_pinned() {
         assert_eq!(
             BASE_SECRET_KEYS.len(),
-            9,
+            10,
             "BASE_SECRET_KEYS length changed; if intentional, bump this assertion in the same commit"
         );
     }
@@ -78,7 +84,7 @@ mod tests {
     fn base_secret_keys_doc_states_count() {
         let src = include_str!("_secrets.rs");
         assert!(
-            src.contains("9 credentials") || src.contains("nine credentials"),
+            src.contains("10 credentials") || src.contains("ten credentials"),
             "_secrets.rs comment must state the pinned BASE_SECRET_KEYS count (L4)"
         );
     }
