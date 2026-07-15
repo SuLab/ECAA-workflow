@@ -26,12 +26,23 @@ capture_explicit_lock() {
   command -v docker >/dev/null 2>&1 || return 0
   [ -d "$envs_dir" ] || return 0
 
-  local env_n
+  local env_n env_p
   env_n=$(find "$envs_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
-  [ "$env_n" = "1" ] || return 0
-
-  local env_p
-  env_p=$(find "$envs_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -1)
+  if [ "$env_n" = "1" ]; then
+    env_p=$(find "$envs_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -1)
+  elif [ -d "$envs_dir/ecaa-bioc" ]; then
+    # ecaa-install materialises R/Bioconductor packages into a shared
+    # 'ecaa-bioc' env, so a per-session envs dir routinely holds more than one
+    # env (e.g. an 'ecaa-bioc-annot' companion). The old single-env guard then
+    # silently captured nothing, leaving the deposit with no installable
+    # env.explicit.lock and breaking offline re-execution. Every generated
+    # stage that uses conda runs `conda run -n ecaa-bioc` (or
+    # `--prefix .../ecaa-bioc`), so the shared 'ecaa-bioc' env is the
+    # authoritative one to snapshot when several exist.
+    env_p="$envs_dir/ecaa-bioc"
+  else
+    return 0
+  fi
 
   mkdir -p "$out_dir" 2>/dev/null || true
 

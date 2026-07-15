@@ -87,15 +87,27 @@ else
 fi
 
 echo ""
-echo "Step 3: two env dirs (ambiguous) -> no capture"
+echo "Step 3: two env dirs, neither the shared 'ecaa-bioc' -> no capture"
 ENVS_TWO="$WORK/envs-two"
 mkdir -p "$ENVS_TWO/env-a" "$ENVS_TWO/env-b"
 OUT_TWO="$WORK/out-two"
 FAKE_DOCKER_MODE=explicit capture_explicit_lock "task-two" "$ENVS_TWO" "$IMAGE" "$OUT_TWO"
 if [[ ! -e "$OUT_TWO/env.explicit.lock" ]]; then
-  ok "two env dirs -> no lock file written (ambiguous, skipped)"
+  ok "two ambiguous env dirs -> no lock file written (skipped)"
 else
-  fail "two env dirs -> unexpected lock file written"
+  fail "two ambiguous env dirs -> unexpected lock file written"
+fi
+
+echo ""
+echo "Step 3b: multiple env dirs including the shared 'ecaa-bioc' -> capture ecaa-bioc"
+ENVS_BIOC="$WORK/envs-bioc"
+mkdir -p "$ENVS_BIOC/ecaa-bioc" "$ENVS_BIOC/ecaa-bioc-annot"
+OUT_BIOC="$WORK/out-bioc"
+FAKE_DOCKER_MODE=explicit capture_explicit_lock "task-bioc" "$ENVS_BIOC" "$IMAGE" "$OUT_BIOC"
+if [[ -s "$OUT_BIOC/env.explicit.lock" ]] && grep -q '@EXPLICIT' "$OUT_BIOC/env.explicit.lock"; then
+  ok "multi-env with ecaa-bioc -> shared env captured"
+else
+  fail "multi-env with ecaa-bioc -> expected ecaa-bioc capture was not written"
 fi
 
 echo ""
