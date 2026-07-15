@@ -360,6 +360,26 @@ run_codex_with_retries() {
 }
 
 set +e
+# DooD-safe helper staging (see agent-claude.sh for the full rationale). Under
+# the container-first deployment $SCRIPT_DIR is a container-only path, so a
+# `-v "$SCRIPT_DIR/ecaa-install":...` bind resolves on the HOST where the path
+# is absent — docker then creates an empty dir and the sibling sees no
+# ecaa-install. Stage the helpers into a host-shared, identical-path-mounted
+# directory and mount from there; on a pure-host harness this path is equally
+# valid. Falls back to $SCRIPT_DIR when staging can't be written.
+HELPER_MOUNT_DIR="${ECAA_SESSION_CACHE_DIR:-$HOME/.ecaa-workflow/agent-cache}/helpers"
+mkdir -p "$HELPER_MOUNT_DIR" 2>/dev/null || true
+if cp -f "$SCRIPT_DIR/ecaa-install" "$HELPER_MOUNT_DIR/ecaa-install" 2>/dev/null; then
+  chmod 0755 "$HELPER_MOUNT_DIR/ecaa-install" 2>/dev/null || true
+  ECAA_INSTALL_MOUNT_SRC="$HELPER_MOUNT_DIR/ecaa-install"
+else
+  ECAA_INSTALL_MOUNT_SRC="$SCRIPT_DIR/ecaa-install"
+fi
+if cp -f "$SCRIPT_DIR/agent_literature_fetch.py" "$HELPER_MOUNT_DIR/agent_literature_fetch.py" 2>/dev/null; then
+  LIT_FETCH_MOUNT_SRC="$HELPER_MOUNT_DIR/agent_literature_fetch.py"
+else
+  LIT_FETCH_MOUNT_SRC="$SCRIPT_DIR/agent_literature_fetch.py"
+fi
 if run_codex_with_retries docker run --rm \
     --user "$(id -u):$(id -g)" \
     --read-only \
@@ -372,8 +392,8 @@ if run_codex_with_retries docker run --rm \
     "${DOCKER_CPU_ARGS[@]}" \
     -v "$PACKAGE":"$PACKAGE":rw \
     -v "$AGENT_HOME_DIR":"$HOME":rw \
-    -v "$SCRIPT_DIR/ecaa-install":/usr/local/bin/ecaa-install:ro \
-    -v "$SCRIPT_DIR/agent_literature_fetch.py":/opt/ecaa/agent_literature_fetch.py:ro \
+    -v "$ECAA_INSTALL_MOUNT_SRC":/usr/local/bin/ecaa-install:ro \
+    -v "$LIT_FETCH_MOUNT_SRC":/opt/ecaa/agent_literature_fetch.py:ro \
     "${CODEX_BIN_ARGS[@]}" \
     "${CODEX_AUTH_ARGS[@]}" \
     "${CODEX_BUDGET_ENV_ARGS[@]}" \
