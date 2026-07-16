@@ -1,0 +1,108 @@
+{
+  "contract_id": "validation-contract-repair-scar",
+  "description": "Domain-correctness assertions for the CRISPR amplicon repair-scar archetype. Filters only remove (cross-stage monotonicity); every _INV-tagged row must carry a negative bp_length; track_length must be bounded by the construct length. Thresholds are operator-authored reference bounds, never handed to the agent (method neutrality); each assertion recomputes from the emitted result.json / scar_summary.json.",
+  "version": "1.0.0",
+  "stages": {
+    "filter_reads_by_structure": {
+      "assertions": [
+        {
+          "id": "filter_reads_by_structure.input_recorded",
+          "description": "result.json must record the input read count.",
+          "assertion_type": "numeric_threshold",
+          "target": "runtime/outputs/filter_reads_by_structure/result.json",
+          "check": { "json_pointer": "/n_input_reads", "op": "gte", "value": 1.0 },
+          "severity": "required"
+        },
+        {
+          "id": "filter_reads_by_structure.retained_le_input",
+          "description": "A filter removes, never adds: retained <= demultiplexed assigned.",
+          "assertion_type": "cross_stage_output_comparison",
+          "target": "runtime/outputs/filter_reads_by_structure/result.json",
+          "check": {
+            "this_pointer": "/n_retained_reads",
+            "upstream_task": "demultiplex_barcodes",
+            "upstream_file": "result.json",
+            "upstream_pointer": "/n_assigned_reads",
+            "op": "lte"
+          },
+          "severity": "required"
+        }
+      ]
+    },
+    "filter_host_contamination": {
+      "assertions": [
+        {
+          "id": "filter_host_contamination.retained_le_input",
+          "description": "Host filter removes, never adds.",
+          "assertion_type": "cross_stage_output_comparison",
+          "target": "runtime/outputs/filter_host_contamination/result.json",
+          "check": {
+            "this_pointer": "/n_retained_reads",
+            "upstream_task": "filter_reads_by_structure",
+            "upstream_file": "result.json",
+            "upstream_pointer": "/n_retained_reads",
+            "op": "lte"
+          },
+          "severity": "required"
+        },
+        {
+          "id": "filter_host_contamination.threshold_recorded",
+          "description": "The identity threshold must be recorded and be a fraction <= 1.0.",
+          "assertion_type": "numeric_threshold",
+          "target": "runtime/outputs/filter_host_contamination/result.json",
+          "check": { "json_pointer": "/threshold", "op": "lte", "value": 1.0 },
+          "severity": "required"
+        }
+      ]
+    },
+    "repair_scar_analysis": {
+      "assertions": [
+        {
+          "id": "repair_scar_analysis.scar_table_present",
+          "description": "The per-read scar table must exist.",
+          "assertion_type": "artifact_glob_any",
+          "target": "runtime/outputs/repair_scar_analysis/repair_scar_table.tsv",
+          "severity": "required"
+        },
+        {
+          "id": "repair_scar_analysis.n_reads_recorded",
+          "description": "scar_summary.json must record the number of analyzed reads.",
+          "assertion_type": "numeric_threshold",
+          "target": "runtime/outputs/repair_scar_analysis/scar_summary.json",
+          "check": { "json_pointer": "/n_reads", "op": "gte", "value": 1.0 },
+          "severity": "required"
+        },
+        {
+          "id": "repair_scar_analysis.inv_sign_convention",
+          "description": "Every _INV-tagged row must carry a negative bp_length: the count of sign violations must be zero.",
+          "assertion_type": "numeric_threshold",
+          "target": "runtime/outputs/repair_scar_analysis/scar_summary.json",
+          "check": { "json_pointer": "/inv_sign_violation_count", "op": "lte", "value": 0.0 },
+          "severity": "required"
+        },
+        {
+          "id": "repair_scar_analysis.track_length_bounded",
+          "description": "Max Track_Length must lie within the construct reference length (10% pad); a value far above flags a coordinate/reference mismatch. reference_max is operator-authored, SME-overridable per scenario.",
+          "assertion_type": "reference_range_outlier",
+          "target": "runtime/outputs/repair_scar_analysis/scar_summary.json",
+          "check": {
+            "json_pointer": "/track_length_max",
+            "reference_min": 0.0,
+            "reference_max": 100000.0,
+            "tolerance": 0.1
+          },
+          "severity": "required"
+        },
+        {
+          "id": "repair_scar_analysis.on_target_control_recovered",
+          "description": "When a positive on-target control is configured, it must be recovered.",
+          "assertion_type": "positive_control_present",
+          "target": "runtime/outputs/repair_scar_analysis/scar_summary.json",
+          "check": { "json_pointer": "/controls/on_target_called" },
+          "when": { "json_pointer": "/controls/positive_configured", "equals": true },
+          "severity": "required"
+        }
+      ]
+    }
+  }
+}
