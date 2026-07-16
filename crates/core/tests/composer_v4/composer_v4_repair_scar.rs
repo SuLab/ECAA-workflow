@@ -20,7 +20,7 @@ const ARCHETYPES_DIR: &str = "../../config/archetypes";
 
 fn repair_scar_goal() -> GoalSpec {
     GoalSpec {
-        edam_data: "ecaax:repair_scar_table".into(),
+        edam_data: "data:0863".into(),
         edam_format: Some("format:3475".into()),
         modifiers: BTreeMap::new(),
         source_prose: Some(

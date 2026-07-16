@@ -21,14 +21,13 @@ pub fn edam_label(iri: &str) -> Option<&'static str> {
     match iri {
         // data: — archetype goal_data
         "data:0006" => Some("Data"),
+        "data:0863" => Some("Sequence alignment"),
         "data:0951" => Some("Statistical estimate score"),
         "data:1255" => Some("Sequence features"),
         "data:2048" => Some("Report"),
         "data:2976" => Some("Protein sequence"),
         "data:3498" => Some("Sequence variations"),
         "data:3917" => Some("Count matrix"),
-        // ecaax: — local-extension archetype goal_data (no canonical EDAM term)
-        "ecaax:repair_scar_table" => Some("Repair scar table"),
         // format: — archetype goal_format
         "format:2331" => Some("HTML"),
         "format:3003" => Some("BED"),

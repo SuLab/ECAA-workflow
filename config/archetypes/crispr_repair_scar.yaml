@@ -11,7 +11,7 @@ sme_summary: |
   Characterize CRISPR repair scars from PacBio long-read amplicon data: which reads
   are on-target, and what structural scar (inversions, deletions, insertions) each
   edited read carries.
-goal_data: "ecaax:repair_scar_table"
+goal_data: "data:0863"
 goal_format: "format:3475"
 project_class: bioinformatics
 modality_hint: crispr_amplicon_editing
