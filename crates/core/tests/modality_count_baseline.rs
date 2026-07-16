@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 
 /// Expected number of modalities loaded from `config/modalities/`. Bump
 /// this only when a modality manifest is intentionally added or removed.
-const EXPECTED_MODALITIES: usize = 23;
+const EXPECTED_MODALITIES: usize = 24;
 
 fn config_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))

@@ -1,0 +1,33 @@
+schema_version: "0.1"
+id: crispr_amplicon_editing
+display_name: CRISPR amplicon editing (long-read repair scar)
+keywords:
+  - repair scar
+  - editing outcome
+  - editing outcomes
+  - knock-in
+  - knockin
+  - knock in
+  - on-target integration
+  - integration site
+  - amplicon editing
+  - pbmm2
+  - crispr amplicon
+  - hdr outcome
+  - structural scar
+  - long-read amplicon
+edam_topic: "topic:3175"
+edam_operation: "operation:3228"
+archetype_id: crispr_repair_scar
+fixture_corpus_rows: [crispr_repair_scar_hifi]
+semantic_equivalence_bounds:
+  - metric: scar_signature_jaccard
+    operator: ">="
+    threshold: 0.90
+    applies_to: "runtime/outputs/repair_scar_analysis/repair_scar_table.tsv"
+    rationale: "Per-read (segment_track, jump_type) signature set overlap >= 0.90 between runs."
+  - metric: spearman_rho
+    operator: ">="
+    threshold: 0.90
+    applies_to: "runtime/outputs/repair_scar_analysis/repair_scar_table.tsv"
+    rationale: "Spearman of per-read track_length between runs >= 0.90."

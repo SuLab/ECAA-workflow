@@ -439,3 +439,24 @@ fn variant_calling_routes_to_variant_calling() {
         result.modality
     );
 }
+
+// ---------------------------------------------------------------------------
+// crispr_amplicon_editing
+// Keywords used: "repair scar", "knock-in", "pbmm2", "amplicon editing"
+// Distinguishing from long_read_rnaseq: editing-specific unique keywords
+// (IDF weight 1.0) outrank the shared "pacbio" token.
+// ---------------------------------------------------------------------------
+#[test]
+fn crispr_repair_scar_routes_to_crispr_amplicon_editing() {
+    let clf = load_classifier();
+    let result = clf.classify(
+        "PacBio HiFi amplicon sequencing of a CRISPR knock-in locus. Demultiplex by \
+         sample barcode, keep on-target reads, align with pbmm2, and analyze the \
+         repair scar (inversions, deletions) per read for the editing outcome.",
+    );
+    assert_eq!(
+        result.modality, "crispr_amplicon_editing",
+        "CRISPR repair-scar prose must route to crispr_amplicon_editing, got {:?}",
+        result.modality
+    );
+}
