@@ -1,0 +1,66 @@
+id: demultiplex_barcodes
+version: "1.0.0"
+role: operation
+description: |
+  Demultiplex pooled long reads into per-sample read sets using sample barcodes.
+  The concrete tool is agent-selected per method neutrality; lima (PacBio) is the
+  functional default for HiFi barcode splitting.
+  OPEN-1: intake requested demultiplexing "by limma (Bioconductor)". limma is a
+  differential-expression package and cannot demultiplex reads; it is recorded in
+  attributes.requested_but_unsupported_tools but is NOT a candidate. Confirm the
+  intended tool with the SME before execution.
+edam_operation: "operation:3185"
+assignee: agent
+depends_on: [data_acquisition]
+attributes:
+  candidate_tools: [lima, bcl_convert]
+  requested_but_unsupported_tools: [limma]
+parameters:
+  - name: min_barcode_score
+    type: integer
+    required: false
+    default: 26
+    description: "Minimum barcode alignment score to assign a read to a sample."
+  - name: same_barcodes_both_ends
+    type: boolean
+    required: false
+    default: true
+    description: "Require symmetric barcodes at both read ends (PacBio symmetric design)."
+expected_artifacts: [per_sample_reads/, demux_summary.json, result.json]
+figure_exempt:
+  reason: "Emits per-sample read sets (BAM), an intermediate; QC counts live in result.json."
+  category: intermediate
+resource_profile: { cpu: moderate, memory: medium, gpu: false, runtime_class: minutes }
+safety:
+  level: compute
+  code_execution: vetted
+  sandbox: none
+  network: { kind: none }
+governance: { status: reviewed, reviewed_by: "ecaa-governance", review_date: "2026-07-16" }
+runtime_packages:
+  schema_version: 1
+  language_packages:
+    conda: ["bioconda::lima", "bioconda::pbtk", "bioconda::samtools"]
+claim_boundary: |
+  Per-sample assignment depends on barcode design and read quality. Reads failing the
+  barcode-score threshold are reported as unassigned, never force-assigned.
+inputs:
+  - name: pooled_reads
+    semantic_type: { kind: ontology_term, iri: "data:2044", label: "Sequence", ontology_version: "EDAM-1.25" }
+    physical_format: { iri: "format:2572", label: "BAM" }
+    privacy_class: internal
+  - name: barcode_set
+    semantic_type: { kind: ontology_term, iri: "data:2044", label: "Sequence", ontology_version: "EDAM-1.25" }
+    physical_format: { iri: "format:1929", label: "FASTA" }
+    privacy_class: internal
+outputs:
+  - name: per_sample_reads
+    semantic_type:
+      kind: local_extension
+      namespace: ecaax
+      id: demux_per_sample_reads
+      proposed_parent_terms: ["data:2044"]
+      definition: "Per-sample demultiplexed long reads keyed on sample barcode."
+      maturity: { stage: minted }
+    physical_format: { iri: "format:2572", label: "BAM" }
+    privacy_class: internal
