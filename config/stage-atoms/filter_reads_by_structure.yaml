@@ -1,0 +1,72 @@
+id: filter_reads_by_structure
+version: "1.0.0"
+role: operation
+confirmatory: false
+description: |
+  Retain only reads carrying a required combination of construct segments in a
+  required physical order. Segment presence is detected by local alignment of each
+  named segment sequence (from the segment map) against the read; the retention
+  predicate is evaluated per read. Segments and predicate are DATA (inputs); no
+  locus identity is hard-coded.
+edam_operation: "ecaax:filter_reads_by_structure"
+assignee: agent
+depends_on: [raw_qc]
+parameters:
+  - name: retention_predicate
+    type: string
+    required: false
+    default: "(EG OR intron1) AND (intron2 OR FP) AND upstream(EG|intron1, intron2|FP)"
+    description: "Boolean+order predicate over segment names. upstream(A,B) TRUE when A's read-midpoint precedes B's on the 5'->3' read axis. [ASSUMPTION] mirrors the requested EG/intron1/intron2/FP gate."
+  - name: min_segment_identity
+    type: number
+    required: false
+    default: 0.85
+    description: "Minimum local identity for a segment to count as present. [ASSUMPTION]"
+expected_artifacts: [structural_filtered_reads/, retention_summary.json, result.json]
+figure_exempt:
+  reason: "Emits a filtered read set (BAM), an intermediate; retention counts live in result.json."
+  category: intermediate
+resource_profile: { cpu: heavy, memory: medium, gpu: false, runtime_class: minutes }
+safety:
+  level: exec
+  code_execution: generated_by_agent
+  sandbox: process_isolation
+  provisioning: declared_only
+  network: { kind: none }
+governance: { status: reviewed, reviewed_by: "ecaa-governance", review_date: "2026-07-16" }
+runtime_packages:
+  schema_version: 1
+  language_packages:
+    conda: ["bioconda::seqkit", "bioconda::minimap2", "bioconda::samtools"]
+    python: ["pysam", "biopython", "pandas"]
+validators: [deterministic_or_bounded_variance]
+claim_boundary: |
+  Retention reflects segment detectability at the chosen identity threshold; report
+  the predicate and threshold with every retained/removed count. A removed read is
+  "did not match the structural gate", not "not an editing product".
+inputs:
+  - name: per_sample_reads
+    semantic_type: { kind: local_extension, namespace: ecaax, id: demux_per_sample_reads, proposed_parent_terms: ["data:2044"], definition: "Per-sample demultiplexed long reads keyed on sample barcode." }
+    physical_format: { iri: "format:2572", label: "BAM" }
+    privacy_class: internal
+  - name: segment_map
+    semantic_type:
+      kind: local_extension
+      namespace: ecaax
+      id: construct_segment_map
+      proposed_parent_terms: ["data:1276"]
+      definition: "Named-segment coordinate + sequence map of the engineered construct (EG, intron1, intron2, FP, ...)."
+      maturity: { stage: minted }
+    physical_format: { iri: "format:3475", label: "TSV" }
+    privacy_class: internal
+outputs:
+  - name: structural_filtered_reads
+    semantic_type:
+      kind: local_extension
+      namespace: ecaax
+      id: structural_filtered_reads
+      proposed_parent_terms: ["data:2044"]
+      definition: "Reads passing the construct structural-feature retention gate."
+      maturity: { stage: minted }
+    physical_format: { iri: "format:2572", label: "BAM" }
+    privacy_class: internal
