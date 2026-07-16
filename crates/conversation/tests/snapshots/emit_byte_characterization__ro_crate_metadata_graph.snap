@@ -656,7 +656,7 @@ expression: value
       "@id": "#step-discover_alignment",
       "@type": "HowToStep",
       "additionalType": "discovery",
-      "name": "Discover method for alignment (options: star, hisat2, bwa_mem2, bwa_mem, minimap2, bowtie2). Surface set_intake_method.",
+      "name": "Discover method for alignment (options: star, hisat2, bwa_mem2, bwa_mem, minimap2, minimap2_hifi, pbmm2, bowtie2). Surface set_intake_method.",
       "position": 17
     },
     {
