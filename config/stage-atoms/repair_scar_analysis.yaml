@@ -1,0 +1,96 @@
+id: repair_scar_analysis
+version: "1.0.0"
+role: operation
+confirmatory: true
+description: |
+  Characterize the repair scar of each aligned read against the construct reference.
+  Four coupled behaviors over one alignment + gap set: (1) extract unmapped gaps
+  > min_gap_bp and resolve origin by local BLAST vs the Reference, falling back to
+  the Human Genome; (2) detect inverted (reverse-complement) segments, flip relative
+  coordinates to physical read direction, tag `_INV` with NEGATIVE bp length; (3)
+  translate reference coordinates to named segments and compute inter-segment
+  distances as reference jumps (deletion/duplication); (4) compute Track_Length, the
+  farthest continuous reference distance the read traversed. All reference material
+  is a pre-staged input; no network fetch at runtime.
+edam_operation: "ecaax:repair_scar_analysis"
+assignee: agent
+depends_on: [alignment]
+parameters:
+  - name: min_gap_bp
+    type: integer
+    required: false
+    default: 20
+    description: "Minimum unmapped-gap length (bp) to extract and BLAST. Matches the >20bp rule."
+  - name: blast_fallback_order
+    type: array
+    required: false
+    default: ["reference", "human_genome"]
+    description: "Databases searched in order to resolve a gap's origin."
+  - name: min_blast_identity
+    type: number
+    required: false
+    default: 0.90
+    description: "Minimum identity for a BLAST hit to assign a gap origin. [ASSUMPTION]"
+expected_artifacts: [repair_scar_table.tsv, scar_summary.json, result.json]
+required_figures: [scar_segment_map, track_length_hist, structural_event_bar]
+resource_profile: { cpu: heavy, memory: large, gpu: false, runtime_class: hours }
+safety:
+  level: exec
+  code_execution: generated_by_agent
+  sandbox: process_isolation
+  provisioning: declared_only
+  network: { kind: none }
+governance: { status: reviewed, reviewed_by: "ecaa-governance", review_date: "2026-07-16" }
+runtime_packages:
+  schema_version: 1
+  language_packages:
+    conda: ["bioconda::blast", "bioconda::samtools", "bioconda::minimap2"]
+    python: ["pysam", "biopython", "pandas", "numpy"]
+validators: [coordinate_in_contig, deterministic_or_bounded_variance]
+non_determinism:
+  - artifact: repair_scar_table.tsv
+    columns: [blast_evalue]
+    kind: other
+    reason: "BLAST e-values vary at the floating-point tail across DB partitions; segment calls/lengths are deterministic."
+claim_boundary: |
+  Scar structure is a computational description of one read's alignment against the
+  supplied reference; report the reference, segment map, and BLAST DB versions. A
+  `_INV` tag means reverse-complement alignment, not a validated genomic inversion.
+  Gap origin is the best BLAST hit above threshold, or "unresolved".
+inputs:
+  - name: aligned_reads
+    semantic_type: { kind: ontology_term, iri: "data:0863", label: "Sequence alignment", ontology_version: "EDAM-1.25" }
+    physical_format: { iri: "format:2572", label: "BAM" }
+    coordinate_system: "1-based-inclusive"
+    privacy_class: internal
+  - name: construct_reference
+    semantic_type: { kind: ontology_term, iri: "data:2044", label: "Sequence", ontology_version: "EDAM-1.25" }
+    physical_format: { iri: "format:1929", label: "FASTA" }
+    privacy_class: internal
+  - name: segment_map
+    semantic_type:
+      kind: local_extension
+      namespace: ecaax
+      id: construct_segment_map
+      proposed_parent_terms: ["data:1276"]
+      definition: "Named-segment coordinate + sequence map of the engineered construct (EG, intron1, intron2, FP, ...)."
+      maturity: { stage: minted }
+    physical_format: { iri: "format:3475", label: "TSV" }
+    privacy_class: internal
+  - name: human_blast_db
+    semantic_type: { kind: ontology_term, iri: "data:2044", label: "Sequence", ontology_version: "EDAM-1.25" }
+    physical_format: { iri: "format:1929", label: "FASTA" }
+    genome_build: "GRCh38"
+    privacy_class: internal
+outputs:
+  - name: repair_scar_table
+    semantic_type:
+      kind: local_extension
+      namespace: ecaax
+      id: repair_scar_table
+      proposed_parent_terms: ["data:0863"]
+      definition: "Per-read structural repair-scar description: ordered segment track, gap origins, inversions, reference jumps, track length."
+      maturity: { stage: minted }
+    physical_format: { iri: "format:3475", label: "TSV" }
+    coordinate_system: "1-based-inclusive"
+    privacy_class: internal

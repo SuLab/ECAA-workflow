@@ -753,3 +753,9 @@ affordances:
     renderer_module: runtime.plotting.stages.taxonomic_profiling
     theme_version: theme.json
     parents: [ecaax:taxonomic_profile]
+
+  - semantic_type: ecaax:repair_scar_table
+    figure_ids: [scar_segment_map, track_length_hist, structural_event_bar]
+    renderer_module: runtime.plotting.stages.repair_scar_analysis
+    theme_version: theme.json
+    parents: [EDAM:data_0863]
