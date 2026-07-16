@@ -19,6 +19,8 @@ attributes:
     - bwa_mem2
     - bwa_mem
     - minimap2
+    - minimap2_hifi
+    - pbmm2
     - bowtie2
 # SME-overridable output-shaping parameters (paper D.1 parameter axis). These
 # are NOT the aligner choice (that stays agent-selected per method neutrality) —
@@ -42,6 +44,12 @@ parameters:
     required: false
     default: true
     description: "Include unmapped reads in the output BAM."
+  - name: preset
+    type: enum
+    required: false
+    default: auto
+    allowed_values: [auto, map-hifi, map-ont, map-pb, sr]
+    description: "Aligner preset. `map-hifi` for PacBio HiFi; the tool stays agent-selected, the SME may pin the preset."
 resource_profile:
   cpu: heavy
   memory: large
