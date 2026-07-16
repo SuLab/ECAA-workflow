@@ -1,0 +1,68 @@
+id: filter_host_contamination
+version: "1.0.0"
+role: operation
+description: |
+  Remove reads aligning to the human genome above an identity threshold (default
+  99%), treating them as host contamination / carry-over. Alignment-based identity
+  against a PRE-STAGED human reference (input, not fetched). Reads below threshold
+  are retained.
+edam_operation: "operation:3187"
+assignee: agent
+depends_on: [filter_reads_by_structure]
+parameters:
+  - name: max_host_identity
+    type: number
+    required: false
+    default: 0.99
+    description: "Reads with alignment identity to the human genome ABOVE this are removed."
+  - name: min_aligned_fraction
+    type: number
+    required: false
+    default: 0.5
+    description: "Minimum fraction of read length that must align before identity is judged. [ASSUMPTION]"
+expected_artifacts: [host_filtered_reads/, host_filter_summary.json, result.json]
+figure_exempt:
+  reason: "Emits a filtered read set (BAM), an intermediate; removal counts live in result.json."
+  category: intermediate
+resource_profile: { cpu: heavy, memory: large, gpu: false, runtime_class: hours }
+safety:
+  level: compute
+  code_execution: vetted
+  sandbox: none
+  network: { kind: none }
+governance: { status: reviewed, reviewed_by: "ecaa-governance", review_date: "2026-07-16" }
+runtime_packages:
+  schema_version: 1
+  language_packages:
+    conda: ["bioconda::minimap2", "bioconda::samtools"]
+    python: ["pysam", "pandas"]
+claim_boundary: |
+  Removal is by sequence identity to the supplied human reference at the stated
+  threshold; report the reference build and threshold. Not a claim of biological origin.
+inputs:
+  - name: structural_filtered_reads
+    semantic_type:
+      kind: local_extension
+      namespace: ecaax
+      id: structural_filtered_reads
+      proposed_parent_terms: ["data:2044"]
+      definition: "Reads passing the construct structural-feature retention gate."
+      maturity: { stage: minted }
+    physical_format: { iri: "format:2572", label: "BAM" }
+    privacy_class: internal
+  - name: human_reference
+    semantic_type: { kind: ontology_term, iri: "data:2044", label: "Sequence", ontology_version: "EDAM-1.25" }
+    physical_format: { iri: "format:1929", label: "FASTA" }
+    genome_build: "GRCh38"
+    privacy_class: internal
+outputs:
+  - name: host_filtered_reads
+    semantic_type:
+      kind: local_extension
+      namespace: ecaax
+      id: host_filtered_reads
+      proposed_parent_terms: ["data:2044"]
+      definition: "Reads surviving human-genome identity filtering."
+      maturity: { stage: minted }
+    physical_format: { iri: "format:2572", label: "BAM" }
+    privacy_class: internal

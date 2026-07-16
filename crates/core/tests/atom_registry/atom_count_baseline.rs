@@ -29,7 +29,7 @@ use std::path::Path;
 /// Expected number of atom YAMLs under `config/stage-atoms/` (excluding
 /// `_`-prefixed partials). Bump this only when atoms are intentionally
 /// added or removed.
-const EXPECTED_STAGE_ATOMS: usize = 103;
+const EXPECTED_STAGE_ATOMS: usize = 104;
 
 fn repo_root() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
