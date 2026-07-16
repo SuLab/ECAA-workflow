@@ -1,0 +1,62 @@
+schema_version: "0.1"
+id: crispr_repair_scar
+version: "1.0.0"
+description: |
+  PacBio HiFi long-read amplicon readout of CRISPR editing outcomes at an engineered
+  construct locus. Pipeline: acquire reads -> demultiplex by sample barcode ->
+  per-sample QC -> structural-feature read gate -> human-contamination removal ->
+  pbmm2 alignment to the construct reference -> per-read repair-scar characterization
+  -> reporting.
+sme_summary: |
+  Characterize CRISPR repair scars from PacBio long-read amplicon data: which reads
+  are on-target, and what structural scar (inversions, deletions, insertions) each
+  edited read carries.
+goal_data: "ecaax:repair_scar_table"
+goal_format: "format:3475"
+project_class: bioinformatics
+modality_hint: crispr_amplicon_editing
+validation_contract_ref: validation-contract-repair-scar.json
+atoms:
+  - { atom_id: data_acquisition, required: true }
+  - { atom_id: demultiplex_barcodes, required: true, depends_on: [data_acquisition] }
+  - { atom_id: raw_qc, required: true, depends_on: [demultiplex_barcodes] }
+  - { atom_id: filter_reads_by_structure, required: true, depends_on: [raw_qc] }
+  - { atom_id: filter_host_contamination, required: true, depends_on: [filter_reads_by_structure] }
+  - { atom_id: alignment, required: true, depends_on: [filter_host_contamination] }
+  - { atom_id: repair_scar_analysis, required: true, depends_on: [alignment] }
+  - { atom_id: review_prior_work, required: false }
+  - { atom_id: contextualize_findings_with_literature, required: false, depends_on: [repair_scar_analysis, review_prior_work] }
+  - { atom_id: reporting, required: true, depends_on: [repair_scar_analysis, contextualize_findings_with_literature] }
+  - { atom_id: final_reporting, required: true, depends_on: [reporting] }
+slot_mappings:
+  samples: data_acquisition.inputs.samples
+  barcode_set: demultiplex_barcodes.inputs.barcode_set
+  construct_reference: alignment.inputs.reference
+  segment_map: filter_reads_by_structure.inputs.segment_map
+  human_reference: filter_host_contamination.inputs.human_reference
+  human_blast_db: repair_scar_analysis.inputs.human_blast_db
+  retention_predicate: filter_reads_by_structure.parameters.retention_predicate
+runtime_baseline:
+  schema_version: 1
+  modality: crispr_amplicon_editing
+  base_image: "ghcr.io/scripps/bio-min"
+  language_packages:
+    conda: ["bioconda::pbmm2", "bioconda::lima", "bioconda::pbtk", "bioconda::minimap2",
+            "bioconda::samtools", "bioconda::blast", "bioconda::seqkit"]
+    python: ["pysam", "biopython", "pandas", "numpy"]
+claim_boundary: |
+  Every count and scar description is scoped to the supplied construct reference,
+  segment map, and human reference/BLAST DB versions -- report them. Reads removed by
+  the structural gate or host filter are "did not match" / "human-identical", never
+  "unedited". `_INV` = reverse-complement alignment; a validated inversion event
+  requires orthogonal confirmation.
+ordering_only_edges:
+  # raw_qc's only output is qc_metrics (data:2914); filter_reads_by_structure's
+  # inputs are per_sample_reads (data:2044, from demultiplex_barcodes) and an
+  # external segment_map (data:1276). No port unifies, so this depends_on is a
+  # workflow-ordering barrier (QC gate the reads before the structural filter),
+  # not a data-flow edge -- declare it so it lands OrderingOnly, not Unproven.
+  - { from: raw_qc, to: filter_reads_by_structure }
+  - { from: contextualize_findings_with_literature, to: reporting }
+  - { from: repair_scar_analysis, to: contextualize_findings_with_literature }
+  - { from: repair_scar_analysis, to: reporting }

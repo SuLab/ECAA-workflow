@@ -29,7 +29,7 @@ use std::path::{Path, PathBuf};
 /// `config/archetypes/` (the loader already excludes `_*` schema sidecars
 /// and `*.slots.yaml` companions). Bump only when an archetype is
 /// intentionally added or removed.
-const EXPECTED_ARCHETYPES: usize = 29;
+const EXPECTED_ARCHETYPES: usize = 30;
 
 /// Expected number of archetypes carrying a `<id>.slots.yaml` companion
 /// (folded onto the parent as a `SlotManifest` by the loader). Bump only

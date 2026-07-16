@@ -27,6 +27,8 @@ pub fn edam_label(iri: &str) -> Option<&'static str> {
         "data:2976" => Some("Protein sequence"),
         "data:3498" => Some("Sequence variations"),
         "data:3917" => Some("Count matrix"),
+        // ecaax: — local-extension archetype goal_data (no canonical EDAM term)
+        "ecaax:repair_scar_table" => Some("Repair scar table"),
         // format: — archetype goal_format
         "format:2331" => Some("HTML"),
         "format:3003" => Some("BED"),
