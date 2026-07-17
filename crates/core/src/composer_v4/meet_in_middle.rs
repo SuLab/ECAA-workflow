@@ -468,6 +468,19 @@ pub fn meet_in_the_middle_with_opaque_observation(
                 }
             }
         }
+
+        // One-of input-group post-pass (differential-expression
+        // count-substrate closure). Must run per-consumer, after every
+        // one of THIS atom's input ports has been matched above, so
+        // `edges`/`repair_gaps` reflect the atom's full binding state
+        // before we decide which per-member gaps are genuine.
+        collapse_one_of_gaps(
+            consumer_atom,
+            &mut edges,
+            &mut gaps,
+            &mut repair_gaps,
+            req.atom_id.as_str(),
+        );
     }
 
     // Stable sort by the natural `(from_node, from_port, to_node, to_port)`.
@@ -623,6 +636,108 @@ fn is_risky_adapter_id(id: &str) -> bool {
         || id.starts_with("celltype_label_transfer")
         || id.starts_with("variant_normalize_")
         || id.starts_with("impute_")
+}
+
+/// One-of input-group post-pass. An [`crate::atom::InputGroup`] with
+/// [`crate::atom::InputGroupKind::OneOf`] models a method-conditioned
+/// substrate choice — e.g. `differential_expression`'s `counts` group
+/// over raw (count-GLM tools) vs. normalized (rank-based tools) count
+/// matrices — WITHOUT the compiler picking the method. The per-input-port
+/// loop above records a `MissingProducer` gap for every input port that
+/// didn't bind, which is correct for an ordinary required port but wrong
+/// for a one-of member: an unbound sibling in a satisfied group is a
+/// legitimate unused alternative, not a compositional defect.
+///
+/// Runs once per consumer atom (called with that atom's own
+/// `input_groups`), after every one of its input ports has already been
+/// matched against the forward frontier. For each one-of group:
+///
+/// 1. Counts how many `members` bound to a producer edge into
+///    `consumer_id`.
+/// 2. Tags every bound member's edge with `mutually_exclusive_group =
+///    Some(group.name)` so downstream consumers (repair strategies, the
+///    UI, deposit) can see which alternative was actually wired.
+/// 3. Drops the per-member `MissingProducer` gaps this group's members
+///    generated above, identified by `(consumer_node, consumer_port)`
+///    rather than by string id (the legacy `gaps` ids are
+///    `"{atom_id}:{input_idx}"`, which carries no port name) — the two
+///    lists are pushed in lockstep with identical ids at the per-input
+///    site, so collecting the removed `RepairGap::id`s lets us retain
+///    both vectors by the same key.
+/// 4. If the group is under-bound (`bound < min_bound`), re-adds exactly
+///    ONE group-level gap so the SME / repair registry sees a single
+///    actionable "group X needs 1 of {...}" signal instead of N noisy
+///    per-member proposals.
+pub fn collapse_one_of_gaps(
+    consumer: &crate::atom::AtomDefinition,
+    edges: &mut Vec<EdgeContract>,
+    gaps: &mut Vec<String>,
+    repair_gaps: &mut Vec<RepairGap>,
+    consumer_id: &str,
+) {
+    for group in &consumer.input_groups {
+        if group.members.is_empty() {
+            continue;
+        }
+        let bound_count = group
+            .members
+            .iter()
+            .filter(|m| {
+                edges
+                    .iter()
+                    .any(|e| e.to_node == consumer_id && &e.to_port == *m)
+            })
+            .count();
+
+        // Tag every bound member edge as a mutually-exclusive
+        // alternative — independent of whether the group ends up
+        // satisfied, since the tag records which substrate was wired,
+        // not the gap bookkeeping below.
+        for e in edges.iter_mut() {
+            if e.to_node == consumer_id && group.members.iter().any(|m| m == &e.to_port) {
+                e.mutually_exclusive_group = Some(group.name.clone());
+            }
+        }
+
+        // Drop every per-member `MissingProducer` gap this group's
+        // members generated in the loop above.
+        let removed_ids: Vec<String> = repair_gaps
+            .iter()
+            .filter(|g| {
+                g.consumer_node == consumer_id
+                    && g.kind == GapKind::MissingProducer
+                    && group.members.iter().any(|m| m == &g.consumer_port)
+            })
+            .map(|g| g.id.clone())
+            .collect();
+        if !removed_ids.is_empty() {
+            repair_gaps.retain(|g| !removed_ids.contains(&g.id));
+            gaps.retain(|id| !removed_ids.contains(id));
+        }
+
+        if bound_count < group.min_bound {
+            // Under-bound: re-add exactly one group-level gap (idempotent
+            // — a re-entrant call for the same consumer/group won't
+            // duplicate it).
+            let group_gap_id = format!("{consumer_id}:group:{}", group.name);
+            if !repair_gaps.iter().any(|g| g.id == group_gap_id) {
+                gaps.push(group_gap_id.clone());
+                repair_gaps.push(RepairGap {
+                    id: group_gap_id,
+                    statement: format!(
+                        "one-of input group '{}' on '{}' has {} of {} required members bound",
+                        group.name, consumer_id, bound_count, group.min_bound,
+                    ),
+                    kind: GapKind::MissingProducer,
+                    consumer_node: consumer_id.to_string(),
+                    consumer_port: format!("{}:{}", group.name, group.members.join("|")),
+                    producer_node: None,
+                    producer_port: None,
+                    facet_mismatches: Vec::new(),
+                });
+            }
+        }
+    }
 }
 
 #[cfg(test)]
