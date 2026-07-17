@@ -33,7 +33,7 @@ atoms:
   - { atom_id: quantification,          alias: rnaseq_quantification,           depends_on: [rnaseq_alignment], required: true }
   - { atom_id: qc_preprocessing,        alias: rnaseq_qc_preprocessing,         depends_on: [rnaseq_quantification], required: true }
   - { atom_id: normalisation,           alias: rnaseq_normalisation,            depends_on: [rnaseq_qc_preprocessing], required: true }
-  - { atom_id: differential_expression, alias: rnaseq_differential_expression,  depends_on: [rnaseq_normalisation], required: true }
+  - { atom_id: differential_expression, alias: rnaseq_differential_expression,  depends_on: [rnaseq_quantification, rnaseq_normalisation], required: true }
   # ── methylation_* branch
   - { atom_id: data_acquisition,        alias: methylation_data_acquisition,    required: true }
   - { atom_id: raw_qc,                  alias: methylation_raw_qc,              depends_on: [methylation_data_acquisition], required: true }
@@ -42,7 +42,7 @@ atoms:
   - { atom_id: quantification,          alias: methylation_extraction,          depends_on: [methylation_alignment], required: true }
   - { atom_id: qc_preprocessing,        alias: methylation_qc_preprocessing,    depends_on: [methylation_extraction], required: true }
   - { atom_id: normalisation,           alias: methylation_normalisation,       depends_on: [methylation_qc_preprocessing], required: true }
-  - { atom_id: differential_expression, alias: methylation_dmr_calling,         depends_on: [methylation_normalisation], required: true }
+  - { atom_id: differential_expression, alias: methylation_dmr_calling,         depends_on: [methylation_extraction, methylation_normalisation], required: true }
   # ── 2-way convergence
   - atom_id: expression_methylation_correlation
     required: true

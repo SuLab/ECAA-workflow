@@ -54,7 +54,11 @@ atoms:
   # composition, so both upstream strands feed forward (no stranded nodes).
   - atom_id: differential_expression
     required: true
-    depends_on: [spatially_variable_genes, cell_type_annotation]
+    # Spatial DE binds `normalized_counts` from `normalisation` (no raw
+    # `quantification` stage on the spatial path — the `raw_counts` one-of
+    # member stays unbound, benign). `spatially_variable_genes` and
+    # `cell_type_annotation` remain declared ordering-only sequencing edges.
+    depends_on: [spatially_variable_genes, cell_type_annotation, normalisation]
   - atom_id: review_prior_work
     required: false
     # Unconditional literature contextualization:

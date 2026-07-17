@@ -32,7 +32,7 @@ atoms:
   - { atom_id: quantification,          alias: rnaseq_quantification,              depends_on: [rnaseq_alignment],        required: true }
   - { atom_id: qc_preprocessing,        alias: rnaseq_qc_preprocessing,            depends_on: [rnaseq_quantification],   required: true }
   - { atom_id: normalisation,           alias: rnaseq_normalisation,               depends_on: [rnaseq_qc_preprocessing], required: true }
-  - { atom_id: differential_expression, alias: rnaseq_differential_expression,     depends_on: [rnaseq_normalisation],    required: true }
+  - { atom_id: differential_expression, alias: rnaseq_differential_expression,     depends_on: [rnaseq_quantification, rnaseq_normalisation],    required: true }
   - { atom_id: pathway_enrichment,      alias: rnaseq_pathway_enrichment,          depends_on: [rnaseq_differential_expression], required: false }
   - { atom_id: data_acquisition,        alias: proteomics_data_acquisition,        required: true }
   - { atom_id: peptide_search,          alias: proteomics_peptide_search,          depends_on: [proteomics_data_acquisition], required: true }

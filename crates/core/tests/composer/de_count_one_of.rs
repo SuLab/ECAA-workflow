@@ -134,3 +134,224 @@ fn unproven_edge_outside_any_group_still_rejects() {
         "an Unproven edge on a non-grouped port must still Reject"
     );
 }
+
+/// Archetype-emit assertions for the DE `counts` one-of across the
+/// count-GLM archetypes: the raw member wires to a raw producer, the
+/// normalized member to `normalisation`, and BOTH bound member edges
+/// carry `mutually_exclusive_group = Some("counts")` (so neither is an
+/// untagged authoritative count edge). Drives the REAL compose pipeline
+/// (`compose_with_modalities_full`) end-to-end, not a hand-built DAG.
+mod archetype_emit {
+    use std::collections::BTreeMap;
+    use std::path::Path;
+
+    use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
+    use ecaa_workflow_core::atom_registry::AtomRegistry;
+    use ecaa_workflow_core::composer::compose_with_modalities_full;
+    use ecaa_workflow_core::goal_spec::GoalSpec;
+    use ecaa_workflow_core::workflow_contracts::edge::EdgeContract;
+    use ecaa_workflow_core::workflow_contracts::outcome::ComposeOutcome;
+    use ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag;
+
+    const ATOMS_DIR: &str = "../../config/stage-atoms";
+    const ARCHETYPES_DIR: &str = "../../config/archetypes";
+    /// The count-matrix OntologyTerm IRI the classifier stamps into
+    /// `available_input_stage` for a counts-first (no-raw-reads) intake.
+    const COUNTS_IRI: &str = "data:3917";
+
+    fn regs() -> (AtomRegistry, ArchetypeRegistry) {
+        (
+            AtomRegistry::load_from_dir(Path::new(ATOMS_DIR)).expect("atoms load"),
+            ArchetypeRegistry::load_from_dir(Path::new(ARCHETYPES_DIR)).expect("archetypes load"),
+        )
+    }
+
+    /// Compose one archetype through the production dispatch. `counts_first`
+    /// seeds `available_input_stage = data:3917` so the reads-processing
+    /// chain is pruned and the DE raw edge rewires onto `data_acquisition`.
+    /// Returns the validated `WorkflowDag` — panics unless the outcome is a
+    /// `ValidatedExecutableDag` (i.e. the graph plans with no blocking gap).
+    fn emit_validated(arch_id: &str, counts_first: bool) -> WorkflowDag {
+        let (atoms, archetypes) = regs();
+        let arch = archetypes.get(arch_id).expect("archetype registered");
+        let mut modifiers = BTreeMap::new();
+        if counts_first {
+            modifiers.insert("available_input_stage".into(), COUNTS_IRI.into());
+        }
+        let goal = GoalSpec {
+            edam_data: arch.goal_data.clone(),
+            edam_format: arch.goal_format.clone(),
+            modifiers,
+            source_prose: None,
+            confidence: 0.9,
+        };
+        let mods: Vec<&str> = if !arch.cross_omics_modalities.is_empty() {
+            arch.cross_omics_modalities
+                .iter()
+                .map(String::as_str)
+                .collect()
+        } else {
+            match arch.modality_hint.as_deref() {
+                Some(m) => vec![m],
+                None => vec!["generic_omics"],
+            }
+        };
+        let out = compose_with_modalities_full(
+            &goal,
+            &arch.project_class,
+            &atoms,
+            &archetypes,
+            &mods,
+            None,
+            None,
+            None,
+        )
+        .unwrap_or_else(|e| panic!("{arch_id} (counts_first={counts_first}) must compose: {e:?}"));
+        assert!(
+            matches!(
+                out.compose_outcome,
+                Some(ComposeOutcome::ValidatedExecutableDag { .. })
+            ),
+            "{arch_id} (counts_first={counts_first}) must plan as a ValidatedExecutableDag; \
+             got {:?}",
+            out.compose_outcome.as_ref().map(std::mem::discriminant)
+        );
+        out.workflow_dag
+            .expect("a validated executable dag carries a WorkflowDag")
+    }
+
+    /// The single DE-family stage id (atom_id == differential_expression).
+    /// Every count-GLM single-modality archetype has exactly one.
+    fn sole_de_stage(dag: &WorkflowDag) -> String {
+        let stages: Vec<String> = dag
+            .nodes
+            .iter()
+            .filter(|n| {
+                n.attributes
+                    .get("atom_id")
+                    .and_then(|v| v.as_str())
+                    .map(|a| a == "differential_expression")
+                    .unwrap_or(false)
+            })
+            .map(|n| n.id.clone())
+            .collect();
+        assert_eq!(
+            stages.len(),
+            1,
+            "expected exactly one differential_expression stage, got {stages:?}"
+        );
+        stages.into_iter().next().unwrap()
+    }
+
+    fn count_edge<'a>(dag: &'a WorkflowDag, de: &str, port: &str) -> Option<&'a EdgeContract> {
+        dag.edges
+            .iter()
+            .find(|e| e.to_node == de && e.to_port == port)
+    }
+
+    /// AC1 — reads-first bulk: `raw_counts` binds `quantification`, tagged
+    /// `counts`; the `normalisation → normalized_counts` edge is also
+    /// tagged `counts` (so neither authoritative count edge is untagged).
+    #[test]
+    fn ac1_reads_first_bulk_binds_raw_to_quantification_tagged() {
+        let dag = emit_validated("bulk_rnaseq_de", false);
+        let de = sole_de_stage(&dag);
+
+        let raw = count_edge(&dag, &de, "raw_counts")
+            .expect("reads-first bulk must bind DE.raw_counts");
+        assert_eq!(
+            raw.from_node, "quantification",
+            "reads-first raw_counts must come from quantification"
+        );
+        assert_eq!(
+            raw.mutually_exclusive_group.as_deref(),
+            Some("counts"),
+            "the raw_counts edge must be tagged mutually_exclusive_group=counts"
+        );
+
+        let norm = count_edge(&dag, &de, "normalized_counts")
+            .expect("bulk must also bind DE.normalized_counts");
+        assert_eq!(norm.from_node, "normalisation");
+        assert_eq!(
+            norm.mutually_exclusive_group.as_deref(),
+            Some("counts"),
+            "the normalisation→DE.normalized_counts edge must also be tagged — \
+             no untagged authoritative count edge may survive"
+        );
+    }
+
+    /// AC2 — counts-first bulk: the reads chain is pruned and `raw_counts`
+    /// rewires onto `data_acquisition`; the graph still plans (the
+    /// `emit_validated` helper asserts ValidatedExecutableDag = no residual
+    /// blocking gap). The raw edge stays tagged through the rewire.
+    #[test]
+    fn ac2_counts_first_bulk_binds_raw_to_data_acquisition_and_plans() {
+        let dag = emit_validated("bulk_rnaseq_de", true);
+        let de = sole_de_stage(&dag);
+        let raw = count_edge(&dag, &de, "raw_counts")
+            .expect("counts-first bulk must bind DE.raw_counts");
+        assert_eq!(
+            raw.from_node, "data_acquisition",
+            "counts-first raw_counts must rewire onto the data_acquisition anchor"
+        );
+        assert_eq!(
+            raw.mutually_exclusive_group.as_deref(),
+            Some("counts"),
+            "the rewired raw_counts edge must keep its mutually_exclusive_group tag"
+        );
+        // The quantification chain is gone — no edge may reference it.
+        assert!(
+            !dag.edges.iter().any(|e| e.from_node == "quantification"),
+            "counts-first must prune the quantification producer"
+        );
+    }
+
+    /// AC3 — single-cell binds `normalized_counts` (its `raw_counts` member
+    /// has no producer on the single-cell path — benign) and plans.
+    #[test]
+    fn ac3_single_cell_binds_normalized_and_plans() {
+        let dag = emit_validated("single_cell_de", false);
+        let de = sole_de_stage(&dag);
+        let norm = count_edge(&dag, &de, "normalized_counts")
+            .expect("single-cell DE must bind normalized_counts");
+        assert_eq!(norm.from_node, "normalisation");
+        assert_eq!(
+            norm.mutually_exclusive_group.as_deref(),
+            Some("counts"),
+            "single-cell normalized_counts edge must be tagged counts"
+        );
+    }
+
+    /// Every count-GLM archetype still plans (no regression) on the
+    /// reads-first / native intake path.
+    #[test]
+    fn all_count_glm_archetypes_still_plan() {
+        for arch in [
+            "bulk_rnaseq_de",
+            "methylation_de",
+            "spatial_transcriptomics",
+            "single_cell_de",
+            "proteomics_dda",
+            "proteomics_dia",
+            "cross_omics_rnaseq_atac",
+            "cross_omics_rnaseq_atac_chip",
+            "cross_omics_rnaseq_methylation",
+            "cross_omics_rnaseq_proteomics",
+        ] {
+            let _ = emit_validated(arch, false);
+        }
+    }
+
+    /// methylation reads-first also binds a raw edge from its
+    /// `quantification` (extraction) stage, tagged — the count-GLM
+    /// generalization beyond bulk.
+    #[test]
+    fn methylation_reads_first_binds_raw_tagged() {
+        let dag = emit_validated("methylation_de", false);
+        let de = sole_de_stage(&dag);
+        let raw = count_edge(&dag, &de, "raw_counts")
+            .expect("methylation reads-first must bind DE.raw_counts");
+        assert_eq!(raw.from_node, "quantification");
+        assert_eq!(raw.mutually_exclusive_group.as_deref(), Some("counts"));
+    }
+}
