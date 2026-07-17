@@ -7996,6 +7996,153 @@ mod read_dag_tests {
         ));
     }
 
+    /// RCA I-10: a plain DE-by-condition result (no SME-named regression
+    /// outcome, so `stated_outcome` is correctly OMITTED per
+    /// `differential_expression.yaml`'s `result_contract.record_when_applicable`)
+    /// must NOT arm `response_matches_stated_outcome` — the `when`-gate on
+    /// `/stated_outcome` must stay skipped, and the design otherwise adjusts
+    /// for an available covariate, so the stage must NOT be re-blocked.
+    #[test]
+    fn plain_de_by_condition_does_not_arm_stated_outcome_gate() {
+        use ecaa_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        std::fs::create_dir_all(pkg.join("policies")).unwrap();
+        std::fs::create_dir_all(pkg.join("runtime/outputs/differential_expression")).unwrap();
+
+        let contract = serde_json::json!({
+            "contract_id": "test-association",
+            "stages": {
+                "differential_expression": {
+                    "assertions": [
+                        {
+                            "id": "differential_expression.design_adjusts_available_covariates",
+                            "assertion_type": "formula_references_covariates",
+                            "target": "runtime/outputs/differential_expression/result.json",
+                            "check": {
+                                "formula_pointer": "/design_formula",
+                                "covariates_pointer": "/available_covariates",
+                                "primary_pointer": "/primary_variable"
+                            },
+                            "when": { "json_pointer": "/available_covariates" },
+                            "severity": "required"
+                        },
+                        {
+                            "id": "differential_expression.response_matches_stated_outcome",
+                            "assertion_type": "cross_field_equals",
+                            "target": "runtime/outputs/differential_expression/result.json",
+                            "check": {
+                                "this_pointer": "/response_variable",
+                                "other_pointer": "/stated_outcome",
+                                "normalize": "casefold_trim"
+                            },
+                            "when": { "json_pointer": "/stated_outcome" },
+                            "severity": "required"
+                        }
+                    ]
+                }
+            }
+        });
+        std::fs::write(
+            pkg.join("policies/validation-contract.json"),
+            serde_json::to_string_pretty(&contract).unwrap(),
+        )
+        .unwrap();
+
+        // Plain DE-by-condition: design adjusts for an available covariate,
+        // NO stated_outcome key at all (the atom's contracted default).
+        std::fs::write(
+            pkg.join("runtime/outputs/differential_expression/result.json"),
+            serde_json::json!({
+                "design_formula": "~ condition + sex",
+                "response_variable": "expression",
+                "available_covariates": ["condition", "sex"],
+                "primary_variable": "condition"
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let mut tasks: std::collections::BTreeMap<TaskId, Task> = std::collections::BTreeMap::new();
+        tasks.insert(
+            "differential_expression".into(),
+            Task {
+                kind: TaskKind::Computation,
+                state: TaskState::Completed {
+                    result: serde_json::json!({"method": "deseq2"}),
+                },
+                depends_on: vec![],
+                assignee: Assignee::Agent,
+                description: "de".into(),
+                spec: Some(serde_json::json!({"stage_class": "differential_expression"})),
+                resolution: None,
+                result_ref: None,
+                resource_class: ResourceClass::CpuHeavy,
+                requires_sme_review: false,
+                required_artifacts: vec![],
+                container: None,
+                source_atom_id: None,
+                safety: Default::default(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+                edam_operation: None,
+                execution_index: None,
+            },
+        );
+        tasks.insert(
+            "validate_differential_expression".into(),
+            Task {
+                kind: TaskKind::Validation,
+                state: TaskState::Completed {
+                    result: serde_json::json!({"outcome": "pass"}),
+                },
+                depends_on: vec!["differential_expression".into()],
+                assignee: Assignee::Agent,
+                description: "validate de".into(),
+                spec: Some(serde_json::json!({"stage_class": "differential_expression"})),
+                resolution: None,
+                result_ref: None,
+                resource_class: ResourceClass::CpuHeavy,
+                requires_sme_review: false,
+                required_artifacts: vec![],
+                container: None,
+                source_atom_id: None,
+                safety: Default::default(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+                edam_operation: None,
+                execution_index: None,
+            },
+        );
+        let mut dag = DAG {
+            version: "1.0".into(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
+            workflow_id: "t".into(),
+            current_task: None,
+            tasks,
+            reverse_deps: std::collections::BTreeMap::new(),
+            run_id: None,
+            execution_order: Vec::new(),
+        };
+        let violations = enforce_validation_contract(pkg, &mut dag).unwrap();
+        assert!(
+            violations.is_empty(),
+            "skip-gated check must stay skipped for a plain DE-by-condition result \
+             with no stated_outcome recorded: {violations:?}"
+        );
+        assert!(matches!(
+            dag.tasks.get("differential_expression").unwrap().state,
+            TaskState::Completed { .. }
+        ));
+        assert!(matches!(
+            dag.tasks
+                .get("validate_differential_expression")
+                .unwrap()
+                .state,
+            TaskState::Completed { .. }
+        ));
+    }
+
     /// Build a fixture package with a Completed `variant_calling` task whose
     /// own result.json fails the het-band required assertion (0 calls,
     /// design requires >= 1), plus a Completed `validate_variant_calling`

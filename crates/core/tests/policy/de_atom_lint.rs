@@ -117,3 +117,43 @@ fn real_de_atom_passes_lint() {
         .expect("differential_expression atom must be in the catalog");
     validate_de_substrate(de).expect("the shipped DE atom must pass the lint directly too");
 }
+
+/// RCA I-10: `stated_outcome` is agent-recorded ONLY for a task-named
+/// regression outcome (omitted for a plain DE-by-condition contrast). The
+/// atom's `result_contract.record_in_result_json` checklist must NOT list
+/// it unconditionally — an agent following that checklist literally would
+/// always populate the field, arming the skip-gated
+/// `response_matches_stated_outcome` domain-correctness check for the
+/// common case that must stay skipped. It must instead appear under a
+/// separate `record_when_applicable` map documenting the precondition.
+#[test]
+fn stated_outcome_is_conditional_not_on_the_unconditional_checklist() {
+    let reg = AtomRegistry::load_from_dir(&config_stage_atoms()).expect("real catalog must load");
+    let de = reg
+        .get("differential_expression")
+        .expect("differential_expression atom must be in the catalog");
+    let result_contract = de
+        .attributes
+        .get("result_contract")
+        .expect("differential_expression must declare attributes.result_contract");
+
+    let unconditional = result_contract
+        .get("record_in_result_json")
+        .and_then(|v| v.as_array())
+        .expect("result_contract.record_in_result_json must be an array");
+    assert!(
+        !unconditional
+            .iter()
+            .any(|v| v.as_str() == Some("stated_outcome")),
+        "stated_outcome must NOT be in the unconditional record_in_result_json checklist \
+         (RCA I-10): {unconditional:?}"
+    );
+
+    let conditional = result_contract
+        .get("record_when_applicable")
+        .expect("result_contract.record_when_applicable must document conditional fields");
+    assert!(
+        conditional.get("stated_outcome").is_some(),
+        "stated_outcome must be documented under record_when_applicable: {conditional:?}"
+    );
+}

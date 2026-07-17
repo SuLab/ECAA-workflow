@@ -5,3 +5,4 @@
 // binary named `deposit`.
 mod bagit_coverage;
 mod seal_order;
+mod status_rollup;
