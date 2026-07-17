@@ -22,6 +22,8 @@
 //! - excludes → `TaskNode::attributes["excludes"]`
 //! - attributes → merged into `TaskNode::attributes`
 //! - joint_with → `TaskNode::attributes["joint_with"]`
+//! - input_groups → `TaskNode::attributes["input_groups"]` (read back
+//!   by `composer_v4::planner::score_dag`'s one-of exemption)
 //! - method_choice → `TaskNode::attributes["method_choice"]`
 //! - resource_profile → `TaskNode::attributes["resource_profile"]`
 //! - preferred_container → `Implementation::ContainerCommand.image`
@@ -244,6 +246,16 @@ fn preserve_attributes(atom: &AtomDefinition) -> BTreeMap<String, serde_json::Va
         a.insert(
             "joint_with".into(),
             serde_json::to_value(&atom.joint_with).unwrap_or(serde_json::Value::Null),
+        );
+    }
+    // `input_groups` has no first-class home on `TaskNode` yet; stash
+    // it in the attributes bag so `composer_v4::planner::score_dag`
+    // can recover the one-of membership when deciding whether an
+    // Unproven/OrderingOnly edge into a group member is exempt.
+    if !atom.input_groups.is_empty() {
+        a.insert(
+            "input_groups".into(),
+            serde_json::to_value(&atom.input_groups).unwrap_or(serde_json::Value::Null),
         );
     }
     if let Some(method_choice) = &atom.method_choice {
