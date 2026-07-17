@@ -518,6 +518,60 @@ async fn register_cross_version_diff(
     Some(format!("{}/results/tables/", parent.trim_end_matches('/')))
 }
 
+/// Design §5.2 C5 — parse `runtime/proofs.jsonl`'s `EdgeContract` rows
+/// (the declared per-edge graph the v4 composer proved) for
+/// observed-provenance reconciliation. A malformed line is skipped
+/// rather than aborting the whole parse — one bad line shouldn't blind
+/// reconciliation for every other line the emitter wrote (mirrors
+/// `crate::observed_reads::read_manifest`'s tolerance harness-side).
+/// Absent file (no v4 composition, or a pre-emit package) returns empty.
+async fn read_declared_edges(
+    output_dir: &Path,
+) -> Vec<ecaa_workflow_core::workflow_contracts::edge::EdgeContract> {
+    let path = output_dir.join("runtime/proofs.jsonl");
+    let Ok(body) = tokio::fs::read_to_string(&path).await else {
+        return Vec::new();
+    };
+    body.lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect()
+}
+
+/// One row of `runtime/invocations.jsonl` as seen by the RO-Crate
+/// reconciliation pass — only the field it needs. The harness's fuller
+/// `InvocationRecord` (task_id, epoch, sandbox, container_image, …) is
+/// intentionally NOT reused here: `conversation` never depends on
+/// `harness` (CLAUDE.md crate layering — the harness is the
+/// orchestrator, conversation is chat-side), and `serde_json`'s default
+/// unknown-field tolerance means this minimal shape reads the real file
+/// without needing the harness's type.
+#[derive(Deserialize)]
+struct InvocationObservedReadsRow {
+    #[serde(default)]
+    observed_reads: Vec<ecaa_workflow_core::provenance::ObservedRead>,
+}
+
+/// Design §5.2 C5 — fold every `observed_reads` entry out of
+/// `runtime/invocations.jsonl`. A task may appear on more than one
+/// line — the harness's pre-dispatch record (reads not yet known) plus
+/// a completion-time follow-up once reads are captured — so every
+/// line's `observed_reads` is concatenated rather than only the last.
+/// Absent file (no harness dispatch yet) returns empty.
+async fn read_observed_reads(
+    output_dir: &Path,
+) -> Vec<ecaa_workflow_core::provenance::ObservedRead> {
+    let path = output_dir.join("runtime/invocations.jsonl");
+    let Ok(body) = tokio::fs::read_to_string(&path).await else {
+        return Vec::new();
+    };
+    body.lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| serde_json::from_str::<InvocationObservedReadsRow>(l).ok())
+        .flat_map(|row| row.observed_reads)
+        .collect()
+}
+
 pub(super) async fn patch_ro_crate_metadata(
     output_dir: &Path,
     diff_tables: Vec<String>,
@@ -887,6 +941,25 @@ pub(super) async fn patch_ro_crate_metadata(
                 .context("re-injecting audit-proof InvariantVerdict nodes into the @graph")?;
         }
     }
+
+    // Design §5.2 C5 — reconcile harness-observed reads
+    // (`runtime/invocations.jsonl`) against the declared per-edge graph
+    // (`runtime/proofs.jsonl`) and stamp the `@graph`'s
+    // `ParameterConnection` nodes with the outcome. For the DE
+    // `raw_counts`/`normalized_counts` one-of group (and any other
+    // mutually-exclusive input group), the member the task actually
+    // read is stamped authoritative and its sibling candidate_unused —
+    // the emitted graph then reflects what actually ran, not just what
+    // was declared possible. A no-op before any harness dispatch
+    // (both files presence-gated reads; `reconcile_ro_crate_edges`
+    // itself also no-ops on empty inputs).
+    let declared_edges = read_declared_edges(output_dir).await;
+    let observed_reads = read_observed_reads(output_dir).await;
+    ecaa_workflow_core::ro_crate::reconcile_ro_crate_edges(
+        &mut metadata,
+        &declared_edges,
+        &observed_reads,
+    );
 
     let new_bytes = serde_json::to_vec_pretty(&metadata)?;
     tokio::fs::write(&path, new_bytes).await?;

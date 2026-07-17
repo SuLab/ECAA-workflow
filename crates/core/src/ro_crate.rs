@@ -707,6 +707,136 @@ pub fn reinject_audit_proof_verdicts(
     Ok(())
 }
 
+/// Design §5.2 C5 — reconcile harness-observed reads (from
+/// `runtime/invocations.jsonl`, parsed by the caller into
+/// [`crate::provenance::ObservedRead`]s) against the declared per-edge
+/// graph (`runtime/proofs.jsonl`'s [`crate::workflow_contracts::edge::EdgeContract`]
+/// rows) and stamp the RO-Crate's `ParameterConnection` nodes
+/// (`#parameter-connection/<from>__to__<to>`, built by
+/// [`parameter_connection_entity`]) with the outcome.
+///
+/// For a one-of mutually-exclusive group (e.g. the
+/// `differential_expression` `raw_counts`/`normalized_counts`
+/// candidates, design §5.1 C1/C2), the member whose producer output the
+/// task actually read is stamped `"ecaax:provenanceStatus":
+/// "authoritative"`; every other declared member of the same group is
+/// stamped `"candidate_unused"` — the declared edge is kept (never
+/// dropped, so a differently-configured re-run that reads the other
+/// member still resolves), but a reader now sees which one actually
+/// ran. An ordinary (non-grouped) edge that a read confirms is stamped
+/// `"confirmed"`; a non-grouped, unread edge is left unstamped (silence
+/// is not evidence either way).
+///
+/// A `Divergent` verdict — a read that matches no declared producer's
+/// output for its task — is recorded on the root Dataset's
+/// `ecaax:provenanceDivergence` array rather than silently dropped
+/// (design §5.2: "a typed provenance violation").
+///
+/// Idempotent: re-running (e.g. a second re-emit after more reads land)
+/// re-stamps by `@id`, never duplicates. No-op when either input is
+/// empty or the graph carries no matching `ParameterConnection` node.
+pub fn reconcile_ro_crate_edges(
+    metadata: &mut Value,
+    declared_edges: &[crate::workflow_contracts::edge::EdgeContract],
+    observed_reads: &[crate::provenance::ObservedRead],
+) {
+    use crate::provenance::{reconcile, ReconVerdict};
+    use std::collections::BTreeSet;
+
+    if declared_edges.is_empty() || observed_reads.is_empty() {
+        return;
+    }
+    let Some(graph) = metadata.get_mut("@graph").and_then(Value::as_array_mut) else {
+        return;
+    };
+
+    // Deterministic order (BTreeSet, not HashMap) so a rebuild of the
+    // same on-disk inputs always stamps the graph identically.
+    let mut task_ids: BTreeSet<&str> = BTreeSet::new();
+    for r in observed_reads {
+        task_ids.insert(r.task_id.as_str());
+    }
+
+    let mut divergences: Vec<Value> = Vec::new();
+
+    for task_id in task_ids {
+        let edges_for_task: Vec<&crate::workflow_contracts::edge::EdgeContract> = declared_edges
+            .iter()
+            .filter(|e| e.to_node == task_id)
+            .collect();
+        if edges_for_task.is_empty() {
+            continue;
+        }
+        let owned_edges: Vec<_> = edges_for_task.iter().map(|e| (*e).clone()).collect();
+        let verdicts = reconcile(&owned_edges, observed_reads, task_id);
+
+        let mut authoritative: BTreeSet<(String, String)> = BTreeSet::new();
+        for v in &verdicts {
+            match v {
+                ReconVerdict::Match { authoritative_edge } => {
+                    authoritative.insert(authoritative_edge.clone());
+                }
+                ReconVerdict::Divergent {
+                    read_path,
+                    declared_producer,
+                } => {
+                    divergences.push(json!({
+                        "task_id": task_id,
+                        "read_path": read_path,
+                        "declared_producer": declared_producer,
+                    }));
+                }
+                ReconVerdict::Untracked => {}
+            }
+        }
+
+        for edge in &edges_for_task {
+            let key = (edge.from_node.clone(), edge.to_node.clone());
+            let status = if authoritative.contains(&key) {
+                "authoritative"
+            } else if edge.mutually_exclusive_group.is_some() {
+                "candidate_unused"
+            } else {
+                // No evidence either way for an ordinary edge this pass
+                // didn't observe a read for — leave it unstamped.
+                continue;
+            };
+            stamp_parameter_connection_status(graph, &edge.from_node, &edge.to_node, status);
+        }
+    }
+
+    if !divergences.is_empty() {
+        if let Some(root) = graph
+            .iter_mut()
+            .find(|e| e.get("@id").and_then(Value::as_str) == Some("./"))
+        {
+            if let Some(obj) = root.as_object_mut() {
+                obj.insert(
+                    "ecaax:provenanceDivergence".to_string(),
+                    Value::Array(divergences),
+                );
+            }
+        }
+    }
+}
+
+/// Stamp the `ParameterConnection` node for the task-level edge
+/// `from_node -> to_node` (see [`parameter_connection_entity`]'s `@id`
+/// scheme) with `"ecaax:provenanceStatus": status`. A no-op when no
+/// such node exists in the graph (e.g. a legacy crate emitted before
+/// Tier-3 `ParameterConnection` entities existed).
+fn stamp_parameter_connection_status(graph: &mut [Value], from_node: &str, to_node: &str, status: &str) {
+    let node_id = format!("#parameter-connection/{from_node}__to__{to_node}");
+    if let Some(node) = graph
+        .iter_mut()
+        .find(|e| e.get("@id").and_then(Value::as_str) == Some(node_id.as_str()))
+    {
+        if let Some(obj) = node.as_object_mut() {
+            obj.insert("ecaax:provenanceStatus".to_string(), json!(status));
+        }
+    }
+}
+
 pub fn inject_audit_proof_verdict_nodes(metadata: &mut Value, report: &Value) -> Result<()> {
     let nodes = crate::emitter::ecaa_projection::project_audit_proof_jsonld(report);
     if nodes.is_empty() {
@@ -4046,5 +4176,136 @@ loaded via a namespace (and not attached):
         assert!(types.contains(&"File"));
         assert!(types.contains(&"SoftwareSourceCode"));
         assert!(types.contains(&"ComputationalWorkflow"));
+    }
+
+    // ── Design §5.2 C5 — observed-provenance reconciliation into the
+    // RO-Crate graph ──────────────────────────────────────────────────
+
+    fn de_one_of_edges() -> Vec<crate::workflow_contracts::edge::EdgeContract> {
+        use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind};
+        vec![
+            EdgeContract {
+                from_node: "quantification".into(),
+                from_port: "count_matrix".into(),
+                to_node: "differential_expression".into(),
+                to_port: "raw_counts".into(),
+                proof: CompatibilityProof::default(),
+                kind: EdgeKind::TypedDataFlow,
+                chain_of_custody: None,
+                mutually_exclusive_group: Some("counts".into()),
+            },
+            EdgeContract {
+                from_node: "normalisation".into(),
+                from_port: "normalized_counts".into(),
+                to_node: "differential_expression".into(),
+                to_port: "normalized_counts".into(),
+                proof: CompatibilityProof::default(),
+                kind: EdgeKind::TypedDataFlow,
+                chain_of_custody: None,
+                mutually_exclusive_group: Some("counts".into()),
+            },
+        ]
+    }
+
+    fn graph_with_parameter_connections(edges: &[crate::workflow_contracts::edge::EdgeContract]) -> Value {
+        let mut graph: Vec<Value> = vec![json!({"@id": "./", "@type": "Dataset", "hasPart": []})];
+        for e in edges {
+            graph.push(parameter_connection_entity(
+                &format!("{}__to__{}", e.from_node, e.to_node),
+                &format!("#step-{}", e.from_node),
+                &e.from_port,
+                &format!("#step-{}", e.to_node),
+                &e.to_port,
+            ));
+        }
+        json!({"@graph": graph})
+    }
+
+    #[test]
+    fn reconcile_marks_read_one_of_member_authoritative_and_sibling_candidate() {
+        let edges = de_one_of_edges();
+        let mut metadata = graph_with_parameter_connections(&edges);
+        let reads = vec![crate::provenance::ObservedRead {
+            task_id: "differential_expression".into(),
+            declared_port: Some("raw_counts".into()),
+            path: "runtime/outputs/quantification/count_matrix.tsv".into(),
+        }];
+
+        reconcile_ro_crate_edges(&mut metadata, &edges, &reads);
+
+        let graph = metadata["@graph"].as_array().unwrap();
+        let raw_node = graph
+            .iter()
+            .find(|e| e["@id"] == "#parameter-connection/quantification__to__differential_expression")
+            .expect("raw_counts ParameterConnection node present");
+        assert_eq!(raw_node["ecaax:provenanceStatus"], "authoritative");
+
+        let normalized_node = graph
+            .iter()
+            .find(|e| e["@id"] == "#parameter-connection/normalisation__to__differential_expression")
+            .expect("normalized_counts ParameterConnection node present");
+        assert_eq!(normalized_node["ecaax:provenanceStatus"], "candidate_unused");
+    }
+
+    #[test]
+    fn reconcile_is_idempotent_on_repeated_runs() {
+        let edges = de_one_of_edges();
+        let mut metadata = graph_with_parameter_connections(&edges);
+        let reads = vec![crate::provenance::ObservedRead {
+            task_id: "differential_expression".into(),
+            declared_port: Some("raw_counts".into()),
+            path: "runtime/outputs/quantification/count_matrix.tsv".into(),
+        }];
+
+        reconcile_ro_crate_edges(&mut metadata, &edges, &reads);
+        reconcile_ro_crate_edges(&mut metadata, &edges, &reads);
+
+        let graph = metadata["@graph"].as_array().unwrap();
+        // Exactly one node per @id — no duplication from the second pass.
+        let raw_matches = graph
+            .iter()
+            .filter(|e| e["@id"] == "#parameter-connection/quantification__to__differential_expression")
+            .count();
+        assert_eq!(raw_matches, 1);
+    }
+
+    #[test]
+    fn reconcile_records_divergent_read_on_root_dataset() {
+        let edges = de_one_of_edges();
+        let mut metadata = graph_with_parameter_connections(&edges);
+        // A read that matches neither declared producer's output dir.
+        let reads = vec![crate::provenance::ObservedRead {
+            task_id: "differential_expression".into(),
+            declared_port: None,
+            path: "runtime/outputs/data_acquisition/counts.tsv".into(),
+        }];
+
+        reconcile_ro_crate_edges(&mut metadata, &edges, &reads);
+
+        let graph = metadata["@graph"].as_array().unwrap();
+        let root = graph.iter().find(|e| e["@id"] == "./").unwrap();
+        let divergences = root["ecaax:provenanceDivergence"].as_array()
+            .expect("divergence array recorded on root Dataset");
+        assert_eq!(divergences.len(), 1);
+        assert_eq!(divergences[0]["read_path"], "runtime/outputs/data_acquisition/counts.tsv");
+
+        // Neither one-of member is stamped authoritative when the actual
+        // read diverges from both declared producers.
+        let raw_node = graph
+            .iter()
+            .find(|e| e["@id"] == "#parameter-connection/quantification__to__differential_expression")
+            .unwrap();
+        assert_eq!(raw_node["ecaax:provenanceStatus"], "candidate_unused");
+    }
+
+    #[test]
+    fn reconcile_no_op_when_no_observed_reads() {
+        let edges = de_one_of_edges();
+        let mut metadata = graph_with_parameter_connections(&edges);
+        let before = metadata.clone();
+
+        reconcile_ro_crate_edges(&mut metadata, &edges, &[]);
+
+        assert_eq!(metadata, before, "empty observed reads must leave the graph untouched");
     }
 }
