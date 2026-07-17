@@ -177,6 +177,7 @@ fn make_atom(
         joint_with: vec![],
         inputs: vec![],
         outputs: vec![],
+        input_groups: vec![],
         method_choice: None,
         resource_profile: None,
         preferred_container: None,

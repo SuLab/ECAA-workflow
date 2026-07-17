@@ -165,6 +165,11 @@ pub struct AtomDefinition {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub outputs: Vec<crate::workflow_contracts::port::PortContract>,
 
+    /// Input-port groupings (e.g. one-of substrate choice). Default-empty
+    /// so atoms without groups serialize byte-identically.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub input_groups: Vec<InputGroup>,
+
     /// Pointer for runtime method selection. When set, the named
     /// `discovery_*` atom (or stage in legacy taxonomies) carries
     /// the method choice — the composer threads `method_choice` from
@@ -503,6 +508,7 @@ impl AtomDefinition {
             joint_with: Vec::new(),
             inputs: Vec::new(),
             outputs: Vec::new(),
+            input_groups: Vec::new(),
             method_choice: None,
             resource_profile: None,
             preferred_container: None,
@@ -939,6 +945,48 @@ pub struct JointlyWithConstraint {
     pub rhs: String,
 }
 
+/// A constraint grouping several input ports. `OneOf` means the atom is
+/// satisfied when at least `min_bound` members bind to a compatible
+/// producer; unbound members are legitimate unused alternatives, not gaps.
+/// Used to model method-conditioned substrate choice (e.g. a DE count input
+/// that is raw for count-GLM tools and normalized for rank tools) WITHOUT
+/// the compiler selecting the method.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema)]
+#[ts(export)]
+#[non_exhaustive]
+pub struct InputGroup {
+    /// Group name, unique within the atom (e.g. `counts`).
+    pub name: String,
+    /// Constraint kind governing how `members` are evaluated.
+    #[serde(default)]
+    pub kind: InputGroupKind,
+    /// Port names (or dependency atom ids) that are members of this
+    /// group.
+    pub members: Vec<String>,
+    /// Minimum number of members that must bind for the group to be
+    /// satisfied. Defaults to `1`.
+    #[serde(default = "one")]
+    pub min_bound: usize,
+}
+
+fn one() -> usize {
+    1
+}
+
+/// Closed set of input-group constraint kinds.
+#[derive(
+    Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema,
+)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum InputGroupKind {
+    /// At least `min_bound` of `members` must bind to a compatible
+    /// producer; the rest are legitimate unused alternatives.
+    #[default]
+    OneOf,
+}
+
 /// Resource hint for the composer's `ResourceEstimate` aggregator
 /// (plan §3.1 row "ResourceEstimate computed from atom
 /// resource_profile"). Coarse buckets — exact sizing happens via the
@@ -1271,6 +1319,36 @@ pub struct AtomGovernance {
 mod tests {
     use super::*;
 
+    #[test]
+    fn atom_input_groups_default_empty_and_round_trip() {
+        let yaml = r#"
+id: x
+version: "1.0.0"
+role: operation
+description: "test"
+edam_operation: "operation:0004"
+edam_data: "data:3917"
+edam_format: "format:3475"
+assignee: agent
+inputs: []
+outputs: []
+input_groups:
+  - name: counts
+    kind: one_of
+    members: [raw_counts, normalized_counts]
+    min_bound: 1
+"#;
+        let a: AtomDefinition = serde_yaml_ng::from_str(yaml).unwrap();
+        assert_eq!(a.input_groups.len(), 1);
+        assert_eq!(a.input_groups[0].kind, InputGroupKind::OneOf);
+        assert_eq!(a.input_groups[0].min_bound, 1);
+        // Absent field defaults to empty (byte-stability).
+        let bare: AtomDefinition = serde_yaml_ng::from_str(
+            "id: y\nversion: \"1.0.0\"\nrole: operation\ndescription: \"test\"\nedam_operation: \"operation:0004\"\nedam_data: \"data:3917\"\nedam_format: \"format:3475\"\nassignee: agent\ninputs: []\noutputs: []\n"
+        ).unwrap();
+        assert!(bare.input_groups.is_empty());
+    }
+
     // Extended attribute-type classification + edge
     // satisfaction tests. The composer's attribute-resolution pass
     // (S7.4) exercises these on every depends_on edge; coverage
@@ -1407,6 +1485,7 @@ mod tests {
             joint_with: vec![],
             inputs: vec![],
             outputs: vec![],
+            input_groups: vec![],
             method_choice: Some(MethodChoiceRef {
                 deferred_to: "discover_aligner".into(),
             }),
@@ -1463,6 +1542,7 @@ mod tests {
             joint_with: vec![],
             inputs: vec![],
             outputs: vec![],
+            input_groups: vec![],
             method_choice: None,
             resource_profile: None,
             preferred_container: None,
@@ -1508,6 +1588,7 @@ mod tests {
             joint_with: vec![],
             inputs: vec![],
             outputs: vec![],
+            input_groups: vec![],
             method_choice: None,
             resource_profile: None,
             preferred_container: Some(ContainerSpec {
@@ -1643,6 +1724,7 @@ mod tests {
             joint_with: vec![],
             inputs: vec![],
             outputs: vec![],
+            input_groups: vec![],
             method_choice: None,
             resource_profile: None,
             preferred_container: None,

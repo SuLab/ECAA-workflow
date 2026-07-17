@@ -563,6 +563,7 @@ pub fn promoted_proposal_to_atom_definition(
         joint_with: Vec::new(),
         inputs: Vec::new(),
         outputs,
+        input_groups: Vec::new(),
         method_choice: None,
         resource_profile: None,
         preferred_container: None,

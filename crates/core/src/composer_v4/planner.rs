@@ -3463,6 +3463,7 @@ fn placeholder_atom(node: &TaskNode) -> AtomDefinition {
         joint_with: Vec::new(),
         inputs: Vec::new(),
         outputs: Vec::new(),
+        input_groups: Vec::new(),
         method_choice: None,
         resource_profile: None,
         preferred_container: None,

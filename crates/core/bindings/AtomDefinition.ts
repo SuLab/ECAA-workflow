@@ -6,6 +6,7 @@ import type { AtomRole } from "./AtomRole";
 import type { ContainerSpec } from "./ContainerSpec";
 import type { DurationEstimate } from "./DurationEstimate";
 import type { FigureExempt } from "./FigureExempt";
+import type { InputGroup } from "./InputGroup";
 import type { IterateSpec } from "./IterateSpec";
 import type { JointlyWithConstraint } from "./JointlyWithConstraint";
 import type { MethodChoiceRef } from "./MethodChoiceRef";
@@ -142,6 +143,11 @@ inputs: Array<PortContract>,
  * output ports. See `inputs` for the migration story.
  */
 outputs: Array<PortContract>, 
+/**
+ * Input-port groupings (e.g. one-of substrate choice). Default-empty
+ * so atoms without groups serialize byte-identically.
+ */
+input_groups: Array<InputGroup>, 
 /**
  * Pointer for runtime method selection. When set, the named
  * `discovery_*` atom (or stage in legacy taxonomies) carries

@@ -970,6 +970,7 @@ mod tests {
             joint_with: vec![],
             inputs: vec![],
             outputs: vec![],
+            input_groups: vec![],
             method_choice: None,
             resource_profile: Some(ResourceProfile {
                 cpu: Some("light".into()),
@@ -1012,6 +1013,7 @@ mod tests {
             joint_with: vec![],
             inputs: vec![],
             outputs: vec![],
+            input_groups: vec![],
             method_choice: None,
             resource_profile: Some(ResourceProfile {
                 cpu: Some("moderate".into()),
@@ -1143,6 +1145,7 @@ mod tests {
             joint_with: vec![],
             inputs: vec![],
             outputs: vec![],
+            input_groups: vec![],
             method_choice: None,
             resource_profile: Some(ResourceProfile {
                 cpu: Some("light".into()),
@@ -1185,6 +1188,7 @@ mod tests {
             joint_with: vec![],
             inputs: vec![],
             outputs: vec![],
+            input_groups: vec![],
             method_choice: None,
             resource_profile: Some(ResourceProfile {
                 cpu: Some("light".into()),
@@ -1284,6 +1288,7 @@ mod tests {
             joint_with: vec![],
             inputs: vec![],
             outputs: vec![],
+            input_groups: vec![],
             method_choice: None,
             resource_profile: Some(ResourceProfile {
                 cpu: Some("moderate".into()),
@@ -1371,6 +1376,7 @@ mod tests {
             joint_with: vec![],
             inputs: vec![],
             outputs: vec![],
+            input_groups: vec![],
             method_choice: None,
             resource_profile: None,
             preferred_container: None,
@@ -1500,6 +1506,7 @@ mod tests {
             joint_with: vec![],
             inputs: vec![],
             outputs: vec![],
+            input_groups: vec![],
             method_choice: None,
             resource_profile: None,
             preferred_container: None,
