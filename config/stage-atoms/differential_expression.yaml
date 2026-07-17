@@ -112,9 +112,23 @@ claim_boundary: |
   contrast. Avoid mechanistic language; prefer "associated with" / "enriched in"
   over "drives" / "causes".
 # Explicit rich ports.
-# Input is a normalized count matrix paired with the experimental
-# design; output is the DE results table with logFC + p-value + padj.
+# Input is a count matrix (raw or normalized — a method-neutral one-of;
+# count-GLM tools like DESeq2/edgeR fit raw counts, rank-based tools
+# consume normalized counts) paired with the experimental design; output
+# is the DE results table with logFC + p-value + padj.
 inputs:
+  - name: raw_counts
+    semantic_type:
+      kind: ontology_term
+      iri: "data:3917"
+      label: "Count matrix"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    statistical_state: "raw_counts"
+    cardinality: { kind: optional }
+    privacy_class: internal
   - name: normalized_counts
     semantic_type:
       kind: ontology_term
@@ -125,6 +139,7 @@ inputs:
       iri: "format:3475"
       label: "Tabular text"
     statistical_state: "normalized"
+    cardinality: { kind: optional }
     privacy_class: internal
   - name: experimental_design
     semantic_type:
@@ -136,6 +151,11 @@ inputs:
       iri: "format:3464"
       label: "JSON"
     privacy_class: internal
+input_groups:
+  - name: counts
+    kind: one_of
+    members: [raw_counts, normalized_counts]
+    min_bound: 1
 outputs:
   - name: de_results
     semantic_type:
