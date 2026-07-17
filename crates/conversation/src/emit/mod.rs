@@ -704,7 +704,17 @@ async fn emit_steps(
     // v3 P5 F16 — thread the redaction tier through so the patcher
     // can refuse the emit when PHI patterns escape into a
     // non-`Private` tier sidecar.
-    ro_crate::patch_ro_crate_metadata(output_dir, diff_written, affordance_records, tier).await?;
+    //
+    // T12 — a non-empty return means the reconcile pass folded inside
+    // `patch_ro_crate_metadata` found `Divergent` reads: task(s) that read
+    // a file no declared producer's output directory covers. Transition
+    // each into `BlockerKind::ProvenanceDivergence` immediately, while
+    // `session` is still in scope — `patch_ro_crate_metadata` itself only
+    // owns the RO-Crate `@graph`, not session state.
+    let divergences =
+        ro_crate::patch_ro_crate_metadata(output_dir, diff_written, affordance_records, tier)
+            .await?;
+    apply_provenance_divergence_blockers(session, &divergences);
 
     // RCA I-2 / I-7 — re-seal the BagIt manifest over the package's TRUE
     // final pre-execution state. Everything above this line — every sidecar
@@ -726,6 +736,65 @@ async fn emit_steps(
         .context("re-sealing BagIt manifest over the final emitted payload")?;
 
     Ok(())
+}
+
+/// T12 — transition every task named in `divergences` to
+/// `BlockerKind::ProvenanceDivergence` via the same `HarnessTaskBlocked`
+/// trigger the harness-driven blocker path uses
+/// (`crate::service::ConversationService::block_from_harness`), applied
+/// directly against `session` since `emit_steps` already holds `&mut
+/// Session` — going through the store-backed service would require a
+/// `SessionId` + `ConversationService`, neither of which `emit_steps` has.
+///
+/// `session.state` is `Emitting` at this call site (the tool dispatcher's
+/// pre-handler hook fires `EmitPackageStart` before `emit_package`'s
+/// handler — which is what calls into this pipeline — runs), so
+/// `try_transition` accepts `HarnessTaskBlocked` from `Emitting` too (see
+/// `session/transitions.rs`). The dispatcher's post-handler `EmitPackageOk`
+/// trigger fires unconditionally after this returns; from the now-`Blocked`
+/// state that transition is illegal and is logged + swallowed
+/// (`emit_package_post_ok`'s existing `warn_illegal_transition` path), so
+/// the session correctly lands on `Blocked` rather than `Emitted`.
+///
+/// No-op when `divergences` is empty (the overwhelmingly common case: no
+/// harness has dispatched against this package yet). Best-effort per
+/// entry: an illegal transition (e.g. multiple divergences for a session
+/// already off the accepted-state list) is logged and does not abort the
+/// emit — the package has already been written to disk at this point.
+fn apply_provenance_divergence_blockers(
+    session: &mut Session,
+    divergences: &[ecaa_workflow_core::provenance::DivergenceRecord],
+) {
+    for d in divergences {
+        let detail = match &d.declared_producer {
+            Some(producer) => format!(
+                "read {} does not live under any declared producer's output directory \
+                 (the declared graph names {} as the producer for this input)",
+                d.read_path, producer
+            ),
+            None => format!(
+                "read {} does not live under any declared producer's output directory",
+                d.read_path
+            ),
+        };
+        let blocker_kind = ecaa_workflow_core::blocker::BlockerKind::ProvenanceDivergence {
+            task_id: d.task_id.clone(),
+            read_path: d.read_path.clone(),
+            declared_producer: d.declared_producer.clone(),
+        };
+        if let Err(e) = session.try_transition(crate::session::StateTrigger::HarnessTaskBlocked {
+            task_id: d.task_id.clone(),
+            detail,
+            blocker_kind,
+        }) {
+            tracing::warn!(
+                session_id = %session.id,
+                task_id = %d.task_id,
+                error = ?e,
+                "provenance-divergence block: illegal state transition ignored"
+            );
+        }
+    }
 }
 
 /// v3 P4 / F17 — run the backend `compile()` pass and refuse the
@@ -2248,5 +2317,90 @@ mod tests {
             "frontier task with all-Completed upstream must serialize as ready; got {:?}",
             wf["tasks"][frontier.as_str()]["state"]
         );
+    }
+
+    /// T12 — a seeded `Divergent` reconcile verdict (surfaced as a
+    /// `DivergenceRecord`, the shape `reconcile_ro_crate_edges` returns)
+    /// must transition the offending task to
+    /// `BlockerKind::ProvenanceDivergence`. `emit_steps` calls this helper
+    /// while `session.state == Emitting` (the tool dispatcher's
+    /// `EmitPackageStart` pre-handler hook fires before `emit_package`'s
+    /// handler — which runs this whole pipeline — executes), so seed that
+    /// state directly rather than driving the full tool-dispatch loop.
+    #[test]
+    fn provenance_divergence_transitions_task_to_typed_blocker() {
+        let mut session = Session::new(false);
+        session.state = crate::session::SessionState::Emitting;
+
+        let divergences = vec![ecaa_workflow_core::provenance::DivergenceRecord {
+            task_id: "differential_expression".into(),
+            read_path: "runtime/outputs/data_acquisition/counts.tsv".into(),
+            declared_producer: Some("normalisation".into()),
+        }];
+
+        apply_provenance_divergence_blockers(&mut session, &divergences);
+
+        match &session.state {
+            crate::session::SessionState::Blocked { blocker_kind, .. } => match blocker_kind {
+                Some(ecaa_workflow_core::blocker::BlockerKind::ProvenanceDivergence {
+                    task_id,
+                    read_path,
+                    declared_producer,
+                }) => {
+                    assert_eq!(task_id, "differential_expression");
+                    assert_eq!(read_path, "runtime/outputs/data_acquisition/counts.tsv");
+                    assert_eq!(declared_producer.as_deref(), Some("normalisation"));
+                }
+                other => panic!("expected ProvenanceDivergence blocker, got {other:?}"),
+            },
+            other => panic!("expected session to transition to Blocked, got {other:?}"),
+        }
+    }
+
+    /// A second divergence for a session already `Blocked` from the first
+    /// must APPEND (not overwrite) — mirrors `try_merge_harness_block`'s
+    /// existing merge behavior for the harness-driven blocker path.
+    #[test]
+    fn provenance_divergence_appends_a_second_blocker_entry() {
+        let mut session = Session::new(false);
+        session.state = crate::session::SessionState::Emitting;
+
+        let divergences = vec![
+            ecaa_workflow_core::provenance::DivergenceRecord {
+                task_id: "differential_expression".into(),
+                read_path: "runtime/outputs/data_acquisition/counts.tsv".into(),
+                declared_producer: None,
+            },
+            ecaa_workflow_core::provenance::DivergenceRecord {
+                task_id: "biological_interpretation".into(),
+                read_path: "runtime/outputs/differential_expression/raw.tsv".into(),
+                declared_producer: None,
+            },
+        ];
+
+        apply_provenance_divergence_blockers(&mut session, &divergences);
+
+        match &session.state {
+            crate::session::SessionState::Blocked { blockers, .. } => {
+                assert_eq!(blockers.len(), 2, "expected both tasks blocked, got {blockers:?}");
+                assert!(blockers.iter().any(|b| b.task_id == "differential_expression"));
+                assert!(blockers.iter().any(|b| b.task_id == "biological_interpretation"));
+            }
+            other => panic!("expected session to be Blocked, got {other:?}"),
+        }
+    }
+
+    /// No divergences → no-op; the session's state is left untouched.
+    #[test]
+    fn provenance_divergence_no_op_when_empty() {
+        let mut session = Session::new(false);
+        session.state = crate::session::SessionState::Emitting;
+
+        apply_provenance_divergence_blockers(&mut session, &[]);
+
+        assert!(matches!(
+            session.state,
+            crate::session::SessionState::Emitting
+        ));
     }
 }

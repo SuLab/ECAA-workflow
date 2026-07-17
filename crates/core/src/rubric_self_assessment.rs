@@ -232,7 +232,7 @@ mod tests {
             tool_count: 22,
             atom_count: 101,
             modality_count: 23,
-            blocker_kind_count: 48,
+            blocker_kind_count: 49,
             sandbox_default_strict: true,
             proposal_pipeline_present: true,
             llm_assisted_authoring_present: true,

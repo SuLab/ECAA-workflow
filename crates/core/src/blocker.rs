@@ -826,14 +826,19 @@ mod tests {
                 reason: "registry snapshot \"x\" not found".into(),
             },
             BlockerKind::TurnBudgetExceeded,
+            BlockerKind::ProvenanceDivergence {
+                task_id: "differential_expression".into(),
+                read_path: "runtime/outputs/data_acquisition/counts.tsv".into(),
+                declared_producer: Some("normalisation".into()),
+            },
         ];
 
         assert_eq!(
             variants.len(),
-            48,
-            "expected exactly forty-eight variants \
-             (ExternalImportFailed added for the federation import path — \
-             matches `BlockerKind::COUNT` compile-time gate in \
+            49,
+            "expected exactly forty-nine variants \
+             (ProvenanceDivergence added for the observed-read reconciliation \
+             path, T12 — matches `BlockerKind::COUNT` compile-time gate in \
              `crates/core/tests/policy/blocker_variant_count.rs` and the doc \
              comment on `BlockerKind` in this file)"
         );

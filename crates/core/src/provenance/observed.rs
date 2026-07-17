@@ -84,6 +84,29 @@ pub enum ReconVerdict {
     Untracked,
 }
 
+/// One divergent read discovered while reconciling a *package's* observed
+/// reads against its declared per-edge graph
+/// (`crate::ro_crate::reconcile_ro_crate_edges`). Unlike [`ReconVerdict::Divergent`]
+/// — which is scoped to the single task passed to [`reconcile`] and so never
+/// carries a task id — a package-level reconciliation pass folds every
+/// task's verdicts together, so the owning `task_id` has to travel with the
+/// record once it leaves that per-task scope. Consumed by
+/// `crates/conversation/src/emit/ro_crate.rs::patch_ro_crate_metadata`'s
+/// caller to transition the offending task to
+/// `BlockerKind::ProvenanceDivergence`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DivergenceRecord {
+    /// The task whose observed read diverged from its declared producers.
+    pub task_id: String,
+    /// The file path that was read.
+    pub read_path: String,
+    /// The producer the declared graph attributed to the read's own
+    /// claimed input port, when the read named one and that port is
+    /// declared. Mirrors [`ReconVerdict::Divergent`]'s field of the same
+    /// name.
+    pub declared_producer: Option<String>,
+}
+
 /// True when `path` lives under the given producer task's declared
 /// output directory (`runtime/outputs/<producer_task>/…`).
 fn path_under_producer_output(path: &str, producer_task: &str) -> bool {
