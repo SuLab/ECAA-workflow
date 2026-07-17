@@ -81,6 +81,18 @@ outputs:
       iri: "format:3475"
       label: "Tabular text"
     privacy_class: internal
+  - name: raw_count_matrix
+    semantic_type:
+      kind: ontology_term
+      iri: "data:3917"
+      label: "Count matrix"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    statistical_state: "raw_counts"
+    cardinality: { kind: optional }
+    privacy_class: internal
   - name: raw_reads
     semantic_type:
       kind: ontology_term

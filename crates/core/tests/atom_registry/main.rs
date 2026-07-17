@@ -9,6 +9,7 @@ mod atom_role_speculative_variants;
 mod atom_safety_integration;
 mod confirmatory_atom_catalog;
 mod data_acquisition_egress;
+mod data_acquisition_raw_counts_port;
 mod estimated_duration;
 mod exec_atom_load;
 mod governance_load;
