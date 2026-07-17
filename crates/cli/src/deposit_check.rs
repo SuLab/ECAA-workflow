@@ -34,11 +34,13 @@ pub(crate) fn run(args: DepositCheckArgs) -> Result<()> {
         .with_context(|| format!("deposit-check refused {}", args.package.display()))?;
 
     println!(
-        "deposit-check: PASS  package={}\n  profile={}  ro_crate={:?}  bagit={:?}  reexecution={:?}",
+        "deposit-check: PASS  package={}\n  profile={}  deposit_ready={}  ro_crate={:?}  bagit={:?}  domain_validation={:?}  reexecution={:?}",
         args.package.display(),
         dr.profile,
+        dr.deposit_ready,
         dr.ro_crate,
         dr.bagit,
+        dr.domain_validation,
         dr.reexecution,
     );
     if let Some(detail) = &dr.detail {
