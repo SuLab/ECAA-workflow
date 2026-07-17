@@ -3258,6 +3258,22 @@ fn run_loop(
                         }
                         let o = guard.run_iteration(&path_buf, &agent_arg, &envelope);
                         let c = guard.take_last_capture();
+                        // Design §5.2 C5 — pop this iteration's observed
+                        // input reads (see `observed_reads::capture_reads`).
+                        // Reconciling them against the declared graph
+                        // (`core::provenance::observed::reconcile`) and
+                        // persisting the result is a later task; for now
+                        // this just proves the capture reaches the real
+                        // dispatch site.
+                        let reads = guard.take_observed_reads();
+                        if !reads.is_empty() {
+                            tracing::debug!(
+                                target: "observed_reads",
+                                task_id = %task_id_for_overrides,
+                                count = reads.len(),
+                                "captured observed input reads for task"
+                            );
+                        }
                         (o, c)
                     };
                     (id.clone(), outcome, capture)
