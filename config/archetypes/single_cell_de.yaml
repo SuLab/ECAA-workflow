@@ -62,7 +62,13 @@ atoms:
     depends_on: [clustering]
   - atom_id: differential_expression
     required: true
-    depends_on: [cell_type_annotation]
+    # Single-cell DE binds `normalized_counts` from `normalisation` (its
+    # count-GLM one-of member `raw_counts` has no producer on the
+    # single-cell path — benign, the one-of is satisfied by the normalized
+    # member). `cell_type_annotation` stays a declared ordering-only
+    # sequencing edge (see ordering_only_edges); the added `normalisation`
+    # dep is the typed data-flow edge into the count port.
+    depends_on: [cell_type_annotation, normalisation]
   - atom_id: pathway_enrichment
     required: false
     depends_on: [differential_expression]

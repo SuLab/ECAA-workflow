@@ -51,7 +51,13 @@ atoms:
     # to a pre-literature DAG.
   - atom_id: differential_expression
     required: true
-    depends_on: [normalisation]
+    # DE's `counts` one-of binds `raw_counts` from `quantification` (the raw
+    # count matrix count-GLM tools fit) and `normalized_counts` from
+    # `normalisation` (rank-based tools). On the counts-first path the
+    # upstream `quantification` chain is pruned and the raw edge is rewired
+    # onto `data_acquisition`. Method-neutral: both substrates are offered;
+    # the agent's runtime method choice selects the one it reads.
+    depends_on: [quantification, normalisation]
   - atom_id: contextualize_findings_with_literature
     required: false
     depends_on: [differential_expression, review_prior_work]

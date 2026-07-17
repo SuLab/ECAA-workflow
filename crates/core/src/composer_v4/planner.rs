@@ -2090,6 +2090,35 @@ pub fn lift_to_workflow_dag(
         }
     }
 
+    // One-of input-group tagging (archetype-lift path). The
+    // per-`depends_on` edge loop above binds each one-of member to its
+    // own producer (e.g. `differential_expression`'s `counts` group over
+    // raw / normalized count matrices) but leaves
+    // `mutually_exclusive_group` unset — the tagging that
+    // `meet_in_the_middle` applies via `collapse_one_of_gaps` never runs
+    // on this seed-lift path. Run the same shared post-pass here so a
+    // consumer's bound member edges carry
+    // `mutually_exclusive_group = Some(<group>)`, presenting them as
+    // mutually-exclusive alternatives rather than two simultaneous data
+    // flows. Gap bookkeeping is a no-op on this path (the lift tracks no
+    // gaps), so the throwaway gap vectors are discarded; only the edge
+    // tags survive. Atoms without `input_groups` are skipped, keeping the
+    // lift byte-stable for every non-one-of consumer.
+    for c in &result.atoms {
+        if c.atom.input_groups.is_empty() {
+            continue;
+        }
+        let mut discarded_gaps: Vec<String> = Vec::new();
+        let mut discarded_repair_gaps: Vec<crate::repair::proposal::RepairGap> = Vec::new();
+        super::meet_in_middle::collapse_one_of_gaps(
+            &c.atom,
+            &mut edges,
+            &mut discarded_gaps,
+            &mut discarded_repair_gaps,
+            c.stage_id.as_str(),
+        );
+    }
+
     // Stable edge order (sorted by from→to).
     edges.sort_by(|a, b| {
         a.from_node
