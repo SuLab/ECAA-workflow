@@ -36,7 +36,7 @@
 use crate::validators::ValidatorOutcome;
 use std::collections::BTreeSet;
 use std::io::Write as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub use ecaa_workflow_core::sandbox_policy::{
     check_generated_code_node, check_workflow_dag, SandboxPolicy, SandboxRefusal,
@@ -190,6 +190,67 @@ pub enum SandboxRunnerError {
     TaskNotInNodeList { task_id: String },
 }
 
+/// Declared-input filesystem view for one bubblewrap-wrapped task
+/// (design §5.2 tier (a) hardening).
+///
+/// `ro_binds` are the task's declared producers' output directories —
+/// read-only, so the task can consume what the declared graph says it
+/// may consume but never write into a sibling's output. `rw_binds` are
+/// the task's own working areas (`runtime/outputs/<task_id>` and
+/// `runtime/scratch/<task_id>`) — read-write, since the agent needs
+/// somewhere to write its results.
+///
+/// When a `BubblewrapRunner` carries `Some(ReadScope)`,
+/// [`BubblewrapRunner::render_args`] binds exactly these paths instead
+/// of the whole package workdir — every other task's output directory
+/// is simply absent from the mount namespace, so an undeclared read
+/// fails at the OS boundary (ENOENT) rather than silently succeeding.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ReadScope {
+    /// Declared producers' output directories (read-only).
+    pub ro_binds: Vec<PathBuf>,
+    /// The task's own output + scratch directories (read-write).
+    pub rw_binds: Vec<PathBuf>,
+}
+
+/// Compute the read scope for `task_id` under `package_root`, given the
+/// task ids it declares as dependencies.
+///
+/// `declared_producers` is expected to be `Task::depends_on` — the
+/// composer builds that field directly off the declared `EdgeContract`
+/// graph (see `composer_v4::discover_companion_synthesis` module docs:
+/// "actually builds `Task.depends_on` straight off `dag.edges`"), so a
+/// task's dependency list already IS its declared input producer set;
+/// no separate edge-contract lookup is needed at the harness dispatch
+/// site.
+///
+/// Pure — no filesystem I/O, deterministic given the same inputs
+/// (`ro_binds` sorted + deduped for byte-stable bwrap-arg rendering).
+/// Callers resolve existence at bind time (`--ro-bind-try`/`--bind-try`
+/// in [`BubblewrapRunner::render_args`]) — a producer that hasn't
+/// produced anything, or a scratch dir not yet created, simply
+/// contributes no visible path rather than failing the dispatch.
+pub fn compute_read_scope(
+    package_root: &Path,
+    task_id: &str,
+    declared_producers: &[String],
+) -> ReadScope {
+    let outputs_root = package_root.join("runtime/outputs");
+    let mut ro_binds: Vec<PathBuf> = declared_producers
+        .iter()
+        .map(|producer| outputs_root.join(producer))
+        .collect();
+    ro_binds.sort();
+    ro_binds.dedup();
+    ReadScope {
+        ro_binds,
+        rw_binds: vec![
+            outputs_root.join(task_id),
+            package_root.join("runtime/scratch").join(task_id),
+        ],
+    }
+}
+
 /// Translates a `SandboxPolicy` into a `bwrap`-wrapped
 /// `std::process::Command`. Call `from_env` to construct — it checks
 /// `ECAA_LOCAL_SANDBOX` and errors loudly when `bubblewrap` is
@@ -198,6 +259,12 @@ pub enum SandboxRunnerError {
 pub struct BubblewrapRunner {
     bwrap_path: PathBuf,
     workdir: PathBuf,
+    /// Declared-input filesystem view (design §5.2 tier (a)). `None`
+    /// preserves the legacy behavior of binding the whole `workdir`
+    /// read-write — callers that haven't wired scoping yet (or tests
+    /// exercising the unscoped path) keep working unchanged. Set via
+    /// [`BubblewrapRunner::with_read_scope`].
+    read_scope: Option<ReadScope>,
 }
 
 /// Secret-bearing env var name patterns (case-insensitive substring match).
@@ -239,6 +306,7 @@ impl BubblewrapRunner {
                 Ok(Some(Self {
                     bwrap_path,
                     workdir,
+                    read_scope: None,
                 }))
             }
             other => Err(SandboxRunnerError::InvalidPolicy(format!(
@@ -269,6 +337,7 @@ impl BubblewrapRunner {
                 Ok(Some(Self {
                     bwrap_path,
                     workdir,
+                    read_scope: None,
                 }))
             }
             other => Err(SandboxRunnerError::InvalidPolicy(format!(
@@ -289,7 +358,18 @@ impl BubblewrapRunner {
         Self {
             bwrap_path: PathBuf::from("/usr/bin/bwrap"),
             workdir,
+            read_scope: None,
         }
+    }
+
+    /// Scope this runner's filesystem view to `scope`
+    /// (design §5.2 tier (a)): `render_args` will bind exactly
+    /// `scope`'s declared-producer directories (read-only) and the
+    /// task's own working directories (read-write) instead of the
+    /// whole package workdir.
+    pub fn with_read_scope(mut self, scope: ReadScope) -> Self {
+        self.read_scope = Some(scope);
+        self
     }
 
     /// Render the complete bwrap argument list for `policy` in a
@@ -339,11 +419,45 @@ impl BubblewrapRunner {
                     args.push(dir.to_string());
                 }
             }
-            // The package workdir is bind-mounted RW so the agent can
-            // write outputs into `runtime/`.
-            args.push("--bind".into());
-            args.push(self.workdir.to_string_lossy().to_string());
-            args.push(self.workdir.to_string_lossy().to_string());
+            match &self.read_scope {
+                Some(scope) => {
+                    // Declared-input filesystem view (design §5.2 tier
+                    // (a)): only the task's declared producers' output
+                    // directories (read-only) and its own working
+                    // directories (read-write) are visible. Every other
+                    // path under the package workdir — including every
+                    // other task's output directory, reachable under the
+                    // legacy blanket bind below — is simply absent from
+                    // the mount namespace, so an undeclared read fails
+                    // at the OS boundary (ENOENT) rather than silently
+                    // succeeding. `-try` variants keep this list
+                    // deterministic regardless of dispatch-time
+                    // filesystem state (a producer/scratch dir that
+                    // doesn't exist yet just contributes no visible
+                    // path instead of failing bwrap or the render).
+                    for p in &scope.ro_binds {
+                        let s = p.to_string_lossy().to_string();
+                        args.push("--ro-bind-try".into());
+                        args.push(s.clone());
+                        args.push(s);
+                    }
+                    for p in &scope.rw_binds {
+                        let s = p.to_string_lossy().to_string();
+                        args.push("--bind-try".into());
+                        args.push(s.clone());
+                        args.push(s);
+                    }
+                }
+                None => {
+                    // Legacy/unscoped behavior: bind the whole package
+                    // workdir read-write. Preserved so callers that
+                    // haven't wired a `ReadScope` (and the pre-T14 test
+                    // suite) keep working exactly as before.
+                    args.push("--bind".into());
+                    args.push(self.workdir.to_string_lossy().to_string());
+                    args.push(self.workdir.to_string_lossy().to_string());
+                }
+            }
 
             // resolv.conf only when we're allowing network (deny_network
             // would make it irrelevant — no egress even with the file).
@@ -648,6 +762,112 @@ mod tests {
         assert!(args.iter().any(|a| a == "--network=none"));
         assert!(args.iter().any(|a| a == "--read-only"));
         assert!(args.iter().any(|a| a == "--memory=8192m"));
+    }
+
+    #[test]
+    fn compute_read_scope_includes_declared_producers_and_own_workdir() {
+        let package = PathBuf::from("/pkg");
+        let scope = compute_read_scope(
+            &package,
+            "differential_expression",
+            &["quantification".to_string(), "normalisation".to_string()],
+        );
+        assert!(scope
+            .ro_binds
+            .contains(&package.join("runtime/outputs/quantification")));
+        assert!(scope
+            .ro_binds
+            .contains(&package.join("runtime/outputs/normalisation")));
+        assert!(scope
+            .rw_binds
+            .contains(&package.join("runtime/outputs/differential_expression")));
+        assert!(scope
+            .rw_binds
+            .contains(&package.join("runtime/scratch/differential_expression")));
+    }
+
+    #[test]
+    fn compute_read_scope_excludes_undeclared_producer() {
+        let package = PathBuf::from("/pkg");
+        // Only `quantification` is declared — an unrelated task's output
+        // dir (`secrets_task`) must never appear in the bind set.
+        let scope = compute_read_scope(
+            &package,
+            "differential_expression",
+            &["quantification".to_string()],
+        );
+        assert!(!scope
+            .ro_binds
+            .contains(&package.join("runtime/outputs/secrets_task")));
+        assert_eq!(scope.ro_binds.len(), 1);
+    }
+
+    #[test]
+    fn compute_read_scope_is_deterministic_and_deduped() {
+        let package = PathBuf::from("/pkg");
+        let declared = vec![
+            "b_task".to_string(),
+            "a_task".to_string(),
+            "a_task".to_string(),
+        ];
+        let scope = compute_read_scope(&package, "consumer", &declared);
+        assert_eq!(
+            scope.ro_binds,
+            vec![
+                package.join("runtime/outputs/a_task"),
+                package.join("runtime/outputs/b_task"),
+            ]
+        );
+    }
+
+    #[test]
+    fn render_args_scoped_binds_only_declared_paths_not_whole_workdir() {
+        let workdir = PathBuf::from("/pkg");
+        let scope = compute_read_scope(&workdir, "consumer", &["producer".to_string()]);
+        let runner = BubblewrapRunner::new_for_test(workdir.clone()).with_read_scope(scope);
+        let policy = SandboxPolicy::default_strict();
+        let args = runner.render_args(&policy);
+
+        let producer_path = workdir
+            .join("runtime/outputs/producer")
+            .to_string_lossy()
+            .to_string();
+        let own_output_path = workdir
+            .join("runtime/outputs/consumer")
+            .to_string_lossy()
+            .to_string();
+        let own_scratch_path = workdir
+            .join("runtime/scratch/consumer")
+            .to_string_lossy()
+            .to_string();
+        let workdir_str = workdir.to_string_lossy().to_string();
+
+        assert!(
+            args.windows(2)
+                .any(|w| w[0] == "--ro-bind-try" && w[1] == producer_path),
+            "expected --ro-bind-try for declared producer, got: {:?}",
+            args
+        );
+        assert!(
+            args.windows(2)
+                .any(|w| w[0] == "--bind-try" && w[1] == own_output_path),
+            "expected --bind-try for own output dir, got: {:?}",
+            args
+        );
+        assert!(
+            args.windows(2)
+                .any(|w| w[0] == "--bind-try" && w[1] == own_scratch_path),
+            "expected --bind-try for own scratch dir, got: {:?}",
+            args
+        );
+        // The blanket whole-workdir bind must NOT appear when scoped.
+        assert!(
+            !args
+                .windows(2)
+                .any(|w| (w[0] == "--bind" || w[0] == "--ro-bind") && w[1] == workdir_str),
+            "must not blanket-bind the whole workdir when a ReadScope is set, got: {:?}",
+            args
+        );
     }
 
     #[test]
