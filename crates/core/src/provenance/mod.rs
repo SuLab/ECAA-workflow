@@ -13,4 +13,4 @@
 
 pub mod observed;
 
-pub use observed::{reconcile, ObservedRead, ReconVerdict};
+pub use observed::{reconcile, DivergenceRecord, ObservedRead, ReconVerdict};

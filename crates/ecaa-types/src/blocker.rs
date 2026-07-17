@@ -74,7 +74,7 @@ pub enum LiteratureClaimFailureKind {
     VersionContextMissing,
 }
 
-/// Why a task or session is blocked. Closed taxonomy (48 variants;
+/// Why a task or session is blocked. Closed taxonomy (49 variants;
 /// see test `all_variants_roundtrip_serde` for the canonical count and
 /// the `BlockerKind::COUNT` compile-time gate in
 /// `crates/core/tests/blocker_variant_count.rs`).
@@ -672,6 +672,32 @@ pub enum BlockerKind {
     /// (`MAX_TURNS_PER_TASK`, default 40). Indicates probable runaway
     /// loop or genuine complexity needing operator review.
     TurnBudgetExceeded,
+
+    /// Design §5.2 C5 — `crate::provenance::observed::reconcile` found a
+    /// `Divergent` read for this task: the task read a file that lives
+    /// under no declared producer's output directory
+    /// (`runtime/outputs/<from_node>/…`) for any of its declared input
+    /// edges. Either the task legitimately needed an input the composed
+    /// DAG never declared (the declared graph is stale/wrong), or it read
+    /// something it shouldn't have. Distinct from `MissingInput` (an
+    /// upstream dependency never ran at all) and from `DataShapeMismatch`
+    /// (a declared input arrived in the wrong shape) — this fires when the
+    /// *provenance* itself doesn't match what was declared, independent of
+    /// shape or completion. `read_path` is the offending path; `declared_producer`
+    /// names the producer the declared graph attributed to the read's own
+    /// claimed input port, when the read named one and that port is
+    /// declared (`None` otherwise) — i.e. what the graph *said* should have
+    /// produced this data, even though the observed read came from
+    /// somewhere else. SME affordance: amend the DAG to add the missing
+    /// declared edge (if the read is legitimate), or rerun the composer (if
+    /// the declared graph is stale).
+    ProvenanceDivergence {
+        task_id: String,
+        read_path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        declared_producer: Option<String>,
+    },
 }
 
 /// One entry on the `excluded_paths` list of

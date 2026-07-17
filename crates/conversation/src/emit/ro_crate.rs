@@ -577,7 +577,7 @@ pub(super) async fn patch_ro_crate_metadata(
     diff_tables: Vec<String>,
     affordance_records: Vec<PlotAffordanceRecord>,
     target_tier: ProvenanceTier,
-) -> Result<()> {
+) -> Result<Vec<ecaa_workflow_core::provenance::DivergenceRecord>> {
     // Build a task_id → (provisional, variant_tag) lookup for A3.
     // Only tasks with a non-Registered affordance contribute an entry;
     // tasks with no record are left unflagged (legacy / Validated).
@@ -953,9 +953,15 @@ pub(super) async fn patch_ro_crate_metadata(
     // was declared possible. A no-op before any harness dispatch
     // (both files presence-gated reads; `reconcile_ro_crate_edges`
     // itself also no-ops on empty inputs).
+    //
+    // T12 — the return value is every `Divergent` verdict found, keyed by
+    // task. This function only owns the RO-Crate `@graph`, not session
+    // state, so it hands the typed list back to `emit_steps` (which holds
+    // `&mut Session`) to transition each offending task to
+    // `BlockerKind::ProvenanceDivergence`.
     let declared_edges = read_declared_edges(output_dir).await;
     let observed_reads = read_observed_reads(output_dir).await;
-    ecaa_workflow_core::ro_crate::reconcile_ro_crate_edges(
+    let divergences = ecaa_workflow_core::ro_crate::reconcile_ro_crate_edges(
         &mut metadata,
         &declared_edges,
         &observed_reads,
@@ -963,5 +969,5 @@ pub(super) async fn patch_ro_crate_metadata(
 
     let new_bytes = serde_json::to_vec_pretty(&metadata)?;
     tokio::fs::write(&path, new_bytes).await?;
-    Ok(())
+    Ok(divergences)
 }

@@ -730,24 +730,30 @@ pub fn reinject_audit_proof_verdicts(
 /// A `Divergent` verdict — a read that matches no declared producer's
 /// output for its task — is recorded on the root Dataset's
 /// `ecaax:provenanceDivergence` array rather than silently dropped
-/// (design §5.2: "a typed provenance violation").
+/// (design §5.2: "a typed provenance violation"), AND returned to the
+/// caller as a typed [`crate::provenance::DivergenceRecord`] list (T12) —
+/// `crates/conversation/src/emit/ro_crate.rs::patch_ro_crate_metadata`'s
+/// caller uses the return value to transition the offending task(s) to
+/// `BlockerKind::ProvenanceDivergence`. The RO-Crate stamping above is
+/// unconditional regardless of what the caller does with the return value.
 ///
 /// Idempotent: re-running (e.g. a second re-emit after more reads land)
-/// re-stamps by `@id`, never duplicates. No-op when either input is
-/// empty or the graph carries no matching `ParameterConnection` node.
+/// re-stamps by `@id`, never duplicates. No-op (empty return) when either
+/// input is empty or the graph carries no matching `ParameterConnection`
+/// node.
 pub fn reconcile_ro_crate_edges(
     metadata: &mut Value,
     declared_edges: &[crate::workflow_contracts::edge::EdgeContract],
     observed_reads: &[crate::provenance::ObservedRead],
-) {
-    use crate::provenance::{reconcile, ReconVerdict};
+) -> Vec<crate::provenance::DivergenceRecord> {
+    use crate::provenance::{reconcile, DivergenceRecord, ReconVerdict};
     use std::collections::BTreeSet;
 
     if declared_edges.is_empty() || observed_reads.is_empty() {
-        return;
+        return Vec::new();
     }
     let Some(graph) = metadata.get_mut("@graph").and_then(Value::as_array_mut) else {
-        return;
+        return Vec::new();
     };
 
     // Deterministic order (BTreeSet, not HashMap) so a rebuild of the
@@ -758,6 +764,7 @@ pub fn reconcile_ro_crate_edges(
     }
 
     let mut divergences: Vec<Value> = Vec::new();
+    let mut typed_divergences: Vec<DivergenceRecord> = Vec::new();
 
     for task_id in task_ids {
         let edges_for_task: Vec<&crate::workflow_contracts::edge::EdgeContract> = declared_edges
@@ -785,6 +792,11 @@ pub fn reconcile_ro_crate_edges(
                         "read_path": read_path,
                         "declared_producer": declared_producer,
                     }));
+                    typed_divergences.push(DivergenceRecord {
+                        task_id: task_id.to_string(),
+                        read_path: read_path.clone(),
+                        declared_producer: declared_producer.clone(),
+                    });
                 }
                 ReconVerdict::Untracked => {}
             }
@@ -818,6 +830,8 @@ pub fn reconcile_ro_crate_edges(
             }
         }
     }
+
+    typed_divergences
 }
 
 /// Stamp the `ParameterConnection` node for the task-level edge
@@ -4307,5 +4321,53 @@ loaded via a namespace (and not attached):
         reconcile_ro_crate_edges(&mut metadata, &edges, &[]);
 
         assert_eq!(metadata, before, "empty observed reads must leave the graph untouched");
+    }
+
+    /// A `Divergent` verdict must be surfaced to the caller as a typed
+    /// `DivergenceRecord`, not just folded into the JSON-LD graph — this is
+    /// what lets `crates/conversation/src/emit/ro_crate.rs::patch_ro_crate_metadata`'s
+    /// caller transition the offending task to a typed blocker (design §5.2,
+    /// T12).
+    #[test]
+    fn reconcile_returns_divergence_record_for_undeclared_read() {
+        let edges = de_one_of_edges();
+        let mut metadata = graph_with_parameter_connections(&edges);
+        let reads = vec![crate::provenance::ObservedRead {
+            task_id: "differential_expression".into(),
+            declared_port: Some("normalized_counts".into()),
+            path: "runtime/outputs/data_acquisition/counts.tsv".into(),
+        }];
+
+        let divergences = reconcile_ro_crate_edges(&mut metadata, &edges, &reads);
+
+        assert_eq!(
+            divergences,
+            vec![crate::provenance::DivergenceRecord {
+                task_id: "differential_expression".into(),
+                read_path: "runtime/outputs/data_acquisition/counts.tsv".into(),
+                declared_producer: Some("normalisation".into()),
+            }]
+        );
+    }
+
+    /// No divergence anywhere → the returned record list is empty (mirrors
+    /// `reconcile_marks_read_one_of_member_authoritative_and_sibling_candidate`'s
+    /// all-Match fixture).
+    #[test]
+    fn reconcile_returns_no_divergence_records_when_all_reads_match() {
+        let edges = de_one_of_edges();
+        let mut metadata = graph_with_parameter_connections(&edges);
+        let reads = vec![crate::provenance::ObservedRead {
+            task_id: "differential_expression".into(),
+            declared_port: Some("raw_counts".into()),
+            path: "runtime/outputs/quantification/count_matrix.tsv".into(),
+        }];
+
+        let divergences = reconcile_ro_crate_edges(&mut metadata, &edges, &reads);
+
+        assert!(
+            divergences.is_empty(),
+            "expected no divergence records, got {divergences:?}"
+        );
     }
 }

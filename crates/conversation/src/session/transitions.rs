@@ -111,7 +111,7 @@ impl std::error::Error for TransitionError {}
 /// an explicit arm so the wildcard cannot silently swallow a new
 /// variant that needs a tailored hint.
 ///
-/// CLAUDE.md asserts 48 variants; the `BlockerKind::COUNT` test gate
+/// CLAUDE.md asserts 49 variants; the `BlockerKind::COUNT` test gate
 /// at `crates/core/tests/policy/blocker_variant_count.rs` keeps that doc in
 /// lock-step with the enum.
 fn recovery_hint_for_blocker(kind: &BlockerKind) -> String {
@@ -290,6 +290,15 @@ fn recovery_hint_for_blocker(kind: &BlockerKind) -> String {
              registry directory, then re-run intake. Imported tools never \
              reach production execution until promoted, so this blocks \
              composition only when the goal depends on the failed entry."
+        }
+        // The task's observed reads diverged from the declared per-edge
+        // graph — either the declared graph is stale (a legitimate input
+        // was never declared) or the task read something it shouldn't have.
+        BlockerKind::ProvenanceDivergence { .. } => {
+            "The task read a file that no declared producer's output \
+             directory covers. If the read is legitimate, amend the DAG to \
+             add the missing declared input edge; if the declared graph is \
+             stale, rerun the composer and re-emit."
         }
         // The enum is `#[non_exhaustive]`. Every variant currently
         // defined has an explicit arm above; this catch-all is the
@@ -654,8 +663,21 @@ impl Session {
             // when re-entering Blocked, so we don't reset the
             // Opus-escalation flag — that's a one-shot per genuine
             // Blocked entry, not per refresh.
+            // Emitting is also accepted: T12's provenance-divergence check
+            // (`crate::emit::apply_provenance_divergence_blockers`) runs
+            // from inside `emit_steps`, which executes while the tool
+            // dispatcher's `EmitPackageStart` hook has already moved the
+            // session to `Emitting` (the `EmitPackageOk` transition itself
+            // only fires from the dispatcher's post-handler, after
+            // `emit_package`'s handler — and therefore this whole pipeline
+            // — returns). Landing here first means the dispatcher's
+            // subsequent `(Emitting, EmitPackageOk)` attempt no longer
+            // matches (state is now `Blocked`) and is harmlessly logged +
+            // dropped by `emit_package_post_ok`'s `warn_illegal_transition`,
+            // so the session correctly settles on `Blocked` rather than
+            // `Emitted`.
             (
-                Emitted | ReadyToEmit | Amending { .. } | Blocked { .. },
+                Emitted | ReadyToEmit | Amending { .. } | Blocked { .. } | Emitting,
                 HarnessTaskBlocked {
                     task_id,
                     detail,
