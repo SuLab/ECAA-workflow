@@ -1,5 +1,6 @@
 ---
 source: crates/conversation/tests/emit_byte_characterization.rs
+assertion_line: 344
 expression: value
 ---
 {
@@ -1305,6 +1306,16 @@ expression: value
       "@type": "ParameterConnection",
       "sourceParameter": {
         "@id": "#step-discover_differential_expression#output"
+      },
+      "targetParameter": {
+        "@id": "#step-differential_expression#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/normalisation__to__differential_expression",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-normalisation#output"
       },
       "targetParameter": {
         "@id": "#step-differential_expression#input"
