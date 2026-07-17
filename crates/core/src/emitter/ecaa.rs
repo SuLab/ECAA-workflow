@@ -382,6 +382,7 @@ fn render_dependency_proofs_jsonl(
                 },
                 kind,
                 chain_of_custody: None,
+                mutually_exclusive_group: None,
             })
             .context("serializing dependency proof edge")?;
             let mut edge = edge

@@ -943,6 +943,7 @@ pub fn dag_to_workflow_dag(dag: &DAG) -> WorkflowDag {
                 // lost at lowering, so this is an unproven edge.
                 kind: EdgeKind::Unproven,
                 chain_of_custody: None,
+                mutually_exclusive_group: None,
             });
         }
     }
@@ -1075,6 +1076,7 @@ mod tests {
                     },
                     kind: EdgeKind::TypedDataFlow,
                     chain_of_custody: None,
+                    mutually_exclusive_group: None,
                 },
                 EdgeContract {
                     from_node: "quantify_features".into(),
@@ -1088,6 +1090,7 @@ mod tests {
                     },
                     kind: EdgeKind::TypedDataFlow,
                     chain_of_custody: None,
+                    mutually_exclusive_group: None,
                 },
             ],
             assumptions: AssumptionLedger::default(),

@@ -124,6 +124,7 @@ pub fn apply_dag_modification(
                         // the post-apply meet-in-the-middle re-run reproves it.
                         kind: EdgeKind::AdapterMediated,
                         chain_of_custody: None,
+                        mutually_exclusive_group: None,
                     };
                     dag.edges.push(EdgeContract {
                         from_node: converter_node.id.clone(),
@@ -133,6 +134,7 @@ pub fn apply_dag_modification(
                         proof: lossless_converter_proof("repair_inserted_converter"),
                         kind: EdgeKind::AdapterMediated,
                         chain_of_custody: None,
+                        mutually_exclusive_group: None,
                     });
                 }
                 None => {
@@ -144,6 +146,7 @@ pub fn apply_dag_modification(
                         proof: lossless_converter_proof("repair_inserted_converter"),
                         kind: EdgeKind::AdapterMediated,
                         chain_of_custody: None,
+                        mutually_exclusive_group: None,
                     });
                     dag.edges.push(EdgeContract {
                         from_node: converter_node.id.clone(),
@@ -153,6 +156,7 @@ pub fn apply_dag_modification(
                         proof: lossless_converter_proof("repair_inserted_converter"),
                         kind: EdgeKind::AdapterMediated,
                         chain_of_custody: None,
+                        mutually_exclusive_group: None,
                     });
                 }
             }
@@ -226,6 +230,7 @@ mod tests {
             proof: lossless_converter_proof("test"),
             kind: EdgeKind::AdapterMediated,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         }
     }
 

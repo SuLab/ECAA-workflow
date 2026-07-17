@@ -188,6 +188,7 @@ pub fn rewire_or_drop(dag: &mut WorkflowDag, dropped: &BTreeSet<String>) {
             // ordering edge, not a port-typed data flow.
             kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         });
     }
 }
@@ -489,6 +490,7 @@ mod tests {
             proof: CompatibilityProof::default(),
             kind: EdgeKind::TypedDataFlow,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         }
     }
 
