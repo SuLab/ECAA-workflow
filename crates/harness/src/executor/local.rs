@@ -351,6 +351,40 @@ fn duct_expr_with_allowlist(
     expr.full_env(&combined)
 }
 
+/// Read `WORKFLOW.json` and return the declared dependency (producer)
+/// task ids for `task_id` — `Task::depends_on`, the composer's
+/// direct-from-`EdgeContract` reflection of which tasks feed this
+/// task's declared input ports (see
+/// `composer_v4::discover_companion_synthesis` module docs). This is
+/// the same declared-producer notion `crate::observed_reads`/
+/// `core::provenance::observed::reconcile` reason about, read back
+/// here so the bubblewrap filesystem view (design §5.2 tier (a)) can
+/// scope a task's read access to exactly its declared producers.
+///
+/// Best-effort: a missing or malformed `WORKFLOW.json` returns an
+/// empty list rather than erroring. The caller is already mid-dispatch
+/// for a task it found ready in that same file, so this should never
+/// actually miss in practice; the empty fallback is the fail-closed
+/// choice (no producer directories bound) rather than fail-open
+/// (falling back to binding everything).
+fn declared_producers_for_task(package: &Path, task_id: &str) -> Vec<String> {
+    let Ok(bytes) = std::fs::read(package.join("WORKFLOW.json")) else {
+        return Vec::new();
+    };
+    let Ok(dag) = serde_json::from_slice::<DAG>(&bytes) else {
+        return Vec::new();
+    };
+    dag.tasks
+        .get(task_id)
+        .map(|t| {
+            t.depends_on
+                .iter()
+                .map(|id| id.as_str().to_string())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Phase C7 — bubblewrap sandbox wiring.
 ///
 /// Checks whether ECAA_LOCAL_SANDBOX=bubblewrap and the task is an
@@ -435,6 +469,29 @@ fn maybe_wrap_with_bwrap(
         return Ok(None);
     }
 
+    // Design §5.2 tier (a) — scope the bwrap filesystem view to this
+    // task's declared input producers + its own working directories,
+    // instead of the whole package workdir. Pre-create the task's own
+    // dirs so `--bind-try` has a real source to mount on its first
+    // dispatch (a producer's output dir, by contrast, is expected to
+    // already exist — the scheduler only dispatches once its
+    // dependencies are Completed — so it's left to `--ro-bind-try` to
+    // skip gracefully in the unexpected case it doesn't).
+    let declared_producers = declared_producers_for_task(package, task_id);
+    let read_scope =
+        crate::sandbox_enforcer::compute_read_scope(package, task_id, &declared_producers);
+    for dir in &read_scope.rw_binds {
+        if let Err(e) = std::fs::create_dir_all(dir) {
+            tracing::warn!(
+                task_id = %task_id,
+                dir = %dir.display(),
+                error = %e,
+                "sandbox-enforcer: could not pre-create task workdir for bwrap bind"
+            );
+        }
+    }
+    let runner = runner.with_read_scope(read_scope);
+
     let bwrap_args = runner.render_args(&policy);
     tracing::info!(
         "[sandbox-enforcer] bwrap-wrapped task {} with policy {}",
@@ -512,6 +569,14 @@ fn record_sandbox_run(package: &Path, task_id: &str, exit_code: Option<i32>) {
         }
     };
     if let Some(runner) = runner_opt {
+        // Mirror the same declared-input scoping `maybe_wrap_with_bwrap`
+        // applied at dispatch time so the persisted record reflects the
+        // filesystem view that was actually in effect, not the legacy
+        // whole-workdir bind.
+        let declared_producers = declared_producers_for_task(package, task_id);
+        let read_scope =
+            crate::sandbox_enforcer::compute_read_scope(package, task_id, &declared_producers);
+        let runner = runner.with_read_scope(read_scope);
         let bwrap_args = runner.render_args(&policy);
         append_sandbox_run_record(package, task_id, &policy, &bwrap_args, exit_code);
     } else {
@@ -3013,6 +3078,186 @@ mod tests {
         assert!(
             warn_text.contains("bwrap"),
             "warning must mention bwrap: {warn_text}"
+        );
+    }
+
+    /// Design §5.2 tier (a) — `declared_producers_for_task` reads a
+    /// task's `depends_on` straight off `WORKFLOW.json`, which is the
+    /// same declared producer set `crate::observed_reads`/`reconcile`
+    /// reason about (the composer builds `Task.depends_on` directly off
+    /// the declared `EdgeContract` graph).
+    #[test]
+    fn declared_producers_for_task_reads_depends_on_from_workflow_json() {
+        let tmp = tempfile::tempdir().unwrap();
+        let workflow = serde_json::json!({
+            "version": "1.0",
+            "workflow_id": "test",
+            "current_task": null,
+            "tasks": {
+                "consumer": {
+                    "kind": "computation",
+                    "state": {"status": "ready"},
+                    "depends_on": ["producer_a", "producer_b"],
+                    "assignee": "agent",
+                    "description": "consumer"
+                },
+                "producer_a": {
+                    "kind": "computation",
+                    "state": {"status": "completed", "result": null},
+                    "depends_on": [],
+                    "assignee": "agent",
+                    "description": "producer a"
+                }
+            }
+        });
+        std::fs::write(
+            tmp.path().join("WORKFLOW.json"),
+            serde_json::to_string_pretty(&workflow).unwrap(),
+        )
+        .unwrap();
+        let producers = declared_producers_for_task(tmp.path(), "consumer");
+        assert_eq!(
+            producers,
+            vec!["producer_a".to_string(), "producer_b".to_string()]
+        );
+    }
+
+    #[test]
+    fn declared_producers_for_task_empty_when_workflow_json_missing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let producers = declared_producers_for_task(tmp.path(), "consumer");
+        assert!(
+            producers.is_empty(),
+            "missing WORKFLOW.json must fail closed (no producers), got {:?}",
+            producers
+        );
+    }
+
+    #[test]
+    fn declared_producers_for_task_empty_for_unknown_task_id() {
+        let tmp = tempfile::tempdir().unwrap();
+        let workflow = serde_json::json!({
+            "version": "1.0",
+            "workflow_id": "test",
+            "current_task": null,
+            "tasks": {}
+        });
+        std::fs::write(
+            tmp.path().join("WORKFLOW.json"),
+            serde_json::to_string_pretty(&workflow).unwrap(),
+        )
+        .unwrap();
+        assert!(declared_producers_for_task(tmp.path(), "ghost").is_empty());
+    }
+
+    /// End-to-end: `maybe_wrap_with_bwrap` on a `GeneratedCode` task
+    /// whose `WORKFLOW.json` declares `depends_on: ["producer"]` must
+    /// render a `ReadScope`-bound command — `--ro-bind-try` for the
+    /// producer's output dir, `--bind-try` for the task's own
+    /// output/scratch dirs — and must NOT blanket-bind the whole
+    /// package root the way the pre-T14 unscoped path did.
+    #[test]
+    fn maybe_wrap_with_bwrap_scopes_view_to_declared_producers() {
+        let _guard = ENV_CLEAR_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        if !std::path::Path::new("/usr/bin/bwrap").exists() {
+            eprintln!("[skip] bwrap binary missing at /usr/bin/bwrap");
+            return;
+        }
+
+        let tmp = tempfile::tempdir().unwrap();
+        let package = tmp.path();
+
+        let workflow = serde_json::json!({
+            "version": "1.0",
+            "workflow_id": "test",
+            "current_task": null,
+            "tasks": {
+                "consumer": {
+                    "kind": "computation",
+                    "state": {"status": "ready"},
+                    "depends_on": ["producer"],
+                    "assignee": "agent",
+                    "description": "consumer"
+                }
+            }
+        });
+        std::fs::write(
+            package.join("WORKFLOW.json"),
+            serde_json::to_string_pretty(&workflow).unwrap(),
+        )
+        .unwrap();
+
+        let mut node = ecaa_workflow_core::workflow_contracts::task_node::TaskNode::skeleton(
+            "consumer", "Consumer",
+        );
+        node.implementation =
+            ecaa_workflow_core::workflow_contracts::implementation::Implementation::GeneratedCode {
+                repository_ref: "git@example.com/repo".into(),
+                review_status:
+                    ecaa_workflow_core::workflow_contracts::implementation::ReviewStatus::HumanReviewed,
+                artifact_digest: Some("sha256:abc".into()),
+            };
+        std::fs::create_dir_all(package.join("runtime")).unwrap();
+        std::fs::write(
+            package.join("runtime/task-nodes.json"),
+            serde_json::to_string(&vec![node]).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            package.join("runtime/sandbox-policy.json"),
+            serde_json::to_string(
+                &ecaa_workflow_core::sandbox_policy::SandboxPolicy::default_strict(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+        std::env::set_var("ECAA_LOCAL_SANDBOX", "bubblewrap");
+        let result = maybe_wrap_with_bwrap(package, "/bin/true", "consumer");
+        std::env::remove_var("ECAA_LOCAL_SANDBOX");
+
+        let cmd = result
+            .expect("maybe_wrap_with_bwrap must not error")
+            .expect("GeneratedCode task must be wrapped");
+        let args: Vec<String> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().to_string())
+            .collect();
+
+        let producer_path = package
+            .join("runtime/outputs/producer")
+            .to_string_lossy()
+            .to_string();
+        let own_output_path = package
+            .join("runtime/outputs/consumer")
+            .to_string_lossy()
+            .to_string();
+        let package_str = package.to_string_lossy().to_string();
+
+        assert!(
+            args.windows(2)
+                .any(|w| w[0] == "--ro-bind-try" && w[1] == producer_path),
+            "expected --ro-bind-try for declared producer, got: {:?}",
+            args
+        );
+        assert!(
+            args.windows(2)
+                .any(|w| w[0] == "--bind-try" && w[1] == own_output_path),
+            "expected --bind-try for own output dir, got: {:?}",
+            args
+        );
+        assert!(
+            !args
+                .windows(2)
+                .any(|w| (w[0] == "--bind" || w[0] == "--ro-bind") && w[1] == package_str),
+            "must not blanket-bind the whole package root, got: {:?}",
+            args
+        );
+        // The own output dir must have been pre-created on the host so
+        // bwrap's --bind-try has a real source to mount.
+        assert!(
+            package.join("runtime/outputs/consumer").is_dir(),
+            "own output dir must be pre-created before wrapping"
         );
     }
 
