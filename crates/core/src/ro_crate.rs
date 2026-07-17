@@ -2451,6 +2451,39 @@ pub fn register_content_integrity(package_root: &std::path::Path) -> std::io::Re
     Ok(annotated)
 }
 
+/// Read `ro-crate-metadata.json`'s embedded per-file `sha512` annotations
+/// (written by [`register_content_integrity`]) as a `{@id: sha512_hex}` map.
+/// Empty when the descriptor is absent, unparseable, or carries no
+/// `sha512`-annotated `File` entities yet (a fresh, pre-execution emit that
+/// has never run [`register_content_integrity`]).
+///
+/// Companion read to the writer above — used by the post-seal recheck
+/// ([`crate::deposit_readiness::recheck_ro_crate_content_hashes`]) to detect
+/// the RCA I-2 finalization-order failure: a descriptor sealed BEFORE a
+/// later mutation to the payload it describes.
+pub fn recorded_content_hashes(
+    package_root: &std::path::Path,
+) -> std::collections::BTreeMap<String, String> {
+    let descriptor = package_root.join("ro-crate-metadata.json");
+    let Ok(bytes) = std::fs::read(&descriptor) else {
+        return Default::default();
+    };
+    let Ok(doc) = serde_json::from_slice::<Value>(&bytes) else {
+        return Default::default();
+    };
+    let Some(graph) = doc.get("@graph").and_then(Value::as_array) else {
+        return Default::default();
+    };
+    graph
+        .iter()
+        .filter_map(|e| {
+            let id = e.get("@id")?.as_str()?.to_string();
+            let hex = e.get("sha512")?.as_str()?.to_string();
+            Some((id, hex))
+        })
+        .collect()
+}
+
 /// Register `ro-crate-preview.html` as a `["File","CreativeWork"]` `@graph`
 /// entity and link it from the root `hasPart`. Idempotent: a second call with
 /// the entity already present is a no-op (returns `Ok(0)`). No-op when the
