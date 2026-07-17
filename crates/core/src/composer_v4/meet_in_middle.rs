@@ -670,7 +670,7 @@ fn is_risky_adapter_id(id: &str) -> bool {
 ///    per-member proposals.
 pub fn collapse_one_of_gaps(
     consumer: &crate::atom::AtomDefinition,
-    edges: &mut Vec<EdgeContract>,
+    edges: &mut [EdgeContract],
     gaps: &mut Vec<String>,
     repair_gaps: &mut Vec<RepairGap>,
     consumer_id: &str,
