@@ -17,6 +17,7 @@ mod composer_v4_generic_omics;
 mod composer_v4_meet_in_middle;
 mod composer_v4_modality_goal_mismatch;
 mod composer_v4_no_cycles;
+mod composer_v4_one_of_gap_collapse;
 mod composer_v4_parity_corpus;
 mod composer_v4_peak_calling_reachability;
 mod composer_v4_project_class_archetype;
