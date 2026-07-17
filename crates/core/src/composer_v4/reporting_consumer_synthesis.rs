@@ -361,6 +361,7 @@ pub fn wire_dangling_analytical_atoms_to_reporting(dag: &mut WorkflowDag) {
             // Synthesized strand→reporting wiring: structural ordering edge.
             kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         });
     }
 
@@ -506,6 +507,7 @@ fn synthesize_universal_terminal_if_missing(dag: &mut WorkflowDag) {
             // Synthesized universal-terminal aggregation: ordering edge.
             kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         });
     }
 
@@ -976,6 +978,7 @@ mod tests {
             proof: CompatibilityProof::default(),
             kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         };
         let mut dag = WorkflowDag {
             id: "t".into(),
@@ -1013,6 +1016,7 @@ mod tests {
             proof: CompatibilityProof::default(),
             kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         }
     }
 

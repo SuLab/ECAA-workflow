@@ -2960,6 +2960,7 @@ mod state_machine_centralization {
                 proof: CompatibilityProof::default(),
                 kind: EdgeKind::TypedDataFlow,
                 chain_of_custody: None,
+                mutually_exclusive_group: None,
             }
         }
 
@@ -3093,6 +3094,7 @@ mod state_machine_centralization {
                 proof: CompatibilityProof::default(),
                 kind: EdgeKind::TypedDataFlow,
                 chain_of_custody: None,
+                mutually_exclusive_group: None,
             }
         }
 
@@ -3897,6 +3899,7 @@ fn counts_level_entry_from_exclusion_prunes_fastq_block() {
             proof: CompatibilityProof::default(),
             kind: EdgeKind::TypedDataFlow,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         }
     }
 
@@ -4034,6 +4037,7 @@ fn restamp_required_input_stage_reflects_postprune_entry() {
             proof: CompatibilityProof::default(),
             kind: EdgeKind::TypedDataFlow,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         }
     }
     // Mirrors the exclusion-prune rewire: synthetic placeholder ports that do
@@ -4047,6 +4051,7 @@ fn restamp_required_input_stage_reflects_postprune_entry() {
             proof: CompatibilityProof::default(),
             kind: EdgeKind::TypedDataFlow,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         }
     }
     fn session_with(wf: WorkflowDag) -> crate::session::Session {
@@ -4216,6 +4221,7 @@ fn linear_workflow_dag(
             proof: CompatibilityProof::default(),
             kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         });
     }
     WorkflowDag {

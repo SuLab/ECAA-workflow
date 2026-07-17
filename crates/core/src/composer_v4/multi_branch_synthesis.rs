@@ -246,6 +246,7 @@ fn assemble(
             // Multi-branch join is an author-intended ordering edge.
             kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         });
     }
 
@@ -483,6 +484,7 @@ mod tests {
             proof: CompatibilityProof::default(),
             kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         }
     }
 

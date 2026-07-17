@@ -163,6 +163,7 @@ pub fn synthesize_validate_companions(dag: &mut WorkflowDag, atom_reg: &AtomRegi
             proof,
             kind,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         });
         // Record an OntologyAdapterInserted assumption when the companion
         // bridges different semantic types. This surfaces in the ledger so

@@ -140,6 +140,7 @@ pub fn synthesize_survey_method_landscape(
             // Survey gates the method-discovery signal: ordering edge.
             kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         });
     }
     dag.edges.extend(survey_edges);
@@ -181,6 +182,7 @@ pub fn synthesize_survey_method_landscape(
             // Data-characterization producer gates the survey: ordering edge.
             kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         });
     }
     dag.edges.extend(producer_edges);

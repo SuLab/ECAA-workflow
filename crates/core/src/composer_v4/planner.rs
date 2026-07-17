@@ -2085,6 +2085,7 @@ pub fn lift_to_workflow_dag(
                 proof,
                 kind,
                 chain_of_custody: None,
+                mutually_exclusive_group: None,
             });
         }
     }
@@ -3639,6 +3640,7 @@ mod tests {
             },
             kind: EdgeKind::Unproven,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         };
         let dag = WorkflowDag {
             id: "t".into(),
@@ -3673,6 +3675,7 @@ mod tests {
             },
             kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         };
         let dag = WorkflowDag {
             id: "t".into(),
@@ -3707,6 +3710,7 @@ mod tests {
                 proof: CompatibilityProof::default(),
                 kind: EdgeKind::OrderingOnly,
                 chain_of_custody: None,
+                mutually_exclusive_group: None,
             }],
             assumptions: AssumptionLedger::default(),
             source_template: None,
@@ -3785,6 +3789,7 @@ mod tests {
                 proof: CompatibilityProof::default(),
                 kind: EdgeKind::TypedDataFlow,
                 chain_of_custody: None,
+                mutually_exclusive_group: None,
             }
         }
         let ont = |iri: &str| SemanticType::edam(iri, "");

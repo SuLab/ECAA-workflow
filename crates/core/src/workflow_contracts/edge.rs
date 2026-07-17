@@ -107,7 +107,7 @@ fn default_edge_kind() -> EdgeKind {
 /// One edge in a `WorkflowDag`. Connects a producer port to a
 /// consumer port and carries the compatibility proof or report
 /// explaining why the edge exists.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema)]
 #[ts(export)]
 pub struct EdgeContract {
     /// Producer task node id.
@@ -135,6 +135,12 @@ pub struct EdgeContract {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub chain_of_custody: Option<ChainOfCustody>,
+    /// When set, this edge is one member of a mutually-exclusive one-of
+    /// input group named here; sibling members are alternatives resolved
+    /// to a single authoritative edge by observed-provenance (Phase 2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub mutually_exclusive_group: Option<String>,
 }
 
 impl EdgeContract {
@@ -166,6 +172,7 @@ impl EdgeContract {
             // data flow, so it is an ordering-only edge.
             kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         }
     }
 }
@@ -338,6 +345,7 @@ mod tests {
             proof: CompatibilityProof::default(),
             kind: EdgeKind::TypedDataFlow,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         };
         let json = serde_json::to_string(&e).unwrap();
         let back: EdgeContract = serde_json::from_str(&json).unwrap();
@@ -356,6 +364,7 @@ mod tests {
             proof: CompatibilityProof::default(),
             kind: EdgeKind::TypedDataFlow,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         };
         let json = serde_json::to_string(&e).unwrap();
         assert!(!json.contains("chain_of_custody"), "got: {json}");
@@ -426,6 +435,7 @@ mod tests {
             proof: CompatibilityProof::default(),
             kind,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         };
         let edges = vec![
             mk("ordering", EdgeKind::OrderingOnly),
@@ -473,9 +483,20 @@ mod tests {
                 },
                 &crate::clock::WallClock,
             )),
+            mutually_exclusive_group: None,
         };
         let json = serde_json::to_string(&e).unwrap();
         let back: EdgeContract = serde_json::from_str(&json).unwrap();
         assert_eq!(e, back);
+    }
+
+    #[test]
+    fn edge_mutually_exclusive_group_defaults_none_and_serializes_skipped() {
+        let e = EdgeContract { mutually_exclusive_group: None, ..EdgeContract::default() };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(!json.contains("mutually_exclusive_group"), "absent tag must not serialize");
+        let tagged = EdgeContract { mutually_exclusive_group: Some("counts".into()), ..EdgeContract::default() };
+        let back: EdgeContract = serde_json::from_str(&serde_json::to_string(&tagged).unwrap()).unwrap();
+        assert_eq!(back.mutually_exclusive_group.as_deref(), Some("counts"));
     }
 }

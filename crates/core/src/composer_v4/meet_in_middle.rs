@@ -608,6 +608,7 @@ fn build_edge(
         proof,
         kind,
         chain_of_custody: None,
+        mutually_exclusive_group: None,
     }
 }
 

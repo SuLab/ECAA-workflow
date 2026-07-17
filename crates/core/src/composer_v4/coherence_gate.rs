@@ -125,6 +125,7 @@ mod tests {
             proof: CompatibilityProof::default(),
             kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         }
     }
     /// Build a `TaskNode` whose backing atom resolves to `atom_id` via the

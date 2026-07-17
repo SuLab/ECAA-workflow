@@ -103,6 +103,7 @@ fn skeleton_dag_with_edge() -> WorkflowDag {
             proof: CompatibilityProof::default(),
             kind: EdgeKind::TypedDataFlow,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         }],
         ..Default::default()
     }

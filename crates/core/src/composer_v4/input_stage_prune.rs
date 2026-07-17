@@ -248,6 +248,7 @@ mod tests {
             proof: CompatibilityProof::default(),
             kind: EdgeKind::TypedDataFlow,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         }
     }
 
