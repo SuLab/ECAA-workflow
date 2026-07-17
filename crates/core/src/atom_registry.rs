@@ -74,11 +74,24 @@ const METHOD_REQUIRED_SUBSTRATE: &[(&str, &str)] = &[
 /// no `candidate_tools` attribute, or whose candidate tools carry no
 /// entry in the table (e.g. rank-based `wilcoxon`/`mast`), are exempt.
 ///
+/// Scoped to atoms that already type at least one INPUT port via
+/// `statistical_state` (the `raw_counts`/`normalized` vocabulary
+/// `differential_expression`'s `counts` one-of group uses). An atom
+/// like `differential_accessibility` or `enhancer_activity_calling`
+/// also lists `deseq2` as a candidate tool, but takes peaks/BAM as
+/// input and derives its own counts internally — there is no upstream
+/// port whose substrate could be mis-wired, so the lint does not apply.
+/// An atom's OUTPUT declaring `statistical_state` (e.g. `de_tested`)
+/// does not count — only inputs opt an atom into this contract.
+///
 /// Mirrors the `candidate_tools` read pattern in
 /// `composer_v4::discover_companion_synthesis::candidate_tools` — the
 /// canonical authoring shape is a JSON array of strings under
 /// `attributes.candidate_tools`.
 pub fn validate_de_substrate(atom: &AtomDefinition) -> Result<(), String> {
+    if !atom.inputs.iter().any(|p| p.statistical_state.is_some()) {
+        return Ok(());
+    }
     let tools: Vec<String> = atom
         .attributes
         .get("candidate_tools")
