@@ -62,6 +62,7 @@ fn edge(to_port: &str, kind: EdgeKind) -> EdgeContract {
         proof: CompatibilityProof::default(),
         kind,
         chain_of_custody: None,
+        mutually_exclusive_group: None,
     }
 }
 
