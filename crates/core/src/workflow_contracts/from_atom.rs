@@ -41,6 +41,7 @@
 //!   atom-declared obligation id; threaded through to
 //!   `RequiredArtifact.validation_obligations` by the v4 lowering pass)
 //! - runtime_packages → `TaskNode::attributes["runtime_packages"]`
+//! - read_allowance → `TaskNode::attributes["read_allowance"]`
 //!
 //! The attributes-bag strategy is intentional: it is shape-preserving
 //! and reversible. Stable fields are promoted to typed first-class
@@ -327,6 +328,17 @@ fn preserve_attributes(atom: &AtomDefinition) -> BTreeMap<String, serde_json::Va
             serde_json::to_value(rp).unwrap_or(serde_json::Value::Null),
         );
     }
+    // Threaded so `composer_v4::companion_synthesis` can propagate it to a
+    // synthesized `validate_<id>` companion (a validator cross-checking a
+    // broad-read aggregator legitimately needs the same read scope), and so
+    // the emit path's observed-read reconciliation can read it back from
+    // `runtime/task-nodes.json` without depending on the atom registry.
+    if !atom.read_allowance.is_empty() {
+        a.insert(
+            "read_allowance".into(),
+            serde_json::to_value(&atom.read_allowance).unwrap_or(serde_json::Value::Null),
+        );
+    }
 
     a
 }
@@ -382,6 +394,7 @@ mod tests {
             safety: crate::atom::SafetyPolicy::default(),
             governance: None,
             non_determinism: Vec::new(),
+            read_allowance: Vec::new(),
         }
     }
 
@@ -502,6 +515,10 @@ mod tests {
         atom.required_figures = vec!["fig1".into()];
         atom.plot_stage_id = Some("plotting.normalization".into());
         atom.expected_artifacts = vec!["out.tsv".into()];
+        atom.read_allowance = vec![crate::atom::ReadAllowance {
+            scope: crate::atom::ReadAllowanceScope::AnyUpstreamStage,
+            rationale: "test rationale".into(),
+        }];
 
         let node = TaskNode::from_atom(&atom);
 
@@ -521,6 +538,7 @@ mod tests {
         assert!(a.contains_key("required_figures"));
         assert!(a.contains_key("plot_stage_id"));
         assert!(a.contains_key("expected_artifacts"));
+        assert!(a.contains_key("read_allowance"));
         // Author-supplied attribute is preserved too.
         assert_eq!(a.get("speed").unwrap(), &serde_json::json!("fast"));
     }

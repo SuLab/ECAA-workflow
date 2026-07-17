@@ -526,6 +526,27 @@
         }
       }
     },
+    "read_allowance": {
+      "type": "array",
+      "description": "Declared exception to observed-provenance reconciliation (RCA I-1). Use only when the atom's real cross-stage read set is DAG-shape/archetype dependent and therefore not statically enumerable as fixed input ports (e.g. a final dashboard/report aggregator, or a validator cross-checking that same aggregation). Prefer a typed input port when the producer is fixed and known. Mirrors crates/core/src/atom.rs::ReadAllowance.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scope", "rationale"],
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": ["any_upstream_stage"],
+            "description": "How broad the sanctioned read scope is. any_upstream_stage: the atom may read the primary result artifact of any other stage present in the composed DAG."
+          },
+          "rationale": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Human-readable justification, surfaced in provenance."
+          }
+        }
+      }
+    },
     "iterate": {
       "type": "object",
       "description": "Plan §S10.1 — iterate-until block. Required when the atom's compiled stage carries Cardinality::IterateUntil; the builder emits a 4-template-task scaffold (iterate_gate / placeholder / iterate_check / validate) and the agent fans out a linear chain of <id>_iter_N tasks until convergence.",

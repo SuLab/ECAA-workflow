@@ -347,6 +347,55 @@ pub struct AtomDefinition {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[ts(skip)]
     pub non_determinism: Vec<crate::determinism_shim::NonDetAck>,
+
+    /// Declared exception to observed-provenance reconciliation
+    /// (design §5.2 C5 / RCA I-1): a deliberate, documented broad
+    /// cross-stage read that a fixed input port can't express. Use
+    /// only when the atom's real read set is DAG-shape/archetype
+    /// dependent and therefore not statically enumerable as ports —
+    /// e.g. a final dashboard/report aggregator that reads whichever
+    /// upstream analytical stages the composed DAG happens to include,
+    /// or a validator independently cross-checking that same
+    /// aggregation. Prefer a typed input port over this facet whenever
+    /// the producer is fixed and known (see `inputs`); this is the
+    /// fallback for the minority of atoms where it genuinely isn't.
+    /// Threaded onto `TaskNode::attributes["read_allowance"]` so
+    /// `synthesize_validate_companions` can propagate it to a
+    /// synthesized validator, and so the emit path's observed-read
+    /// reconciliation (`crate::ro_crate::reconcile_ro_crate_edges`)
+    /// can treat a covered read as sanctioned rather than divergent.
+    /// Empty default keeps every legacy atom unaffected.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub read_allowance: Vec<ReadAllowance>,
+}
+
+/// One declared read-allowance entry (see `AtomDefinition::read_allowance`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS, schemars::JsonSchema)]
+#[ts(export)]
+#[non_exhaustive]
+pub struct ReadAllowance {
+    /// How broad the sanctioned read scope is.
+    pub scope: ReadAllowanceScope,
+    /// Human-readable justification, surfaced in provenance
+    /// (`ecaax:provenanceReadAllowance` on the emitted RO-Crate's root
+    /// Dataset) so a reader can see why the broad read was sanctioned
+    /// rather than flagged.
+    pub rationale: String,
+}
+
+/// Scope of a declared read-allowance. Closed enum with one variant
+/// today; `#[non_exhaustive]` per the workspace's public wire-enum
+/// contract (adding a variant is minor, not breaking).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, schemars::JsonSchema)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum ReadAllowanceScope {
+    /// The atom may legitimately read the primary result artifact of
+    /// any other stage present in the composed DAG. Declared, not
+    /// inferred — reconciliation treats a read on this task as
+    /// sanctioned regardless of which upstream stage it came from.
+    AnyUpstreamStage,
 }
 
 /// One typed parameter on an atom — the paper-D.1 parameter axis.
@@ -528,6 +577,7 @@ impl AtomDefinition {
             safety: SafetyPolicy::default(),
             governance: None,
             non_determinism: Vec::new(),
+            read_allowance: Vec::new(),
         }
     }
 }
@@ -1512,6 +1562,7 @@ input_groups:
             safety: Default::default(),
             governance: None,
             non_determinism: Vec::new(),
+            read_allowance: Vec::new(),
         };
         let yaml = serde_yaml_ng::to_string(&atom).expect("serialize");
         let back: AtomDefinition = serde_yaml_ng::from_str(&yaml).expect("roundtrip");
@@ -1562,6 +1613,7 @@ input_groups:
             safety: Default::default(),
             governance: None,
             non_determinism: Vec::new(),
+            read_allowance: Vec::new(),
         };
         let yaml = serde_yaml_ng::to_string(&atom).unwrap();
         assert!(yaml.contains("discovery_kind: method"));
@@ -1616,6 +1668,7 @@ input_groups:
             safety: Default::default(),
             governance: None,
             non_determinism: Vec::new(),
+            read_allowance: Vec::new(),
         };
         let yaml = serde_yaml_ng::to_string(&atom).unwrap();
         // Default arch is suppressed by skip_serializing_if so the
@@ -1744,6 +1797,7 @@ input_groups:
             safety: Default::default(),
             governance: None,
             non_determinism: Vec::new(),
+            read_allowance: Vec::new(),
         };
         let yaml = serde_yaml_ng::to_string(&atom).unwrap();
         let a_pos = yaml.find("- a").unwrap();

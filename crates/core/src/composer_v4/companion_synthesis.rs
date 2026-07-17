@@ -122,6 +122,22 @@ pub fn synthesize_validate_companions(dag: &mut WorkflowDag, atom_reg: &AtomRegi
             serde_json::Value::String(validate_id.clone()),
         );
 
+        // A validator legitimately needs the same broad read scope as
+        // the thing it validates — e.g. `validate_final_reporting`
+        // independently cross-checks `final_reporting`'s aggregated
+        // numbers against the same upstream stage outputs
+        // `final_reporting` itself reads (RCA I-1). Only propagate to
+        // an AUTHORED validator when it didn't already declare its own
+        // (an authored atom's own facet wins); a synthesized validator
+        // never carries one of its own, so this is always additive there.
+        if !validator_node.attributes.contains_key("read_allowance") {
+            if let Some(allowance) = node.attributes.get("read_allowance") {
+                validator_node
+                    .attributes
+                    .insert("read_allowance".into(), allowance.clone());
+            }
+        }
+
         // Wire the validator as a downstream consumer of the producer
         // node. We use the producer's primary output port (or empty
         // when none) and the validator's primary input port (or empty

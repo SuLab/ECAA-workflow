@@ -21,6 +21,7 @@ mod composer_v4_one_of_gap_collapse;
 mod composer_v4_parity_corpus;
 mod composer_v4_peak_calling_reachability;
 mod composer_v4_project_class_archetype;
+mod composer_v4_read_allowance;
 mod composer_v4_repair_scar;
 mod composer_v4_reporting_consumer_synthesis;
 mod composer_v4_scrnaseq_completeness;
