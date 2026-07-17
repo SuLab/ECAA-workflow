@@ -31,7 +31,7 @@ use crate::archetype_registry::ArchetypeRegistry;
 use crate::assumption_policy::{
     AssumptionPolicyTable, DefectClass as PolicyDefectClass, PolicyPrivacyClass,
 };
-use crate::atom::AtomDefinition;
+use crate::atom::{AtomDefinition, InputGroup};
 use crate::atom_registry::AtomRegistry;
 use crate::compatibility::engine::{
     CompatibilityEngine, CompatibilityResult, DeterministicCompatibilityEngine,
@@ -60,7 +60,7 @@ use crate::workflow_contracts::outcome::{ComposeOutcome, GapReport, ValidationRe
 use crate::workflow_contracts::port::PortContract;
 use crate::workflow_contracts::task_node::{TaskNode, WorkflowDag};
 
-use super::scoring::{ScoringTuple, ScoringValue};
+use super::scoring::{self, ScoringTuple, ScoringValue};
 use super::{PlannerResult, PlanningContext, RankedAlternative};
 
 /// Build a planning context from the existing v3 inputs. Used by
@@ -2487,10 +2487,22 @@ fn score_dag(
     // declared/synthesized OrderingOnly edges — the first real branch on
     // risk_mode. The decision is the typed `EdgeKind`, not a substring
     // scan of the proof's warning text.
+    //
+    // Exception: a method-neutral one-of `InputGroup` (e.g.
+    // `differential_expression`'s raw|normalized counts substrate
+    // choice) legitimately leaves sibling members unbound — only ONE
+    // is expected to bind, depending on the method the execution agent
+    // picks at runtime. An Unproven/OrderingOnly edge into such a
+    // member is exempted from the Reject when the group is otherwise
+    // satisfied (`one_of_exempts_edge`), so an unbound sibling never
+    // wrongly rejects an otherwise-valid single-member binding.
     use crate::compatibility::engine::RiskMode;
-    let any_unsat = dag.edges.iter().any(|e| match ctx.risk_mode {
-        RiskMode::Production => matches!(e.kind, EdgeKind::Unproven | EdgeKind::OrderingOnly),
-        RiskMode::Draft => matches!(e.kind, EdgeKind::Unproven),
+    let any_unsat = dag.edges.iter().any(|e| {
+        let unsat_kind = match ctx.risk_mode {
+            RiskMode::Production => matches!(e.kind, EdgeKind::Unproven | EdgeKind::OrderingOnly),
+            RiskMode::Draft => matches!(e.kind, EdgeKind::Unproven),
+        };
+        unsat_kind && !one_of_exempts_edge(dag, e)
     });
     if any_unsat {
         s.required_contract_unsatisfied = ScoringValue::Reject;
@@ -2614,6 +2626,42 @@ fn score_dag(
     // are wired in composer_v4::policy_gate.
     let _ = ctx;
     s
+}
+
+/// Does a satisfied one-of `InputGroup` on `edge`'s consuming node
+/// exempt `edge` from counting toward `required_contract_unsatisfied`?
+///
+/// Looks up the consumer's declared groups — preserved onto
+/// `TaskNode::attributes["input_groups"]` by `TaskNode::from_atom`
+/// (`AtomDefinition.input_groups` has no first-class `TaskNode` home
+/// yet, same convention as `method_choice`/`resource_profile`) — and
+/// the set of that consumer's ports already bound by a genuinely
+/// compatible producer (`TypedDataFlow` / `AdapterMediated`) anywhere
+/// in the DAG. Falls through to "not exempt" (preserving today's
+/// Reject) when the consumer node can't be found or declares no
+/// groups, so every pre-existing edge-kind test is unaffected.
+fn one_of_exempts_edge(dag: &WorkflowDag, edge: &EdgeContract) -> bool {
+    let Some(consumer) = dag.nodes.iter().find(|n| n.id == edge.to_node) else {
+        return false;
+    };
+    let groups: Vec<InputGroup> = consumer
+        .attributes
+        .get("input_groups")
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default();
+    if groups.is_empty() {
+        return false;
+    }
+    let bound_ports: BTreeSet<String> = dag
+        .edges
+        .iter()
+        .filter(|e| {
+            e.to_node == edge.to_node
+                && e.kind.strength_rank() >= EdgeKind::AdapterMediated.strength_rank()
+        })
+        .map(|e| e.to_port.clone())
+        .collect();
+    scoring::input_is_exempt_by_one_of(&groups, &edge.to_port, &bound_ports)
 }
 
 /// Same as the simple classify helper but also sweeps every

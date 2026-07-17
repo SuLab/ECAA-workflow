@@ -6,8 +6,12 @@
 //! etc., with the lexical tie-breaker (`stable_lexical_id`) at the
 //! end.
 
+use std::collections::BTreeSet;
+
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
+
+use crate::atom::InputGroup;
 
 /// One component of the scoring tuple. Higher-cost values sort
 /// later; the entire tuple compares lexicographically (`Ord`
@@ -112,6 +116,34 @@ pub struct ScoringTuple {
     pub stable_lexical_id: String,
 }
 
+/// Is `port_name` exempt from counting toward
+/// `required_contract_unsatisfied` because it is a member of a
+/// declared one-of [`InputGroup`] that is otherwise satisfied — at
+/// least `min_bound` of the group's members already have a bound
+/// (compatible-producer) edge into the same consumer?
+///
+/// `bound_ports` is the consumer's set of input port names that carry
+/// at least one bound edge (see the call site for what counts as
+/// "bound"). A group is checked as a whole — including `port_name`
+/// itself — so a group whose sole bound member IS `port_name` still
+/// counts it as satisfied; the exemption exists for the group's OTHER
+/// (unbound) members, not for `port_name` when it is itself the
+/// unsatisfied one.
+pub(crate) fn input_is_exempt_by_one_of(
+    groups: &[InputGroup],
+    port_name: &str,
+    bound_ports: &BTreeSet<String>,
+) -> bool {
+    groups.iter().any(|g| {
+        g.members.iter().any(|m| m == port_name)
+            && g.members
+                .iter()
+                .filter(|m| bound_ports.contains(m.as_str()))
+                .count()
+                >= g.min_bound
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,5 +204,44 @@ mod tests {
         let json = serde_json::to_string(&tup).unwrap();
         let back: ScoringTuple = serde_json::from_str(&json).unwrap();
         assert_eq!(tup, back);
+    }
+
+    fn counts_one_of() -> InputGroup {
+        InputGroup {
+            name: "counts".into(),
+            kind: crate::atom::InputGroupKind::OneOf,
+            members: vec!["raw_counts".into(), "normalized_counts".into()],
+            min_bound: 1,
+        }
+    }
+
+    #[test]
+    fn one_of_member_exempt_when_sibling_bound() {
+        let groups = vec![counts_one_of()];
+        let bound: BTreeSet<String> = ["raw_counts".to_string()].into_iter().collect();
+        assert!(
+            input_is_exempt_by_one_of(&groups, "normalized_counts", &bound),
+            "normalized_counts must be exempt: its sibling raw_counts satisfies min_bound"
+        );
+    }
+
+    #[test]
+    fn one_of_group_not_exempt_when_zero_members_bound() {
+        let groups = vec![counts_one_of()];
+        let bound: BTreeSet<String> = BTreeSet::new();
+        assert!(
+            !input_is_exempt_by_one_of(&groups, "normalized_counts", &bound),
+            "no member bound => group unsatisfied => not exempt"
+        );
+    }
+
+    #[test]
+    fn port_not_in_any_group_is_never_exempt() {
+        let groups = vec![counts_one_of()];
+        let bound: BTreeSet<String> = ["raw_counts".to_string()].into_iter().collect();
+        assert!(
+            !input_is_exempt_by_one_of(&groups, "experimental_design", &bound),
+            "a port outside every declared group must never be exempted"
+        );
     }
 }
