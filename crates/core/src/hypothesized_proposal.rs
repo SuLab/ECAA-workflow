@@ -583,6 +583,7 @@ pub fn promoted_proposal_to_atom_definition(
         safety: crate::atom::SafetyPolicy::default(),
         governance: None,
         non_determinism: Vec::new(),
+        read_allowance: Vec::new(),
     })
 }
 

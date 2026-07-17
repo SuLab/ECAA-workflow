@@ -95,6 +95,7 @@ fn overlay_atom(id: &str) -> AtomDefinition {
         safety: Default::default(),
         governance: None,
         non_determinism: Vec::new(),
+        read_allowance: Vec::new(),
     }
 }
 

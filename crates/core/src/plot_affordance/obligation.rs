@@ -280,6 +280,7 @@ mod tests {
             safety: Default::default(),
             governance: None,
             non_determinism: Vec::new(),
+            read_allowance: Vec::new(),
         }
     }
 

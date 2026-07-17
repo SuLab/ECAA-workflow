@@ -552,6 +552,47 @@ struct InvocationObservedReadsRow {
     observed_reads: Vec<ecaa_workflow_core::provenance::ObservedRead>,
 }
 
+/// One `TaskNode` as seen by the RO-Crate reconciliation pass — only
+/// the fields it needs (mirrors `InvocationObservedReadsRow`'s
+/// minimal-shape rationale). Reads `runtime/task-nodes.json`, the
+/// typed `TaskNode` list `emit::audit_log::write_phase14_sidecars`
+/// writes from `session.workflow_dag.nodes` — present whenever the
+/// session carries a v4 `WorkflowDag`.
+#[derive(Deserialize)]
+struct TaskNodeReadAllowanceRow {
+    id: String,
+    #[serde(default)]
+    attributes: std::collections::BTreeMap<String, serde_json::Value>,
+}
+
+/// RCA I-1 — parse `runtime/task-nodes.json` for each task's declared
+/// `read_allowance` facet (`TaskNode::attributes["read_allowance"]`,
+/// threaded there by `workflow_contracts::from_atom::preserve_attributes`
+/// and, for a synthesized `validate_<id>` companion, inherited from its
+/// producer by `composer_v4::companion_synthesis`). Absent file (no v4
+/// composition) or a task with no declared allowance is simply omitted
+/// from the returned map — `reconcile_ro_crate_edges_with_allowances`
+/// treats a missing entry as "no allowance" and reconciles normally.
+async fn read_task_read_allowances(
+    output_dir: &Path,
+) -> std::collections::BTreeMap<String, Vec<ecaa_workflow_core::atom::ReadAllowance>> {
+    let path = output_dir.join("runtime/task-nodes.json");
+    let Ok(body) = tokio::fs::read_to_string(&path).await else {
+        return std::collections::BTreeMap::new();
+    };
+    let Ok(rows) = serde_json::from_str::<Vec<TaskNodeReadAllowanceRow>>(&body) else {
+        return std::collections::BTreeMap::new();
+    };
+    rows.into_iter()
+        .filter_map(|row| {
+            let raw = row.attributes.get("read_allowance")?.clone();
+            let parsed: Vec<ecaa_workflow_core::atom::ReadAllowance> =
+                serde_json::from_value(raw).ok()?;
+            (!parsed.is_empty()).then_some((row.id, parsed))
+        })
+        .collect()
+}
+
 /// Design §5.2 C5 — fold every `observed_reads` entry out of
 /// `runtime/invocations.jsonl`. A task may appear on more than one
 /// line — the harness's pre-dispatch record (reads not yet known) plus
@@ -951,14 +992,19 @@ pub(super) async fn patch_ro_crate_metadata(
     // read is stamped authoritative and its sibling candidate_unused —
     // the emitted graph then reflects what actually ran, not just what
     // was declared possible. A no-op before any harness dispatch
-    // (both files presence-gated reads; `reconcile_ro_crate_edges`
-    // itself also no-ops on empty inputs).
+    // (both files presence-gated reads; `reconcile_ro_crate_edges_with_allowances`
+    // itself also no-ops on empty inputs). RCA I-1 — per-task
+    // `read_allowance` facets (`runtime/task-nodes.json`) keep a
+    // task's sanctioned broad reads (e.g. `final_reporting`'s
+    // dashboard aggregation) out of `ecaax:provenanceDivergence`.
     let declared_edges = read_declared_edges(output_dir).await;
     let observed_reads = read_observed_reads(output_dir).await;
-    ecaa_workflow_core::ro_crate::reconcile_ro_crate_edges(
+    let read_allowances = read_task_read_allowances(output_dir).await;
+    ecaa_workflow_core::ro_crate::reconcile_ro_crate_edges_with_allowances(
         &mut metadata,
         &declared_edges,
         &observed_reads,
+        &read_allowances,
     );
 
     let new_bytes = serde_json::to_vec_pretty(&metadata)?;

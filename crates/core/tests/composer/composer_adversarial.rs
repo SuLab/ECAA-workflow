@@ -178,6 +178,7 @@ fn synth_atom(
         safety: Default::default(),
         governance: None,
         non_determinism: Vec::new(),
+        read_allowance: Vec::new(),
     }
 }
 

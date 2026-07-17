@@ -41,7 +41,11 @@ atoms:
     depends_on: [quantification]
   - atom_id: normalisation
     required: true
-    depends_on: [qc_preprocessing]
+    # RCA I-1 — normalisation legitimately reads data_acquisition's
+    # sample metadata (cohort_manifest) for its design formula
+    # (condition / batch / cell line), not just qc_preprocessing's
+    # count matrix. See normalisation.yaml's sample_metadata port.
+    depends_on: [qc_preprocessing, data_acquisition]
   - atom_id: review_prior_work
     required: false
     # Phase G of the literature-atom plan. Gated by
