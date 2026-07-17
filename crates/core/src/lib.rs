@@ -155,6 +155,7 @@ pub mod project_class_registry;
 // `composer_v4::policy_gate::consult_promotion_gate` at every
 // promotion attempt; F19 forbids ad-hoc promotion in code.
 pub mod promotion_gate_policy;
+pub mod provenance;
 pub mod provenance_tiers;
 pub mod reexecution;
 pub mod reexecution_bounds;
