@@ -944,12 +944,58 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
 /// identical. The emit-time byte-reproducibility baseline is unchanged — the
 /// re-seal only ever runs on a post-exec package, which the reproducibility
 /// harness (which re-emits into a fresh tempdir) never observes.
+///
+/// Seal order (RCA I-2): a package whose descriptor already carries
+/// [`crate::ro_crate::register_content_integrity`] annotations must never
+/// have those annotations go stale relative to the payload this reseal is
+/// about to describe. Every caller of this function — `finalize.rs`'s
+/// post-verdict reseal, the harness end-of-run environment-snapshot reseal,
+/// the repair loop's conformance reseal, and
+/// `finalize_evidence_registration_with_verifier`'s own trailing call — used
+/// to regenerate `manifest-sha512.txt` WITHOUT first refreshing those
+/// annotations, so a file mutated between the last content-integrity pass
+/// and this reseal kept its OLD recorded hash while the manifest moved on to
+/// the file's new bytes (the exact drift observed on the deposited
+/// `611cf5ee` package: RO-Crate `70b5541…` vs actual/manifest `23748e4…`).
+/// Refreshing the annotations here, immediately before the manifest walk,
+/// makes that drift structurally impossible at every call site without
+/// touching any of them. A package with no annotations yet (nothing has
+/// called `register_content_integrity`) is unaffected — the refresh is a
+/// no-op over an empty annotation set. The trailing recheck fails the reseal
+/// outright if a mismatch somehow survives the refresh, rather than sealing
+/// a self-contradictory package.
 pub fn regenerate_bagit_manifest(
     dir: &std::path::Path,
     clock: &dyn crate::clock::Clock,
 ) -> Result<()> {
+    crate::ro_crate::register_content_integrity(dir)
+        .context("refreshing RO-Crate content-integrity hashes before reseal")?;
     bagit::write_bagit_manifest_with_mode(dir, clock, bagit::SealMode::Reseal)
-        .context("re-sealing BagIt manifest post-execution")
+        .context("re-sealing BagIt manifest post-execution")?;
+    crate::deposit_readiness::assert_ro_crate_hashes_match_payload(dir)
+        .context("post-seal RO-Crate content-hash recheck after reseal")
+}
+
+/// Re-run the EMIT-mode BagIt manifest walk over the package's CURRENT
+/// on-disk content. Unlike [`regenerate_bagit_manifest`] (which switches to
+/// [`bagit::SealMode::Reseal`] for a post-execution package), this keeps
+/// [`bagit::SealMode::Emit`] semantics — `runtime/outputs/` stays excluded,
+/// because nothing has executed yet.
+///
+/// Intended for a caller that mutates a manifested file AFTER `emit_package`
+/// returns but BEFORE any execution: the conversation emit wrapper patches
+/// `ro-crate-metadata.json` (`ro_crate::patch_ro_crate_metadata`) and
+/// overwrites `runtime/workflow-typed.json` with a full-fidelity version
+/// AFTER core's own emit-time seal, so without this the manifest reflects
+/// the snapshot core sealed before those patches, not the package's true
+/// final pre-execution state (the same finalization-order class as RCA
+/// I-2). Does NOT touch RO-Crate content-integrity annotations — a
+/// pre-execution package carries none yet, and annotating one here would
+/// perturb the byte-reproducibility baseline that `emit_package` itself is
+/// held to.
+pub fn reseal_emit_manifest(dir: &std::path::Path, clock: &dyn crate::clock::Clock) -> Result<()> {
+    bagit::write_bagit_manifest_with_mode(dir, clock, bagit::SealMode::Emit)
+        .context("re-sealing BagIt manifest over the final pre-execution payload")
 }
 
 /// Re-seal a package's audit trail in place after a re-execution result has

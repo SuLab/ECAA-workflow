@@ -706,6 +706,25 @@ async fn emit_steps(
     // non-`Private` tier sidecar.
     ro_crate::patch_ro_crate_metadata(output_dir, diff_written, affordance_records, tier).await?;
 
+    // RCA I-2 / I-7 — re-seal the BagIt manifest over the package's TRUE
+    // final pre-execution state. Everything above this line — every sidecar
+    // writer, `patch_ro_crate_metadata`'s descriptor rewrite, and the
+    // `runtime/workflow-typed.json` full-fidelity overwrite — mutates a file
+    // AFTER core's own `emit_package` call sealed `manifest-sha512.txt`
+    // (this pipeline's very first step), with nothing resealing it since.
+    // Left alone, that manifest describes the snapshot core sealed before
+    // these patches, not the package actually on disk — the same
+    // finalization-order failure as `emitter::regenerate_bagit_manifest`'s
+    // post-execution twin, just at emit time instead of after execution.
+    // `reseal_emit_manifest` keeps `SealMode::Emit` semantics (no
+    // `runtime/outputs/`, nothing has executed yet) and does not touch RO-
+    // Crate content-integrity annotations — this is a pre-execution package,
+    // which carries none yet, and annotating one here would perturb the
+    // byte-reproducibility baseline `emit_package` itself is held to.
+    let seal_clock: &dyn ecaa_workflow_core::clock::Clock = &ecaa_workflow_core::clock::WallClock;
+    ecaa_workflow_core::emitter::reseal_emit_manifest(output_dir, seal_clock)
+        .context("re-sealing BagIt manifest over the final emitted payload")?;
+
     Ok(())
 }
 

@@ -91,6 +91,82 @@ pub struct DepositReadiness {
     pub verified_at: String,
 }
 
+/// One RO-Crate embedded content hash (written by
+/// [`crate::ro_crate::register_content_integrity`]) that disagrees with the
+/// sealed payload's actual bytes (RCA I-2): the descriptor claims `recorded`
+/// for `path`, but the file currently on disk hashes to `actual`.
+#[derive(Debug, Clone)]
+pub struct RoCrateHashMismatch {
+    pub path: String,
+    pub recorded: String,
+    pub actual: String,
+}
+
+/// Post-seal integrity recheck (RCA I-2): recompute the SHA-512 of every
+/// payload file the RO-Crate `@graph` declares a content hash for
+/// (`ecaa_workflow_core::ro_crate::recorded_content_hashes`) and compare
+/// against the value actually recorded in `ro-crate-metadata.json`.
+///
+/// A non-empty result means the descriptor was sealed (or last had its
+/// content-integrity annotations refreshed) BEFORE a later mutation to that
+/// file — the finalization-order failure this check exists to catch. A
+/// package with no embedded content hashes yet (a fresh, pre-execution
+/// emit, which never calls `register_content_integrity`) returns an empty
+/// `Vec` — there is nothing to recheck, not a failure.
+pub fn recheck_ro_crate_content_hashes(package_root: &Path) -> Result<Vec<RoCrateHashMismatch>> {
+    let recorded = crate::ro_crate::recorded_content_hashes(package_root);
+    if recorded.is_empty() {
+        return Ok(Vec::new());
+    }
+    let fresh = crate::emitter::bagit::payload_hashes(
+        package_root,
+        crate::emitter::bagit::SealMode::Reseal,
+    )
+    .context("recomputing payload hashes for the post-seal RO-Crate recheck")?;
+    let mut mismatches = Vec::new();
+    for (path, recorded_hex) in recorded {
+        let actual_hex = fresh
+            .get(&path)
+            .map(|(hex, _)| hex.clone())
+            .unwrap_or_else(|| "<absent from sealed payload>".to_string());
+        if actual_hex != recorded_hex {
+            mismatches.push(RoCrateHashMismatch {
+                path,
+                recorded: recorded_hex,
+                actual: actual_hex,
+            });
+        }
+    }
+    Ok(mismatches)
+}
+
+/// Bail with a detailed message if [`recheck_ro_crate_content_hashes`] finds
+/// any mismatch. The hard post-seal gate: a sealed/resealed package must
+/// never claim a content hash the sealed payload does not actually carry.
+pub fn assert_ro_crate_hashes_match_payload(package_root: &Path) -> Result<()> {
+    let mismatches = recheck_ro_crate_content_hashes(package_root)?;
+    if mismatches.is_empty() {
+        return Ok(());
+    }
+    let detail = mismatches
+        .iter()
+        .map(|m| {
+            let actual_short = &m.actual[..12.min(m.actual.len())];
+            format!(
+                "{} (recorded {}…, actual {}…)",
+                m.path,
+                &m.recorded[..12],
+                actual_short
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    bail!(
+        "post-seal RO-Crate content-hash recheck failed ({} mismatch(es)): {detail}",
+        mismatches.len()
+    );
+}
+
 /// Result of the Layer-1 deterministic self-validation over a sealed deposit.
 pub struct Tier1Validation {
     pub ro_crate: CheckStatus,
@@ -111,11 +187,13 @@ impl Tier1Validation {
 /// Layer 1: re-verify recorded verdicts against a fresh recomputation and check
 /// the BagIt manifest checksums over the freshly-sealed deposit.
 ///
-/// * `ro_crate` = `Pass` unless the re-verify saw a genuine divergence (a
-///   recorded verdict that a fresh recomputation contradicts) while the reader
-///   version matches the writer — the same "real tamper vs version drift"
-///   distinction `replay`'s verdict uses. On a fresh self-export
-///   `reader == writer`, so any divergence is real and fails the check.
+/// * `ro_crate` = `Pass` unless EITHER the re-verify saw a genuine divergence
+///   (a recorded verdict that a fresh recomputation contradicts) while the
+///   reader version matches the writer — the same "real tamper vs version
+///   drift" distinction `replay`'s verdict uses; on a fresh self-export
+///   `reader == writer`, so any divergence is real and fails the check — OR
+///   the post-seal recheck (RCA I-2) finds an embedded content hash that
+///   disagrees with the sealed payload.
 /// * `bagit` = `Pass` iff every file listed in `manifest-sha512.txt` is present
 ///   and its SHA-512 matches.
 pub fn validate_deposit_tier1(dst: &Path, reader_version: &str) -> Result<Tier1Validation> {
@@ -129,7 +207,12 @@ pub fn validate_deposit_tier1(dst: &Path, reader_version: &str) -> Result<Tier1V
         .collect();
     // A divergence is a real integrity failure only when the reader version
     // matches the writer; under a version mismatch it is drift, not tampering.
-    let ro_crate = if !diverged.is_empty() && rv.reader_matches_writer {
+    let recorded_verdict_diverged = !diverged.is_empty() && rv.reader_matches_writer;
+
+    let hash_mismatches = recheck_ro_crate_content_hashes(dst)
+        .context("post-seal RO-Crate content-hash recheck for readiness")?;
+
+    let ro_crate = if recorded_verdict_diverged || !hash_mismatches.is_empty() {
         CheckStatus::Fail
     } else {
         CheckStatus::Pass
@@ -140,10 +223,17 @@ pub fn validate_deposit_tier1(dst: &Path, reader_version: &str) -> Result<Tier1V
     let bagit = if bagit_ok { CheckStatus::Pass } else { CheckStatus::Fail };
 
     let mut notes: Vec<String> = Vec::new();
-    if ro_crate == CheckStatus::Fail {
+    if recorded_verdict_diverged {
         notes.push(format!(
             "recorded-verdict divergence on: {}",
             diverged.join(", ")
+        ));
+    }
+    if !hash_mismatches.is_empty() {
+        let paths: Vec<&str> = hash_mismatches.iter().map(|m| m.path.as_str()).collect();
+        notes.push(format!(
+            "RO-Crate content-hash mismatch on: {}",
+            paths.join(", ")
         ));
     }
     if bagit == CheckStatus::Fail {
