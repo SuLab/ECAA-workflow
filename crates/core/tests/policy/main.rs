@@ -11,6 +11,7 @@ mod claim_status_variant_count;
 mod compatibility_proof_evidence;
 mod config_parse;
 mod cost_arithmetic;
+mod de_atom_lint;
 mod default_deny_safety;
 mod interpretation_policy_expected_schema;
 mod ontology_scope_loader;
