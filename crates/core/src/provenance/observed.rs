@@ -19,6 +19,7 @@
 //! function they share.
 
 use super::super::workflow_contracts::edge::EdgeContract;
+use serde::{Deserialize, Serialize};
 
 /// Root prefix under which produced analytical artifacts live.
 ///
@@ -33,12 +34,19 @@ const OUTPUTS_ROOT: &str = "runtime/outputs/";
 /// task's own read manifest attributes the read to, when known — it is
 /// independent of, and may disagree with, what [`reconcile`] concludes
 /// from the path itself.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// `Serialize`/`Deserialize` so the harness can carry a task's observed
+/// reads on its `InvocationRecord` (`runtime/invocations.jsonl`,
+/// design §5.2 C5) and `crates/conversation/src/emit/ro_crate.rs` can
+/// read them back without depending on the harness crate (conversation
+/// never links harness — see CLAUDE.md crate layering).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ObservedRead {
     /// The task that performed the read.
     pub task_id: String,
     /// The input port the read is claimed to satisfy, if the read
     /// manifest names one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub declared_port: Option<String>,
     /// The file path that was read.
     pub path: String,

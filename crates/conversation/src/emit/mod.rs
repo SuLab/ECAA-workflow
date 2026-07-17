@@ -1428,6 +1428,139 @@ mod tests {
         );
     }
 
+    /// Design §5.2 C5 — a DE task whose `runtime/invocations.jsonl`
+    /// record shows it actually read `quantification`'s raw counts
+    /// output must have the RO-Crate's `quantification -> DE`
+    /// `ParameterConnection` node resolved as `authoritative`, and the
+    /// declared-but-unread `normalisation -> DE` one-of sibling
+    /// stamped `candidate_unused` — the emitted graph reflects what
+    /// actually ran, not just the compile-time option space.
+    #[tokio::test]
+    async fn de_one_of_edge_resolves_to_the_read_member() {
+        use ecaa_workflow_core::workflow_contracts::edge::{
+            CompatibilityProof, EdgeContract, EdgeKind,
+        };
+
+        let tmp = tempfile::tempdir().unwrap();
+        let runtime = tmp.path().join("runtime");
+        std::fs::create_dir_all(&runtime).unwrap();
+
+        // Declared graph: both one-of count members wired into DE.
+        let raw_edge = EdgeContract {
+            from_node: "quantification".into(),
+            from_port: "count_matrix".into(),
+            to_node: "differential_expression".into(),
+            to_port: "raw_counts".into(),
+            proof: CompatibilityProof::default(),
+            kind: EdgeKind::TypedDataFlow,
+            chain_of_custody: None,
+            mutually_exclusive_group: Some("counts".into()),
+        };
+        let normalized_edge = EdgeContract {
+            from_node: "normalisation".into(),
+            from_port: "normalized_counts".into(),
+            to_node: "differential_expression".into(),
+            to_port: "normalized_counts".into(),
+            proof: CompatibilityProof::default(),
+            kind: EdgeKind::TypedDataFlow,
+            chain_of_custody: None,
+            mutually_exclusive_group: Some("counts".into()),
+        };
+        let proofs_body = format!(
+            "{}\n{}\n",
+            serde_json::to_string(&raw_edge).unwrap(),
+            serde_json::to_string(&normalized_edge).unwrap(),
+        );
+        std::fs::write(runtime.join("proofs.jsonl"), proofs_body).unwrap();
+
+        // Harness-observed reads: the DE task actually read the RAW
+        // matrix (DESeq2 was the method the agent chose at runtime).
+        std::fs::write(
+            runtime.join("invocations.jsonl"),
+            serde_json::json!({
+                "task_id": "differential_expression",
+                "epoch": 1,
+                "harness_run_id": "run-abc",
+                "started_at": "2026-06-02T00:00:00Z",
+                "port_typed_inputs_satisfied": true,
+                "sandbox": "none",
+                "sandbox_required": false,
+                "network_policy": null,
+                "observed_reads": [
+                    {
+                        "task_id": "differential_expression",
+                        "declared_port": "raw_counts",
+                        "path": "runtime/outputs/quantification/count_matrix.tsv"
+                    }
+                ]
+            })
+            .to_string()
+                + "\n",
+        )
+        .unwrap();
+
+        // Seed a minimal RO-Crate with the two ParameterConnection
+        // nodes the compile-time emit would have produced for this DAG.
+        let metadata = serde_json::json!({
+            "@context": "https://w3id.org/ro/crate/1.1/context",
+            "@graph": [
+                {"@id": "./", "@type": "Dataset", "hasPart": []},
+                ecaa_workflow_core::ro_crate::parameter_connection_entity(
+                    "quantification__to__differential_expression",
+                    "#step-quantification", "count_matrix",
+                    "#step-differential_expression", "raw_counts",
+                ),
+                ecaa_workflow_core::ro_crate::parameter_connection_entity(
+                    "normalisation__to__differential_expression",
+                    "#step-normalisation", "normalized_counts",
+                    "#step-differential_expression", "normalized_counts",
+                ),
+            ]
+        });
+        std::fs::write(
+            tmp.path().join("ro-crate-metadata.json"),
+            serde_json::to_vec_pretty(&metadata).unwrap(),
+        )
+        .unwrap();
+
+        ro_crate::patch_ro_crate_metadata(
+            tmp.path(),
+            vec![],
+            vec![],
+            ecaa_workflow_core::provenance_tiers::ProvenanceTier::Private,
+        )
+        .await
+        .unwrap();
+
+        let metadata: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(tmp.path().join("ro-crate-metadata.json")).unwrap(),
+        )
+        .unwrap();
+        let graph = metadata["@graph"].as_array().unwrap();
+
+        let raw_node = graph
+            .iter()
+            .find(|e| {
+                e["@id"] == "#parameter-connection/quantification__to__differential_expression"
+            })
+            .expect("raw_counts ParameterConnection node present");
+        assert_eq!(
+            raw_node["ecaax:provenanceStatus"], "authoritative",
+            "the read one-of member must be stamped authoritative"
+        );
+
+        let normalized_node = graph
+            .iter()
+            .find(|e| {
+                e["@id"] == "#parameter-connection/normalisation__to__differential_expression"
+            })
+            .expect("normalized_counts ParameterConnection node present");
+        assert_eq!(
+            normalized_node["ecaax:provenanceStatus"], "candidate_unused",
+            "the unread one-of sibling must be demoted to a candidate"
+        );
+    }
+
     /// Sessions without runtime installs (the
     /// common case: sealed atoms, declared_only with everything
     /// already vendored) must NOT carry a stray install-log entry in

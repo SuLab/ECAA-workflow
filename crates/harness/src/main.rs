@@ -2685,9 +2685,21 @@ fn run_loop(
         // includes a Completed task with requires_sme_review: true that
         // the SME has not yet confirmed. Confirmed stages come from
         // per-stage sidecar files written by the server's /confirm handler.
-        let (picks, picked_dispatches): (Vec<String>, Vec<PickedDispatch>) = {
+        let (picks, picked_dispatches, invocation_by_task): (
+            Vec<String>,
+            Vec<PickedDispatch>,
+            std::collections::BTreeMap<String, ecaa_workflow_harness::invocation_log::InvocationRecord>,
+        ) = {
             let mut dag_mut = read_dag(path)?;
             let mut picked_dispatches = Vec::new();
+            // Design §5.2 C5 — the pre-dispatch `InvocationRecord` built
+            // below, keyed by task_id, so the post-run observed-reads
+            // follow-up (after `thread::scope`) can append an enriched
+            // second line without recomputing atom_id/prereqs/safety.
+            let mut invocation_by_task: std::collections::BTreeMap<
+                String,
+                ecaa_workflow_harness::invocation_log::InvocationRecord,
+            > = std::collections::BTreeMap::new();
             let confirmed_stages = read_confirmed_review_stages(path);
             // Promote any auto-advanced discover_* decisions into
             // `runtime/decisions.jsonl` so audit-proof
@@ -3032,6 +3044,7 @@ fn run_loop(
                             "invocation-record append failed (continuing; WAL + WORKFLOW.json remain authoritative)"
                         );
                     }
+                    invocation_by_task.insert(id.clone(), inv);
                 }
                 picked_dispatches.push(PickedDispatch {
                     task_id: id.clone().into(),
@@ -3039,7 +3052,7 @@ fn run_loop(
                     epoch,
                 });
             }
-            (picks, picked_dispatches)
+            (picks, picked_dispatches, invocation_by_task)
         };
         // Retained for the post-iteration log-line pairing below.
         // Serial mode → exactly one pick; parallel → multiple.
@@ -3218,6 +3231,15 @@ fn run_loop(
                 let agent_arg = args.agent.clone();
                 let path_buf = path.to_path_buf();
                 let task_id_for_overrides = id.clone();
+                // Design §5.2 C5 — the pre-dispatch InvocationRecord for
+                // this task (built above, before any writes happened this
+                // iteration), cloned out so the post-run closure can
+                // append an observed-reads follow-up line without
+                // recomputing atom_id/prereqs/safety/container_image.
+                // `None` only if the task vanished from the DAG between
+                // pre-mark and here (shouldn't happen; handled by simply
+                // skipping the follow-up append).
+                let base_invocation = invocation_by_task.get(id).cloned();
                 handles.push(scope.spawn(move || {
                     let (outcome, capture) = {
                         let mut guard = exec_ref.lock().unwrap_or_else(|p| p.into_inner());
@@ -3259,12 +3281,19 @@ fn run_loop(
                         let o = guard.run_iteration(&path_buf, &agent_arg, &envelope);
                         let c = guard.take_last_capture();
                         // Design §5.2 C5 — pop this iteration's observed
-                        // input reads (see `observed_reads::capture_reads`).
-                        // Reconciling them against the declared graph
-                        // (`core::provenance::observed::reconcile`) and
-                        // persisting the result is a later task; for now
-                        // this just proves the capture reaches the real
-                        // dispatch site.
+                        // input reads (see `observed_reads::capture_reads`)
+                        // and, when the agent runbook reported any, append
+                        // a completion-time InvocationRecord line carrying
+                        // them. The pre-dispatch line (written before this
+                        // task's agent spawned) is left untouched, so its
+                        // crash-durability guarantee holds; this is a
+                        // SECOND, enriched line for the same
+                        // (task_id, epoch, harness_run_id) — absent a read
+                        // manifest, no follow-up is written and the
+                        // existing one-line-per-dispatch shape is
+                        // unchanged. Consumed by
+                        // `ecaa_workflow_core::ro_crate::reconcile_ro_crate_edges`
+                        // via `crates/conversation/src/emit/ro_crate.rs`.
                         let reads = guard.take_observed_reads();
                         if !reads.is_empty() {
                             tracing::debug!(
@@ -3273,6 +3302,19 @@ fn run_loop(
                                 count = reads.len(),
                                 "captured observed input reads for task"
                             );
+                            if let Some(base) = &base_invocation {
+                                let enriched = base.with_observed_reads(reads);
+                                if let Err(e) = ecaa_workflow_harness::invocation_log::append_invocation(
+                                    &path_buf, &enriched,
+                                ) {
+                                    tracing::warn!(
+                                        target: "harness",
+                                        task_id = %task_id_for_overrides,
+                                        error = format!("{:#}", e),
+                                        "observed-reads invocation-record append failed (continuing)"
+                                    );
+                                }
+                            }
                         }
                         (o, c)
                     };
