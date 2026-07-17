@@ -66,7 +66,11 @@ fn edge(to_port: &str, kind: EdgeKind) -> EdgeContract {
 }
 
 fn score(dag: &WorkflowDag) -> ScoringTuple {
-    rescore_dag(dag, &PlanningContext::default(), &ArchetypeRegistry::default())
+    rescore_dag(
+        dag,
+        &PlanningContext::default(),
+        &ArchetypeRegistry::default(),
+    )
 }
 
 /// DE binds `raw_counts` (proven `TypedDataFlow`); `normalized_counts`
@@ -80,7 +84,10 @@ fn dag_with_bound_members(bound: &[&str]) -> WorkflowDag {
     }
     WorkflowDag {
         id: "test".into(),
-        nodes: vec![TaskNode::skeleton(PRODUCER_ID, "producer"), de_consumer_node()],
+        nodes: vec![
+            TaskNode::skeleton(PRODUCER_ID, "producer"),
+            de_consumer_node(),
+        ],
         edges,
         assumptions: AssumptionLedger::default(),
         source_template: None,
@@ -117,7 +124,8 @@ fn unsatisfied_one_of_group_still_rejects() {
 #[test]
 fn unproven_edge_outside_any_group_still_rejects() {
     let mut dag = dag_with_bound_members(&["raw_counts"]);
-    dag.edges.push(edge("experimental_design", EdgeKind::Unproven));
+    dag.edges
+        .push(edge("experimental_design", EdgeKind::Unproven));
     let score = score(&dag);
     assert_eq!(
         score.required_contract_unsatisfied,
