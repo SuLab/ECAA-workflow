@@ -554,6 +554,10 @@ pub struct LocalExecutor {
     /// exit + wallclock so the harness main can synthesise a
     /// `ToolErrorEnvelope` after a non-zero iteration.
     last_capture: Option<IterationCapture>,
+    /// Most recent iteration's observed input reads (design §5.2 C5).
+    /// Populated by `run_iteration` via `crate::observed_reads::capture_reads`,
+    /// drained by `take_observed_reads`.
+    last_observed_reads: Vec<ecaa_workflow_core::provenance::ObservedRead>,
 }
 
 impl LocalExecutor {
@@ -570,6 +574,7 @@ impl LocalExecutor {
             session_env_additions: BTreeMap::new(),
             per_task_image_overrides: BTreeMap::new(),
             last_capture: None,
+            last_observed_reads: Vec::new(),
         }
     }
 
@@ -1239,6 +1244,16 @@ impl Executor for LocalExecutor {
                 peak_memory_mb: read_vmhwm_kb(pid).map(|kb| kb / 1024),
                 executor_context: local_context(),
             });
+            self.last_observed_reads = if task_id_for_sandbox.is_empty() {
+                Vec::new()
+            } else {
+                let (_status, reads) = crate::observed_reads::capture_reads(
+                    package,
+                    &task_id_for_sandbox,
+                    || status,
+                );
+                reads
+            };
             Ok(IterationOutcome {
                 agent_status: status,
                 remote: None,
@@ -1276,6 +1291,16 @@ impl Executor for LocalExecutor {
                 peak_memory_mb: None,
                 executor_context: local_context(),
             });
+            self.last_observed_reads = if task_id_for_sandbox.is_empty() {
+                Vec::new()
+            } else {
+                let (_status, reads) = crate::observed_reads::capture_reads(
+                    package,
+                    &task_id_for_sandbox,
+                    || output.status,
+                );
+                reads
+            };
             Ok(IterationOutcome {
                 agent_status: output.status,
                 remote: None,
@@ -1285,6 +1310,10 @@ impl Executor for LocalExecutor {
 
     fn take_last_capture(&mut self) -> Option<IterationCapture> {
         self.last_capture.take()
+    }
+
+    fn take_observed_reads(&mut self) -> Vec<ecaa_workflow_core::provenance::ObservedRead> {
+        std::mem::take(&mut self.last_observed_reads)
     }
 
     #[tracing::instrument(skip(self, task), fields(executor = "local"))]
@@ -2062,6 +2091,7 @@ mod tests {
             session_env_additions: BTreeMap::new(),
             per_task_image_overrides: BTreeMap::new(),
             last_capture: None,
+            last_observed_reads: Vec::new(),
         };
         // Two Ready tasks (< 4 so fallback path), one non-discover.
         let mut tasks = std::collections::BTreeMap::new();
@@ -2175,6 +2205,7 @@ mod tests {
             session_env_additions: BTreeMap::new(),
             per_task_image_overrides: BTreeMap::new(),
             last_capture: None,
+            last_observed_reads: Vec::new(),
         };
 
         let mut ov = ExecutorOverrides {
@@ -2218,6 +2249,7 @@ mod tests {
             session_env_additions: BTreeMap::new(),
             per_task_image_overrides: BTreeMap::new(),
             last_capture: None,
+            last_observed_reads: Vec::new(),
         };
         let ov = ExecutorOverrides {
             resources: Some(ResourceTarget {
@@ -2250,6 +2282,7 @@ mod tests {
             session_env_additions: BTreeMap::new(),
             per_task_image_overrides: BTreeMap::new(),
             last_capture: None,
+            last_observed_reads: Vec::new(),
         };
 
         let mut ov = ExecutorOverrides::default();
@@ -3060,6 +3093,7 @@ mod tests {
             session_env_additions: BTreeMap::new(),
             per_task_image_overrides: BTreeMap::new(),
             last_capture: None,
+            last_observed_reads: Vec::new(),
         };
         let mut envelope = BTreeMap::new();
         envelope.insert(
