@@ -675,6 +675,19 @@ pub fn collapse_one_of_gaps(
     repair_gaps: &mut Vec<RepairGap>,
     consumer_id: &str,
 ) {
+    // A member port counts as "bound" — and its edge earns the
+    // mutually-exclusive tag — ONLY when a genuine producer edge lands on
+    // it (a typed or adapter-mediated data flow). An OrderingOnly/Unproven
+    // edge is a sequencing dependency, not a substrate producer: e.g. an
+    // archetype `depends_on` from a non-count stage (single-cell DE's
+    // `cell_type_annotation`) whose output type matches no count port falls
+    // through `pick_best_port_pair` to the first input port (`raw_counts`).
+    // Tagging that as a candidate substrate would assert a non-count stage
+    // produces raw counts — exactly the false-provenance class this closes.
+    // Matches `one_of_exempts_edge`'s "bound" definition (strength ≥ adapter).
+    fn is_genuine_producer(kind: EdgeKind) -> bool {
+        matches!(kind, EdgeKind::TypedDataFlow | EdgeKind::AdapterMediated)
+    }
     for group in &consumer.input_groups {
         if group.members.is_empty() {
             continue;
@@ -683,18 +696,23 @@ pub fn collapse_one_of_gaps(
             .members
             .iter()
             .filter(|m| {
-                edges
-                    .iter()
-                    .any(|e| e.to_node == consumer_id && &e.to_port == *m)
+                edges.iter().any(|e| {
+                    e.to_node == consumer_id
+                        && &e.to_port == *m
+                        && is_genuine_producer(e.kind)
+                })
             })
             .count();
 
-        // Tag every bound member edge as a mutually-exclusive
-        // alternative — independent of whether the group ends up
-        // satisfied, since the tag records which substrate was wired,
-        // not the gap bookkeeping below.
+        // Tag only genuine-producer member edges as mutually-exclusive
+        // alternatives — the tag records which substrate was actually
+        // wired, so an ordering-only dep that happened to land on a member
+        // port must not be marked a count candidate.
         for e in edges.iter_mut() {
-            if e.to_node == consumer_id && group.members.iter().any(|m| m == &e.to_port) {
+            if e.to_node == consumer_id
+                && is_genuine_producer(e.kind)
+                && group.members.iter().any(|m| m == &e.to_port)
+            {
                 e.mutually_exclusive_group = Some(group.name.clone());
             }
         }

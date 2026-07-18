@@ -320,6 +320,37 @@ mod archetype_emit {
             Some("counts"),
             "single-cell normalized_counts edge must be tagged counts"
         );
+
+        // Regression guard (adversarial finding I2): the single-cell path must
+        // NOT assert a non-count stage as a raw-count candidate. An
+        // OrderingOnly dep from a non-count stage (`cell_type_annotation`)
+        // that fell through `pick_best_port_pair` onto the first input port
+        // (`raw_counts`) must be neither a genuine producer nor
+        // mutually_exclusive_group-tagged — otherwise the declared graph
+        // claims a non-count stage produces raw counts (the exact
+        // false-provenance class this branch removes).
+        for e in dag
+            .edges
+            .iter()
+            .filter(|e| e.to_node == de && e.to_port == "raw_counts")
+        {
+            assert!(
+                !matches!(
+                    e.kind,
+                    ecaa_workflow_core::workflow_contracts::edge::EdgeKind::TypedDataFlow
+                        | ecaa_workflow_core::workflow_contracts::edge::EdgeKind::AdapterMediated
+                ),
+                "single-cell DE.raw_counts must have no genuine count producer; got {:?} from {}",
+                e.kind,
+                e.from_node
+            );
+            assert_ne!(
+                e.mutually_exclusive_group.as_deref(),
+                Some("counts"),
+                "single-cell DE.raw_counts edge from {} must not be tagged a count candidate",
+                e.from_node
+            );
+        }
     }
 
     /// Every count-GLM archetype still plans (no regression) on the
