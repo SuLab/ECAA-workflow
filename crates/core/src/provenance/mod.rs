@@ -12,5 +12,7 @@
 //! which declared edge (if any) is the authoritative one.
 
 pub mod observed;
+pub mod sidecars;
 
 pub use observed::{reconcile, DivergenceRecord, ObservedRead, ReconVerdict};
+pub use sidecars::{read_declared_edges, read_observed_reads, read_task_read_allowances};

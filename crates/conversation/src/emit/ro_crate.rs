@@ -518,101 +518,6 @@ async fn register_cross_version_diff(
     Some(format!("{}/results/tables/", parent.trim_end_matches('/')))
 }
 
-/// Design §5.2 C5 — parse `runtime/proofs.jsonl`'s `EdgeContract` rows
-/// (the declared per-edge graph the v4 composer proved) for
-/// observed-provenance reconciliation. A malformed line is skipped
-/// rather than aborting the whole parse — one bad line shouldn't blind
-/// reconciliation for every other line the emitter wrote (mirrors
-/// `crate::observed_reads::read_manifest`'s tolerance harness-side).
-/// Absent file (no v4 composition, or a pre-emit package) returns empty.
-async fn read_declared_edges(
-    output_dir: &Path,
-) -> Vec<ecaa_workflow_core::workflow_contracts::edge::EdgeContract> {
-    let path = output_dir.join("runtime/proofs.jsonl");
-    let Ok(body) = tokio::fs::read_to_string(&path).await else {
-        return Vec::new();
-    };
-    body.lines()
-        .filter(|l| !l.trim().is_empty())
-        .filter_map(|l| serde_json::from_str(l).ok())
-        .collect()
-}
-
-/// One row of `runtime/invocations.jsonl` as seen by the RO-Crate
-/// reconciliation pass — only the field it needs. The harness's fuller
-/// `InvocationRecord` (task_id, epoch, sandbox, container_image, …) is
-/// intentionally NOT reused here: `conversation` never depends on
-/// `harness` (CLAUDE.md crate layering — the harness is the
-/// orchestrator, conversation is chat-side), and `serde_json`'s default
-/// unknown-field tolerance means this minimal shape reads the real file
-/// without needing the harness's type.
-#[derive(Deserialize)]
-struct InvocationObservedReadsRow {
-    #[serde(default)]
-    observed_reads: Vec<ecaa_workflow_core::provenance::ObservedRead>,
-}
-
-/// One `TaskNode` as seen by the RO-Crate reconciliation pass — only
-/// the fields it needs (mirrors `InvocationObservedReadsRow`'s
-/// minimal-shape rationale). Reads `runtime/task-nodes.json`, the
-/// typed `TaskNode` list `emit::audit_log::write_phase14_sidecars`
-/// writes from `session.workflow_dag.nodes` — present whenever the
-/// session carries a v4 `WorkflowDag`.
-#[derive(Deserialize)]
-struct TaskNodeReadAllowanceRow {
-    id: String,
-    #[serde(default)]
-    attributes: std::collections::BTreeMap<String, serde_json::Value>,
-}
-
-/// RCA I-1 — parse `runtime/task-nodes.json` for each task's declared
-/// `read_allowance` facet (`TaskNode::attributes["read_allowance"]`,
-/// threaded there by `workflow_contracts::from_atom::preserve_attributes`
-/// and, for a synthesized `validate_<id>` companion, inherited from its
-/// producer by `composer_v4::companion_synthesis`). Absent file (no v4
-/// composition) or a task with no declared allowance is simply omitted
-/// from the returned map — `reconcile_ro_crate_edges_with_allowances`
-/// treats a missing entry as "no allowance" and reconciles normally.
-async fn read_task_read_allowances(
-    output_dir: &Path,
-) -> std::collections::BTreeMap<String, Vec<ecaa_workflow_core::atom::ReadAllowance>> {
-    let path = output_dir.join("runtime/task-nodes.json");
-    let Ok(body) = tokio::fs::read_to_string(&path).await else {
-        return std::collections::BTreeMap::new();
-    };
-    let Ok(rows) = serde_json::from_str::<Vec<TaskNodeReadAllowanceRow>>(&body) else {
-        return std::collections::BTreeMap::new();
-    };
-    rows.into_iter()
-        .filter_map(|row| {
-            let raw = row.attributes.get("read_allowance")?.clone();
-            let parsed: Vec<ecaa_workflow_core::atom::ReadAllowance> =
-                serde_json::from_value(raw).ok()?;
-            (!parsed.is_empty()).then_some((row.id, parsed))
-        })
-        .collect()
-}
-
-/// Design §5.2 C5 — fold every `observed_reads` entry out of
-/// `runtime/invocations.jsonl`. A task may appear on more than one
-/// line — the harness's pre-dispatch record (reads not yet known) plus
-/// a completion-time follow-up once reads are captured — so every
-/// line's `observed_reads` is concatenated rather than only the last.
-/// Absent file (no harness dispatch yet) returns empty.
-async fn read_observed_reads(
-    output_dir: &Path,
-) -> Vec<ecaa_workflow_core::provenance::ObservedRead> {
-    let path = output_dir.join("runtime/invocations.jsonl");
-    let Ok(body) = tokio::fs::read_to_string(&path).await else {
-        return Vec::new();
-    };
-    body.lines()
-        .filter(|l| !l.trim().is_empty())
-        .filter_map(|l| serde_json::from_str::<InvocationObservedReadsRow>(l).ok())
-        .flat_map(|row| row.observed_reads)
-        .collect()
-}
-
 pub(super) async fn patch_ro_crate_metadata(
     output_dir: &Path,
     diff_tables: Vec<String>,
@@ -1003,9 +908,14 @@ pub(super) async fn patch_ro_crate_metadata(
     // `@graph`, not session state, so it hands the typed list back to
     // `emit_steps` (which holds `&mut Session`) to transition each
     // offending task to `BlockerKind::ProvenanceDivergence`.
-    let declared_edges = read_declared_edges(output_dir).await;
-    let observed_reads = read_observed_reads(output_dir).await;
-    let read_allowances = read_task_read_allowances(output_dir).await;
+    // Shared sync parsers live in core (`ecaa_workflow_core::provenance`) so
+    // BOTH this emit path AND the harness post-exec finalize hook
+    // (`end_of_run_finalize::reconcile_observed_reads_into_ro_crate`) read
+    // the sidecars through one implementation — the harness cannot depend on
+    // this crate (CLAUDE.md crate layering), core is the shared floor.
+    let declared_edges = ecaa_workflow_core::provenance::read_declared_edges(output_dir);
+    let observed_reads = ecaa_workflow_core::provenance::read_observed_reads(output_dir);
+    let read_allowances = ecaa_workflow_core::provenance::read_task_read_allowances(output_dir);
     let divergences = ecaa_workflow_core::ro_crate::reconcile_ro_crate_edges_with_allowances(
         &mut metadata,
         &declared_edges,
