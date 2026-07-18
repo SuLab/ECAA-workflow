@@ -34,7 +34,7 @@ summary_hash: string,
  * "≈ N core-hours, peak M GB" cost preview before clicking
  * Accept. None for legacy / non-composer paths.
  */
-resource_estimate?: ResourceEstimate,
+resource_estimate?: ResourceEstimate, 
 /**
  * Retained *optional* analysis stages still present in the composed
  * DAG at confirmation time. Surfaced so the SME can drop one before
@@ -51,5 +51,9 @@ resource_estimate?: ResourceEstimate,
  * `#[serde(default)]` so on-disk cards that pre-date this field
  * deserialize cleanly with an empty list; `skip_serializing_if`
  * keeps the wire payload unchanged for the common (empty) case.
+ * `Option<Vec>` + `#[ts(optional)]` so the generated TS field is
+ * optional (`retained_optional_stages?`): legacy on-disk cards and
+ * non-composer paths omit it, and `skip_serializing_if = "Option::is_none"`
+ * keeps it off the wire when there are no retained optional stages.
  */
 retained_optional_stages?: Array<RetainedOptionalStage>, };

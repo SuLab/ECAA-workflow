@@ -18,9 +18,20 @@ n_verified: number,
  */
 n_mismatch: number, 
 /**
- * N unverifiable.
+ * N unverifiable (table loaded + checked but undeterminable).
  */
 n_unverifiable: number, 
+/**
+ * N pending (never adjudicated — no adjudication site ran at all).
+ * Defaults to 0 so older serialized reports without the field still
+ * deserialize.
+ */
+n_pending: number, 
+/**
+ * N suspicious (soft / review-required; never blocks). Defaults to 0 so
+ * older serialized reports without the field still deserialize.
+ */
+n_suspicious: number, 
 /**
  * Verdicts.
  */
