@@ -4294,6 +4294,31 @@ fn run_loop(
             // finalize_completed_package). Gated + non-fatal internally.
             ecaa_workflow_harness::end_of_run_finalize::maybe_snapshot(path);
 
+            // Fire observed-read reconciliation on BOTH run paths. The session
+            // (web-UI) path never calls finalize_completed_package — the server
+            // finalizes per-task but does not reconcile — so without this the
+            // observed-provenance stamps would never appear on a UI-driven run.
+            // Stamps the RO-Crate's ParameterConnection nodes
+            // authoritative/candidate_unused (and records divergences /
+            // read-allowances) from runtime/invocations.jsonl; re-seals the
+            // BagIt manifest on a mutation. Best-effort + idempotent (the
+            // standalone path's finalize_completed_package call below is then a
+            // no-op second pass).
+            if ecaa_workflow_harness::end_of_run_finalize::reconcile_observed_reads_into_ro_crate(
+                path,
+            ) {
+                if let Err(e) = ecaa_workflow_core::emitter::regenerate_bagit_manifest(
+                    path,
+                    &ecaa_workflow_core::clock::WallClock,
+                ) {
+                    tracing::warn!(
+                        target: "harness",
+                        error = %e,
+                        "BagIt re-seal after observed-read reconcile failed (continuing)"
+                    );
+                }
+            }
+
             // Standalone self-finalization: the server normally finalizes
             // per-task on `task_completed` events, but a no-session run sends
             // none — so finalize the whole package here (verify+sign claims,
