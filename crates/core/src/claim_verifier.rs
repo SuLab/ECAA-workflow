@@ -2597,6 +2597,36 @@ fn pvalue_within_tolerance(claimed: f64, obs: f64, rel_tol: f64) -> bool {
     (claimed / obs).ln().abs() <= (1.0 + rel_tol).ln()
 }
 
+/// True when `tok` occurs in `key` at a run boundary that is not embedded
+/// inside a longer ASCII-digit run — i.e., the character immediately before
+/// and after the match are both non-digits (or the string edge). This keeps
+/// the fuzzy token match's substring semantics for letter-flanked identifiers
+/// (`s1` inside `x_s1_de`) while refusing a numeric cite from matching a
+/// wider number: a "Table 5" cite (token `5`) matches the `5` segment of
+/// `de_table_5` but NOT the `5` inside the `15` of `scrna_table_15`. Without
+/// this guard the numeric token matched both, collapsing resolution to None
+/// (≥2 candidates), which sent the numeric gate to scan every table and read
+/// the wrong entity row for a legitimately-cited table.
+fn token_matches_key(key: &str, tok: &str) -> bool {
+    if tok.is_empty() {
+        return false;
+    }
+    let kb = key.as_bytes();
+    let tlen = tok.len();
+    let mut start = 0usize;
+    while let Some(rel) = key[start..].find(tok) {
+        let at = start + rel;
+        let before_is_digit = at > 0 && kb[at - 1].is_ascii_digit();
+        let after = at + tlen;
+        let after_is_digit = after < kb.len() && kb[after].is_ascii_digit();
+        if !before_is_digit && !after_is_digit {
+            return true;
+        }
+        start = at + 1;
+    }
+    false
+}
+
 /// In-memory index of `results/tables/*.{tsv,csv}` by file stem + full
 /// name, case-insensitive. Cheap to construct; the narrative-size
 /// expected input means a full scan is well under a millisecond.
@@ -2742,7 +2772,7 @@ impl TableIndex {
             let mut seen: std::collections::BTreeSet<&std::path::Path> =
                 std::collections::BTreeSet::new();
             for (key, path) in &self.by_name {
-                if key.contains(tok) {
+                if token_matches_key(key, tok) {
                     seen.insert(path.as_path());
                 }
             }
@@ -7733,6 +7763,31 @@ mod tests {
             "cited path basename must resolve, not collapse to None"
         );
         assert!(resolved.unwrap().ends_with("de_results.tsv"));
+    }
+
+    #[test]
+    fn cited_single_digit_table_not_ambiguous_with_double_digit_sibling() {
+        // A cite of "Table 5" must resolve to `de_table_5.tsv` even when a
+        // `scrna_table_15.tsv` sibling exists. The fuzzy token step peels
+        // "table" off the cite, leaving the numeric token "5"; that token must
+        // match the "5" segment of `de_table_5` but NOT the "5" inside the
+        // "15" run of `scrna_table_15`. Before the digit-boundary guard, "5"
+        // matched both, so resolution collapsed to None (≥2 candidates) and the
+        // numeric gate scanned every table — reading the wrong entity row.
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["de_table_5.tsv", "scrna_table_15.tsv"] {
+            std::fs::write(dir.path().join(name), "gene\tlog2FC\nTP53\t1.0\n").unwrap();
+        }
+        let idx = TableIndex::scan(dir.path());
+        let resolved = idx.resolve("Table 5");
+        assert!(
+            resolved.is_some(),
+            "cited 'Table 5' must resolve, not collapse to None due to a double-digit sibling"
+        );
+        assert!(resolved.unwrap().ends_with("de_table_5.tsv"));
+        // The double-digit sibling must still resolve on its own cite.
+        let r15 = idx.resolve("Table 15");
+        assert!(r15.is_some_and(|p| p.ends_with("scrna_table_15.tsv")));
     }
 
     #[test]
