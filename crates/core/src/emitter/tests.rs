@@ -306,26 +306,53 @@ fn emit_package_writes_ecaa_runtime_artifacts() {
         manifest.contains("runtime/assumptions.jsonl"),
         "assumptions.jsonl is a substantive evidence artifact and must be BagIt-covered (RCA I-7)"
     );
-    // DR-4 — audit-proof-report.json's `evaluated_at` was moved onto the
-    // deterministic run-epoch clock, so it is byte-reproducible and now
-    // manifested at EMIT (no longer held back to RESEAL only).
-    assert!(
-        manifest.contains("runtime/audit-proof-report.json"),
-        "audit-proof-report.json is now byte-deterministic and must be BagIt-covered at emit (DR-4)"
-    );
     assert!(
         manifest.contains("runtime/security-policy.json"),
         "security-policy.json is a substantive evidence artifact and must be BagIt-covered (RCA I-7)"
     );
-    // DR-4 — validation-summary.json is a deterministic evidence artifact and
-    // is now integrity-covered rather than held off the manifest.
+    // FACET-1 — audit-proof-report.json + validation-summary.json are
+    // non-deterministic before a run on the conversation emit path
+    // (audit-proof verdicts range over the destructively-drained
+    // verifier-decisions.jsonl; validation-summary carries a wall-clock
+    // duration_ms), so they are EXCLUDED from the pre-run EMIT manifest even
+    // though core writes them deterministically. They ARE covered on RESEAL.
     assert!(
-        manifest.contains("runtime/validation-summary.json"),
-        "validation-summary.json is a substantive evidence artifact and must be BagIt-covered (DR-4)"
+        !manifest.contains("runtime/audit-proof-report.json"),
+        "audit-proof-report.json must be excluded from the EMIT manifest (FACET-1)"
+    );
+    assert!(
+        !manifest.contains("runtime/validation-summary.json"),
+        "validation-summary.json must be excluded from the EMIT manifest (FACET-1)"
     );
     assert!(
         !manifest.contains("DEPOSIT-READINESS.json"),
         "DEPOSIT-READINESS.json stays intentionally excluded (mutable meta file)"
+    );
+
+    // FACET-1 DR-4 guard — the RESEAL (deposit) manifest DOES cover the two
+    // non-deterministic-at-emit evidence sidecars, alongside the deterministic
+    // set that stays covered at both emit and reseal.
+    regenerate_bagit_manifest(tmp.path(), &crate::clock::WallClock)
+        .expect("regenerate_bagit_manifest");
+    let reseal = std::fs::read_to_string(tmp.path().join("manifest-sha512.txt"))
+        .expect("BagIt manifest after reseal");
+    for f in [
+        "runtime/audit-proof-report.json",
+        "runtime/validation-summary.json",
+        "runtime/verifier-decisions.jsonl",
+        "runtime/claim-verification.json",
+        "runtime/validation-reports.jsonl",
+        "runtime/proofs.jsonl",
+        "runtime/security-policy.json",
+    ] {
+        assert!(
+            reseal.contains(f),
+            "{f} must be covered by the RESEAL (deposit) manifest (DR-4)"
+        );
+    }
+    assert!(
+        !reseal.contains("DEPOSIT-READINESS.json"),
+        "DEPOSIT-READINESS.json stays excluded even after reseal (mutable meta file)"
     );
 }
 
@@ -3153,11 +3180,16 @@ fn is_excluded_from_baseline(rel: &std::path::Path) -> bool {
     // `audit-proof-report.json` / `claim-verification.json` /
     // `verifier-decisions.jsonl` / `validation-reports.jsonl` /
     // `validation-summary.json` / `reexecution.json` /
-    // `intake-conversation.jsonl`) are all byte-deterministic at emit and are
-    // now BagIt-manifested (see `bagit::walk_for_manifest`), so they are
-    // DELIBERATELY not excluded here anymore — the whole-package test now
-    // covers their bytes too (`audit-proof-report.json`'s `evaluated_at` was
-    // moved onto the deterministic run-epoch clock so it too is reproducible).
+    // `intake-conversation.jsonl`) are all byte-deterministic ON THE CORE EMIT
+    // PATH, so they are DELIBERATELY not excluded from this whole-package
+    // byte-repro baseline — the test covers their bytes too. FACET-1 —
+    // `audit-proof-report.json` / `verifier-decisions.jsonl` /
+    // `validation-summary.json` are excluded from the EMIT *manifest* (see
+    // `bagit::walk_for_manifest`, `SealMode::Emit`) because the CONVERSATION
+    // emit path overwrites them with non-deterministic content; on the core
+    // path here they are deterministic and this byte-repro walk still validates
+    // them. The manifest itself is compared separately below and is identical
+    // across two core emits because both exclude the same three files.
     //
     // `determinism-shim.json` is EXCLUDED again: it is a HOST-VARYING
     // diagnostic (locale/timezone/seed policy + applied-policy env-var names)
