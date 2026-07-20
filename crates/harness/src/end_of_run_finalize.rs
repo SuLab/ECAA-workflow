@@ -1118,9 +1118,10 @@ mod tests {
     }
 
     /// End-to-end: after `finalize_completed_package`, the DE package's
-    /// RO-Crate must stamp the RAW edge authoritative and the NORMALIZED
-    /// edge candidate_unused, driven by the observed read of the raw
-    /// producer's output. Before the post-exec hook is wired,
+    /// RO-Crate must stamp the RAW edge authoritative and DROP the NORMALIZED
+    /// edge from the standard graph (recording it only in the ecaax
+    /// `unusedCandidateEdge` side channel, per §G-B1), driven by the observed
+    /// read of the raw producer's output. Before the post-exec hook is wired,
     /// `finalize_completed_package` leaves both nodes unstamped.
     #[test]
     fn finalize_completed_package_reconciles_observed_reads_into_ro_crate() {
@@ -1144,13 +1145,32 @@ mod tests {
             Some("authoritative"),
             "the raw-counts edge the run actually read must be stamped authoritative"
         );
+        // §G-B1 (FixU-T62): the unread normalized-counts sibling is now DROPPED
+        // from the standard graph (not stamped) so a generic RO-Crate/WRROC
+        // consumer never sees it as a data flow; it survives only in the ecaax
+        // side channel on the root Dataset.
         assert_eq!(
             provenance_status(
                 &graph,
                 "#parameter-connection/normalisation__to__differential_expression"
             ),
-            Some("candidate_unused"),
-            "the unread normalized-counts sibling must be stamped candidate_unused"
+            None,
+            "the unread normalized-counts sibling must be DROPPED from the standard graph"
+        );
+        let root = graph
+            .iter()
+            .find(|e| e["@id"] == "./")
+            .expect("root Dataset node present");
+        let unused = root["ecaax:unusedCandidateEdge"]
+            .as_array()
+            .expect("unused-candidate side channel recorded on root Dataset");
+        assert!(
+            unused.iter().any(|u| {
+                u["to_node"] == "differential_expression"
+                    && u["to_port"] == "normalized_counts"
+                    && u["ecaax:provenanceStatus"] == "candidate_unused"
+            }),
+            "the unread normalized-counts edge must be recorded candidate_unused in the ecaax side channel"
         );
     }
 
