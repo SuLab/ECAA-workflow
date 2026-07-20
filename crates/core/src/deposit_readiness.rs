@@ -264,8 +264,18 @@ pub struct DomainValidationSummary {
     /// `validation_passed: false`, in sorted order.
     pub failed_tasks: Vec<String>,
     /// `"<task_id>: <assertion_id>"` for every entry in a failed task's
-    /// `required_failures` array, in scan order.
+    /// `required_failures` array, in scan order. Also carries the
+    /// source-owned reporting-correctness validator's REQUIRED failures
+    /// (RP-2/RP-4/RP-5) under the synthetic `reporting_invariants` task id
+    /// (see [`crate::reporting_invariants`]).
     pub required_failures: Vec<String>,
+    /// Advisory (non-blocking) reporting-correctness warnings
+    /// (RP-1/RP-3/RP-9). Surfaced for operator visibility but never folded
+    /// into [`Self::passed`] — they must not block a scientifically-correct
+    /// deposit. `#[serde(default)]` so an older serialized summary
+    /// deserializes cleanly.
+    #[serde(default)]
+    pub reporting_warnings: Vec<String>,
 }
 
 impl DomainValidationSummary {
@@ -321,6 +331,29 @@ pub fn scan_domain_validation(package_root: &Path) -> DomainValidationSummary {
             }
         }
     }
+
+    // Fold in the source-owned reporting-correctness checklist (RP-8): it
+    // RECOMPUTES values from the package's own runtime outputs rather than
+    // trusting the agent-authored per-run report/validator scripts, so a
+    // report that transcribes a wrong upstream number is still caught.
+    // REQUIRED failures (RP-2/RP-4/RP-5) block deposit-readiness under the
+    // synthetic `reporting_invariants` task id; WARN findings
+    // (RP-1/RP-3/RP-9) are surfaced separately and never block.
+    let ri = crate::reporting_invariants::check_reporting_invariants(package_root);
+    let ri_required = ri.required_failures();
+    if !ri_required.is_empty() {
+        let task_id = "reporting_invariants".to_string();
+        summary.checked_tasks.push(task_id.clone());
+        summary.failed_tasks.push(task_id.clone());
+        for f in ri_required {
+            summary.required_failures.push(format!("{task_id}: {f}"));
+        }
+    } else if !ri.checked.is_empty() {
+        // Ran, nothing REQUIRED failed — record it as a passing check.
+        summary.checked_tasks.push("reporting_invariants".to_string());
+    }
+    summary.reporting_warnings = ri.warnings();
+
     summary
 }
 
@@ -432,11 +465,26 @@ pub fn write_deposit_readiness(
             domain.required_failures.join(", ")
         )
     });
+    // Advisory reporting-correctness warnings (RP-1/RP-3/RP-9): recorded in
+    // the attestation for operator visibility but deliberately NOT folded
+    // into `deposit_ready` — a warn-only prose finding must never block a
+    // scientifically-correct deposit.
+    let reporting_warnings_detail = (!domain.reporting_warnings.is_empty()).then(|| {
+        format!(
+            "reporting-correctness warning(s): {}",
+            domain.reporting_warnings.join(", ")
+        )
+    });
 
-    let detail = [tier1.detail.clone(), domain_detail, reexec_detail]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>();
+    let detail = [
+        tier1.detail.clone(),
+        domain_detail,
+        reporting_warnings_detail,
+        reexec_detail,
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
     let detail = (!detail.is_empty()).then(|| detail.join("; "));
 
     let deposit_ready = compute_deposit_ready(

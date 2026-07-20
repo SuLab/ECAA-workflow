@@ -172,6 +172,7 @@ pub mod repair;
 /// the V4 DAG `repair` registry above.
 pub mod repair_loop;
 pub mod replay;
+pub mod reporting_invariants;
 pub mod retrieval_routes;
 /// Ro crate module.
 pub mod ro_crate;

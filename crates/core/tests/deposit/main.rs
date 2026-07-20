@@ -4,5 +4,6 @@
 // etc. — cargo's target auto-discovery treats this subdirectory as one test
 // binary named `deposit`.
 mod bagit_coverage;
+mod reporting_invariants;
 mod seal_order;
 mod status_rollup;
