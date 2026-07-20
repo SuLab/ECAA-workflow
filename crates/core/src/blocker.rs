@@ -294,6 +294,28 @@ pub fn parse_agent_blocker_kind_with_envelope(
         };
     }
 
+    // Provenance-divergence marker written by the STANDALONE end-of-run
+    // finalize path (`crates/harness/src/end_of_run_finalize.rs`) when an
+    // observed read matches no declared producer for its declared input
+    // edges. Format is `[provenance_divergence] <serialized
+    // BlockerKind::ProvenanceDivergence>`, mirroring the atom-safety
+    // dispatch markers above so the typed payload (task_id / read_path /
+    // declared_producer) round-trips for any consumer that promotes the
+    // reason. Falls back to a bare divergence keyed on `task_id` when the
+    // JSON is malformed so a serialization change never strands the task
+    // without a typed blocker.
+    if let Some(rest) = reason.strip_prefix("[provenance_divergence]") {
+        let trimmed = rest.trim();
+        if let Ok(parsed) = serde_json::from_str::<BlockerKind>(trimmed) {
+            return parsed;
+        }
+        return BlockerKind::ProvenanceDivergence {
+            task_id: task_id.to_string(),
+            read_path: String::new(),
+            declared_producer: None,
+        };
+    }
+
     // The agent writes `blocker_kind` using the PascalCase enum-variant
     // name it sees in its prompt schema (observed: "AwaitingSmeApproval"),
     // while the dispatch arms below are snake_case agent-vocab tokens.
@@ -1528,5 +1550,65 @@ mod tests {
             registry: "apt".into(),
         };
         assert!(format!("{b:?}").contains("ProvisioningDenied"));
+    }
+
+    #[test]
+    fn provenance_divergence_marker_round_trips_to_typed_blocker() {
+        // The STANDALONE end-of-run finalize path
+        // (`crates/harness/src/end_of_run_finalize.rs::provenance_divergence_reason`)
+        // writes `[provenance_divergence] <serialized
+        // BlockerKind::ProvenanceDivergence>` into the re-blocked task's
+        // `BlockedRecord.reason`. Reconstruct that exact shape here and
+        // assert the mapper promotes it back to the typed variant with every
+        // field preserved.
+        let original = BlockerKind::ProvenanceDivergence {
+            task_id: "differential_expression".into(),
+            read_path: "runtime/outputs/data_acquisition/counts.tsv".into(),
+            declared_producer: Some("normalisation".into()),
+        };
+        let payload = serde_json::to_string(&original).expect("serialize");
+        let reason = format!("[provenance_divergence] {payload}");
+
+        let out = parse_agent_blocker_kind("", "differential_expression", &reason, None);
+        assert_eq!(
+            out, original,
+            "provenance_divergence marker must round-trip to the typed BlockerKind"
+        );
+    }
+
+    #[test]
+    fn provenance_divergence_marker_without_declared_producer_round_trips() {
+        // `declared_producer` is `#[serde(skip_serializing_if = "Option::is_none")]`,
+        // so the None case drops the field from the payload — the mapper must
+        // still parse it back to a typed divergence.
+        let original = BlockerKind::ProvenanceDivergence {
+            task_id: "variant_calling".into(),
+            read_path: "runtime/outputs/foreign/reads.bam".into(),
+            declared_producer: None,
+        };
+        let reason = format!(
+            "[provenance_divergence] {}",
+            serde_json::to_string(&original).expect("serialize")
+        );
+        let out = parse_agent_blocker_kind("", "variant_calling", &reason, None);
+        assert_eq!(out, original);
+    }
+
+    #[test]
+    fn provenance_divergence_marker_falls_back_on_malformed_payload() {
+        // A malformed JSON payload must not strand the task — the mapper
+        // falls back to a bare divergence keyed on the passed task_id.
+        let out = parse_agent_blocker_kind(
+            "",
+            "qc_preprocessing",
+            "[provenance_divergence] {not valid json",
+            None,
+        );
+        match out {
+            BlockerKind::ProvenanceDivergence { task_id, .. } => {
+                assert_eq!(task_id, "qc_preprocessing");
+            }
+            other => panic!("expected ProvenanceDivergence fallback, got {other:?}"),
+        }
     }
 }

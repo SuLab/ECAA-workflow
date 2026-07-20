@@ -66,9 +66,36 @@ impl From<TierArg> for Tier {
     }
 }
 
+/// Declare the re-executable deposit profile in the process environment when
+/// the replay tier actually re-executes compute (`execute`/`all`).
+///
+/// A `--tier execute|all` replay RE-EXECUTES the package's deterministic
+/// compute to confirm reproducibility — an unambiguous re-executable deposit
+/// context. The value is the canonical `REEXECUTABLE_PROFILE` token the deposit
+/// gate shares, and the name is the harness `ENV_DEPOSIT_PROFILE` the sandbox
+/// resolver reads, so any execution launched under this process tree that
+/// consults the harness filesystem-sandbox resolver
+/// (`sandbox_enforcer::resolve_local_sandbox_mode`) defaults bwrap enforcement
+/// ON unless the operator opts out with `ECAA_LOCAL_SANDBOX=off`. No-op for
+/// `--tier verify`, which runs no compute. Returns `true` when it set the var.
+fn declare_reexecutable_profile_if_executing(tier: &Tier) -> bool {
+    if matches!(tier, Tier::Execute | Tier::All) {
+        std::env::set_var(
+            ecaa_workflow_harness::sandbox_enforcer::ENV_DEPOSIT_PROFILE,
+            ecaa_workflow_core::deposit_readiness::REEXECUTABLE_PROFILE,
+        );
+        true
+    } else {
+        false
+    }
+}
+
 pub(crate) fn run(args: ReplayArgs) -> Result<()> {
+    let tier = Tier::from(args.tier);
+    declare_reexecutable_profile_if_executing(&tier);
+
     let opts = ReplayOptions {
-        tier: Tier::from(args.tier),
+        tier,
         scratch_dir: args.scratch_dir,
         bounds: args.bounds,
         allow_rebuild: args.allow_rebuild,
@@ -144,5 +171,45 @@ pub(crate) fn run(args: ReplayArgs) -> Result<()> {
             "replay: PARTIAL verdict — omit --strict to treat PARTIAL as success"
         )),
         ReplayVerdict::Fail => Err(anyhow::anyhow!("replay: FAIL verdict")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ecaa_workflow_core::deposit_readiness::REEXECUTABLE_PROFILE;
+    use ecaa_workflow_harness::sandbox_enforcer::{reexecutable_profile_active, ENV_DEPOSIT_PROFILE};
+
+    /// `--tier execute|all` marks the process as a re-executable deposit
+    /// re-execution so the harness sandbox resolver defaults bwrap ON; the
+    /// value must be the exact token the harness reader (`reexecutable_profile_active`)
+    /// and the deposit gate agree on. `--tier verify` runs no compute and must
+    /// not set the var.
+    #[test]
+    fn tier_execute_declares_reexecutable_profile() {
+        // Serialized against the other env-mutating cases below because
+        // ECAA_DEPOSIT_PROFILE is process-global.
+        std::env::remove_var(ENV_DEPOSIT_PROFILE);
+        assert!(!reexecutable_profile_active());
+
+        // verify → no-op.
+        assert!(!declare_reexecutable_profile_if_executing(&Tier::Verify));
+        assert!(std::env::var(ENV_DEPOSIT_PROFILE).is_err());
+
+        // execute → sets the canonical token; the harness reader agrees.
+        assert!(declare_reexecutable_profile_if_executing(&Tier::Execute));
+        assert_eq!(
+            std::env::var(ENV_DEPOSIT_PROFILE).as_deref(),
+            Ok(REEXECUTABLE_PROFILE)
+        );
+        assert!(reexecutable_profile_active());
+
+        std::env::remove_var(ENV_DEPOSIT_PROFILE);
+
+        // all → also sets it.
+        assert!(declare_reexecutable_profile_if_executing(&Tier::All));
+        assert!(reexecutable_profile_active());
+
+        std::env::remove_var(ENV_DEPOSIT_PROFILE);
     }
 }
