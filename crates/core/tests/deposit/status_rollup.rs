@@ -23,7 +23,10 @@
 use ecaa_workflow_core::classify::ClassificationResult;
 use ecaa_workflow_core::dag::{current_dag_schema_version, Task, TaskId, DAG};
 use ecaa_workflow_core::deposit_readiness::{self, CheckStatus};
-use ecaa_workflow_core::emitter::{emit_package, export_depositable_package, EmitConfig};
+use ecaa_workflow_core::emitter::{
+    emit_package, export_depositable_package, export_depositable_package_with_profile,
+    DepositProfile, EmitConfig,
+};
 use std::collections::BTreeMap;
 use std::path::Path;
 use tempfile::TempDir;
@@ -180,4 +183,54 @@ fn clean_export_with_no_domain_reports_is_deposit_ready() {
     assert_eq!(dr.domain_validation, CheckStatus::Pass);
     assert!(dr.deposit_ready, "a clean export must read deposit-ready: {dr:?}");
     assert!(deposit_readiness::check_deposit_readiness(dst.path(), false).is_ok());
+}
+
+/// DR-1 through the real export pipeline. Layer-1 export records
+/// `reexecution: not_verified` (the Layer-2 re-execution is driven separately
+/// by the CLI export handler). Under the `full` profile that is admitted; but
+/// under the `re-executable` profile — whose entire contract is replayability
+/// — a package that was never re-executed must NOT read as deposit-ready, and
+/// the Layer-3 gate must refuse it even without `--strict`.
+#[test]
+fn reexecutable_profile_notverified_is_not_deposit_ready() {
+    // Baseline: the SAME clean package exported under `full` with a
+    // not-verified re-execution IS deposit-ready (NotVerified admitted).
+    let src_full = emit_sample_package();
+    let dst_full = TempDir::new().unwrap();
+    export_depositable_package(src_full.path(), dst_full.path()).expect("full export");
+    let dr_full = deposit_readiness::read_deposit_readiness(dst_full.path())
+        .unwrap()
+        .unwrap();
+    assert_eq!(dr_full.profile, "full");
+    assert!(
+        dr_full.deposit_ready,
+        "full + not_verified must stay deposit-ready: {dr_full:?}"
+    );
+    assert!(deposit_readiness::check_deposit_readiness(dst_full.path(), false).is_ok());
+
+    // Same package, `re-executable` profile: not_verified now blocks on BOTH
+    // gates.
+    let src_re = emit_sample_package();
+    let dst_re = TempDir::new().unwrap();
+    export_depositable_package_with_profile(
+        src_re.path(),
+        dst_re.path(),
+        DepositProfile::ReExecutable,
+    )
+    .expect("re-executable export");
+    let dr_re = deposit_readiness::read_deposit_readiness(dst_re.path())
+        .unwrap()
+        .unwrap();
+    assert_eq!(dr_re.profile, "re-executable");
+    assert_eq!(dr_re.reexecution, deposit_readiness::ReexecStatus::NotVerified);
+    assert!(
+        !dr_re.deposit_ready,
+        "re-executable + not_verified must NOT read deposit-ready (DR-1): {dr_re:?}"
+    );
+    let err = deposit_readiness::check_deposit_readiness(dst_re.path(), false)
+        .expect_err("Layer-3 gate must refuse a re-executable deposit that was not re-executed");
+    assert!(
+        format!("{err:#}").contains("re-executable"),
+        "gate error must name the re-executable profile: {err:#}"
+    );
 }

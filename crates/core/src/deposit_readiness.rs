@@ -74,6 +74,20 @@ pub enum ReexecStatus {
     Fail,
 }
 
+/// The one deposit profile whose entire contract is replayability. A package
+/// emitted under this profile that was never re-executed (`NotVerified`) must
+/// not read as `deposit_ready` — it is claiming a property it never
+/// demonstrated. Other profiles (`full`, `minimal`) do not claim
+/// re-executability, so a `NotVerified` re-execution is admitted for them
+/// (the honest offline outcome is recorded, not blocked).
+pub const REEXECUTABLE_PROFILE: &str = "re-executable";
+
+/// `true` when `profile` claims a re-executability contract, so an
+/// un-run (`NotVerified`) re-execution must block `deposit_ready`.
+pub fn profile_claims_reexecutability(profile: &str) -> bool {
+    profile == REEXECUTABLE_PROFILE
+}
+
 /// Map a replay verdict onto the attestation's re-execution status.
 pub fn reexec_status_from_verdict(v: &ReplayVerdict) -> ReexecStatus {
     match v {
@@ -126,22 +140,30 @@ pub struct DepositReadiness {
     pub verified_at: String,
 }
 
-/// Fold the four deposit-readiness component signals into the headline
-/// `deposit_ready` bool (RCA I-10). Mirrors the non-strict branch of
-/// [`check_deposit_readiness`]: `NotVerified` re-execution does not itself
-/// block (that is a `--strict`-only concern owned by the CLI gate), but a
-/// hard `Fail` on any of the three `CheckStatus` axes — or a `Fail`
-/// re-execution — does.
+/// Fold the deposit-readiness component signals into the headline
+/// `deposit_ready` bool (RCA I-10, DR-1). Mirrors the non-strict branch of
+/// [`check_deposit_readiness`] and, like it, is now PROFILE-AWARE: a hard
+/// `Fail` on any of the three `CheckStatus` axes — or a `Fail` re-execution
+/// — always blocks; and for the `re-executable` profile a `NotVerified`
+/// re-execution ALSO blocks (a deposit whose entire contract is replayability
+/// must actually have been re-executed). `Partial` — the honest offline
+/// outcome — always passes; and `NotVerified` stays admitted for profiles
+/// that do not claim re-executability (`full`/`minimal`), where it is a
+/// `--strict`-only concern owned by the CLI gate.
 pub fn compute_deposit_ready(
+    profile: &str,
     ro_crate: CheckStatus,
     bagit: CheckStatus,
     domain_validation: CheckStatus,
     reexecution: ReexecStatus,
 ) -> bool {
+    let reexec_blocks = reexecution == ReexecStatus::Fail
+        || (profile_claims_reexecutability(profile)
+            && reexecution == ReexecStatus::NotVerified);
     ro_crate == CheckStatus::Pass
         && bagit == CheckStatus::Pass
         && domain_validation == CheckStatus::Pass
-        && reexecution != ReexecStatus::Fail
+        && !reexec_blocks
 }
 
 /// One RO-Crate embedded content hash (written by
@@ -417,8 +439,13 @@ pub fn write_deposit_readiness(
         .collect::<Vec<_>>();
     let detail = (!detail.is_empty()).then(|| detail.join("; "));
 
-    let deposit_ready =
-        compute_deposit_ready(tier1.ro_crate, tier1.bagit, domain_validation, reexecution);
+    let deposit_ready = compute_deposit_ready(
+        profile,
+        tier1.ro_crate,
+        tier1.bagit,
+        domain_validation,
+        reexecution,
+    );
 
     let att = DepositReadiness {
         schema_version: "0.1".to_string(),
@@ -466,9 +493,15 @@ pub fn update_deposit_readiness_reexecution(
     }
     // Re-derive the headline signal: ro_crate/bagit/domain_validation are
     // unchanged by a Layer-2 re-execution update, but the new `reexecution`
-    // value can flip `deposit_ready` (e.g. a fresh `Fail`).
-    att.deposit_ready =
-        compute_deposit_ready(att.ro_crate, att.bagit, att.domain_validation, att.reexecution);
+    // value can flip `deposit_ready` (e.g. a fresh `Fail`, or — for the
+    // `re-executable` profile — a re-execution that never ran).
+    att.deposit_ready = compute_deposit_ready(
+        &att.profile,
+        att.ro_crate,
+        att.bagit,
+        att.domain_validation,
+        att.reexecution,
+    );
     att.verified_at = clock.now_rfc3339();
     let body = serde_json::to_vec_pretty(&att).context("serializing DEPOSIT-READINESS.json")?;
     let path = dst.join(DEPOSIT_READINESS_FILE);
@@ -491,10 +524,13 @@ pub fn read_deposit_readiness(pkg: &Path) -> Result<Option<DepositReadiness>> {
 /// Layer 3: the downstream deposit gate. Refuses a package that was not produced
 /// by a self-validating export (no attestation), or whose RO-Crate / BagIt
 /// self-validation failed, or whose re-execution FAILED. A `NotVerified`
-/// re-execution is a hard block only under `strict`; otherwise it is allowed
-/// (the caller should surface it as a warning). `Partial` (the expected clean
-/// outcome for a package whose analytical tables reproduce while its
-/// network-dependent stages cannot run offline) always passes.
+/// re-execution is a hard block (DR-1) when EITHER `strict` is set OR the
+/// attestation's `profile` claims re-executability (`re-executable`) — a
+/// deposit marketing replayability that was never re-executed must not pass;
+/// for other profiles (`full`/`minimal`) a `NotVerified` is admitted outside
+/// `--strict` (the caller should surface it as a warning). `Partial` (the
+/// expected clean outcome for a package whose analytical tables reproduce
+/// while its network-dependent stages cannot run offline) always passes.
 pub fn check_deposit_readiness(pkg: &Path, strict: bool) -> Result<DepositReadiness> {
     let dr = read_deposit_readiness(pkg)?.ok_or_else(|| {
         anyhow::anyhow!(
@@ -529,6 +565,15 @@ pub fn check_deposit_readiness(pkg: &Path, strict: bool) -> Result<DepositReadin
         ReexecStatus::Fail => bail!(
             "deposit gate: re-execution verification FAILED{}",
             dr.detail.as_deref().map(|d| format!(" — {d}")).unwrap_or_default()
+        ),
+        // DR-1: a `re-executable`-profile deposit that was never re-executed
+        // is claiming replayability it never demonstrated — refuse it
+        // regardless of `--strict`.
+        ReexecStatus::NotVerified if profile_claims_reexecutability(&dr.profile) => bail!(
+            "deposit gate: re-execution NOT verified for the {REEXECUTABLE_PROFILE} profile \
+             — a package claiming re-executability must actually have been re-executed \
+             (run `ecaa-workflow replay <dir> --tier execute`, re-export without \
+             --no-reexec-check, or downgrade the deposit profile)"
         ),
         ReexecStatus::NotVerified if strict => bail!(
             "deposit gate: re-execution NOT verified and --strict was given \
@@ -662,9 +707,12 @@ mod tests {
     }
 
     #[test]
-    fn gate_allows_pass_and_partial_and_notverified_nonstrict() {
+    fn gate_allows_pass_and_partial_nonstrict() {
+        // Pass + Partial pass the non-strict gate for every profile, including
+        // `re-executable`. (NotVerified under `re-executable` is covered by the
+        // DR-1 tests below — it now blocks.)
         let tmp = tempfile::tempdir().unwrap();
-        for reexec in [ReexecStatus::Pass, ReexecStatus::Partial, ReexecStatus::NotVerified] {
+        for reexec in [ReexecStatus::Pass, ReexecStatus::Partial] {
             write_deposit_readiness(
                 tmp.path(),
                 "re-executable",
@@ -682,9 +730,32 @@ mod tests {
         }
     }
 
+    /// DR-1: a `NotVerified` re-execution is admitted non-strict for a profile
+    /// that does NOT claim re-executability (`full`), but is a hard block for
+    /// the `re-executable` profile even without `--strict`; and `--strict`
+    /// blocks it for every profile.
     #[test]
-    fn gate_blocks_notverified_under_strict() {
+    fn gate_notverified_profile_and_strict_matrix() {
         let tmp = tempfile::tempdir().unwrap();
+
+        // full + NotVerified: allowed non-strict, blocked strict, and marked
+        // deposit_ready.
+        write_deposit_readiness(
+            tmp.path(),
+            "full",
+            &tier1(CheckStatus::Pass, CheckStatus::Pass, None),
+            ReexecStatus::NotVerified,
+            None,
+            None,
+            &WallClock,
+        )
+        .unwrap();
+        assert!(read_deposit_readiness(tmp.path()).unwrap().unwrap().deposit_ready);
+        assert!(check_deposit_readiness(tmp.path(), false).is_ok());
+        assert!(check_deposit_readiness(tmp.path(), true).is_err());
+
+        // re-executable + NotVerified: blocked on BOTH gates (writer flips
+        // deposit_ready false; reader refuses even non-strict).
         write_deposit_readiness(
             tmp.path(),
             "re-executable",
@@ -695,7 +766,13 @@ mod tests {
             &WallClock,
         )
         .unwrap();
-        assert!(check_deposit_readiness(tmp.path(), false).is_ok());
+        assert!(
+            !read_deposit_readiness(tmp.path()).unwrap().unwrap().deposit_ready,
+            "re-executable + NotVerified must not read as deposit_ready"
+        );
+        let err = check_deposit_readiness(tmp.path(), false)
+            .expect_err("re-executable + NotVerified must be refused even non-strict");
+        assert!(format!("{err:#}").contains(REEXECUTABLE_PROFILE));
         assert!(check_deposit_readiness(tmp.path(), true).is_err());
     }
 
@@ -881,23 +958,76 @@ mod tests {
 
     #[test]
     fn compute_deposit_ready_matches_gate_semantics() {
+        // A non-re-executable profile admits NotVerified.
         assert!(compute_deposit_ready(
+            "full",
             CheckStatus::Pass,
             CheckStatus::Pass,
             CheckStatus::Pass,
             ReexecStatus::NotVerified
         ));
         assert!(!compute_deposit_ready(
+            "full",
             CheckStatus::Pass,
             CheckStatus::Pass,
             CheckStatus::Fail,
             ReexecStatus::Pass
         ));
         assert!(!compute_deposit_ready(
+            "full",
             CheckStatus::Pass,
             CheckStatus::Pass,
             CheckStatus::Pass,
             ReexecStatus::Fail
         ));
+    }
+
+    /// DR-1 at the writer: the `re-executable` profile blocks a `NotVerified`
+    /// re-execution while `Partial`/`Pass` still pass; a non-re-executable
+    /// profile admits `NotVerified`.
+    #[test]
+    fn compute_deposit_ready_profile_aware_reexec() {
+        // re-executable: NotVerified blocks, Partial/Pass do not.
+        assert!(!compute_deposit_ready(
+            REEXECUTABLE_PROFILE,
+            CheckStatus::Pass,
+            CheckStatus::Pass,
+            CheckStatus::Pass,
+            ReexecStatus::NotVerified
+        ));
+        assert!(compute_deposit_ready(
+            REEXECUTABLE_PROFILE,
+            CheckStatus::Pass,
+            CheckStatus::Pass,
+            CheckStatus::Pass,
+            ReexecStatus::Partial
+        ));
+        assert!(compute_deposit_ready(
+            REEXECUTABLE_PROFILE,
+            CheckStatus::Pass,
+            CheckStatus::Pass,
+            CheckStatus::Pass,
+            ReexecStatus::Pass
+        ));
+        // Fail blocks under every profile.
+        for profile in [REEXECUTABLE_PROFILE, "full", "minimal"] {
+            assert!(!compute_deposit_ready(
+                profile,
+                CheckStatus::Pass,
+                CheckStatus::Pass,
+                CheckStatus::Pass,
+                ReexecStatus::Fail
+            ));
+        }
+        // Non-re-executable profiles admit NotVerified.
+        for profile in ["full", "minimal"] {
+            assert!(compute_deposit_ready(
+                profile,
+                CheckStatus::Pass,
+                CheckStatus::Pass,
+                CheckStatus::Pass,
+                ReexecStatus::NotVerified
+            ));
+        }
     }
 }
