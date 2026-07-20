@@ -24,4 +24,14 @@ source_output: string,
 /**
  * `EdgeContract.to_port` — the consumer port name preserved.
  */
-target_input: string, };
+target_input: string, 
+/**
+ * T6.2 — `EdgeContract.mutually_exclusive_group`. When set, this edge is
+ * one member of a mutually-exclusive one-of input group; sibling members
+ * are ALTERNATIVES (only one is read at runtime, resolved to a single
+ * authoritative edge by observed-provenance in the RO-Crate). Preserved
+ * here so a generic consumer of `workflow-typed.json` sees the one-of
+ * structure — matching `proofs.jsonl` — and does NOT read an unread
+ * alternative as an authoritative data flow. `None` for ordinary edges.
+ */
+mutually_exclusive_group?: string, };
