@@ -1082,9 +1082,14 @@ impl DeterministicCompatibilityEngine {
         // Step 4: assemble the proof.
         let mut builder = ProofBuilder::new(&producer.semantic_type, &consumer.semantic_type)
             .with_subsumption_path(path);
-        for (name, outcome) in &facet_results {
-            // Unknown facets are recorded with empty producer/consumer
-            // strings since the caller already saw the rationale.
+        // PR-5 — surface the real producer/consumer facet VALUES in each
+        // recorded `FacetMatch` (previously all `None`/`""`, which made every
+        // surfaced facet read as `kind:"unknown"` with blank values). Iterate
+        // `raw_pairs` in lockstep with `facet_results` (identical order) so the
+        // producer/consumer strings are available at emission.
+        for ((_, producer_value, consumer_value), (name, outcome)) in
+            raw_pairs.iter().zip(facet_results.iter())
+        {
             if let Some(adapter_rationale) = substituted_facets.get(name) {
                 // Facet was repaired by an adapter; record
                 // the substitution + adapter id in the proof so the
@@ -1092,8 +1097,8 @@ impl DeterministicCompatibilityEngine {
                 // separate registry lookup.
                 builder.add_facet(
                     name,
-                    None,
-                    None,
+                    *producer_value,
+                    *consumer_value,
                     crate::workflow_contracts::edge::FacetMatchKind::Substituted,
                     Some(adapter_rationale.clone()),
                 );
@@ -1101,13 +1106,28 @@ impl DeterministicCompatibilityEngine {
             }
             match outcome {
                 FacetUnification::Exact => {
-                    // Skip — exact matches are noise in the proof.
+                    // PR-5 — Exact matches are normally noise, but the
+                    // load-bearing `statistical_state` facet (the bound member
+                    // of the `counts` mutually-exclusive group, e.g. the DE
+                    // `raw_counts → raw_counts` edge) MUST be surfaced so the
+                    // proof records WHICH one-of alternative was actually
+                    // bound. Record it with its real values; keep the other
+                    // exactly-matching facets out to avoid proof noise.
+                    if name.as_str() == "statistical_state" {
+                        builder.add_facet(
+                            name,
+                            *producer_value,
+                            *consumer_value,
+                            outcome.match_kind(),
+                            Some("exact statistical-state match on bound port".to_string()),
+                        );
+                    }
                 }
                 FacetUnification::Subtype { rationale } => {
                     builder.add_facet(
                         name,
-                        None,
-                        None,
+                        *producer_value,
+                        *consumer_value,
                         outcome.match_kind(),
                         Some(rationale.clone()),
                     );
@@ -1118,15 +1138,21 @@ impl DeterministicCompatibilityEngine {
                 } => {
                     builder.add_facet(
                         name,
-                        None,
-                        None,
+                        *producer_value,
+                        *consumer_value,
                         outcome.match_kind(),
                         Some(format!("{rationale} (adapter={adapter_id})")),
                     );
                     builder.add_adapter_node(adapter_id.clone());
                 }
                 FacetUnification::Unknown { reason } => {
-                    builder.add_facet(name, None, None, outcome.match_kind(), Some(reason.clone()));
+                    builder.add_facet(
+                        name,
+                        *producer_value,
+                        *consumer_value,
+                        outcome.match_kind(),
+                        Some(reason.clone()),
+                    );
                 }
                 FacetUnification::Incompatible { .. } => {
                     // Handled above (repaired or returned
@@ -1718,6 +1744,46 @@ mod tests {
                 assert!(decisions.contains("audit_trail_required"));
                 assert!(decisions.contains("human_signoff_required"));
                 assert!(decisions.contains("no_privacy_widening"));
+            }
+            other => panic!("expected Compatible, got {other:?}"),
+        }
+    }
+
+    /// PR-5 — the load-bearing `statistical_state` facet (the bound member of
+    /// the DE `counts` one-of group) MUST be surfaced in the proof with its
+    /// real producer/consumer values even when it is an Exact match, while
+    /// other exactly-matching facets stay out of the proof as noise.
+    #[test]
+    fn statistical_state_exact_match_is_surfaced_with_values() {
+        use crate::workflow_contracts::edge::FacetMatchKind;
+        let engine = DeterministicCompatibilityEngine::new();
+        let mut producer = p("data:3917");
+        producer.modality = Some("bulk_rnaseq".into());
+        producer.statistical_state = Some("raw_counts".into());
+        let mut consumer = p("data:3917");
+        consumer.modality = Some("bulk_rnaseq".into());
+        consumer.statistical_state = Some("raw_counts".into());
+        let res = engine.prove(&producer, &consumer, &PlanningContext::default());
+        match res {
+            CompatibilityResult::Compatible(proof) => {
+                let fm = proof
+                    .facet_matches
+                    .iter()
+                    .find(|f| f.facet == "statistical_state")
+                    .expect("statistical_state facet_match must be surfaced (PR-5)");
+                assert!(
+                    matches!(fm.kind, FacetMatchKind::Exact),
+                    "surfaced statistical_state must be an Exact match, got {:?}",
+                    fm.kind
+                );
+                assert_eq!(fm.producer, "raw_counts", "producer value must be surfaced");
+                assert_eq!(fm.consumer, "raw_counts", "consumer value must be surfaced");
+                // A non-load-bearing exact facet (modality) stays out (noise).
+                assert!(
+                    !proof.facet_matches.iter().any(|f| f.facet == "modality"),
+                    "non-load-bearing exact facets must not be surfaced: {:?}",
+                    proof.facet_matches
+                );
             }
             other => panic!("expected Compatible, got {other:?}"),
         }
