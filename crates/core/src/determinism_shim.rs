@@ -4,12 +4,21 @@
 //! conversation crate's `emit::sidecars::write_determinism_shim`.
 //!
 //! The shim records:
-//! - which `TZ`/`LANG`/`LC_ALL`/`PYTHONHASHSEED`/`SOURCE_DATE_EPOCH`
-//!   env vars are set at emit time (values not captured for privacy,
-//!   just presence + locale/timezone resolution);
+//! - the determinism-relevant env vars in effect for every task: the
+//!   `LANG`/`PYTHONHASHSEED`/`SOURCE_DATE_EPOCH`/`TZ` policy the harness
+//!   injects into EVERY per-task container, plus any of
+//!   `TZ`/`LANG`/`LC_ALL`/`PYTHONHASHSEED`/`SOURCE_DATE_EPOCH` also present
+//!   on the compiler host at emit time (values not captured for privacy,
+//!   just presence + locale/timezone resolution). Declaring the applied
+//!   policy — not just the bare compiler host — keeps this package-level
+//!   disclosure CONSISTENT with the per-task
+//!   `runtime/outputs/<task_id>/determinism-env.json` the agent records
+//!   at runtime (LANG=C.UTF-8, PYTHONHASHSEED=0, SOURCE_DATE_EPOCH=<run
+//!   epoch>), rather than contradicting it;
 //! - which secret env vars are present and redacted from the capture
 //!   (recorded by name only — never values);
-//! - the seed policy (SOURCE_DATE_EPOCH if set, else "process-default");
+//! - the seed policy (SOURCE_DATE_EPOCH value if the host set one, else
+//!   the harness-injected applied policy);
 //! - the temp-path strategy + a DETERMINISTIC symbolic root. The root
 //!   deliberately does NOT capture the host `$TMPDIR` (e.g.
 //!   `/tmp/claude-1000`): that value is host-specific and would leak
@@ -168,6 +177,16 @@ const CAPTURED_ENV_VARS: &[&str] = &[
     "SOURCE_DATE_EPOCH",
 ];
 
+/// Determinism-relevant env vars the harness ALWAYS injects into every
+/// per-task execution container (`crates/harness` — LANG=C.UTF-8,
+/// PYTHONHASHSEED=0, SOURCE_DATE_EPOCH=<run epoch>, TZ=UTC). The emit-time
+/// shim declares this applied-policy floor as its baseline so the
+/// package-level disclosure does not CONTRADICT the per-task
+/// `determinism-env.json` evidence the agent records at runtime. These names
+/// are always present in `captured_env_vars`; the compiler-host presence scan
+/// (`CAPTURED_ENV_VARS`) can only ADD to the set.
+const APPLIED_POLICY_ENV_VARS: &[&str] = &["LANG", "PYTHONHASHSEED", "SOURCE_DATE_EPOCH", "TZ"];
+
 const REDACTED_ENV_VARS: &[&str] = &[
     "ANTHROPIC_API_KEY",
     "ECAA_ANTHROPIC_API_KEY",
@@ -185,14 +204,24 @@ const REDACTED_ENV_VARS: &[&str] = &[
 /// `runtime/outputs/<task_id>/determinism-env.json`) is merged in at
 /// finalize via [`merge_container_env`].
 pub fn serialize_active_settings() -> DeterminismShimSidecar {
+    // Union the applied-policy floor (what the harness injects into every
+    // per-task container) with any determinism var also present on the
+    // compiler host. A `BTreeSet` keeps the result deduped + sorted so the
+    // capture is byte-stable regardless of host env ordering.
+    let mut captured: std::collections::BTreeSet<String> = APPLIED_POLICY_ENV_VARS
+        .iter()
+        .map(|k| (*k).to_string())
+        .collect();
+    captured.extend(
+        CAPTURED_ENV_VARS
+            .iter()
+            .filter(|k| env::var(k).is_ok())
+            .map(|k| (*k).to_string()),
+    );
     DeterminismShimSidecar {
         schema_version: "1".into(),
         env_capture: EnvCapture {
-            captured_env_vars: CAPTURED_ENV_VARS
-                .iter()
-                .filter(|k| env::var(k).is_ok())
-                .map(|k| (*k).to_string())
-                .collect(),
+            captured_env_vars: captured.into_iter().collect(),
             redacted_env_vars: REDACTED_ENV_VARS
                 .iter()
                 .filter(|k| env::var(k).is_ok())
@@ -203,10 +232,16 @@ pub fn serialize_active_settings() -> DeterminismShimSidecar {
             random_seed: env::var("SOURCE_DATE_EPOCH")
                 .ok()
                 .and_then(|v| v.parse().ok()),
+            // The harness injects SOURCE_DATE_EPOCH (the run epoch) plus
+            // PYTHONHASHSEED=0 into every task, so the applied seed policy is
+            // deterministic even when the compiler host itself carries no
+            // SOURCE_DATE_EPOCH. Record that applied policy instead of a bare
+            // "process-default" that would contradict the per-task
+            // determinism-env.json evidence.
             seed_source: if env::var("SOURCE_DATE_EPOCH").is_ok() {
                 "SOURCE_DATE_EPOCH".into()
             } else {
-                "process-default".into()
+                "harness-injected (SOURCE_DATE_EPOCH + PYTHONHASHSEED=0)".into()
             },
         },
         temp_path_policy: TempPathPolicy {
@@ -219,9 +254,12 @@ pub fn serialize_active_settings() -> DeterminismShimSidecar {
             // symbolic package-relative root instead.
             root: "runtime/scratch".into(),
         },
+        // Fall back to the harness-applied locale (LANG=C.UTF-8) rather than a
+        // bare "C" when the compiler host sets neither LC_ALL nor LANG, so the
+        // declared locale matches what per-task determinism-env.json records.
         locale: env::var("LC_ALL")
             .or_else(|_| env::var("LANG"))
-            .unwrap_or_else(|_| "C".into()),
+            .unwrap_or_else(|_| "C.UTF-8".into()),
         timezone: env::var("TZ").unwrap_or_else(|_| "UTC".into()),
         ablation_engaged: AblationFlag::ReexecutionClass.is_active(),
         // The compiler-host snapshot never declares acks — they are projected
@@ -450,7 +488,7 @@ mod tests {
     }
 
     #[test]
-    fn seed_source_defaults_to_process_default_when_source_date_epoch_unset() {
+    fn seed_source_reflects_harness_injected_policy_when_source_date_epoch_unset() {
         // Pre-existing SOURCE_DATE_EPOCH would invalidate the
         // assertion — skip in that case rather than mutating env in a
         // non-serial test.
@@ -458,7 +496,55 @@ mod tests {
             return;
         }
         let s = serialize_active_settings();
-        assert_eq!(s.seed_policy.seed_source, "process-default");
+        // When the compiler host carries no SOURCE_DATE_EPOCH, the shim
+        // declares the harness-injected applied policy rather than a bare
+        // process default — so it stays consistent with per-task evidence.
+        assert_eq!(
+            s.seed_policy.seed_source,
+            "harness-injected (SOURCE_DATE_EPOCH + PYTHONHASHSEED=0)"
+        );
         assert!(s.seed_policy.random_seed.is_none());
+    }
+
+    #[test]
+    fn captured_env_declares_applied_policy_floor() {
+        // The applied-policy env vars the harness injects into every task
+        // are always declared, regardless of the (possibly bare) compiler
+        // host, so the package-level shim never contradicts per-task
+        // determinism-env.json.
+        let s = serialize_active_settings();
+        for k in ["LANG", "PYTHONHASHSEED", "SOURCE_DATE_EPOCH", "TZ"] {
+            assert!(
+                s.env_capture.captured_env_vars.iter().any(|v| v == k),
+                "applied-policy env var {k} must be declared in the shim capture"
+            );
+        }
+        // Byte-stable: sorted + deduped.
+        let mut sorted = s.env_capture.captured_env_vars.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted, s.env_capture.captured_env_vars);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn locale_defaults_to_c_utf8_when_lang_and_lc_all_unset() {
+        // With neither LC_ALL nor LANG set on the host, the shim declares the
+        // harness-applied locale (C.UTF-8), matching per-task evidence — not a
+        // bare "C". `serial` keeps this off the other env-mutating suites.
+        let prev_lang = env::var("LANG").ok();
+        let prev_lc = env::var("LC_ALL").ok();
+        env::remove_var("LANG");
+        env::remove_var("LC_ALL");
+        let s = serialize_active_settings();
+        assert_eq!(s.locale, "C.UTF-8");
+        match prev_lang {
+            Some(v) => env::set_var("LANG", v),
+            None => env::remove_var("LANG"),
+        }
+        match prev_lc {
+            Some(v) => env::set_var("LC_ALL", v),
+            None => env::remove_var("LC_ALL"),
+        }
     }
 }
