@@ -730,14 +730,29 @@ fn block_divergent_reads_in_dag(package_root: &Path, divergences: &[DivergenceRe
 /// no-ops on empty inputs.
 ///
 /// The divergence → `BlockerKind::ProvenanceDivergence` transition is
-/// performed only on the STANDALONE finalize path (see
-/// [`finalize_completed_package`] → [`block_divergent_reads_in_dag`]): a
-/// no-session run re-blocks the offending task in `WORKFLOW.json` directly,
-/// while a session-bound run's transition remains a server concern. Either
-/// way the divergences are recorded durably on the RO-Crate root Dataset's
-/// `ecaax:provenanceDivergence` array here, and each is logged.
+/// applied on EVERY execution path (§G-B2). `main.rs` calls this at the
+/// harness loop-exit convergence point on BOTH the standalone/CLI run
+/// (`progress.is_none()`) AND the session/web-UI run (`progress.is_some()`) —
+/// so re-blocking the offending task in `WORKFLOW.json` here closes the gap
+/// where the session path (the path that actually MINTS deposits) recorded a
+/// genuine divergence on the RO-Crate but never blocked the DAG (the standalone
+/// [`finalize_completed_package`] is skipped when `progress.is_some()`). The
+/// divergences are also recorded durably on the RO-Crate root Dataset's
+/// `ecaax:provenanceDivergence` array by the reconcile, and each is logged.
+///
+/// Returns `true` when it rewrote `ro-crate-metadata.json` OR `WORKFLOW.json`
+/// (a genuine divergence re-block), so the caller re-seals the BagIt manifest
+/// over BOTH mutated, manifested files.
 pub fn reconcile_observed_reads_into_ro_crate(package_root: &Path) -> bool {
-    reconcile_observed_reads_inner(package_root).0
+    let (wrote_descriptor, divergences) = reconcile_observed_reads_inner(package_root);
+    // §G-B2 — a genuine observed-read divergence must NOT ship unblocked on
+    // ANY path. A no-session run has no session to transition, and the
+    // session/web-UI run's server finalize never reconciles observed reads, so
+    // re-block the offending task(s) in WORKFLOW.json directly here — the same
+    // block `finalize_completed_package` applies on the standalone path, now
+    // fired on both because `main.rs` calls this function on both.
+    let blocked_a_task = block_divergent_reads_in_dag(package_root, &divergences);
+    wrote_descriptor || blocked_a_task
 }
 
 /// Shared implementation of [`reconcile_observed_reads_into_ro_crate`] that
@@ -1355,6 +1370,75 @@ mod tests {
             task_status(pkg, "differential_expression"),
             "completed",
             "a clean run (every read matches a declared producer) must not re-block"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // §G-B2 — the SESSION/web-UI path (progress.is_some()) blocks a genuine
+    // divergence too. main.rs calls reconcile_observed_reads_into_ro_crate on
+    // BOTH paths, and the session path never reaches finalize_completed_package
+    // (that is progress.is_none()-gated), so this function is the ONLY blocking
+    // entry point on the deposit-minting path — it must block there.
+    // -----------------------------------------------------------------------
+
+    /// A genuine `Divergent` observed read must flip the offending task to
+    /// `Blocked` in WORKFLOW.json via `reconcile_observed_reads_into_ro_crate`
+    /// — the both-paths entry point main.rs uses on the session/web-UI path.
+    /// Mirrors `finalize_completed_package_blocks_on_genuine_divergent_read`
+    /// but exercises the session-path function directly.
+    #[test]
+    fn reconcile_observed_reads_into_ro_crate_blocks_on_genuine_divergent_read() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        // Read under data_acquisition/ — NOT a declared producer of DE
+        // (declared: quantification / normalisation) → Divergent.
+        make_de_pkg_with_read(pkg, "runtime/outputs/data_acquisition/counts.tsv");
+        write_de_workflow_json(pkg);
+
+        let wrote = reconcile_observed_reads_into_ro_crate(pkg);
+        assert!(
+            wrote,
+            "a genuine divergence re-blocks WORKFLOW.json → the fn must report a mutation to reseal"
+        );
+
+        assert_eq!(
+            task_status(pkg, "differential_expression"),
+            "blocked",
+            "the session/web-UI path must re-block a genuine undeclared-read divergence"
+        );
+        let reason = task_block_reason(pkg, "differential_expression");
+        assert!(
+            reason.starts_with(PROVENANCE_DIVERGENCE_MARKER),
+            "re-block reason must carry the provenance-divergence marker; got: {reason}"
+        );
+        let payload = reason
+            .strip_prefix(PROVENANCE_DIVERGENCE_MARKER)
+            .unwrap()
+            .trim();
+        let kind: ecaa_workflow_core::blocker::BlockerKind =
+            serde_json::from_str(payload).expect("payload must deserialize to a BlockerKind");
+        assert!(matches!(
+            kind,
+            ecaa_workflow_core::blocker::BlockerKind::ProvenanceDivergence { .. }
+        ));
+    }
+
+    /// A clean run — every observed read matches a declared producer — must
+    /// NOT re-block via the session-path function: DE stays `completed`.
+    #[test]
+    fn reconcile_observed_reads_into_ro_crate_clean_run_does_not_block() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        // Read of the RAW producer's own output dir → Match, not Divergent.
+        make_de_pkg_with_read(pkg, "runtime/outputs/quantification/count_matrix.tsv");
+        write_de_workflow_json(pkg);
+
+        reconcile_observed_reads_into_ro_crate(pkg);
+
+        assert_eq!(
+            task_status(pkg, "differential_expression"),
+            "completed",
+            "a clean run must not re-block on the session/web-UI path"
         );
     }
 

@@ -4518,10 +4518,13 @@ fn run_loop(
             // observed-provenance stamps would never appear on a UI-driven run.
             // Stamps the RO-Crate's ParameterConnection nodes
             // authoritative/candidate_unused (and records divergences /
-            // read-allowances) from runtime/invocations.jsonl; re-seals the
-            // BagIt manifest on a mutation. Best-effort + idempotent (the
-            // standalone path's finalize_completed_package call below is then a
-            // no-op second pass).
+            // read-allowances) from runtime/invocations.jsonl AND, on a genuine
+            // observed-read divergence, re-blocks the offending task in
+            // WORKFLOW.json (§G-B2 — a divergence must not ship unblocked on the
+            // deposit-minting session path, not just the standalone one).
+            // Re-seals the BagIt manifest on a mutation (RO-Crate and/or
+            // WORKFLOW.json). Best-effort + idempotent (the standalone path's
+            // finalize_completed_package call below is then a no-op second pass).
             if ecaa_workflow_harness::end_of_run_finalize::reconcile_observed_reads_into_ro_crate(
                 path,
             ) {
