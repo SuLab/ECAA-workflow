@@ -27,6 +27,7 @@ use ecaa_workflow_core::finalize::{
     coverage_should_block, finalize_package, finalize_task, PackageFinalizeSummary,
 };
 use ecaa_workflow_core::project_class::ProjectClass;
+use ecaa_workflow_core::provenance::DivergenceRecord;
 use std::path::{Path, PathBuf};
 
 /// Env var that turns the offline end-of-run repair loop ON. Default OFF.
@@ -423,6 +424,53 @@ pub fn maybe_snapshot(package_root: &Path) {
     );
 }
 
+/// Capture a pinned determinism-env for the input-staging stage(s) at
+/// end-of-run (T5.9 / DR-12), on BOTH run paths.
+///
+/// The input-staging `data_acquisition` stage is frequently pre-staged /
+/// pre-completed at emit and never dispatched through the harness
+/// determinism-env-stamp seam (`main::stamp_determinism_env`), so its
+/// `determinism-env.json` keeps the emitter's empty pinning while every
+/// executed sibling recorded the run-stable envelope
+/// (`SOURCE_DATE_EPOCH` + `C.UTF-8` locale + `PYTHONHASHSEED=0`). This
+/// backfills the staging stage FROM a populated sibling
+/// ([`env_snapshot::record::backfill_missing_determinism_env`]) so every
+/// stage records the same pinning, then re-seals the BagIt manifest
+/// (each `runtime/outputs/<task>/determinism-env.json` is hashed into the
+/// payload manifest on reseal).
+///
+/// Best-effort: a backfill / reseal failure logs and returns; it never
+/// fails the run.
+pub fn capture_staging_determinism_env(package_root: &Path) {
+    match env_snapshot::record::backfill_missing_determinism_env(package_root) {
+        Ok(0) => {}
+        Ok(n) => {
+            tracing::info!(
+                target: "harness-finalize",
+                backfilled = n,
+                "backfilled pinned determinism-env for {n} staging task(s) that recorded empty pinning"
+            );
+            if let Err(e) = ecaa_workflow_core::emitter::regenerate_bagit_manifest(
+                package_root,
+                &ecaa_workflow_core::clock::WallClock,
+            ) {
+                tracing::warn!(
+                    target: "harness-finalize",
+                    error = %e,
+                    "BagIt manifest re-seal after determinism-env backfill failed (continuing — files written)"
+                );
+            }
+        }
+        Err(e) => {
+            tracing::warn!(
+                target: "harness-finalize",
+                error = %e,
+                "determinism-env backfill for staging stage failed (continuing — run outcome unchanged)"
+            );
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // End-of-run package finalization
 // ---------------------------------------------------------------------------
@@ -497,7 +545,23 @@ pub fn finalize_completed_package(package_root: &Path, config_dir: &Path) {
     // Runs after `finalize_package` so its verdict-injection writes cannot
     // clobber the ParameterConnection stamps. Best-effort; a mutation re-seals
     // the BagIt manifest because ro-crate-metadata.json is a manifested file.
-    if reconcile_observed_reads_into_ro_crate(package_root) {
+    let (reconcile_wrote, divergences) = reconcile_observed_reads_inner(package_root);
+
+    // T6.1 — a genuine observed-read divergence must NOT ship on the
+    // STANDALONE path. The conversation/emit path blocks the SESSION on a
+    // `Divergent` verdict (`apply_provenance_divergence_blockers`); a
+    // no-session run has no session to transition, so re-block the offending
+    // task(s) in WORKFLOW.json directly here — the standalone analog. The
+    // divergences are already recorded durably on the RO-Crate root Dataset's
+    // `ecaax:provenanceDivergence` array by the reconcile above; this
+    // additionally flips the DAG so a downstream reader / re-run / deposit
+    // gate cannot treat a run with an undeclared-read divergence as clean.
+    let blocked_a_task = block_divergent_reads_in_dag(package_root, &divergences);
+
+    // Single re-seal covering BOTH mutations (ro-crate-metadata.json from the
+    // reconcile AND WORKFLOW.json from the divergence block) — both are
+    // hashed into the payload manifest on reseal.
+    if reconcile_wrote || blocked_a_task {
         if let Err(e) = ecaa_workflow_core::emitter::regenerate_bagit_manifest(
             package_root,
             &ecaa_workflow_core::clock::WallClock,
@@ -505,8 +569,132 @@ pub fn finalize_completed_package(package_root: &Path, config_dir: &Path) {
             tracing::warn!(
                 target: "harness-finalize",
                 error = %e,
-                "BagIt manifest re-seal after observed-read reconcile failed (continuing — descriptor written)"
+                "BagIt manifest re-seal after observed-read reconcile / divergence block failed (continuing — files written)"
             );
+        }
+    }
+}
+
+/// Marker prefix the STANDALONE finalize path writes into a re-blocked
+/// task's [`ecaa_workflow_core::dag::BlockedRecord`] reason on a genuine
+/// observed-read divergence. Carries the JSON-serialized
+/// `BlockerKind::ProvenanceDivergence` payload after the prefix (mirroring
+/// the atom-safety dispatch markers in
+/// `ecaa_workflow_core::blocker::format_safety_policy_marker`) so the typed
+/// payload round-trips for any consumer that promotes the reason.
+const PROVENANCE_DIVERGENCE_MARKER: &str = "[provenance_divergence]";
+
+/// Render the `BlockedRecord.reason` for one divergent read. The prefix +
+/// serialized [`ecaa_workflow_core::blocker::BlockerKind::ProvenanceDivergence`]
+/// mirror the emit-path blocker (`apply_provenance_divergence_blockers`)
+/// byte-for-byte on the payload fields, so the standalone and session paths
+/// surface the identical typed divergence.
+fn provenance_divergence_reason(d: &DivergenceRecord) -> String {
+    let kind = ecaa_workflow_core::blocker::BlockerKind::ProvenanceDivergence {
+        task_id: d.task_id.clone(),
+        read_path: d.read_path.clone(),
+        declared_producer: d.declared_producer.clone(),
+    };
+    match serde_json::to_string(&kind) {
+        Ok(payload) => format!("{PROVENANCE_DIVERGENCE_MARKER} {payload}"),
+        Err(_) => format!(
+            "{PROVENANCE_DIVERGENCE_MARKER} task={} read {} matches no declared producer",
+            d.task_id, d.read_path
+        ),
+    }
+}
+
+/// Standalone analog of the conversation emit path's
+/// `apply_provenance_divergence_blockers`: flip the offending task(s) to
+/// `TaskState::Blocked` in `WORKFLOW.json` on a genuine observed-read
+/// divergence, so a real undeclared-read divergence cannot ship on the
+/// no-session path.
+///
+/// A task already `Blocked` for another reason is left untouched (its prior
+/// blocker is more actionable and must not be clobbered). Best-effort and
+/// never a gate — a read/parse/serialize/write error logs and returns
+/// `false`. Returns `true` only when it rewrote `WORKFLOW.json`, so the
+/// caller re-seals the BagIt manifest (the DAG is hashed into the payload
+/// manifest on reseal).
+fn block_divergent_reads_in_dag(package_root: &Path, divergences: &[DivergenceRecord]) -> bool {
+    use ecaa_workflow_core::dag::{BlockedRecord, TaskState, DAG};
+
+    if divergences.is_empty() {
+        return false;
+    }
+    let wf_path = package_root.join("WORKFLOW.json");
+    let bytes = match std::fs::read(&wf_path) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!(
+                target: "harness-finalize",
+                error = %e,
+                "provenance-divergence block: WORKFLOW.json unreadable — divergence recorded on the RO-Crate but the DAG was not re-blocked"
+            );
+            return false;
+        }
+    };
+    let mut dag: DAG = match serde_json::from_slice(&bytes) {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::warn!(
+                target: "harness-finalize",
+                error = %e,
+                "provenance-divergence block: WORKFLOW.json unparseable — divergence recorded on the RO-Crate but the DAG was not re-blocked"
+            );
+            return false;
+        }
+    };
+
+    let mut changed = false;
+    for d in divergences {
+        let Some(task) = dag.tasks.get_mut(d.task_id.as_str()) else {
+            continue;
+        };
+        // Don't clobber a task already blocked for another (more actionable)
+        // reason — an existing blocker is at least as informative.
+        if matches!(task.state, TaskState::Blocked { .. }) {
+            continue;
+        }
+        task.state = TaskState::Blocked {
+            record: BlockedRecord {
+                reason: provenance_divergence_reason(d),
+                attempts: Vec::new(),
+            },
+        };
+        changed = true;
+        tracing::warn!(
+            target: "harness-finalize",
+            task_id = %d.task_id,
+            read_path = %d.read_path,
+            "observed-read provenance divergence — re-blocking task on the standalone finalize path (undeclared read cannot ship)"
+        );
+    }
+
+    if !changed {
+        return false;
+    }
+    match serde_json::to_string_pretty(&dag) {
+        Ok(s) => {
+            if let Err(e) =
+                ecaa_workflow_core::fs_helpers::atomic_write_bytes_sync(&wf_path, s.as_bytes())
+            {
+                tracing::warn!(
+                    target: "harness-finalize",
+                    error = %e,
+                    "provenance-divergence block: writing re-blocked WORKFLOW.json failed"
+                );
+                return false;
+            }
+            true
+        }
+        Err(e) => {
+            tracing::warn!(
+                target: "harness-finalize",
+                error = %e,
+                "provenance-divergence block: serializing re-blocked WORKFLOW.json failed"
+            );
+            false
         }
     }
 }
@@ -541,13 +729,30 @@ pub fn finalize_completed_package(package_root: &Path, config_dir: &Path) {
 /// presence-gated and `reconcile_ro_crate_edges_with_allowances` itself
 /// no-ops on empty inputs.
 ///
-/// The divergence → `BlockerKind::ProvenanceDivergence` transition is NOT
-/// performed here: the harness has no session/server state to transition,
-/// and the divergences are already recorded durably on the RO-Crate root
-/// Dataset's `ecaax:provenanceDivergence` array. Each divergence is logged
-/// so a standalone run still surfaces it; a session-bound run's block
-/// transition remains a server concern.
+/// The divergence → `BlockerKind::ProvenanceDivergence` transition is
+/// performed only on the STANDALONE finalize path (see
+/// [`finalize_completed_package`] → [`block_divergent_reads_in_dag`]): a
+/// no-session run re-blocks the offending task in `WORKFLOW.json` directly,
+/// while a session-bound run's transition remains a server concern. Either
+/// way the divergences are recorded durably on the RO-Crate root Dataset's
+/// `ecaax:provenanceDivergence` array here, and each is logged.
 pub fn reconcile_observed_reads_into_ro_crate(package_root: &Path) -> bool {
+    reconcile_observed_reads_inner(package_root).0
+}
+
+/// Shared implementation of [`reconcile_observed_reads_into_ro_crate`] that
+/// ALSO surfaces the genuine (allowance-uncovered) divergences the core
+/// reconciler computed. The public wrapper preserves the `-> bool`
+/// signature the both-run-paths call site (`main.rs`) uses, while the
+/// standalone finalize path consumes the divergence list to re-block.
+///
+/// Returns `(wrote_descriptor, divergences)`: `wrote_descriptor` is `true`
+/// only when `ro-crate-metadata.json` was rewritten (so the caller re-seals
+/// the manifest); `divergences` is the typed
+/// [`DivergenceRecord`] list — empty when the inputs are empty, unreadable,
+/// or every observed read matched a declared producer / a sanctioned
+/// read-allowance.
+fn reconcile_observed_reads_inner(package_root: &Path) -> (bool, Vec<DivergenceRecord>) {
     use ecaa_workflow_core::provenance;
 
     let declared_edges = provenance::read_declared_edges(package_root);
@@ -555,7 +760,7 @@ pub fn reconcile_observed_reads_into_ro_crate(package_root: &Path) -> bool {
     // Presence-gate before touching the descriptor: reconcile is a no-op on
     // either empty input, so there is nothing to stamp and nothing to write.
     if declared_edges.is_empty() || observed_reads.is_empty() {
-        return false;
+        return (false, Vec::new());
     }
     let read_allowances = provenance::read_task_read_allowances(package_root);
 
@@ -568,7 +773,7 @@ pub fn reconcile_observed_reads_into_ro_crate(package_root: &Path) -> bool {
                 error = %e,
                 "observed-read reconcile: ro-crate-metadata.json unreadable — skipping"
             );
-            return false;
+            return (false, Vec::new());
         }
     };
     let mut metadata: serde_json::Value = match serde_json::from_slice(&bytes) {
@@ -579,7 +784,7 @@ pub fn reconcile_observed_reads_into_ro_crate(package_root: &Path) -> bool {
                 error = %e,
                 "observed-read reconcile: ro-crate-metadata.json unparseable — skipping"
             );
-            return false;
+            return (false, Vec::new());
         }
     };
 
@@ -598,7 +803,7 @@ pub fn reconcile_observed_reads_into_ro_crate(package_root: &Path) -> bool {
                 error = %e,
                 "observed-read reconcile: serializing reconciled ro-crate-metadata.json failed — skipping"
             );
-            return false;
+            return (false, divergences);
         }
     };
     if let Err(e) = ecaa_workflow_core::fs_helpers::atomic_write_bytes_sync(&path, &new_bytes) {
@@ -607,7 +812,7 @@ pub fn reconcile_observed_reads_into_ro_crate(package_root: &Path) -> bool {
             error = %e,
             "observed-read reconcile: writing reconciled ro-crate-metadata.json failed — skipping"
         );
-        return false;
+        return (false, divergences);
     }
 
     for d in &divergences {
@@ -616,10 +821,10 @@ pub fn reconcile_observed_reads_into_ro_crate(package_root: &Path) -> bool {
             task_id = %d.task_id,
             read_path = %d.read_path,
             "observed-read provenance divergence recorded in ro-crate-metadata.json \
-             (ecaax:provenanceDivergence); not blocking from the harness"
+             (ecaax:provenanceDivergence)"
         );
     }
-    true
+    (true, divergences)
 }
 
 /// Run the OFFLINE repair loop once at end-of-run, strictly best-effort.
@@ -950,6 +1155,207 @@ mod tests {
         assert!(!reconcile_observed_reads_into_ro_crate(pkg));
         let after = std::fs::read(pkg.join("ro-crate-metadata.json")).unwrap();
         assert_eq!(before, after, "no invocations → descriptor left untouched");
+    }
+
+    // -----------------------------------------------------------------------
+    // T6.1 — standalone finalize BLOCKS on a genuine Divergent observed read
+    // -----------------------------------------------------------------------
+
+    /// Write a minimal `WORKFLOW.json` under `pkg` with `differential_expression`
+    /// in `Completed` state (the shape a finished run leaves on disk), so the
+    /// standalone divergence-block can flip it to `Blocked`.
+    fn write_de_workflow_json(pkg: &std::path::Path) {
+        let wf = serde_json::json!({
+            "version": "1",
+            "workflow_id": "de-test",
+            "current_task": null,
+            "tasks": {
+                "differential_expression": {
+                    "kind": "computation",
+                    "state": {"status": "completed", "result": null},
+                    "depends_on": ["quantification", "normalisation"],
+                    "assignee": "agent",
+                    "description": "differential expression"
+                }
+            }
+        });
+        std::fs::write(
+            pkg.join("WORKFLOW.json"),
+            serde_json::to_vec_pretty(&wf).unwrap(),
+        )
+        .unwrap();
+    }
+
+    /// Build a DE package like [`make_de_reconcile_pkg`] but with an observed
+    /// read at `read_path` — pass a path OUTSIDE any declared producer's
+    /// output dir to plant a genuine `Divergent` verdict.
+    fn make_de_pkg_with_read(pkg: &std::path::Path, read_path: &str) {
+        use crate::invocation_log::{append_invocation, InvocationRecord};
+        use ecaa_workflow_core::atom::SafetyPolicy;
+        use ecaa_workflow_core::provenance::ObservedRead;
+        use ecaa_workflow_core::workflow_contracts::edge::{
+            CompatibilityProof, EdgeContract, EdgeKind,
+        };
+
+        std::fs::create_dir_all(pkg.join("runtime")).unwrap();
+
+        let metadata = serde_json::json!({
+            "@graph": [
+                {"@id": "./", "@type": "Dataset", "hasPart": []},
+                {
+                    "@id": "#parameter-connection/quantification__to__differential_expression",
+                    "@type": "ParameterConnection"
+                },
+                {
+                    "@id": "#parameter-connection/normalisation__to__differential_expression",
+                    "@type": "ParameterConnection"
+                }
+            ]
+        });
+        std::fs::write(
+            pkg.join("ro-crate-metadata.json"),
+            serde_json::to_vec_pretty(&metadata).unwrap(),
+        )
+        .unwrap();
+
+        let edges = [
+            EdgeContract {
+                from_node: "quantification".into(),
+                from_port: "count_matrix".into(),
+                to_node: "differential_expression".into(),
+                to_port: "raw_counts".into(),
+                proof: CompatibilityProof::default(),
+                kind: EdgeKind::TypedDataFlow,
+                chain_of_custody: None,
+                mutually_exclusive_group: Some("counts".into()),
+            },
+            EdgeContract {
+                from_node: "normalisation".into(),
+                from_port: "normalized_counts".into(),
+                to_node: "differential_expression".into(),
+                to_port: "normalized_counts".into(),
+                proof: CompatibilityProof::default(),
+                kind: EdgeKind::TypedDataFlow,
+                chain_of_custody: None,
+                mutually_exclusive_group: Some("counts".into()),
+            },
+        ];
+        let mut proofs = String::new();
+        for e in &edges {
+            proofs.push_str(&serde_json::to_string(e).unwrap());
+            proofs.push('\n');
+        }
+        std::fs::write(pkg.join("runtime/proofs.jsonl"), proofs).unwrap();
+
+        let base = InvocationRecord::new(
+            "differential_expression",
+            Some("differential_expression"),
+            1,
+            "run-recon",
+            "2026-07-17T00:00:00Z",
+            &["quantification".to_string(), "normalisation".to_string()],
+            true,
+            &SafetyPolicy::default(),
+            None,
+        );
+        append_invocation(pkg, &base).unwrap();
+        let enriched = base.with_observed_reads(vec![ObservedRead {
+            task_id: "differential_expression".into(),
+            declared_port: Some("raw_counts".into()),
+            path: read_path.to_string(),
+        }]);
+        append_invocation(pkg, &enriched).unwrap();
+    }
+
+    fn task_status(pkg: &std::path::Path, task_id: &str) -> String {
+        let raw = std::fs::read_to_string(pkg.join("WORKFLOW.json")).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        v["tasks"][task_id]["state"]["status"]
+            .as_str()
+            .unwrap_or("")
+            .to_string()
+    }
+
+    fn task_block_reason(pkg: &std::path::Path, task_id: &str) -> String {
+        let raw = std::fs::read_to_string(pkg.join("WORKFLOW.json")).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        v["tasks"][task_id]["state"]["record"]["reason"]
+            .as_str()
+            .unwrap_or("")
+            .to_string()
+    }
+
+    /// A genuine `Divergent` observed read (a path under NO declared
+    /// producer's output dir) must flip the offending task to `Blocked` in
+    /// WORKFLOW.json on the standalone finalize path — the standalone analog
+    /// of the emit-path `provenance_divergence_transitions_task_to_typed_blocker`.
+    /// The re-block reason carries the `[provenance_divergence]` marker + the
+    /// serialized `BlockerKind::ProvenanceDivergence` payload so it round-trips.
+    #[test]
+    fn finalize_completed_package_blocks_on_genuine_divergent_read() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        // Observed read is under data_acquisition/, which is NOT a declared
+        // producer of differential_expression (declared: quantification /
+        // normalisation) → Divergent.
+        make_de_pkg_with_read(pkg, "runtime/outputs/data_acquisition/counts.tsv");
+        write_de_workflow_json(pkg);
+        let config_dir = pkg.join("config");
+        std::fs::create_dir_all(&config_dir).unwrap();
+
+        finalize_completed_package(pkg, &config_dir);
+
+        assert_eq!(
+            task_status(pkg, "differential_expression"),
+            "blocked",
+            "a genuine undeclared-read divergence must re-block the task on the standalone path"
+        );
+        let reason = task_block_reason(pkg, "differential_expression");
+        assert!(
+            reason.starts_with(PROVENANCE_DIVERGENCE_MARKER),
+            "re-block reason must carry the provenance-divergence marker; got: {reason}"
+        );
+        // The serialized payload round-trips into the typed blocker.
+        let payload = reason
+            .strip_prefix(PROVENANCE_DIVERGENCE_MARKER)
+            .unwrap()
+            .trim();
+        let kind: ecaa_workflow_core::blocker::BlockerKind =
+            serde_json::from_str(payload).expect("payload must deserialize to a BlockerKind");
+        match kind {
+            ecaa_workflow_core::blocker::BlockerKind::ProvenanceDivergence {
+                task_id,
+                read_path,
+                declared_producer,
+            } => {
+                assert_eq!(task_id, "differential_expression");
+                assert_eq!(read_path, "runtime/outputs/data_acquisition/counts.tsv");
+                // declared_port raw_counts → declared producer quantification.
+                assert_eq!(declared_producer.as_deref(), Some("quantification"));
+            }
+            other => panic!("expected ProvenanceDivergence, got {other:?}"),
+        }
+    }
+
+    /// A clean run — every observed read matches a declared producer's output
+    /// — must NOT re-block: the DE task stays `completed`.
+    #[test]
+    fn finalize_completed_package_clean_run_does_not_block() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        // Read of the RAW producer's own output dir → Match, not Divergent.
+        make_de_pkg_with_read(pkg, "runtime/outputs/quantification/count_matrix.tsv");
+        write_de_workflow_json(pkg);
+        let config_dir = pkg.join("config");
+        std::fs::create_dir_all(&config_dir).unwrap();
+
+        finalize_completed_package(pkg, &config_dir);
+
+        assert_eq!(
+            task_status(pkg, "differential_expression"),
+            "completed",
+            "a clean run (every read matches a declared producer) must not re-block"
+        );
     }
 
     // -----------------------------------------------------------------------

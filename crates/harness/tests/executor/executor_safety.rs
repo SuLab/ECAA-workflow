@@ -114,11 +114,13 @@ fn compute_atom_safety() -> SafetyPolicy {
 #[test]
 fn local_capabilities_default_no_sandbox_bridge_network() {
     let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    // Pin ECAA_LOCAL_SANDBOX=off so detect_default_sandbox()'s bwrap probe
-    // can't auto-detect a host-installed bwrap and override the assertion
-    // — the test asserts the explicit opt-out default, not host
-    // introspection.
+    // Pin ECAA_LOCAL_SANDBOX=off for the explicit opt-out default. (The
+    // capability no longer probes PATH for bwrap — §G-B2 — so a host-installed
+    // bwrap can never flip this; the pin still documents the asserted mode.)
     unsafe { std::env::set_var("ECAA_LOCAL_SANDBOX", "off") };
+    // Ensure no re-executable deposit profile is active (that would flip the
+    // unset default ON); this test asserts the explicit `off` mode.
+    unsafe { std::env::remove_var("ECAA_DEPOSIT_PROFILE") };
     let exec = LocalExecutor::new(&args());
     let caps = exec.capabilities();
     unsafe { std::env::remove_var("ECAA_LOCAL_SANDBOX") };
@@ -167,11 +169,13 @@ fn local_capabilities_unknown_sandbox_value_stays_none() {
 #[test]
 fn local_default_blocks_exec_atom_with_sandbox_required() {
     let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    // Pin ECAA_LOCAL_SANDBOX=off so detect_default_sandbox()'s bwrap probe
-    // can't auto-detect a host-installed bwrap and silently satisfy
-    // ProcessIsolation — the test asserts the sandbox-unavailable →
-    // SandboxRequired path, not host introspection.
+    // Pin ECAA_LOCAL_SANDBOX=off so the capability is None and the
+    // Exec-atom → SandboxRequired path is exercised. (Capabilities no longer
+    // probe PATH for bwrap — §G-B2 — so a host-installed bwrap can't silently
+    // satisfy ProcessIsolation.) Clear any re-executable deposit profile too,
+    // which would otherwise flip the default ON.
     unsafe { std::env::set_var("ECAA_LOCAL_SANDBOX", "off") };
+    unsafe { std::env::remove_var("ECAA_DEPOSIT_PROFILE") };
     let exec = LocalExecutor::new(&args());
     let caps = exec.capabilities();
     unsafe { std::env::remove_var("ECAA_LOCAL_SANDBOX") };

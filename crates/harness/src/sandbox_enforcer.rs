@@ -170,6 +170,77 @@ impl PreDispatchRefusal {
 
 // ── Phase C7: bubblewrap-backed runtime sandbox ──────────────────────────
 
+/// Env var signalling the current execution belongs to a re-executable
+/// deposit/profile (§G-B2). When it names the re-executable profile, local
+/// filesystem sandbox enforcement defaults ON (bwrap) even with
+/// `ECAA_LOCAL_SANDBOX` unset — a re-executable deposit promises a hardened,
+/// reproducible substrate, so the enforcement backing that promise must not
+/// be opt-in. SCOPED to re-executable runs: a plain local run stays opt-in
+/// (default OFF) exactly as before.
+///
+/// The value matches
+/// `ecaa_workflow_core::deposit_readiness::REEXECUTABLE_PROFILE`
+/// (`"re-executable"`) so one self-describing token drives both the deposit
+/// gate and the harness enforcement default.
+pub const ENV_DEPOSIT_PROFILE: &str = "ECAA_DEPOSIT_PROFILE";
+
+/// The `ECAA_DEPOSIT_PROFILE` value that claims re-executability.
+const REEXECUTABLE_PROFILE_VALUE: &str = "re-executable";
+
+/// True when `ECAA_DEPOSIT_PROFILE` names the re-executable profile
+/// (case-insensitive, trimmed).
+pub fn reexecutable_profile_active() -> bool {
+    std::env::var(ENV_DEPOSIT_PROFILE)
+        .map(|v| v.trim().eq_ignore_ascii_case(REEXECUTABLE_PROFILE_VALUE))
+        .unwrap_or(false)
+}
+
+/// Effective local filesystem-sandbox mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum LocalSandboxMode {
+    /// No filesystem sandbox — `Implementation::GeneratedCode` runs unwrapped.
+    Off,
+    /// bwrap-backed enforcement is requested / active.
+    Bubblewrap,
+}
+
+/// Resolve the effective local sandbox mode from the environment — the
+/// SINGLE source of truth shared by both enforcement
+/// ([`BubblewrapRunner::from_env`]) and the executor's capability report
+/// (`executor::local::LocalExecutor::capabilities`), so the two can never
+/// disagree (§G-B2).
+///
+/// - `ECAA_LOCAL_SANDBOX=bubblewrap` → `Bubblewrap` (explicit opt-in).
+/// - `ECAA_LOCAL_SANDBOX=off` / `""` → `Off` (explicit opt-out — the escape
+///   hatch for environments without bwrap).
+/// - `ECAA_LOCAL_SANDBOX` unset → `Bubblewrap` when a re-executable deposit
+///   profile is active ([`reexecutable_profile_active`]; default-on, scoped),
+///   else `Off`.
+///
+/// The unset + no-profile default is `Off`, NOT "probe PATH and claim
+/// process isolation": merely having `bwrap` installed never activates
+/// enforcement ([`BubblewrapRunner::from_env`] wraps nothing unless this
+/// returns `Bubblewrap`), so the capability report must not claim it either.
+///
+/// Returns `Err` only on an unrecognised explicit token (mirrors
+/// `executor::local::validate_sandbox_env`, the build-time gate).
+pub fn resolve_local_sandbox_mode() -> Result<LocalSandboxMode, SandboxRunnerError> {
+    match std::env::var("ECAA_LOCAL_SANDBOX").as_deref() {
+        Ok("bubblewrap") => Ok(LocalSandboxMode::Bubblewrap),
+        Ok("off") | Ok("") => Ok(LocalSandboxMode::Off),
+        Err(_) => Ok(if reexecutable_profile_active() {
+            LocalSandboxMode::Bubblewrap
+        } else {
+            LocalSandboxMode::Off
+        }),
+        Ok(other) => Err(SandboxRunnerError::InvalidPolicy(format!(
+            "ECAA_LOCAL_SANDBOX={other:?} is not a recognised value; \
+             expected 'off' or 'bubblewrap'"
+        ))),
+    }
+}
+
 /// Errors from the bubblewrap runner. Typed so callers can surface the
 /// right recovery affordance to the SME without string-matching.
 #[derive(Debug, thiserror::Error)]
@@ -295,10 +366,9 @@ impl BubblewrapRunner {
     /// The error is hard — the user explicitly opted in; silent fallback
     /// would violate the security guarantee.
     pub fn from_env(workdir: PathBuf) -> Result<Option<Self>, SandboxRunnerError> {
-        let mode = std::env::var("ECAA_LOCAL_SANDBOX").unwrap_or_else(|_| "off".into());
-        match mode.to_ascii_lowercase().as_str() {
-            "off" | "" => Ok(None),
-            "bubblewrap" => {
+        match resolve_local_sandbox_mode()? {
+            LocalSandboxMode::Off => Ok(None),
+            LocalSandboxMode::Bubblewrap => {
                 let bwrap_path = PathBuf::from("/usr/bin/bwrap");
                 if !bwrap_path.exists() {
                     return Err(SandboxRunnerError::BwrapBinaryMissing(bwrap_path));
@@ -309,10 +379,6 @@ impl BubblewrapRunner {
                     read_scope: None,
                 }))
             }
-            other => Err(SandboxRunnerError::InvalidPolicy(format!(
-                "ECAA_LOCAL_SANDBOX={other:?} is not a recognised value; \
-                 expected 'off' or 'bubblewrap'"
-            ))),
         }
     }
 
@@ -327,10 +393,9 @@ impl BubblewrapRunner {
         bwrap_path: PathBuf,
         workdir: PathBuf,
     ) -> Result<Option<Self>, SandboxRunnerError> {
-        let mode = std::env::var("ECAA_LOCAL_SANDBOX").unwrap_or_else(|_| "off".into());
-        match mode.to_ascii_lowercase().as_str() {
-            "off" | "" => Ok(None),
-            "bubblewrap" => {
+        match resolve_local_sandbox_mode()? {
+            LocalSandboxMode::Off => Ok(None),
+            LocalSandboxMode::Bubblewrap => {
                 if !bwrap_path.exists() {
                     return Err(SandboxRunnerError::BwrapBinaryMissing(bwrap_path));
                 }
@@ -340,9 +405,6 @@ impl BubblewrapRunner {
                     read_scope: None,
                 }))
             }
-            other => Err(SandboxRunnerError::InvalidPolicy(format!(
-                "ECAA_LOCAL_SANDBOX={other:?} is not a recognised value"
-            ))),
         }
     }
 
@@ -743,6 +805,79 @@ pub fn enforce_output_schema_validation(
 mod tests {
     use super::*;
     use ecaa_workflow_core::workflow_contracts::implementation::ReviewStatus;
+
+    // Serialize the ECAA_LOCAL_SANDBOX / ECAA_DEPOSIT_PROFILE mutation in this
+    // module's env-reading test so it never races a sibling. (Under nextest
+    // each test is its own process; the lock defends the cargo-test path.)
+    static SANDBOX_MODE_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// §G-B2 — `resolve_local_sandbox_mode` is the single source of truth for
+    /// both enforcement and the capability report: unset + no re-executable
+    /// deposit profile is OFF (never "bwrap-on-PATH → ProcessIsolation"),
+    /// explicit `bubblewrap`/`off` are honoured, unknown tokens error, and an
+    /// active re-executable profile flips the unset default ON.
+    #[test]
+    fn resolve_local_sandbox_mode_semantics() {
+        let _guard = SANDBOX_MODE_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+
+        std::env::remove_var("ECAA_LOCAL_SANDBOX");
+        std::env::remove_var("ECAA_DEPOSIT_PROFILE");
+        assert_eq!(
+            resolve_local_sandbox_mode().unwrap(),
+            LocalSandboxMode::Off,
+            "unset + no re-exec profile must be OFF regardless of bwrap on PATH"
+        );
+
+        std::env::set_var("ECAA_LOCAL_SANDBOX", "bubblewrap");
+        assert_eq!(
+            resolve_local_sandbox_mode().unwrap(),
+            LocalSandboxMode::Bubblewrap,
+            "explicit bubblewrap → Bubblewrap"
+        );
+
+        std::env::set_var("ECAA_LOCAL_SANDBOX", "off");
+        assert_eq!(
+            resolve_local_sandbox_mode().unwrap(),
+            LocalSandboxMode::Off,
+            "explicit off → Off (escape hatch)"
+        );
+
+        std::env::set_var("ECAA_LOCAL_SANDBOX", "");
+        assert_eq!(
+            resolve_local_sandbox_mode().unwrap(),
+            LocalSandboxMode::Off,
+            "empty → Off"
+        );
+
+        std::env::set_var("ECAA_LOCAL_SANDBOX", "garbage");
+        assert!(
+            resolve_local_sandbox_mode().is_err(),
+            "unknown token must error"
+        );
+
+        // Unset + active re-executable deposit profile → default ON (scoped).
+        std::env::remove_var("ECAA_LOCAL_SANDBOX");
+        std::env::set_var("ECAA_DEPOSIT_PROFILE", "re-executable");
+        assert!(reexecutable_profile_active());
+        assert_eq!(
+            resolve_local_sandbox_mode().unwrap(),
+            LocalSandboxMode::Bubblewrap,
+            "re-executable deposit profile flips the unset default ON"
+        );
+
+        // Explicit off still wins over the re-executable profile.
+        std::env::set_var("ECAA_LOCAL_SANDBOX", "off");
+        assert_eq!(
+            resolve_local_sandbox_mode().unwrap(),
+            LocalSandboxMode::Off,
+            "explicit off is the escape hatch even under a re-exec profile"
+        );
+
+        std::env::remove_var("ECAA_LOCAL_SANDBOX");
+        std::env::remove_var("ECAA_DEPOSIT_PROFILE");
+    }
 
     #[test]
     fn policy_to_flags_round_trips() {
