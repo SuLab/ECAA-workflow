@@ -25,8 +25,18 @@
 //! `validation_passed: false`, which is a SEPARATE axis from computational
 //! completion (whether the stage ran and produced output at all). The
 //! headline `deposit_ready` bool folds `ro_crate` + `bagit` +
-//! `domain_validation` + `reexecution` so a run can be computationally
-//! complete while `deposit_ready` reads `false`.
+//! `domain_validation` + `provenance_divergence` + `reexecution` so a run can
+//! be computationally complete while `deposit_ready` reads `false`.
+//!
+//! Layer 1 also runs the §G-B2 observed-read provenance-divergence backstop
+//! (`provenance_divergence`, via [`scan_provenance_divergence`]): a genuine
+//! (allowance-uncovered) observed-read divergence recorded in the package's
+//! own durable records — a task `Blocked{ProvenanceDivergence}` in
+//! `WORKFLOW.json` and/or a non-empty `ecaax:provenanceDivergence` array on
+//! the RO-Crate root — blocks the deposit boundary regardless of which
+//! execution path minted it. This is the path-independent enforcement of the
+//! invariant the per-path finalize blocking (harness `end_of_run_finalize`)
+//! also applies.
 //!
 //! The attestation is written to `DEPOSIT-READINESS.json` at the deposit root
 //! and is intentionally OFF the BagIt manifest (it carries a wall-clock
@@ -104,8 +114,9 @@ pub struct DepositReadiness {
     /// Deposit profile the attestation was produced for (`full` /
     /// `re-executable` / `minimal`).
     pub profile: String,
-    /// Headline signal: `true` iff `ro_crate`, `bagit`, and
-    /// `domain_validation` all `Pass` AND `reexecution != Fail` (RCA I-10).
+    /// Headline signal: `true` iff `ro_crate`, `bagit`,
+    /// `domain_validation`, and `provenance_divergence` all `Pass` AND
+    /// `reexecution != Fail` (RCA I-10, §G-B2).
     /// Computed once at attestation-write time by [`compute_deposit_ready`]
     /// and re-derived whenever a component field changes (e.g. the Layer-2
     /// re-execution update). Deliberately SEPARATE from computational
@@ -128,6 +139,18 @@ pub struct DepositReadiness {
     /// signal. `#[serde(default)]` for attestations predating this field.
     #[serde(default)]
     pub domain_validation: CheckStatus,
+    /// Genuine observed-read provenance-divergence backstop (§G-B2): `Fail`
+    /// when the package records a genuine (allowance-uncovered) observed-read
+    /// divergence — a task read an input no declared producer emits. Detected
+    /// PATH-INDEPENDENTLY (see [`scan_provenance_divergence`]) from the
+    /// package's own durable records — a task `Blocked{ProvenanceDivergence}`
+    /// in `WORKFLOW.json` and/or a non-empty `ecaax:provenanceDivergence`
+    /// array on the RO-Crate root — so a divergence blocks the deposit
+    /// regardless of which execution path minted it. `#[serde(default)]` →
+    /// `Pass` for attestations predating this field (absence never fabricates
+    /// a divergence; a clean package is unaffected).
+    #[serde(default)]
+    pub provenance_divergence: CheckStatus,
     /// Re-execution verdict (`not_verified` when the check was not run).
     pub reexecution: ReexecStatus,
     /// Human-readable failure/notes detail (empty on a clean all-pass).
@@ -357,6 +380,112 @@ pub fn scan_domain_validation(package_root: &Path) -> DomainValidationSummary {
     summary
 }
 
+/// Reason-string marker prefix a genuine observed-read divergence writes into
+/// a re-blocked task's `BlockedRecord.reason`
+/// (`crates/harness/src/end_of_run_finalize.rs::provenance_divergence_reason`
+/// and the conversation emit path's `apply_provenance_divergence_blockers`).
+/// Matched here so the deposit gate detects a divergence-blocked task
+/// independently of the harness crate (core does not depend on harness). Kept
+/// byte-identical to the harness/emit marker.
+const PROVENANCE_DIVERGENCE_MARKER: &str = "[provenance_divergence]";
+
+/// RO-Crate root-Dataset key recording genuine (allowance-uncovered)
+/// observed-read divergences
+/// (`crate::ro_crate::reconcile_ro_crate_edges_with_allowances`). Sanctioned
+/// reads land under `ecaax:provenanceReadAllowance` instead, so a non-empty
+/// value of THIS key is a genuine divergence by construction.
+const RO_CRATE_DIVERGENCE_KEY: &str = "ecaax:provenanceDivergence";
+
+/// Path-independent genuine observed-read divergence signal (§G-B2).
+///
+/// Populated from the package's own durable records — see
+/// [`scan_provenance_divergence`]. A non-empty [`Self::divergences`] means a
+/// task read an input no declared producer emits (and the read was not covered
+/// by a sanctioned read-allowance), which must block the deposit boundary
+/// regardless of which execution path (standalone/CLI or session/web-UI)
+/// minted it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProvenanceDivergenceSummary {
+    /// Human-readable `"<task_id>: <detail>"` for each genuine divergence
+    /// found, de-duplicated and sorted. Empty ⇒ clean.
+    pub divergences: Vec<String>,
+}
+
+impl ProvenanceDivergenceSummary {
+    /// `true` iff no genuine observed-read divergence is recorded. Vacuously
+    /// `true` for a package that recorded none — absence is not a divergence.
+    pub fn is_clean(&self) -> bool {
+        self.divergences.is_empty()
+    }
+}
+
+/// Scan the package (a sealed deposit dir or an emitted package root) for a
+/// GENUINE observed-read provenance divergence (§G-B2), from two independent,
+/// path-independent durable records — EITHER present ⇒ a divergence:
+///
+/// 1. **WORKFLOW.json** — a task in `Blocked{ProvenanceDivergence}` state (its
+///    `BlockedRecord.reason` carries the [`PROVENANCE_DIVERGENCE_MARKER`]).
+///    This is what the harness / conversation emit path flip a task to on a
+///    genuine divergence.
+/// 2. **ro-crate-metadata.json** — a non-empty [`RO_CRATE_DIVERGENCE_KEY`]
+///    array on the root Dataset (`@id == "./"`). The reconciler records only
+///    genuine (allowance-uncovered) divergences under this key.
+///
+/// Both sources already exclude allowance-sanctioned reads, so any hit is a
+/// genuine divergence. Best-effort reads: a missing/unparseable file
+/// contributes nothing (absence is never a divergence). Deterministic:
+/// results are de-duplicated and sorted.
+pub fn scan_provenance_divergence(package_root: &Path) -> ProvenanceDivergenceSummary {
+    let mut found: Vec<String> = Vec::new();
+
+    // (1) WORKFLOW.json — a task Blocked with the provenance-divergence marker.
+    if let Ok(raw) = std::fs::read_to_string(package_root.join("WORKFLOW.json")) {
+        if let Ok(wf) = serde_json::from_str::<serde_json::Value>(&raw) {
+            if let Some(tasks) = wf.get("tasks").and_then(|t| t.as_object()) {
+                for (task_id, task) in tasks {
+                    let state = &task["state"];
+                    if state.get("status").and_then(|s| s.as_str()) != Some("blocked") {
+                        continue;
+                    }
+                    let reason = state
+                        .get("record")
+                        .and_then(|r| r.get("reason"))
+                        .and_then(|s| s.as_str())
+                        .unwrap_or("");
+                    if reason.starts_with(PROVENANCE_DIVERGENCE_MARKER) {
+                        found.push(format!("{task_id}: blocked on observed-read divergence"));
+                    }
+                }
+            }
+        }
+    }
+
+    // (2) ro-crate-metadata.json — a non-empty divergence array on the root.
+    if let Ok(raw) = std::fs::read_to_string(package_root.join("ro-crate-metadata.json")) {
+        if let Ok(md) = serde_json::from_str::<serde_json::Value>(&raw) {
+            if let Some(graph) = md.get("@graph").and_then(|g| g.as_array()) {
+                if let Some(root) = graph
+                    .iter()
+                    .find(|e| e.get("@id").and_then(|v| v.as_str()) == Some("./"))
+                {
+                    if let Some(arr) = root.get(RO_CRATE_DIVERGENCE_KEY).and_then(|v| v.as_array()) {
+                        for d in arr {
+                            let task_id = d.get("task_id").and_then(|v| v.as_str()).unwrap_or("?");
+                            let read_path =
+                                d.get("read_path").and_then(|v| v.as_str()).unwrap_or("?");
+                            found.push(format!("{task_id}: undeclared read {read_path}"));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    found.sort();
+    found.dedup();
+    ProvenanceDivergenceSummary { divergences: found }
+}
+
 /// Result of the Layer-1 deterministic self-validation over a sealed deposit.
 pub struct Tier1Validation {
     pub ro_crate: CheckStatus,
@@ -465,6 +594,23 @@ pub fn write_deposit_readiness(
             domain.required_failures.join(", ")
         )
     });
+
+    // §G-B2 backstop — a genuine observed-read divergence recorded in the
+    // package's own durable records must block the deposit boundary regardless
+    // of which execution path minted it (the session/web-UI path records the
+    // divergence but is the exact path where nothing else fails the deposit).
+    let divergence = scan_provenance_divergence(dst);
+    let provenance_divergence = if divergence.is_clean() {
+        CheckStatus::Pass
+    } else {
+        CheckStatus::Fail
+    };
+    let divergence_detail = (!divergence.divergences.is_empty()).then(|| {
+        format!(
+            "observed-read provenance divergence(s): {}",
+            divergence.divergences.join("; ")
+        )
+    });
     // Advisory reporting-correctness warnings (RP-1/RP-3/RP-9): recorded in
     // the attestation for operator visibility but deliberately NOT folded
     // into `deposit_ready` — a warn-only prose finding must never block a
@@ -479,6 +625,7 @@ pub fn write_deposit_readiness(
     let detail = [
         tier1.detail.clone(),
         domain_detail,
+        divergence_detail,
         reporting_warnings_detail,
         reexec_detail,
     ]
@@ -493,7 +640,7 @@ pub fn write_deposit_readiness(
         tier1.bagit,
         domain_validation,
         reexecution,
-    );
+    ) && provenance_divergence == CheckStatus::Pass;
 
     let att = DepositReadiness {
         schema_version: "0.1".to_string(),
@@ -502,6 +649,7 @@ pub fn write_deposit_readiness(
         ro_crate: tier1.ro_crate,
         bagit: tier1.bagit,
         domain_validation,
+        provenance_divergence,
         reexecution,
         detail,
         image_digest,
@@ -539,17 +687,18 @@ pub fn update_deposit_readiness_reexecution(
     if image_digest.is_some() {
         att.image_digest = image_digest;
     }
-    // Re-derive the headline signal: ro_crate/bagit/domain_validation are
-    // unchanged by a Layer-2 re-execution update, but the new `reexecution`
-    // value can flip `deposit_ready` (e.g. a fresh `Fail`, or — for the
-    // `re-executable` profile — a re-execution that never ran).
+    // Re-derive the headline signal: ro_crate/bagit/domain_validation and the
+    // §G-B2 provenance-divergence axis are unchanged by a Layer-2 re-execution
+    // update, but the new `reexecution` value can flip `deposit_ready` (e.g. a
+    // fresh `Fail`, or — for the `re-executable` profile — a re-execution that
+    // never ran). A recorded divergence still hard-blocks readiness.
     att.deposit_ready = compute_deposit_ready(
         &att.profile,
         att.ro_crate,
         att.bagit,
         att.domain_validation,
         att.reexecution,
-    );
+    ) && att.provenance_divergence == CheckStatus::Pass;
     att.verified_at = clock.now_rfc3339();
     let body = serde_json::to_vec_pretty(&att).context("serializing DEPOSIT-READINESS.json")?;
     let path = dst.join(DEPOSIT_READINESS_FILE);
@@ -606,6 +755,20 @@ pub fn check_deposit_readiness(pkg: &Path, strict: bool) -> Result<DepositReadin
              a required validate_* check failed even though the run may be computationally \
              complete; remediate and re-export",
             dr.domain_validation,
+            dr.detail.as_deref().map(|d| format!(" — {d}")).unwrap_or_default()
+        );
+    }
+    // §G-B2 backstop: refuse a deposit that recorded a genuine observed-read
+    // provenance divergence, regardless of `--strict` and regardless of which
+    // execution path minted it. A task read an input no declared producer
+    // emits — the provenance graph is not sound, so the deposit must not ship.
+    if dr.provenance_divergence != CheckStatus::Pass {
+        bail!(
+            "deposit gate: a genuine observed-read provenance divergence is recorded ({:?}){} — \
+             a task read an undeclared input (no declared producer emits it); the observed \
+             provenance is unsound, so the deposit is refused. Reconcile the read/declared edge \
+             (or record a sanctioned read-allowance) and re-export",
+            dr.provenance_divergence,
             dr.detail.as_deref().map(|d| format!(" — {d}")).unwrap_or_default()
         );
     }
@@ -1077,5 +1240,152 @@ mod tests {
                 ReexecStatus::NotVerified
             ));
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // §G-B2 — genuine observed-read divergence backstop
+    // -----------------------------------------------------------------------
+
+    /// Plant a WORKFLOW.json with `task_id` in `Blocked{ProvenanceDivergence}`
+    /// (its reason carries the `[provenance_divergence]` marker) — the shape
+    /// the harness / emit path leave on a genuine divergence.
+    fn write_workflow_divergence_block(root: &Path, task_id: &str) {
+        let wf = serde_json::json!({
+            "tasks": {
+                task_id: {
+                    "state": {
+                        "status": "blocked",
+                        "record": {
+                            "reason": "[provenance_divergence] {\"ProvenanceDivergence\":{\"task_id\":\"differential_expression\",\"read_path\":\"runtime/outputs/data_acquisition/counts.tsv\",\"declared_producer\":null}}",
+                            "attempts": []
+                        }
+                    }
+                }
+            }
+        });
+        fs::write(root.join("WORKFLOW.json"), serde_json::to_vec_pretty(&wf).unwrap()).unwrap();
+    }
+
+    /// Plant an ro-crate-metadata.json with a non-empty
+    /// `ecaax:provenanceDivergence` array on the root Dataset.
+    fn write_ro_crate_divergence(root: &Path) {
+        let md = serde_json::json!({
+            "@graph": [
+                {
+                    "@id": "./",
+                    "@type": "Dataset",
+                    "ecaax:provenanceDivergence": [
+                        {
+                            "task_id": "differential_expression",
+                            "read_path": "runtime/outputs/data_acquisition/counts.tsv",
+                            "declared_producer": null
+                        }
+                    ]
+                }
+            ]
+        });
+        fs::write(
+            root.join("ro-crate-metadata.json"),
+            serde_json::to_vec_pretty(&md).unwrap(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn scan_provenance_divergence_detects_both_sources_and_clean_when_none() {
+        // Clean: empty package.
+        let clean = tempfile::tempdir().unwrap();
+        assert!(scan_provenance_divergence(clean.path()).is_clean());
+
+        // WORKFLOW.json blocked-task source.
+        let wf = tempfile::tempdir().unwrap();
+        write_workflow_divergence_block(wf.path(), "differential_expression");
+        let s = scan_provenance_divergence(wf.path());
+        assert!(!s.is_clean(), "a Blocked{{ProvenanceDivergence}} task is a divergence");
+        assert_eq!(s.divergences.len(), 1);
+
+        // RO-Crate array source.
+        let rc = tempfile::tempdir().unwrap();
+        write_ro_crate_divergence(rc.path());
+        let s = scan_provenance_divergence(rc.path());
+        assert!(!s.is_clean(), "a non-empty ecaax:provenanceDivergence is a divergence");
+        assert!(s.divergences[0].contains("data_acquisition/counts.tsv"));
+
+        // A Blocked task for ANOTHER reason must NOT count.
+        let other = tempfile::tempdir().unwrap();
+        let wf = serde_json::json!({
+            "tasks": {"t": {"state": {"status": "blocked",
+                "record": {"reason": "[claim_coverage] something else", "attempts": []}}}}
+        });
+        fs::write(other.path().join("WORKFLOW.json"), wf.to_string()).unwrap();
+        assert!(scan_provenance_divergence(other.path()).is_clean());
+    }
+
+    /// §G-B2: a recorded genuine observed-read divergence must flip
+    /// `deposit_ready` false and make the Layer-3 gate REFUSE — even for a
+    /// `full` profile and even non-strict (a divergence is a hard block).
+    #[test]
+    fn gate_refuses_recorded_provenance_divergence() {
+        // Source (1): WORKFLOW.json Blocked{ProvenanceDivergence}.
+        let wf = tempfile::tempdir().unwrap();
+        write_workflow_divergence_block(wf.path(), "differential_expression");
+        write_deposit_readiness(
+            wf.path(),
+            "full",
+            &tier1(CheckStatus::Pass, CheckStatus::Pass, None),
+            ReexecStatus::Pass,
+            None,
+            None,
+            &WallClock,
+        )
+        .unwrap();
+        let dr = read_deposit_readiness(wf.path()).unwrap().unwrap();
+        assert_eq!(dr.ro_crate, CheckStatus::Pass, "structurally sound");
+        assert_eq!(dr.bagit, CheckStatus::Pass, "structurally sound");
+        assert_eq!(dr.provenance_divergence, CheckStatus::Fail);
+        assert!(!dr.deposit_ready, "a recorded divergence must block deposit-readiness");
+        assert!(dr.detail.as_deref().unwrap().contains("divergence"));
+        let err = check_deposit_readiness(wf.path(), false)
+            .expect_err("Layer-3 gate must refuse a recorded divergence even non-strict");
+        assert!(format!("{err:#}").contains("divergence"));
+
+        // Source (2): RO-Crate ecaax:provenanceDivergence array.
+        let rc = tempfile::tempdir().unwrap();
+        write_ro_crate_divergence(rc.path());
+        write_deposit_readiness(
+            rc.path(),
+            "full",
+            &tier1(CheckStatus::Pass, CheckStatus::Pass, None),
+            ReexecStatus::Pass,
+            None,
+            None,
+            &WallClock,
+        )
+        .unwrap();
+        let dr = read_deposit_readiness(rc.path()).unwrap().unwrap();
+        assert_eq!(dr.provenance_divergence, CheckStatus::Fail);
+        assert!(!dr.deposit_ready);
+        assert!(check_deposit_readiness(rc.path(), false).is_err());
+    }
+
+    /// A clean package (no recorded divergence) passes the §G-B2 backstop:
+    /// `provenance_divergence` reads `Pass` and the gate admits it.
+    #[test]
+    fn clean_package_passes_divergence_backstop() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_deposit_readiness(
+            tmp.path(),
+            "full",
+            &tier1(CheckStatus::Pass, CheckStatus::Pass, None),
+            ReexecStatus::Pass,
+            None,
+            None,
+            &WallClock,
+        )
+        .unwrap();
+        let dr = read_deposit_readiness(tmp.path()).unwrap().unwrap();
+        assert_eq!(dr.provenance_divergence, CheckStatus::Pass);
+        assert!(dr.deposit_ready);
+        assert!(check_deposit_readiness(tmp.path(), false).is_ok());
     }
 }
