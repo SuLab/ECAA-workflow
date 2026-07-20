@@ -1830,13 +1830,341 @@ fn load_symbol_ensembl_map(path: &Path) -> Option<BTreeMap<String, String>> {
     }
 }
 
+// ============================================================================
+// DR-10: paralog / segmental-duplication-aware classification of a
+//        gene-symbol↔Ensembl disagreement.
+// ============================================================================
+//
+// A raw symbol↔Ensembl disagreement is not always a real error. Human
+// segmental-duplication / alt-haplotype loci (LRRC37A, GOLGA8*, SMN, …) carry
+// near-identical paralogs whose reads cross-map, so a quantifier legitimately
+// reassigns a symbol to a paralog's Ensembl id across releases. A citation
+// attached to such a paralog is a BENIGN ambiguity (warn) — but ONLY when
+// (a) both identifiers fall in the same curated family, (b) the DE
+// direction/effect is concordant, and (c) the target is not a pseudogene.
+// A true cross-gene wrong-binding at an unrelated locus (the historical
+// CRISPLD2→ACSL5), a pseudogene target of an expression claim, and a
+// same-family pair with OPPOSITE clinical meaning (SMN1↔SMN2) all stay
+// required failures. The curated table lives in the embedded
+// `paralog_families.json`, keyed to a pinned Ensembl release.
+
+#[derive(Debug, Clone, Deserialize)]
+struct ParalogMember {
+    symbol: String,
+    ensembl: String,
+    #[serde(default)]
+    pseudogene: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ParalogFamily {
+    #[allow(dead_code)]
+    family_id: String,
+    #[serde(default)]
+    opposite_clinical_meaning: bool,
+    members: Vec<ParalogMember>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ParalogTable {
+    #[serde(default)]
+    #[allow(dead_code)]
+    ensembl_release: String,
+    families: Vec<ParalogFamily>,
+}
+
+/// Curated paralog/family table, parsed once from the embedded JSON.
+fn paralog_table() -> &'static ParalogTable {
+    static TABLE: std::sync::OnceLock<ParalogTable> = std::sync::OnceLock::new();
+    TABLE.get_or_init(|| {
+        serde_json::from_str(include_str!("paralog_families.json"))
+            .expect("embedded paralog_families.json must parse")
+    })
+}
+
+/// Normalize an Ensembl gene accession: extract the first `ENSG<digits>`
+/// token (dropping any `.version` suffix), uppercased. Handles bare ids
+/// (`ENSG00000103196`), versioned ids (`ENSG00000103196.13`), and composite
+/// finding ids (`DE_CRISPLD2_ENSG00000103196.13`). Returns `None` when the
+/// string carries no Ensembl gene accession.
+fn norm_ensembl(s: &str) -> Option<String> {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re = RE.get_or_init(|| regex::Regex::new(r"(?i)ENSG[0-9]{6,}").unwrap());
+    re.find(s).map(|m| m.as_str().to_ascii_uppercase())
+}
+
+/// Extract candidate gene SYMBOL tokens from a composite finding id such as
+/// `DE_LRRC37A2_ENSG00000238083`: split on `_`/`:`/whitespace and keep the
+/// segments that look like a bare symbol (alphanumeric, not an Ensembl
+/// accession, not the `DE`/stage prefix). Used so a family match can key on
+/// the symbol the finding id names even when the release re-versioned the
+/// accession.
+fn extract_symbol_tokens(finding_id: &str) -> Vec<String> {
+    finding_id
+        .split(|c: char| c == '_' || c == ':' || c.is_whitespace())
+        .map(|t| t.trim())
+        .filter(|t| {
+            !t.is_empty()
+                && !t.eq_ignore_ascii_case("DE")
+                && norm_ensembl(t).is_none()
+                && t.chars().any(|c| c.is_ascii_alphabetic())
+        })
+        .map(|t| t.to_ascii_uppercase())
+        .collect()
+}
+
+/// Backstop pseudogene heuristic (the curated table's per-member `pseudogene`
+/// flag is authoritative; this only fires for symbols absent from the table).
+/// Recognizes the classic parent-symbol + `P` processed-pseudogene naming
+/// (`GOLGA6L3P` — a digit immediately before a trailing `P`) and the TP53TG
+/// pseudogene-like cluster. Errs toward `true` (which keeps a case as a
+/// required failure), so a false positive over-blocks rather than under-blocks.
+fn is_pseudogene_symbol_heuristic(sym: &str) -> bool {
+    let up = sym.to_ascii_uppercase();
+    if up.starts_with("TP53TG") {
+        return true;
+    }
+    // Trailing `P` preceded by a digit: `...3P` (processed-pseudogene marker).
+    let bytes = up.as_bytes();
+    if bytes.len() >= 2 && bytes[bytes.len() - 1] == b'P' {
+        if bytes[bytes.len() - 2].is_ascii_digit() {
+            return true;
+        }
+    }
+    false
+}
+
+/// The curated family (if any) that lists `symbol` as a member, plus that
+/// member's pseudogene flag. Case-insensitive on the symbol.
+fn family_for_symbol(symbol: &str) -> Option<(&'static ParalogFamily, bool)> {
+    let up = symbol.to_ascii_uppercase();
+    for fam in &paralog_table().families {
+        for m in &fam.members {
+            if m.symbol.eq_ignore_ascii_case(&up) {
+                return Some((fam, m.pseudogene));
+            }
+        }
+    }
+    None
+}
+
+/// `true` when `claimed_ens` (a normalized Ensembl id, if extractable) OR any
+/// `claimed_syms` token names a member of `fam` — i.e. the claimed identifier
+/// is a same-family paralog rather than an unrelated locus.
+fn claimed_is_same_family(
+    fam: &ParalogFamily,
+    claimed_ens: Option<&str>,
+    claimed_syms: &[String],
+) -> bool {
+    fam.members.iter().any(|m| {
+        let ens_hit = match (claimed_ens, norm_ensembl(&m.ensembl)) {
+            (Some(c), Some(me)) => c == me,
+            _ => false,
+        };
+        let sym_hit = claimed_syms
+            .iter()
+            .any(|s| s.eq_ignore_ascii_case(&m.symbol));
+        ens_hit || sym_hit
+    })
+}
+
+/// Is the DE direction/effect of the claimed paralog concordant with the true
+/// gene? Authoritative signal: same sign of the effect column for both
+/// Ensembl ids in the independent annotation table. When the claimed
+/// paralog's effect is not present in the table, fall back to the claims-row
+/// `concordance_flag` (`same_direction` ⇒ concordant, `opposite_direction` ⇒
+/// discordant). When neither can establish concordance, return `false` —
+/// DR-10 requires POSITIVE concordance to downgrade, so an indeterminate
+/// direction stays a required failure.
+fn direction_concordant(
+    claimed_ens: Option<&str>,
+    truth_ens: &str,
+    concordance_flag: Option<&str>,
+    effects: &BTreeMap<String, f64>,
+) -> bool {
+    let truth_eff = effects.get(truth_ens);
+    let claimed_eff = claimed_ens.and_then(|c| effects.get(c));
+    if let (Some(&ce), Some(&te)) = (claimed_eff, truth_eff) {
+        return (ce > 0.0 && te > 0.0) || (ce < 0.0 && te < 0.0) || (ce == 0.0 && te == 0.0);
+    }
+    match concordance_flag.map(|f| f.trim().to_ascii_lowercase()) {
+        Some(f) if f == "same_direction" => true,
+        _ => false,
+    }
+}
+
+/// Severity of one classified symbol↔Ensembl disagreement (DR-10).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum MismatchSeverity {
+    /// A benign same-family paralog ambiguity — recorded as a warning, does
+    /// NOT block the deposit.
+    Warn,
+    /// A real disagreement that must block the deposit (unrelated locus,
+    /// pseudogene target, opposite clinical meaning, or discordant direction).
+    Required,
+}
+
+/// Classify a single disagreement into warn-vs-required per DR-10.
+fn classify_mismatch(
+    symbol: &str,
+    claimed_display: &str,
+    claimed_ens: Option<&str>,
+    truth_ens: &str,
+    concordance_flag: Option<&str>,
+    effects: &BTreeMap<String, f64>,
+) -> (MismatchSeverity, String) {
+    let Some((fam, member_is_pseudogene)) = family_for_symbol(symbol) else {
+        // Not in any curated paralog family → treat as an unrelated-locus
+        // cross-gene wrong-binding (the CRISPLD2→ACSL5 class).
+        return (
+            MismatchSeverity::Required,
+            format!(
+                "{symbol}: finding_id {claimed_display} != annotation {truth_ens} \
+                 (cross-gene wrong-binding at an unrelated locus; not in the curated paralog table)"
+            ),
+        );
+    };
+
+    // (c) Pseudogene target of an expression claim — never downgraded.
+    if member_is_pseudogene || is_pseudogene_symbol_heuristic(symbol) {
+        return (
+            MismatchSeverity::Required,
+            format!(
+                "{symbol}: finding_id {claimed_display} != annotation {truth_ens} \
+                 (target is a pseudogene; expression claim not adjudicable)"
+            ),
+        );
+    }
+
+    let claimed_syms = extract_symbol_tokens(claimed_display);
+    if !claimed_is_same_family(fam, claimed_ens, &claimed_syms) {
+        return (
+            MismatchSeverity::Required,
+            format!(
+                "{symbol}: finding_id {claimed_display} != annotation {truth_ens} \
+                 (claimed id is outside {symbol}'s paralog family; cross-gene wrong-binding)"
+            ),
+        );
+    }
+
+    // (a) same family established. Same-family pairs with opposite clinical
+    // meaning (SMN1↔SMN2) are genuine wrong-bindings — never downgraded.
+    if fam.opposite_clinical_meaning {
+        return (
+            MismatchSeverity::Required,
+            format!(
+                "{symbol}: finding_id {claimed_display} != annotation {truth_ens} \
+                 (same family but members carry opposite clinical meaning)"
+            ),
+        );
+    }
+
+    // (b) direction/effect concordance is required for the downgrade.
+    if !direction_concordant(claimed_ens, truth_ens, concordance_flag, effects) {
+        return (
+            MismatchSeverity::Required,
+            format!(
+                "{symbol}: finding_id {claimed_display} != annotation {truth_ens} \
+                 (same-family paralog but DE direction/effect is not concordant)"
+            ),
+        );
+    }
+
+    (
+        MismatchSeverity::Warn,
+        format!(
+            "{symbol}: finding_id {claimed_display} bound to a same-family paralog of \
+             annotation {truth_ens} (concordant direction, non-pseudogene) — benign \
+             segmental-duplication ambiguity, downgraded to a warning (DR-10)"
+        ),
+    )
+}
+
+/// Read an `(ensembl -> effect)` map from the independent annotation table so
+/// the paralog direction/effect concordance check (DR-10) has a signal. The
+/// effect column is the first present in a small canonical set
+/// (`log2foldchange`/`log2fc`/`logfc`/`lfc`/`stat`/`statistic`/`score`/`t`);
+/// keys are normalized Ensembl ids. Returns an empty map when the file has no
+/// Ensembl+effect pairing (the caller then falls back to `concordance_flag`).
+fn load_ensembl_effect_map(path: &Path) -> BTreeMap<String, f64> {
+    let mut out: BTreeMap<String, f64> = BTreeMap::new();
+    let delimiter = if path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case("tsv"))
+        .unwrap_or(false)
+    {
+        b'\t'
+    } else {
+        b','
+    };
+    let Ok(mut rdr) = csv::ReaderBuilder::new().delimiter(delimiter).from_path(path) else {
+        return out;
+    };
+    let Ok(headers) = rdr.headers().map(|h| h.clone()) else {
+        return out;
+    };
+    let find_col = |names: &[&str]| -> Option<usize> {
+        headers
+            .iter()
+            .position(|h| names.iter().any(|n| h.eq_ignore_ascii_case(n)))
+    };
+    let Some(ens_idx) = find_col(&["gene_id", "ensembl", "ensembl_id", "ensembl_gene_id"]) else {
+        return out;
+    };
+    let Some(eff_idx) = find_col(&[
+        "log2foldchange",
+        "log2fc",
+        "log2_fold_change",
+        "logfc",
+        "lfc",
+        "stat",
+        "statistic",
+        "score",
+        "wald",
+        "t",
+    ]) else {
+        return out;
+    };
+    for rec in rdr.records().flatten() {
+        let (Some(ens), Some(eff)) = (rec.get(ens_idx), rec.get(eff_idx)) else {
+            continue;
+        };
+        let (Some(ens), Ok(eff)) = (norm_ensembl(ens), eff.trim().parse::<f64>()) else {
+            continue;
+        };
+        out.entry(ens).or_insert(eff);
+    }
+    out
+}
+
+/// Locate the independent symbol↔Ensembl annotation TABLE (path), reusing the
+/// same preference-then-scan discovery as [`gene_symbol_ensembl_consistent`]
+/// so the paralog effect map can be loaded from the same file.
+fn find_symbol_ensembl_table(outputs: &Path) -> Option<std::path::PathBuf> {
+    let preferred = [
+        outputs.join("pathway_enrichment/intermediates/ranked_genes.tsv"),
+        outputs.join("pathway_enrichment/intermediates/ranked_gene_list.tsv"),
+        outputs.join("pathway_enrichment/ranked_genes.tsv"),
+        outputs.join("pathway_enrichment/ranked_gene_list.tsv"),
+        outputs.join("differential_expression/de_results.tsv"),
+    ];
+    if let Some(p) = preferred
+        .iter()
+        .filter(|p| p.exists())
+        .find(|p| load_symbol_ensembl_map(p).is_some())
+    {
+        return Some(p.clone());
+    }
+    scan_for_symbol_ensembl_table_path(outputs)
+}
+
 /// Scan every task output dir (and its `intermediates/` subdir) for the first
-/// `.tsv`/`.csv` from which `load_symbol_ensembl_map` can build a non-empty
-/// symbol→Ensembl map. Deterministic: directory entries are sorted before the
-/// search so re-reads pick the same table. Returns `None` when no table in the
-/// package pairs a symbol with an Ensembl id (the validator then soft-skips
-/// rather than fabricate a truth source).
-fn scan_for_symbol_ensembl_map(outputs_dir: &Path) -> Option<BTreeMap<String, String>> {
+/// `.tsv`/`.csv` from which [`load_symbol_ensembl_map`] builds a non-empty
+/// symbol→Ensembl map, returning its PATH. Deterministic (sorted traversal),
+/// so re-reads pick the same table; `None` when no table in the package pairs
+/// a symbol with an Ensembl id (the validator then soft-skips).
+fn scan_for_symbol_ensembl_table_path(outputs_dir: &Path) -> Option<std::path::PathBuf> {
     let mut dirs: Vec<std::path::PathBuf> = Vec::new();
     if let Ok(rd) = std::fs::read_dir(outputs_dir) {
         for e in rd.flatten() {
@@ -1864,14 +2192,64 @@ fn scan_for_symbol_ensembl_map(outputs_dir: &Path) -> Option<BTreeMap<String, St
                 .and_then(|x| x.to_str())
                 .map(|x| x.eq_ignore_ascii_case("tsv") || x.eq_ignore_ascii_case("csv"))
                 .unwrap_or(false);
-            if is_table {
-                if let Some(map) = load_symbol_ensembl_map(&f) {
-                    return Some(map);
-                }
+            if is_table && load_symbol_ensembl_map(&f).is_some() {
+                return Some(f);
             }
         }
     }
     None
+}
+
+/// The synthetic `validate_*` task dir whose `result.json` carries the
+/// gene-symbol obligation verdict for the deposit-readiness domain rollup
+/// (DR-2). It is a dedicated dir (not a real DAG task's) so the write is
+/// race-free with the contextualize step's own `validate_*` companion, and
+/// its `validate_` prefix means `deposit_readiness::scan_domain_validation`
+/// already scans it.
+pub const GENE_SYMBOL_VALIDATE_TASK: &str = "validate_gene_symbol_ensembl_consistent";
+
+/// Persist the gene-symbol obligation verdict into
+/// `runtime/outputs/validate_gene_symbol_ensembl_consistent/result.json` so a
+/// REQUIRED failure rolls up into `domain_validation`/`deposit_ready` (DR-2):
+/// `scan_domain_validation` reads `validation_passed` + `required_failures`
+/// there. Deterministic (sorted, no wall-clock) and idempotent; a clean pass
+/// REMOVES any stale verdict so a fixed re-run does not retain an old failure.
+/// Best-effort: a write failure is swallowed (the obligation report row is the
+/// primary record; this is the rollup bridge).
+fn record_gene_symbol_domain_verdict(
+    package_root: &Path,
+    required_failures: &[String],
+    warnings: &[String],
+) {
+    let dir = package_root
+        .join("runtime/outputs")
+        .join(GENE_SYMBOL_VALIDATE_TASK);
+    let result_path = dir.join("result.json");
+
+    // Clean pass (nothing to record) → drop any stale verdict and return.
+    if required_failures.is_empty() && warnings.is_empty() {
+        let _ = std::fs::remove_file(&result_path);
+        return;
+    }
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let mut req = required_failures.to_vec();
+    req.sort();
+    req.dedup();
+    let mut warn = warnings.to_vec();
+    warn.sort();
+    warn.dedup();
+    let body = serde_json::json!({
+        "obligation": "gene_symbol_ensembl_consistent",
+        "validation_passed": req.is_empty(),
+        "checks_failed": req.len(),
+        "required_failures": req,
+        "warnings": warn,
+    });
+    if let Ok(bytes) = serde_json::to_vec_pretty(&body) {
+        let _ = std::fs::write(&result_path, bytes);
+    }
 }
 
 /// Committed, INDEPENDENT gene-symbol↔Ensembl consistency check. Catches the
@@ -1882,6 +2260,14 @@ fn scan_for_symbol_ensembl_map(outputs_dir: &Path) -> Option<BTreeMap<String, St
 /// table — the pathway step's `pathway_enrichment/intermediates/ranked_genes.tsv`
 /// (symbol↔Ensembl from org.Hs.eg.db) — and the claims matrix's
 /// `(gene_symbol, finding_id)` pairs are checked against it.
+///
+/// DR-10: a disagreement is classified paralog-aware — a benign same-family
+/// segmental-duplication paralog (concordant direction, non-pseudogene,
+/// non-opposite-clinical-meaning) is downgraded to a WARNING; unrelated-locus
+/// cross-gene wrong-bindings, pseudogene targets, opposite-clinical-meaning
+/// pairs, and direction-discordant same-family pairs stay REQUIRED failures.
+/// DR-2: the verdict is also written into a `validate_*` `result.json` so a
+/// required failure rolls up into deposit-readiness `domain_validation`.
 ///
 /// Returns:
 ///   - [`ValidatorOutcome::Failed`] listing each mismatched
@@ -1904,19 +2290,7 @@ pub fn gene_symbol_ensembl_consistent(package_root: &Path) -> ValidatorOutcome {
     // `load_symbol_ensembl_map` can build a non-empty symbol→Ensembl map. The
     // map is only usable if a table actually carries BOTH columns, so this is
     // robust to filename drift without ever fabricating a truth source.
-    let preferred = [
-        outputs.join("pathway_enrichment/intermediates/ranked_genes.tsv"),
-        outputs.join("pathway_enrichment/intermediates/ranked_gene_list.tsv"),
-        outputs.join("pathway_enrichment/ranked_genes.tsv"),
-        outputs.join("pathway_enrichment/ranked_gene_list.tsv"),
-        outputs.join("differential_expression/de_results.tsv"),
-    ];
-    let truth = preferred
-        .iter()
-        .filter(|p| p.exists())
-        .find_map(|p| load_symbol_ensembl_map(p))
-        .or_else(|| scan_for_symbol_ensembl_map(&outputs));
-    let Some(truth) = truth else {
+    let Some(truth_path) = find_symbol_ensembl_table(&outputs) else {
         // No table in the package pairs a symbol with an Ensembl id, so there
         // is no INDEPENDENT annotation to adjudicate against. Soft-skip
         // (Errored is non-blocking) rather than fabricate a verdict.
@@ -1926,6 +2300,18 @@ pub fn gene_symbol_ensembl_consistent(package_root: &Path) -> ValidatorOutcome {
                 .into(),
         };
     };
+    let Some(truth) = load_symbol_ensembl_map(&truth_path) else {
+        return ValidatorOutcome::Errored {
+            reason: "no independent symbol↔Ensembl annotation table in package \
+                     (no output table carries both a symbol and an Ensembl/gene_id column)"
+                .into(),
+        };
+    };
+    // Per-Ensembl DE effect from the SAME independent table, so the paralog
+    // direction/effect concordance check (DR-10) has a signal (may be empty
+    // when the table has no effect column — the classifier then falls back to
+    // the claims-row concordance_flag).
+    let effects = load_ensembl_effect_map(&truth_path);
 
     // (2) The claims matrix the contextualize step emitted.
     let claims_csv =
@@ -1963,6 +2349,11 @@ pub fn gene_symbol_ensembl_consistent(package_root: &Path) -> ValidatorOutcome {
     let fid_idx = headers
         .iter()
         .position(|h| h.eq_ignore_ascii_case("finding_id"));
+    // Optional per-row DE-direction signal for the paralog concordance check
+    // (DR-10) when the annotation table carries no effect column.
+    let flag_idx = headers
+        .iter()
+        .position(|h| h.eq_ignore_ascii_case("concordance_flag"));
     // Without a symbol + finding_id pairing there is nothing to cross-check;
     // soft-skip (Errored is non-blocking) rather than fail.
     let (Some(sym_idx), Some(fid_idx)) = (sym_idx, fid_idx) else {
@@ -1973,8 +2364,11 @@ pub fn gene_symbol_ensembl_consistent(package_root: &Path) -> ValidatorOutcome {
         };
     };
 
-    // (3) Compare every non-empty gene_symbol's finding_id to the truth Ensembl.
-    let mut mismatches: Vec<String> = Vec::new();
+    // (3) Compare every non-empty gene_symbol's finding_id to the truth
+    // Ensembl, classifying each disagreement paralog-aware (DR-10) into a
+    // benign same-family WARNING vs a REQUIRED failure.
+    let mut required: Vec<String> = Vec::new();
+    let mut warnings: Vec<String> = Vec::new();
     for rec in rdr.records().flatten() {
         let Some(symbol) = rec.get(sym_idx).map(str::trim) else {
             continue;
@@ -1983,11 +2377,34 @@ pub fn gene_symbol_ensembl_consistent(package_root: &Path) -> ValidatorOutcome {
             continue;
         }
         let finding_id = rec.get(fid_idx).map(str::trim).unwrap_or("");
+        let concordance_flag = flag_idx.and_then(|i| rec.get(i)).map(str::trim);
         if let Some(truth_ens) = truth.get(symbol) {
-            if finding_id != truth_ens {
-                mismatches.push(format!(
-                    "{symbol}: finding_id {finding_id} != annotation {truth_ens}"
-                ));
+            // Compare on the normalized Ensembl accession so a composite
+            // finding_id (`DE_CRISPLD2_ENSG…`) or a version suffix does not
+            // register a spurious mismatch; fall back to a raw compare only
+            // when the finding_id carries no Ensembl accession at all.
+            let claimed_norm = norm_ensembl(finding_id);
+            let truth_norm = norm_ensembl(truth_ens).unwrap_or_else(|| truth_ens.to_string());
+            let is_mismatch = match &claimed_norm {
+                Some(c) => c != &truth_norm,
+                None => finding_id != truth_ens,
+            };
+            if is_mismatch {
+                // Display the RAW finding_id (it may encode a paralog SYMBOL,
+                // e.g. `DE_LRRC37A2_ENSG…`, that the family match keys on) while
+                // comparing on the normalized accession.
+                let (severity, reason) = classify_mismatch(
+                    symbol,
+                    finding_id,
+                    claimed_norm.as_deref(),
+                    &truth_norm,
+                    concordance_flag,
+                    &effects,
+                );
+                match severity {
+                    MismatchSeverity::Required => required.push(reason),
+                    MismatchSeverity::Warn => warnings.push(reason),
+                }
             }
         }
         // A symbol absent from the independent annotation is not adjudicable
@@ -1995,14 +2412,28 @@ pub fn gene_symbol_ensembl_consistent(package_root: &Path) -> ValidatorOutcome {
         // upstream-PK presence is checked by claim_row_has_finding_id.
     }
 
-    if mismatches.is_empty() {
+    // DR-2: bridge the verdict into the deposit-readiness domain rollup.
+    record_gene_symbol_domain_verdict(package_root, &required, &warnings);
+
+    if required.is_empty() {
+        // Benign paralog ambiguities (if any) were recorded as warnings; the
+        // obligation itself does not block.
         ValidatorOutcome::Passed
     } else {
         ValidatorOutcome::Failed {
             message: format!(
-                "{} gene-symbol↔Ensembl mismatch(es) vs independent annotation: {}",
-                mismatches.len(),
-                mismatches.join("; ")
+                "{} required gene-symbol↔Ensembl mismatch(es) vs independent annotation: {}{}",
+                required.len(),
+                required.join("; "),
+                if warnings.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        " | {} benign paralog warning(s) (DR-10): {}",
+                        warnings.len(),
+                        warnings.join("; ")
+                    )
+                }
             ),
         }
     }
@@ -3510,5 +3941,243 @@ mod tests {
             "must catch the ACSL5 mislabel through the dispatch path, got {:?}",
             rows[0].outcome
         );
+    }
+
+    // ---- DR-10: paralog-aware classification --------------------------------
+
+    /// Scaffold a package with a custom independent truth table
+    /// (`ranked_genes.tsv`: symbol/gene_id/stat) and a custom claims matrix
+    /// (`finding_id,gene_symbol`).
+    fn scaffold_paralog_pkg(
+        root: &Path,
+        truth_rows: &[(&str, &str, f64)],
+        claims_rows: &[(&str, &str)],
+    ) {
+        let ctx = root.join("runtime/outputs/contextualize_findings_with_literature");
+        fs::create_dir_all(&ctx).unwrap();
+        let mut claims = String::from("finding_id,gene_symbol\n");
+        for (fid, sym) in claims_rows {
+            claims.push_str(&format!("{fid},{sym}\n"));
+        }
+        write(&ctx.join("claims_evidence_matrix.csv"), &claims);
+
+        let pw = root.join("runtime/outputs/pathway_enrichment/intermediates");
+        fs::create_dir_all(&pw).unwrap();
+        let mut truth = String::from("symbol\tgene_id\tstat\n");
+        for (sym, ens, stat) in truth_rows {
+            truth.push_str(&format!("{sym}\t{ens}\t{stat}\n"));
+        }
+        write(&pw.join("ranked_genes.tsv"), &truth);
+    }
+
+    fn read_gene_symbol_verdict(root: &Path) -> Option<serde_json::Value> {
+        let p = root
+            .join("runtime/outputs")
+            .join(GENE_SYMBOL_VALIDATE_TASK)
+            .join("result.json");
+        std::fs::read_to_string(p)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+    }
+
+    #[test]
+    fn paralog_benign_same_family_concordant_downgrades_to_warn() {
+        // LRRC37A truly maps to ENSG…681; the claim binds it to its 17q21
+        // segmental-duplication paralog LRRC37A2 (ENSG…083), which is DE in the
+        // SAME direction. Benign ambiguity → WARN, not a required failure.
+        let dir = TempDir::new().unwrap();
+        scaffold_paralog_pkg(
+            dir.path(),
+            &[
+                ("LRRC37A", "ENSG00000176681", 5.0),
+                ("LRRC37A2", "ENSG00000238083", 4.7),
+            ],
+            &[("DE_LRRC37A2_ENSG00000238083", "LRRC37A")],
+        );
+        assert!(
+            matches!(gene_symbol_ensembl_consistent(dir.path()), ValidatorOutcome::Passed),
+            "a concordant same-family paralog must not be a required failure"
+        );
+        let v = read_gene_symbol_verdict(dir.path()).expect("verdict recorded");
+        assert_eq!(v["validation_passed"], serde_json::json!(true));
+        assert_eq!(v["required_failures"].as_array().unwrap().len(), 0);
+        assert_eq!(
+            v["warnings"].as_array().unwrap().len(),
+            1,
+            "the benign paralog must be recorded as a warning"
+        );
+    }
+
+    #[test]
+    fn paralog_same_family_discordant_direction_stays_required() {
+        // Same LRRC37A↔LRRC37A2 family, but the paralog is DE in the OPPOSITE
+        // direction — swapping it changes the biology → required failure.
+        let dir = TempDir::new().unwrap();
+        scaffold_paralog_pkg(
+            dir.path(),
+            &[
+                ("LRRC37A", "ENSG00000176681", 5.0),
+                ("LRRC37A2", "ENSG00000238083", -4.7),
+            ],
+            &[("DE_LRRC37A2_ENSG00000238083", "LRRC37A")],
+        );
+        assert!(matches!(
+            gene_symbol_ensembl_consistent(dir.path()),
+            ValidatorOutcome::Failed { .. }
+        ));
+        let v = read_gene_symbol_verdict(dir.path()).unwrap();
+        assert_eq!(v["validation_passed"], serde_json::json!(false));
+        assert_eq!(v["required_failures"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn smn1_smn2_opposite_clinical_meaning_stays_required() {
+        // SMN1 and SMN2 are same-family, concordant direction — but they carry
+        // OPPOSITE clinical meaning, so the confusion must stay required-fail.
+        let dir = TempDir::new().unwrap();
+        scaffold_paralog_pkg(
+            dir.path(),
+            &[
+                ("SMN1", "ENSG00000172062", 3.0),
+                ("SMN2", "ENSG00000205571", 3.1),
+            ],
+            &[("DE_SMN2_ENSG00000205571", "SMN1")],
+        );
+        match gene_symbol_ensembl_consistent(dir.path()) {
+            ValidatorOutcome::Failed { message } => {
+                assert!(message.contains("opposite clinical meaning"), "msg: {message}");
+            }
+            other => panic!("SMN1↔SMN2 must stay required-fail, got {other:?}"),
+        }
+        assert_eq!(
+            read_gene_symbol_verdict(dir.path()).unwrap()["validation_passed"],
+            serde_json::json!(false)
+        );
+    }
+
+    #[test]
+    fn pseudogene_target_stays_required() {
+        // GOLGA6L3P is a processed pseudogene (flagged in the curated table);
+        // an expression claim mis-bound onto it is not adjudicable → required.
+        let dir = TempDir::new().unwrap();
+        scaffold_paralog_pkg(
+            dir.path(),
+            &[
+                ("GOLGA6L3P", "ENSG00000259425", 2.0),
+                ("GOLGA6L1", "ENSG00000174450", 2.1),
+            ],
+            &[("DE_GOLGA6L1_ENSG00000174450", "GOLGA6L3P")],
+        );
+        match gene_symbol_ensembl_consistent(dir.path()) {
+            ValidatorOutcome::Failed { message } => {
+                assert!(message.contains("pseudogene"), "msg: {message}");
+            }
+            other => panic!("a pseudogene target must stay required-fail, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn cross_gene_unrelated_locus_stays_required() {
+        // CRISPLD2 (chr16) bound to ACSL5's Ensembl (chr10): unrelated loci,
+        // not a paralog family → required (the historical false-citation class).
+        let dir = TempDir::new().unwrap();
+        scaffold_paralog_pkg(
+            dir.path(),
+            &[("CRISPLD2", "ENSG00000103196", 16.7)],
+            &[("ENSG00000197142", "CRISPLD2")],
+        );
+        match gene_symbol_ensembl_consistent(dir.path()) {
+            ValidatorOutcome::Failed { message } => {
+                assert!(message.contains("CRISPLD2"), "msg: {message}");
+                assert!(message.contains("ENSG00000197142"), "msg: {message}");
+            }
+            other => panic!("cross-gene wrong-binding must stay required-fail, got {other:?}"),
+        }
+        assert_eq!(
+            read_gene_symbol_verdict(dir.path()).unwrap()["validation_passed"],
+            serde_json::json!(false)
+        );
+    }
+
+    #[test]
+    fn benign_paralog_corpus_downgrades_to_warn() {
+        // Representative benign deposit cases across distinct segmental-
+        // duplication families: each binds its symbol to a concordant
+        // same-family paralog → WARN (not required).
+        let cases: &[(&str, &str, f64, &str, &str, f64)] = &[
+            ("LRRC37A", "ENSG00000176681", 4.0, "LRRC37A2", "ENSG00000238083", 3.6),
+            ("ARL17A", "ENSG00000185829", 2.5, "ARL17B", "ENSG00000228696", 2.2),
+            ("RABL2B", "ENSG00000079805", 1.8, "RABL2A", "ENSG00000079974", 1.7),
+            ("GOLGA8A", "ENSG00000104332", 3.1, "GOLGA8M", "ENSG00000188626", 2.9),
+            ("SLX1B", "ENSG00000181625", 2.0, "SLX1A", "ENSG00000180992", 1.9),
+            ("GPR89B", "ENSG00000117262", 2.4, "GPR89A", "ENSG00000188092", 2.3),
+        ];
+        for (sym, sym_ens, sym_eff, para, para_ens, para_eff) in cases {
+            let dir = TempDir::new().unwrap();
+            scaffold_paralog_pkg(
+                dir.path(),
+                &[(sym, sym_ens, *sym_eff), (para, para_ens, *para_eff)],
+                &[(&format!("DE_{para}_{para_ens}"), sym)],
+            );
+            assert!(
+                matches!(gene_symbol_ensembl_consistent(dir.path()), ValidatorOutcome::Passed),
+                "benign paralog {sym}→{para} must downgrade to a warning"
+            );
+            let v = read_gene_symbol_verdict(dir.path()).unwrap();
+            assert_eq!(
+                v["warnings"].as_array().unwrap().len(),
+                1,
+                "{sym}→{para} must record exactly one paralog warning"
+            );
+            assert_eq!(v["required_failures"].as_array().unwrap().len(), 0);
+        }
+    }
+
+    #[test]
+    fn clean_pass_removes_stale_domain_verdict() {
+        // A required failure records a verdict; when the disagreement is later
+        // fixed (claim == truth), the stale verdict must be dropped so a fixed
+        // re-run does not keep reporting a domain failure.
+        let dir = TempDir::new().unwrap();
+        scaffold_paralog_pkg(
+            dir.path(),
+            &[("CRISPLD2", "ENSG00000103196", 16.7)],
+            &[("ENSG00000197142", "CRISPLD2")],
+        );
+        assert!(matches!(
+            gene_symbol_ensembl_consistent(dir.path()),
+            ValidatorOutcome::Failed { .. }
+        ));
+        assert!(read_gene_symbol_verdict(dir.path()).is_some());
+
+        // Fix the binding and re-run.
+        let ctx = dir
+            .path()
+            .join("runtime/outputs/contextualize_findings_with_literature");
+        write(
+            &ctx.join("claims_evidence_matrix.csv"),
+            "finding_id,gene_symbol\nENSG00000103196,CRISPLD2\n",
+        );
+        assert!(matches!(
+            gene_symbol_ensembl_consistent(dir.path()),
+            ValidatorOutcome::Passed
+        ));
+        assert!(
+            read_gene_symbol_verdict(dir.path()).is_none(),
+            "a clean pass must remove the stale domain verdict"
+        );
+    }
+
+    #[test]
+    fn embedded_paralog_table_parses() {
+        let t = paralog_table();
+        assert!(!t.families.is_empty());
+        // The opposite-clinical-meaning SMN family must be present and flagged.
+        let smn = t
+            .families
+            .iter()
+            .find(|f| f.members.iter().any(|m| m.symbol == "SMN1"))
+            .expect("SMN family present");
+        assert!(smn.opposite_clinical_meaning);
     }
 }

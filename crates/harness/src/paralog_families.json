@@ -1,0 +1,180 @@
+{
+  "schema_version": "0.1",
+  "ensembl_release": "111",
+  "genome_build": "GRCh38",
+  "note": "Curated paralog / segmental-duplication / alt-haplotype family table for the gene_symbol_ensembl_consistent obligation (DR-10). A symbol->Ensembl disagreement is a BENIGN paralog ambiguity (WARN, not a required deposit blocker) only when the claimed and the annotated identifier fall in the SAME family here AND the DE direction/effect is concordant AND the target is not a pseudogene. The families below are the recurrent human segmental-duplication / alt-haplotype loci that dominate spurious symbol<->Ensembl reassignments in RNA-seq quantification; each is keyed to the pinned Ensembl release above. Membership is matched on symbol first (finding_ids of the form DE_<SYMBOL>_<ENSEMBL> carry both) with the Ensembl accession as a cross-reference, so the table degrades gracefully when a release re-versions an accession. Extend per release; this is a curated seed, not an exhaustive paralog map. Ensembl accessions for the less-common members are best-effort at the pinned release and may drift; the symbol grouping is the load-bearing signal.",
+  "families": [
+    {
+      "family_id": "SMN_5q13",
+      "kind": "paralog",
+      "opposite_clinical_meaning": true,
+      "rationale": "SMN1 and SMN2 are near-identical 5q13.2 paralogs with OPPOSITE clinical meaning: SMN1 loss causes spinal muscular atrophy while SMN2 is the disease-modifying backup copy. A citation attached to the wrong copy inverts the biological claim, so a within-family disagreement here stays a required failure.",
+      "members": [
+        {"symbol": "SMN1", "ensembl": "ENSG00000172062", "pseudogene": false},
+        {"symbol": "SMN2", "ensembl": "ENSG00000205571", "pseudogene": false}
+      ]
+    },
+    {
+      "family_id": "SERF1_5q13",
+      "kind": "segmental_duplication",
+      "opposite_clinical_meaning": false,
+      "rationale": "SERF1A/SERF1B are duplicated within the 5q13 SMA region; the copies are functionally interchangeable small EDRK-rich factors.",
+      "members": [
+        {"symbol": "SERF1A", "ensembl": "ENSG00000173988", "pseudogene": false},
+        {"symbol": "SERF1B", "ensembl": "ENSG00000205572", "pseudogene": false}
+      ]
+    },
+    {
+      "family_id": "LRRC37A_17q21",
+      "kind": "segmental_duplication",
+      "opposite_clinical_meaning": false,
+      "rationale": "17q21.31 LRRC37A segmental duplications; the copies map ambiguously and are routinely reassigned across releases.",
+      "members": [
+        {"symbol": "LRRC37A", "ensembl": "ENSG00000176681", "pseudogene": false},
+        {"symbol": "LRRC37A2", "ensembl": "ENSG00000238083", "pseudogene": false},
+        {"symbol": "LRRC37A3", "ensembl": "ENSG00000176809", "pseudogene": false},
+        {"symbol": "LRRC37B", "ensembl": "ENSG00000175206", "pseudogene": false}
+      ]
+    },
+    {
+      "family_id": "ARL17_17q21",
+      "kind": "segmental_duplication",
+      "opposite_clinical_meaning": false,
+      "rationale": "ARL17A/ARL17B lie in the same 17q21.31 inversion/duplication block as LRRC37A and share the multi-mapping ambiguity.",
+      "members": [
+        {"symbol": "ARL17A", "ensembl": "ENSG00000185829", "pseudogene": false},
+        {"symbol": "ARL17B", "ensembl": "ENSG00000228696", "pseudogene": false}
+      ]
+    },
+    {
+      "family_id": "WASHC2_10q11",
+      "kind": "segmental_duplication",
+      "opposite_clinical_meaning": false,
+      "rationale": "WASHC2A/WASHC2C (FAM21A/FAM21C) are duplicated WASH-complex subunits.",
+      "members": [
+        {"symbol": "WASHC2A", "ensembl": "ENSG00000138768", "pseudogene": false},
+        {"symbol": "WASHC2C", "ensembl": "ENSG00000159588", "pseudogene": false}
+      ]
+    },
+    {
+      "family_id": "RABL2_segdup",
+      "kind": "segmental_duplication",
+      "opposite_clinical_meaning": false,
+      "rationale": "RABL2A/RABL2B are near-identical duplicated RAB-like GTPases.",
+      "members": [
+        {"symbol": "RABL2A", "ensembl": "ENSG00000079974", "pseudogene": false},
+        {"symbol": "RABL2B", "ensembl": "ENSG00000079805", "pseudogene": false}
+      ]
+    },
+    {
+      "family_id": "TRAPPC2_dup",
+      "kind": "segmental_duplication",
+      "opposite_clinical_meaning": false,
+      "rationale": "TRAPPC2 and its autosomal retrogene/paralog TRAPPC2B encode identical trafficking-particle subunits.",
+      "members": [
+        {"symbol": "TRAPPC2", "ensembl": "ENSG00000196459", "pseudogene": false},
+        {"symbol": "TRAPPC2B", "ensembl": "ENSG00000170854", "pseudogene": false}
+      ]
+    },
+    {
+      "family_id": "GPR89_1q21",
+      "kind": "segmental_duplication",
+      "opposite_clinical_meaning": false,
+      "rationale": "GPR89A/GPR89B are duplicated within the 1q21.1 CNV region.",
+      "members": [
+        {"symbol": "GPR89A", "ensembl": "ENSG00000188092", "pseudogene": false},
+        {"symbol": "GPR89B", "ensembl": "ENSG00000117262", "pseudogene": false}
+      ]
+    },
+    {
+      "family_id": "SLX1_16p11",
+      "kind": "segmental_duplication",
+      "opposite_clinical_meaning": false,
+      "rationale": "SLX1A/SLX1B are duplicated structure-specific endonucleases in the 16p11.2 CNV block.",
+      "members": [
+        {"symbol": "SLX1A", "ensembl": "ENSG00000180992", "pseudogene": false},
+        {"symbol": "SLX1B", "ensembl": "ENSG00000181625", "pseudogene": false}
+      ]
+    },
+    {
+      "family_id": "ZNG1_CBWD",
+      "kind": "segmental_duplication",
+      "opposite_clinical_meaning": false,
+      "rationale": "The ZNG1 (formerly CBWD) Zn-regulated GTPases are a multi-copy dispersed duplication family (ZNG1A-F).",
+      "members": [
+        {"symbol": "ZNG1A", "ensembl": "ENSG00000238057", "pseudogene": false},
+        {"symbol": "ZNG1B", "ensembl": "ENSG00000196873", "pseudogene": false},
+        {"symbol": "ZNG1C", "ensembl": "ENSG00000179630", "pseudogene": false},
+        {"symbol": "ZNG1E", "ensembl": "ENSG00000267750", "pseudogene": false},
+        {"symbol": "ZNG1F", "ensembl": "ENSG00000215217", "pseudogene": false}
+      ]
+    },
+    {
+      "family_id": "GOLGA8_15q13",
+      "kind": "segmental_duplication",
+      "opposite_clinical_meaning": false,
+      "rationale": "The GOLGA8 golgins are a large 15q13 segmental-duplication family (GOLGA8A/B/G/M/N/...) with extensive cross-mapping.",
+      "members": [
+        {"symbol": "GOLGA8A", "ensembl": "ENSG00000104332", "pseudogene": false},
+        {"symbol": "GOLGA8B", "ensembl": "ENSG00000179938", "pseudogene": false},
+        {"symbol": "GOLGA8G", "ensembl": "ENSG00000261739", "pseudogene": false},
+        {"symbol": "GOLGA8M", "ensembl": "ENSG00000188626", "pseudogene": false},
+        {"symbol": "GOLGA8N", "ensembl": "ENSG00000261794", "pseudogene": false}
+      ]
+    },
+    {
+      "family_id": "GOLGA6L_15q",
+      "kind": "segmental_duplication",
+      "opposite_clinical_meaning": false,
+      "rationale": "The GOLGA6L golgins are a 15q11-q13 duplication family that MIXES protein-coding paralogs with processed pseudogenes (the -P members). A protein-coding paralog confusion is benign; a pseudogene TARGET of an expression claim is not, so GOLGA6L3P is flagged pseudogene and stays required-fail.",
+      "members": [
+        {"symbol": "GOLGA6L1", "ensembl": "ENSG00000174450", "pseudogene": false},
+        {"symbol": "GOLGA6L2", "ensembl": "ENSG00000174718", "pseudogene": false},
+        {"symbol": "GOLGA6L9", "ensembl": "ENSG00000204195", "pseudogene": false},
+        {"symbol": "GOLGA6L3P", "ensembl": "ENSG00000259425", "pseudogene": true}
+      ]
+    },
+    {
+      "family_id": "TP53TG3_16p11",
+      "kind": "segmental_duplication",
+      "opposite_clinical_meaning": false,
+      "rationale": "The TP53TG3 (TP53-target-gene 3) cluster on 16p11.2 is a young segmental duplication whose members behave as pseudogene-like copies; expression claims against them are not adjudicable and stay required-fail.",
+      "members": [
+        {"symbol": "TP53TG3", "ensembl": "ENSG00000205129", "pseudogene": true},
+        {"symbol": "TP53TG3B", "ensembl": "ENSG00000261509", "pseudogene": true},
+        {"symbol": "TP53TG3C", "ensembl": "ENSG00000242220", "pseudogene": true},
+        {"symbol": "TP53TG3D", "ensembl": "ENSG00000261247", "pseudogene": true}
+      ]
+    },
+    {
+      "family_id": "RSPH10B_7p22",
+      "kind": "segmental_duplication",
+      "opposite_clinical_meaning": false,
+      "rationale": "RSPH10B/RSPH10B2 are duplicated radial-spoke-head genes on 7p22.1.",
+      "members": [
+        {"symbol": "RSPH10B", "ensembl": "ENSG00000131558", "pseudogene": false},
+        {"symbol": "RSPH10B2", "ensembl": "ENSG00000180834", "pseudogene": false}
+      ]
+    },
+    {
+      "family_id": "SPATA13_dup",
+      "kind": "segmental_duplication",
+      "opposite_clinical_meaning": false,
+      "rationale": "SPATA13 (ASEF2) spans a duplicated 13q12 segment whose copies cross-map; grouped with its alt-locus copy.",
+      "members": [
+        {"symbol": "SPATA13", "ensembl": "ENSG00000182957", "pseudogene": false},
+        {"symbol": "SPATA13-AS1", "ensembl": "ENSG00000232228", "pseudogene": false}
+      ]
+    },
+    {
+      "family_id": "EMC3_dup",
+      "kind": "segmental_duplication",
+      "opposite_clinical_meaning": false,
+      "rationale": "EMC3 (TMEM111) sits in a 3p25 region with a readthrough/alt copy that cross-maps; grouped with EMC3-AS1.",
+      "members": [
+        {"symbol": "EMC3", "ensembl": "ENSG00000125037", "pseudogene": false},
+        {"symbol": "EMC3-AS1", "ensembl": "ENSG00000241933", "pseudogene": false}
+      ]
+    }
+  ]
+}
