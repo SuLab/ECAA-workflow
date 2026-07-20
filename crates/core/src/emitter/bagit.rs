@@ -295,6 +295,35 @@ fn walk_for_manifest(
         if mode == SealMode::Emit && rel.starts_with("runtime/outputs") {
             continue;
         }
+        // FACET-1 — three runtime evidence sidecars carry content whose REAL
+        // value only exists AFTER a run and is non-deterministic BEFORE one, so
+        // they are covered in the DEPOSIT (reseal) manifest but excluded from
+        // the pre-run EMIT skeleton:
+        //   - `verifier-decisions.jsonl`: the conversation emit pipeline
+        //     overwrites the core-written empty file with a DESTRUCTIVE
+        //     once-per-process drain of the compose-time substrate buffer, so an
+        //     in-process re-emit of the same session drains ~1.5MB then finds it
+        //     empty (0 bytes);
+        //   - `validation-summary.json`: the conversation validator overwrites it
+        //     with a real wall-clock `duration_ms` whose digit-width varies;
+        //   - `audit-proof-report.json`: its verdicts range over the two files
+        //     above, so it differs downstream.
+        // Manifesting them at EMIT leaked that non-determinism into Payload-Oxum
+        // + `manifest-sha512.txt`, breaking the emit byte-reproducibility
+        // baseline. The correct invariant is "covered in the deposit; excluded
+        // from the pre-run emit manifest" — RESEAL (finalize / export / the
+        // deposit gate's re-verify input surface) still hashes all three. The
+        // deterministic DR-4 evidence files (`claim-verification.json`,
+        // `validation-reports.jsonl`, `reexecution.json`, `proofs.jsonl`,
+        // `decisions.jsonl`, `assumptions.jsonl`, `security-policy.json`) stay
+        // manifested at EMIT.
+        if mode == SealMode::Emit
+            && (rel == std::path::Path::new("runtime/verifier-decisions.jsonl")
+                || rel == std::path::Path::new("runtime/validation-summary.json")
+                || rel == std::path::Path::new("runtime/audit-proof-report.json"))
+        {
+            continue;
+        }
         // P3-4 — per-task verification sidecars are written by the
         // conversation emit pipeline AFTER `emit_package` returns, and
         // are runtime-only artifacts consumed by the
@@ -306,16 +335,12 @@ fn walk_for_manifest(
         // Runtime audit/ECAA sidecars kept OFF the payload manifest.
         //
         // DR-4 — the deposit-integrity envelope MANIFESTS the substantive
-        // evidence sidecars instead of excluding them: `decisions.jsonl`,
-        // `proofs.jsonl`, `assumptions.jsonl`, `security-policy.json`,
-        // `audit-proof-report.json`, `claim-verification.json`,
-        // `verifier-decisions.jsonl`, `validation-reports.jsonl`,
-        // `validation-summary.json`, `reexecution.json`,
+        // DETERMINISTIC evidence sidecars instead of excluding them:
+        // `decisions.jsonl`, `proofs.jsonl`, `assumptions.jsonl`,
+        // `security-policy.json`, `claim-verification.json`,
+        // `validation-reports.jsonl`, `reexecution.json`,
         // `coverage-statement.json`, `plot_affordances.jsonl`, and
-        // `intake-conversation.jsonl` are now covered (they are
-        // byte-deterministic across two same-input emits —
-        // `audit-proof-report.json`'s `evaluated_at` was moved onto the
-        // deterministic run-epoch clock precisely so it could join them). A
+        // `intake-conversation.jsonl` are covered at BOTH emit and reseal. A
         // deposit consumer needs these integrity-covered; they were the
         // present-on-disk-but-unmanifested evidence files in the `611cf5ee`
         // deposit. `crates/conversation/src/emit/mod.rs`'s emit pipeline calls
@@ -324,6 +349,13 @@ fn walk_for_manifest(
         // entry for each always covers its truly-final bytes. Do NOT
         // re-exclude them to "fix" a staleness symptom — fix the seal-order
         // violation at its source instead.
+        //
+        // FACET-1 — the three NON-deterministic-at-emit evidence sidecars
+        // (`verifier-decisions.jsonl`, `validation-summary.json`,
+        // `audit-proof-report.json`) are handled by the `SealMode::Emit`-gated
+        // block above: excluded from the pre-run emit skeleton, covered on
+        // RESEAL so the deposit (and DR-4 re-verify input surface) still hashes
+        // them.
         //
         // The remaining exclusions below are NOT integrity-bearing evidence:
         //   - `determinism-shim.json` — a HOST-VARYING diagnostic env capture

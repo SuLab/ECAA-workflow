@@ -9,17 +9,26 @@
 //! intentionally excluded (it is a documented, BagIt-manifest-excluded
 //! mutable meta file — see CLAUDE.md's Deposit verification section).
 //!
-//! DR-4 — `audit-proof-report.json`'s `evaluated_at` was moved onto the
-//! deterministic run-epoch clock
-//! (`crates/core/src/emitter/ecaa.rs::write_audit_proof_report`), so it is
-//! byte-reproducible across two same-input emits and is now BagIt-manifested
-//! at EMIT alongside its evidence siblings — not held back to RESEAL only.
-//! `manifest_covers_audit_proof_report_at_emit_and_after_reseal` asserts it is
-//! covered at both a fresh emit and after a `regenerate_bagit_manifest` reseal.
-//! DR-4 also folds in the remaining present-on-disk-but-unmanifested evidence
-//! files from the `611cf5ee` deposit (claim-verification.json,
-//! validation-reports.jsonl, verifier-decisions.jsonl, validation-summary.json,
-//! reexecution.json).
+//! DR-4 folds in the remaining present-on-disk-but-unmanifested evidence
+//! files from the `611cf5ee` deposit. The DETERMINISTIC ones
+//! (claim-verification.json, validation-reports.jsonl, reexecution.json) are
+//! BagIt-manifested at EMIT alongside proofs/decisions/assumptions/
+//! security-policy.
+//!
+//! FACET-1 — three evidence sidecars are NON-deterministic before a run and so
+//! are covered in the DEPOSIT (reseal) manifest but excluded from the pre-run
+//! EMIT skeleton: `verifier-decisions.jsonl` (destructively drained from the
+//! compose-time substrate — empty on an in-process re-emit),
+//! `validation-summary.json` (wall-clock `duration_ms`), and
+//! `audit-proof-report.json` (verdicts range over the two above). Manifesting
+//! them at EMIT leaked their non-determinism into Payload-Oxum +
+//! manifest-sha512.txt and broke emit byte-reproducibility. The correct
+//! invariant is "covered in the deposit (reseal); excluded from the pre-run
+//! emit manifest" — `manifest_covers_evidence_files_at_emit` asserts the emit
+//! coverage of the deterministic set + the reseal coverage of the full
+//! evidence set, and
+//! `manifest_covers_audit_proof_report_excluded_at_emit_covered_after_reseal`
+//! pins the emit-exclude / reseal-cover contract for the report.
 
 use ecaa_workflow_core::classify::ClassificationResult;
 use ecaa_workflow_core::clock::WallClock;
@@ -123,30 +132,54 @@ fn read_manifest(pkg: &Path) -> Vec<(String, String)> {
         .collect()
 }
 
+/// The three evidence sidecars that are non-deterministic before a run
+/// (FACET-1): excluded from the pre-run EMIT manifest, covered on RESEAL.
+const NON_DETERMINISTIC_AT_EMIT: &[&str] = &[
+    "runtime/verifier-decisions.jsonl",
+    "runtime/validation-summary.json",
+    "runtime/audit-proof-report.json",
+];
+
+/// The deterministic DR-4 evidence sidecars covered at EMIT (and reseal).
+const DETERMINISTIC_EVIDENCE_AT_EMIT: &[&str] = &[
+    "runtime/proofs.jsonl",
+    "runtime/decisions.jsonl",
+    "runtime/assumptions.jsonl",
+    "runtime/security-policy.json",
+    // DR-4 — the deposit-integrity envelope additionally covers the
+    // deterministic evidence sidecars the `611cf5ee` deposit left
+    // present-on-disk-but-unmanifested.
+    "runtime/claim-verification.json",
+    "runtime/validation-reports.jsonl",
+    "runtime/reexecution.json",
+];
+
 #[test]
 fn manifest_covers_evidence_files_at_emit() {
     let pkg = emit_sample_package();
     let man = read_manifest(pkg.path());
 
-    for f in [
-        "runtime/proofs.jsonl",
-        "runtime/decisions.jsonl",
-        "runtime/assumptions.jsonl",
-        "runtime/security-policy.json",
-        // DR-4 — the deposit-integrity envelope additionally covers the
-        // substantive evidence sidecars that the `611cf5ee` deposit left
-        // present-on-disk-but-unmanifested.
-        "runtime/claim-verification.json",
-        "runtime/validation-reports.jsonl",
-        "runtime/verifier-decisions.jsonl",
-        "runtime/validation-summary.json",
-        "runtime/reexecution.json",
-        "runtime/audit-proof-report.json",
-    ] {
+    // The deterministic evidence set is manifested at EMIT.
+    for f in DETERMINISTIC_EVIDENCE_AT_EMIT {
         assert!(
             man.iter().any(|(p, _)| p == f),
-            "{f} must be in the payload manifest (present on disk: {}); manifest:\n{man:?}",
+            "{f} must be in the EMIT payload manifest (present on disk: {}); manifest:\n{man:?}",
             pkg.path().join(f).exists()
+        );
+    }
+
+    // FACET-1 — the three non-deterministic-at-emit sidecars are EXCLUDED from
+    // the pre-run emit manifest (they still exist on disk), so their
+    // non-determinism cannot leak into Payload-Oxum / manifest-sha512.txt and
+    // break emit byte-reproducibility.
+    for f in NON_DETERMINISTIC_AT_EMIT {
+        assert!(
+            pkg.path().join(f).exists(),
+            "{f} must still be present on disk at emit"
+        );
+        assert!(
+            !man.iter().any(|(p, _)| p == f),
+            "{f} must be EXCLUDED from the EMIT payload manifest (FACET-1); manifest:\n{man:?}"
         );
     }
 
@@ -155,23 +188,53 @@ fn manifest_covers_evidence_files_at_emit() {
     // The keyed HMAC over decisions.jsonl is verified with the session
     // secret, not by re-hashing into the payload manifest.
     assert!(!man.iter().any(|(p, _)| p == "runtime/decisions.jsonl.mac"));
+
+    // DR-4 deposit guard — after a RESEAL (the deposit finalize surface + the
+    // Layer-1 re-verify input) the manifest MUST cover the WHOLE evidence set,
+    // including the three non-deterministic-at-emit sidecars and the
+    // re-verify input (`claim-verification.json`).
+    regenerate_bagit_manifest(pkg.path(), &WallClock).expect("regenerate_bagit_manifest");
+    let reseal = read_manifest(pkg.path());
+    for f in DETERMINISTIC_EVIDENCE_AT_EMIT
+        .iter()
+        .chain(NON_DETERMINISTIC_AT_EMIT.iter())
+    {
+        assert!(
+            reseal.iter().any(|(p, _)| p == f),
+            "{f} must be covered by the RESEAL (deposit) payload manifest (DR-4); manifest:\n{reseal:?}"
+        );
+    }
+    // The re-verify input stays covered at reseal — DR-4's whole point.
+    assert!(
+        reseal
+            .iter()
+            .any(|(p, _)| p == "runtime/claim-verification.json"),
+        "claim-verification.json (Layer-1 re-verify input) must stay covered at reseal (DR-4)"
+    );
+    // DEPOSIT-READINESS.json stays excluded even after reseal (mutable meta).
+    assert!(!reseal.iter().any(|(p, _)| p == "DEPOSIT-READINESS.json"));
 }
 
 #[test]
-fn manifest_covers_audit_proof_report_at_emit_and_after_reseal() {
+fn manifest_covers_audit_proof_report_excluded_at_emit_covered_after_reseal() {
     let pkg = emit_sample_package();
     let root = pkg.path();
 
-    // DR-4 — audit-proof-report.json's `evaluated_at` now uses the
-    // deterministic run-epoch clock, so it is byte-reproducible and covered
-    // by the payload manifest already at a fresh EMIT.
+    // FACET-1 — audit-proof-report.json's verdicts range over
+    // verifier-decisions.jsonl (destructively drained on the conversation emit
+    // path) so it is non-deterministic before a run and is EXCLUDED from the
+    // pre-run emit manifest, though still present on disk.
+    assert!(
+        root.join("runtime/audit-proof-report.json").exists(),
+        "runtime/audit-proof-report.json must be present on disk at emit"
+    );
     let man = read_manifest(root);
     assert!(
-        man.iter().any(|(p, _)| p == "runtime/audit-proof-report.json"),
-        "runtime/audit-proof-report.json must be manifested at emit (DR-4); manifest:\n{man:?}"
+        !man.iter().any(|(p, _)| p == "runtime/audit-proof-report.json"),
+        "runtime/audit-proof-report.json must be EXCLUDED from the EMIT manifest (FACET-1); manifest:\n{man:?}"
     );
 
-    // The post-execution reseal keeps covering it.
+    // The post-execution reseal (the deposit finalize surface) DOES cover it.
     regenerate_bagit_manifest(root, &WallClock).expect("regenerate_bagit_manifest");
     let man = read_manifest(root);
     assert!(
