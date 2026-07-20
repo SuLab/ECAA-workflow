@@ -20,4 +20,16 @@ target_step: string,
 /**
  * Consuming input port.
  */
-target_input: string, };
+target_input: string, 
+/**
+ * T6.2 / §G-B1 — `EdgeContract.mutually_exclusive_group`. Mirrors the
+ * same field on [`TypedEdge`] so the `parameter_mappings` view (the
+ * "what feeds this step's input" projection a generic consumer reads)
+ * ALSO carries the one-of marker: when set, this mapping is one member
+ * of a mutually-exclusive group and a consumer must NOT treat it as an
+ * unconditional authoritative data flow. Observed-provenance resolves
+ * the single read member in the reconciled RO-Crate. `None` for
+ * ordinary edges (field omitted from the artifact, so bytes are
+ * unchanged for non-one-of workflows).
+ */
+mutually_exclusive_group?: string, };

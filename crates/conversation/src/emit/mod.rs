@@ -1497,13 +1497,14 @@ mod tests {
         );
     }
 
-    /// Design §5.2 C5 — a DE task whose `runtime/invocations.jsonl`
-    /// record shows it actually read `quantification`'s raw counts
-    /// output must have the RO-Crate's `quantification -> DE`
-    /// `ParameterConnection` node resolved as `authoritative`, and the
-    /// declared-but-unread `normalisation -> DE` one-of sibling
-    /// stamped `candidate_unused` — the emitted graph reflects what
-    /// actually ran, not just the compile-time option space.
+    /// §G-B1 — a DE task whose `runtime/invocations.jsonl` record shows it
+    /// actually read `quantification`'s raw counts output must have the
+    /// RO-Crate's `quantification -> DE` `ParameterConnection` node resolved
+    /// as `authoritative` and KEPT, while the declared-but-unread
+    /// `normalisation -> DE` one-of sibling is DROPPED from the standard graph
+    /// (not merely annotated) and recorded ONLY in the `ecaax:` side channel —
+    /// so a generic RO-Crate / WRROC / runcrate consumer sees only the
+    /// authoritative raw edge for the count port.
     #[tokio::test]
     async fn de_one_of_edge_resolves_to_the_read_member() {
         use ecaa_workflow_core::workflow_contracts::edge::{
@@ -1618,16 +1619,24 @@ mod tests {
             "the read one-of member must be stamped authoritative"
         );
 
-        let normalized_node = graph
-            .iter()
-            .find(|e| {
-                e["@id"] == "#parameter-connection/normalisation__to__differential_expression"
-            })
-            .expect("normalized_counts ParameterConnection node present");
-        assert_eq!(
-            normalized_node["ecaax:provenanceStatus"], "candidate_unused",
-            "the unread one-of sibling must be demoted to a candidate"
+        // §G-B1 — the unread normalized-counts sibling is GONE from the
+        // standard graph; a generic consumer never reads it as a data flow.
+        assert!(
+            graph.iter().all(|e| e["@id"]
+                != "#parameter-connection/normalisation__to__differential_expression"),
+            "the unread one-of sibling must be dropped from the standard graph"
         );
+
+        // ...and survives ONLY in the ecaax side channel on the root Dataset.
+        let root = graph.iter().find(|e| e["@id"] == "./").unwrap();
+        let unused = root["ecaax:unusedCandidateEdge"]
+            .as_array()
+            .expect("unused-candidate side channel recorded on root Dataset");
+        assert_eq!(unused.len(), 1);
+        assert_eq!(unused[0]["from_node"], "normalisation");
+        assert_eq!(unused[0]["to_node"], "differential_expression");
+        assert_eq!(unused[0]["ecaax:provenanceStatus"], "candidate_unused");
+        assert_eq!(unused[0]["ecaax:supersededByProducer"], "quantification");
     }
 
     /// Sessions without runtime installs (the

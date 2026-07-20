@@ -737,15 +737,30 @@ pub fn reinject_audit_proof_verdicts(
 ///
 /// For a one-of mutually-exclusive group (e.g. the
 /// `differential_expression` `raw_counts`/`normalized_counts`
-/// candidates, design §5.1 C1/C2), the member whose producer output the
-/// task actually read is stamped `"ecaax:provenanceStatus":
-/// "authoritative"`; every other declared member of the same group is
-/// stamped `"candidate_unused"` — the declared edge is kept (never
-/// dropped, so a differently-configured re-run that reads the other
-/// member still resolves), but a reader now sees which one actually
-/// ran. An ordinary (non-grouped) edge that a read confirms is stamped
-/// `"confirmed"`; a non-grouped, unread edge is left unstamped (silence
-/// is not evidence either way).
+/// candidates, design §5.1 C1/C2), once observed reads resolve which
+/// member was actually read (§G-B1), the standard structural graph must
+/// show ONLY that authoritative edge for the group:
+/// - the member whose producer output the task read is stamped
+///   `"ecaax:provenanceStatus": "authoritative"` and KEPT;
+/// - every OTHER member of the SAME resolved group is **dropped from the
+///   standard graph** — its `ParameterConnection` node is removed (not
+///   merely annotated), so a generic RO-Crate / WRROC / runcrate consumer
+///   never reads the unread candidate as an authoritative data flow. The
+///   dropped candidate is recorded ONLY in the root Dataset's
+///   `ecaax:unusedCandidateEdge` side channel (from/to node+port, its
+///   group, and `ecaax:supersededByProducer`), so an ecaax-aware consumer
+///   still knows it was a declared alternative.
+///
+/// A one-of group whose authoritative member was NOT resolved this pass
+/// (no member read, or the read diverged from both producers) keeps BOTH
+/// members, each stamped `"candidate_unused"` — we never fabricate a
+/// resolution and never drop a member we cannot rule out. An ordinary
+/// (non-grouped), unread edge is left unstamped (silence is not evidence
+/// either way).
+///
+/// Emit-time (pre-execution) behavior is preserved: with no observed reads
+/// the function early-returns, so the compiled graph legitimately keeps
+/// BOTH one-of members until a run resolves which was read.
 ///
 /// A `Divergent` verdict — a read that matches no declared producer's
 /// output for its task — is recorded on the root Dataset's
@@ -793,7 +808,9 @@ pub fn reconcile_ro_crate_edges_with_allowances(
     observed_reads: &[crate::provenance::ObservedRead],
     read_allowances: &std::collections::BTreeMap<String, Vec<crate::atom::ReadAllowance>>,
 ) -> Vec<crate::provenance::DivergenceRecord> {
-    use crate::provenance::{reconcile, DivergenceRecord, ReconVerdict};
+    use crate::provenance::{
+        classify_reconciled_edges, reconcile, DivergenceRecord, EdgeDisposition, ReconVerdict,
+    };
     use std::collections::BTreeSet;
 
     if declared_edges.is_empty() || observed_reads.is_empty() {
@@ -813,6 +830,16 @@ pub fn reconcile_ro_crate_edges_with_allowances(
     let mut divergences: Vec<Value> = Vec::new();
     let mut typed_divergences: Vec<DivergenceRecord> = Vec::new();
     let mut allowed_reads: Vec<Value> = Vec::new();
+    // Stamps to apply to KEPT `ParameterConnection` nodes: (from, to, status).
+    let mut stamps: Vec<(String, String, &'static str)> = Vec::new();
+    // `@id`s of unread one-of candidate `ParameterConnection`s to DROP from
+    // the standard graph once their group's authoritative member is resolved.
+    let mut drop_ids: BTreeSet<String> = BTreeSet::new();
+    // The dropped candidates, recorded ONLY in the `ecaax:` side channel so an
+    // ecaax-aware consumer still knows they were declared alternatives while a
+    // generic RO-Crate / PROV / runcrate consumer sees only the authoritative
+    // edge (§G-B1).
+    let mut unused_candidates: Vec<Value> = Vec::new();
 
     for task_id in task_ids {
         let edges_for_task: Vec<&crate::workflow_contracts::edge::EdgeContract> = declared_edges
@@ -859,19 +886,61 @@ pub fn reconcile_ro_crate_edges_with_allowances(
             }
         }
 
-        for edge in &edges_for_task {
-            let key = (edge.from_node.clone(), edge.to_node.clone());
-            let status = if authoritative.contains(&key) {
-                "authoritative"
-            } else if edge.mutually_exclusive_group.is_some() {
-                "candidate_unused"
-            } else {
-                // No evidence either way for an ordinary edge this pass
-                // didn't observe a read for — leave it unstamped.
-                continue;
-            };
-            stamp_parameter_connection_status(graph, &edge.from_node, &edge.to_node, status);
+        // §G-B1 — once observed reads resolve which one-of member was read,
+        // the standard graph must show ONLY that authoritative edge for the
+        // group; the unread candidate is DROPPED from the standard
+        // `ParameterConnection`s and recorded ONLY in the `ecaax:` side
+        // channel. An unresolved group (no member read this pass) keeps both
+        // as candidates — we never fabricate a resolution.
+        let dispositions = classify_reconciled_edges(&owned_edges, &authoritative);
+        for (edge, disposition) in edges_for_task.iter().zip(dispositions) {
+            match disposition {
+                EdgeDisposition::Authoritative => {
+                    stamps.push((edge.from_node.clone(), edge.to_node.clone(), "authoritative"));
+                }
+                EdgeDisposition::UnusedCandidate { superseded_by } => {
+                    let node_id = parameter_connection_node_id(&edge.from_node, &edge.to_node);
+                    drop_ids.insert(node_id.clone());
+                    unused_candidates.push(json!({
+                        "task_id": task_id,
+                        "from_node": edge.from_node,
+                        "from_port": edge.from_port,
+                        "to_node": edge.to_node,
+                        "to_port": edge.to_port,
+                        "mutually_exclusive_group": edge.mutually_exclusive_group,
+                        "ecaax:provenanceStatus": "candidate_unused",
+                        "ecaax:supersededByProducer": superseded_by,
+                        "ecaax:droppedConnection": node_id,
+                    }));
+                }
+                EdgeDisposition::UnresolvedCandidate => {
+                    stamps.push((
+                        edge.from_node.clone(),
+                        edge.to_node.clone(),
+                        "candidate_unused",
+                    ));
+                }
+                EdgeDisposition::Unobserved => {
+                    // No evidence either way for an ordinary edge this pass
+                    // didn't observe a read for — leave it unstamped.
+                }
+            }
         }
+    }
+
+    // Apply the kept-node stamps, then DROP the unread one-of candidates from
+    // the standard graph (order matters only for clarity — the two node sets
+    // are disjoint: a dropped `@id` never appears in `stamps`).
+    for (from, to, status) in &stamps {
+        stamp_parameter_connection_status(graph, from, to, status);
+    }
+    if !drop_ids.is_empty() {
+        graph.retain(|node| {
+            node.get("@id")
+                .and_then(Value::as_str)
+                .map(|id| !drop_ids.contains(id))
+                .unwrap_or(true)
+        });
     }
 
     if let Some(root) = graph
@@ -889,6 +958,12 @@ pub fn reconcile_ro_crate_edges_with_allowances(
                 obj.insert(
                     "ecaax:provenanceReadAllowance".to_string(),
                     Value::Array(allowed_reads),
+                );
+            }
+            if !unused_candidates.is_empty() {
+                obj.insert(
+                    "ecaax:unusedCandidateEdge".to_string(),
+                    Value::Array(unused_candidates),
                 );
             }
         }
@@ -917,13 +992,21 @@ fn covering_rationale(allowances: Option<&Vec<crate::atom::ReadAllowance>>) -> O
     })
 }
 
+/// The `@id` of the task-level `ParameterConnection` node for the edge
+/// `from_node -> to_node` (see [`parameter_connection_entity`]'s `@id`
+/// scheme). Single source of truth so the stamp path and the §G-B1 drop
+/// path address the same node.
+fn parameter_connection_node_id(from_node: &str, to_node: &str) -> String {
+    format!("#parameter-connection/{from_node}__to__{to_node}")
+}
+
 /// Stamp the `ParameterConnection` node for the task-level edge
 /// `from_node -> to_node` (see [`parameter_connection_entity`]'s `@id`
 /// scheme) with `"ecaax:provenanceStatus": status`. A no-op when no
 /// such node exists in the graph (e.g. a legacy crate emitted before
 /// Tier-3 `ParameterConnection` entities existed).
 fn stamp_parameter_connection_status(graph: &mut [Value], from_node: &str, to_node: &str, status: &str) {
-    let node_id = format!("#parameter-connection/{from_node}__to__{to_node}");
+    let node_id = parameter_connection_node_id(from_node, to_node);
     if let Some(node) = graph
         .iter_mut()
         .find(|e| e.get("@id").and_then(Value::as_str) == Some(node_id.as_str()))
@@ -4742,8 +4825,12 @@ loaded via a namespace (and not attached):
         json!({"@graph": graph})
     }
 
+    /// §G-B1 — once observed reads resolve the authoritative one-of member,
+    /// the STANDARD graph must show ONLY the authoritative `ParameterConnection`
+    /// for the count port; the unread candidate is DROPPED (not annotated) and
+    /// recorded ONLY in the `ecaax:unusedCandidateEdge` side channel.
     #[test]
-    fn reconcile_marks_read_one_of_member_authoritative_and_sibling_candidate() {
+    fn reconcile_drops_unread_one_of_member_from_standard_graph_and_side_channels_it() {
         let edges = de_one_of_edges();
         let mut metadata = graph_with_parameter_connections(&edges);
         let reads = vec![crate::provenance::ObservedRead {
@@ -4755,17 +4842,50 @@ loaded via a namespace (and not attached):
         reconcile_ro_crate_edges(&mut metadata, &edges, &reads);
 
         let graph = metadata["@graph"].as_array().unwrap();
+        // The authoritative raw-counts edge is KEPT and stamped.
         let raw_node = graph
             .iter()
             .find(|e| e["@id"] == "#parameter-connection/quantification__to__differential_expression")
             .expect("raw_counts ParameterConnection node present");
         assert_eq!(raw_node["ecaax:provenanceStatus"], "authoritative");
 
-        let normalized_node = graph
-            .iter()
-            .find(|e| e["@id"] == "#parameter-connection/normalisation__to__differential_expression")
-            .expect("normalized_counts ParameterConnection node present");
-        assert_eq!(normalized_node["ecaax:provenanceStatus"], "candidate_unused");
+        // The unread normalized-counts edge is GONE from the standard graph —
+        // a generic RO-Crate/WRROC/runcrate consumer never sees it as a
+        // ParameterConnection data flow.
+        assert!(
+            graph
+                .iter()
+                .all(|e| e["@id"]
+                    != "#parameter-connection/normalisation__to__differential_expression"),
+            "the unread one-of candidate must NOT remain as a standard ParameterConnection"
+        );
+        // No surviving ParameterConnection references the dropped normalisation
+        // producer for the count port.
+        assert!(
+            graph.iter().all(|e| {
+                let is_pc = e.get("@type").and_then(Value::as_str) == Some("ParameterConnection");
+                !(is_pc
+                    && e.get("sourceParameter")
+                        .and_then(|s| s.get("@id"))
+                        .and_then(Value::as_str)
+                        .map(|s| s.starts_with("#step-normalisation"))
+                        .unwrap_or(false))
+            }),
+            "no standard ParameterConnection may still wire the unread normalisation edge"
+        );
+
+        // The unread member survives ONLY in the ecaax side channel.
+        let root = graph.iter().find(|e| e["@id"] == "./").unwrap();
+        let unused = root["ecaax:unusedCandidateEdge"]
+            .as_array()
+            .expect("unused-candidate side channel recorded on root Dataset");
+        assert_eq!(unused.len(), 1);
+        assert_eq!(unused[0]["from_node"], "normalisation");
+        assert_eq!(unused[0]["to_node"], "differential_expression");
+        assert_eq!(unused[0]["to_port"], "normalized_counts");
+        assert_eq!(unused[0]["mutually_exclusive_group"], "counts");
+        assert_eq!(unused[0]["ecaax:provenanceStatus"], "candidate_unused");
+        assert_eq!(unused[0]["ecaax:supersededByProducer"], "quantification");
     }
 
     #[test]
@@ -4810,13 +4930,21 @@ loaded via a namespace (and not attached):
         assert_eq!(divergences.len(), 1);
         assert_eq!(divergences[0]["read_path"], "runtime/outputs/data_acquisition/counts.tsv");
 
-        // Neither one-of member is stamped authoritative when the actual
-        // read diverges from both declared producers.
+        // §G-B1 — an UNRESOLVED group (the read matched neither producer)
+        // must keep BOTH members as candidates; we never fabricate a
+        // resolution and never drop a member we cannot rule out.
         let raw_node = graph
             .iter()
             .find(|e| e["@id"] == "#parameter-connection/quantification__to__differential_expression")
             .unwrap();
         assert_eq!(raw_node["ecaax:provenanceStatus"], "candidate_unused");
+        let normalized_node = graph
+            .iter()
+            .find(|e| e["@id"] == "#parameter-connection/normalisation__to__differential_expression")
+            .expect("unresolved one-of members are both kept in the standard graph");
+        assert_eq!(normalized_node["ecaax:provenanceStatus"], "candidate_unused");
+        // No candidate was dropped, so the side channel is absent.
+        assert!(root.get("ecaax:unusedCandidateEdge").is_none());
     }
 
     /// RCA I-1 (Task 13) — a divergent read on a task carrying a

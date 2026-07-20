@@ -20,6 +20,7 @@
 
 use super::super::workflow_contracts::edge::EdgeContract;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 
 /// Root prefix under which produced analytical artifacts live.
 ///
@@ -160,6 +161,92 @@ pub fn reconcile(
             ReconVerdict::Divergent {
                 read_path: read.path.clone(),
                 declared_producer,
+            }
+        })
+        .collect()
+}
+
+/// How a declared edge must appear in the reconciled **standard**
+/// structural graph after observed-provenance resolves which member of a
+/// mutually-exclusive one-of input group was actually read (§G-B1).
+///
+/// This is the decision only — [`crate::ro_crate::reconcile_ro_crate_edges`]
+/// applies it to the RO-Crate `@graph` (dropping / stamping the
+/// `ParameterConnection` nodes). Pure and deterministic.
+///
+/// `#[non_exhaustive]` per the workspace public-enum convention.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum EdgeDisposition {
+    /// The task's observed reads resolved THIS edge as the authoritative
+    /// source. Keep it in the standard graph, marked `authoritative`.
+    Authoritative,
+    /// This edge is one member of a mutually-exclusive one-of group whose
+    /// authoritative member was resolved to a DIFFERENT sibling — i.e. this
+    /// candidate was NOT read. It must be **dropped from the standard
+    /// structural graph** (so a generic RO-Crate / WRROC / runcrate consumer
+    /// never reads it as an authoritative data flow) and recorded ONLY in an
+    /// `ecaax:` side channel. `superseded_by` names the authoritative
+    /// sibling's producer node.
+    UnusedCandidate { superseded_by: String },
+    /// Member of a one-of group that reconciliation could NOT disambiguate:
+    /// no sibling resolved authoritative (e.g. the actual read diverged from
+    /// every declared producer, or no read landed for the group this pass).
+    /// Both members are kept, marked `candidate_unused` — we cannot know
+    /// which was read, so neither may be dropped.
+    UnresolvedCandidate,
+    /// Ordinary (non-grouped) edge with no read evidence this pass. Left in
+    /// the standard graph, unstamped — silence is not evidence either way.
+    Unobserved,
+}
+
+/// Decide, for a single task, how each of its declared edges must appear in
+/// the reconciled **standard** structural graph, given the authoritative
+/// `(from_node, to_node)` edges its observed reads resolved (the
+/// [`ReconVerdict::Match`] set).
+///
+/// Only a mutually-exclusive one-of group whose authoritative member was
+/// resolved yields [`EdgeDisposition::UnusedCandidate`] for its *other*
+/// members; every other case keeps the edge (see [`EdgeDisposition`]). One
+/// disposition is returned per edge, in `declared_for_task`'s order.
+///
+/// Pure + deterministic — no I/O, no clock, no `HashMap`.
+pub fn classify_reconciled_edges(
+    declared_for_task: &[EdgeContract],
+    authoritative: &BTreeSet<(String, String)>,
+) -> Vec<EdgeDisposition> {
+    // A one-of group is "resolved" once one of its members is authoritative.
+    let mut resolved_groups: BTreeSet<&str> = BTreeSet::new();
+    for e in declared_for_task {
+        if let Some(g) = e.mutually_exclusive_group.as_deref() {
+            if authoritative.contains(&(e.from_node.clone(), e.to_node.clone())) {
+                resolved_groups.insert(g);
+            }
+        }
+    }
+
+    declared_for_task
+        .iter()
+        .map(|e| {
+            if authoritative.contains(&(e.from_node.clone(), e.to_node.clone())) {
+                return EdgeDisposition::Authoritative;
+            }
+            match e.mutually_exclusive_group.as_deref() {
+                Some(g) if resolved_groups.contains(g) => {
+                    // Some sibling in this group was read; THIS one was not.
+                    let superseded_by = declared_for_task
+                        .iter()
+                        .find(|s| {
+                            s.mutually_exclusive_group.as_deref() == Some(g)
+                                && authoritative
+                                    .contains(&(s.from_node.clone(), s.to_node.clone()))
+                        })
+                        .map(|s| s.from_node.clone())
+                        .unwrap_or_default();
+                    EdgeDisposition::UnusedCandidate { superseded_by }
+                }
+                Some(_) => EdgeDisposition::UnresolvedCandidate,
+                None => EdgeDisposition::Unobserved,
             }
         })
         .collect()
@@ -328,5 +415,94 @@ mod tests {
                 )
             }
         );
+    }
+
+    // ── §G-B1 — reconciled-edge disposition (which one-of candidate the
+    // standard graph must drop) ───────────────────────────────────────────
+
+    fn grouped_edge(
+        from_node: &str,
+        from_port: &str,
+        to_node: &str,
+        to_port: &str,
+        group: &str,
+    ) -> EdgeContract {
+        let mut e = edge(from_node, from_port, to_node, to_port);
+        e.mutually_exclusive_group = Some(group.into());
+        e
+    }
+
+    fn de_one_of() -> Vec<EdgeContract> {
+        vec![
+            grouped_edge(
+                "quantification",
+                "count_matrix",
+                "differential_expression",
+                "raw_counts",
+                "counts",
+            ),
+            grouped_edge(
+                "normalisation",
+                "normalized_counts",
+                "differential_expression",
+                "normalized_counts",
+                "counts",
+            ),
+        ]
+    }
+
+    #[test]
+    fn resolved_one_of_drops_the_unread_sibling_and_keeps_the_read_member() {
+        // raw_counts (quantification) was read; normalized_counts
+        // (normalisation) is the unread candidate of the same group.
+        let edges = de_one_of();
+        let mut authoritative: BTreeSet<(String, String)> = BTreeSet::new();
+        authoritative.insert((
+            "quantification".to_string(),
+            "differential_expression".to_string(),
+        ));
+
+        let d = classify_reconciled_edges(&edges, &authoritative);
+        assert_eq!(d.len(), 2);
+        assert_eq!(d[0], EdgeDisposition::Authoritative);
+        assert_eq!(
+            d[1],
+            EdgeDisposition::UnusedCandidate {
+                superseded_by: "quantification".to_string()
+            },
+            "the unread normalized candidate must be dropped, superseded by the read raw member"
+        );
+    }
+
+    #[test]
+    fn unresolved_one_of_keeps_both_members_as_candidates() {
+        // Reconciliation resolved NEITHER member authoritative (e.g. the
+        // actual read diverged from both producers) — both stay candidates,
+        // neither is dropped, so we never fabricate a resolution.
+        let edges = de_one_of();
+        let authoritative: BTreeSet<(String, String)> = BTreeSet::new();
+
+        let d = classify_reconciled_edges(&edges, &authoritative);
+        assert_eq!(
+            d,
+            vec![
+                EdgeDisposition::UnresolvedCandidate,
+                EdgeDisposition::UnresolvedCandidate
+            ]
+        );
+    }
+
+    #[test]
+    fn ordinary_unobserved_edge_is_left_untouched() {
+        let edges = vec![edge(
+            "quantification",
+            "count_matrix",
+            "differential_expression",
+            "raw_counts",
+        )];
+        let authoritative: BTreeSet<(String, String)> = BTreeSet::new();
+
+        let d = classify_reconciled_edges(&edges, &authoritative);
+        assert_eq!(d, vec![EdgeDisposition::Unobserved]);
     }
 }

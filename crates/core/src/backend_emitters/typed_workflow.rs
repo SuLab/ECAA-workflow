@@ -112,6 +112,7 @@ pub fn lower_to_typed_workflow(dag: &WorkflowDag, ctx: &TypedWorkflowContext) ->
             source_output: e.from_port.clone(),
             target_step: e.to_node.clone(),
             target_input: e.to_port.clone(),
+            mutually_exclusive_group: e.mutually_exclusive_group.clone(),
         });
     }
     edges.sort_by(|a, b| a.edge_id.cmp(&b.edge_id));
@@ -373,6 +374,18 @@ pub struct ParameterMapping {
     pub target_step: String,
     /// Consuming input port.
     pub target_input: String,
+    /// T6.2 / §G-B1 — `EdgeContract.mutually_exclusive_group`. Mirrors the
+    /// same field on [`TypedEdge`] so the `parameter_mappings` view (the
+    /// "what feeds this step's input" projection a generic consumer reads)
+    /// ALSO carries the one-of marker: when set, this mapping is one member
+    /// of a mutually-exclusive group and a consumer must NOT treat it as an
+    /// unconditional authoritative data flow. Observed-provenance resolves
+    /// the single read member in the reconciled RO-Crate. `None` for
+    /// ordinary edges (field omitted from the artifact, so bytes are
+    /// unchanged for non-one-of workflows).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub mutually_exclusive_group: Option<String>,
 }
 
 /// Top-level typed parameter (W4). Sourced ONLY from intake facts the SME
@@ -548,6 +561,80 @@ mod tests {
         assert_eq!(m.source_output, "bam");
         assert_eq!(m.target_step, "quantify_features");
         assert_eq!(m.target_input, "bam");
+        // Ordinary edge — no one-of marker on either projection.
+        assert_eq!(m.mutually_exclusive_group, None);
+        assert_eq!(out.edges[0].mutually_exclusive_group, None);
+    }
+
+    /// A DE-style one-of input group: two producers feed the same consumer,
+    /// only one is read at runtime.
+    fn one_of_dag() -> WorkflowDag {
+        let mut de = TaskNode::skeleton("differential_expression", "DE");
+        de.attributes
+            .insert("role".into(), serde_json::Value::String("operation".into()));
+        let counts = TaskNode::skeleton("quantification", "Quantify");
+        let norm = TaskNode::skeleton("normalisation", "Normalize");
+        let mut edge = |from: &str, from_port: &str, to_port: &str| EdgeContract {
+            from_node: from.into(),
+            from_port: from_port.into(),
+            to_node: "differential_expression".into(),
+            to_port: to_port.into(),
+            proof: CompatibilityProof::default(),
+            kind: EdgeKind::TypedDataFlow,
+            chain_of_custody: None,
+            mutually_exclusive_group: Some("counts".into()),
+        };
+        WorkflowDag {
+            id: "de_one_of".into(),
+            nodes: vec![de, counts, norm],
+            edges: vec![
+                edge("quantification", "count_matrix", "raw_counts"),
+                edge("normalisation", "normalized_counts", "normalized_counts"),
+            ],
+            assumptions: AssumptionLedger::default(),
+            source_template: None,
+        }
+    }
+
+    /// §G-B1 — the one-of marker rides BOTH the `edges` and the
+    /// `parameter_mappings` projection, so a generic consumer reading either
+    /// view sees the mutually-exclusive structure and never reads an unread
+    /// alternative as an authoritative data flow. Closes the gap where
+    /// `parameter_mappings` carried no marker at all.
+    #[test]
+    fn parameter_mappings_carry_one_of_marker() {
+        let wf = one_of_dag();
+        let out = lower_to_typed_workflow(&wf, &TypedWorkflowContext::default());
+
+        // Every one-of edge is marked on the edges projection.
+        assert!(
+            out.edges
+                .iter()
+                .all(|e| e.mutually_exclusive_group.as_deref() == Some("counts")),
+            "edges projection must mark both one-of members"
+        );
+        // ...and identically on the parameter_mappings projection.
+        assert_eq!(out.parameter_mappings.len(), 2);
+        assert!(
+            out.parameter_mappings
+                .iter()
+                .all(|m| m.mutually_exclusive_group.as_deref() == Some("counts")),
+            "parameter_mappings must ALSO mark both one-of members, so a \
+             generic consumer of that view is not fooled into reading the \
+             unread candidate as an authoritative feed"
+        );
+        // The mapping set matches the edge set (no drift between the two views).
+        let edge_ports: std::collections::BTreeSet<(String, String)> = out
+            .edges
+            .iter()
+            .map(|e| (e.source_node_id.clone(), e.target_input.clone()))
+            .collect();
+        let mapping_ports: std::collections::BTreeSet<(String, String)> = out
+            .parameter_mappings
+            .iter()
+            .map(|m| (m.source_step.clone(), m.target_input.clone()))
+            .collect();
+        assert_eq!(edge_ports, mapping_ports);
     }
 
     #[test]
