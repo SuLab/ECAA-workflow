@@ -160,6 +160,48 @@ stub, fabricate, or copy placeholder data. Missing a required output table is
 a hard completion failure: an analytical stage that did not emit the tables
 its declared figures are rendered from is not done.
 
+### Narrative correctness (report-generation stages)
+
+If your task writes report narrative prose — `reporting`, `final_reporting`,
+a pathway-enrichment summary, or any stage that produces a `narrative_text`
+field or a markdown report body — the following mistakes have shipped in
+real runs and are cheap to avoid:
+
+- **Direction words come from the sign of the statistic, never free text.**
+  When you write "above"/"below", "higher"/"lower", "increased"/"decreased",
+  or similar, derive the word from the actual sign or ratio you computed —
+  do not describe direction from intuition or from what you expect the
+  result to look like. Example: if a ratio such as
+  `top_effect_abundance_ratio` computes to `< 1`, the correct word is
+  "below"/"lower" (e.g. 0.56 means the top effects sit at ~56% of the
+  reference — below it, not "substantially above" it).
+- **Report what was TESTED, not what was LOADED.** A gene-set /
+  pathway count (or any "N analyzed" figure) must be the post-filter row
+  count of the results table you actually computed (e.g. `nrow()` of the
+  enrichment result after `minSize`/`maxSize` filtering) — never the
+  pre-filter count of sets loaded from the collection file. If your script
+  prints both numbers, only the post-filter one belongs in the narrative
+  and in any `*_tested` field; record it in your JSON result too so a
+  downstream validator can check it against the table rowcount.
+- **Every "FDR" mention must name its family and threshold.** Gene-level
+  differential-expression FDR (`padj`) and pathway-level enrichment FDR
+  (e.g. `fgsea` padj) are different multiple-testing corrections over
+  different universes with different conventional thresholds (commonly
+  0.05 vs 0.25). Never write a bare "FDR" — write, every time it appears
+  (not only in a reproducibility appendix), "gene-level FDR (padj) <
+  0.05" / "pathway-level (fgsea) FDR < 0.25", using the thresholds this
+  run actually applied.
+- **Name the statistical model exactly as executed.** A fixed-effects
+  design (e.g. a DESeq2/edgeR `~ covariate + condition` negative-binomial
+  GLM, with no random-effect term) is NOT a "linear mixed model" — a mixed
+  model requires an actual random-effects term. Copy the model label from
+  what you ran; don't reach for a more familiar-sounding name.
+
+These are the same pitfalls a source-level validator checks for in
+`validate_reporting`/`validate_final_reporting` when one is present for
+this run; getting them right at generation time avoids a re-dispatch
+block.
+
 ### Data acquisition — required input stage
 
 When `task-spec.json` carries `required_input_stage`, it names the EDAM data
