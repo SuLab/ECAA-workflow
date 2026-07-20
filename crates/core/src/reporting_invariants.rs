@@ -185,22 +185,59 @@ fn read_reports(outputs: &Path) -> Option<String> {
 /// Parse an integer that may carry `,` thousands separators (`"5,179"`).
 fn parse_grouped_int(s: &str) -> Option<u64> {
     let cleaned: String = s.chars().filter(|c| *c != ',').collect();
+    if cleaned.is_empty() {
+        return None;
+    }
     cleaned.parse().ok()
 }
 
-/// Recursively collect every non-negative integer value in a JSON tree
-/// into `out`. Used to build the set of stage-output-sourced gene counts
+/// Interpret a JSON scalar as a non-negative integer count. Accepts a plain
+/// u64, an exact non-negative integral float (`17190.0` — how numpy /
+/// pandas / jsonlite routinely serialize integer counts), and a numeric
+/// string (`"17190"` / `"17,190"`). Returns `None` for anything else
+/// (fractional floats, non-numeric strings, bools, null). Accepting the
+/// float/string encodings is the conservative direction for the REQUIRED
+/// RP-4 gate: it WIDENS the set of stage-output-sourced counts, so a
+/// scientifically-correct count recorded as a float or string is no longer
+/// mistaken for a narrative-only number.
+fn as_count(value: &Value) -> Option<u64> {
+    match value {
+        Value::Number(n) => n.as_u64().or_else(|| {
+            n.as_f64().and_then(|f| {
+                (f.is_finite() && f >= 0.0 && f.fract() == 0.0 && f <= u64::MAX as f64)
+                    .then_some(f as u64)
+            })
+        }),
+        Value::String(s) => parse_grouped_int(s.trim()),
+        _ => None,
+    }
+}
+
+/// Normalize a collection label for tolerant comparison: lower-case and
+/// strip every non-alphanumeric character, so `"GO_BP"`, `"go-bp"`, and
+/// `"GO BP"` all compare equal. RP-2 uses this so a pure label-FORMAT
+/// difference between `pathway_summary.json` keys and the TSV `collection`
+/// column can never trigger a REQUIRED failure.
+fn normalize_label(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// Recursively collect every non-negative integer count in a JSON tree into
+/// `out`, accepting integral-float and numeric-string encodings (see
+/// [`as_count`]). Used to build the set of stage-output-sourced gene counts
 /// RP-4 reconciles a report's mapping claims against.
 fn collect_ints(value: &Value, out: &mut BTreeSet<u64>) {
     match value {
-        Value::Number(n) => {
-            if let Some(u) = n.as_u64() {
+        Value::Array(items) => items.iter().for_each(|v| collect_ints(v, out)),
+        Value::Object(map) => map.values().for_each(|v| collect_ints(v, out)),
+        scalar => {
+            if let Some(u) = as_count(scalar) {
                 out.insert(u);
             }
         }
-        Value::Array(items) => items.iter().for_each(|v| collect_ints(v, out)),
-        Value::Object(map) => map.values().for_each(|v| collect_ints(v, out)),
-        _ => {}
     }
 }
 
@@ -239,23 +276,40 @@ fn check_rp2_gene_sets_tested(outputs: &Path, report: &mut ReportingInvariantsRe
         recomputed_total += 1;
     }
 
+    // Normalized lookup of the recomputed per-collection counts, so a pure
+    // label-FORMAT difference (case/separator) never blocks.
+    let recomputed_norm: BTreeMap<String, u64> = recomputed
+        .iter()
+        .map(|(raw, n)| (normalize_label(raw), *n))
+        .collect();
+
     // Compare each reported entry (sorted for deterministic output) against
-    // the recomputed value; `total` uses the row total, others the
-    // per-collection rowcount.
+    // the recomputed value. `total` is the HARD REQUIRED check (row total).
+    // A per-collection entry is compared by NORMALIZED label; if it has no
+    // TSV counterpart after normalization it is unverifiable and SKIPPED —
+    // never a REQUIRED failure on a label-format difference alone.
     let mut mismatches: Vec<String> = Vec::new();
     for (key, reported_val) in reported {
-        let Some(reported_n) = reported_val.as_u64() else {
+        let Some(reported_n) = as_count(reported_val) else {
             continue;
         };
-        let actual = if key == "total" {
-            recomputed_total
-        } else {
-            recomputed.get(key).copied().unwrap_or(0)
-        };
-        if reported_n != actual {
-            mismatches.push(format!(
-                "{key}: reported {reported_n} vs recomputed {actual}"
-            ));
+        if key == "total" {
+            if reported_n != recomputed_total {
+                mismatches.push(format!(
+                    "total: reported {reported_n} vs recomputed {recomputed_total}"
+                ));
+            }
+            continue;
+        }
+        // A reported collection with no normalized TSV counterpart is
+        // unverifiable — silently skipped, never a REQUIRED failure on a
+        // label-format difference alone.
+        if let Some(&actual) = recomputed_norm.get(&normalize_label(key)) {
+            if reported_n != actual {
+                mismatches.push(format!(
+                    "{key}: reported {reported_n} vs recomputed {actual}"
+                ));
+            }
         }
     }
     if !mismatches.is_empty() {
@@ -284,19 +338,35 @@ fn check_rp4_mapping_reconciliation(outputs: &Path, report: &mut ReportingInvari
     let Some(reports) = read_reports(outputs) else {
         return;
     };
-    // Build the set of stage-output-sourced integers from the mapping-bearing
-    // stage outputs. Widening this set is the conservative direction for a
-    // REQUIRED gate (fewer false-positive blocks).
+    // Build the set of stage-output-sourced integers by scanning EVERY
+    // stage's `result.json` (plus the pathway summary, which is not a
+    // `result.json` but carries mapping counts). Widening this set is the
+    // conservative direction for a REQUIRED gate (fewer false-positive
+    // blocks): a narrative count is flagged only when it appears in NO stage
+    // output at all — not merely because it happened to be recorded in a
+    // stage dir this check did not previously enumerate.
     let mut sourced: BTreeSet<u64> = BTreeSet::new();
-    for rel in [
-        "pathway_enrichment/pathway_summary.json",
-        "pathway_enrichment/result.json",
-        "contextualize_findings_with_literature/result.json",
-        "differential_expression/result.json",
-    ] {
-        if let Some(v) = read_json(&outputs.join(rel)) {
-            collect_ints(&v, &mut sourced);
+    if let Ok(entries) = std::fs::read_dir(outputs) {
+        // Sort for deterministic traversal (the BTreeSet result is
+        // order-independent, but fixed order keeps behavior reproducible).
+        let mut stage_dirs: Vec<std::path::PathBuf> = entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_dir())
+            .collect();
+        stage_dirs.sort();
+        for dir in stage_dirs {
+            if let Some(v) = read_json(&dir.join("result.json")) {
+                collect_ints(&v, &mut sourced);
+            }
         }
+    }
+    if let Some(v) = read_json(
+        &outputs
+            .join("pathway_enrichment")
+            .join("pathway_summary.json"),
+    ) {
+        collect_ints(&v, &mut sourced);
     }
     if sourced.is_empty() {
         // No mapping stage outputs to reconcile against — nothing to check.
@@ -338,10 +408,14 @@ fn check_rp4_mapping_reconciliation(outputs: &Path, report: &mut ReportingInvari
 
 /// `top_features_heatmap` is, by the plotting library's construction, a
 /// single-column log2FC heatmap (one column per DE contrast), not a
-/// per-sample expression matrix. A caption asserting it shows "N samples"
-/// misrepresents its data shape — the deposited report captioned it as an
-/// "expression heatmap … across 8 samples". Gated on the figure actually
-/// being present so it only fires for packages that render it.
+/// per-sample expression matrix. A caption ASSERTING it shows a per-sample
+/// shape — "across N samples" or an "N-sample expression heatmap/matrix" —
+/// misrepresents its data shape (the deposited report captioned it as an
+/// "expression heatmap … across 8 samples"). A truthful PROVENANCE mention
+/// ("derived from N samples" / "computed from N samples") describes the
+/// upstream data rather than the figure's shape and never blocks: the check
+/// fires only on a positively-matched shape assertion. Gated on the figure
+/// actually being present so it only fires for packages that render it.
 fn check_rp5_figure_caption_shape(outputs: &Path, report: &mut ReportingInvariantsReport) {
     let de = outputs.join("differential_expression");
     if !de.join("figures").join("top_features_heatmap.png").exists() {
@@ -356,30 +430,68 @@ fn check_rp5_figure_caption_shape(outputs: &Path, report: &mut ReportingInvarian
         v.get("contrast")
             .and_then(|c| c.as_str().map(str::to_string))
     });
-    let re_samples = Regex::new(r"(\d[\d,]*)\s+samples?\b").expect("static RP-5 regex compiles");
-    for line in reports.lines() {
-        if !line.contains("top_features_heatmap") {
-            continue;
+
+    // Assemble the figure's CAPTION BLOCK — the line naming the figure plus
+    // any wrapped continuation lines up to a blank line, the next bullet, a
+    // table row, or a heading — rather than inspecting a single line, so a
+    // caption spanning lines is judged as one unit.
+    let lines: Vec<&str> = reports.lines().collect();
+    let Some(start) = lines
+        .iter()
+        .position(|l| l.contains("top_features_heatmap"))
+    else {
+        return;
+    };
+    let mut block = String::new();
+    for (i, line) in lines.iter().enumerate().skip(start) {
+        if i > start {
+            let t = line.trim_start();
+            if t.is_empty()
+                || t.starts_with("- ")
+                || t.starts_with("* ")
+                || t.starts_with('#')
+                || t.starts_with('|')
+            {
+                break;
+            }
         }
-        let Some(cap) = re_samples.captures(line) else {
-            continue;
-        };
-        let contrast_note = contrast
-            .as_deref()
-            .map(|c| format!(" (its single column is the {c} log2FC)"))
-            .unwrap_or_default();
-        report.findings.push(ReportingFinding {
-            invariant: "RP-5",
-            severity: Severity::Required,
-            detail: format!(
-                "caption for top_features_heatmap asserts a {}-sample expression matrix, but \
-                 the figure is a single-column log2FC heatmap{contrast_note}, not a per-sample \
-                 expression matrix",
-                &cap[1]
-            ),
-        });
-        break;
+        block.push_str(line);
+        block.push(' ');
     }
+    let block_lc = block.to_lowercase();
+
+    // Only a SHAPE ASSERTION about the figure blocks: the figure is claimed
+    // to display data "across N samples", or to be an "N-sample expression
+    // heatmap/matrix". A truthful PROVENANCE mention ("derived from N
+    // samples" / "computed from N samples") describes the upstream data, not
+    // the figure's shape, and must never block — so we fire only on a
+    // positively-matched assertion pattern.
+    let assert_across =
+        Regex::new(r"across\s+(\d[\d,]*)\s+samples?\b").expect("static RP-5 across regex compiles");
+    let assert_n_sample =
+        Regex::new(r"(\d[\d,]*)[\s-]samples?\s+(?:expression\s+)?(?:heatmap|matrix)")
+            .expect("static RP-5 n-sample regex compiles");
+    let n_claimed = assert_across
+        .captures(&block_lc)
+        .or_else(|| assert_n_sample.captures(&block_lc))
+        .map(|c| c[1].to_string());
+    let Some(n) = n_claimed else {
+        return;
+    };
+
+    let contrast_note = contrast
+        .as_deref()
+        .map(|c| format!(" (its single column is the {c} log2FC)"))
+        .unwrap_or_default();
+    report.findings.push(ReportingFinding {
+        invariant: "RP-5",
+        severity: Severity::Required,
+        detail: format!(
+            "caption for top_features_heatmap asserts a {n}-sample expression matrix, but the \
+             figure is a single-column log2FC heatmap{contrast_note}, not a per-sample \
+             expression matrix"
+        ),
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -819,6 +931,257 @@ mod tests {
         );
         let report = check_reporting_invariants(tmp.path());
         assert!(report.warnings().iter().all(|w| !w.contains("RP-1")));
+    }
+
+    // -- RP-4 over-block guards ------------------------------------------
+
+    /// A count serialized as a JSON float (`17190.0` — common from
+    /// numpy/pandas/jsonlite) or as a numeric string, or recorded in a
+    /// non-canonical stage dir (`reporting/result.json`), must count as
+    /// "sourced" — it must NOT trip the REQUIRED narrative-only gate.
+    #[test]
+    fn rp4_float_string_and_reporting_dir_counts_are_sourced() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        // 17190 as a JSON FLOAT; 5160 as a numeric STRING.
+        write(
+            &outputs,
+            "pathway_enrichment/result.json",
+            &serde_json::json!({
+                "n_genes_ranked": 17190.0,
+                "n_genes_unmapped": "5160"
+            })
+            .to_string(),
+        );
+        // A count only present in reporting/result.json (broadened scan).
+        write(
+            &outputs,
+            "reporting/result.json",
+            &serde_json::json!({ "n_genes_total": 22369, "n_resolved": "17,209" }).to_string(),
+        );
+        write(
+            &outputs,
+            "final_reporting/final_report.md",
+            "22,369 genes; 17,190 successfully mapped; 5,160 unmapped; \
+             17,209 resolved, 5,160 unresolved.\n",
+        );
+        let report = check_reporting_invariants(tmp.path());
+        assert!(report.checked.contains(&"RP-4"));
+        assert!(
+            report.passed(),
+            "float/string/reporting-dir-sourced counts must not false-block RP-4: {report:?}"
+        );
+    }
+
+    /// The real back-computed `5,179` must STILL be flagged even after the
+    /// sourced scan is broadened to every stage `result.json`.
+    #[test]
+    fn rp4_backcomputed_still_flagged_after_broadening() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        // Full spread of stage outputs (broadened scan reads them all), none
+        // of which contains 5179.
+        write(
+            &outputs,
+            "pathway_enrichment/result.json",
+            &serde_json::json!({ "n_genes_ranked": 17190.0, "n_genes_unmapped": 5160 }).to_string(),
+        );
+        write(
+            &outputs,
+            "contextualize_findings_with_literature/result.json",
+            &serde_json::json!({ "resolved": 17209, "unresolved": 5160, "total": 22369 })
+                .to_string(),
+        );
+        write(
+            &outputs,
+            "reporting/result.json",
+            &serde_json::json!({ "n_genes": 22369 }).to_string(),
+        );
+        write(
+            &outputs,
+            "final_reporting/final_report.md",
+            "22,369 genes; 17,190 successfully mapped; 5,179 unmapped.\n",
+        );
+        let report = check_reporting_invariants(tmp.path());
+        assert!(report.checked.contains(&"RP-4"));
+        assert!(
+            !report.passed(),
+            "back-computed 5,179 must still block: {report:?}"
+        );
+        assert!(
+            report
+                .required_failures()
+                .iter()
+                .any(|f| f.contains("RP-4") && f.contains("5179")),
+            "RP-4 must still name the narrative-only 5,179: {:?}",
+            report.required_failures()
+        );
+    }
+
+    // -- RP-2 over-block guards ------------------------------------------
+
+    /// Case- and separator-varied collection labels between
+    /// `pathway_summary.json` keys and the TSV `collection` column must NOT
+    /// cause a REQUIRED failure when the counts actually agree.
+    #[test]
+    fn rp2_case_varied_labels_do_not_false_block() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        // TSV uses lowercase/underscore labels.
+        write(
+            &outputs,
+            "pathway_enrichment/pathway_results.tsv",
+            &pathway_results_tsv(&[("hallmark", 2), ("go_bp", 3)]),
+        );
+        // Summary uses upper-case + hyphen/space separators, same counts.
+        write(
+            &outputs,
+            "pathway_enrichment/pathway_summary.json",
+            &serde_json::json!({
+                "gene_sets_tested": { "HALLMARK": 2, "GO-BP": 3, "total": 5 }
+            })
+            .to_string(),
+        );
+        let report = check_reporting_invariants(tmp.path());
+        assert!(report.checked.contains(&"RP-2"));
+        assert!(
+            report.passed(),
+            "a pure label-format difference (counts agree) must not block RP-2: {report:?}"
+        );
+    }
+
+    /// A reported collection with no TSV counterpart after normalization is
+    /// unverifiable — skipped, not a REQUIRED failure — while the TOTAL row
+    /// count remains the hard REQUIRED check.
+    #[test]
+    fn rp2_unmatched_collection_is_skipped_total_still_checked() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "pathway_enrichment/pathway_results.tsv",
+            &pathway_results_tsv(&[("HALLMARK", 2), ("GO_BP", 3)]),
+        );
+        // MYSTERY has no TSV rows: unverifiable-skip. total agrees (5).
+        write(
+            &outputs,
+            "pathway_enrichment/pathway_summary.json",
+            &serde_json::json!({
+                "gene_sets_tested": { "HALLMARK": 2, "GO_BP": 3, "MYSTERY": 99, "total": 5 }
+            })
+            .to_string(),
+        );
+        let report = check_reporting_invariants(tmp.path());
+        assert!(report.checked.contains(&"RP-2"));
+        assert!(
+            report.passed(),
+            "an unmatched (unverifiable) collection label must not block; total agrees: {report:?}"
+        );
+
+        // But a wrong TOTAL is still a hard REQUIRED failure.
+        write(
+            &outputs,
+            "pathway_enrichment/pathway_summary.json",
+            &serde_json::json!({
+                "gene_sets_tested": { "HALLMARK": 2, "GO_BP": 3, "MYSTERY": 99, "total": 10085 }
+            })
+            .to_string(),
+        );
+        let report = check_reporting_invariants(tmp.path());
+        assert!(
+            !report.passed(),
+            "a wrong TOTAL rowcount must still be a REQUIRED failure: {report:?}"
+        );
+        assert!(
+            report
+                .required_failures()
+                .iter()
+                .any(|f| f.contains("RP-2") && f.contains("total") && f.contains("10085")),
+            "RP-2 total mismatch must still be named: {:?}",
+            report.required_failures()
+        );
+    }
+
+    // -- RP-5 over-block guards ------------------------------------------
+
+    /// A truthful PROVENANCE mention ("derived from N samples") is not a
+    /// claim about the figure's data shape and must NOT block deposit.
+    #[test]
+    fn rp5_provenance_sample_mention_does_not_false_block() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "differential_expression/figures/top_features_heatmap.png",
+            "PNG",
+        );
+        write(
+            &outputs,
+            "final_reporting/final_report.md",
+            "- **top_features_heatmap** (differential_expression): single-column log2FC \
+             of the top DE genes, derived from 8 samples.\n",
+        );
+        let report = check_reporting_invariants(tmp.path());
+        assert!(report.checked.contains(&"RP-5"));
+        assert!(
+            report.passed(),
+            "a provenance-only 'derived from 8 samples' mention must not block RP-5: {report:?}"
+        );
+    }
+
+    /// The real "expression heatmap … across 8 samples" SHAPE assertion must
+    /// STILL be flagged after the provenance-vs-assertion split.
+    #[test]
+    fn rp5_shape_assertion_still_flagged() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "differential_expression/figures/top_features_heatmap.png",
+            "PNG",
+        );
+        write(
+            &outputs,
+            "final_reporting/final_report.md",
+            "- **top_features_heatmap** (differential_expression): expression heatmap of \
+             top DE genes across 8 samples.\n",
+        );
+        let report = check_reporting_invariants(tmp.path());
+        assert!(report.checked.contains(&"RP-5"));
+        assert!(
+            !report.passed(),
+            "an 'across 8 samples' shape claim must still block: {report:?}"
+        );
+        assert!(
+            report
+                .required_failures()
+                .iter()
+                .any(|f| f.contains("RP-5") && f.contains('8')),
+            "RP-5 must still name the false 8-sample claim: {:?}",
+            report.required_failures()
+        );
+    }
+
+    /// The "N-sample expression heatmap" phrasing is also a shape assertion.
+    #[test]
+    fn rp5_n_sample_heatmap_phrasing_flagged() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "differential_expression/figures/top_features_heatmap.png",
+            "PNG",
+        );
+        write(
+            &outputs,
+            "final_reporting/final_report.md",
+            "- **top_features_heatmap**: an 8-sample expression heatmap of the top DE genes.\n",
+        );
+        let report = check_reporting_invariants(tmp.path());
+        assert!(
+            !report.passed(),
+            "'8-sample expression heatmap' must block: {report:?}"
+        );
     }
 
     // -- vacuity ----------------------------------------------------------

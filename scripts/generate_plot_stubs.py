@@ -501,8 +501,13 @@ def _stub_reporting(stub_dir: Path) -> None:
         "row_labels": [f"Method{i}" for i in range(n)],
         "col_labels": [f"Method{i}" for i in range(n)],
         "pathway_overlap": [
+            # RP-6: a signed `nes` (10 enriched > 0, 10 depleted < 0) so the
+            # overlap bar exercises the diverging enriched/depleted color
+            # path end-to-end. Derived from `i` (no RNG draw) so the rest of
+            # the fixture set stays byte-identical.
             {"term": f"Pathway_{i}", "set_a": random.randint(5, 50), "set_b": random.randint(5, 50),
-             "overlap": random.randint(1, 20)}
+             "overlap": random.randint(1, 20),
+             "nes": round((1.0 + (i % 10) * 0.2) * (1.0 if i < 10 else -1.0), 3)}
             for i in range(20)
         ],
     })

@@ -223,6 +223,57 @@ fn clean_report_stays_deposit_ready() {
     assert!(deposit_readiness::check_deposit_readiness(tmp.path(), false).is_ok());
 }
 
+/// Over-block guard through the rollup: a scientifically-correct package
+/// whose gene counts are serialized as JSON floats / numeric strings and
+/// whose collection labels differ only in case/separator from the TSV must
+/// NOT false-block the domain rollup (hardened RP-2/RP-4 tolerances), while
+/// the real defects are still caught by the dedicated fold tests above.
+#[test]
+fn float_counts_and_label_format_do_not_false_block_rollup() {
+    let tmp = TempDir::new().unwrap();
+    let outputs = outputs_of(&tmp);
+    // TSV collection labels lower-case; summary keys upper-case + hyphen.
+    write(
+        &outputs,
+        "pathway_enrichment/pathway_results.tsv",
+        &pathway_results_tsv(&[("hallmark", 2), ("go_bp", 3)]),
+    );
+    write(
+        &outputs,
+        "pathway_enrichment/pathway_summary.json",
+        &serde_json::json!({
+            "gene_sets_tested": { "HALLMARK": 2, "GO-BP": 3, "total": 5 }
+        })
+        .to_string(),
+    );
+    // Mapping counts serialized as a JSON float (17190.0) and a numeric
+    // string ("5160") — both must count as sourced.
+    write(
+        &outputs,
+        "pathway_enrichment/result.json",
+        &serde_json::json!({ "n_genes_ranked": 17190.0, "n_genes_unmapped": "5160" }).to_string(),
+    );
+    write(
+        &outputs,
+        "final_reporting/final_report.md",
+        "17,190 successfully mapped; 5,160 unmapped. 5 gene sets tested.\n",
+    );
+
+    let summary = deposit_readiness::scan_domain_validation(tmp.path());
+    assert!(
+        summary.passed(),
+        "float/string counts + a pure label-format difference must not false-block \
+         the domain rollup: {summary:?}"
+    );
+    assert!(
+        summary
+            .checked_tasks
+            .iter()
+            .any(|t| t == "reporting_invariants"),
+        "the reporting validator must still have run: {summary:?}"
+    );
+}
+
 /// RP-5 (Required): a caption asserting an 8-sample shape for the
 /// single-column log2FC `top_features_heatmap` must block deposit.
 #[test]

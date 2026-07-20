@@ -18,6 +18,16 @@ expected_artifacts:
   - result.json
 required_figures:
   - concordance_heatmap
+  # pathway_overlap_bar: the executing agent MUST give each `pathway_overlap`
+  # figure-data entry a signed direction next to its `count` — a numeric
+  # `nes` (normalized enrichment score; > 0 enriched, < 0 depleted) copied
+  # from the enrichment result, or a string `direction` of "up"/"down"
+  # ("enriched"/"depleted") when no NES is available. The renderer
+  # (lib/plotting/stages/reporting.py) colors enriched vs depleted pathways
+  # divergently ONLY when this field is present; without it an enriched and a
+  # depleted set render as identical bars (the inert RP-6 direction channel).
+  # Additive: legacy [{label, count}] entries still render. This obligation
+  # is restated agent-side in scripts/agent-prompts/task-execution.md.
   - pathway_overlap_bar
 resource_profile:
   cpu: light
