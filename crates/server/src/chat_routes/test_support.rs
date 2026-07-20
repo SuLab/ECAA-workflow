@@ -192,6 +192,80 @@ pub async fn body_json(body: Body) -> serde_json::Value {
     serde_json::from_slice(&bytes).unwrap()
 }
 
+/// Seed a session with a single `Running` task in its DAG that declares
+/// `required_artifacts` (each with no min-size, "non-empty file" check),
+/// and set `emitted_package_path` to `package_root`. Used by the CV-4
+/// server-side artifact-guard tests: they then POST a `Completed`
+/// transition and assert the guard refuses/accepts based on whether the
+/// declared artifacts exist on disk.
+pub async fn seed_session_with_task_requiring_artifacts(
+    app: &ChatAppState,
+    task_id: &str,
+    package_root: std::path::PathBuf,
+    artifact_paths: &[&str],
+) -> uuid::Uuid {
+    use ecaa_workflow_core::dag::{
+        Assignee, RequiredArtifact, ResourceClass, Task, TaskId, TaskKind, TaskState, DAG,
+    };
+    let required: Vec<RequiredArtifact> = artifact_paths
+        .iter()
+        .map(|p| RequiredArtifact {
+            path: (*p).to_string(),
+            min_size_bytes: None,
+            schema_ref: None,
+            validation_obligations: Vec::new(),
+        })
+        .collect();
+    let (id, _) = app.conversation.start_session(false).await.unwrap();
+    let store = app.conversation.store_handle();
+    let tid = task_id.to_string();
+    store
+        .update(id, move |s| {
+            let mut tasks = std::collections::BTreeMap::new();
+            tasks.insert(
+                TaskId::from(tid.as_str()),
+                Task {
+                    kind: TaskKind::Computation,
+                    state: TaskState::Running {
+                        started_at: "2026-07-20T00:00:00Z".into(),
+                        remote: None,
+                    },
+                    depends_on: vec![],
+                    assignee: Assignee::Agent,
+                    description: "task declaring required artifacts".into(),
+                    spec: None,
+                    resolution: None,
+                    result_ref: None,
+                    resource_class: ResourceClass::CpuHeavy,
+                    requires_sme_review: false,
+                    required_artifacts: required.clone(),
+                    container: None,
+                    source_atom_id: None,
+                    safety: Default::default(),
+                    inputs: Vec::new(),
+                    outputs: Vec::new(),
+                    edam_operation: None,
+                    execution_index: None,
+                },
+            );
+            s.dag = Some(DAG {
+                version: "test".into(),
+                schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
+                workflow_id: "workflow-test".into(),
+                current_task: None,
+                tasks,
+                reverse_deps: std::collections::BTreeMap::new(),
+                run_id: None,
+                execution_order: Vec::new(),
+            });
+            s.emitted_package_path = Some(package_root.clone());
+            Ok(())
+        })
+        .await
+        .unwrap();
+    id
+}
+
 /// Seed a session with a single completed task in its DAG. Optional
 /// `package_root` populates `emitted_package_path` so the
 /// `get_task_result` artifact-listing path has a directory to scan.
