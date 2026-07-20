@@ -2238,6 +2238,7 @@ fn auto_author_analysis_node(session: &mut Session) {
             },
             kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         });
     }
     if let Some(term) = &terminal {
@@ -2262,6 +2263,7 @@ fn auto_author_analysis_node(session: &mut Session) {
             },
             kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         });
     }
 
@@ -2707,6 +2709,7 @@ fn wire_upstream_edges(
             // Promoted hypothesized-node wiring: structural ordering edge.
             kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         });
         dirty = true;
     }
@@ -2770,6 +2773,7 @@ fn wire_promoted_node(
                     proof,
                     kind: EdgeKind::OrderingOnly,
                     chain_of_custody: None,
+                    mutually_exclusive_group: None,
                 });
                 dirty = true;
             }
@@ -2806,6 +2810,7 @@ fn wire_promoted_node(
                 proof,
                 kind: EdgeKind::OrderingOnly,
                 chain_of_custody: None,
+                mutually_exclusive_group: None,
             });
             dirty = true;
         }
@@ -2848,6 +2853,7 @@ fn wire_promoted_node(
             proof,
             kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         });
         dirty = true;
     }

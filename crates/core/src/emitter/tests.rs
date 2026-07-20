@@ -277,13 +277,44 @@ fn emit_package_writes_ecaa_runtime_artifacts() {
 
     let manifest =
         std::fs::read_to_string(tmp.path().join("manifest-sha512.txt")).expect("BagIt manifest");
+    // RCA I-7 — proofs.jsonl (+ decisions/assumptions/audit-proof-report/
+    // security-policy) are substantive evidence artifacts, finalized before
+    // core's own manifest write, and are now integrity-covered by it. The
+    // conversation emit path's later overwrites are reconciled by its own
+    // trailing `emitter::reseal_emit_manifest` call, so this stays true on
+    // both emit surfaces.
     assert!(
-        !manifest.contains("runtime/proofs.jsonl"),
-        "runtime ECAA sidecars are post-manifest artifacts so conversation emits can overwrite them"
+        manifest.contains("runtime/proofs.jsonl"),
+        "proofs.jsonl is a substantive evidence artifact and must be BagIt-covered (RCA I-7)"
+    );
+    assert!(
+        manifest.contains("runtime/decisions.jsonl"),
+        "decisions.jsonl is a substantive evidence artifact and must be BagIt-covered (RCA I-7)"
+    );
+    assert!(
+        manifest.contains("runtime/assumptions.jsonl"),
+        "assumptions.jsonl is a substantive evidence artifact and must be BagIt-covered (RCA I-7)"
+    );
+    // audit-proof-report.json carries a wall-clock `evaluated_at`, so unlike
+    // its RCA I-7 siblings it stays OUT of the manifest at EMIT (SealMode::
+    // Emit) to preserve compose-twice byte-reproducibility; it is manifested
+    // at RESEAL (SealMode::Reseal, the post-execution at-rest surface),
+    // covered by `deposit/bagit_coverage.rs`.
+    assert!(
+        !manifest.contains("runtime/audit-proof-report.json"),
+        "audit-proof-report.json must stay OUT of the emit-time manifest (wall-clock evaluated_at)"
+    );
+    assert!(
+        manifest.contains("runtime/security-policy.json"),
+        "security-policy.json is a substantive evidence artifact and must be BagIt-covered (RCA I-7)"
     );
     assert!(
         !manifest.contains("runtime/validation-summary.json"),
         "runtime ECAA sidecars should stay out of the BagIt payload manifest"
+    );
+    assert!(
+        !manifest.contains("DEPOSIT-READINESS.json"),
+        "DEPOSIT-READINESS.json stays intentionally excluded (mutable meta file)"
     );
 }
 
@@ -3088,17 +3119,20 @@ fn is_excluded_from_baseline(rel: &std::path::Path) -> bool {
     }
     // Runtime audit/ECAA sidecars + affordance sidecars — emitted after
     // the BagIt manifest and overwritable by the conversation emit path.
+    // RCA I-7 — `decisions.jsonl` / `proofs.jsonl` / `assumptions.jsonl` /
+    // `security-policy.json` are deterministic at emit (no per-emit
+    // timestamp) and are now BagIt-manifested (see
+    // `bagit::walk_for_manifest`), so they are DELIBERATELY not excluded
+    // here anymore — the whole-package test now covers their bytes too.
+    // `audit-proof-report.json` keeps its wall-clock `evaluated_at` and
+    // stays excluded (mirrors `walk_for_manifest`'s SealMode::Emit guard).
     matches!(
         rel.to_string_lossy().as_ref(),
         "runtime/intake-conversation.jsonl"
-            | "runtime/decisions.jsonl"
-            | "runtime/proofs.jsonl"
             | "runtime/claim-verification.json"
             | "runtime/verifier-decisions.jsonl"
-            | "runtime/assumptions.jsonl"
             | "runtime/validation-reports.jsonl"
             | "runtime/determinism-shim.json"
-            | "runtime/security-policy.json"
             | "runtime/audit-proof-report.json"
             | "runtime/validation-summary.json"
             | "runtime/policy-decisions.jsonl"

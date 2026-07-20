@@ -51,6 +51,77 @@ pub(crate) fn semver_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     parts(a).cmp(&parts(b))
 }
 
+/// Method → required input substrate. A tool's statistical assumptions
+/// pin the shape of data it must be fed regardless of which atom
+/// exposes it: DESeq2/edgeR/limma-voom fit a count-GLM (negative
+/// binomial or a mean-variance trend) that is only valid on raw integer
+/// counts — feeding one a normalized/log matrix does not error, it
+/// silently produces a wrong fit. Keyed by the exact `candidate_tools`
+/// id (see `config/stage-atoms/*.yaml::attributes.candidate_tools`).
+/// Extend this table (not the check below) when a future tool carries
+/// its own substrate requirement.
+const METHOD_REQUIRED_SUBSTRATE: &[(&str, &str)] = &[
+    ("deseq2", "raw_counts"),
+    ("edger", "raw_counts"),
+    ("limma_voom", "raw_counts"),
+];
+
+/// Load-time catalog lint: any atom whose `attributes.candidate_tools`
+/// names a tool in [`METHOD_REQUIRED_SUBSTRATE`] must declare an input
+/// port whose `statistical_state` matches that tool's required
+/// substrate — otherwise the runtime method choice could bind the
+/// count-GLM tool to a port that never carries raw counts. Atoms with
+/// no `candidate_tools` attribute, or whose candidate tools carry no
+/// entry in the table (e.g. rank-based `wilcoxon`/`mast`), are exempt.
+///
+/// Scoped to atoms that already type at least one INPUT port via
+/// `statistical_state` (the `raw_counts`/`normalized` vocabulary
+/// `differential_expression`'s `counts` one-of group uses). An atom
+/// like `differential_accessibility` or `enhancer_activity_calling`
+/// also lists `deseq2` as a candidate tool, but takes peaks/BAM as
+/// input and derives its own counts internally — there is no upstream
+/// port whose substrate could be mis-wired, so the lint does not apply.
+/// An atom's OUTPUT declaring `statistical_state` (e.g. `de_tested`)
+/// does not count — only inputs opt an atom into this contract.
+///
+/// Mirrors the `candidate_tools` read pattern in
+/// `composer_v4::discover_companion_synthesis::candidate_tools` — the
+/// canonical authoring shape is a JSON array of strings under
+/// `attributes.candidate_tools`.
+pub fn validate_de_substrate(atom: &AtomDefinition) -> Result<(), String> {
+    if !atom.inputs.iter().any(|p| p.statistical_state.is_some()) {
+        return Ok(());
+    }
+    let tools: Vec<String> = atom
+        .attributes
+        .get("candidate_tools")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|t| t.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    for (tool, required_substrate) in METHOD_REQUIRED_SUBSTRATE {
+        if !tools.iter().any(|t| t == tool) {
+            continue;
+        }
+        let offers_substrate = atom
+            .inputs
+            .iter()
+            .any(|p| p.statistical_state.as_deref() == Some(*required_substrate));
+        if !offers_substrate {
+            return Err(format!(
+                "atom '{}' offers count-GLM tool '{}' in candidate_tools but declares no \
+                 input port with statistical_state '{}'",
+                atom.id, tool, required_substrate
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// In-memory atom catalog. Keyed by `id`; `BTreeMap` so iteration is
 /// deterministic.
 #[derive(Debug, Clone, Default)]
@@ -448,6 +519,25 @@ impl AtomRegistry {
                     .map(|e| e.to_string())
                     .collect::<Vec<_>>()
                     .join("\n  - ")
+            ));
+        }
+        // DE-substrate lint. An atom that offers a count-based GLM tool
+        // (DESeq2/edgeR/limma-voom) in `candidate_tools` fits its
+        // dispersion model on raw integer counts; wiring it to a
+        // normalized/log matrix instead silently produces garbage with
+        // no runtime error. Aggregated the same way as the safety/
+        // governance lints above so a catalog with several offending
+        // atoms reports every violation in one failure.
+        let mut de_substrate_errors: Vec<String> = Vec::new();
+        for atom in self.atoms.values() {
+            if let Err(e) = validate_de_substrate(atom) {
+                de_substrate_errors.push(e);
+            }
+        }
+        if !de_substrate_errors.is_empty() {
+            return Err(anyhow!(
+                "atom registry DE-substrate lint failed:\n  - {}",
+                de_substrate_errors.join("\n  - ")
             ));
         }
         Ok(())

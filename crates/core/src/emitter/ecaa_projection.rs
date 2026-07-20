@@ -1065,6 +1065,7 @@ mod tests {
             proof: CompatibilityProof::default(),
             kind: EdgeKind::TypedDataFlow,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         };
         let (nodes, edges) = ec.project();
         assert_eq!(nodes.len(), 1);
@@ -1174,6 +1175,7 @@ mod tests {
             kind: crate::workflow_contracts::edge::EdgeKind::Unproven,
             proof: CompatibilityProof::default(),
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         })
         .unwrap();
         let pkg = pkg_with_outputs_and_proofs(

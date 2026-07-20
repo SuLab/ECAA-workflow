@@ -128,6 +128,8 @@ describe('ResultReviewTurnCard', () => {
             n_verified: 2,
             n_mismatch: 0,
             n_unverifiable: 0,
+            n_pending: 0,
+            n_suspicious: 0,
             verdicts: [
               {
                 claim: {
@@ -176,6 +178,8 @@ describe('ResultReviewTurnCard', () => {
             n_verified: 1,
             n_mismatch: 1,
             n_unverifiable: 0,
+            n_pending: 0,
+            n_suspicious: 0,
             verdicts: [
               {
                 claim: {
@@ -229,6 +233,8 @@ describe('ResultReviewTurnCard', () => {
             n_verified: 0,
             n_mismatch: 0,
             n_unverifiable: 0,
+            n_pending: 0,
+            n_suspicious: 0,
             verdicts: [],
           },
         }}

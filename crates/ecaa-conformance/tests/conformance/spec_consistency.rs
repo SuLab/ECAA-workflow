@@ -202,11 +202,12 @@ fn blocker_variants_match_appendix_b() {
     let names = blocker_variant_names();
     assert_eq!(
         names.len(),
-        48,
-        "regex-parsed BlockerKind variant count mismatched the 48-variant assumption — \
+        49,
+        "regex-parsed BlockerKind variant count mismatched the 49-variant assumption — \
          either the parser drifted or the impl gained/lost variants. \
-         (Added ExternalImportFailed for the federation import path; bump here in \
-         lockstep with the impl-side count assert in crates/core/tests/blocker_variant_count.rs.)"
+         (Added ProvenanceDivergence for the observed-read reconciliation path, T12; \
+         bump here in lockstep with the impl-side count assert in \
+         crates/core/tests/blocker_variant_count.rs.)"
     );
     for name in &names {
         assert!(
@@ -217,8 +218,8 @@ fn blocker_variants_match_appendix_b() {
     // Cross-check against the strum::EnumCount macro (compile-time count).
     assert_eq!(
         ecaa_workflow_core::blocker::BlockerKind::COUNT,
-        48,
-        "design + spec assume 48 BlockerKind variants; update this assertion AND the spec if the impl drifts"
+        49,
+        "design + spec assume 49 BlockerKind variants; update this assertion AND the spec if the impl drifts"
     );
 }
 

@@ -295,6 +295,21 @@ fn walk_for_manifest(
         if mode == SealMode::Emit && rel.starts_with("runtime/outputs") {
             continue;
         }
+        // `audit-proof-report.json` carries a spec-documented wall-clock
+        // `evaluated_at` (see `emitter::ecaa::write_audit_proof_report`), so
+        // manifesting it at EMIT would make `manifest-sha512.txt` itself
+        // wall-clock-dependent and break the compose-twice byte-
+        // reproducibility gate (`emit_package_whole_package_byte_reproducible`).
+        // At RESEAL the package is already off that baseline (the at-rest
+        // record of a real run), so RCA I-7 applies there: it is a
+        // substantive evidence artifact and gets manifested like its
+        // siblings (`decisions.jsonl` / `proofs.jsonl` / `assumptions.jsonl`
+        // / `security-policy.json`, all of which carry no such per-emit
+        // timestamp and stay manifested at BOTH modes).
+        if mode == SealMode::Emit && rel == std::path::Path::new("runtime/audit-proof-report.json")
+        {
+            continue;
+        }
         // P3-4 — per-task verification sidecars are written by the
         // conversation emit pipeline AFTER `emit_package` returns, and
         // are runtime-only artifacts consumed by the
@@ -315,41 +330,52 @@ fn walk_for_manifest(
         // so the manifest's PARTIAL file coverage is intentional, not an
         // oversight:
         //   1. Genuinely non-deterministic / post-manifest-mutated sidecars
-        //      (intake-conversation.jsonl, decisions.jsonl, audit-proof-
-        //      report.json with its spec-excluded `evaluated_at`,
-        //      determinism-shim.json with host-varying env capture, etc.) —
-        //      hashing them would bake per-emit or per-host noise into the
-        //      manifest.
-        //   2. SUBSTANTIVE, deterministic artifacts (security-policy.json,
-        //      validation-summary.json) and the per-task task-spec.json under
-        //      runtime/outputs/ (skipped above via the `runtime/outputs`
-        //      prefix guard). These ARE byte-reproducible, but they live
-        //      OUTSIDE the BagIt manifest integrity surface on purpose: they
-        //      are emitted/overwritten by core AND the conversation emit
-        //      pipeline after the manifest is sealed, so manifesting them
-        //      would make every live conversation emit produce a stale
-        //      payload checksum. Their determinism is instead guarded by the
-        //      emit byte-characterization harness
+        //      (intake-conversation.jsonl, determinism-shim.json with
+        //      host-varying env capture, etc.) — hashing them would bake
+        //      per-emit or per-host noise into the manifest.
+        //   2. SUBSTANTIVE, deterministic artifacts (validation-summary.json)
+        //      and the per-task task-spec.json under runtime/outputs/
+        //      (skipped above via the `runtime/outputs` prefix guard).
+        //      These ARE byte-reproducible, but they live OUTSIDE the BagIt
+        //      manifest integrity surface on purpose: they are emitted/
+        //      overwritten by core AND the conversation emit pipeline AFTER
+        //      the manifest is sealed, with no reseal following, so
+        //      manifesting them would make every live conversation emit
+        //      produce a stale payload checksum. Their determinism is
+        //      instead guarded by the emit byte-characterization harness
         //      (`crates/conversation/tests/emit_byte_characterization.rs`),
-        //      not by the BagIt manifest. Do NOT add them to the manifest to
-        //      "complete" coverage — that would re-introduce the stale-
-        //      checksum failure this exclusion exists to prevent.
+        //      not by the BagIt manifest.
+        //
+        // RCA I-7 — `decisions.jsonl`, `proofs.jsonl`, `assumptions.jsonl`,
+        // `audit-proof-report.json`, and `security-policy.json` used to sit
+        // in category 2 above and were EXCLUDED (the deposited `611cf5ee`
+        // package had all five present-on-disk with zero manifest entries).
+        // They are substantive evidence artifacts a deposit consumer needs
+        // integrity-covered, not administrative bookkeeping, so they are now
+        // MANIFESTED instead (four of them unconditionally below;
+        // `audit-proof-report.json` at RESEAL only — see the mode-conditional
+        // guard above, its wall-clock `evaluated_at` field is the exception).
+        // `crates/conversation/src/emit/mod.rs`'s emit pipeline calls
+        // `emitter::reseal_emit_manifest` as its LAST step (after every
+        // sidecar overwrite AND the final RO-Crate patch), so the manifest
+        // entry for each always covers its truly-final bytes rather than the
+        // snapshot core sealed before the conversation pipeline's later
+        // overwrites. Do NOT re-exclude them to "fix" a staleness symptom —
+        // fix the seal-order violation at its source (an emit path that
+        // mutates a manifested file without following up with a reseal)
+        // instead; see `emitter::regenerate_bagit_manifest`'s doc comment
+        // for the post-execution twin of this same discipline.
         if rel == std::path::Path::new("runtime/intake-conversation.jsonl")
-            || rel == std::path::Path::new("runtime/decisions.jsonl")
-            || rel == std::path::Path::new("runtime/proofs.jsonl")
             || rel == std::path::Path::new("runtime/claim-verification.json")
             || rel == std::path::Path::new("runtime/verifier-decisions.jsonl")
-            || rel == std::path::Path::new("runtime/assumptions.jsonl")
             || rel == std::path::Path::new("runtime/validation-reports.jsonl")
             || rel == std::path::Path::new("runtime/determinism-shim.json")
-            || rel == std::path::Path::new("runtime/security-policy.json")
             // reexecution.json: core writes it present-but-empty at emit; the
             // conversation pipeline overwrites it with classified re-execution
-            // buckets on an amend/branch re-emit AFTER the manifest is sealed.
-            // Manifesting it would make every such re-emit produce a stale
-            // payload checksum — same rationale as security-policy.json above.
+            // buckets on an amend/branch re-emit. Not one of the RCA I-7
+            // confirmed-present-but-unmanifested evidence files (unlike the
+            // five above), so left excluded rather than folded into this fix.
             || rel == std::path::Path::new("runtime/reexecution.json")
-            || rel == std::path::Path::new("runtime/audit-proof-report.json")
             // ED/CF self-assessment is deterministic from package facts, but
             // the conversation emit path may re-emit it with the live
             // Tool::COUNT (vs the core-side baseline), so it stays off the

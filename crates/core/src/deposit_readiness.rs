@@ -19,6 +19,15 @@
 //!   validation failed — the enforcement point wired into the `deposit-check`
 //!   CLI subcommand + `make deposit-check`, run before a deposit is trusted.
 //!
+//! Layer 1 also rolls up per-task domain-correctness validation
+//! (`domain_validation`, via [`scan_domain_validation`] — RCA I-10): a
+//! `validate_*` companion task's own `result.json` may self-report
+//! `validation_passed: false`, which is a SEPARATE axis from computational
+//! completion (whether the stage ran and produced output at all). The
+//! headline `deposit_ready` bool folds `ro_crate` + `bagit` +
+//! `domain_validation` + `reexecution` so a run can be computationally
+//! complete while `deposit_ready` reads `false`.
+//!
 //! The attestation is written to `DEPOSIT-READINESS.json` at the deposit root
 //! and is intentionally OFF the BagIt manifest (it carries a wall-clock
 //! `verified_at` + a verdict computed at export time), mirroring
@@ -37,10 +46,16 @@ use crate::replay::reverify::reverify;
 pub const DEPOSIT_READINESS_FILE: &str = "DEPOSIT-READINESS.json";
 
 /// Pass/fail outcome of a deterministic self-validation check.
+///
+/// `Pass` is the derived default so an attestation written before a new
+/// `CheckStatus`-typed field existed (e.g. `domain_validation`, RCA I-10)
+/// deserializes as "nothing recorded, nothing failed" rather than erroring —
+/// absence never fabricates a failure.
 #[non_exhaustive]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CheckStatus {
+    #[default]
     Pass,
     Fail,
 }
@@ -75,10 +90,30 @@ pub struct DepositReadiness {
     /// Deposit profile the attestation was produced for (`full` /
     /// `re-executable` / `minimal`).
     pub profile: String,
+    /// Headline signal: `true` iff `ro_crate`, `bagit`, and
+    /// `domain_validation` all `Pass` AND `reexecution != Fail` (RCA I-10).
+    /// Computed once at attestation-write time by [`compute_deposit_ready`]
+    /// and re-derived whenever a component field changes (e.g. the Layer-2
+    /// re-execution update). Deliberately SEPARATE from computational
+    /// completion — a package whose tasks all ran to completion can still
+    /// have `deposit_ready = false` when a required per-task domain check
+    /// failed. `#[serde(default)]` so an attestation written before this
+    /// field existed deserializes as `false` (conservative: an unscanned
+    /// legacy attestation is not claimed ready) rather than erroring.
+    #[serde(default)]
+    pub deposit_ready: bool,
     /// RO-Crate / recorded-verdict self-validation outcome.
     pub ro_crate: CheckStatus,
     /// BagIt manifest checksum-integrity outcome.
     pub bagit: CheckStatus,
+    /// Per-task domain-correctness validation rollup (RCA I-10): `Fail` when
+    /// any `validate_*` task's own `result.json` recorded
+    /// `validation_passed: false`. See [`scan_domain_validation`]. Separate
+    /// from `ro_crate`/`bagit` (structural integrity) and from computational
+    /// completion (whether tasks ran at all) — this is the domain-science
+    /// signal. `#[serde(default)]` for attestations predating this field.
+    #[serde(default)]
+    pub domain_validation: CheckStatus,
     /// Re-execution verdict (`not_verified` when the check was not run).
     pub reexecution: ReexecStatus,
     /// Human-readable failure/notes detail (empty on a clean all-pass).
@@ -89,6 +124,182 @@ pub struct DepositReadiness {
     pub image_digest: Option<String>,
     /// RFC-3339 wall-clock instant the attestation was produced.
     pub verified_at: String,
+}
+
+/// Fold the four deposit-readiness component signals into the headline
+/// `deposit_ready` bool (RCA I-10). Mirrors the non-strict branch of
+/// [`check_deposit_readiness`]: `NotVerified` re-execution does not itself
+/// block (that is a `--strict`-only concern owned by the CLI gate), but a
+/// hard `Fail` on any of the three `CheckStatus` axes — or a `Fail`
+/// re-execution — does.
+pub fn compute_deposit_ready(
+    ro_crate: CheckStatus,
+    bagit: CheckStatus,
+    domain_validation: CheckStatus,
+    reexecution: ReexecStatus,
+) -> bool {
+    ro_crate == CheckStatus::Pass
+        && bagit == CheckStatus::Pass
+        && domain_validation == CheckStatus::Pass
+        && reexecution != ReexecStatus::Fail
+}
+
+/// One RO-Crate embedded content hash (written by
+/// [`crate::ro_crate::register_content_integrity`]) that disagrees with the
+/// sealed payload's actual bytes (RCA I-2): the descriptor claims `recorded`
+/// for `path`, but the file currently on disk hashes to `actual`.
+#[derive(Debug, Clone)]
+pub struct RoCrateHashMismatch {
+    pub path: String,
+    pub recorded: String,
+    pub actual: String,
+}
+
+/// Post-seal integrity recheck (RCA I-2): recompute the SHA-512 of every
+/// payload file the RO-Crate `@graph` declares a content hash for
+/// (`ecaa_workflow_core::ro_crate::recorded_content_hashes`) and compare
+/// against the value actually recorded in `ro-crate-metadata.json`.
+///
+/// A non-empty result means the descriptor was sealed (or last had its
+/// content-integrity annotations refreshed) BEFORE a later mutation to that
+/// file — the finalization-order failure this check exists to catch. A
+/// package with no embedded content hashes yet (a fresh, pre-execution
+/// emit, which never calls `register_content_integrity`) returns an empty
+/// `Vec` — there is nothing to recheck, not a failure.
+pub fn recheck_ro_crate_content_hashes(package_root: &Path) -> Result<Vec<RoCrateHashMismatch>> {
+    let recorded = crate::ro_crate::recorded_content_hashes(package_root);
+    if recorded.is_empty() {
+        return Ok(Vec::new());
+    }
+    let fresh = crate::emitter::bagit::payload_hashes(
+        package_root,
+        crate::emitter::bagit::SealMode::Reseal,
+    )
+    .context("recomputing payload hashes for the post-seal RO-Crate recheck")?;
+    let mut mismatches = Vec::new();
+    for (path, recorded_hex) in recorded {
+        let actual_hex = fresh
+            .get(&path)
+            .map(|(hex, _)| hex.clone())
+            .unwrap_or_else(|| "<absent from sealed payload>".to_string());
+        if actual_hex != recorded_hex {
+            mismatches.push(RoCrateHashMismatch {
+                path,
+                recorded: recorded_hex,
+                actual: actual_hex,
+            });
+        }
+    }
+    Ok(mismatches)
+}
+
+/// Bail with a detailed message if [`recheck_ro_crate_content_hashes`] finds
+/// any mismatch. The hard post-seal gate: a sealed/resealed package must
+/// never claim a content hash the sealed payload does not actually carry.
+pub fn assert_ro_crate_hashes_match_payload(package_root: &Path) -> Result<()> {
+    let mismatches = recheck_ro_crate_content_hashes(package_root)?;
+    if mismatches.is_empty() {
+        return Ok(());
+    }
+    let detail = mismatches
+        .iter()
+        .map(|m| {
+            let actual_short = &m.actual[..12.min(m.actual.len())];
+            format!(
+                "{} (recorded {}…, actual {}…)",
+                m.path,
+                &m.recorded[..12],
+                actual_short
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    bail!(
+        "post-seal RO-Crate content-hash recheck failed ({} mismatch(es)): {detail}",
+        mismatches.len()
+    );
+}
+
+/// Aggregated per-task domain-correctness validation signal (RCA I-10).
+///
+/// A `validate_<stage>` companion task may record its own domain-correctness
+/// self-report in `runtime/outputs/validate_<stage>/result.json`
+/// (`validation_passed: bool`, and on failure `required_failures: [String]`
+/// naming the failed `policies/validation-contract.json` assertion ids) —
+/// this is a DIFFERENT signal than whether the stage ran at all
+/// (computational completion): the deposited `611cf5ee` package had
+/// `validate_differential_expression/result.json` recording
+/// `validation_passed: false` while every top-level summary layer
+/// (`DEPOSIT-READINESS.json`, RO-Crate, BagIt) read as passing, because
+/// nothing rolled the per-task self-report up into the deposit-level
+/// attestation.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DomainValidationSummary {
+    /// `validate_*` task ids that recorded a self-report (a `validation_passed`
+    /// key was present), in sorted order.
+    pub checked_tasks: Vec<String>,
+    /// The subset of `checked_tasks` whose self-report was
+    /// `validation_passed: false`, in sorted order.
+    pub failed_tasks: Vec<String>,
+    /// `"<task_id>: <assertion_id>"` for every entry in a failed task's
+    /// `required_failures` array, in scan order.
+    pub required_failures: Vec<String>,
+}
+
+impl DomainValidationSummary {
+    /// `true` iff no `validate_*` task self-reported a domain-correctness
+    /// failure. Vacuously `true` when no task recorded a self-report at all
+    /// — absence of a check is not itself a failure.
+    pub fn passed(&self) -> bool {
+        self.failed_tasks.is_empty()
+    }
+}
+
+/// Scan every `validate_*` task's `runtime/outputs/<task_id>/result.json`
+/// under `package_root` for a self-reported `validation_passed` boolean and
+/// roll the per-task verdicts into one [`DomainValidationSummary`] (RCA
+/// I-10). A `result.json` that is missing, unparseable, or carries no
+/// `validation_passed` key is silently skipped — not every `validate_*`
+/// companion emits a domain-correctness self-report (most are pure
+/// artifact-presence checks), and absence must never read as a failure.
+/// Deterministic: task directories are visited in sorted order.
+pub fn scan_domain_validation(package_root: &Path) -> DomainValidationSummary {
+    let mut summary = DomainValidationSummary::default();
+    let outputs_dir = package_root.join("runtime").join("outputs");
+    let Ok(entries) = std::fs::read_dir(&outputs_dir) else {
+        return summary;
+    };
+    let mut task_ids: Vec<String> = entries
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .filter_map(|e| e.file_name().into_string().ok())
+        .filter(|name| name.starts_with("validate_"))
+        .collect();
+    task_ids.sort();
+    for task_id in task_ids {
+        let result_path = outputs_dir.join(&task_id).join("result.json");
+        let Ok(raw) = std::fs::read_to_string(&result_path) else {
+            continue;
+        };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else {
+            continue;
+        };
+        let Some(passed) = v.get("validation_passed").and_then(|x| x.as_bool()) else {
+            continue;
+        };
+        summary.checked_tasks.push(task_id.clone());
+        if !passed {
+            summary.failed_tasks.push(task_id.clone());
+            if let Some(arr) = v.get("required_failures").and_then(|x| x.as_array()) {
+                for f in arr {
+                    if let Some(s) = f.as_str() {
+                        summary.required_failures.push(format!("{task_id}: {s}"));
+                    }
+                }
+            }
+        }
+    }
+    summary
 }
 
 /// Result of the Layer-1 deterministic self-validation over a sealed deposit.
@@ -111,11 +322,13 @@ impl Tier1Validation {
 /// Layer 1: re-verify recorded verdicts against a fresh recomputation and check
 /// the BagIt manifest checksums over the freshly-sealed deposit.
 ///
-/// * `ro_crate` = `Pass` unless the re-verify saw a genuine divergence (a
-///   recorded verdict that a fresh recomputation contradicts) while the reader
-///   version matches the writer — the same "real tamper vs version drift"
-///   distinction `replay`'s verdict uses. On a fresh self-export
-///   `reader == writer`, so any divergence is real and fails the check.
+/// * `ro_crate` = `Pass` unless EITHER the re-verify saw a genuine divergence
+///   (a recorded verdict that a fresh recomputation contradicts) while the
+///   reader version matches the writer — the same "real tamper vs version
+///   drift" distinction `replay`'s verdict uses; on a fresh self-export
+///   `reader == writer`, so any divergence is real and fails the check — OR
+///   the post-seal recheck (RCA I-2) finds an embedded content hash that
+///   disagrees with the sealed payload.
 /// * `bagit` = `Pass` iff every file listed in `manifest-sha512.txt` is present
 ///   and its SHA-512 matches.
 pub fn validate_deposit_tier1(dst: &Path, reader_version: &str) -> Result<Tier1Validation> {
@@ -129,7 +342,12 @@ pub fn validate_deposit_tier1(dst: &Path, reader_version: &str) -> Result<Tier1V
         .collect();
     // A divergence is a real integrity failure only when the reader version
     // matches the writer; under a version mismatch it is drift, not tampering.
-    let ro_crate = if !diverged.is_empty() && rv.reader_matches_writer {
+    let recorded_verdict_diverged = !diverged.is_empty() && rv.reader_matches_writer;
+
+    let hash_mismatches = recheck_ro_crate_content_hashes(dst)
+        .context("post-seal RO-Crate content-hash recheck for readiness")?;
+
+    let ro_crate = if recorded_verdict_diverged || !hash_mismatches.is_empty() {
         CheckStatus::Fail
     } else {
         CheckStatus::Pass
@@ -140,10 +358,17 @@ pub fn validate_deposit_tier1(dst: &Path, reader_version: &str) -> Result<Tier1V
     let bagit = if bagit_ok { CheckStatus::Pass } else { CheckStatus::Fail };
 
     let mut notes: Vec<String> = Vec::new();
-    if ro_crate == CheckStatus::Fail {
+    if recorded_verdict_diverged {
         notes.push(format!(
             "recorded-verdict divergence on: {}",
             diverged.join(", ")
+        ));
+    }
+    if !hash_mismatches.is_empty() {
+        let paths: Vec<&str> = hash_mismatches.iter().map(|m| m.path.as_str()).collect();
+        notes.push(format!(
+            "RO-Crate content-hash mismatch on: {}",
+            paths.join(", ")
         ));
     }
     if bagit == CheckStatus::Fail {
@@ -160,8 +385,10 @@ pub fn validate_deposit_tier1(dst: &Path, reader_version: &str) -> Result<Tier1V
 }
 
 /// Write `DEPOSIT-READINESS.json` into the deposit root, folding the Layer-1
-/// validation + the (possibly `NotVerified`) re-execution status into one
-/// attestation. `reexec_detail` augments the Layer-1 `detail`.
+/// validation + the per-task domain-validation rollup (RCA I-10, via
+/// [`scan_domain_validation`] over `dst`) + the (possibly `NotVerified`)
+/// re-execution status into one attestation. `reexec_detail` augments the
+/// Layer-1 `detail`.
 pub fn write_deposit_readiness(
     dst: &Path,
     profile: &str,
@@ -171,17 +398,35 @@ pub fn write_deposit_readiness(
     image_digest: Option<String>,
     clock: &dyn Clock,
 ) -> Result<()> {
-    let detail = match (&tier1.detail, &reexec_detail) {
-        (Some(a), Some(b)) => Some(format!("{a}; {b}")),
-        (Some(a), None) => Some(a.clone()),
-        (None, Some(b)) => Some(b.clone()),
-        (None, None) => None,
+    let domain = scan_domain_validation(dst);
+    let domain_validation = if domain.passed() {
+        CheckStatus::Pass
+    } else {
+        CheckStatus::Fail
     };
+    let domain_detail = (!domain.required_failures.is_empty()).then(|| {
+        format!(
+            "domain-validation failure(s): {}",
+            domain.required_failures.join(", ")
+        )
+    });
+
+    let detail = [tier1.detail.clone(), domain_detail, reexec_detail]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+    let detail = (!detail.is_empty()).then(|| detail.join("; "));
+
+    let deposit_ready =
+        compute_deposit_ready(tier1.ro_crate, tier1.bagit, domain_validation, reexecution);
+
     let att = DepositReadiness {
         schema_version: "0.1".to_string(),
         profile: profile.to_string(),
+        deposit_ready,
         ro_crate: tier1.ro_crate,
         bagit: tier1.bagit,
+        domain_validation,
         reexecution,
         detail,
         image_digest,
@@ -219,6 +464,11 @@ pub fn update_deposit_readiness_reexecution(
     if image_digest.is_some() {
         att.image_digest = image_digest;
     }
+    // Re-derive the headline signal: ro_crate/bagit/domain_validation are
+    // unchanged by a Layer-2 re-execution update, but the new `reexecution`
+    // value can flip `deposit_ready` (e.g. a fresh `Fail`).
+    att.deposit_ready =
+        compute_deposit_ready(att.ro_crate, att.bagit, att.domain_validation, att.reexecution);
     att.verified_at = clock.now_rfc3339();
     let body = serde_json::to_vec_pretty(&att).context("serializing DEPOSIT-READINESS.json")?;
     let path = dst.join(DEPOSIT_READINESS_FILE);
@@ -263,6 +513,15 @@ pub fn check_deposit_readiness(pkg: &Path, strict: bool) -> Result<DepositReadin
         bail!(
             "deposit gate: BagIt integrity did not pass ({:?}){}",
             dr.bagit,
+            dr.detail.as_deref().map(|d| format!(" — {d}")).unwrap_or_default()
+        );
+    }
+    if dr.domain_validation != CheckStatus::Pass {
+        bail!(
+            "deposit gate: per-task domain-correctness validation did not pass ({:?}){} — \
+             a required validate_* check failed even though the run may be computationally \
+             complete; remediate and re-export",
+            dr.domain_validation,
             dr.detail.as_deref().map(|d| format!(" — {d}")).unwrap_or_default()
         );
     }
@@ -489,5 +748,156 @@ mod tests {
             diverged: false,
             note: None,
         };
+    }
+
+    fn write_validate_result(root: &Path, task_id: &str, body: serde_json::Value) {
+        let dir = root.join("runtime/outputs").join(task_id);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("result.json"), body.to_string()).unwrap();
+    }
+
+    #[test]
+    fn scan_domain_validation_rolls_up_failures_and_skips_unreported() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        // Passing self-report.
+        write_validate_result(
+            root,
+            "validate_qc",
+            serde_json::json!({"validation_passed": true}),
+        );
+        // Failing self-report with named required-check failures.
+        write_validate_result(
+            root,
+            "validate_differential_expression",
+            serde_json::json!({
+                "validation_passed": false,
+                "checks_failed": 1,
+                "required_failures": ["differential_expression.response_matches_stated_outcome"]
+            }),
+        );
+        // A validate_* task with no self-report at all (e.g. a pure
+        // artifact-presence validator) must be silently skipped, not treated
+        // as a failure.
+        write_validate_result(
+            root,
+            "validate_normalisation",
+            serde_json::json!({"outcome": "ok"}),
+        );
+        // A non-`validate_*` output dir must never be scanned.
+        write_validate_result(
+            root,
+            "differential_expression",
+            serde_json::json!({"validation_passed": false}),
+        );
+
+        let summary = scan_domain_validation(root);
+        assert_eq!(
+            summary.checked_tasks,
+            vec!["validate_differential_expression", "validate_qc"]
+        );
+        assert_eq!(summary.failed_tasks, vec!["validate_differential_expression"]);
+        assert_eq!(
+            summary.required_failures,
+            vec!["validate_differential_expression: differential_expression.response_matches_stated_outcome"]
+        );
+        assert!(!summary.passed());
+    }
+
+    #[test]
+    fn scan_domain_validation_empty_package_is_vacuously_passed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let summary = scan_domain_validation(tmp.path());
+        assert!(summary.checked_tasks.is_empty());
+        assert!(summary.passed());
+    }
+
+    /// RCA I-10: a package whose RO-Crate/BagIt self-validation both pass
+    /// (structurally sound — "computationally completed") must still read
+    /// `deposit_ready: false` once a `validate_*` task self-reports a failed
+    /// required domain check, and the Layer-3 gate must refuse it even
+    /// without `--strict`.
+    #[test]
+    fn failed_domain_check_flips_deposit_not_ready() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write_validate_result(
+            root,
+            "validate_differential_expression",
+            serde_json::json!({
+                "validation_passed": false,
+                "required_failures": ["differential_expression.response_matches_stated_outcome"]
+            }),
+        );
+        write_deposit_readiness(
+            root,
+            "full",
+            &tier1(CheckStatus::Pass, CheckStatus::Pass, None),
+            ReexecStatus::Partial,
+            None,
+            None,
+            &WallClock,
+        )
+        .unwrap();
+
+        let dr = read_deposit_readiness(root).unwrap().unwrap();
+        assert_eq!(dr.ro_crate, CheckStatus::Pass, "structurally sound");
+        assert_eq!(dr.bagit, CheckStatus::Pass, "structurally sound");
+        assert_eq!(dr.domain_validation, CheckStatus::Fail);
+        assert!(
+            !dr.deposit_ready,
+            "a required domain-check failure must block deposit-readiness \
+             even though the package is otherwise computationally complete"
+        );
+        assert!(dr
+            .detail
+            .as_deref()
+            .unwrap()
+            .contains("response_matches_stated_outcome"));
+
+        let err = check_deposit_readiness(root, false)
+            .expect_err("Layer-3 gate must refuse a failed domain check even non-strict");
+        assert!(format!("{err:#}").contains("domain-correctness"));
+    }
+
+    #[test]
+    fn clean_package_with_no_domain_reports_is_deposit_ready() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_deposit_readiness(
+            tmp.path(),
+            "full",
+            &tier1(CheckStatus::Pass, CheckStatus::Pass, None),
+            ReexecStatus::Pass,
+            None,
+            None,
+            &WallClock,
+        )
+        .unwrap();
+        let dr = read_deposit_readiness(tmp.path()).unwrap().unwrap();
+        assert_eq!(dr.domain_validation, CheckStatus::Pass);
+        assert!(dr.deposit_ready);
+        assert!(check_deposit_readiness(tmp.path(), false).is_ok());
+    }
+
+    #[test]
+    fn compute_deposit_ready_matches_gate_semantics() {
+        assert!(compute_deposit_ready(
+            CheckStatus::Pass,
+            CheckStatus::Pass,
+            CheckStatus::Pass,
+            ReexecStatus::NotVerified
+        ));
+        assert!(!compute_deposit_ready(
+            CheckStatus::Pass,
+            CheckStatus::Pass,
+            CheckStatus::Fail,
+            ReexecStatus::Pass
+        ));
+        assert!(!compute_deposit_ready(
+            CheckStatus::Pass,
+            CheckStatus::Pass,
+            CheckStatus::Pass,
+            ReexecStatus::Fail
+        ));
     }
 }

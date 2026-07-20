@@ -110,6 +110,7 @@ fn make_dag_with_sidecars() -> WorkflowDag {
             proof,
             kind: EdgeKind::TypedDataFlow,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         }],
         assumptions: ledger,
         source_template: None,

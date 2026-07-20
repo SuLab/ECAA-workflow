@@ -260,6 +260,7 @@ pub fn synthesize_discover_companions(
             // no port-typed data flow) — non-blocking in Draft.
             kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         });
         // Record an OntologyAdapterInserted assumption for the discover
         // companion: it uses a sentinel IRI to bridge the "method not yet
@@ -668,6 +669,7 @@ mod tests {
             proof: CompatibilityProof::default(),
             kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         };
         let mut dag = WorkflowDag {
             id: "t".into(),
@@ -733,6 +735,7 @@ mod tests {
                 proof: crate::workflow_contracts::edge::CompatibilityProof::default(),
                 kind: EdgeKind::OrderingOnly,
                 chain_of_custody: None,
+                mutually_exclusive_group: None,
             }],
             assumptions: AssumptionLedger::default(),
             source_template: None,

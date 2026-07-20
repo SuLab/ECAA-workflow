@@ -2685,9 +2685,21 @@ fn run_loop(
         // includes a Completed task with requires_sme_review: true that
         // the SME has not yet confirmed. Confirmed stages come from
         // per-stage sidecar files written by the server's /confirm handler.
-        let (picks, picked_dispatches): (Vec<String>, Vec<PickedDispatch>) = {
+        let (picks, picked_dispatches, invocation_by_task): (
+            Vec<String>,
+            Vec<PickedDispatch>,
+            std::collections::BTreeMap<String, ecaa_workflow_harness::invocation_log::InvocationRecord>,
+        ) = {
             let mut dag_mut = read_dag(path)?;
             let mut picked_dispatches = Vec::new();
+            // Design §5.2 C5 — the pre-dispatch `InvocationRecord` built
+            // below, keyed by task_id, so the post-run observed-reads
+            // follow-up (after `thread::scope`) can append an enriched
+            // second line without recomputing atom_id/prereqs/safety.
+            let mut invocation_by_task: std::collections::BTreeMap<
+                String,
+                ecaa_workflow_harness::invocation_log::InvocationRecord,
+            > = std::collections::BTreeMap::new();
             let confirmed_stages = read_confirmed_review_stages(path);
             // Promote any auto-advanced discover_* decisions into
             // `runtime/decisions.jsonl` so audit-proof
@@ -3032,6 +3044,7 @@ fn run_loop(
                             "invocation-record append failed (continuing; WAL + WORKFLOW.json remain authoritative)"
                         );
                     }
+                    invocation_by_task.insert(id.clone(), inv);
                 }
                 picked_dispatches.push(PickedDispatch {
                     task_id: id.clone().into(),
@@ -3039,7 +3052,7 @@ fn run_loop(
                     epoch,
                 });
             }
-            (picks, picked_dispatches)
+            (picks, picked_dispatches, invocation_by_task)
         };
         // Retained for the post-iteration log-line pairing below.
         // Serial mode → exactly one pick; parallel → multiple.
@@ -3218,6 +3231,15 @@ fn run_loop(
                 let agent_arg = args.agent.clone();
                 let path_buf = path.to_path_buf();
                 let task_id_for_overrides = id.clone();
+                // Design §5.2 C5 — the pre-dispatch InvocationRecord for
+                // this task (built above, before any writes happened this
+                // iteration), cloned out so the post-run closure can
+                // append an observed-reads follow-up line without
+                // recomputing atom_id/prereqs/safety/container_image.
+                // `None` only if the task vanished from the DAG between
+                // pre-mark and here (shouldn't happen; handled by simply
+                // skipping the follow-up append).
+                let base_invocation = invocation_by_task.get(id).cloned();
                 handles.push(scope.spawn(move || {
                     let (outcome, capture) = {
                         let mut guard = exec_ref.lock().unwrap_or_else(|p| p.into_inner());
@@ -3258,6 +3280,42 @@ fn run_loop(
                         }
                         let o = guard.run_iteration(&path_buf, &agent_arg, &envelope);
                         let c = guard.take_last_capture();
+                        // Design §5.2 C5 — pop this iteration's observed
+                        // input reads (see `observed_reads::capture_reads`)
+                        // and, when the agent runbook reported any, append
+                        // a completion-time InvocationRecord line carrying
+                        // them. The pre-dispatch line (written before this
+                        // task's agent spawned) is left untouched, so its
+                        // crash-durability guarantee holds; this is a
+                        // SECOND, enriched line for the same
+                        // (task_id, epoch, harness_run_id) — absent a read
+                        // manifest, no follow-up is written and the
+                        // existing one-line-per-dispatch shape is
+                        // unchanged. Consumed by
+                        // `ecaa_workflow_core::ro_crate::reconcile_ro_crate_edges`
+                        // via `crates/conversation/src/emit/ro_crate.rs`.
+                        let reads = guard.take_observed_reads();
+                        if !reads.is_empty() {
+                            tracing::debug!(
+                                target: "observed_reads",
+                                task_id = %task_id_for_overrides,
+                                count = reads.len(),
+                                "captured observed input reads for task"
+                            );
+                            if let Some(base) = &base_invocation {
+                                let enriched = base.with_observed_reads(reads);
+                                if let Err(e) = ecaa_workflow_harness::invocation_log::append_invocation(
+                                    &path_buf, &enriched,
+                                ) {
+                                    tracing::warn!(
+                                        target: "harness",
+                                        task_id = %task_id_for_overrides,
+                                        error = format!("{:#}", e),
+                                        "observed-reads invocation-record append failed (continuing)"
+                                    );
+                                }
+                            }
+                        }
                         (o, c)
                     };
                     (id.clone(), outcome, capture)
@@ -4235,6 +4293,31 @@ fn run_loop(
             // correct on both paths (session path never calls
             // finalize_completed_package). Gated + non-fatal internally.
             ecaa_workflow_harness::end_of_run_finalize::maybe_snapshot(path);
+
+            // Fire observed-read reconciliation on BOTH run paths. The session
+            // (web-UI) path never calls finalize_completed_package — the server
+            // finalizes per-task but does not reconcile — so without this the
+            // observed-provenance stamps would never appear on a UI-driven run.
+            // Stamps the RO-Crate's ParameterConnection nodes
+            // authoritative/candidate_unused (and records divergences /
+            // read-allowances) from runtime/invocations.jsonl; re-seals the
+            // BagIt manifest on a mutation. Best-effort + idempotent (the
+            // standalone path's finalize_completed_package call below is then a
+            // no-op second pass).
+            if ecaa_workflow_harness::end_of_run_finalize::reconcile_observed_reads_into_ro_crate(
+                path,
+            ) {
+                if let Err(e) = ecaa_workflow_core::emitter::regenerate_bagit_manifest(
+                    path,
+                    &ecaa_workflow_core::clock::WallClock,
+                ) {
+                    tracing::warn!(
+                        target: "harness",
+                        error = %e,
+                        "BagIt re-seal after observed-read reconcile failed (continuing)"
+                    );
+                }
+            }
 
             // Standalone self-finalization: the server normally finalizes
             // per-task on `task_completed` events, but a no-session run sends
@@ -7935,6 +8018,153 @@ mod read_dag_tests {
                 .unwrap()
                 .state,
             TaskState::Blocked { .. }
+        ));
+    }
+
+    /// RCA I-10: a plain DE-by-condition result (no SME-named regression
+    /// outcome, so `stated_outcome` is correctly OMITTED per
+    /// `differential_expression.yaml`'s `result_contract.record_when_applicable`)
+    /// must NOT arm `response_matches_stated_outcome` — the `when`-gate on
+    /// `/stated_outcome` must stay skipped, and the design otherwise adjusts
+    /// for an available covariate, so the stage must NOT be re-blocked.
+    #[test]
+    fn plain_de_by_condition_does_not_arm_stated_outcome_gate() {
+        use ecaa_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        std::fs::create_dir_all(pkg.join("policies")).unwrap();
+        std::fs::create_dir_all(pkg.join("runtime/outputs/differential_expression")).unwrap();
+
+        let contract = serde_json::json!({
+            "contract_id": "test-association",
+            "stages": {
+                "differential_expression": {
+                    "assertions": [
+                        {
+                            "id": "differential_expression.design_adjusts_available_covariates",
+                            "assertion_type": "formula_references_covariates",
+                            "target": "runtime/outputs/differential_expression/result.json",
+                            "check": {
+                                "formula_pointer": "/design_formula",
+                                "covariates_pointer": "/available_covariates",
+                                "primary_pointer": "/primary_variable"
+                            },
+                            "when": { "json_pointer": "/available_covariates" },
+                            "severity": "required"
+                        },
+                        {
+                            "id": "differential_expression.response_matches_stated_outcome",
+                            "assertion_type": "cross_field_equals",
+                            "target": "runtime/outputs/differential_expression/result.json",
+                            "check": {
+                                "this_pointer": "/response_variable",
+                                "other_pointer": "/stated_outcome",
+                                "normalize": "casefold_trim"
+                            },
+                            "when": { "json_pointer": "/stated_outcome" },
+                            "severity": "required"
+                        }
+                    ]
+                }
+            }
+        });
+        std::fs::write(
+            pkg.join("policies/validation-contract.json"),
+            serde_json::to_string_pretty(&contract).unwrap(),
+        )
+        .unwrap();
+
+        // Plain DE-by-condition: design adjusts for an available covariate,
+        // NO stated_outcome key at all (the atom's contracted default).
+        std::fs::write(
+            pkg.join("runtime/outputs/differential_expression/result.json"),
+            serde_json::json!({
+                "design_formula": "~ condition + sex",
+                "response_variable": "expression",
+                "available_covariates": ["condition", "sex"],
+                "primary_variable": "condition"
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let mut tasks: std::collections::BTreeMap<TaskId, Task> = std::collections::BTreeMap::new();
+        tasks.insert(
+            "differential_expression".into(),
+            Task {
+                kind: TaskKind::Computation,
+                state: TaskState::Completed {
+                    result: serde_json::json!({"method": "deseq2"}),
+                },
+                depends_on: vec![],
+                assignee: Assignee::Agent,
+                description: "de".into(),
+                spec: Some(serde_json::json!({"stage_class": "differential_expression"})),
+                resolution: None,
+                result_ref: None,
+                resource_class: ResourceClass::CpuHeavy,
+                requires_sme_review: false,
+                required_artifacts: vec![],
+                container: None,
+                source_atom_id: None,
+                safety: Default::default(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+                edam_operation: None,
+                execution_index: None,
+            },
+        );
+        tasks.insert(
+            "validate_differential_expression".into(),
+            Task {
+                kind: TaskKind::Validation,
+                state: TaskState::Completed {
+                    result: serde_json::json!({"outcome": "pass"}),
+                },
+                depends_on: vec!["differential_expression".into()],
+                assignee: Assignee::Agent,
+                description: "validate de".into(),
+                spec: Some(serde_json::json!({"stage_class": "differential_expression"})),
+                resolution: None,
+                result_ref: None,
+                resource_class: ResourceClass::CpuHeavy,
+                requires_sme_review: false,
+                required_artifacts: vec![],
+                container: None,
+                source_atom_id: None,
+                safety: Default::default(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+                edam_operation: None,
+                execution_index: None,
+            },
+        );
+        let mut dag = DAG {
+            version: "1.0".into(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
+            workflow_id: "t".into(),
+            current_task: None,
+            tasks,
+            reverse_deps: std::collections::BTreeMap::new(),
+            run_id: None,
+            execution_order: Vec::new(),
+        };
+        let violations = enforce_validation_contract(pkg, &mut dag).unwrap();
+        assert!(
+            violations.is_empty(),
+            "skip-gated check must stay skipped for a plain DE-by-condition result \
+             with no stated_outcome recorded: {violations:?}"
+        );
+        assert!(matches!(
+            dag.tasks.get("differential_expression").unwrap().state,
+            TaskState::Completed { .. }
+        ));
+        assert!(matches!(
+            dag.tasks
+                .get("validate_differential_expression")
+                .unwrap()
+                .state,
+            TaskState::Completed { .. }
         ));
     }
 

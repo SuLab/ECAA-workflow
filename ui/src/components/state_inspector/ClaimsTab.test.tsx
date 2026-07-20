@@ -57,6 +57,8 @@ function report(
     n_verified: status === 'verified' ? 1 : 0,
     n_mismatch: status === 'mismatch' ? 1 : 0,
     n_unverifiable: status === 'unverifiable' ? 1 : 0,
+    n_pending: 0,
+    n_suspicious: 0,
     verdicts: [{ claim, status: verdictStatus, strength: 'prespecified' }],
   }
 }

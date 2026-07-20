@@ -180,7 +180,7 @@
         },
         {
           "id": "differential_expression.response_matches_stated_outcome",
-          "description": "Catches an inverted regression (da-8-1): the agent-recorded response_variable (model outcome / LHS) must equal the agent-recorded stated_outcome (the SME's stated outcome) after casefold+trim. Compares the agent's own model outcome against the agent's own record of the task's stated outcome; it never names which variable to regress on (method-neutral). GATED on /stated_outcome so it SKIPS plain DE-by-condition with no SME-stated outcome.",
+          "description": "Catches an inverted regression (da-8-1): the agent-recorded response_variable (model outcome / LHS) must equal the agent-recorded stated_outcome (the SME's stated outcome) after casefold+trim. Compares the agent's own model outcome against the agent's own record of the task's stated outcome; it never names which variable to regress on (method-neutral). GATED on /stated_outcome so it SKIPS plain DE-by-condition with no SME-stated outcome — differential_expression.yaml's result_contract lists stated_outcome under record_when_applicable (not the unconditional record_in_result_json checklist) so an agent does not gratuitously arm this gate on a plain contrast (RCA I-10).",
           "assertion_type": "cross_field_equals",
           "target": "runtime/outputs/differential_expression/result.json",
           "check": {

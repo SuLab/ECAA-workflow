@@ -11,6 +11,21 @@
 //!
 //! NOT byte-reproducible (carries dispatch-time `started_at` + per-run
 //! `epoch`); excluded from the emit byte-diff baseline allowlist.
+//!
+//! Design §5.2 C5 extends the record with `observed_reads` — the files
+//! a task actually read, captured post-run via
+//! `crate::observed_reads::capture_reads`. Because reads aren't known
+//! until AFTER the agent process exits, the dispatch site writes TWO
+//! lines per dispatched task when the agent reported any reads: the
+//! original pre-dispatch record (unchanged, `observed_reads` empty —
+//! preserving the crash-durability guarantee above) and a completion-time
+//! follow-up carrying the same `(task_id, epoch, harness_run_id)` plus
+//! `observed_reads` populated. Absent a read manifest (the common case
+//! until every backend's agent runbook writes one), only the original
+//! line is written, so existing single-line-per-dispatch consumers are
+//! unaffected. `crates/conversation/src/emit/ro_crate.rs` folds every
+//! line's `observed_reads` per task before calling
+//! `ecaa_workflow_core::provenance::reconcile`.
 
 use anyhow::Result;
 use ecaa_workflow_core::atom::{SafetyPolicy, SandboxRequirement};
@@ -90,12 +105,26 @@ pub struct InvocationRecord {
     /// host-mode / unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub container_image: Option<String>,
+    /// Files this task was observed to read (design §5.2 C5), captured
+    /// harness-side via `crate::observed_reads::capture_reads` AFTER the
+    /// task's process exits. Empty on the pre-dispatch record written
+    /// before the agent spawns (reads aren't known yet) — the dispatch
+    /// site appends a SECOND record for the same
+    /// `(task_id, epoch, harness_run_id)` once reads are captured, so
+    /// this field is only ever non-empty on that follow-up line.
+    /// Consumed by `ecaa_workflow_core::ro_crate::reconcile_ro_crate_edges`
+    /// (`crates/conversation/src/emit/ro_crate.rs`) to resolve which
+    /// member of a mutually-exclusive one-of input group actually ran.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub observed_reads: Vec<ecaa_workflow_core::provenance::ObservedRead>,
 }
 
 impl InvocationRecord {
     /// Build a record from the dispatch-time facts. The harness call site
     /// supplies the per-task fields read off the `Task` + the dispatch
-    /// epoch/run-id already computed for the WAL.
+    /// epoch/run-id already computed for the WAL. `observed_reads` is
+    /// always empty at construction — reads aren't known until after the
+    /// agent process exits; see [`InvocationRecord::with_observed_reads`].
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         task_id: &str,
@@ -123,6 +152,23 @@ impl InvocationRecord {
                 .unwrap_or(serde_json::Value::Null),
             controlled_access: safety.controlled_access,
             container_image: container_image.map(str::to_string),
+            observed_reads: Vec::new(),
+        }
+    }
+
+    /// Clone this record with `observed_reads` populated, for the
+    /// completion-time follow-up append (design §5.2 C5). Keeps the
+    /// pre-dispatch record's crash-durability guarantee intact — that
+    /// record is written unchanged, before the agent spawns; this
+    /// produces a SECOND, enriched line rather than mutating the first.
+    #[must_use]
+    pub fn with_observed_reads(
+        &self,
+        observed_reads: Vec<ecaa_workflow_core::provenance::ObservedRead>,
+    ) -> Self {
+        Self {
+            observed_reads,
+            ..self.clone()
         }
     }
 }
@@ -223,5 +269,70 @@ mod tests {
             !rec.sandbox_required,
             "the default (None) sandbox requirement must not set the flag"
         );
+    }
+
+    #[test]
+    fn new_record_has_no_observed_reads() {
+        let rec = InvocationRecord::new(
+            "differential_expression",
+            Some("differential_expression"),
+            4,
+            "run-ghi",
+            "2026-06-02T00:00:03Z",
+            &["quantification".to_string(), "normalisation".to_string()],
+            true,
+            &SafetyPolicy::default(),
+            None,
+        );
+        assert!(rec.observed_reads.is_empty());
+        // Empty observed_reads must not serialize (keeps the on-disk
+        // shape unchanged for every task whose agent runbook reports no
+        // read manifest — the common case).
+        let json = serde_json::to_string(&rec).unwrap();
+        assert!(
+            !json.contains("observed_reads"),
+            "empty observed_reads must be omitted from the serialized record"
+        );
+    }
+
+    #[test]
+    fn with_observed_reads_appends_a_second_enriched_line() {
+        use ecaa_workflow_core::provenance::ObservedRead;
+
+        let dir = tempfile::tempdir().unwrap();
+        let pkg = dir.path();
+        let base = InvocationRecord::new(
+            "differential_expression",
+            Some("differential_expression"),
+            5,
+            "run-jkl",
+            "2026-06-02T00:00:04Z",
+            &["quantification".to_string(), "normalisation".to_string()],
+            true,
+            &SafetyPolicy::default(),
+            None,
+        );
+        append_invocation(pkg, &base).unwrap();
+
+        let reads = vec![ObservedRead {
+            task_id: "differential_expression".into(),
+            declared_port: Some("raw_counts".into()),
+            path: "runtime/outputs/quantification/count_matrix.tsv".into(),
+        }];
+        let enriched = base.with_observed_reads(reads.clone());
+        append_invocation(pkg, &enriched).unwrap();
+
+        let path = invocation_log_path(pkg);
+        let body = std::fs::read_to_string(&path).unwrap();
+        let lines: Vec<&str> = body.lines().collect();
+        assert_eq!(lines.len(), 2, "pre-dispatch line + completion-time follow-up");
+
+        let first: InvocationRecord = serde_json::from_str(lines[0]).unwrap();
+        assert!(first.observed_reads.is_empty(), "pre-dispatch line carries no reads");
+
+        let second: InvocationRecord = serde_json::from_str(lines[1]).unwrap();
+        assert_eq!(second.task_id, "differential_expression");
+        assert_eq!(second.epoch, base.epoch);
+        assert_eq!(second.observed_reads, reads);
     }
 }

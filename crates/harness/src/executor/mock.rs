@@ -23,6 +23,11 @@ pub struct MockExecutor {
     /// orchestration order (apply-before-run) and the overrides
     /// payload arrives intact.
     pub apply_overrides_log: Vec<(String, ecaa_workflow_core::remediation::ExecutorOverrides)>,
+    /// Most recent iteration's observed input reads (design §5.2 C5),
+    /// captured from the fixture's `runtime/outputs/<task_id>/reads.jsonl`
+    /// manifest via `crate::observed_reads::capture_reads`. Drained by
+    /// `take_observed_reads`.
+    last_observed_reads: Vec<ecaa_workflow_core::provenance::ObservedRead>,
 }
 
 impl MockExecutor {
@@ -34,6 +39,7 @@ impl MockExecutor {
             release_calls: 0,
             fixed_stale: false,
             apply_overrides_log: Vec::new(),
+            last_observed_reads: Vec::new(),
         }
     }
 
@@ -91,9 +97,9 @@ impl Executor for MockExecutor {
 
     fn run_iteration(
         &mut self,
-        _package: &Path,
+        package: &Path,
         _agent_cmd: &str,
-        _envelope: &std::collections::BTreeMap<String, String>,
+        envelope: &std::collections::BTreeMap<String, String>,
     ) -> Result<IterationOutcome> {
         if self.cursor >= self.scripted.len() {
             anyhow::bail!(
@@ -108,6 +114,18 @@ impl Executor for MockExecutor {
         let idx = self.cursor;
         self.cursor += 1;
         let old = self.scripted.get(idx).unwrap();
+        // Observed-reads capture (design §5.2 C5): for the mock backend,
+        // "the fixture" is whatever `reads.jsonl` manifest the test wrote
+        // under `package` before dispatch — there is no real agent
+        // runbook to append one, so tests seed it directly.
+        self.last_observed_reads = match envelope.get(crate::executor::hardware_envelope::TASK_ID_ENV) {
+            Some(task_id) if !task_id.is_empty() => {
+                let (_status, reads) =
+                    crate::observed_reads::capture_reads(package, task_id, || old.agent_status);
+                reads
+            }
+            _ => Vec::new(),
+        };
         Ok(IterationOutcome {
             agent_status: old.agent_status,
             remote: old.remote.clone(),
@@ -133,6 +151,10 @@ impl Executor for MockExecutor {
 
     fn release(&mut self) {
         self.release_calls += 1;
+    }
+
+    fn take_observed_reads(&mut self) -> Vec<ecaa_workflow_core::provenance::ObservedRead> {
+        std::mem::take(&mut self.last_observed_reads)
     }
 }
 
@@ -198,6 +220,57 @@ mod tests {
         m.release();
         m.release();
         assert_eq!(m.release_calls(), 2);
+    }
+
+    /// TDD anchor for design §5.2 C5 (task 10): a Mock-executor task that
+    /// declares (via its fixture manifest) that it read a specific file
+    /// surfaces that read through `take_observed_reads` after
+    /// `run_iteration`.
+    #[test]
+    fn run_iteration_surfaces_fixture_declared_read() {
+        use std::io::Write;
+
+        let dir = tempfile::tempdir().unwrap();
+        let task_id = "differential_expression";
+        let out_dir = dir.path().join("runtime/outputs").join(task_id);
+        std::fs::create_dir_all(&out_dir).unwrap();
+        let mut f = std::fs::File::create(out_dir.join("reads.jsonl")).unwrap();
+        writeln!(
+            f,
+            r#"{{"path":"runtime/outputs/quantification/count_matrix.tsv","declared_port":"raw_counts"}}"#
+        )
+        .unwrap();
+        drop(f);
+
+        let mut envelope = std::collections::BTreeMap::new();
+        envelope.insert(
+            crate::executor::hardware_envelope::TASK_ID_ENV.to_string(),
+            task_id.to_string(),
+        );
+
+        let mut m = MockExecutor::with_successes(1);
+        m.run_iteration(dir.path(), "agent", &envelope).unwrap();
+        let reads = m.take_observed_reads();
+        assert_eq!(reads.len(), 1);
+        assert_eq!(
+            reads[0],
+            ecaa_workflow_core::provenance::ObservedRead {
+                task_id: task_id.to_string(),
+                declared_port: Some("raw_counts".to_string()),
+                path: "runtime/outputs/quantification/count_matrix.tsv".to_string(),
+            }
+        );
+        // Draining is destructive — a second call sees nothing left.
+        assert!(m.take_observed_reads().is_empty());
+    }
+
+    #[test]
+    fn run_iteration_with_no_task_id_in_envelope_has_no_observed_reads() {
+        let mut m = MockExecutor::with_successes(1);
+        let path = PathBuf::from("/tmp/pkg");
+        m.run_iteration(&path, "agent", &std::collections::BTreeMap::new())
+            .unwrap();
+        assert!(m.take_observed_reads().is_empty());
     }
 
     #[test]

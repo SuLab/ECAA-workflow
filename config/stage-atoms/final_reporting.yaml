@@ -43,6 +43,35 @@ claim_boundary: |
   fabrication, worse than an omission). Generic reporting discipline only;
   do not tailor content to any external grading rubric.
 interpretation_exempt_from_word_budget: true
+# RCA I-1 — declared read-allowance (not a port). This atom is shared
+# by ~30 archetypes with wholly different upstream analytical shapes
+# (DE-family, peak-calling, variant-calling, clinical, …), and its own
+# job is to aggregate whatever the composed DAG actually produced (the
+# claim_boundary above requires "carrying the upstream substance
+# forward" and the dashboard walks every sibling stage's figures/
+# manifest.json to build dashboard_index.json) — so the real read set
+# is DAG-shape/archetype dependent and can't be enumerated as fixed
+# input ports without a per-archetype specialization of this atom for
+# every shape it's reused across. A typed port is the right fix when
+# the producer is fixed and known (see `normalisation`'s new
+# `sample_metadata` port for that case); this is the documented
+# exception for when it genuinely isn't.
+read_allowance:
+  - scope: any_upstream_stage
+    rationale: >-
+      final_reporting aggregates the whole analysis bundle for the
+      project-level dashboard and final narrative. Confirmed against a
+      real bulk_rnaseq execution (RCA I-1): it reads
+      differential_expression/result.json,
+      pathway_enrichment/result.json, and
+      contextualize_findings_with_literature/result.json directly
+      (beyond its single declared `reporting` producer) to restate
+      their metrics, and unconditionally walks every sibling
+      runtime/outputs/<stage>/figures/manifest.json to assemble
+      dashboard_index.json. Which upstream stages exist varies per
+      archetype (DE-family vs peak-calling vs clinical, etc.), so this
+      is declared as a broad, reviewed exception rather than modeled as
+      fixed ports.
 # Explicit rich ports.
 # Consumes the full upstream analysis bundle; emits the final
 # narrative report (HTML primary + PDF companion).

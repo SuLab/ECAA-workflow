@@ -3,7 +3,7 @@
 //! Each closed enum's Rust variant set MUST exactly equal its registered
 //! SKOS scheme's skos:notation set, and the count MUST match the pinned
 //! constant. This COMPLEMENTS — does not replace — the existing pinned
-//! counts (BlockerKind::COUNT==48 in blocker_variant_count.rs /
+//! counts (BlockerKind::COUNT==49 in blocker_variant_count.rs /
 //! spec_consistency.rs; all_flags().len()==6 in core::ablation). The three
 //! couplings agree by construction: Rust ⇄ COUNT, Rust ⇄ spec-md, Rust ⇄ SKOS.
 //!
@@ -117,11 +117,11 @@ fn blocker_kind_enum_matches_scheme() {
     let skos = scheme_notations(&schemes_ttl(), "blocker-kind");
     assert_eq!(
         rust.len(),
-        48,
-        "source-parsed BlockerKind variant count drifted from 48 (sync the SKOS scheme + pinned tests)"
+        49,
+        "source-parsed BlockerKind variant count drifted from 49 (sync the SKOS scheme + pinned tests)"
     );
     // Cross-check the strum::EnumCount pin so all three couplings agree.
-    assert_eq!(ecaa_workflow_core::blocker::BlockerKind::COUNT, 48);
+    assert_eq!(ecaa_workflow_core::blocker::BlockerKind::COUNT, 49);
     assert_eq!(
         rust, skos,
         "BlockerKind variants ≠ blocker-kind SKOS notations.\n  only in Rust: {:?}\n  only in SKOS: {:?}",
@@ -167,7 +167,7 @@ fn scheme_versioninfo_pins_match_counts() {
     let ttl = schemes_ttl();
     // owl:versionInfo on each scheme must equal the variant count.
     for (scheme, count) in [
-        ("blocker-kind", "48"),
+        ("blocker-kind", "49"),
         ("rerun-outcome", "5"),
         ("ablation-flag", "6"),
     ] {

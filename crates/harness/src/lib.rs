@@ -20,6 +20,7 @@ pub mod invocation_log;
 pub mod literature_scope;
 pub mod literature_validators;
 pub mod multiprocess_lock;
+pub mod observed_reads;
 pub mod output_size_guard;
 pub mod plan_only;
 pub mod progress_client;

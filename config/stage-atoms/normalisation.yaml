@@ -39,7 +39,39 @@ resource_profile:
 # leaving it as the generic "normalized" tag keeps the atom method-
 # neutral while still flagging "values transformed since raw" to the
 # compatibility engine.
+#
+# `sample_metadata` is a real cross-stage read, not a modeling
+# addition (RCA I-1): every count-based normalization method
+# (DESeq2 VST blind=FALSE, edgeR TMM with a design, sctransform with
+# a covariate) fits against the sample-level design (condition, batch,
+# cell line, …), which lives in `data_acquisition`'s cohort manifest —
+# not in the count matrix itself. Declaring it here (matching
+# `data_acquisition.cohort_manifest`'s own type exactly) makes that
+# read first-class and typed instead of an undeclared reach past this
+# atom's declared input contract.
+#
+# Listed BEFORE `count_matrix`: the composer's archetype-seed port
+# picker (`pick_best_port_pair`) tries consumer inputs in declaration
+# order and returns on the first producer/consumer pair that proves
+# Compatible. `data_acquisition` exposes both `cohort_manifest`
+# (data:2531) and `raw_count_matrix` (data:3917) — if `count_matrix`
+# were tried first it would bind to `raw_count_matrix` (an exact
+# type match) and `sample_metadata` would never get wired. Trying
+# `sample_metadata` first lets it claim `cohort_manifest` before
+# `count_matrix` has a chance to shadow it; `qc_preprocessing` (the
+# other declared producer) exposes no data:2531-shaped output, so its
+# own edge still binds `count_matrix` correctly regardless of order.
 inputs:
+  - name: sample_metadata
+    semantic_type:
+      kind: ontology_term
+      iri: "data:2531"
+      label: "Experiment annotation"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal
   - name: count_matrix
     semantic_type:
       kind: ontology_term

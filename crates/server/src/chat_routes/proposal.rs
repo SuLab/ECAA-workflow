@@ -221,6 +221,7 @@ pub(super) async fn signoff_proposal(
                         // SME-declared structural dependency: ordering edge.
                         kind: EdgeKind::OrderingOnly,
                         chain_of_custody: None,
+                        mutually_exclusive_group: None,
                     });
                 }
                 // Anchor a promoted node that ended up with NO upstream
@@ -263,6 +264,7 @@ pub(super) async fn signoff_proposal(
                                 },
                                 kind: EdgeKind::OrderingOnly,
                                 chain_of_custody: None,
+                                mutually_exclusive_group: None,
                             });
                         }
                     }
@@ -310,6 +312,7 @@ pub(super) async fn signoff_proposal(
                             },
                             kind: EdgeKind::OrderingOnly,
                             chain_of_custody: None,
+                            mutually_exclusive_group: None,
                         });
                     }
                 }
@@ -371,6 +374,7 @@ pub(super) async fn signoff_proposal(
                         },
                         kind: EdgeKind::OrderingOnly,
                         chain_of_custody: None,
+                        mutually_exclusive_group: None,
                     });
                 }
             } else {

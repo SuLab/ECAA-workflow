@@ -37,7 +37,13 @@ deny_network: boolean,
 deny_secrets: boolean, 
 /**
  * True when host filesystem access is blocked except for
- * the explicit workdir.
+ * the explicit workdir. Under a `bwrap`-backed harness
+ * (`ECAA_LOCAL_SANDBOX=bubblewrap`), the harness further scopes
+ * this down to the task's declared input producers' output
+ * directories (read-only) plus its own working directories
+ * (read-write) — see `harness::sandbox_enforcer::ReadScope` — so
+ * an undeclared read fails at the OS boundary rather than
+ * succeeding via the blanket workdir bind.
  */
 deny_host_fs: boolean, 
 /**

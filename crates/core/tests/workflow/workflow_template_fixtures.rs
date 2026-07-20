@@ -126,6 +126,7 @@ fn conditional_template_round_trips() {
                 proof: CompatibilityProof::default(),
                 kind: EdgeKind::TypedDataFlow,
                 chain_of_custody: None,
+                mutually_exclusive_group: None,
             },
             EdgeContract {
                 from_node: "quantify_features".into(),
@@ -135,6 +136,7 @@ fn conditional_template_round_trips() {
                 proof: CompatibilityProof::default(),
                 kind: EdgeKind::TypedDataFlow,
                 chain_of_custody: None,
+                mutually_exclusive_group: None,
             },
             EdgeContract {
                 from_node: "batch_correct".into(),
@@ -144,6 +146,7 @@ fn conditional_template_round_trips() {
                 proof: CompatibilityProof::default(),
                 kind: EdgeKind::TypedDataFlow,
                 chain_of_custody: None,
+                mutually_exclusive_group: None,
             },
         ],
         conditionals: vec![ConditionalEdge {
@@ -190,6 +193,7 @@ fn scatter_gather_template_round_trips() {
                 proof: CompatibilityProof::default(),
                 kind: EdgeKind::TypedDataFlow,
                 chain_of_custody: None,
+                mutually_exclusive_group: None,
             },
             EdgeContract {
                 from_node: "quantify_features".into(),
@@ -199,6 +203,7 @@ fn scatter_gather_template_round_trips() {
                 proof: CompatibilityProof::default(),
                 kind: EdgeKind::TypedDataFlow,
                 chain_of_custody: None,
+                mutually_exclusive_group: None,
             },
         ],
         conditionals: vec![],

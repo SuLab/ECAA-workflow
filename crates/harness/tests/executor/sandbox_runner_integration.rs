@@ -15,7 +15,9 @@
 #![allow(unsafe_code)]
 
 use ecaa_workflow_core::sandbox_policy::SandboxPolicy;
-use ecaa_workflow_harness::sandbox_enforcer::{BubblewrapRunner, SandboxRunnerError};
+use ecaa_workflow_harness::sandbox_enforcer::{
+    compute_read_scope, BubblewrapRunner, SandboxRunnerError,
+};
 use std::path::PathBuf;
 
 /// Helper: a strict policy with a specific field overridden.
@@ -384,5 +386,82 @@ fn bwrap_spawn_unshare_net_prevents_loopback() {
     assert!(
         !status.success(),
         "ping to loopback should fail inside a --unshare-net sandbox"
+    );
+}
+
+/// Design §5.2 tier (a) hardening — a task's bwrap-scoped filesystem
+/// view exposes only its declared producers' output directories, not
+/// every other task's output. This spawns real `cat` processes inside
+/// the sandbox: a read of the declared producer's file must succeed;
+/// a read of an undeclared sibling task's file must fail at the OS
+/// boundary (ENOENT), even though both live under the same package
+/// root on the host. Guards on bwrap presence like the sibling spawn
+/// test above.
+#[test]
+fn bwrap_spawn_denies_undeclared_producer_read() {
+    if !std::path::Path::new("/usr/bin/bwrap").exists() {
+        eprintln!("[skip] bwrap binary missing at /usr/bin/bwrap");
+        return;
+    }
+
+    let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+
+    // Use a package root outside `/tmp` — the sandbox always remounts
+    // `/tmp` as a fresh, empty tmpfs (see `BubblewrapRunner::render_args`'s
+    // unconditional safety flags), so a package root under `/tmp` would
+    // be shadowed by that mount before our scoped binds are applied.
+    let package = tempfile::Builder::new()
+        .prefix("t14-sandbox-")
+        .tempdir_in(env!("CARGO_MANIFEST_DIR"))
+        .expect("tempdir");
+    let package_root = package.path().to_path_buf();
+
+    let producer_dir = package_root.join("runtime/outputs/producer");
+    let undeclared_dir = package_root.join("runtime/outputs/undeclared_task");
+    std::fs::create_dir_all(&producer_dir).unwrap();
+    std::fs::create_dir_all(&undeclared_dir).unwrap();
+    std::fs::write(producer_dir.join("data.txt"), b"declared-input\n").unwrap();
+    std::fs::write(undeclared_dir.join("secret.txt"), b"undeclared-secret\n").unwrap();
+    // The consumer's own working dirs must pre-exist for the RW binds
+    // to have a source (mirrors what `maybe_wrap_with_bwrap` does at
+    // the real dispatch site before wrapping).
+    std::fs::create_dir_all(package_root.join("runtime/outputs/consumer")).unwrap();
+    std::fs::create_dir_all(package_root.join("runtime/scratch/consumer")).unwrap();
+
+    let scope = compute_read_scope(&package_root, "consumer", &["producer".to_string()]);
+
+    unsafe { std::env::set_var("ECAA_LOCAL_SANDBOX", "bubblewrap") };
+    let runner = BubblewrapRunner::from_env(package_root.clone())
+        .expect("from_env ok")
+        .expect("runner should be Some in bubblewrap mode")
+        .with_read_scope(scope);
+    unsafe { std::env::remove_var("ECAA_LOCAL_SANDBOX") };
+
+    let policy = policy_with(|p| {
+        p.deny_host_fs = true;
+        p.deny_network = false;
+        p.deny_secrets = false;
+        p.memory_limit_mb = None;
+        p.wall_timeout_secs = None;
+    });
+
+    let declared_path = producer_dir.join("data.txt");
+    let declared_status = runner
+        .wrap("/bin/cat", &[declared_path.to_str().unwrap()], &policy)
+        .status()
+        .expect("spawn failed for declared read");
+    assert!(
+        declared_status.success(),
+        "reading the declared producer's file must succeed inside the scoped sandbox"
+    );
+
+    let undeclared_path = undeclared_dir.join("secret.txt");
+    let undeclared_status = runner
+        .wrap("/bin/cat", &[undeclared_path.to_str().unwrap()], &policy)
+        .status()
+        .expect("spawn failed for undeclared read");
+    assert!(
+        !undeclared_status.success(),
+        "reading an undeclared sibling task's file must fail at the OS boundary"
     );
 }

@@ -489,6 +489,137 @@ pub fn finalize_completed_package(package_root: &Path, config_dir: &Path) {
             tracing::warn!(target: "harness-finalize", error = %e, "package finalize failed");
         }
     }
+
+    // Design §5.2 C5 — fold what the run ACTUALLY read back into the emitted
+    // RO-Crate's observed-provenance graph. This is the post-exec re-reconcile
+    // the conversation emit path cannot do (it runs the same reconcile only at
+    // INITIAL emit, before `runtime/invocations.jsonl` exists — a no-op then).
+    // Runs after `finalize_package` so its verdict-injection writes cannot
+    // clobber the ParameterConnection stamps. Best-effort; a mutation re-seals
+    // the BagIt manifest because ro-crate-metadata.json is a manifested file.
+    if reconcile_observed_reads_into_ro_crate(package_root) {
+        if let Err(e) = ecaa_workflow_core::emitter::regenerate_bagit_manifest(
+            package_root,
+            &ecaa_workflow_core::clock::WallClock,
+        ) {
+            tracing::warn!(
+                target: "harness-finalize",
+                error = %e,
+                "BagIt manifest re-seal after observed-read reconcile failed (continuing — descriptor written)"
+            );
+        }
+    }
+}
+
+/// Fold what the run ACTUALLY read back into the emitted RO-Crate's
+/// observed-provenance graph (design §5.2 C5), strictly best-effort.
+///
+/// Reads the three provenance sidecars the package carries after a run —
+/// the declared per-edge graph (`runtime/proofs.jsonl`), the
+/// harness-observed reads (`runtime/invocations.jsonl`, folded across ALL
+/// lines per task — the shape is two lines per dispatch, pre-dispatch +
+/// enriched), and the per-task `read_allowance` facets
+/// (`runtime/task-nodes.json`) — through the shared CORE parsers
+/// (`ecaa_workflow_core::provenance`), then calls
+/// `reconcile_ro_crate_edges_with_allowances` to stamp `ParameterConnection`
+/// nodes authoritative/candidate_unused and record divergences /
+/// read-allowances on the root Dataset. The observed provenance then
+/// reflects what actually ran, not merely what the composer declared
+/// possible — resolving, e.g., which member of the differential-expression
+/// `raw_counts` / `normalized_counts` one-of group the run consumed.
+///
+/// This is the missing post-exec re-reconcile: the conversation emit path
+/// runs the same reconcile, but only at INITIAL emit time when
+/// `runtime/invocations.jsonl` does not exist yet (a documented no-op), so
+/// without this hook the reconciliation never fires in a real run.
+///
+/// Best-effort and never a gate (matching this module's contract): any
+/// read/parse/serialize/write error logs and returns `false`. Returns
+/// `true` only when it rewrote `ro-crate-metadata.json`, so the caller can
+/// re-seal the BagIt manifest (the descriptor is a manifested file). A no-op
+/// (returns `false`, no write) before any harness dispatch — both inputs are
+/// presence-gated and `reconcile_ro_crate_edges_with_allowances` itself
+/// no-ops on empty inputs.
+///
+/// The divergence → `BlockerKind::ProvenanceDivergence` transition is NOT
+/// performed here: the harness has no session/server state to transition,
+/// and the divergences are already recorded durably on the RO-Crate root
+/// Dataset's `ecaax:provenanceDivergence` array. Each divergence is logged
+/// so a standalone run still surfaces it; a session-bound run's block
+/// transition remains a server concern.
+pub fn reconcile_observed_reads_into_ro_crate(package_root: &Path) -> bool {
+    use ecaa_workflow_core::provenance;
+
+    let declared_edges = provenance::read_declared_edges(package_root);
+    let observed_reads = provenance::read_observed_reads(package_root);
+    // Presence-gate before touching the descriptor: reconcile is a no-op on
+    // either empty input, so there is nothing to stamp and nothing to write.
+    if declared_edges.is_empty() || observed_reads.is_empty() {
+        return false;
+    }
+    let read_allowances = provenance::read_task_read_allowances(package_root);
+
+    let path = package_root.join("ro-crate-metadata.json");
+    let bytes = match std::fs::read(&path) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!(
+                target: "harness-finalize",
+                error = %e,
+                "observed-read reconcile: ro-crate-metadata.json unreadable — skipping"
+            );
+            return false;
+        }
+    };
+    let mut metadata: serde_json::Value = match serde_json::from_slice(&bytes) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(
+                target: "harness-finalize",
+                error = %e,
+                "observed-read reconcile: ro-crate-metadata.json unparseable — skipping"
+            );
+            return false;
+        }
+    };
+
+    let divergences = ecaa_workflow_core::ro_crate::reconcile_ro_crate_edges_with_allowances(
+        &mut metadata,
+        &declared_edges,
+        &observed_reads,
+        &read_allowances,
+    );
+
+    let new_bytes = match serde_json::to_vec_pretty(&metadata) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!(
+                target: "harness-finalize",
+                error = %e,
+                "observed-read reconcile: serializing reconciled ro-crate-metadata.json failed — skipping"
+            );
+            return false;
+        }
+    };
+    if let Err(e) = ecaa_workflow_core::fs_helpers::atomic_write_bytes_sync(&path, &new_bytes) {
+        tracing::warn!(
+            target: "harness-finalize",
+            error = %e,
+            "observed-read reconcile: writing reconciled ro-crate-metadata.json failed — skipping"
+        );
+        return false;
+    }
+
+    for d in &divergences {
+        tracing::warn!(
+            target: "harness-finalize",
+            task_id = %d.task_id,
+            read_path = %d.read_path,
+            "observed-read provenance divergence recorded in ro-crate-metadata.json \
+             (ecaax:provenanceDivergence); not blocking from the harness"
+        );
+    }
+    true
 }
 
 /// Run the OFFLINE repair loop once at end-of-run, strictly best-effort.
@@ -657,6 +788,169 @@ pub fn coverage_reblock_reason(
 mod tests {
     use super::*;
     use crate::env_snapshot::{SnapshotOutcome, StoreLocation};
+
+    // -----------------------------------------------------------------------
+    // Observed-read post-exec reconcile (design §5.2 C5)
+    // -----------------------------------------------------------------------
+
+    /// Build a minimal DE package under `pkg`: a `ro-crate-metadata.json`
+    /// carrying the two DE one-of `ParameterConnection` nodes, a
+    /// `runtime/proofs.jsonl` declaring the raw + normalized count edges into
+    /// DE (both tagged into the `counts` mutually-exclusive group), and a
+    /// `runtime/invocations.jsonl` whose enriched line records an observed
+    /// read of the RAW producer's output. This is exactly the on-disk state
+    /// a real harness run leaves behind for the reconcile to fold.
+    fn make_de_reconcile_pkg(pkg: &std::path::Path) {
+        use crate::invocation_log::{append_invocation, InvocationRecord};
+        use ecaa_workflow_core::atom::SafetyPolicy;
+        use ecaa_workflow_core::provenance::ObservedRead;
+        use ecaa_workflow_core::workflow_contracts::edge::{
+            CompatibilityProof, EdgeContract, EdgeKind,
+        };
+
+        std::fs::create_dir_all(pkg.join("runtime")).unwrap();
+
+        // ro-crate-metadata.json — root Dataset + the two ParameterConnection
+        // nodes reconcile stamps (matched by @id).
+        let metadata = serde_json::json!({
+            "@graph": [
+                {"@id": "./", "@type": "Dataset", "hasPart": []},
+                {
+                    "@id": "#parameter-connection/quantification__to__differential_expression",
+                    "@type": "ParameterConnection"
+                },
+                {
+                    "@id": "#parameter-connection/normalisation__to__differential_expression",
+                    "@type": "ParameterConnection"
+                }
+            ]
+        });
+        std::fs::write(
+            pkg.join("ro-crate-metadata.json"),
+            serde_json::to_vec_pretty(&metadata).unwrap(),
+        )
+        .unwrap();
+
+        // proofs.jsonl — the declared per-edge graph.
+        let edges = [
+            EdgeContract {
+                from_node: "quantification".into(),
+                from_port: "count_matrix".into(),
+                to_node: "differential_expression".into(),
+                to_port: "raw_counts".into(),
+                proof: CompatibilityProof::default(),
+                kind: EdgeKind::TypedDataFlow,
+                chain_of_custody: None,
+                mutually_exclusive_group: Some("counts".into()),
+            },
+            EdgeContract {
+                from_node: "normalisation".into(),
+                from_port: "normalized_counts".into(),
+                to_node: "differential_expression".into(),
+                to_port: "normalized_counts".into(),
+                proof: CompatibilityProof::default(),
+                kind: EdgeKind::TypedDataFlow,
+                chain_of_custody: None,
+                mutually_exclusive_group: Some("counts".into()),
+            },
+        ];
+        let mut proofs = String::new();
+        for e in &edges {
+            proofs.push_str(&serde_json::to_string(e).unwrap());
+            proofs.push('\n');
+        }
+        std::fs::write(pkg.join("runtime/proofs.jsonl"), proofs).unwrap();
+
+        // invocations.jsonl — pre-dispatch line + enriched follow-up carrying
+        // the observed read of the RAW producer's output.
+        let base = InvocationRecord::new(
+            "differential_expression",
+            Some("differential_expression"),
+            1,
+            "run-recon",
+            "2026-07-17T00:00:00Z",
+            &["quantification".to_string(), "normalisation".to_string()],
+            true,
+            &SafetyPolicy::default(),
+            None,
+        );
+        append_invocation(pkg, &base).unwrap();
+        let enriched = base.with_observed_reads(vec![ObservedRead {
+            task_id: "differential_expression".into(),
+            declared_port: Some("raw_counts".into()),
+            path: "runtime/outputs/quantification/count_matrix.tsv".into(),
+        }]);
+        append_invocation(pkg, &enriched).unwrap();
+    }
+
+    fn read_metadata_graph(pkg: &std::path::Path) -> Vec<serde_json::Value> {
+        let raw = std::fs::read_to_string(pkg.join("ro-crate-metadata.json")).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        v["@graph"].as_array().unwrap().clone()
+    }
+
+    fn provenance_status<'a>(graph: &'a [serde_json::Value], id: &str) -> Option<&'a str> {
+        graph
+            .iter()
+            .find(|e| e["@id"] == id)
+            .and_then(|e| e.get("ecaax:provenanceStatus"))
+            .and_then(|s| s.as_str())
+    }
+
+    /// End-to-end: after `finalize_completed_package`, the DE package's
+    /// RO-Crate must stamp the RAW edge authoritative and the NORMALIZED
+    /// edge candidate_unused, driven by the observed read of the raw
+    /// producer's output. Before the post-exec hook is wired,
+    /// `finalize_completed_package` leaves both nodes unstamped.
+    #[test]
+    fn finalize_completed_package_reconciles_observed_reads_into_ro_crate() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        make_de_reconcile_pkg(pkg);
+        // A config_dir with no policies is fine: finalize_package warns and
+        // returns without touching ro-crate-metadata.json, then the reconcile
+        // runs.
+        let config_dir = tmp.path().join("config");
+        std::fs::create_dir_all(&config_dir).unwrap();
+
+        finalize_completed_package(pkg, &config_dir);
+
+        let graph = read_metadata_graph(pkg);
+        assert_eq!(
+            provenance_status(
+                &graph,
+                "#parameter-connection/quantification__to__differential_expression"
+            ),
+            Some("authoritative"),
+            "the raw-counts edge the run actually read must be stamped authoritative"
+        );
+        assert_eq!(
+            provenance_status(
+                &graph,
+                "#parameter-connection/normalisation__to__differential_expression"
+            ),
+            Some("candidate_unused"),
+            "the unread normalized-counts sibling must be stamped candidate_unused"
+        );
+    }
+
+    /// The reconcile helper is a no-op (no write, returns false) on a package
+    /// with no invocations — the common pre-dispatch case.
+    #[test]
+    fn reconcile_observed_reads_is_noop_without_invocations() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        std::fs::create_dir_all(pkg.join("runtime")).unwrap();
+        std::fs::write(
+            pkg.join("ro-crate-metadata.json"),
+            r#"{"@graph":[{"@id":"./","@type":"Dataset"}]}"#,
+        )
+        .unwrap();
+        let before = std::fs::read(pkg.join("ro-crate-metadata.json")).unwrap();
+        assert!(!reconcile_observed_reads_into_ro_crate(pkg));
+        let after = std::fs::read(pkg.join("ro-crate-metadata.json")).unwrap();
+        assert_eq!(before, after, "no invocations → descriptor left untouched");
+    }
 
     // -----------------------------------------------------------------------
     // Helpers for env-snapshot tests

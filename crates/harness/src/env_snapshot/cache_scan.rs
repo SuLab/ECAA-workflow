@@ -67,8 +67,8 @@ pub fn cache_has_installs(cache_dir: &Path) -> bool {
     // Therefore the presence of *any* content under `pip/` is sufficient
     // evidence that pip-managed packages have been installed.
     if let Ok(entries) = std::fs::read_dir(cache_dir.join("pip")) {
-        for entry in entries.flatten() {
-            let _ = entry; // any entry means content is present
+        // any entry means content is present
+        if entries.flatten().next().is_some() {
             return true;
         }
     }
@@ -81,8 +81,8 @@ pub fn cache_has_installs(cache_dir: &Path) -> bool {
         for ver_entry in ver_entries.flatten() {
             let site_packages = ver_entry.path().join("site-packages");
             if let Ok(pkg_entries) = std::fs::read_dir(&site_packages) {
-                for pkg_entry in pkg_entries.flatten() {
-                    let _ = pkg_entry; // any entry means a package is installed
+                // any entry means a package is installed
+                if pkg_entries.flatten().next().is_some() {
                     return true;
                 }
             }

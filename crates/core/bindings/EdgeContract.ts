@@ -44,4 +44,10 @@ kind: EdgeKind,
  * non-suppressed edges. Older records without the field
  * deserialize cleanly.
  */
-chain_of_custody?: ChainOfCustody, };
+chain_of_custody?: ChainOfCustody, 
+/**
+ * When set, this edge is one member of a mutually-exclusive one-of
+ * input group named here; sibling members are alternatives resolved
+ * to a single authoritative edge by observed-provenance (Phase 2).
+ */
+mutually_exclusive_group?: string, };

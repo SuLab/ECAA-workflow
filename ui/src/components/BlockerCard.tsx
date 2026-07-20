@@ -249,6 +249,8 @@ function titleFor(kind: BlockerKind | null | undefined, isDiscovery: boolean): s
       return `External registry import failed — ${kind.registry} / ${kind.id}: ${kind.reason}`
     case 'turn_budget_exceeded':
       return 'Executor agent hit turn budget'
+    case 'provenance_divergence':
+      return `Provenance divergence — ${kind.task_id} read a file outside its declared inputs`
   }
   // Exhaustiveness: a new BlockerKind variant in core must extend this
   // switch; `tsc --noEmit` fails if `kind` is not narrowed to `never`.
@@ -585,6 +587,8 @@ function buttonLabelFor(
       return 'Retry import'
     case 'turn_budget_exceeded':
       return 'Investigate'
+    case 'provenance_divergence':
+      return 'Review provenance'
   }
   // Exhaustiveness: adding a new BlockerKind variant forces an explicit
   // button-label decision here; `tsc --noEmit` fails otherwise.

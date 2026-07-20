@@ -22,6 +22,8 @@
 //! - excludes → `TaskNode::attributes["excludes"]`
 //! - attributes → merged into `TaskNode::attributes`
 //! - joint_with → `TaskNode::attributes["joint_with"]`
+//! - input_groups → `TaskNode::attributes["input_groups"]` (read back
+//!   by `composer_v4::planner::score_dag`'s one-of exemption)
 //! - method_choice → `TaskNode::attributes["method_choice"]`
 //! - resource_profile → `TaskNode::attributes["resource_profile"]`
 //! - preferred_container → `Implementation::ContainerCommand.image`
@@ -39,6 +41,7 @@
 //!   atom-declared obligation id; threaded through to
 //!   `RequiredArtifact.validation_obligations` by the v4 lowering pass)
 //! - runtime_packages → `TaskNode::attributes["runtime_packages"]`
+//! - read_allowance → `TaskNode::attributes["read_allowance"]`
 //!
 //! The attributes-bag strategy is intentional: it is shape-preserving
 //! and reversible. Stable fields are promoted to typed first-class
@@ -246,6 +249,16 @@ fn preserve_attributes(atom: &AtomDefinition) -> BTreeMap<String, serde_json::Va
             serde_json::to_value(&atom.joint_with).unwrap_or(serde_json::Value::Null),
         );
     }
+    // `input_groups` has no first-class home on `TaskNode` yet; stash
+    // it in the attributes bag so `composer_v4::planner::score_dag`
+    // can recover the one-of membership when deciding whether an
+    // Unproven/OrderingOnly edge into a group member is exempt.
+    if !atom.input_groups.is_empty() {
+        a.insert(
+            "input_groups".into(),
+            serde_json::to_value(&atom.input_groups).unwrap_or(serde_json::Value::Null),
+        );
+    }
     if let Some(method_choice) = &atom.method_choice {
         a.insert(
             "method_choice".into(),
@@ -315,6 +328,17 @@ fn preserve_attributes(atom: &AtomDefinition) -> BTreeMap<String, serde_json::Va
             serde_json::to_value(rp).unwrap_or(serde_json::Value::Null),
         );
     }
+    // Threaded so `composer_v4::companion_synthesis` can propagate it to a
+    // synthesized `validate_<id>` companion (a validator cross-checking a
+    // broad-read aggregator legitimately needs the same read scope), and so
+    // the emit path's observed-read reconciliation can read it back from
+    // `runtime/task-nodes.json` without depending on the atom registry.
+    if !atom.read_allowance.is_empty() {
+        a.insert(
+            "read_allowance".into(),
+            serde_json::to_value(&atom.read_allowance).unwrap_or(serde_json::Value::Null),
+        );
+    }
 
     a
 }
@@ -350,6 +374,7 @@ mod tests {
             joint_with: vec![],
             inputs: vec![],
             outputs: vec![],
+            input_groups: vec![],
             method_choice: None,
             resource_profile: None,
             preferred_container: None,
@@ -369,6 +394,7 @@ mod tests {
             safety: crate::atom::SafetyPolicy::default(),
             governance: None,
             non_determinism: Vec::new(),
+            read_allowance: Vec::new(),
         }
     }
 
@@ -489,6 +515,10 @@ mod tests {
         atom.required_figures = vec!["fig1".into()];
         atom.plot_stage_id = Some("plotting.normalization".into());
         atom.expected_artifacts = vec!["out.tsv".into()];
+        atom.read_allowance = vec![crate::atom::ReadAllowance {
+            scope: crate::atom::ReadAllowanceScope::AnyUpstreamStage,
+            rationale: "test rationale".into(),
+        }];
 
         let node = TaskNode::from_atom(&atom);
 
@@ -508,6 +538,7 @@ mod tests {
         assert!(a.contains_key("required_figures"));
         assert!(a.contains_key("plot_stage_id"));
         assert!(a.contains_key("expected_artifacts"));
+        assert!(a.contains_key("read_allowance"));
         // Author-supplied attribute is preserved too.
         assert_eq!(a.get("speed").unwrap(), &serde_json::json!("fast"));
     }

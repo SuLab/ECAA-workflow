@@ -41,7 +41,11 @@ atoms:
     depends_on: [quantification]
   - atom_id: normalisation
     required: true
-    depends_on: [qc_preprocessing]
+    # RCA I-1 — normalisation legitimately reads data_acquisition's
+    # sample metadata (cohort_manifest) for its design formula
+    # (condition / batch / cell line), not just qc_preprocessing's
+    # count matrix. See normalisation.yaml's sample_metadata port.
+    depends_on: [qc_preprocessing, data_acquisition]
   - atom_id: review_prior_work
     required: false
     # Phase G of the literature-atom plan. Gated by
@@ -51,7 +55,13 @@ atoms:
     # to a pre-literature DAG.
   - atom_id: differential_expression
     required: true
-    depends_on: [normalisation]
+    # DE's `counts` one-of binds `raw_counts` from `quantification` (the raw
+    # count matrix count-GLM tools fit) and `normalized_counts` from
+    # `normalisation` (rank-based tools). On the counts-first path the
+    # upstream `quantification` chain is pruned and the raw edge is rewired
+    # onto `data_acquisition`. Method-neutral: both substrates are offered;
+    # the agent's runtime method choice selects the one it reads.
+    depends_on: [quantification, normalisation]
   - atom_id: contextualize_findings_with_literature
     required: false
     depends_on: [differential_expression, review_prior_work]

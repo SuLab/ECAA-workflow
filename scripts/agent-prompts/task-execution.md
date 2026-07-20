@@ -106,6 +106,25 @@ writer of task state.
    file is owned by the conversation/server layer and carries only the typed
    `DecisionRecord` taxonomy.
 
+5. **`reads.jsonl`** — a read manifest: one JSON object per line, one per
+   INPUT file you actually read that another stage produced (an upstream
+   producer's output under `runtime/outputs/<producer>/…`). Each object is
+   exactly `{"path": "<package-root-relative path you read>",
+   "declared_port": "<the input port from your task spec this file
+   satisfied>"}`. Use the package-root-relative path, not an absolute one
+   (e.g. `runtime/outputs/quantification/count_matrix.tsv`), and set
+   `declared_port` to the input-port name your `task-spec.json` names for that
+   input; omit `declared_port` only if the spec names no port for it. Record
+   ONLY genuine cross-stage input reads — do not list your own
+   `runtime/outputs/$ECAA_TASK_ID/` outputs or scratch, config files, or
+   system paths (those are ignored anyway). When your task spec offers a
+   mutually-exclusive one-of input group — e.g. a differential-expression
+   stage that may read EITHER a raw count matrix OR a normalized count matrix
+   — this manifest is how the run records WHICH one you actually consumed, so
+   be precise: list the file you read and not the alternative. Write one line
+   per file, in a stable order, with no timestamps. If the task read no
+   cross-stage input files, omit the manifest (an absent file is fine).
+
 ### Identifiers
 
 Never hardcode gene→Ensembl IDs; resolve via the pinned annotation or the

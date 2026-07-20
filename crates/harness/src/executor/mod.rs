@@ -325,6 +325,21 @@ pub trait Executor: Send {
         None
     }
 
+    /// Pop the most recent iteration's observed input reads — the files
+    /// the dispatched task actually opened, captured via
+    /// `crate::observed_reads::capture_reads` (design §5.2 C5). Caller-
+    /// owns; subsequent calls without a fresh `run_iteration` return an
+    /// empty vec. Folding these into `core::provenance::observed::reconcile`
+    /// against the declared graph, and persisting the reconciled result,
+    /// is a later task — this seam only surfaces what was captured.
+    /// Default empty preserves backward compatibility for backends that
+    /// don't yet capture reads (AWS/SLURM fall back to the same
+    /// agent-reported manifest once their runbooks append it, per
+    /// `crate::observed_reads` module docs).
+    fn take_observed_reads(&mut self) -> Vec<ecaa_workflow_core::provenance::ObservedRead> {
+        Vec::new()
+    }
+
     /// Translate per-task remediation overrides into backend-native
     /// dispatch parameters. Default is a no-op so backends opt in.
     ///

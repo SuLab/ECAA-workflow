@@ -20,8 +20,14 @@ description: |
       ["condition","sex","age","RIN"]).
     - primary_variable: the main comparison variable for the contrast (e.g.
       "condition").
-    - stated_outcome: the SME's stated outcome for the task, when the task names
-      one (otherwise omit).
+    - stated_outcome: CONDITIONAL, NOT part of the standard checklist above —
+      record it ONLY when the task explicitly names a target outcome to
+      regress against (e.g. a named clinical/phenotypic variable). For a
+      plain DE-by-condition contrast (comparing groups/cell types — the
+      common case) OMIT this key entirely; do NOT copy response_variable's
+      or primary_variable's own value into it just to "complete" the record.
+      An unwarranted value here arms a domain-correctness check that is
+      designed to stay skipped for the common case (RCA I-10).
   These are YOUR record of YOUR choices and of the data/task — a domain-correctness
   contract checks them for internal + task consistency (e.g. the design adjusts
   for an available covariate; the response matches the stated outcome). It never
@@ -30,7 +36,15 @@ edam_operation: "operation:3223"
 edam_data: "data:3917"
 edam_format: "format:3475"
 assignee: agent
+# Count substrate producers for the `counts` one-of group. `quantification`
+# emits the raw count matrix (count-GLM tools: DESeq2/edgeR/limma-voom);
+# `normalisation` emits normalized counts (rank-based tools: MAST/Wilcoxon).
+# The composer binds whichever member's producer exists on the path (the
+# raw dep is skipped when no quantification-family stage is present, e.g.
+# proteomics), and the runtime method choice selects the substrate actually
+# read — method neutrality preserved. Archetypes override this per branch.
 depends_on:
+  - quantification
   - normalisation
 expected_artifacts:
   - de_results.tsv
@@ -66,22 +80,39 @@ attributes:
   # fit. The contract checks them for internal + task consistency (design
   # adjusts for an available covariate; response matches the stated outcome).
   result_contract:
+    # Unconditional checklist: record every one of these for every run. Do
+    # NOT add stated_outcome here — see record_when_applicable below (RCA
+    # I-10: an agent following an unconditional checklist literally will
+    # always populate a field even when the atom's own prose says to omit
+    # it, arming a domain-correctness gate designed to stay skipped).
     record_in_result_json:
       - design_formula
       - response_variable
       - available_covariates
       - primary_variable
-      - stated_outcome
+    # Conditional fields: record ONLY when the stated precondition holds;
+    # omit the key entirely otherwise. Kept structurally separate from
+    # record_in_result_json so the checklist itself cannot be read as
+    # "always fill in every field listed here".
+    record_when_applicable:
+      stated_outcome: >-
+        ONLY when the task explicitly names a target outcome to regress
+        against (e.g. a named clinical/phenotypic variable). OMIT this key
+        for a plain DE-by-condition contrast — never copy
+        response_variable's or primary_variable's own value into it.
     note: >-
       record-what-you-did, not be-told-what-to-do. State the model you fit and
       the covariate columns you observed; the harness checks your own record for
-      domain-correctness. available_covariates/stated_outcome are agent-recorded
-      in v1 — pinning available_covariates to a measurement script is a follow-up
-      (docs/known-limitations.md). Also include a `gene_symbol` column alongside
-      `gene_id` in the results table, resolved from the run's pinned annotation
-      (org.Hs.eg.db / biomaRt) — never hardcoded. This gives the downstream
-      gene-symbol↔Ensembl consistency check an INDEPENDENT annotation so a
-      literature citation cannot be attached to the wrong gene.
+      domain-correctness. available_covariates is agent-recorded in v1 —
+      pinning it to a measurement script is a follow-up
+      (docs/known-limitations.md). stated_outcome is CONDITIONAL (see
+      record_when_applicable) — recording it for a plain contrast arms a
+      check designed to stay skipped for that common case. Also include a
+      `gene_symbol` column alongside `gene_id` in the results table, resolved
+      from the run's pinned annotation (org.Hs.eg.db / biomaRt) — never
+      hardcoded. This gives the downstream gene-symbol↔Ensembl consistency
+      check an INDEPENDENT annotation so a literature citation cannot be
+      attached to the wrong gene.
 # SME-overridable output-shaping parameters. These are significance/effect-size
 # thresholds and filtering knobs that shape the reported DE call set — NOT the
 # DE method/test (that stays agent-selected per method neutrality).
@@ -112,9 +143,23 @@ claim_boundary: |
   contrast. Avoid mechanistic language; prefer "associated with" / "enriched in"
   over "drives" / "causes".
 # Explicit rich ports.
-# Input is a normalized count matrix paired with the experimental
-# design; output is the DE results table with logFC + p-value + padj.
+# Input is a count matrix (raw or normalized — a method-neutral one-of;
+# count-GLM tools like DESeq2/edgeR fit raw counts, rank-based tools
+# consume normalized counts) paired with the experimental design; output
+# is the DE results table with logFC + p-value + padj.
 inputs:
+  - name: raw_counts
+    semantic_type:
+      kind: ontology_term
+      iri: "data:3917"
+      label: "Count matrix"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    statistical_state: "raw_counts"
+    cardinality: { kind: optional }
+    privacy_class: internal
   - name: normalized_counts
     semantic_type:
       kind: ontology_term
@@ -125,6 +170,7 @@ inputs:
       iri: "format:3475"
       label: "Tabular text"
     statistical_state: "normalized"
+    cardinality: { kind: optional }
     privacy_class: internal
   - name: experimental_design
     semantic_type:
@@ -136,6 +182,11 @@ inputs:
       iri: "format:3464"
       label: "JSON"
     privacy_class: internal
+input_groups:
+  - name: counts
+    kind: one_of
+    members: [raw_counts, normalized_counts]
+    min_bound: 1
 outputs:
   - name: de_results
     semantic_type:

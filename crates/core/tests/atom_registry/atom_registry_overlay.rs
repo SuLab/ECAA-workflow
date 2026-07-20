@@ -75,6 +75,7 @@ fn overlay_atom(id: &str) -> AtomDefinition {
         joint_with: Vec::new(),
         inputs: Vec::new(),
         outputs: Vec::new(),
+        input_groups: Vec::new(),
         method_choice: None,
         resource_profile: None,
         preferred_container: None,
@@ -94,6 +95,7 @@ fn overlay_atom(id: &str) -> AtomDefinition {
         safety: Default::default(),
         governance: None,
         non_determinism: Vec::new(),
+        read_allowance: Vec::new(),
     }
 }
 

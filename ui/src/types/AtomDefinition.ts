@@ -6,11 +6,13 @@ import type { AtomRole } from "./AtomRole";
 import type { ContainerSpec } from "./ContainerSpec";
 import type { DurationEstimate } from "./DurationEstimate";
 import type { FigureExempt } from "./FigureExempt";
+import type { InputGroup } from "./InputGroup";
 import type { IterateSpec } from "./IterateSpec";
 import type { JointlyWithConstraint } from "./JointlyWithConstraint";
 import type { MethodChoiceRef } from "./MethodChoiceRef";
 import type { ParameterSpec } from "./ParameterSpec";
 import type { PortContract } from "./PortContract";
+import type { ReadAllowance } from "./ReadAllowance";
 import type { ResourceProfile } from "./ResourceProfile";
 import type { RuntimePrereqs } from "./RuntimePrereqs";
 import type { SafetyPolicy } from "./SafetyPolicy";
@@ -142,6 +144,11 @@ inputs: Array<PortContract>,
  * output ports. See `inputs` for the migration story.
  */
 outputs: Array<PortContract>, 
+/**
+ * Input-port groupings (e.g. one-of substrate choice). Default-empty
+ * so atoms without groups serialize byte-identically.
+ */
+input_groups: Array<InputGroup>, 
 /**
  * Pointer for runtime method selection. When set, the named
  * `discovery_*` atom (or stage in legacy taxonomies) carries
@@ -294,4 +301,24 @@ safety: SafetyPolicy,
  * "unmanaged" — allowed for non-Exec atoms, refused for Exec atoms
  * by `atom_safety::validate_atom_governance` at registry load.
  */
-governance?: AtomGovernance, };
+governance?: AtomGovernance, 
+/**
+ * Declared exception to observed-provenance reconciliation
+ * (design §5.2 C5 / RCA I-1): a deliberate, documented broad
+ * cross-stage read that a fixed input port can't express. Use
+ * only when the atom's real read set is DAG-shape/archetype
+ * dependent and therefore not statically enumerable as ports —
+ * e.g. a final dashboard/report aggregator that reads whichever
+ * upstream analytical stages the composed DAG happens to include,
+ * or a validator independently cross-checking that same
+ * aggregation. Prefer a typed input port over this facet whenever
+ * the producer is fixed and known (see `inputs`); this is the
+ * fallback for the minority of atoms where it genuinely isn't.
+ * Threaded onto `TaskNode::attributes["read_allowance"]` so
+ * `synthesize_validate_companions` can propagate it to a
+ * synthesized validator, and so the emit path's observed-read
+ * reconciliation (`crate::ro_crate::reconcile_ro_crate_edges`)
+ * can treat a covered read as sanctioned rather than divergent.
+ * Empty default keeps every legacy atom unaffected.
+ */
+read_allowance: Array<ReadAllowance>, };

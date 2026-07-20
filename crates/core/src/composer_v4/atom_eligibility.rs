@@ -123,6 +123,7 @@ mod tests {
             joint_with: vec![],
             inputs: vec![],
             outputs: vec![],
+            input_groups: vec![],
             method_choice: None,
             resource_profile: None,
             preferred_container: None,
@@ -142,6 +143,7 @@ mod tests {
             safety: Default::default(),
             governance: None,
             non_determinism: Vec::new(),
+            read_allowance: Vec::new(),
         }
     }
 

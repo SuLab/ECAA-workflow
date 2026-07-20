@@ -31,7 +31,7 @@ use crate::archetype_registry::ArchetypeRegistry;
 use crate::assumption_policy::{
     AssumptionPolicyTable, DefectClass as PolicyDefectClass, PolicyPrivacyClass,
 };
-use crate::atom::AtomDefinition;
+use crate::atom::{AtomDefinition, InputGroup};
 use crate::atom_registry::AtomRegistry;
 use crate::compatibility::engine::{
     CompatibilityEngine, CompatibilityResult, DeterministicCompatibilityEngine,
@@ -60,7 +60,7 @@ use crate::workflow_contracts::outcome::{ComposeOutcome, GapReport, ValidationRe
 use crate::workflow_contracts::port::PortContract;
 use crate::workflow_contracts::task_node::{TaskNode, WorkflowDag};
 
-use super::scoring::{ScoringTuple, ScoringValue};
+use super::scoring::{self, ScoringTuple, ScoringValue};
 use super::{PlannerResult, PlanningContext, RankedAlternative};
 
 /// Build a planning context from the existing v3 inputs. Used by
@@ -2085,8 +2085,38 @@ pub fn lift_to_workflow_dag(
                 proof,
                 kind,
                 chain_of_custody: None,
+                mutually_exclusive_group: None,
             });
         }
+    }
+
+    // One-of input-group tagging (archetype-lift path). The
+    // per-`depends_on` edge loop above binds each one-of member to its
+    // own producer (e.g. `differential_expression`'s `counts` group over
+    // raw / normalized count matrices) but leaves
+    // `mutually_exclusive_group` unset — the tagging that
+    // `meet_in_the_middle` applies via `collapse_one_of_gaps` never runs
+    // on this seed-lift path. Run the same shared post-pass here so a
+    // consumer's bound member edges carry
+    // `mutually_exclusive_group = Some(<group>)`, presenting them as
+    // mutually-exclusive alternatives rather than two simultaneous data
+    // flows. Gap bookkeeping is a no-op on this path (the lift tracks no
+    // gaps), so the throwaway gap vectors are discarded; only the edge
+    // tags survive. Atoms without `input_groups` are skipped, keeping the
+    // lift byte-stable for every non-one-of consumer.
+    for c in &result.atoms {
+        if c.atom.input_groups.is_empty() {
+            continue;
+        }
+        let mut discarded_gaps: Vec<String> = Vec::new();
+        let mut discarded_repair_gaps: Vec<crate::repair::proposal::RepairGap> = Vec::new();
+        super::meet_in_middle::collapse_one_of_gaps(
+            &c.atom,
+            &mut edges,
+            &mut discarded_gaps,
+            &mut discarded_repair_gaps,
+            c.stage_id.as_str(),
+        );
     }
 
     // Stable edge order (sorted by from→to).
@@ -2486,10 +2516,22 @@ fn score_dag(
     // declared/synthesized OrderingOnly edges — the first real branch on
     // risk_mode. The decision is the typed `EdgeKind`, not a substring
     // scan of the proof's warning text.
+    //
+    // Exception: a method-neutral one-of `InputGroup` (e.g.
+    // `differential_expression`'s raw|normalized counts substrate
+    // choice) legitimately leaves sibling members unbound — only ONE
+    // is expected to bind, depending on the method the execution agent
+    // picks at runtime. An Unproven/OrderingOnly edge into such a
+    // member is exempted from the Reject when the group is otherwise
+    // satisfied (`one_of_exempts_edge`), so an unbound sibling never
+    // wrongly rejects an otherwise-valid single-member binding.
     use crate::compatibility::engine::RiskMode;
-    let any_unsat = dag.edges.iter().any(|e| match ctx.risk_mode {
-        RiskMode::Production => matches!(e.kind, EdgeKind::Unproven | EdgeKind::OrderingOnly),
-        RiskMode::Draft => matches!(e.kind, EdgeKind::Unproven),
+    let any_unsat = dag.edges.iter().any(|e| {
+        let unsat_kind = match ctx.risk_mode {
+            RiskMode::Production => matches!(e.kind, EdgeKind::Unproven | EdgeKind::OrderingOnly),
+            RiskMode::Draft => matches!(e.kind, EdgeKind::Unproven),
+        };
+        unsat_kind && !one_of_exempts_edge(dag, e)
     });
     if any_unsat {
         s.required_contract_unsatisfied = ScoringValue::Reject;
@@ -2613,6 +2655,42 @@ fn score_dag(
     // are wired in composer_v4::policy_gate.
     let _ = ctx;
     s
+}
+
+/// Does a satisfied one-of `InputGroup` on `edge`'s consuming node
+/// exempt `edge` from counting toward `required_contract_unsatisfied`?
+///
+/// Looks up the consumer's declared groups — preserved onto
+/// `TaskNode::attributes["input_groups"]` by `TaskNode::from_atom`
+/// (`AtomDefinition.input_groups` has no first-class `TaskNode` home
+/// yet, same convention as `method_choice`/`resource_profile`) — and
+/// the set of that consumer's ports already bound by a genuinely
+/// compatible producer (`TypedDataFlow` / `AdapterMediated`) anywhere
+/// in the DAG. Falls through to "not exempt" (preserving today's
+/// Reject) when the consumer node can't be found or declares no
+/// groups, so every pre-existing edge-kind test is unaffected.
+fn one_of_exempts_edge(dag: &WorkflowDag, edge: &EdgeContract) -> bool {
+    let Some(consumer) = dag.nodes.iter().find(|n| n.id == edge.to_node) else {
+        return false;
+    };
+    let groups: Vec<InputGroup> = consumer
+        .attributes
+        .get("input_groups")
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default();
+    if groups.is_empty() {
+        return false;
+    }
+    let bound_ports: BTreeSet<String> = dag
+        .edges
+        .iter()
+        .filter(|e| {
+            e.to_node == edge.to_node
+                && e.kind.strength_rank() >= EdgeKind::AdapterMediated.strength_rank()
+        })
+        .map(|e| e.to_port.clone())
+        .collect();
+    scoring::input_is_exempt_by_one_of(&groups, &edge.to_port, &bound_ports)
 }
 
 /// Same as the simple classify helper but also sweeps every
@@ -3463,6 +3541,7 @@ fn placeholder_atom(node: &TaskNode) -> AtomDefinition {
         joint_with: Vec::new(),
         inputs: Vec::new(),
         outputs: Vec::new(),
+        input_groups: Vec::new(),
         method_choice: None,
         resource_profile: None,
         preferred_container: None,
@@ -3482,6 +3561,7 @@ fn placeholder_atom(node: &TaskNode) -> AtomDefinition {
         safety: crate::atom::SafetyPolicy::default(),
         governance: None,
         non_determinism: Vec::new(),
+        read_allowance: Vec::new(),
     }
 }
 
@@ -3638,6 +3718,7 @@ mod tests {
             },
             kind: EdgeKind::Unproven,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         };
         let dag = WorkflowDag {
             id: "t".into(),
@@ -3672,6 +3753,7 @@ mod tests {
             },
             kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         };
         let dag = WorkflowDag {
             id: "t".into(),
@@ -3706,6 +3788,7 @@ mod tests {
                 proof: CompatibilityProof::default(),
                 kind: EdgeKind::OrderingOnly,
                 chain_of_custody: None,
+                mutually_exclusive_group: None,
             }],
             assumptions: AssumptionLedger::default(),
             source_template: None,
@@ -3784,6 +3867,7 @@ mod tests {
                 proof: CompatibilityProof::default(),
                 kind: EdgeKind::TypedDataFlow,
                 chain_of_custody: None,
+                mutually_exclusive_group: None,
             }
         }
         let ont = |iri: &str| SemanticType::edam(iri, "");

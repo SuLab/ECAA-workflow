@@ -29,7 +29,7 @@ atoms:
       required: true }
   - { atom_id: clustering, depends_on: [joint_wnn_integration], required: true }
   - { atom_id: cell_type_annotation, depends_on: [clustering], required: true }
-  - { atom_id: differential_expression, depends_on: [cell_type_annotation], required: true }
+  - { atom_id: differential_expression, depends_on: [cell_type_annotation, normalisation], required: true }
   - { atom_id: pathway_enrichment, depends_on: [differential_expression], required: false }
   # Multiome/SHARE-seq ATAC side: per-cluster differential accessibility on
   # the ATAC half. Depends on joint clustering + cell-type labels — the

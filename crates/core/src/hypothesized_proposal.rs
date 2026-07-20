@@ -563,6 +563,7 @@ pub fn promoted_proposal_to_atom_definition(
         joint_with: Vec::new(),
         inputs: Vec::new(),
         outputs,
+        input_groups: Vec::new(),
         method_choice: None,
         resource_profile: None,
         preferred_container: None,
@@ -582,6 +583,7 @@ pub fn promoted_proposal_to_atom_definition(
         safety: crate::atom::SafetyPolicy::default(),
         governance: None,
         non_determinism: Vec::new(),
+        read_allowance: Vec::new(),
     })
 }
 

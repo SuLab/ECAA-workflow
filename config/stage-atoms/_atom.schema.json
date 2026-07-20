@@ -83,6 +83,22 @@
         "constraints": { "type": "array" },
         "facets": { "type": "object", "additionalProperties": true }
       }
+    },
+    "input_group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "members"],
+      "description": "Mirrors crates/core/src/atom.rs::InputGroup. Constrains a set of input port names as a one-of substrate choice (e.g. a DE count input that is raw for count-GLM tools and normalized for rank tools) WITHOUT the compiler selecting the method.",
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "enum": ["one_of"] },
+        "members": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1
+        },
+        "min_bound": { "type": "integer", "minimum": 1 }
+      }
     }
   },
   "properties": {
@@ -218,6 +234,11 @@
       "type": "array",
       "description": "Phase 2 of the DAG composer alignment plan — explicit rich PortContract output ports. See `inputs` for the migration story.",
       "items": { "$ref": "#/definitions/port_contract" }
+    },
+    "input_groups": {
+      "type": "array",
+      "description": "Input-port groupings (e.g. one-of substrate choice). Mirrors crates/core/src/atom.rs::AtomDefinition::input_groups. Default-empty so atoms without groups are unaffected.",
+      "items": { "$ref": "#/definitions/input_group" }
     },
     "method_choice": {
       "type": "object",
@@ -501,6 +522,27 @@
             "type": "string",
             "minLength": 1,
             "description": "Human-readable justification (surfaced in provenance)."
+          }
+        }
+      }
+    },
+    "read_allowance": {
+      "type": "array",
+      "description": "Declared exception to observed-provenance reconciliation (RCA I-1). Use only when the atom's real cross-stage read set is DAG-shape/archetype dependent and therefore not statically enumerable as fixed input ports (e.g. a final dashboard/report aggregator, or a validator cross-checking that same aggregation). Prefer a typed input port when the producer is fixed and known. Mirrors crates/core/src/atom.rs::ReadAllowance.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scope", "rationale"],
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": ["any_upstream_stage"],
+            "description": "How broad the sanctioned read scope is. any_upstream_stage: the atom may read the primary result artifact of any other stage present in the composed DAG."
+          },
+          "rationale": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Human-readable justification, surfaced in provenance."
           }
         }
       }

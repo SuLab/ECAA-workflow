@@ -170,6 +170,7 @@ fn ordering_edge(from: &str, from_port: &str, to: &str, to_port: &str) -> EdgeCo
         },
         kind: EdgeKind::OrderingOnly,
         chain_of_custody: None,
+        mutually_exclusive_group: None,
     }
 }
 
@@ -252,6 +253,7 @@ mod tests {
             proof: CompatibilityProof::default(),
             kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
+            mutually_exclusive_group: None,
         }
     }
 

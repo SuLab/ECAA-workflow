@@ -707,6 +707,213 @@ pub fn reinject_audit_proof_verdicts(
     Ok(())
 }
 
+/// Design §5.2 C5 — reconcile harness-observed reads (from
+/// `runtime/invocations.jsonl`, parsed by the caller into
+/// [`crate::provenance::ObservedRead`]s) against the declared per-edge
+/// graph (`runtime/proofs.jsonl`'s [`crate::workflow_contracts::edge::EdgeContract`]
+/// rows) and stamp the RO-Crate's `ParameterConnection` nodes
+/// (`#parameter-connection/<from>__to__<to>`, built by
+/// [`parameter_connection_entity`]) with the outcome.
+///
+/// For a one-of mutually-exclusive group (e.g. the
+/// `differential_expression` `raw_counts`/`normalized_counts`
+/// candidates, design §5.1 C1/C2), the member whose producer output the
+/// task actually read is stamped `"ecaax:provenanceStatus":
+/// "authoritative"`; every other declared member of the same group is
+/// stamped `"candidate_unused"` — the declared edge is kept (never
+/// dropped, so a differently-configured re-run that reads the other
+/// member still resolves), but a reader now sees which one actually
+/// ran. An ordinary (non-grouped) edge that a read confirms is stamped
+/// `"confirmed"`; a non-grouped, unread edge is left unstamped (silence
+/// is not evidence either way).
+///
+/// A `Divergent` verdict — a read that matches no declared producer's
+/// output for its task — is recorded on the root Dataset's
+/// `ecaax:provenanceDivergence` array rather than silently dropped
+/// (design §5.2: "a typed provenance violation"), AND returned to the
+/// caller as a typed [`crate::provenance::DivergenceRecord`] list (T12) —
+/// `crates/conversation/src/emit/ro_crate.rs::patch_ro_crate_metadata`'s
+/// caller uses the return value to transition the offending task(s) to
+/// `BlockerKind::ProvenanceDivergence`. The RO-Crate stamping above is
+/// unconditional regardless of what the caller does with the return value.
+///
+/// Idempotent: re-running (e.g. a second re-emit after more reads land)
+/// re-stamps by `@id`, never duplicates. No-op (empty return) when either
+/// input is empty or the graph carries no matching `ParameterConnection`
+/// node.
+///
+/// A task whose atom carries a `read_allowance` (RCA I-1 — e.g.
+/// `final_reporting`'s dashboard aggregation, or a synthesized
+/// `validate_<id>` companion that inherited its producer's allowance;
+/// see `crate::atom::ReadAllowance`) never contributes to
+/// `ecaax:provenanceDivergence` — its otherwise-divergent reads are
+/// instead recorded as sanctioned, with their rationale, under
+/// `ecaax:provenanceReadAllowance` on the root Dataset, so the
+/// exception stays visible without being flagged as a violation.
+pub fn reconcile_ro_crate_edges(
+    metadata: &mut Value,
+    declared_edges: &[crate::workflow_contracts::edge::EdgeContract],
+    observed_reads: &[crate::provenance::ObservedRead],
+) -> Vec<crate::provenance::DivergenceRecord> {
+    reconcile_ro_crate_edges_with_allowances(
+        metadata,
+        declared_edges,
+        observed_reads,
+        &std::collections::BTreeMap::new(),
+    )
+}
+
+/// Full form of [`reconcile_ro_crate_edges`] taking the per-task
+/// declared `read_allowance` facets (keyed by task id, sourced from
+/// `runtime/task-nodes.json`'s `TaskNode.attributes["read_allowance"]`
+/// — see `crate::workflow_contracts::from_atom::preserve_attributes`).
+pub fn reconcile_ro_crate_edges_with_allowances(
+    metadata: &mut Value,
+    declared_edges: &[crate::workflow_contracts::edge::EdgeContract],
+    observed_reads: &[crate::provenance::ObservedRead],
+    read_allowances: &std::collections::BTreeMap<String, Vec<crate::atom::ReadAllowance>>,
+) -> Vec<crate::provenance::DivergenceRecord> {
+    use crate::provenance::{reconcile, DivergenceRecord, ReconVerdict};
+    use std::collections::BTreeSet;
+
+    if declared_edges.is_empty() || observed_reads.is_empty() {
+        return Vec::new();
+    }
+    let Some(graph) = metadata.get_mut("@graph").and_then(Value::as_array_mut) else {
+        return Vec::new();
+    };
+
+    // Deterministic order (BTreeSet, not HashMap) so a rebuild of the
+    // same on-disk inputs always stamps the graph identically.
+    let mut task_ids: BTreeSet<&str> = BTreeSet::new();
+    for r in observed_reads {
+        task_ids.insert(r.task_id.as_str());
+    }
+
+    let mut divergences: Vec<Value> = Vec::new();
+    let mut typed_divergences: Vec<DivergenceRecord> = Vec::new();
+    let mut allowed_reads: Vec<Value> = Vec::new();
+
+    for task_id in task_ids {
+        let edges_for_task: Vec<&crate::workflow_contracts::edge::EdgeContract> = declared_edges
+            .iter()
+            .filter(|e| e.to_node == task_id)
+            .collect();
+        if edges_for_task.is_empty() {
+            continue;
+        }
+        let owned_edges: Vec<_> = edges_for_task.iter().map(|e| (*e).clone()).collect();
+        let verdicts = reconcile(&owned_edges, observed_reads, task_id);
+        let allowances = read_allowances.get(task_id);
+
+        let mut authoritative: BTreeSet<(String, String)> = BTreeSet::new();
+        for v in &verdicts {
+            match v {
+                ReconVerdict::Match { authoritative_edge } => {
+                    authoritative.insert(authoritative_edge.clone());
+                }
+                ReconVerdict::Divergent {
+                    read_path,
+                    declared_producer,
+                } => {
+                    if let Some(rationale) = covering_rationale(allowances) {
+                        allowed_reads.push(json!({
+                            "task_id": task_id,
+                            "read_path": read_path,
+                            "rationale": rationale,
+                        }));
+                    } else {
+                        divergences.push(json!({
+                            "task_id": task_id,
+                            "read_path": read_path,
+                            "declared_producer": declared_producer,
+                        }));
+                        typed_divergences.push(DivergenceRecord {
+                            task_id: task_id.to_string(),
+                            read_path: read_path.clone(),
+                            declared_producer: declared_producer.clone(),
+                        });
+                    }
+                }
+                ReconVerdict::Untracked => {}
+            }
+        }
+
+        for edge in &edges_for_task {
+            let key = (edge.from_node.clone(), edge.to_node.clone());
+            let status = if authoritative.contains(&key) {
+                "authoritative"
+            } else if edge.mutually_exclusive_group.is_some() {
+                "candidate_unused"
+            } else {
+                // No evidence either way for an ordinary edge this pass
+                // didn't observe a read for — leave it unstamped.
+                continue;
+            };
+            stamp_parameter_connection_status(graph, &edge.from_node, &edge.to_node, status);
+        }
+    }
+
+    if let Some(root) = graph
+        .iter_mut()
+        .find(|e| e.get("@id").and_then(Value::as_str) == Some("./"))
+    {
+        if let Some(obj) = root.as_object_mut() {
+            if !divergences.is_empty() {
+                obj.insert(
+                    "ecaax:provenanceDivergence".to_string(),
+                    Value::Array(divergences),
+                );
+            }
+            if !allowed_reads.is_empty() {
+                obj.insert(
+                    "ecaax:provenanceReadAllowance".to_string(),
+                    Value::Array(allowed_reads),
+                );
+            }
+        }
+    }
+
+    typed_divergences
+}
+
+/// The rationale of the first allowance in `allowances` whose scope
+/// covers a divergent read. Only one scope exists today
+/// (`AnyUpstreamStage`, which covers every divergent read
+/// unconditionally), so this is just "first entry, if any" — written
+/// as a search so a future narrower scope slots in without changing
+/// the caller.
+// `find_map` degrades to a plain `map` today because the single
+// existing scope always matches — kept as a match-based search
+// (rather than clippy's suggested `.map(..).next()`) so a future
+// narrower `ReadAllowanceScope` variant that DOESN'T unconditionally
+// cover a read slots in as a new match arm without restructuring the
+// function.
+#[allow(clippy::unnecessary_find_map)]
+fn covering_rationale(allowances: Option<&Vec<crate::atom::ReadAllowance>>) -> Option<&str> {
+    let allowances = allowances?;
+    allowances.iter().find_map(|a| match a.scope {
+        crate::atom::ReadAllowanceScope::AnyUpstreamStage => Some(a.rationale.as_str()),
+    })
+}
+
+/// Stamp the `ParameterConnection` node for the task-level edge
+/// `from_node -> to_node` (see [`parameter_connection_entity`]'s `@id`
+/// scheme) with `"ecaax:provenanceStatus": status`. A no-op when no
+/// such node exists in the graph (e.g. a legacy crate emitted before
+/// Tier-3 `ParameterConnection` entities existed).
+fn stamp_parameter_connection_status(graph: &mut [Value], from_node: &str, to_node: &str, status: &str) {
+    let node_id = format!("#parameter-connection/{from_node}__to__{to_node}");
+    if let Some(node) = graph
+        .iter_mut()
+        .find(|e| e.get("@id").and_then(Value::as_str) == Some(node_id.as_str()))
+    {
+        if let Some(obj) = node.as_object_mut() {
+            obj.insert("ecaax:provenanceStatus".to_string(), json!(status));
+        }
+    }
+}
+
 pub fn inject_audit_proof_verdict_nodes(metadata: &mut Value, report: &Value) -> Result<()> {
     let nodes = crate::emitter::ecaa_projection::project_audit_proof_jsonld(report);
     if nodes.is_empty() {
@@ -2333,7 +2540,7 @@ fn parse_env_lock(
         // pip pin: name==version (no spaces, version starts with digit).
         if let Some((name_part, ver_part)) = trimmed.split_once("==") {
             let name = name_part.trim();
-            let version = ver_part.trim().split_whitespace().next().unwrap_or("").trim();
+            let version = ver_part.split_whitespace().next().unwrap_or("").trim();
             // Validate: name is non-empty, name@file:// pip-from-conda artifact is excluded,
             // version starts with a digit.
             if !name.is_empty()
@@ -2352,7 +2559,7 @@ fn parse_env_lock(
         // conda pin: name: version (value starts with digit, no == present).
         if let Some((name_part, ver_part)) = trimmed.split_once(':') {
             let name = name_part.trim();
-            let version = ver_part.trim().split_whitespace().next().unwrap_or("").trim();
+            let version = ver_part.split_whitespace().next().unwrap_or("").trim();
             if !name.is_empty()
                 && !name.contains(' ')
                 && !name.contains('@')
@@ -2449,6 +2656,39 @@ pub fn register_content_integrity(package_root: &std::path::Path) -> std::io::Re
     }
     crate::fs_helpers::atomic_write_bytes_sync(&descriptor, &serde_json::to_vec_pretty(&doc)?)?;
     Ok(annotated)
+}
+
+/// Read `ro-crate-metadata.json`'s embedded per-file `sha512` annotations
+/// (written by [`register_content_integrity`]) as a `{@id: sha512_hex}` map.
+/// Empty when the descriptor is absent, unparseable, or carries no
+/// `sha512`-annotated `File` entities yet (a fresh, pre-execution emit that
+/// has never run [`register_content_integrity`]).
+///
+/// Companion read to the writer above — used by the post-seal recheck
+/// ([`crate::deposit_readiness::recheck_ro_crate_content_hashes`]) to detect
+/// the RCA I-2 finalization-order failure: a descriptor sealed BEFORE a
+/// later mutation to the payload it describes.
+pub fn recorded_content_hashes(
+    package_root: &std::path::Path,
+) -> std::collections::BTreeMap<String, String> {
+    let descriptor = package_root.join("ro-crate-metadata.json");
+    let Ok(bytes) = std::fs::read(&descriptor) else {
+        return Default::default();
+    };
+    let Ok(doc) = serde_json::from_slice::<Value>(&bytes) else {
+        return Default::default();
+    };
+    let Some(graph) = doc.get("@graph").and_then(Value::as_array) else {
+        return Default::default();
+    };
+    graph
+        .iter()
+        .filter_map(|e| {
+            let id = e.get("@id")?.as_str()?.to_string();
+            let hex = e.get("sha512")?.as_str()?.to_string();
+            Some((id, hex))
+        })
+        .collect()
 }
 
 /// Register `ro-crate-preview.html` as a `["File","CreativeWork"]` `@graph`
@@ -4013,5 +4253,263 @@ loaded via a namespace (and not attached):
         assert!(types.contains(&"File"));
         assert!(types.contains(&"SoftwareSourceCode"));
         assert!(types.contains(&"ComputationalWorkflow"));
+    }
+
+    // ── Design §5.2 C5 — observed-provenance reconciliation into the
+    // RO-Crate graph ──────────────────────────────────────────────────
+
+    fn de_one_of_edges() -> Vec<crate::workflow_contracts::edge::EdgeContract> {
+        use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind};
+        vec![
+            EdgeContract {
+                from_node: "quantification".into(),
+                from_port: "count_matrix".into(),
+                to_node: "differential_expression".into(),
+                to_port: "raw_counts".into(),
+                proof: CompatibilityProof::default(),
+                kind: EdgeKind::TypedDataFlow,
+                chain_of_custody: None,
+                mutually_exclusive_group: Some("counts".into()),
+            },
+            EdgeContract {
+                from_node: "normalisation".into(),
+                from_port: "normalized_counts".into(),
+                to_node: "differential_expression".into(),
+                to_port: "normalized_counts".into(),
+                proof: CompatibilityProof::default(),
+                kind: EdgeKind::TypedDataFlow,
+                chain_of_custody: None,
+                mutually_exclusive_group: Some("counts".into()),
+            },
+        ]
+    }
+
+    fn graph_with_parameter_connections(edges: &[crate::workflow_contracts::edge::EdgeContract]) -> Value {
+        let mut graph: Vec<Value> = vec![json!({"@id": "./", "@type": "Dataset", "hasPart": []})];
+        for e in edges {
+            graph.push(parameter_connection_entity(
+                &format!("{}__to__{}", e.from_node, e.to_node),
+                &format!("#step-{}", e.from_node),
+                &e.from_port,
+                &format!("#step-{}", e.to_node),
+                &e.to_port,
+            ));
+        }
+        json!({"@graph": graph})
+    }
+
+    #[test]
+    fn reconcile_marks_read_one_of_member_authoritative_and_sibling_candidate() {
+        let edges = de_one_of_edges();
+        let mut metadata = graph_with_parameter_connections(&edges);
+        let reads = vec![crate::provenance::ObservedRead {
+            task_id: "differential_expression".into(),
+            declared_port: Some("raw_counts".into()),
+            path: "runtime/outputs/quantification/count_matrix.tsv".into(),
+        }];
+
+        reconcile_ro_crate_edges(&mut metadata, &edges, &reads);
+
+        let graph = metadata["@graph"].as_array().unwrap();
+        let raw_node = graph
+            .iter()
+            .find(|e| e["@id"] == "#parameter-connection/quantification__to__differential_expression")
+            .expect("raw_counts ParameterConnection node present");
+        assert_eq!(raw_node["ecaax:provenanceStatus"], "authoritative");
+
+        let normalized_node = graph
+            .iter()
+            .find(|e| e["@id"] == "#parameter-connection/normalisation__to__differential_expression")
+            .expect("normalized_counts ParameterConnection node present");
+        assert_eq!(normalized_node["ecaax:provenanceStatus"], "candidate_unused");
+    }
+
+    #[test]
+    fn reconcile_is_idempotent_on_repeated_runs() {
+        let edges = de_one_of_edges();
+        let mut metadata = graph_with_parameter_connections(&edges);
+        let reads = vec![crate::provenance::ObservedRead {
+            task_id: "differential_expression".into(),
+            declared_port: Some("raw_counts".into()),
+            path: "runtime/outputs/quantification/count_matrix.tsv".into(),
+        }];
+
+        reconcile_ro_crate_edges(&mut metadata, &edges, &reads);
+        reconcile_ro_crate_edges(&mut metadata, &edges, &reads);
+
+        let graph = metadata["@graph"].as_array().unwrap();
+        // Exactly one node per @id — no duplication from the second pass.
+        let raw_matches = graph
+            .iter()
+            .filter(|e| e["@id"] == "#parameter-connection/quantification__to__differential_expression")
+            .count();
+        assert_eq!(raw_matches, 1);
+    }
+
+    #[test]
+    fn reconcile_records_divergent_read_on_root_dataset() {
+        let edges = de_one_of_edges();
+        let mut metadata = graph_with_parameter_connections(&edges);
+        // A read that matches neither declared producer's output dir.
+        let reads = vec![crate::provenance::ObservedRead {
+            task_id: "differential_expression".into(),
+            declared_port: None,
+            path: "runtime/outputs/data_acquisition/counts.tsv".into(),
+        }];
+
+        reconcile_ro_crate_edges(&mut metadata, &edges, &reads);
+
+        let graph = metadata["@graph"].as_array().unwrap();
+        let root = graph.iter().find(|e| e["@id"] == "./").unwrap();
+        let divergences = root["ecaax:provenanceDivergence"].as_array()
+            .expect("divergence array recorded on root Dataset");
+        assert_eq!(divergences.len(), 1);
+        assert_eq!(divergences[0]["read_path"], "runtime/outputs/data_acquisition/counts.tsv");
+
+        // Neither one-of member is stamped authoritative when the actual
+        // read diverges from both declared producers.
+        let raw_node = graph
+            .iter()
+            .find(|e| e["@id"] == "#parameter-connection/quantification__to__differential_expression")
+            .unwrap();
+        assert_eq!(raw_node["ecaax:provenanceStatus"], "candidate_unused");
+    }
+
+    /// RCA I-1 (Task 13) — a divergent read on a task carrying a
+    /// declared `read_allowance` is sanctioned (recorded under
+    /// `ecaax:provenanceReadAllowance` with its rationale), NOT
+    /// flagged in `ecaax:provenanceDivergence`. Complements
+    /// `reconcile_records_divergent_read_on_root_dataset` (same
+    /// divergent-read shape, no allowance) as the positive case.
+    #[test]
+    fn reconcile_with_allowances_sanctions_a_covered_divergent_read() {
+        let edges = de_one_of_edges();
+        let mut metadata = graph_with_parameter_connections(&edges);
+        // differential_expression has no declared edge from
+        // data_acquisition — an ordinary divergent read — but we grant
+        // it an any_upstream_stage allowance for this test.
+        let reads = vec![crate::provenance::ObservedRead {
+            task_id: "differential_expression".into(),
+            declared_port: None,
+            path: "runtime/outputs/data_acquisition/counts.tsv".into(),
+        }];
+        let mut allowances = std::collections::BTreeMap::new();
+        allowances.insert(
+            "differential_expression".to_string(),
+            vec![crate::atom::ReadAllowance {
+                scope: crate::atom::ReadAllowanceScope::AnyUpstreamStage,
+                rationale: "test: aggregates any upstream stage".into(),
+            }],
+        );
+
+        reconcile_ro_crate_edges_with_allowances(&mut metadata, &edges, &reads, &allowances);
+
+        let graph = metadata["@graph"].as_array().unwrap();
+        let root = graph.iter().find(|e| e["@id"] == "./").unwrap();
+        assert!(
+            root.get("ecaax:provenanceDivergence").is_none(),
+            "a covered divergent read must not surface as a divergence: {:?}",
+            root.get("ecaax:provenanceDivergence")
+        );
+        let allowed = root["ecaax:provenanceReadAllowance"]
+            .as_array()
+            .expect("sanctioned-read array recorded on root Dataset");
+        assert_eq!(allowed.len(), 1);
+        assert_eq!(allowed[0]["task_id"], "differential_expression");
+        assert_eq!(allowed[0]["read_path"], "runtime/outputs/data_acquisition/counts.tsv");
+        assert_eq!(allowed[0]["rationale"], "test: aggregates any upstream stage");
+    }
+
+    /// A task's `read_allowance` covers ONLY that task — a sibling task
+    /// with the identical divergent-read shape but no allowance of its
+    /// own still surfaces the divergence. Guards against a keying bug
+    /// that would apply one task's allowance to every task.
+    #[test]
+    fn reconcile_with_allowances_does_not_leak_across_tasks() {
+        let edges = de_one_of_edges();
+        let mut metadata = graph_with_parameter_connections(&edges);
+        let reads = vec![crate::provenance::ObservedRead {
+            task_id: "differential_expression".into(),
+            declared_port: None,
+            path: "runtime/outputs/data_acquisition/counts.tsv".into(),
+        }];
+        // Allowance keyed to a DIFFERENT task id.
+        let mut allowances = std::collections::BTreeMap::new();
+        allowances.insert(
+            "final_reporting".to_string(),
+            vec![crate::atom::ReadAllowance {
+                scope: crate::atom::ReadAllowanceScope::AnyUpstreamStage,
+                rationale: "unrelated task's allowance".into(),
+            }],
+        );
+
+        reconcile_ro_crate_edges_with_allowances(&mut metadata, &edges, &reads, &allowances);
+
+        let graph = metadata["@graph"].as_array().unwrap();
+        let root = graph.iter().find(|e| e["@id"] == "./").unwrap();
+        let divergences = root["ecaax:provenanceDivergence"]
+            .as_array()
+            .expect("unallowanced task's divergence must still surface");
+        assert_eq!(divergences.len(), 1);
+        assert!(root.get("ecaax:provenanceReadAllowance").is_none());
+    }
+
+    #[test]
+    fn reconcile_no_op_when_no_observed_reads() {
+        let edges = de_one_of_edges();
+        let mut metadata = graph_with_parameter_connections(&edges);
+        let before = metadata.clone();
+
+        reconcile_ro_crate_edges(&mut metadata, &edges, &[]);
+
+        assert_eq!(metadata, before, "empty observed reads must leave the graph untouched");
+    }
+
+    /// A `Divergent` verdict must be surfaced to the caller as a typed
+    /// `DivergenceRecord`, not just folded into the JSON-LD graph — this is
+    /// what lets `crates/conversation/src/emit/ro_crate.rs::patch_ro_crate_metadata`'s
+    /// caller transition the offending task to a typed blocker (design §5.2,
+    /// T12).
+    #[test]
+    fn reconcile_returns_divergence_record_for_undeclared_read() {
+        let edges = de_one_of_edges();
+        let mut metadata = graph_with_parameter_connections(&edges);
+        let reads = vec![crate::provenance::ObservedRead {
+            task_id: "differential_expression".into(),
+            declared_port: Some("normalized_counts".into()),
+            path: "runtime/outputs/data_acquisition/counts.tsv".into(),
+        }];
+
+        let divergences = reconcile_ro_crate_edges(&mut metadata, &edges, &reads);
+
+        assert_eq!(
+            divergences,
+            vec![crate::provenance::DivergenceRecord {
+                task_id: "differential_expression".into(),
+                read_path: "runtime/outputs/data_acquisition/counts.tsv".into(),
+                declared_producer: Some("normalisation".into()),
+            }]
+        );
+    }
+
+    /// No divergence anywhere → the returned record list is empty (mirrors
+    /// `reconcile_marks_read_one_of_member_authoritative_and_sibling_candidate`'s
+    /// all-Match fixture).
+    #[test]
+    fn reconcile_returns_no_divergence_records_when_all_reads_match() {
+        let edges = de_one_of_edges();
+        let mut metadata = graph_with_parameter_connections(&edges);
+        let reads = vec![crate::provenance::ObservedRead {
+            task_id: "differential_expression".into(),
+            declared_port: Some("raw_counts".into()),
+            path: "runtime/outputs/quantification/count_matrix.tsv".into(),
+        }];
+
+        let divergences = reconcile_ro_crate_edges(&mut metadata, &edges, &reads);
+
+        assert!(
+            divergences.is_empty(),
+            "expected no divergence records, got {divergences:?}"
+        );
     }
 }

@@ -704,9 +704,97 @@ async fn emit_steps(
     // v3 P5 F16 — thread the redaction tier through so the patcher
     // can refuse the emit when PHI patterns escape into a
     // non-`Private` tier sidecar.
-    ro_crate::patch_ro_crate_metadata(output_dir, diff_written, affordance_records, tier).await?;
+    //
+    // T12 — a non-empty return means the reconcile pass folded inside
+    // `patch_ro_crate_metadata` found `Divergent` reads: task(s) that read
+    // a file no declared producer's output directory covers. Transition
+    // each into `BlockerKind::ProvenanceDivergence` immediately, while
+    // `session` is still in scope — `patch_ro_crate_metadata` itself only
+    // owns the RO-Crate `@graph`, not session state.
+    let divergences =
+        ro_crate::patch_ro_crate_metadata(output_dir, diff_written, affordance_records, tier)
+            .await?;
+    apply_provenance_divergence_blockers(session, &divergences);
+
+    // RCA I-2 / I-7 — re-seal the BagIt manifest over the package's TRUE
+    // final pre-execution state. Everything above this line — every sidecar
+    // writer, `patch_ro_crate_metadata`'s descriptor rewrite, and the
+    // `runtime/workflow-typed.json` full-fidelity overwrite — mutates a file
+    // AFTER core's own `emit_package` call sealed `manifest-sha512.txt`
+    // (this pipeline's very first step), with nothing resealing it since.
+    // Left alone, that manifest describes the snapshot core sealed before
+    // these patches, not the package actually on disk — the same
+    // finalization-order failure as `emitter::regenerate_bagit_manifest`'s
+    // post-execution twin, just at emit time instead of after execution.
+    // `reseal_emit_manifest` keeps `SealMode::Emit` semantics (no
+    // `runtime/outputs/`, nothing has executed yet) and does not touch RO-
+    // Crate content-integrity annotations — this is a pre-execution package,
+    // which carries none yet, and annotating one here would perturb the
+    // byte-reproducibility baseline `emit_package` itself is held to.
+    let seal_clock: &dyn ecaa_workflow_core::clock::Clock = &ecaa_workflow_core::clock::WallClock;
+    ecaa_workflow_core::emitter::reseal_emit_manifest(output_dir, seal_clock)
+        .context("re-sealing BagIt manifest over the final emitted payload")?;
 
     Ok(())
+}
+
+/// T12 — transition every task named in `divergences` to
+/// `BlockerKind::ProvenanceDivergence` via the same `HarnessTaskBlocked`
+/// trigger the harness-driven blocker path uses
+/// (`crate::service::ConversationService::block_from_harness`), applied
+/// directly against `session` since `emit_steps` already holds `&mut
+/// Session` — going through the store-backed service would require a
+/// `SessionId` + `ConversationService`, neither of which `emit_steps` has.
+///
+/// `session.state` is `Emitting` at this call site (the tool dispatcher's
+/// pre-handler hook fires `EmitPackageStart` before `emit_package`'s
+/// handler — which is what calls into this pipeline — runs), so
+/// `try_transition` accepts `HarnessTaskBlocked` from `Emitting` too (see
+/// `session/transitions.rs`). The dispatcher's post-handler `EmitPackageOk`
+/// trigger fires unconditionally after this returns; from the now-`Blocked`
+/// state that transition is illegal and is logged + swallowed
+/// (`emit_package_post_ok`'s existing `warn_illegal_transition` path), so
+/// the session correctly lands on `Blocked` rather than `Emitted`.
+///
+/// No-op when `divergences` is empty (the overwhelmingly common case: no
+/// harness has dispatched against this package yet). Best-effort per
+/// entry: an illegal transition (e.g. multiple divergences for a session
+/// already off the accepted-state list) is logged and does not abort the
+/// emit — the package has already been written to disk at this point.
+fn apply_provenance_divergence_blockers(
+    session: &mut Session,
+    divergences: &[ecaa_workflow_core::provenance::DivergenceRecord],
+) {
+    for d in divergences {
+        let detail = match &d.declared_producer {
+            Some(producer) => format!(
+                "read {} does not live under any declared producer's output directory \
+                 (the declared graph names {} as the producer for this input)",
+                d.read_path, producer
+            ),
+            None => format!(
+                "read {} does not live under any declared producer's output directory",
+                d.read_path
+            ),
+        };
+        let blocker_kind = ecaa_workflow_core::blocker::BlockerKind::ProvenanceDivergence {
+            task_id: d.task_id.clone(),
+            read_path: d.read_path.clone(),
+            declared_producer: d.declared_producer.clone(),
+        };
+        if let Err(e) = session.try_transition(crate::session::StateTrigger::HarnessTaskBlocked {
+            task_id: d.task_id.clone(),
+            detail,
+            blocker_kind,
+        }) {
+            tracing::warn!(
+                session_id = %session.id,
+                task_id = %d.task_id,
+                error = ?e,
+                "provenance-divergence block: illegal state transition ignored"
+            );
+        }
+    }
 }
 
 /// v3 P4 / F17 — run the backend `compile()` pass and refuse the
@@ -1409,6 +1497,139 @@ mod tests {
         );
     }
 
+    /// Design §5.2 C5 — a DE task whose `runtime/invocations.jsonl`
+    /// record shows it actually read `quantification`'s raw counts
+    /// output must have the RO-Crate's `quantification -> DE`
+    /// `ParameterConnection` node resolved as `authoritative`, and the
+    /// declared-but-unread `normalisation -> DE` one-of sibling
+    /// stamped `candidate_unused` — the emitted graph reflects what
+    /// actually ran, not just the compile-time option space.
+    #[tokio::test]
+    async fn de_one_of_edge_resolves_to_the_read_member() {
+        use ecaa_workflow_core::workflow_contracts::edge::{
+            CompatibilityProof, EdgeContract, EdgeKind,
+        };
+
+        let tmp = tempfile::tempdir().unwrap();
+        let runtime = tmp.path().join("runtime");
+        std::fs::create_dir_all(&runtime).unwrap();
+
+        // Declared graph: both one-of count members wired into DE.
+        let raw_edge = EdgeContract {
+            from_node: "quantification".into(),
+            from_port: "count_matrix".into(),
+            to_node: "differential_expression".into(),
+            to_port: "raw_counts".into(),
+            proof: CompatibilityProof::default(),
+            kind: EdgeKind::TypedDataFlow,
+            chain_of_custody: None,
+            mutually_exclusive_group: Some("counts".into()),
+        };
+        let normalized_edge = EdgeContract {
+            from_node: "normalisation".into(),
+            from_port: "normalized_counts".into(),
+            to_node: "differential_expression".into(),
+            to_port: "normalized_counts".into(),
+            proof: CompatibilityProof::default(),
+            kind: EdgeKind::TypedDataFlow,
+            chain_of_custody: None,
+            mutually_exclusive_group: Some("counts".into()),
+        };
+        let proofs_body = format!(
+            "{}\n{}\n",
+            serde_json::to_string(&raw_edge).unwrap(),
+            serde_json::to_string(&normalized_edge).unwrap(),
+        );
+        std::fs::write(runtime.join("proofs.jsonl"), proofs_body).unwrap();
+
+        // Harness-observed reads: the DE task actually read the RAW
+        // matrix (DESeq2 was the method the agent chose at runtime).
+        std::fs::write(
+            runtime.join("invocations.jsonl"),
+            serde_json::json!({
+                "task_id": "differential_expression",
+                "epoch": 1,
+                "harness_run_id": "run-abc",
+                "started_at": "2026-06-02T00:00:00Z",
+                "port_typed_inputs_satisfied": true,
+                "sandbox": "none",
+                "sandbox_required": false,
+                "network_policy": null,
+                "observed_reads": [
+                    {
+                        "task_id": "differential_expression",
+                        "declared_port": "raw_counts",
+                        "path": "runtime/outputs/quantification/count_matrix.tsv"
+                    }
+                ]
+            })
+            .to_string()
+                + "\n",
+        )
+        .unwrap();
+
+        // Seed a minimal RO-Crate with the two ParameterConnection
+        // nodes the compile-time emit would have produced for this DAG.
+        let metadata = serde_json::json!({
+            "@context": "https://w3id.org/ro/crate/1.1/context",
+            "@graph": [
+                {"@id": "./", "@type": "Dataset", "hasPart": []},
+                ecaa_workflow_core::ro_crate::parameter_connection_entity(
+                    "quantification__to__differential_expression",
+                    "#step-quantification", "count_matrix",
+                    "#step-differential_expression", "raw_counts",
+                ),
+                ecaa_workflow_core::ro_crate::parameter_connection_entity(
+                    "normalisation__to__differential_expression",
+                    "#step-normalisation", "normalized_counts",
+                    "#step-differential_expression", "normalized_counts",
+                ),
+            ]
+        });
+        std::fs::write(
+            tmp.path().join("ro-crate-metadata.json"),
+            serde_json::to_vec_pretty(&metadata).unwrap(),
+        )
+        .unwrap();
+
+        ro_crate::patch_ro_crate_metadata(
+            tmp.path(),
+            vec![],
+            vec![],
+            ecaa_workflow_core::provenance_tiers::ProvenanceTier::Private,
+        )
+        .await
+        .unwrap();
+
+        let metadata: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(tmp.path().join("ro-crate-metadata.json")).unwrap(),
+        )
+        .unwrap();
+        let graph = metadata["@graph"].as_array().unwrap();
+
+        let raw_node = graph
+            .iter()
+            .find(|e| {
+                e["@id"] == "#parameter-connection/quantification__to__differential_expression"
+            })
+            .expect("raw_counts ParameterConnection node present");
+        assert_eq!(
+            raw_node["ecaax:provenanceStatus"], "authoritative",
+            "the read one-of member must be stamped authoritative"
+        );
+
+        let normalized_node = graph
+            .iter()
+            .find(|e| {
+                e["@id"] == "#parameter-connection/normalisation__to__differential_expression"
+            })
+            .expect("normalized_counts ParameterConnection node present");
+        assert_eq!(
+            normalized_node["ecaax:provenanceStatus"], "candidate_unused",
+            "the unread one-of sibling must be demoted to a candidate"
+        );
+    }
+
     /// Sessions without runtime installs (the
     /// common case: sealed atoms, declared_only with everything
     /// already vendored) must NOT carry a stray install-log entry in
@@ -2096,5 +2317,90 @@ mod tests {
             "frontier task with all-Completed upstream must serialize as ready; got {:?}",
             wf["tasks"][frontier.as_str()]["state"]
         );
+    }
+
+    /// T12 — a seeded `Divergent` reconcile verdict (surfaced as a
+    /// `DivergenceRecord`, the shape `reconcile_ro_crate_edges` returns)
+    /// must transition the offending task to
+    /// `BlockerKind::ProvenanceDivergence`. `emit_steps` calls this helper
+    /// while `session.state == Emitting` (the tool dispatcher's
+    /// `EmitPackageStart` pre-handler hook fires before `emit_package`'s
+    /// handler — which runs this whole pipeline — executes), so seed that
+    /// state directly rather than driving the full tool-dispatch loop.
+    #[test]
+    fn provenance_divergence_transitions_task_to_typed_blocker() {
+        let mut session = Session::new(false);
+        session.state = crate::session::SessionState::Emitting;
+
+        let divergences = vec![ecaa_workflow_core::provenance::DivergenceRecord {
+            task_id: "differential_expression".into(),
+            read_path: "runtime/outputs/data_acquisition/counts.tsv".into(),
+            declared_producer: Some("normalisation".into()),
+        }];
+
+        apply_provenance_divergence_blockers(&mut session, &divergences);
+
+        match &session.state {
+            crate::session::SessionState::Blocked { blocker_kind, .. } => match blocker_kind {
+                Some(ecaa_workflow_core::blocker::BlockerKind::ProvenanceDivergence {
+                    task_id,
+                    read_path,
+                    declared_producer,
+                }) => {
+                    assert_eq!(task_id, "differential_expression");
+                    assert_eq!(read_path, "runtime/outputs/data_acquisition/counts.tsv");
+                    assert_eq!(declared_producer.as_deref(), Some("normalisation"));
+                }
+                other => panic!("expected ProvenanceDivergence blocker, got {other:?}"),
+            },
+            other => panic!("expected session to transition to Blocked, got {other:?}"),
+        }
+    }
+
+    /// A second divergence for a session already `Blocked` from the first
+    /// must APPEND (not overwrite) — mirrors `try_merge_harness_block`'s
+    /// existing merge behavior for the harness-driven blocker path.
+    #[test]
+    fn provenance_divergence_appends_a_second_blocker_entry() {
+        let mut session = Session::new(false);
+        session.state = crate::session::SessionState::Emitting;
+
+        let divergences = vec![
+            ecaa_workflow_core::provenance::DivergenceRecord {
+                task_id: "differential_expression".into(),
+                read_path: "runtime/outputs/data_acquisition/counts.tsv".into(),
+                declared_producer: None,
+            },
+            ecaa_workflow_core::provenance::DivergenceRecord {
+                task_id: "biological_interpretation".into(),
+                read_path: "runtime/outputs/differential_expression/raw.tsv".into(),
+                declared_producer: None,
+            },
+        ];
+
+        apply_provenance_divergence_blockers(&mut session, &divergences);
+
+        match &session.state {
+            crate::session::SessionState::Blocked { blockers, .. } => {
+                assert_eq!(blockers.len(), 2, "expected both tasks blocked, got {blockers:?}");
+                assert!(blockers.iter().any(|b| b.task_id == "differential_expression"));
+                assert!(blockers.iter().any(|b| b.task_id == "biological_interpretation"));
+            }
+            other => panic!("expected session to be Blocked, got {other:?}"),
+        }
+    }
+
+    /// No divergences → no-op; the session's state is left untouched.
+    #[test]
+    fn provenance_divergence_no_op_when_empty() {
+        let mut session = Session::new(false);
+        session.state = crate::session::SessionState::Emitting;
+
+        apply_provenance_divergence_blockers(&mut session, &[]);
+
+        assert!(matches!(
+            session.state,
+            crate::session::SessionState::Emitting
+        ));
     }
 }

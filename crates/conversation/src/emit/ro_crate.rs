@@ -523,7 +523,7 @@ pub(super) async fn patch_ro_crate_metadata(
     diff_tables: Vec<String>,
     affordance_records: Vec<PlotAffordanceRecord>,
     target_tier: ProvenanceTier,
-) -> Result<()> {
+) -> Result<Vec<ecaa_workflow_core::provenance::DivergenceRecord>> {
     // Build a task_id → (provisional, variant_tag) lookup for A3.
     // Only tasks with a non-Registered affordance contribute an entry;
     // tasks with no record are left unflagged (legacy / Validated).
@@ -888,7 +888,42 @@ pub(super) async fn patch_ro_crate_metadata(
         }
     }
 
+    // Design §5.2 C5 — reconcile harness-observed reads
+    // (`runtime/invocations.jsonl`) against the declared per-edge graph
+    // (`runtime/proofs.jsonl`) and stamp the `@graph`'s
+    // `ParameterConnection` nodes with the outcome. For the DE
+    // `raw_counts`/`normalized_counts` one-of group (and any other
+    // mutually-exclusive input group), the member the task actually
+    // read is stamped authoritative and its sibling candidate_unused —
+    // the emitted graph then reflects what actually ran, not just what
+    // was declared possible. A no-op before any harness dispatch
+    // (both files presence-gated reads; the reconcile fn also no-ops on
+    // empty inputs). RCA I-1 (T13) — per-task `read_allowance` facets
+    // (`runtime/task-nodes.json`) keep a task's sanctioned broad reads
+    // (e.g. `final_reporting`'s dashboard aggregation) out of
+    // `ecaax:provenanceDivergence`, recorded instead as read-allowances.
+    //
+    // T12 — the return value is every `Divergent` verdict NOT covered by a
+    // read_allowance, keyed by task. This function only owns the RO-Crate
+    // `@graph`, not session state, so it hands the typed list back to
+    // `emit_steps` (which holds `&mut Session`) to transition each
+    // offending task to `BlockerKind::ProvenanceDivergence`.
+    // Shared sync parsers live in core (`ecaa_workflow_core::provenance`) so
+    // BOTH this emit path AND the harness post-exec finalize hook
+    // (`end_of_run_finalize::reconcile_observed_reads_into_ro_crate`) read
+    // the sidecars through one implementation — the harness cannot depend on
+    // this crate (CLAUDE.md crate layering), core is the shared floor.
+    let declared_edges = ecaa_workflow_core::provenance::read_declared_edges(output_dir);
+    let observed_reads = ecaa_workflow_core::provenance::read_observed_reads(output_dir);
+    let read_allowances = ecaa_workflow_core::provenance::read_task_read_allowances(output_dir);
+    let divergences = ecaa_workflow_core::ro_crate::reconcile_ro_crate_edges_with_allowances(
+        &mut metadata,
+        &declared_edges,
+        &observed_reads,
+        &read_allowances,
+    );
+
     let new_bytes = serde_json::to_vec_pretty(&metadata)?;
     tokio::fs::write(&path, new_bytes).await?;
-    Ok(())
+    Ok(divergences)
 }

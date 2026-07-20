@@ -45,7 +45,10 @@ atoms:
     depends_on: [qc_preprocessing]
   - atom_id: differential_expression
     required: true
-    depends_on: [normalisation]
+    # `raw_counts` binds the raw (beta/count) matrix from `quantification`
+    # (the methylation extraction stage); `normalized_counts` binds
+    # `normalisation`. Same method-neutral one-of as bulk RNA-seq.
+    depends_on: [quantification, normalisation]
   - atom_id: pathway_enrichment
     required: false
     depends_on: [differential_expression]
