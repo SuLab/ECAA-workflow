@@ -92,6 +92,7 @@ fn persist_verified_table_claim(root: &Path, task: &str, table: &str, w: &AuditW
             claim,
             status: ClaimStatus::Verified,
             strength: ClaimStrength::default(),
+            audit: None,
         }],
         runtime_decision_log_path: None,
     };
@@ -450,6 +451,7 @@ fn backfilled_claim_supported_by_resolves_to_real_graph_node_and_text_populated(
             claim,
             status: ClaimStatus::Verified,
             strength: ClaimStrength::default(),
+            audit: None,
         }],
         runtime_decision_log_path: None,
     };

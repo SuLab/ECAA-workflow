@@ -45,6 +45,7 @@ fn report_claim_completeness_is_non_vacuous_with_sink() {
             claim: c,
             status: ClaimStatus::Verified,
             strength: ClaimStrength::default(),
+            audit: None,
         }],
         runtime_decision_log_path: None,
     };

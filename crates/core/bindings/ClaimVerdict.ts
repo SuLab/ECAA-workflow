@@ -2,6 +2,7 @@
 import type { Claim } from "./Claim";
 import type { ClaimStatus } from "./ClaimStatus";
 import type { ClaimStrength } from "./ClaimStrength";
+import type { VerdictAudit } from "./VerdictAudit";
 
 /**
  * Per-claim verdict plus the source claim itself (so callers can
@@ -25,4 +26,11 @@ status: ClaimStatus,
  * when a `Prespecified` claim's lineage turns out to contain
  * deviations.
  */
-strength: ClaimStrength, };
+strength: ClaimStrength, 
+/**
+ * The reconstructable audit tuple for this verdict (source table, entity /
+ * measurement columns, claimed vs observed values, comparator, tolerances,
+ * class tag, verifier version, rationale). `None` for verdicts produced
+ * before the numeric gate ran, or when no audit context was captured.
+ */
+audit?: VerdictAudit, };

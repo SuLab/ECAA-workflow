@@ -246,6 +246,7 @@ fn post_exec_report() -> ecaa_workflow_core::claim_verifier::ClaimVerificationRe
             claim: c,
             status: ClaimStatus::Verified,
             strength: ClaimStrength::default(),
+            audit: None,
         }],
         runtime_decision_log_path: None,
     }

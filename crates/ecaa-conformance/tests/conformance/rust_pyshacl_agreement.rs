@@ -327,6 +327,7 @@ fn pending_one_claim_report() -> ecaa_workflow_core::claim_verifier::ClaimVerifi
                 reason: "no cited table — unverifiable".into(),
             },
             strength: ClaimStrength::Exploratory,
+            audit: None,
         }],
         runtime_decision_log_path: None,
     }

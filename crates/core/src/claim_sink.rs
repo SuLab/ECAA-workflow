@@ -3,7 +3,9 @@
 //! an HMAC-signed, agent-unforgeable sink the loader verifies.
 
 use crate::audit_writer::AuditWriter;
-use crate::claim_verifier::{ClaimStatus, ClaimVerificationReport};
+use crate::claim_verifier::{
+    verdict_class_of, ClaimStatus, ClaimVerdict, ClaimVerificationReport, VerdictClass,
+};
 use crate::coverage::CoverageResult;
 use ecaa_workflow_types::consts::{ECAA_VERSION, MIN_READER_VERSION};
 use serde_json::{json, Value};
@@ -135,15 +137,86 @@ pub fn project_verdict_rows(
             } else {
                 v.claim.excerpt.clone()
             };
-            json!({
+            let class = verdict_class_for(v);
+            let mut row = json!({
                 "claim_id": format!("{task_id}#claim-{i}"),
                 "status": status,
                 "supported_by": supported_by,
                 "text": text,
                 "entity": v.claim.entity,
-            })
+                "class": serde_json::to_value(class).unwrap_or(Value::Null),
+            });
+            // Flatten the reconstructable audit tuple (source_table, entity /
+            // measurement columns, claimed vs observed, comparator, tolerances,
+            // verifier_version, rationale, parse_coverage) onto the row so a
+            // reviewer can reconstruct what was compared. `class` is already at
+            // the top level, so skip the nested copy.
+            if let Some(audit) = &v.audit {
+                if let Ok(Value::Object(fields)) = serde_json::to_value(audit) {
+                    if let Some(obj) = row.as_object_mut() {
+                        for (k, val) in fields {
+                            if k == "class" {
+                                continue;
+                            }
+                            obj.insert(k, val);
+                        }
+                    }
+                }
+            }
+            row
         })
         .collect()
+}
+
+/// The verification-method class for a verdict: the audit's class when the gate
+/// recorded one, else derived from the claim's contract. Total, so per-class
+/// counts sum to `n_checked`.
+fn verdict_class_for(v: &ClaimVerdict) -> VerdictClass {
+    v.audit
+        .as_ref()
+        .map(|a| a.class)
+        .unwrap_or_else(|| verdict_class_of(&v.claim))
+}
+
+/// Per-class verdict tally (`numeric_table` / `directional` / `entity_presence`
+/// / `literature_quotation`) for the persisted header. Sums to `verdicts.len()`.
+fn class_counts_value(verdicts: &[ClaimVerdict]) -> Value {
+    let (mut numeric, mut directional, mut presence, mut literature) = (0u64, 0u64, 0u64, 0u64);
+    for v in verdicts {
+        match verdict_class_for(v) {
+            VerdictClass::NumericTable => numeric += 1,
+            VerdictClass::Directional => directional += 1,
+            VerdictClass::EntityPresence => presence += 1,
+            VerdictClass::LiteratureQuotation => literature += 1,
+        }
+    }
+    json!({
+        "numeric_table": numeric,
+        "directional": directional,
+        "entity_presence": presence,
+        "literature_quotation": literature,
+    })
+}
+
+/// Per-class tally computed from already-projected JSON rows (each carrying a
+/// `class` string). A row with a missing/unknown class is counted under
+/// `numeric_table` so the four buckets always sum to the row count.
+fn class_counts_from_rows(rows: &[Value]) -> Value {
+    let (mut numeric, mut directional, mut presence, mut literature) = (0u64, 0u64, 0u64, 0u64);
+    for row in rows {
+        match row.get("class").and_then(Value::as_str) {
+            Some("directional") => directional += 1,
+            Some("entity_presence") => presence += 1,
+            Some("literature_quotation") => literature += 1,
+            _ => numeric += 1,
+        }
+    }
+    json!({
+        "numeric_table": numeric,
+        "directional": directional,
+        "entity_presence": presence,
+        "literature_quotation": literature,
+    })
 }
 
 /// Build the full claim-verification document that gets HMAC-signed and
@@ -182,6 +255,8 @@ pub fn build_sink_doc(
         "n_unverifiable": if ablated { 0 } else { report.n_unverifiable },
         "n_pending": if ablated { 0 } else { report.n_pending },
         "n_suspicious": if ablated { 0 } else { report.n_suspicious },
+        "class_counts": if ablated { class_counts_value(&[]) } else { class_counts_value(&report.verdicts) },
+        "verifier_version": crate::claim_verifier::CLAIM_VERIFIER_VERSION,
         "verdicts": if ablated { Vec::new() } else { project_verdict_rows(report, task_id, package_root) },
     });
     // The coverage block (recall floor) is signed-sink content the reframed
@@ -357,6 +432,7 @@ pub fn refresh_plaintext_sidecar(
         }
     }
     let n_checked = merged.len() as u64;
+    let class_counts = class_counts_from_rows(&merged);
 
     let doc = json!({
         "schema_version": "1",
@@ -365,6 +441,8 @@ pub fn refresh_plaintext_sidecar(
         "n_unverifiable": n_unverifiable,
         "n_mismatch": n_mismatch,
         "n_suspicious": n_suspicious,
+        "class_counts": class_counts,
+        "verifier_version": crate::claim_verifier::CLAIM_VERIFIER_VERSION,
         "verdicts": merged,
     });
     let body = serde_json::to_vec_pretty(&doc).map_err(std::io::Error::other)?;
@@ -407,6 +485,7 @@ mod tests {
             claim: c,
             status,
             strength: ClaimStrength::default(),
+            audit: None,
         }
     }
 
@@ -615,6 +694,9 @@ mod tests {
     }
 
     #[test]
+    // build_sink_doc reads the global ECAA_ABLATE_CLAIM_CONSISTENCY flag, so it
+    // must serialize against the ablation tests that set/unset it.
+    #[serial_test::serial]
     fn sink_doc_carries_counts_version_and_verdicts() {
         let report = ClaimVerificationReport {
             n_checked: 2,
@@ -651,6 +733,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn sink_doc_carries_coverage_when_present() {
         use crate::coverage::{CoverageResult, EntityCoverage};
         use std::collections::BTreeMap;
@@ -676,6 +759,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn persisted_sink_verifies_and_round_trips() {
         let dir = tempfile::tempdir().unwrap();
         let report = ClaimVerificationReport {

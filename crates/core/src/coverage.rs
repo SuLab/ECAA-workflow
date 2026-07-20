@@ -276,6 +276,7 @@ mod tests {
             },
             status,
             strength: ClaimStrength::Exploratory,
+            audit: None,
         }
     }
 

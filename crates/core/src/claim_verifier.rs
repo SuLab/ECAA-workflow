@@ -86,7 +86,10 @@ fn id_namespace(token: &str) -> &'static str {
     if upper.starts_with("ENS") {
         // ENS + optional species (up to 4 letters) + G/T/P + ≥6 digits.
         let rest = &upper[3..];
-        let letters: String = rest.chars().take_while(|c| c.is_ascii_alphabetic()).collect();
+        let letters: String = rest
+            .chars()
+            .take_while(|c| c.is_ascii_alphabetic())
+            .collect();
         let digits: String = rest[letters.len()..]
             .chars()
             .take_while(|c| c.is_ascii_digit())
@@ -257,6 +260,13 @@ pub struct ClaimVerdict {
     /// deviations.
     #[serde(default)]
     pub strength: ClaimStrength,
+    /// The reconstructable audit tuple for this verdict (source table, entity /
+    /// measurement columns, claimed vs observed values, comparator, tolerances,
+    /// class tag, verifier version, rationale). `None` for verdicts produced
+    /// before the numeric gate ran, or when no audit context was captured.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub audit: Option<VerdictAudit>,
 }
 
 /// Claim-strength classification for confirmatory-mode demotion.
@@ -276,6 +286,126 @@ pub enum ClaimStrength {
     #[default]
     /// Exploratory variant.
     Exploratory,
+}
+
+/// Verifier-implementation version stamped onto every [`VerdictAudit`] so a
+/// persisted verdict tuple records which comparator logic produced it. Bump
+/// when the numeric-gate comparison semantics change (order-of-magnitude band,
+/// tolerance defaults) so an older recorded verdict is not silently re-read
+/// under new semantics.
+pub const CLAIM_VERIFIER_VERSION: &str = "2.0";
+
+/// Coarse verification-method class tag reported per verdict and tallied into
+/// the persisted header's per-class counts. Total over every verdict: every
+/// verdict maps to exactly one class, so the per-class counts always sum to
+/// `n_checked`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, schemars::JsonSchema)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum VerdictClass {
+    /// A numeric value in the claim was compared against a table cell
+    /// (log2FC / p-value / count / ratio).
+    NumericTable,
+    /// Only an up/down direction was checked (no numeric assertion present).
+    Directional,
+    /// The check concerned whether a named entity is present / ranked in a
+    /// table (categorical, rank/top-N, argmax/argmin membership).
+    EntityPresence,
+    /// A literature-grounded support claim adjudicated against the
+    /// PMID-anchored `claims_evidence_matrix.csv`.
+    LiteratureQuotation,
+}
+
+/// The reconstructable audit tuple for a single verdict. When the numeric gate
+/// compared a claimed quantity against a table cell the numeric slots are
+/// populated; for a non-numeric verdict only `class`/`verifier_version`/
+/// `entity_value` are set. Persisted verbatim into
+/// `runtime/claim-verification.json` and the signed sink so a reviewer can
+/// reconstruct *what was compared against what, and how*.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS, schemars::JsonSchema)]
+#[ts(export)]
+pub struct VerdictAudit {
+    /// The verification-method class for this verdict.
+    pub class: VerdictClass,
+    /// Package-relative (or basename) reference of the table the observed value
+    /// was read from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub source_table: Option<String>,
+    /// The table's entity column the row was resolved by (e.g. `gene`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub entity_column: Option<String>,
+    /// The claim's entity value used for the row lookup (e.g. `CRISPLD2`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub entity_value: Option<String>,
+    /// The table column the observed value was read from (e.g. `padj`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub measurement_column: Option<String>,
+    /// The numeric value asserted in the claim text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub claimed_value: Option<f64>,
+    /// The numeric value observed in the table cell.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub observed_value: Option<f64>,
+    /// The comparison performed (`order_of_magnitude` for p-values, `absolute`
+    /// for log2FC / effect sizes).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub comparison_operator: Option<String>,
+    /// Absolute tolerance used (log2FC / effect size).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub absolute_tolerance: Option<f64>,
+    /// Relative / order-of-magnitude tolerance used (p-values, in orders of
+    /// magnitude).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub relative_tolerance: Option<f64>,
+    /// Any unit conversion applied before comparison (e.g. `linear_fold->log2`);
+    /// `None` when the claim and table share units.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub unit_conversion: Option<String>,
+    /// The verifier-implementation version that produced this verdict.
+    pub verifier_version: String,
+    /// Human-readable rationale for the verdict.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub rationale: Option<String>,
+    /// Fraction of numeric tokens found in the claim text that were actually
+    /// compared against a table cell (parse-coverage metric). `1.0` when there
+    /// were no numeric tokens or all were compared; `< 1.0` when a token was
+    /// unparseable or its entity/column could not be resolved.
+    pub parse_coverage: f64,
+}
+
+impl VerdictAudit {
+    /// A class-only audit skeleton with no numeric comparison recorded
+    /// (`parse_coverage` defaults to `1.0` — nothing numeric to compare).
+    fn class_only(class: VerdictClass, entity_value: Option<String>) -> Self {
+        Self {
+            class,
+            source_table: None,
+            entity_column: None,
+            entity_value,
+            measurement_column: None,
+            claimed_value: None,
+            observed_value: None,
+            comparison_operator: None,
+            absolute_tolerance: None,
+            relative_tolerance: None,
+            unit_conversion: None,
+            verifier_version: CLAIM_VERIFIER_VERSION.to_string(),
+            rationale: None,
+            parse_coverage: 1.0,
+        }
+    }
 }
 
 /// Rollup of every claim in one narrative artifact.
@@ -379,11 +509,12 @@ pub fn verify_claims(
 
     let mut verdicts = Vec::with_capacity(claims.len());
     for claim in claims {
-        let status = verify_for_contract(claim, &index, cfg, &mut cache);
+        let (status, audit) = verify_for_contract_audited(claim, &index, cfg, &mut cache);
         verdicts.push(ClaimVerdict {
             claim: claim.clone(),
             status,
             strength: ClaimStrength::Exploratory,
+            audit,
         });
     }
     demote_contradicted_missing_row_mismatches(&mut verdicts);
@@ -711,6 +842,21 @@ fn verify_for_contract(
     cfg: &ExtractorConfig,
     cache: &mut BTreeMap<PathBuf, CachedTable>,
 ) -> ClaimStatus {
+    verify_for_contract_audited(claim, index, cfg, cache).0
+}
+
+/// As [`verify_for_contract`], but also returns the reconstructable
+/// [`VerdictAudit`] tuple. The per-contract dispatch computes the base status,
+/// then the CLASS-AGNOSTIC numeric gate ([`run_numeric_gate`]) cross-checks any
+/// numeric quantity the claim text asserts against the cited/discovered table
+/// row — so a literature-grounded (or any other) claim carrying a wrong number
+/// can no longer be `Verified` on its non-numeric predicate alone (CV-1/CV-2).
+fn verify_for_contract_audited(
+    claim: &Claim,
+    index: &TableIndex,
+    cfg: &ExtractorConfig,
+    cache: &mut BTreeMap<PathBuf, CachedTable>,
+) -> (ClaimStatus, Option<VerdictAudit>) {
     // VF-13 — wrong gene-identity pairing. Strictly inert unless an INDEPENDENT
     // symbol↔Ensembl reference map is configured (no shipped policy sets one).
     // When the narrative asserts a "SYMBOL (ENSG…)" apposition the map
@@ -720,11 +866,14 @@ fn verify_for_contract(
     if let Some(map) = &cfg.gene_annotation_map {
         if let Some((symbol, _ensembl, detail)) = detect_wrong_id_pairing(&claim.excerpt, map) {
             if claim.entity.eq_ignore_ascii_case(&symbol) {
-                return ClaimStatus::Mismatch { detail };
+                let mut audit =
+                    VerdictAudit::class_only(verdict_class_of(claim), entity_opt(claim));
+                audit.rationale = Some(detail.clone());
+                return (ClaimStatus::Mismatch { detail }, Some(audit));
             }
         }
     }
-    match claim.contract {
+    let base = match claim.contract {
         ClaimContract::NumericTableLookup => verify_numeric_lookup(claim, index, cfg, cache),
         ClaimContract::ThresholdedDeOrEnrichment => verify_thresholded(claim, index, cfg, cache),
         ClaimContract::RankTopN => verify_rank_top_n(claim, index, cfg, cache),
@@ -735,6 +884,499 @@ fn verify_for_contract(
         ClaimContract::ExtremeValue => verify_extreme_value(claim, index, cfg, cache),
         ClaimContract::KeyedTableCell => verify_keyed_cell(claim, index, cfg, cache),
         ClaimContract::QuantileOfColumn => verify_quantile(claim, index, cfg, cache),
+    };
+    run_numeric_gate(base, claim, index, cfg, cache)
+}
+
+/// `Some(entity)` when the claim has a non-empty entity, for the audit's
+/// `entity_value` slot.
+fn entity_opt(claim: &Claim) -> Option<String> {
+    let e = claim.entity.trim();
+    if e.is_empty() {
+        None
+    } else {
+        Some(e.to_string())
+    }
+}
+
+/// Coarse verification-method class for a claim, ignoring whether a numeric
+/// comparison actually ran (the gate promotes a compared verdict to
+/// [`VerdictClass::NumericTable`]). Total over every [`ClaimContract`], so the
+/// persisted per-class counts always sum to `n_checked`.
+pub fn verdict_class_of(claim: &Claim) -> VerdictClass {
+    match claim.contract {
+        ClaimContract::LiteratureGrounded => VerdictClass::LiteratureQuotation,
+        ClaimContract::Categorical | ClaimContract::RankTopN | ClaimContract::ExtremeValue => {
+            VerdictClass::EntityPresence
+        }
+        ClaimContract::NumericTableLookup
+        | ClaimContract::ThresholdedDeOrEnrichment
+        | ClaimContract::KeyedTableCell
+        | ClaimContract::QuantileOfColumn
+        | ClaimContract::GroupComparison
+        | ClaimContract::TimeSeriesSummary => {
+            let has_numeric = claim.effect_size.is_some()
+                || claim.pvalue.is_some()
+                || claim.linear_fold.is_some()
+                || claim.keyed_value.is_some()
+                || claim.aggregate_value.is_some();
+            if !has_numeric && claim.direction.is_some() {
+                VerdictClass::Directional
+            } else {
+                VerdictClass::NumericTable
+            }
+        }
+    }
+}
+
+/// Contract classes whose dedicated verifier already performs a full numeric
+/// cell comparison (`verify_one`/`verify_thresholded`/…). For these the gate
+/// only *strengthens* — it can promote to `Mismatch` on an additional
+/// disagreeing token but never downgrades a `Verified` to `Unverifiable`
+/// (that would regress a legitimately-adjudicated numeric verdict). The
+/// `Unverifiable`-on-unconfirmable-token rule applies only to the classes that
+/// otherwise never check the number (`LiteratureGrounded`, `Categorical`,
+/// `RankTopN`, `ExtremeValue`).
+fn numeric_adjudicating_class(contract: ClaimContract) -> bool {
+    matches!(
+        contract,
+        ClaimContract::NumericTableLookup
+            | ClaimContract::ThresholdedDeOrEnrichment
+            | ClaimContract::KeyedTableCell
+            | ClaimContract::QuantileOfColumn
+            | ClaimContract::GroupComparison
+            | ClaimContract::TimeSeriesSummary
+    )
+}
+
+/// Which table column family a numeric token in a claim asserts against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NumericColumnKind {
+    /// A log2 fold-change / effect-size token (absolute tolerance).
+    Log2Fc,
+    /// An ADJUSTED p-value token (`padj`/`fdr`/`q-value`/`adj p`).
+    PvalueAdjusted,
+    /// A RAW p-value token (`p`/`p-value`).
+    PvalueRaw,
+}
+
+/// One numeric assertion parsed out of a claim's narrative text.
+struct NumericToken {
+    kind: NumericColumnKind,
+    /// Parsed value, `None` when the value string could not be parsed at all
+    /// (malformed / overflow) — the token is then *unparseable* for coverage.
+    claimed: Option<f64>,
+}
+
+/// Order-of-magnitude p-value tolerance (in decades): a claimed p and a table p
+/// agree when their base-10 logs differ by no more than this. Deliberately a
+/// GENUINE order-of-magnitude band, NOT the relative `pvalue_within_tolerance`,
+/// so an honestly-rounded p (claim `~1e-45` vs table `7.5e-46`) is not a false
+/// `Mismatch` while a value wrong by dozens of orders (the CV-1 padj) is caught.
+const PVALUE_ORDERS_TOLERANCE: f64 = 1.0;
+
+/// Match a numeric-assertion keyword (`log2FC`/`padj`/`fdr`/`q-value`/`p-value`/
+/// `p`), the SEPARATOR run (group 2), then a value token (group 3). Longest/
+/// most-specific keywords come first so `padj` is preferred over bare `p` at the
+/// same position (leftmost-first semantics). The value run is
+/// `[+-]?<digit><digit/./e/E/+/-…>` so scientific forms (`7.5e-46`), the
+/// collapsed base-10 form (`10-80`, i.e. `1e-80`) and a signed effect (`+2.61`)
+/// are all captured; a malformed run (`1e`, `1e999`) is captured too and
+/// rejected downstream so it counts as *unparseable*. The separator is captured
+/// so a THRESHOLD assertion (`FDR < 0.05`, `log2FC > 1`) — where the value is a
+/// cutoff, not an observed cell value — can be distinguished from a POINT
+/// assertion (`padj = 1e-5`, `padj ≈ 1e-80`) and skipped by the point-value gate.
+static NUMERIC_TOKEN_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r"(?i)\b(log2\s*fold\s*change|log\s*fold\s*change|log2\s*fc|logfc|padj|adj\.?\s*p(?:[\s._-]*value)?|fdr|q[\s._-]*value|p[\s._-]*value|p)\b([\s:=≈~<>≤≥]*)([+-]?[0-9][0-9.eE+^\-]*)",
+    )
+    .expect("static regex")
+});
+
+/// Scan a claim's narrative text for POINT numeric assertions, mapping each to
+/// its table column family. The text is Unicode-canonicalized first
+/// (superscripts / subscripts / minus / `×10ⁿ` → ASCII), so `log₂FC` and
+/// `10⁻⁸⁰` are handled. A token whose separator carries an inequality
+/// (`<`/`>`/`≤`/`≥`) is a THRESHOLD (a cutoff, adjudicated by the thresholded
+/// verifier), not an observed-value assertion, and is skipped here.
+fn scan_numeric_tokens(text: &str) -> Vec<NumericToken> {
+    let canon = crate::claim_extractor::canonicalize_scientific(text);
+    let mut out = Vec::new();
+    for caps in NUMERIC_TOKEN_RE.captures_iter(&canon) {
+        let (Some(kw), Some(sep), Some(val)) = (caps.get(1), caps.get(2), caps.get(3)) else {
+            continue;
+        };
+        // Threshold assertion (cutoff), not a point value — skip.
+        if sep.as_str().contains(['<', '>', '≤', '≥']) {
+            continue;
+        }
+        let kw_l = kw.as_str().to_ascii_lowercase();
+        let kind = if kw_l.contains("log") {
+            NumericColumnKind::Log2Fc
+        } else if is_adjusted_pvalue_keyword(&kw_l) {
+            NumericColumnKind::PvalueAdjusted
+        } else {
+            NumericColumnKind::PvalueRaw
+        };
+        out.push(NumericToken {
+            kind,
+            claimed: parse_numeric_token(val.as_str()),
+        });
+    }
+    out
+}
+
+/// Parse a numeric value token, tolerating the collapsed base-10 exponent form
+/// `10-80` (meaning `1e-80`) and `10^-80`. Returns `None` for a token that
+/// cannot be resolved to a finite number (`1e`, `1e999`, `10-`) — the *cannot
+/// be parsed at all* case that yields `Unverifiable`.
+fn parse_numeric_token(raw: &str) -> Option<f64> {
+    let s = raw.trim().trim_end_matches([',', ';', ')', '.']);
+    if s.is_empty() {
+        return None;
+    }
+    if let Ok(v) = s.parse::<f64>() {
+        return if v.is_finite() { Some(v) } else { None };
+    }
+    for pref in ["10^-", "10-"] {
+        if let Some(exp) = s.strip_prefix(pref) {
+            if !exp.is_empty() && exp.bytes().all(|b| b.is_ascii_digit()) {
+                return format!("1e-{exp}")
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|v| v.is_finite());
+            }
+        }
+    }
+    None
+}
+
+/// True when a claimed p and observed p agree within an order-of-magnitude
+/// band. Both must be positive; exact equality (incl. both-zero) always agrees.
+fn pvalue_orders_within(claimed: f64, observed: f64, max_orders: f64) -> bool {
+    if claimed == observed {
+        return true;
+    }
+    if claimed <= 0.0 || observed <= 0.0 {
+        return false;
+    }
+    (claimed.log10() - observed.log10()).abs() <= max_orders
+}
+
+/// A resolved table row for the gate: the table label, the entity column the
+/// row was keyed by, and the row's (normalized-key) cell values.
+struct ResolvedRow {
+    table_label: String,
+    entity_column: Option<String>,
+    values: BTreeMap<String, String>,
+}
+
+/// Resolve the claim's entity to a row: prefer the cited `source_table`, else
+/// scan every distinct table in the index for a row whose entity matches.
+/// Returns the row's values (cloned) so the caller is free of the `&mut cache`
+/// borrow.
+fn resolve_entity_row(
+    claim: &Claim,
+    index: &TableIndex,
+    cfg: &ExtractorConfig,
+    cache: &mut BTreeMap<PathBuf, CachedTable>,
+) -> Option<ResolvedRow> {
+    let needle = normalize(&claim.entity);
+    if needle.is_empty() {
+        return None;
+    }
+    let mut paths: Vec<PathBuf> = Vec::new();
+    if let Some(src) = claim.source_table.as_deref() {
+        if let Some(p) = index.resolve(src) {
+            paths.push(p.to_path_buf());
+        }
+    }
+    for p in index.distinct_paths() {
+        if !paths.contains(&p) {
+            paths.push(p);
+        }
+    }
+    for path in paths {
+        if !cache.contains_key(&path) {
+            match load_table_rows(&path, &cfg.entity_columns) {
+                Ok(t) => {
+                    cache.insert(path.clone(), t);
+                }
+                Err(_) => continue,
+            }
+        }
+        let Some(cached) = cache.get(&path) else {
+            continue;
+        };
+        if let Some(row) = cached.get_by_normalized(&needle) {
+            let entity_column = cfg
+                .entity_columns
+                .iter()
+                .find(|c| row.values.contains_key(&normalize(c)))
+                .cloned();
+            return Some(ResolvedRow {
+                table_label: table_label(&path),
+                entity_column,
+                values: row.values.clone(),
+            });
+        }
+    }
+    None
+}
+
+/// The candidate `(column_name, value)` pairs a numeric token may agree with,
+/// mirroring `verify_one`'s "match ANY present column of the family" leniency
+/// so a table carrying both a raw `pvalue` and an adjusted `padj` does not
+/// false-mismatch an honest adjusted-p claim.
+fn observed_candidates(
+    values: &BTreeMap<String, String>,
+    kind: NumericColumnKind,
+    cfg: &ExtractorConfig,
+) -> Vec<(String, f64)> {
+    let collect = |cols: &[String]| -> Vec<(String, f64)> {
+        cols.iter()
+            .filter_map(|c| {
+                values
+                    .get(&normalize(c))
+                    .and_then(|raw| raw.parse::<f64>().ok())
+                    .filter(|v| v.is_finite())
+                    .map(|v| (c.clone(), v))
+            })
+            .collect()
+    };
+    match kind {
+        NumericColumnKind::Log2Fc => collect(&cfg.effect_size_columns),
+        NumericColumnKind::PvalueAdjusted => {
+            let adj: Vec<String> = cfg
+                .pvalue_columns
+                .iter()
+                .filter(|c| is_adjusted_pvalue_keyword(c))
+                .cloned()
+                .collect();
+            let out = collect(&adj);
+            if out.is_empty() {
+                collect(&cfg.pvalue_columns)
+            } else {
+                out
+            }
+        }
+        NumericColumnKind::PvalueRaw => {
+            let raw: Vec<String> = cfg
+                .pvalue_columns
+                .iter()
+                .filter(|c| !is_adjusted_pvalue_keyword(c))
+                .cloned()
+                .collect();
+            let out = collect(&raw);
+            if out.is_empty() {
+                collect(&cfg.pvalue_columns)
+            } else {
+                out
+            }
+        }
+    }
+}
+
+/// The class-agnostic numeric gate: cross-checks every numeric token in the
+/// claim text against the resolved table row. A parseable value disagreeing
+/// beyond tolerance ⇒ `Mismatch`; a value that cannot be parsed, or an entity
+/// that cannot be resolved to a row / column, is *uncompared* and (for classes
+/// that do not otherwise adjudicate the number) demotes a would-be `Verified`
+/// to `Unverifiable`. `Verified` requires the base predicate AND every numeric
+/// token compared and agreeing.
+fn run_numeric_gate(
+    base: ClaimStatus,
+    claim: &Claim,
+    index: &TableIndex,
+    cfg: &ExtractorConfig,
+    cache: &mut BTreeMap<PathBuf, CachedTable>,
+) -> (ClaimStatus, Option<VerdictAudit>) {
+    let base_is_verified = matches!(base, ClaimStatus::Verified);
+    let base_is_mismatch = matches!(base, ClaimStatus::Mismatch { .. });
+
+    let tokens = scan_numeric_tokens(&claim.excerpt);
+    if tokens.is_empty() {
+        // No numeric assertion → the gate is inert; record a class-only audit.
+        return (
+            base,
+            Some(VerdictAudit::class_only(
+                verdict_class_of(claim),
+                entity_opt(claim),
+            )),
+        );
+    }
+
+    let resolved = resolve_entity_row(claim, index, cfg, cache);
+    let n_tokens = tokens.len();
+    let mut n_compared = 0usize;
+    let mut any_unparseable = false;
+    let mut mismatch: Option<VerdictAudit> = None;
+    let mut pass: Option<VerdictAudit> = None;
+    let mut uncompared: Option<VerdictAudit> = None;
+
+    let mk_numeric_audit = |claimed: Option<f64>,
+                            observed: Option<f64>,
+                            column: Option<String>,
+                            kind: NumericColumnKind,
+                            agrees: Option<bool>|
+     -> VerdictAudit {
+        let (op, abs_tol, rel_tol, unit) = match kind {
+            NumericColumnKind::Log2Fc => {
+                ("absolute", Some(cfg.log2fc_tolerance), None, None::<String>)
+            }
+            _ => (
+                "order_of_magnitude",
+                None,
+                Some(PVALUE_ORDERS_TOLERANCE),
+                None,
+            ),
+        };
+        let rationale = match (agrees, observed) {
+            (Some(false), Some(obs)) => Some(format!(
+                "numeric: claim asserts {} = {} but the table cell is {} (compared by {})",
+                column.clone().unwrap_or_else(|| "value".into()),
+                claimed.map(fmt_num).unwrap_or_else(|| "?".into()),
+                fmt_num(obs),
+                op,
+            )),
+            (Some(true), Some(obs)) => Some(format!(
+                "numeric: claim {} = {} agrees with table {} (within {})",
+                column.clone().unwrap_or_else(|| "value".into()),
+                claimed.map(fmt_num).unwrap_or_else(|| "?".into()),
+                fmt_num(obs),
+                op,
+            )),
+            _ => None,
+        };
+        VerdictAudit {
+            class: VerdictClass::NumericTable,
+            source_table: resolved.as_ref().map(|r| r.table_label.clone()),
+            entity_column: resolved.as_ref().and_then(|r| r.entity_column.clone()),
+            entity_value: entity_opt(claim),
+            measurement_column: column,
+            claimed_value: claimed,
+            observed_value: observed,
+            comparison_operator: Some(op.to_string()),
+            absolute_tolerance: abs_tol,
+            relative_tolerance: rel_tol,
+            unit_conversion: unit,
+            verifier_version: CLAIM_VERIFIER_VERSION.to_string(),
+            rationale,
+            parse_coverage: 1.0,
+        }
+    };
+
+    for tok in &tokens {
+        let Some(claimed) = tok.claimed else {
+            any_unparseable = true;
+            uncompared.get_or_insert_with(|| {
+                let mut a = mk_numeric_audit(None, None, None, tok.kind, None);
+                a.rationale =
+                    Some("numeric: a value in the narrative could not be parsed".to_string());
+                a
+            });
+            continue;
+        };
+        let Some(row) = resolved.as_ref() else {
+            uncompared.get_or_insert_with(|| {
+                let mut a = mk_numeric_audit(Some(claimed), None, None, tok.kind, None);
+                a.rationale = Some(format!(
+                    "numeric: entity `{}` could not be resolved to a table row",
+                    claim.entity
+                ));
+                a
+            });
+            continue;
+        };
+        let candidates = observed_candidates(&row.values, tok.kind, cfg);
+        if candidates.is_empty() {
+            uncompared.get_or_insert_with(|| {
+                let mut a = mk_numeric_audit(Some(claimed), None, None, tok.kind, None);
+                a.rationale =
+                    Some("numeric: table row has no matching measurement column".to_string());
+                a
+            });
+            continue;
+        }
+        // Compare against every candidate; agree if ANY is within tolerance.
+        // Report the CLOSEST candidate as the observed value.
+        let within = |obs: f64| match tok.kind {
+            NumericColumnKind::Log2Fc => (claimed - obs).abs() <= cfg.log2fc_tolerance,
+            _ => pvalue_orders_within(claimed, obs, PVALUE_ORDERS_TOLERANCE),
+        };
+        let dist = |obs: f64| match tok.kind {
+            NumericColumnKind::Log2Fc => (claimed - obs).abs(),
+            _ => {
+                if claimed > 0.0 && obs > 0.0 {
+                    (claimed.log10() - obs.log10()).abs()
+                } else {
+                    (claimed - obs).abs()
+                }
+            }
+        };
+        let agrees = candidates.iter().any(|(_, v)| within(*v));
+        let (col, obs) = candidates
+            .iter()
+            .min_by(|a, b| dist(a.1).total_cmp(&dist(b.1)))
+            .cloned()
+            .expect("candidates non-empty");
+        n_compared += 1;
+        let audit = mk_numeric_audit(Some(claimed), Some(obs), Some(col), tok.kind, Some(agrees));
+        if agrees {
+            pass.get_or_insert(audit);
+        } else {
+            mismatch.get_or_insert(audit);
+        }
+    }
+
+    let parse_coverage = n_compared as f64 / n_tokens as f64;
+
+    // A genuine numeric disagreement is a Mismatch regardless of base status.
+    if let Some(mut a) = mismatch {
+        a.parse_coverage = parse_coverage;
+        let status = if base_is_mismatch {
+            base // preserve the base verifier's (more specific) detail
+        } else {
+            ClaimStatus::Mismatch {
+                detail: a
+                    .rationale
+                    .clone()
+                    .unwrap_or_else(|| "numeric value disagrees with the cited table".into()),
+            }
+        };
+        return (status, Some(a));
+    }
+
+    // No disagreement. Demote a would-be Verified to Unverifiable when a numeric
+    // assertion was present but not fully confirmable — but only for classes
+    // that do not otherwise adjudicate the number (avoids regressing a
+    // legitimately-verified numeric-class verdict).
+    let fully_confirmed = n_compared == n_tokens && !any_unparseable;
+    if base_is_verified && !fully_confirmed && !numeric_adjudicating_class(claim.contract) {
+        let reason = "numeric assertion in the narrative could not be confirmed against the cited table (unparseable value or unresolved entity/column)".to_string();
+        let mut a = uncompared.or(pass).unwrap_or_else(|| {
+            VerdictAudit::class_only(verdict_class_of(claim), entity_opt(claim))
+        });
+        a.parse_coverage = parse_coverage;
+        a.rationale = Some(reason.clone());
+        return (ClaimStatus::Unverifiable { reason }, Some(a));
+    }
+
+    // Keep the base verdict; attach the most informative audit we captured.
+    let mut audit = pass
+        .or(uncompared)
+        .unwrap_or_else(|| VerdictAudit::class_only(verdict_class_of(claim), entity_opt(claim)));
+    audit.parse_coverage = parse_coverage;
+    (base, Some(audit))
+}
+
+/// Compact numeric formatter for audit rationales: scientific for very small /
+/// large magnitudes, plain otherwise.
+fn fmt_num(v: f64) -> String {
+    if v != 0.0 && (v.abs() < 1e-3 || v.abs() >= 1e6) {
+        format!("{v:.4e}")
+    } else {
+        format!("{v:.4}")
     }
 }
 
@@ -802,7 +1444,11 @@ fn row_value_for_aliases(row: &TableRow, aliases: &[&str]) -> Option<f64> {
 /// table. `nes` and the adjusted-p family each list the common spellings.
 fn keyed_column_aliases(keyed_column: &str) -> &'static [&'static str] {
     if keyed_column.eq_ignore_ascii_case("nes") {
-        &["nes", "normalized_enrichment_score", "normalised_enrichment_score"]
+        &[
+            "nes",
+            "normalized_enrichment_score",
+            "normalised_enrichment_score",
+        ]
     } else {
         &[
             "adj_p_value",
@@ -898,9 +1544,7 @@ fn verify_keyed_cell(
                 "keyed row `{collection} / {term}` found but cited statistic column `{keyed_column}` absent"
             )
         } else {
-            format!(
-                "no table carries an enrichment row keyed on `{collection} / {term}`"
-            )
+            format!("no table carries an enrichment row keyed on `{collection} / {term}`")
         },
     }
 }
@@ -1251,8 +1895,7 @@ fn verify_rank_top_n(
     let n = match explicit_n {
         Some(explicit) => explicit,
         None => {
-            let percentile_rows =
-                (SOFT_TOP_PERCENTILE * n_ranked_rows as f64).ceil() as usize;
+            let percentile_rows = (SOFT_TOP_PERCENTILE * n_ranked_rows as f64).ceil() as usize;
             DEFAULT_SOFT_FLOOR.max(percentile_rows)
         }
     };
@@ -1338,16 +1981,23 @@ enum ExtremeKind {
 
 /// Words that pick the MAXIMUM of the named column.
 static EXTREME_MAX_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r"(?i)\b(highest|largest|strongest|maximal|greatest|top[\s-]?(?:ranked|most|scoring)?)\b").expect("static regex")
+    regex::Regex::new(
+        r"(?i)\b(highest|largest|strongest|maximal|greatest|top[\s-]?(?:ranked|most|scoring)?)\b",
+    )
+    .expect("static regex")
 });
 /// Words that pick the MINIMUM of the named column.
 static EXTREME_MIN_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r"(?i)\b(lowest|smallest|weakest|minimal|least|bottom[\s-]?(?:ranked|most)?)\b").expect("static regex")
+    regex::Regex::new(
+        r"(?i)\b(lowest|smallest|weakest|minimal|least|bottom[\s-]?(?:ranked|most)?)\b",
+    )
+    .expect("static regex")
 });
 /// True when the excerpt names a P-VALUE-family column (padj/fdr/p-value/…),
 /// so the extreme is taken over the p-value columns rather than effect size.
 static EXTREME_PVAL_COL_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r"(?i)\b(padj|p[\s_-]?adj|fdr|q[\s_-]?value|qvalue|p[\s_-]?value|pvalue)\b").expect("static regex")
+    regex::Regex::new(r"(?i)\b(padj|p[\s_-]?adj|fdr|q[\s_-]?value|qvalue|p[\s_-]?value|pvalue)\b")
+        .expect("static regex")
 });
 
 /// A3 — verify an ordinal/superlative EXTREME claim ("the strongest enrichment
@@ -2008,6 +2658,24 @@ impl TableIndex {
         Self { by_name }
     }
 
+    /// Build an index over an explicit set of table paths (their full-name +
+    /// stem keys). Used by the numeric gate on the discovery path, where the
+    /// candidate tables are already enumerated rather than scanned from a root.
+    fn from_paths(paths: &[PathBuf]) -> Self {
+        let mut by_name: BTreeMap<String, PathBuf> = BTreeMap::new();
+        for path in paths {
+            if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
+                by_name.insert(normalize(name), path.clone());
+            }
+            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                by_name
+                    .entry(normalize(stem))
+                    .or_insert_with(|| path.clone());
+            }
+        }
+        Self { by_name }
+    }
+
     fn resolve(&self, source_ref: &str) -> Option<&Path> {
         // Strategy, in order — each step is a cheap map lookup or linear
         // scan over the (small) index:
@@ -2424,14 +3092,22 @@ fn effect_column_scale(col: &str) -> EffectScale {
     if n.contains("log") {
         return EffectScale::Log;
     }
-    let tokens: Vec<&str> = n.split([' ', '_', '-', '.']).filter(|t| !t.is_empty()).collect();
+    let tokens: Vec<&str> = n
+        .split([' ', '_', '-', '.'])
+        .filter(|t| !t.is_empty())
+        .collect();
     // 2. RATIO: an exact ratio-family name (relative_risk has no "ratio"/"rr"
     //    token so it must be named explicitly), a name ending in "ratio", or a
     //    ratio-family token. Checked BEFORE the additive/difference families so
     //    `relative_risk` is Ratio while `risk_difference` falls through to Log.
     const RATIO_NAMES: &[&str] = &[
-        "hazard_ratio", "odds_ratio", "relative_risk", "risk_ratio", "abundance_ratio",
-        "fold_change", "foldchange",
+        "hazard_ratio",
+        "odds_ratio",
+        "relative_risk",
+        "risk_ratio",
+        "abundance_ratio",
+        "fold_change",
+        "foldchange",
     ];
     const RATIO_TOKENS: &[&str] = &["hr", "or", "rr", "fc", "fold", "ratio"];
     if RATIO_NAMES.contains(&n.as_str())
@@ -2443,8 +3119,22 @@ fn effect_column_scale(col: &str) -> EffectScale {
     // 3. Additive / coefficient / statistic / DIFFERENCE families pivot at 0
     //    (mean_difference / risk_difference / NNT are additive or counts).
     const LOG_TOKENS: &[&str] = &[
-        "nes", "es", "estimate", "coefficient", "coefficients", "coef", "beta", "effect",
-        "effectsize", "score", "statistic", "diff", "difference", "md", "rd", "nnt",
+        "nes",
+        "es",
+        "estimate",
+        "coefficient",
+        "coefficients",
+        "coef",
+        "beta",
+        "effect",
+        "effectsize",
+        "score",
+        "statistic",
+        "diff",
+        "difference",
+        "md",
+        "rd",
+        "nnt",
     ];
     if tokens.iter().any(|t| LOG_TOKENS.contains(t)) {
         return EffectScale::Log;
@@ -2543,7 +3233,10 @@ static EFFECT_THRESH_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
 /// gap (file is present but unresolved). Depth-bounded so a pathological tree
 /// cannot stall the verifier.
 fn evidence_basename_exists(package_root: &Path, evidence: &str) -> bool {
-    let Some(base) = Path::new(evidence.trim()).file_name().and_then(|s| s.to_str()) else {
+    let Some(base) = Path::new(evidence.trim())
+        .file_name()
+        .and_then(|s| s.to_str())
+    else {
         return false;
     };
     fn walk(dir: &Path, base: &str, depth: usize) -> bool {
@@ -2850,22 +3543,27 @@ fn verify_literature_grounded_at(
     // cited_pmids: [] }`. Keying the waiver on `cited_pmids.is_empty()` is what
     // lets those genes bind by symbol; the finding_id (= entity) or, absent a
     // wrapper, the claim entity supplies the resolvable identifier.
-    let (finding_id, cited_pmids, symbol_fallback): (String, Vec<u64>, bool) =
-        match claim.literature_evidence.as_ref() {
-            Some(evidence) if !evidence.cited_pmids.is_empty() => {
-                (evidence.finding_id.clone(), evidence.cited_pmids.clone(), false)
-            }
-            Some(evidence) if !evidence.finding_id.trim().is_empty() => {
-                (evidence.finding_id.clone(), Vec::new(), true)
-            }
-            _ if !claim.entity.trim().is_empty() => (claim.entity.clone(), Vec::new(), true),
-            _ => {
-                return ClaimStatus::Unverifiable {
+    let (finding_id, cited_pmids, symbol_fallback): (String, Vec<u64>, bool) = match claim
+        .literature_evidence
+        .as_ref()
+    {
+        Some(evidence) if !evidence.cited_pmids.is_empty() => (
+            evidence.finding_id.clone(),
+            evidence.cited_pmids.clone(),
+            false,
+        ),
+        Some(evidence) if !evidence.finding_id.trim().is_empty() => {
+            (evidence.finding_id.clone(), Vec::new(), true)
+        }
+        _ if !claim.entity.trim().is_empty() => (claim.entity.clone(), Vec::new(), true),
+        _ => {
+            return ClaimStatus::Unverifiable {
                     reason: "literature-grounded claim carries no finding_id / cited PMIDs and no entity to resolve".into(),
                 };
-            }
-        };
-    let Some(matrix_path) = resolve_evidence_literature(package_root, &finding_id, &cited_pmids, cfg)
+        }
+    };
+    let Some(matrix_path) =
+        resolve_evidence_literature(package_root, &finding_id, &cited_pmids, cfg)
     else {
         return ClaimStatus::Unverifiable {
             reason: "claims_evidence_matrix.csv not found in package".into(),
@@ -2965,7 +3663,10 @@ fn verify_literature_grounded_at(
     // the excerpt: a neutral mention (no concordance claim) with a
     // no_prior_finding flag falls through to the Unverifiable arms below, so a
     // faithful "no prior work" statement is never flagged.
-    if matched.iter().any(|r| r.concordance_flag == "no_prior_finding") {
+    if matched
+        .iter()
+        .any(|r| r.concordance_flag == "no_prior_finding")
+    {
         let lower = claim.excerpt.to_lowercase();
         if AGREEMENT_CUES.iter().any(|c| lower.contains(c)) {
             return ClaimStatus::Mismatch {
@@ -3274,7 +3975,11 @@ fn resolve_significance_column(cached: &CachedTable, cfg: &ExtractorConfig) -> O
 /// significant but lack a finite effect size count toward `sig` but neither
 /// `up` nor `down`. Shared by [`verify_structured_counts`] (A4) so the
 /// recompute is one canonical loop, not a re-derivation.
-fn recompute_split(table_path: &Path, cfg: &ExtractorConfig, fdr: f64) -> Option<(usize, usize, usize)> {
+fn recompute_split(
+    table_path: &Path,
+    cfg: &ExtractorConfig,
+    fdr: f64,
+) -> Option<(usize, usize, usize)> {
     let cached = load_table_rows(table_path, &cfg.entity_columns).ok()?;
     let sig_col = resolve_significance_column(&cached, cfg)?;
     let sig_cols = [sig_col];
@@ -3287,7 +3992,9 @@ fn recompute_split(table_path: &Path, cfg: &ExtractorConfig, fdr: f64) -> Option
             continue;
         }
         sig += 1;
-        if let Some(e) = lookup_numeric(&row.values, &cfg.effect_size_columns).filter(|v| v.is_finite()) {
+        if let Some(e) =
+            lookup_numeric(&row.values, &cfg.effect_size_columns).filter(|v| v.is_finite())
+        {
             if e > 0.0 {
                 up += 1;
             } else if e < 0.0 {
@@ -3370,6 +4077,7 @@ pub fn verify_structured_counts(package_root: &Path, cfg: &ExtractorConfig) -> V
             },
             status,
             strength: ClaimStrength::Exploratory,
+            audit: None,
         }
     };
 
@@ -3438,8 +4146,14 @@ pub fn verify_narrative_counts(
         };
         let noun = noun_caps.get(2).map(|m| m.as_str()).unwrap_or("items");
         let lower = s.to_lowercase();
-        let has_up = cfg.up_words.iter().any(|w| lower.contains(&w.to_lowercase()));
-        let has_down = cfg.down_words.iter().any(|w| lower.contains(&w.to_lowercase()));
+        let has_up = cfg
+            .up_words
+            .iter()
+            .any(|w| lower.contains(&w.to_lowercase()));
+        let has_down = cfg
+            .down_words
+            .iter()
+            .any(|w| lower.contains(&w.to_lowercase()));
         let dir = if has_up && !has_down {
             "up "
         } else if has_down && !has_up {
@@ -3471,9 +4185,16 @@ pub fn verify_narrative_counts(
             },
             status,
             strength: ClaimStrength::Exploratory,
+            audit: None,
         };
-        let unverifiable =
-            |reason: &str| make(ClaimStatus::Unverifiable { reason: reason.to_string() }, None);
+        let unverifiable = |reason: &str| {
+            make(
+                ClaimStatus::Unverifiable {
+                    reason: reason.to_string(),
+                },
+                None,
+            )
+        };
 
         // FP guard 1 — hedged/approximate count.
         let int_start = noun_caps.get(1).map(|m| m.start()).unwrap_or(0);
@@ -3489,7 +4210,9 @@ pub fn verify_narrative_counts(
             .and_then(|m| parse_count(m.as_str()))
             .is_some_and(is_round_count)
         {
-            out.push(unverifiable("round-number summary count — treated as approximate"));
+            out.push(unverifiable(
+                "round-number summary count — treated as approximate",
+            ));
             continue;
         }
         // FP guard 3 — combined up+down in one sentence (directions not separable).
@@ -3502,11 +4225,15 @@ pub fn verify_narrative_counts(
         // Resolve the cited table (cited-first; abstain on absent/unresolved —
         // no uncited discovery, keeping the production blast radius FP-safe).
         let Some(src) = crate::claim_extractor::scan_table_reference(s) else {
-            out.push(unverifiable("no table cited — aggregate count not recomputable"));
+            out.push(unverifiable(
+                "no table cited — aggregate count not recomputable",
+            ));
             continue;
         };
         let Some(path) = index.resolve(&src) else {
-            out.push(unverifiable("cited table for the aggregate count did not resolve"));
+            out.push(unverifiable(
+                "cited table for the aggregate count did not resolve",
+            ));
             continue;
         };
         let path = path.to_path_buf();
@@ -3819,17 +4546,18 @@ fn verify_one_structured(
             literature_evidence: None,
             matched_pvalue_keyword: None,
             linear_fold: None,
-                aggregate_kind: None,
-                aggregate_column: None,
-                aggregate_rowset: None,
-                aggregate_value: None,
-                collection: None,
-                term: None,
-                keyed_column: None,
-                keyed_value: None,
+            aggregate_kind: None,
+            aggregate_column: None,
+            aggregate_rowset: None,
+            aggregate_value: None,
+            collection: None,
+            term: None,
+            keyed_column: None,
+            keyed_value: None,
         },
         status,
         strength: ClaimStrength::Exploratory,
+        audit: None,
     };
 
     let Some(evidence) = sc.evidence.as_deref().filter(|e| !e.trim().is_empty()) else {
@@ -3918,11 +4646,12 @@ fn verify_one_structured(
         claim.source_table = Some(table_name.clone());
         let index = TableIndex::single(&table_path);
         let mut cache: BTreeMap<PathBuf, CachedTable> = BTreeMap::new();
-        let status = verify_for_contract(&claim, &index, cfg, &mut cache);
+        let (status, audit) = verify_for_contract_audited(&claim, &index, cfg, &mut cache);
         return ClaimVerdict {
             claim,
             status,
             strength: ClaimStrength::Exploratory,
+            audit,
         };
     }
 
@@ -4034,7 +4763,14 @@ pub fn verify_claims_with_discovery(
         // claims_evidence_matrix.csv, never a numeric result table — route
         // them before the table-discovery branch.
         if claim.contract == ClaimContract::LiteratureGrounded {
-            let status = verify_literature_grounded_at(claim, package_root, cfg);
+            let base = verify_literature_grounded_at(claim, package_root, cfg);
+            // CV-1/CV-2: cross-check any numeric quantity the literature claim
+            // asserts against the discovered result tables. The literature
+            // handler is numeric-blind; without this a concordance claim
+            // carrying a wrong effect size / p-value verifies on its
+            // literature-direction predicate alone.
+            let gate_index = TableIndex::from_paths(&candidates);
+            let (status, audit) = run_numeric_gate(base, claim, &gate_index, cfg, &mut cache);
             let mut out = claim.clone();
             // Record the matrix as the supporting evidence for an ADJUDICATED
             // verdict (Verified/Suspicious project `supported_by` from
@@ -4042,7 +4778,10 @@ pub fn verify_claims_with_discovery(
             // Without this a verified literature claim carries an empty
             // `supported_by`, breaking the C→V evidence link the audit-proof
             // `evidence_coverage`/`cross_graph_integrity` invariants rely on.
-            if matches!(status, ClaimStatus::Verified | ClaimStatus::Suspicious { .. }) {
+            if matches!(
+                status,
+                ClaimStatus::Verified | ClaimStatus::Suspicious { .. }
+            ) {
                 if let Some(matrix) = resolve_evidence_literature(package_root, "", &[], cfg) {
                     out.source_table = Some(package_relative_label(&matrix, package_root));
                 }
@@ -4051,15 +4790,17 @@ pub fn verify_claims_with_discovery(
                 claim: out,
                 status,
                 strength: ClaimStrength::Exploratory,
+                audit,
             });
             continue;
         }
         if claim.source_table.is_some() {
-            let status = verify_for_contract(claim, &cited_index, cfg, &mut cache);
+            let (status, audit) = verify_for_contract_audited(claim, &cited_index, cfg, &mut cache);
             verdicts.push(ClaimVerdict {
                 claim: claim.clone(),
                 status,
                 strength: ClaimStrength::Exploratory,
+                audit,
             });
             continue;
         }
@@ -4100,15 +4841,20 @@ pub fn verify_claims_with_discovery(
             .cloned()
             .collect();
 
-        let (claim_out, status) = if containing.is_empty() {
+        let (claim_out, status, audit) = if containing.is_empty() {
             (
                 claim.clone(),
                 ClaimStatus::Unverifiable {
                     reason: format!("entity `{}` not found in any result table", claim.entity),
                 },
+                Some(VerdictAudit::class_only(
+                    verdict_class_of(claim),
+                    entity_opt(claim),
+                )),
             )
         } else {
             let mut best: Option<ClaimStatus> = None;
+            let mut best_audit: Option<VerdictAudit> = None;
             let mut chosen = claim.clone();
             for path in &containing {
                 let mut c = claim.clone();
@@ -4120,7 +4866,7 @@ pub fn verify_claims_with_discovery(
                 // passes a path containing `/` through verbatim.
                 c.source_table = Some(package_relative_label(path, package_root));
                 let idx = TableIndex::single(path);
-                let status = verify_for_contract(&c, &idx, cfg, &mut cache);
+                let (status, cand_audit) = verify_for_contract_audited(&c, &idx, cfg, &mut cache);
                 let verified = matches!(status, ClaimStatus::Verified);
                 let prefer = match &best {
                     None => true,
@@ -4129,8 +4875,7 @@ pub fn verify_claims_with_discovery(
                     Some(ClaimStatus::Mismatch { .. }) => verified,
                     // Unverifiable and Pending rank identically here: a stronger
                     // Verified/Mismatch wins over either.
-                    Some(ClaimStatus::Unverifiable { .. })
-                    | Some(ClaimStatus::Pending { .. }) => {
+                    Some(ClaimStatus::Unverifiable { .. }) | Some(ClaimStatus::Pending { .. }) => {
                         verified || matches!(status, ClaimStatus::Mismatch { .. })
                     }
                     // Suspicious only arises for entities ABSENT from a table,
@@ -4144,17 +4889,19 @@ pub fn verify_claims_with_discovery(
                 if prefer {
                     chosen = c;
                     best = Some(status);
+                    best_audit = cand_audit;
                 }
                 if matches!(best, Some(ClaimStatus::Verified)) {
                     break;
                 }
             }
-            (chosen, best.expect("non-empty containing set"))
+            (chosen, best.expect("non-empty containing set"), best_audit)
         };
         verdicts.push(ClaimVerdict {
             claim: claim_out,
             status,
             strength: ClaimStrength::Exploratory,
+            audit,
         });
     }
     demote_contradicted_missing_row_mismatches(&mut verdicts);
@@ -4206,14 +4953,14 @@ mod tests {
             literature_evidence: None,
             matched_pvalue_keyword: None,
             linear_fold: None,
-                aggregate_kind: None,
-                aggregate_column: None,
-                aggregate_rowset: None,
-                aggregate_value: None,
-                collection: None,
-                term: None,
-                keyed_column: None,
-                keyed_value: None,
+            aggregate_kind: None,
+            aggregate_column: None,
+            aggregate_rowset: None,
+            aggregate_value: None,
+            collection: None,
+            term: None,
+            keyed_column: None,
+            keyed_value: None,
         };
         let verdicts = verify_claims_with_discovery(&[claim], pkg.path(), pkg.path(), &cfg);
         let st = verdicts[0].claim.source_table.as_deref().unwrap_or("");
@@ -4249,6 +4996,7 @@ mod tests {
             },
             status: ClaimStatus::Verified,
             strength: ClaimStrength::Exploratory,
+            audit: None,
         });
         let dec = DecisionRecord::new(
             "session-1",
@@ -4291,6 +5039,7 @@ mod tests {
             },
             status: ClaimStatus::Verified,
             strength: ClaimStrength::Exploratory,
+            audit: None,
         });
         report.verdicts.push(ClaimVerdict {
             claim: Claim {
@@ -4315,6 +5064,7 @@ mod tests {
             },
             status: ClaimStatus::Verified,
             strength: ClaimStrength::Exploratory,
+            audit: None,
         });
         let dec = DecisionRecord::new(
             "session-1",
@@ -4483,14 +5233,21 @@ mod tests {
         );
         let claims = extract_claims("ACAN was upregulated (log2FC=2.1, Table S1).", &cfg);
         let report = verify_claims(&claims, tmp.path(), &cfg);
-        let acan = report.verdicts.iter().find(|v| v.claim.entity == "ACAN").unwrap();
+        let acan = report
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "ACAN")
+            .unwrap();
         assert!(
             matches!(acan.status, ClaimStatus::Suspicious { .. }),
             "absent entity + specific effect size + same namespace must be Suspicious, got {:?}",
             acan.status
         );
         assert_eq!(report.n_suspicious, 1);
-        assert_eq!(report.n_mismatch, 0, "Suspicious must not count as a mismatch");
+        assert_eq!(
+            report.n_mismatch, 0,
+            "Suspicious must not count as a mismatch"
+        );
     }
 
     #[test]
@@ -4507,7 +5264,11 @@ mod tests {
         // No number, no direction-bearing slot beyond the word — bare mention.
         let claims = extract_claims("ACAN is a chondrocyte matrix gene (Table S1).", &cfg);
         let report = verify_claims(&claims, tmp.path(), &cfg);
-        let acan = report.verdicts.iter().find(|v| v.claim.entity == "ACAN").unwrap();
+        let acan = report
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "ACAN")
+            .unwrap();
         assert!(
             matches!(acan.status, ClaimStatus::Unverifiable { .. }),
             "bare mention of an absent entity must stay Unverifiable, got {:?}",
@@ -4732,7 +5493,10 @@ mod tests {
             // No log2FC/logFC column at all; only a non-effect numeric column.
             "gene\tbase_mean\tpadj\nACAN\t120.0\t0.001\n",
         );
-        let claims = extract_claims("ACAN was upregulated (log2FC=2.1, padj=0.001, Table S1).", &cfg);
+        let claims = extract_claims(
+            "ACAN was upregulated (log2FC=2.1, padj=0.001, Table S1).",
+            &cfg,
+        );
         let report = verify_claims(&claims, tmp.path(), &cfg);
         let acan = report
             .verdicts
@@ -4744,8 +5508,14 @@ mod tests {
             "table-loaded-but-no-effect-column claim must STAY Unverifiable (not Pending), got {:?}",
             acan.status
         );
-        assert_eq!(report.n_unverifiable, 1, "checked-but-undeterminable still counts n_unverifiable");
-        assert_eq!(report.n_pending, 0, "an Unverifiable claim must not be relabeled Pending");
+        assert_eq!(
+            report.n_unverifiable, 1,
+            "checked-but-undeterminable still counts n_unverifiable"
+        );
+        assert_eq!(
+            report.n_pending, 0,
+            "an Unverifiable claim must not be relabeled Pending"
+        );
         // And the push() bookkeeping keeps the two buckets disjoint.
         let mut combined = ClaimVerificationReport::empty();
         combined.push(v_pending[0].clone());
@@ -4780,14 +5550,14 @@ mod tests {
             literature_evidence: None,
             matched_pvalue_keyword: None,
             linear_fold: None,
-                aggregate_kind: None,
-                aggregate_column: None,
-                aggregate_rowset: None,
-                aggregate_value: None,
-                collection: None,
-                term: None,
-                keyed_column: None,
-                keyed_value: None,
+            aggregate_kind: None,
+            aggregate_column: None,
+            aggregate_rowset: None,
+            aggregate_value: None,
+            collection: None,
+            term: None,
+            keyed_column: None,
+            keyed_value: None,
         };
         let report = verify_claims(std::slice::from_ref(&correct), tmp.path(), &cfg);
         assert!(
@@ -4854,14 +5624,14 @@ mod tests {
             literature_evidence: None,
             matched_pvalue_keyword: None,
             linear_fold: None,
-                aggregate_kind: None,
-                aggregate_column: None,
-                aggregate_rowset: None,
-                aggregate_value: None,
-                collection: None,
-                term: None,
-                keyed_column: None,
-                keyed_value: None,
+            aggregate_kind: None,
+            aggregate_column: None,
+            aggregate_rowset: None,
+            aggregate_value: None,
+            collection: None,
+            term: None,
+            keyed_column: None,
+            keyed_value: None,
         };
         assert_eq!(
             crate::claim_extractor::classify_contract(&correct.excerpt),
@@ -4928,14 +5698,14 @@ mod tests {
             literature_evidence: None,
             matched_pvalue_keyword: None,
             linear_fold: None,
-                aggregate_kind: None,
-                aggregate_column: None,
-                aggregate_rowset: None,
-                aggregate_value: None,
-                collection: None,
-                term: None,
-                keyed_column: None,
-                keyed_value: None,
+            aggregate_kind: None,
+            aggregate_column: None,
+            aggregate_rowset: None,
+            aggregate_value: None,
+            collection: None,
+            term: None,
+            keyed_column: None,
+            keyed_value: None,
         };
         assert_eq!(
             crispld2.contract,
@@ -4998,14 +5768,14 @@ mod tests {
             literature_evidence: None,
             matched_pvalue_keyword: None,
             linear_fold: None,
-                aggregate_kind: None,
-                aggregate_column: None,
-                aggregate_rowset: None,
-                aggregate_value: None,
-                collection: None,
-                term: None,
-                keyed_column: None,
-                keyed_value: None,
+            aggregate_kind: None,
+            aggregate_column: None,
+            aggregate_rowset: None,
+            aggregate_value: None,
+            collection: None,
+            term: None,
+            keyed_column: None,
+            keyed_value: None,
         };
         let by_symbol = verify_claims(std::slice::from_ref(&base), tmp.path(), &cfg);
         let by_accession = verify_claims(
@@ -5076,7 +5846,12 @@ mod tests {
 
         // MISMATCH: result.json claims a swapped/wrong split (5 up / 0 down).
         let pkg = tempdir().unwrap();
-        write_pkg_table(pkg.path(), "differential_expression", "de_results.tsv", &body);
+        write_pkg_table(
+            pkg.path(),
+            "differential_expression",
+            "de_results.tsv",
+            &body,
+        );
         std::fs::write(
             pkg.path().join("result.json"),
             r#"{"n_up_fdr05": 5, "n_down_fdr05": 0}"#,
@@ -5084,14 +5859,21 @@ mod tests {
         .unwrap();
         let verdicts = verify_structured_counts(pkg.path(), &cfg);
         assert!(
-            verdicts.iter().any(|v| matches!(v.status, ClaimStatus::Mismatch { .. })),
+            verdicts
+                .iter()
+                .any(|v| matches!(v.status, ClaimStatus::Mismatch { .. })),
             "a wrong up/down split must yield a Mismatch, got {:?}",
             verdicts.iter().map(|v| &v.status).collect::<Vec<_>>()
         );
 
         // MATCH: result.json claims the correct split (3 up / 2 down).
         let pkg2 = tempdir().unwrap();
-        write_pkg_table(pkg2.path(), "differential_expression", "de_results.tsv", &body);
+        write_pkg_table(
+            pkg2.path(),
+            "differential_expression",
+            "de_results.tsv",
+            &body,
+        );
         std::fs::write(
             pkg2.path().join("result.json"),
             r#"{"n_up_fdr05": 3, "n_down_fdr05": 2}"#,
@@ -5100,7 +5882,9 @@ mod tests {
         let verdicts2 = verify_structured_counts(pkg2.path(), &cfg);
         assert!(
             !verdicts2.is_empty()
-                && verdicts2.iter().all(|v| matches!(v.status, ClaimStatus::Verified)),
+                && verdicts2
+                    .iter()
+                    .all(|v| matches!(v.status, ClaimStatus::Verified)),
             "a correct up/down split must Verify, got {:?}",
             verdicts2.iter().map(|v| &v.status).collect::<Vec<_>>()
         );
@@ -5320,7 +6104,11 @@ mod tests {
             &cfg,
         );
         let report = verify_claims(&fab, tmp.path(), &cfg);
-        let v = report.verdicts.iter().find(|v| v.claim.entity == "CASP3").unwrap();
+        let v = report
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "CASP3")
+            .unwrap();
         assert!(
             matches!(v.status, ClaimStatus::Mismatch { .. }),
             "raw-sig/adj-nonsig FDR claim must be caught on the adjusted column, got {:?}",
@@ -5339,7 +6127,11 @@ mod tests {
             &cfg,
         );
         let report2 = verify_claims(&faithful, tmp2.path(), &cfg);
-        let v2 = report2.verdicts.iter().find(|v| v.claim.entity == "CASP3").unwrap();
+        let v2 = report2
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "CASP3")
+            .unwrap();
         assert!(
             matches!(v2.status, ClaimStatus::Verified),
             "faithful FDR-significant claim must Verify, got {:?}",
@@ -5363,10 +6155,13 @@ mod tests {
             "gene\tlog2FC\tpvalue\tpadj\nCASP3\t0.9\t0.042\t0.16\n",
         );
         // Explicit RAW significance → judged on the raw column → Verified.
-        let raw_claim =
-            extract_claims("CASP3 was significant at raw p < 0.05 (Table S1).", &cfg);
+        let raw_claim = extract_claims("CASP3 was significant at raw p < 0.05 (Table S1).", &cfg);
         let report = verify_claims(&raw_claim, tmp.path(), &cfg);
-        let v = report.verdicts.iter().find(|v| v.claim.entity == "CASP3").unwrap();
+        let v = report
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "CASP3")
+            .unwrap();
         assert!(
             matches!(v.status, ClaimStatus::Verified),
             "explicit raw-significance claim must verify on the raw column, got {:?}",
@@ -5374,10 +6169,13 @@ mod tests {
         );
 
         // Same row, but the claim names FDR → judged on padj=0.16 → Mismatch.
-        let fdr_claim =
-            extract_claims("CASP3 was significant at FDR < 0.05 (Table S1).", &cfg);
+        let fdr_claim = extract_claims("CASP3 was significant at FDR < 0.05 (Table S1).", &cfg);
         let report2 = verify_claims(&fdr_claim, tmp.path(), &cfg);
-        let v2 = report2.verdicts.iter().find(|v| v.claim.entity == "CASP3").unwrap();
+        let v2 = report2
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "CASP3")
+            .unwrap();
         assert!(
             matches!(v2.status, ClaimStatus::Mismatch { .. }),
             "FDR-named claim on a raw-only-significant gene must Mismatch, got {:?}",
@@ -5390,16 +6188,57 @@ mod tests {
     /// tmt_log2_ratio) classifies as Log (pivot 0), NOT Ratio (pivot 1).
     #[test]
     fn vf19_effect_column_scale_classification() {
-        for c in ["hazard_ratio", "HR", "odds_ratio", "OR", "relative_risk", "RR", "abundance_ratio", "fold_change", "ratio"] {
-            assert_eq!(effect_column_scale(c), EffectScale::Ratio, "{c} should be Ratio");
+        for c in [
+            "hazard_ratio",
+            "HR",
+            "odds_ratio",
+            "OR",
+            "relative_risk",
+            "RR",
+            "abundance_ratio",
+            "fold_change",
+            "ratio",
+        ] {
+            assert_eq!(
+                effect_column_scale(c),
+                EffectScale::Ratio,
+                "{c} should be Ratio"
+            );
         }
-        for c in ["log2_ratio", "tmt_log2_ratio", "lfq_log2_ratio", "log2FC", "logFC", "nes", "NES", "estimate", "mean_difference", "risk_difference", "nnt", "coefficient", "beta"] {
-            assert_eq!(effect_column_scale(c), EffectScale::Log, "{c} should be Log");
+        for c in [
+            "log2_ratio",
+            "tmt_log2_ratio",
+            "lfq_log2_ratio",
+            "log2FC",
+            "logFC",
+            "nes",
+            "NES",
+            "estimate",
+            "mean_difference",
+            "risk_difference",
+            "nnt",
+            "coefficient",
+            "beta",
+        ] {
+            assert_eq!(
+                effect_column_scale(c),
+                EffectScale::Log,
+                "{c} should be Log"
+            );
         }
-        assert_eq!(observed_effect_direction(0.72, EffectScale::Ratio), Some(Direction::Down));
-        assert_eq!(observed_effect_direction(2.0, EffectScale::Ratio), Some(Direction::Up));
+        assert_eq!(
+            observed_effect_direction(0.72, EffectScale::Ratio),
+            Some(Direction::Down)
+        );
+        assert_eq!(
+            observed_effect_direction(2.0, EffectScale::Ratio),
+            Some(Direction::Up)
+        );
         assert_eq!(observed_effect_direction(1.0, EffectScale::Ratio), None);
-        assert_eq!(observed_effect_direction(0.72, EffectScale::Log), Some(Direction::Up));
+        assert_eq!(
+            observed_effect_direction(0.72, EffectScale::Log),
+            Some(Direction::Up)
+        );
         assert_eq!(observed_effect_direction(0.0, EffectScale::Log), None);
     }
 
@@ -5421,20 +6260,32 @@ mod tests {
         let tmp = tempdir().unwrap();
         write_table(tmp.path(), "hr_s1.tsv", "gene\thazard_ratio\nGENE1\t0.72\n");
 
-        let faithful =
-            extract_claims("GENE1 showed reduced hazard (hazard_ratio=0.72, Table S1).", &cfg);
+        let faithful = extract_claims(
+            "GENE1 showed reduced hazard (hazard_ratio=0.72, Table S1).",
+            &cfg,
+        );
         let rv = verify_claims(&faithful, tmp.path(), &cfg);
-        let v = rv.verdicts.iter().find(|v| v.claim.entity == "GENE1").unwrap();
+        let v = rv
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "GENE1")
+            .unwrap();
         assert!(
             matches!(v.status, ClaimStatus::Verified),
             "reduced hazard with HR<1 must Verify, got {:?}",
             v.status
         );
 
-        let fab =
-            extract_claims("GENE1 showed increased hazard (hazard_ratio=0.72, Table S1).", &cfg);
+        let fab = extract_claims(
+            "GENE1 showed increased hazard (hazard_ratio=0.72, Table S1).",
+            &cfg,
+        );
         let rf = verify_claims(&fab, tmp.path(), &cfg);
-        let m = rf.verdicts.iter().find(|v| v.claim.entity == "GENE1").unwrap();
+        let m = rf
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "GENE1")
+            .unwrap();
         assert!(
             matches!(m.status, ClaimStatus::Mismatch { .. }),
             "increased hazard with HR<1 must Mismatch, got {:?}",
@@ -5451,14 +6302,26 @@ mod tests {
     fn vf11_phantom_citation_recovers_via_sibling_discovery() {
         let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
         let tmp = tempdir().unwrap();
-        write_table(tmp.path(), "de_a.tsv", "gene\tlog2FC\tpadj\nGENE1\t2.0\t0.001\n");
-        write_table(tmp.path(), "de_b.tsv", "gene\tlog2FC\tpadj\nGENE2\t-3.0\t0.001\n");
+        write_table(
+            tmp.path(),
+            "de_a.tsv",
+            "gene\tlog2FC\tpadj\nGENE1\t2.0\t0.001\n",
+        );
+        write_table(
+            tmp.path(),
+            "de_b.tsv",
+            "gene\tlog2FC\tpadj\nGENE2\t-3.0\t0.001\n",
+        );
 
         // CATCH: "Table Z9" resolves to nothing; GENE2 lives in de_b at -3.0
         // (down), contradicting the "upregulated (log2FC=3.0)" claim.
         let fab = extract_claims("GENE2 was upregulated (log2FC=3.0, Table Z9).", &cfg);
         let rf = verify_claims(&fab, tmp.path(), &cfg);
-        let m = rf.verdicts.iter().find(|v| v.claim.entity == "GENE2").unwrap();
+        let m = rf
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "GENE2")
+            .unwrap();
         assert!(
             matches!(m.status, ClaimStatus::Mismatch { .. }),
             "phantom-cite contradicting a real sibling must Mismatch, got {:?}",
@@ -5468,7 +6331,11 @@ mod tests {
         // FAITHFUL TWIN: same phantom cite, but GENE1's value matches de_a.
         let faithful = extract_claims("GENE1 was upregulated (log2FC=2.0, Table Z9).", &cfg);
         let rv = verify_claims(&faithful, tmp.path(), &cfg);
-        let v = rv.verdicts.iter().find(|v| v.claim.entity == "GENE1").unwrap();
+        let v = rv
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "GENE1")
+            .unwrap();
         assert!(
             matches!(v.status, ClaimStatus::Verified),
             "phantom-cite matching a real sibling must Verify, got {:?}",
@@ -5479,7 +6346,11 @@ mod tests {
         // Suspicious (not a free Unverifiable, not a Mismatch).
         let ghost = extract_claims("GHOST9 was upregulated (log2FC=2.0, Table Z9).", &cfg);
         let rg = verify_claims(&ghost, tmp.path(), &cfg);
-        let g = rg.verdicts.iter().find(|v| v.claim.entity == "GHOST9").unwrap();
+        let g = rg
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "GHOST9")
+            .unwrap();
         assert!(
             matches!(g.status, ClaimStatus::Suspicious { .. }),
             "phantom-cite absent quantitative entity must be Suspicious, got {:?}",
@@ -5522,13 +6393,21 @@ mod tests {
 
         // ABSTAIN guards — each must be Unverifiable, never Mismatch:
         for (label, text) in [
-            ("hedge", "Approximately 3 genes were upregulated at FDR < 0.05 (Table C)."),
-            ("round", "2000 genes were upregulated at FDR < 0.05 (Table C)."),
+            (
+                "hedge",
+                "Approximately 3 genes were upregulated at FDR < 0.05 (Table C).",
+            ),
+            (
+                "round",
+                "2000 genes were upregulated at FDR < 0.05 (Table C).",
+            ),
             ("uncited", "12 genes were upregulated at FDR < 0.05."),
         ] {
             let v = run(text);
             assert!(
-                !v.is_empty() && v.iter().all(|x| matches!(x.status, ClaimStatus::Unverifiable { .. })),
+                !v.is_empty()
+                    && v.iter()
+                        .all(|x| matches!(x.status, ClaimStatus::Unverifiable { .. })),
                 "{label} count must abstain (Unverifiable), got {:?}",
                 v.iter().map(|x| &x.status).collect::<Vec<_>>()
             );
@@ -5538,7 +6417,9 @@ mod tests {
         let combined =
             run("12 genes were upregulated and 9 were downregulated at FDR < 0.05 (Table C).");
         assert!(
-            combined.iter().all(|x| matches!(x.status, ClaimStatus::Unverifiable { .. })),
+            combined
+                .iter()
+                .all(|x| matches!(x.status, ClaimStatus::Unverifiable { .. })),
             "combined up/down must abstain, got {:?}",
             combined.iter().map(|x| &x.status).collect::<Vec<_>>()
         );
@@ -5566,20 +6447,31 @@ mod tests {
 
         // Inert by default: no shipped policy configures a map.
         let inert = ExtractorConfig::from_policy(&policy_json()).unwrap();
-        assert!(inert.gene_annotation_map.is_none(), "VF-13 must be inert without a configured map");
+        assert!(
+            inert.gene_annotation_map.is_none(),
+            "VF-13 must be inert without a configured map"
+        );
 
         // End to end with a configured map.
         let mut cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
         cfg.gene_annotation_map = Some(map);
         let tmp = tempdir().unwrap();
-        write_table(tmp.path(), "de_s1.tsv", "gene\tlog2FC\tpadj\nCRISPLD2\t2.6\t1e-60\n");
+        write_table(
+            tmp.path(),
+            "de_s1.tsv",
+            "gene\tlog2FC\tpadj\nCRISPLD2\t2.6\t1e-60\n",
+        );
 
         let fab = extract_claims(
             "CRISPLD2 (ENSG00000197142) was upregulated (log2FC=2.6, Table S1).",
             &cfg,
         );
         let rf = verify_claims(&fab, tmp.path(), &cfg);
-        let m = rf.verdicts.iter().find(|v| v.claim.entity == "CRISPLD2").unwrap();
+        let m = rf
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "CRISPLD2")
+            .unwrap();
         assert!(
             matches!(m.status, ClaimStatus::Mismatch { .. }),
             "wrong symbol↔Ensembl pairing must Mismatch, got {:?}",
@@ -5593,7 +6485,11 @@ mod tests {
             &cfg,
         );
         let rv = verify_claims(&faithful, tmp.path(), &cfg);
-        let v = rv.verdicts.iter().find(|v| v.claim.entity == "CRISPLD2").unwrap();
+        let v = rv
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "CRISPLD2")
+            .unwrap();
         assert!(
             matches!(v.status, ClaimStatus::Verified),
             "correct symbol↔Ensembl pairing must Verify, got {:?}",
@@ -5715,7 +6611,11 @@ mod tests {
             "extractor should record the adjusted keyword the prose used"
         );
         let report = verify_claims(&fab, tmp.path(), &cfg);
-        let v = report.verdicts.iter().find(|v| v.claim.entity == "ACAN").unwrap();
+        let v = report
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "ACAN")
+            .unwrap();
         assert!(
             matches!(v.status, ClaimStatus::Mismatch { .. }),
             "raw p quoted under an adjusted label must be a Mismatch, got {:?}",
@@ -5735,7 +6635,11 @@ mod tests {
             &cfg,
         );
         let report2 = verify_claims(&honest, tmp2.path(), &cfg);
-        let v2 = report2.verdicts.iter().find(|v| v.claim.entity == "ACAN").unwrap();
+        let v2 = report2
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "ACAN")
+            .unwrap();
         assert!(
             matches!(v2.status, ClaimStatus::Verified),
             "honest adjusted claim matching the padj column must Verify, got {:?}",
@@ -5763,7 +6667,11 @@ mod tests {
             "extractor should record the raw keyword the prose used"
         );
         let report3 = verify_claims(&raw_label, tmp3.path(), &cfg);
-        let v3 = report3.verdicts.iter().find(|v| v.claim.entity == "ACAN").unwrap();
+        let v3 = report3
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "ACAN")
+            .unwrap();
         assert!(
             matches!(v3.status, ClaimStatus::Verified),
             "raw value under a raw label is not laundering and must Verify, got {:?}",
@@ -5797,7 +6705,11 @@ mod tests {
             "extractor should parse the linear fold magnitude from prose"
         );
         let report = verify_claims(&fab, tmp.path(), &cfg);
-        let v = report.verdicts.iter().find(|v| v.claim.entity == "ACAN").unwrap();
+        let v = report
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "ACAN")
+            .unwrap();
         assert!(
             matches!(v.status, ClaimStatus::Mismatch { .. }),
             "gross linear-fold magnitude overclaim must be a Mismatch, got {:?}",
@@ -5813,7 +6725,11 @@ mod tests {
         );
         let honest = extract_claims("ACAN was upregulated 8-fold (Table S1).", &cfg);
         let report2 = verify_claims(&honest, tmp2.path(), &cfg);
-        let v2 = report2.verdicts.iter().find(|v| v.claim.entity == "ACAN").unwrap();
+        let v2 = report2
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "ACAN")
+            .unwrap();
         assert!(
             matches!(v2.status, ClaimStatus::Verified),
             "honest linear-fold claim within band must Verify, got {:?}",
@@ -5839,7 +6755,11 @@ mod tests {
             "the '2' in 'log2 fold change' must not be parsed as a linear fold"
         );
         let report3 = verify_claims(&log2_phrase, tmp3.path(), &cfg);
-        let v3 = report3.verdicts.iter().find(|v| v.claim.entity == "ACAN").unwrap();
+        let v3 = report3
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "ACAN")
+            .unwrap();
         assert!(
             matches!(v3.status, ClaimStatus::Verified),
             "log2-fold-change effect-size phrasing must Verify, got {:?}",
@@ -6003,11 +6923,18 @@ mod tests {
 
         // Fabrication: DOWN is rank-1 by |effect| so it IS "in the top-2", but
         // it is DOWN-regulated — calling it "upregulated" must be caught.
-        let fab = extract_claims("DOWN is among the top-2 upregulated genes (Table S1).", &cfg);
+        let fab = extract_claims(
+            "DOWN is among the top-2 upregulated genes (Table S1).",
+            &cfg,
+        );
         let dc = fab.iter().find(|c| c.entity == "DOWN").unwrap();
         assert_eq!(dc.contract, ClaimContract::RankTopN);
         let report = verify_claims(&fab, tmp.path(), &cfg);
-        let v = report.verdicts.iter().find(|v| v.claim.entity == "DOWN").unwrap();
+        let v = report
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "DOWN")
+            .unwrap();
         assert!(
             matches!(v.status, ClaimStatus::Mismatch { .. }),
             "top-N claim with wrong direction must be caught, got {:?}",
@@ -6017,7 +6944,11 @@ mod tests {
         // Faithful twin: UP is positive and in the top-2 → Verified.
         let faithful = extract_claims("UP is among the top-2 upregulated genes (Table S1).", &cfg);
         let report2 = verify_claims(&faithful, tmp.path(), &cfg);
-        let v2 = report2.verdicts.iter().find(|v| v.claim.entity == "UP").unwrap();
+        let v2 = report2
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "UP")
+            .unwrap();
         assert!(
             matches!(v2.status, ClaimStatus::Verified),
             "faithful top-N upregulated claim must Verify, got {:?}",
@@ -6186,14 +7117,14 @@ mod tests {
             literature_evidence: None,
             matched_pvalue_keyword: None,
             linear_fold: None,
-                aggregate_kind: None,
-                aggregate_column: None,
-                aggregate_rowset: None,
-                aggregate_value: None,
-                collection: None,
-                term: None,
-                keyed_column: None,
-                keyed_value: None,
+            aggregate_kind: None,
+            aggregate_column: None,
+            aggregate_rowset: None,
+            aggregate_value: None,
+            collection: None,
+            term: None,
+            keyed_column: None,
+            keyed_value: None,
         };
         let report = verify_claims(&[claim], tmp.path(), &cfg);
         let v = report
@@ -6231,14 +7162,14 @@ mod tests {
             literature_evidence: None,
             matched_pvalue_keyword: None,
             linear_fold: None,
-                aggregate_kind: None,
-                aggregate_column: None,
-                aggregate_rowset: None,
-                aggregate_value: None,
-                collection: None,
-                term: None,
-                keyed_column: None,
-                keyed_value: None,
+            aggregate_kind: None,
+            aggregate_column: None,
+            aggregate_rowset: None,
+            aggregate_value: None,
+            collection: None,
+            term: None,
+            keyed_column: None,
+            keyed_value: None,
         };
         let report = verify_claims(&[claim], tmp.path(), &cfg);
         let v = report
@@ -6326,7 +7257,11 @@ mod tests {
         let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
         let tmp = tempdir().unwrap();
         // DE table — gene/log2FC/padj, NO label/type/cluster column.
-        write_table(tmp.path(), "de_s1.tsv", "gene\tlog2FC\tpadj\nACAN\t-2.8\t0.001\n");
+        write_table(
+            tmp.path(),
+            "de_s1.tsv",
+            "gene\tlog2FC\tpadj\nACAN\t-2.8\t0.001\n",
+        );
 
         // Fabrication: claims UP, table is DOWN → must be caught.
         let fab = extract_claims(
@@ -6336,7 +7271,11 @@ mod tests {
         let acan = fab.iter().find(|c| c.entity == "ACAN").unwrap();
         assert_eq!(acan.contract, ClaimContract::Categorical);
         let report = verify_claims(&fab, tmp.path(), &cfg);
-        let v = report.verdicts.iter().find(|v| v.claim.entity == "ACAN").unwrap();
+        let v = report
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "ACAN")
+            .unwrap();
         assert!(
             matches!(v.status, ClaimStatus::Mismatch { .. }),
             "planted categorical sign-flip must be caught, got {:?}",
@@ -6349,7 +7288,11 @@ mod tests {
             &cfg,
         );
         let report2 = verify_claims(&faithful, tmp.path(), &cfg);
-        let v2 = report2.verdicts.iter().find(|v| v.claim.entity == "ACAN").unwrap();
+        let v2 = report2
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "ACAN")
+            .unwrap();
         assert!(
             matches!(v2.status, ClaimStatus::Verified),
             "faithful categorical direction must stay Verified, got {:?}",
@@ -6403,14 +7346,14 @@ mod tests {
             literature_evidence: None,
             matched_pvalue_keyword: None,
             linear_fold: None,
-                aggregate_kind: None,
-                aggregate_column: None,
-                aggregate_rowset: None,
-                aggregate_value: None,
-                collection: None,
-                term: None,
-                keyed_column: None,
-                keyed_value: None,
+            aggregate_kind: None,
+            aggregate_column: None,
+            aggregate_rowset: None,
+            aggregate_value: None,
+            collection: None,
+            term: None,
+            keyed_column: None,
+            keyed_value: None,
         };
         let json = serde_json::to_string(&claim).unwrap();
         let round_tripped: Claim = serde_json::from_str(&json).unwrap();
@@ -6504,7 +7447,11 @@ mod tests {
             .path()
             .join("runtime/outputs/differential_expression/intermediates");
         std::fs::create_dir_all(&nested).unwrap();
-        std::fs::write(nested.join("aux.tsv"), "gene\tlog2FC\tpadj\nA\t2.0\t0.001\n").unwrap();
+        std::fs::write(
+            nested.join("aux.tsv"),
+            "gene\tlog2FC\tpadj\nA\t2.0\t0.001\n",
+        )
+        .unwrap();
         let present = StructuredClaim {
             claim: "5 genes are differentially expressed (padj < 0.05)".into(),
             evidence: Some("aux.tsv".into()),
@@ -6664,14 +7611,14 @@ mod tests {
             literature_evidence: None,
             matched_pvalue_keyword: None,
             linear_fold: None,
-                aggregate_kind: None,
-                aggregate_column: None,
-                aggregate_rowset: None,
-                aggregate_value: None,
-                collection: None,
-                term: None,
-                keyed_column: None,
-                keyed_value: None,
+            aggregate_kind: None,
+            aggregate_column: None,
+            aggregate_rowset: None,
+            aggregate_value: None,
+            collection: None,
+            term: None,
+            keyed_column: None,
+            keyed_value: None,
         };
         let v = verify_claims_with_discovery(&[claim], tmp.path(), tmp.path(), &cfg);
         assert!(
@@ -6715,14 +7662,14 @@ mod tests {
             literature_evidence: None,
             matched_pvalue_keyword: None,
             linear_fold: None,
-                aggregate_kind: None,
-                aggregate_column: None,
-                aggregate_rowset: None,
-                aggregate_value: None,
-                collection: None,
-                term: None,
-                keyed_column: None,
-                keyed_value: None,
+            aggregate_kind: None,
+            aggregate_column: None,
+            aggregate_rowset: None,
+            aggregate_value: None,
+            collection: None,
+            term: None,
+            keyed_column: None,
+            keyed_value: None,
         };
         let v = verify_claims_with_discovery(&[claim], tmp.path(), tmp.path(), &cfg);
         assert!(
@@ -6886,14 +7833,14 @@ mod tests {
             literature_evidence: None,
             matched_pvalue_keyword: None,
             linear_fold: None,
-                aggregate_kind: None,
-                aggregate_column: None,
-                aggregate_rowset: None,
-                aggregate_value: None,
-                collection: None,
-                term: None,
-                keyed_column: None,
-                keyed_value: None,
+            aggregate_kind: None,
+            aggregate_column: None,
+            aggregate_rowset: None,
+            aggregate_value: None,
+            collection: None,
+            term: None,
+            keyed_column: None,
+            keyed_value: None,
         };
         let index = TableIndex::scan(std::path::Path::new("/nonexistent"));
         let mut cache: BTreeMap<PathBuf, CachedTable> = BTreeMap::new();
@@ -6958,6 +7905,221 @@ mod tests {
         std::fs::write(dir.join("claims_evidence_matrix.csv"), body).unwrap();
     }
 
+    // ── CV-1 / CV-2: the class-agnostic numeric gate ────────────────────────
+    //
+    // A literature-grounded claim that also asserts a number must have that
+    // number checked against the cited/discovered table before any `Verified`.
+
+    /// Write a DE result table under the differential_expression output dir so
+    /// the discovery path (and thus the numeric gate) can find the gene's row.
+    fn write_de_output(root: &Path, body: &str) {
+        let dir = root.join("runtime/outputs/differential_expression");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("de_results.tsv"), body).unwrap();
+    }
+
+    /// A hand-built LiteratureGrounded claim with a chosen excerpt (so the gate
+    /// scans exactly the numeric assertion under test), binding by symbol.
+    fn lit_numeric_claim(entity: &str, excerpt: &str) -> Claim {
+        let mut c = lit_claim_symbol_only(entity, excerpt);
+        c.entity = entity.into();
+        c
+    }
+
+    /// CV-1 flagship: `GENE (log₂FC +2.61, padj ≈ 10⁻⁸⁰)` against a table whose
+    /// padj is `7.5e-46` is a **Mismatch** — the log2FC is right but the padj is
+    /// wrong by ~34 orders. The verdict tuple records claimed ≈ 1e-80 vs
+    /// observed 7.5e-46.
+    #[test]
+    fn literature_claim_with_wrong_padj_is_mismatch() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        // No literature matrix → base is Unverifiable; the numeric gate must
+        // still promote to Mismatch on the wrong padj.
+        write_de_output(tmp.path(), "gene\tlog2FC\tpadj\nCRISPLD2\t2.61\t7.5e-46\n");
+        let claim = lit_numeric_claim(
+            "CRISPLD2",
+            "CRISPLD2 (log₂FC +2.61, padj ≈ 10⁻⁸⁰) is concordant with prior reports (PMID 12345678)",
+        );
+        let verdicts = verify_claims_with_discovery(&[claim], tmp.path(), tmp.path(), &cfg);
+        let v = &verdicts[0];
+        assert!(
+            matches!(v.status, ClaimStatus::Mismatch { .. }),
+            "wrong padj must be a Mismatch, got {:?}",
+            v.status
+        );
+        let audit = v.audit.as_ref().expect("mismatch carries an audit tuple");
+        let claimed = audit.claimed_value.expect("claimed value recorded");
+        let observed = audit.observed_value.expect("observed value recorded");
+        assert!(
+            (claimed.log10() - (-80.0)).abs() < 0.5,
+            "claimed padj should be ~1e-80, got {claimed:e}"
+        );
+        assert!(
+            (observed / 7.5e-46 - 1.0).abs() < 1e-6,
+            "observed padj should be 7.5e-46, got {observed:e}"
+        );
+        assert_eq!(audit.measurement_column.as_deref(), Some("padj"));
+        assert_eq!(
+            audit.comparison_operator.as_deref(),
+            Some("order_of_magnitude")
+        );
+        // Both numeric tokens were compared (parse-coverage 1.0), so the fix
+        // caught the wrong value rather than degrading to Unverifiable.
+        assert!(
+            (audit.parse_coverage - 1.0).abs() < 1e-9,
+            "both tokens compared, coverage should be 1.0, got {}",
+            audit.parse_coverage
+        );
+    }
+
+    /// A literature claim whose asserted number matches the table stays Verified
+    /// (the number is now checked, and it agrees).
+    #[test]
+    fn literature_claim_with_correct_values_is_verified() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_lit_matrix(
+            tmp.path(),
+            "finding_id,entity,prior_pmids,concordance_flag,source_kind\n\
+             ENSG_CRISPLD2,CRISPLD2,24926665,same_direction,pmc_oa_full_text\n",
+        );
+        write_de_output(tmp.path(), "gene\tlog2FC\tpadj\nCRISPLD2\t2.61\t7.5e-46\n");
+        // No threshold keyword (`padj`) → routes LiteratureGrounded; carries a
+        // correct log2FC that the gate confirms.
+        let claim = lit_numeric_claim(
+            "CRISPLD2",
+            "CRISPLD2 (log₂FC +2.61) is concordant with prior reports for airway remodeling",
+        );
+        let verdicts = verify_claims_with_discovery(&[claim], tmp.path(), tmp.path(), &cfg);
+        let v = &verdicts[0];
+        assert!(
+            matches!(v.status, ClaimStatus::Verified),
+            "correct literature+numeric claim must verify, got {:?}",
+            v.status
+        );
+        let audit = v
+            .audit
+            .as_ref()
+            .expect("verified claim carries an audit tuple");
+        assert_eq!(audit.class, VerdictClass::NumericTable);
+        assert!((audit.parse_coverage - 1.0).abs() < 1e-9);
+    }
+
+    /// A literature claim asserting a number that cannot be parsed at all
+    /// (overflow) is Unverifiable — not silently Verified, and not a Mismatch.
+    #[test]
+    fn literature_claim_with_unparseable_number_is_unverifiable() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_lit_matrix(
+            tmp.path(),
+            "finding_id,entity,prior_pmids,concordance_flag,source_kind\n\
+             ENSG_CRISPLD2,CRISPLD2,24926665,same_direction,pmc_oa_full_text\n",
+        );
+        write_de_output(tmp.path(), "gene\tlog2FC\tpadj\nCRISPLD2\t2.61\t7.5e-46\n");
+        // `1e999` overflows to non-finite → unparseable numeric assertion.
+        let claim = lit_numeric_claim(
+            "CRISPLD2",
+            "CRISPLD2 (log₂FC ≈ 1e999) is concordant with prior reports",
+        );
+        let verdicts = verify_claims_with_discovery(&[claim], tmp.path(), tmp.path(), &cfg);
+        let v = &verdicts[0];
+        assert!(
+            matches!(v.status, ClaimStatus::Unverifiable { .. }),
+            "unparseable numeric assertion must be Unverifiable, got {:?}",
+            v.status
+        );
+        let audit = v.audit.as_ref().expect("audit tuple present");
+        assert!(
+            audit.parse_coverage < 1.0,
+            "an unparseable token must lower parse-coverage below 1.0, got {}",
+            audit.parse_coverage
+        );
+    }
+
+    /// A literature claim with NO numeric assertion is unaffected by the gate:
+    /// the literature-direction check still governs and it verifies (no
+    /// regression to the pre-gate behavior).
+    #[test]
+    fn literature_claim_without_numbers_still_direction_checked() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_lit_matrix(
+            tmp.path(),
+            "finding_id,entity,prior_pmids,concordance_flag,source_kind\n\
+             ENSG_CRISPLD2,CRISPLD2,24926665,same_direction,pmc_oa_full_text\n",
+        );
+        write_de_output(tmp.path(), "gene\tlog2FC\tpadj\nCRISPLD2\t2.61\t7.5e-46\n");
+        let claim = lit_numeric_claim(
+            "CRISPLD2",
+            "CRISPLD2 is concordant with prior reports for airway remodeling",
+        );
+        let verdicts = verify_claims_with_discovery(&[claim], tmp.path(), tmp.path(), &cfg);
+        let v = &verdicts[0];
+        assert!(
+            matches!(v.status, ClaimStatus::Verified),
+            "a number-free literature claim must still verify by direction, got {:?}",
+            v.status
+        );
+        let audit = v.audit.as_ref().expect("audit tuple present");
+        // No numeric tokens → class stays literature_quotation, coverage 1.0.
+        assert_eq!(audit.class, VerdictClass::LiteratureQuotation);
+        assert!((audit.parse_coverage - 1.0).abs() < 1e-9);
+    }
+
+    /// A verdict with a full numeric audit tuple round-trips losslessly through
+    /// JSON, and every verdict maps to exactly one class (per-class counts sum
+    /// to `n_checked`).
+    #[test]
+    fn verdict_audit_round_trips_and_class_counts_sum() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_de_output(tmp.path(), "gene\tlog2FC\tpadj\nCRISPLD2\t2.61\t7.5e-46\n");
+        let claim = lit_numeric_claim(
+            "CRISPLD2",
+            "CRISPLD2 (log₂FC +2.61, padj ≈ 10⁻⁸⁰) is concordant with prior reports",
+        );
+        let verdicts = verify_claims_with_discovery(&[claim], tmp.path(), tmp.path(), &cfg);
+        let v = &verdicts[0];
+        let json = serde_json::to_string(v).expect("serialize verdict");
+        let back: ClaimVerdict = serde_json::from_str(&json).expect("deserialize verdict");
+        assert_eq!(v, &back, "verdict must round-trip with all audit fields");
+        assert!(back.audit.is_some(), "audit tuple survives round-trip");
+        assert_eq!(
+            back.audit.as_ref().unwrap().verifier_version,
+            CLAIM_VERIFIER_VERSION
+        );
+
+        // Every verdict maps to EXACTLY one class, so the four per-class
+        // counts sum to n_checked (no verdict is uncounted or double-counted).
+        let mut report = ClaimVerificationReport::empty();
+        for vd in verdicts {
+            report.push(vd);
+        }
+        let class_of = |v: &ClaimVerdict| {
+            v.audit
+                .as_ref()
+                .map(|a| a.class)
+                .unwrap_or_else(|| verdict_class_of(&v.claim))
+        };
+        let mut per_class = [0usize; 4];
+        for v in &report.verdicts {
+            let idx = match class_of(v) {
+                VerdictClass::NumericTable => 0,
+                VerdictClass::Directional => 1,
+                VerdictClass::EntityPresence => 2,
+                VerdictClass::LiteratureQuotation => 3,
+            };
+            per_class[idx] += 1;
+        }
+        assert_eq!(
+            per_class.iter().sum::<usize>(),
+            report.n_checked,
+            "per-class counts must sum to n_checked"
+        );
+    }
+
     fn lit_claim(finding_id: &str, pmids: Vec<u64>) -> Claim {
         Claim {
             entity: "TP53".into(),
@@ -6973,14 +8135,14 @@ mod tests {
             }),
             matched_pvalue_keyword: None,
             linear_fold: None,
-                aggregate_kind: None,
-                aggregate_column: None,
-                aggregate_rowset: None,
-                aggregate_value: None,
-                collection: None,
-                term: None,
-                keyed_column: None,
-                keyed_value: None,
+            aggregate_kind: None,
+            aggregate_column: None,
+            aggregate_rowset: None,
+            aggregate_value: None,
+            collection: None,
+            term: None,
+            keyed_column: None,
+            keyed_value: None,
         }
     }
 
@@ -7102,8 +8264,10 @@ mod tests {
             "finding_id,entity,prior_pmids,concordance_flag,source_kind\n\
              ENSG00000152583,SPARCL1,24926665,same_direction,pmc_oa_full_text\n",
         );
-        let claims =
-            extract_claims("Concordant genes (first 10): SPARCL1, DUSP1, PER1, KLF15", &cfg);
+        let claims = extract_claims(
+            "Concordant genes (first 10): SPARCL1, DUSP1, PER1, KLF15",
+            &cfg,
+        );
         let sparcl1 = claims
             .iter()
             .find(|c| c.entity == "SPARCL1")
@@ -7146,8 +8310,10 @@ mod tests {
             "finding_id,entity,prior_pmids,concordance_flag,source_kind\n\
              ENSG00000152583,SPARCL1,24926665,same_direction,pmc_oa_full_text\n",
         );
-        let claims =
-            extract_claims("Concordant genes (first 10): SPARCL1, DUSP1, PER1, KLF15", &cfg);
+        let claims = extract_claims(
+            "Concordant genes (first 10): SPARCL1, DUSP1, PER1, KLF15",
+            &cfg,
+        );
         let sparcl1 = claims
             .iter()
             .find(|c| c.entity == "SPARCL1")
@@ -7180,7 +8346,10 @@ mod tests {
         );
         let claim = lit_claim_symbol_only("NOTAGENE", "NOTAGENE is concordant with prior work");
         let status = verify_literature_grounded_at(&claim, tmp.path(), &cfg);
-        assert!(matches!(status, ClaimStatus::Unverifiable { .. }), "{status:?}");
+        assert!(
+            matches!(status, ClaimStatus::Unverifiable { .. }),
+            "{status:?}"
+        );
     }
 
     #[test]
@@ -7480,14 +8649,14 @@ mod tests {
             }),
             matched_pvalue_keyword: None,
             linear_fold: None,
-                aggregate_kind: None,
-                aggregate_column: None,
-                aggregate_rowset: None,
-                aggregate_value: None,
-                collection: None,
-                term: None,
-                keyed_column: None,
-                keyed_value: None,
+            aggregate_kind: None,
+            aggregate_column: None,
+            aggregate_rowset: None,
+            aggregate_value: None,
+            collection: None,
+            term: None,
+            keyed_column: None,
+            keyed_value: None,
         }
     }
 
@@ -7514,7 +8683,12 @@ mod tests {
         );
 
         let klf15 = verify_literature_grounded_at(
-            &lit_claim_for("KLF15", "ENSG00000163884", vec![28375666], "KLF15 is a known dex target"),
+            &lit_claim_for(
+                "KLF15",
+                "ENSG00000163884",
+                vec![28375666],
+                "KLF15 is a known dex target",
+            ),
             tmp.path(),
             &cfg,
         );
@@ -7552,7 +8726,12 @@ mod tests {
              ENSG00000163884,KLF15,gene,28375666,\"KLF15 induced by dex\",same_direction\n",
         );
         let status = verify_literature_grounded_at(
-            &lit_claim_for("KLF15", "ENSG00000163884", vec![99999999], "KLF15 is a known dex target"),
+            &lit_claim_for(
+                "KLF15",
+                "ENSG00000163884",
+                vec![99999999],
+                "KLF15 is a known dex target",
+            ),
             tmp.path(),
             &cfg,
         );
@@ -7574,7 +8753,12 @@ mod tests {
              ENSG00000163884,KLF15,gene,28375666,\"prior work shows the opposite\",opposite_direction\n",
         );
         let status = verify_literature_grounded_at(
-            &lit_claim_for("KLF15", "ENSG00000163884", vec![28375666], "KLF15 is concordant with prior work"),
+            &lit_claim_for(
+                "KLF15",
+                "ENSG00000163884",
+                vec![28375666],
+                "KLF15 is concordant with prior work",
+            ),
             tmp.path(),
             &cfg,
         );
@@ -7691,7 +8875,12 @@ mod tests {
         );
         // VF-15a: positive concordance assertion against a no_prior_finding row.
         let status = verify_literature_grounded_at(
-            &lit_claim_for("KLF15", "ENSG00000163884", vec![], "KLF15 is consistent with prior reports"),
+            &lit_claim_for(
+                "KLF15",
+                "ENSG00000163884",
+                vec![],
+                "KLF15 is consistent with prior reports",
+            ),
             tmp.path(),
             &cfg,
         );
@@ -7703,7 +8892,12 @@ mod tests {
         // Faithful twin: a NEUTRAL excerpt over the same no_prior_finding row
         // must NOT be flagged a fabricated concordance.
         let neutral = verify_literature_grounded_at(
-            &lit_claim_for("KLF15", "ENSG00000163884", vec![], "KLF15 was differentially expressed"),
+            &lit_claim_for(
+                "KLF15",
+                "ENSG00000163884",
+                vec![],
+                "KLF15 was differentially expressed",
+            ),
             tmp.path(),
             &cfg,
         );
@@ -7734,7 +8928,12 @@ mod tests {
         );
         // Claim keyed by SYMBOL with an unrelated finding_id label.
         let verified = verify_literature_grounded_at(
-            &lit_claim_for("KLF15", "klf15_finding", vec![28375666], "KLF15 is a dex target"),
+            &lit_claim_for(
+                "KLF15",
+                "klf15_finding",
+                vec![28375666],
+                "KLF15 is a dex target",
+            ),
             tmp.path(),
             &cfg,
         );
@@ -7745,7 +8944,12 @@ mod tests {
 
         // Same alias path, but an uncited PMID must STILL Mismatch.
         let mismatch = verify_literature_grounded_at(
-            &lit_claim_for("KLF15", "klf15_finding", vec![99999999], "KLF15 is a dex target"),
+            &lit_claim_for(
+                "KLF15",
+                "klf15_finding",
+                vec![99999999],
+                "KLF15 is a dex target",
+            ),
             tmp.path(),
             &cfg,
         );
@@ -7762,9 +8966,15 @@ mod tests {
     #[test]
     fn missing_row_mismatch_contradicted_by_verified_twin_is_demoted() {
         let verified = ClaimVerdict {
-            claim: lit_claim_for("KLF15", "ENSG00000163884", vec![28375666], "KLF15 prior work"),
+            claim: lit_claim_for(
+                "KLF15",
+                "ENSG00000163884",
+                vec![28375666],
+                "KLF15 prior work",
+            ),
             status: ClaimStatus::Verified,
             strength: ClaimStrength::Exploratory,
+            audit: None,
         };
         // Contradictory missing-row Mismatch on the SAME (KLF15, 28375666).
         let contradicted = ClaimVerdict {
@@ -7773,6 +8983,7 @@ mod tests {
                 detail: "literature: narrative cites PMID 28375666 but the matrix has no such supporting row for `KLF15`".into(),
             },
             strength: ClaimStrength::Exploratory,
+            audit: None,
         };
         // INDEPENDENT genuinely-absent Mismatch — different gene, no Verified
         // twin — must survive.
@@ -7782,15 +8993,18 @@ mod tests {
                 detail: "literature: narrative cites PMID 55555555 but the matrix has no such supporting row for `GHOSTGENE`".into(),
             },
             strength: ClaimStrength::Exploratory,
+            audit: None,
         };
         // An opposite_direction Mismatch on a verified pair must NOT be demoted
         // (it keys on a flag, not a missing row).
         let opposite = ClaimVerdict {
             claim: lit_claim_for("KLF15", "ENSG00000163884", vec![28375666], "KLF15 opposite"),
             status: ClaimStatus::Mismatch {
-                detail: "literature: matrix records opposite-direction prior finding for `KLF15`".into(),
+                detail: "literature: matrix records opposite-direction prior finding for `KLF15`"
+                    .into(),
             },
             strength: ClaimStrength::Exploratory,
+            audit: None,
         };
 
         let mut verdicts = vec![verified, contradicted, independent, opposite];
@@ -7889,13 +9103,35 @@ mod tests {
                 .cited_pmids
                 .clone()
         };
-        assert_eq!(pmids_of("KLF15"), vec![28375666], "KLF15 must bind ONLY its own PMID");
-        assert_eq!(pmids_of("CRISPLD2"), vec![24926665], "CRISPLD2 must bind ONLY its own PMID");
-        assert_eq!(pmids_of("IRS2"), vec![28375666], "IRS2 inherits the shared trailing PMID");
-        assert_eq!(pmids_of("MFGE8"), vec![28375666], "MFGE8 binds its trailing-parenthetical PMID");
+        assert_eq!(
+            pmids_of("KLF15"),
+            vec![28375666],
+            "KLF15 must bind ONLY its own PMID"
+        );
+        assert_eq!(
+            pmids_of("CRISPLD2"),
+            vec![24926665],
+            "CRISPLD2 must bind ONLY its own PMID"
+        );
+        assert_eq!(
+            pmids_of("IRS2"),
+            vec![28375666],
+            "IRS2 inherits the shared trailing PMID"
+        );
+        assert_eq!(
+            pmids_of("MFGE8"),
+            vec![28375666],
+            "MFGE8 binds its trailing-parenthetical PMID"
+        );
         // The cross-association is gone: no gene carries another gene's PMID.
-        assert!(!pmids_of("KLF15").contains(&24926665), "KLF15 must NOT carry CRISPLD2's PMID");
-        assert!(!pmids_of("CRISPLD2").contains(&28375666), "CRISPLD2 must NOT carry the others' PMID");
+        assert!(
+            !pmids_of("KLF15").contains(&24926665),
+            "KLF15 must NOT carry CRISPLD2's PMID"
+        );
+        assert!(
+            !pmids_of("CRISPLD2").contains(&28375666),
+            "CRISPLD2 must NOT carry the others' PMID"
+        );
 
         // End-to-end: all four VERIFY, zero Mismatch.
         for gene in ["KLF15", "CRISPLD2", "IRS2", "MFGE8"] {
@@ -7948,7 +9184,10 @@ mod tests {
             "finding_id,entity,entity_kind,pmid,evidence_quote,concordance_flag\n\
              ENSGBAR,BAR,gene,33333333,\"BAR was induced\",same_direction\n",
         );
-        let claims = extract_claims("BAR was induced as previously reported (PMID 33333333).", &cfg);
+        let claims = extract_claims(
+            "BAR was induced as previously reported (PMID 33333333).",
+            &cfg,
+        );
         let bar = claims
             .iter()
             .find(|c| c.entity == "BAR")
@@ -8018,7 +9257,11 @@ mod tests {
                 .iter()
                 .any(|v| matches!(v.status, ClaimStatus::Mismatch { .. })),
             "wrong KEGG/Autophagy padj must be Mismatch, got {:?}",
-            r_wrong.verdicts.iter().map(|v| &v.status).collect::<Vec<_>>()
+            r_wrong
+                .verdicts
+                .iter()
+                .map(|v| &v.status)
+                .collect::<Vec<_>>()
         );
 
         // Right padj → Verified.
@@ -8034,7 +9277,11 @@ mod tests {
                 .iter()
                 .any(|v| matches!(v.status, ClaimStatus::Verified)),
             "correct KEGG/Autophagy padj must Verify, got {:?}",
-            r_right.verdicts.iter().map(|v| &v.status).collect::<Vec<_>>()
+            r_right
+                .verdicts
+                .iter()
+                .map(|v| &v.status)
+                .collect::<Vec<_>>()
         );
     }
 
@@ -8065,7 +9312,11 @@ mod tests {
                 .iter()
                 .all(|v| matches!(v.status, ClaimStatus::Unverifiable { .. })),
             "absent keyed row must abstain (Unverifiable), got {:?}",
-            report.verdicts.iter().map(|v| &v.status).collect::<Vec<_>>()
+            report
+                .verdicts
+                .iter()
+                .map(|v| &v.status)
+                .collect::<Vec<_>>()
         );
     }
 
@@ -8122,7 +9373,11 @@ mod tests {
                 .iter()
                 .any(|v| matches!(v.status, ClaimStatus::Mismatch { .. })),
             "all-rows median mislabelled as tested-genes must be Mismatch, got {:?}",
-            r_wrong.verdicts.iter().map(|v| &v.status).collect::<Vec<_>>()
+            r_wrong
+                .verdicts
+                .iter()
+                .map(|v| &v.status)
+                .collect::<Vec<_>>()
         );
 
         // Right: the true tested-genes median → Verified.
@@ -8138,7 +9393,11 @@ mod tests {
                 .iter()
                 .any(|v| matches!(v.status, ClaimStatus::Verified)),
             "correct tested-genes median must Verify, got {:?}",
-            r_right.verdicts.iter().map(|v| &v.status).collect::<Vec<_>>()
+            r_right
+                .verdicts
+                .iter()
+                .map(|v| &v.status)
+                .collect::<Vec<_>>()
         );
     }
 
@@ -8167,7 +9426,11 @@ mod tests {
                 .iter()
                 .all(|v| matches!(v.status, ClaimStatus::Unverifiable { .. })),
             "absent column must abstain (Unverifiable), got {:?}",
-            report.verdicts.iter().map(|v| &v.status).collect::<Vec<_>>()
+            report
+                .verdicts
+                .iter()
+                .map(|v| &v.status)
+                .collect::<Vec<_>>()
         );
     }
 }

@@ -215,6 +215,7 @@ mod tests {
                 claim,
                 status: ClaimStatus::Verified,
                 strength: ClaimStrength::default(),
+                audit: None,
             }],
             runtime_decision_log_path: None,
         };
