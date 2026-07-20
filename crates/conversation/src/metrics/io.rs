@@ -18,7 +18,21 @@ use crate::session::SessionId;
 /// `let _ =...` so a ledger-write failure never aborts the emit. The
 /// row carries the four cost buckets the operational eval plan tracks
 /// (`chat / agent / scorer / side_call`) plus their sum
-/// (`total_cost_usd`) and an ISO-8601 emit timestamp.
+/// (`total_cost_usd`), a metered-vs-unmetered label for the agent bucket,
+/// and a DETERMINISTIC (run-epoch) emit timestamp.
+///
+/// **Metering (DR-9):** `chat`/`scorer`/`side_call` are API-metered per-token;
+/// `agent_cost_usd` is metered only under `ECAA_AGENT_BILLING=api`. By default
+/// agent code-gen bills against a Claude Max/Pro SUBSCRIPTION, so a `$0.00`
+/// `agent_cost_usd` means UNMETERED, not free — `agent_billing_mode` +
+/// `agent_cost_metered` label it so a reviewer never reads the zero as
+/// "the agent cost nothing".
+///
+/// **Determinism:** `emitted_at` uses the run-epoch clock (matching
+/// `dateCreated` / `Bagging-Date`), NOT the wall clock, so re-emitting /
+/// re-exporting the same package does not churn the ledger row (and the
+/// deposit `export` reseal that folds this file into the manifest stays
+/// byte-reproducible).
 ///
 /// One row per emit. Amendments and re-emits append rather than
 /// overwriting so the ledger doubles as a per-session cost history.
@@ -28,19 +42,33 @@ pub fn write_cost_ledger_row(
     session_id: SessionId,
     metrics: &SessionMetrics,
 ) -> std::io::Result<()> {
+    use ecaa_workflow_core::clock::Clock as _;
     use std::io::Write;
     let total = metrics.chat_cost_usd
         + metrics.agent_cost_usd
         + metrics.scorer_cost_usd
         + metrics.side_call_cost_usd;
+    // Agent billing mode: SUBSCRIPTION by default (agent-claude.sh), API only
+    // when explicitly overridden. Anything other than "api" is subscription.
+    let agent_billing_mode = match std::env::var("ECAA_AGENT_BILLING") {
+        Ok(v) if v.eq_ignore_ascii_case("api") => "api",
+        _ => "subscription",
+    };
+    let agent_cost_metered = agent_billing_mode == "api";
     let row = serde_json::json!({
         "session_id": session_id.to_string(),
-        "emitted_at": ecaa_workflow_core::time_helpers::now_rfc3339(),
+        "emitted_at": ecaa_workflow_core::clock::run_epoch_clock().now_rfc3339(),
         "chat_cost_usd": metrics.chat_cost_usd,
         "agent_cost_usd": metrics.agent_cost_usd,
         "scorer_cost_usd": metrics.scorer_cost_usd,
         "side_call_cost_usd": metrics.side_call_cost_usd,
         "total_cost_usd": total,
+        "agent_billing_mode": agent_billing_mode,
+        "agent_cost_metered": agent_cost_metered,
+        "cost_metering_note": "chat/scorer/side_call are API-metered per-token; \
+            agent_cost_usd is metered only under ECAA_AGENT_BILLING=api. Under \
+            subscription billing a $0.00 agent_cost_usd means UNMETERED (Claude \
+            Max/Pro), not free.",
     });
     std::fs::create_dir_all(pkg_runtime_dir)?;
     let path = pkg_runtime_dir.join("cost-ledger.jsonl");

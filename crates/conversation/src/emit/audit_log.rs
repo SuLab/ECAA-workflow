@@ -447,15 +447,43 @@ fn build_proofs_jsonl(
 }
 
 /// Build `runtime/assumptions.jsonl` content from a `WorkflowDag`.
+///
+/// PR-7 — an assumption whose affected DAG nodes were ALL pruned (e.g. the
+/// `alignment`/`quantification`/`sequence_trimming` atoms + their
+/// `discover_`/`validate_` companions and `raw_qc`, dropped by a counts-first /
+/// excluded-atoms gate) is stale: it still asserts a plan fact for a node that
+/// no longer exists, contradicting `decisions.jsonl`'s `excluded_atoms`. This
+/// is the AUTHORITATIVE web-UI deposit write, so it marks such orphaned entries
+/// resolved-by-pruning (terminal `Rejected` with a pruning rationale) so the two
+/// ledgers agree — mirroring the core lowering
+/// (`backend_emitters::workflow_json::emit_assumptions_jsonl`).
 fn build_assumptions_jsonl(
     dag: &ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag,
 ) -> String {
+    use ecaa_workflow_core::workflow_contracts::evidence::AssumptionResolution;
+    let present: std::collections::BTreeSet<&str> =
+        dag.nodes.iter().map(|n| n.id.as_str()).collect();
     let mut sorted: Vec<&ecaa_workflow_core::workflow_contracts::evidence::Assumption> =
         dag.assumptions.entries.iter().collect();
     sorted.sort_by(|a, b| a.id.cmp(&b.id));
     let mut out = String::new();
     for assumption in sorted {
-        if let Ok(line) = serde_json::to_string(assumption) {
+        let orphaned = !assumption.affects_nodes.is_empty()
+            && assumption
+                .affects_nodes
+                .iter()
+                .all(|n| !present.contains(n.as_str()));
+        let line = if orphaned {
+            let mut pruned = assumption.clone();
+            pruned.resolution = AssumptionResolution::Rejected {
+                rationale: "atom pruned from workflow — excluded from the emitted plan"
+                    .to_string(),
+            };
+            serde_json::to_string(&pruned)
+        } else {
+            serde_json::to_string(assumption)
+        };
+        if let Ok(line) = line {
             out.push_str(&line);
             out.push('\n');
         }
@@ -924,5 +952,67 @@ mod tests {
             !pkg.join("runtime/coverage-statement.json").exists(),
             "no DAG => no coverage-statement.json"
         );
+    }
+
+    /// PR-7 — the web-UI assumptions write marks an assumption whose affected
+    /// node was pruned from the DAG (excluded-atoms gate) as resolved-by-
+    /// pruning (`Rejected`), while one whose node still exists is untouched, so
+    /// `assumptions.jsonl` stops contradicting `decisions.jsonl`'s
+    /// `excluded_atoms`.
+    #[test]
+    fn build_assumptions_jsonl_marks_pruned_atom_rejected() {
+        use ecaa_workflow_core::workflow_contracts::evidence::{
+            Assumption, AssumptionResolution, AssumptionSource, RiskClass,
+        };
+        use ecaa_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
+
+        let mut dag = WorkflowDag {
+            nodes: vec![TaskNode::skeleton("quantify_features", "Quantify")],
+            ..Default::default()
+        };
+        dag.assumptions.entries.push(Assumption {
+            id: "a_kept".into(),
+            statement: "kept — node present".into(),
+            source: AssumptionSource::LlmInferred {
+                confidence: "low".into(),
+            },
+            affects_nodes: vec!["quantify_features".into()],
+            risk: RiskClass::Low,
+            resolution: AssumptionResolution::Unresolved,
+            chain_of_custody: None,
+        });
+        dag.assumptions.entries.push(Assumption {
+            id: "a_pruned".into(),
+            statement: "pruned atom — node absent".into(),
+            source: AssumptionSource::LlmInferred {
+                confidence: "low".into(),
+            },
+            affects_nodes: vec!["align_reads".into()],
+            risk: RiskClass::Low,
+            resolution: AssumptionResolution::Unresolved,
+            chain_of_custody: None,
+        });
+
+        let jsonl = build_assumptions_jsonl(&dag);
+        let rows: Vec<serde_json::Value> = jsonl
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        assert_eq!(rows.len(), 2, "one line per assumption");
+        let kept = rows.iter().find(|r| r["id"] == "a_kept").unwrap();
+        let pruned = rows.iter().find(|r| r["id"] == "a_pruned").unwrap();
+        assert_eq!(
+            kept["resolution"]["kind"], "unresolved",
+            "assumption for a present node is untouched"
+        );
+        assert_eq!(
+            pruned["resolution"]["kind"], "rejected",
+            "assumption for a pruned atom must be marked resolved-by-pruning"
+        );
+        assert!(pruned["resolution"]["rationale"]
+            .as_str()
+            .unwrap()
+            .contains("pruned"));
     }
 }

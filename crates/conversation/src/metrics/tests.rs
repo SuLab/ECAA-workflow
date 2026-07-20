@@ -1112,7 +1112,13 @@ fn write_cost_ledger_row_appends_jsonl() {
     // total_cost_usd == sum of the 4 buckets, not metrics.total_cost_usd
     // (which is the chat-side snapshot field).
     assert!((row1["total_cost_usd"].as_f64().unwrap() - 1.76).abs() < 1e-9);
+    // Deterministic run-epoch timestamp (still an ISO-8601 string).
     assert!(row1["emitted_at"].as_str().unwrap().contains('T'));
+    // Metered-vs-unmetered labeling: the agent bucket carries a billing mode
+    // and a metered flag so a $0.00 agent cost is never read as "free".
+    assert!(row1["agent_billing_mode"].is_string());
+    assert!(row1["agent_cost_metered"].is_boolean());
+    assert!(row1["cost_metering_note"].is_string());
 
     let row2: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
     assert!((row2["chat_cost_usd"].as_f64().unwrap() - 2.0).abs() < 1e-9);
