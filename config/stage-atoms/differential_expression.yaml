@@ -201,12 +201,15 @@ outputs:
     statistical_state: "de_tested"
     privacy_class: internal
 # Declared non-determinism (Rec 1). Both shrunken effect-size columns —
-# log2FoldChange AND lfcSE — are outputs of an empirical-Bayes adaptive-shrinkage
+# log2FC AND lfcSE — are outputs of an empirical-Bayes adaptive-shrinkage
 # step (e.g. DESeq2/apeglm or ashr) whose fitted prior shifts both estimates
 # within the tolerance band across runs, and which is itself environment-sensitive
 # (the recorded shrinkage engine may be absent from a re-execution's env, so the
 # effect-size columns fall back to a different estimator). The Wald stat/pvalue/padj
 # come from the UNSHRUNKEN model, so the significant set is shrinkage-independent.
+# The effect-size column emitted in de_results.tsv is `log2FC` (the ECAA canonical
+# column name, matching cross_version_diff + the interpretation policy) — NOT the
+# DESeq2-native `log2FoldChange`, which would dangle against the real table.
 # Projected at emit time into determinism-shim.json::non_deterministic_artifacts
 # so a divergence confined to these two columns is bucketed
 # AcknowledgedNonDeterminism, while a divergence in any other column (e.g. stat,
@@ -214,12 +217,12 @@ outputs:
 non_determinism:
   - artifact: de_results.tsv
     columns:
-      - log2FoldChange
+      - log2FC
       - lfcSE
     kind: adaptive_shrinkage
     reason: >-
       Empirical-Bayes adaptive shrinkage of effect sizes (e.g. DESeq2/apeglm or
-      ashr) fits a prior from the data whose shrinkage of the log2FoldChange and
+      ashr) fits a prior from the data whose shrinkage of the log2FC and
       lfcSE columns is not bit-reproducible across BLAS threadings, and whose
       chosen engine may differ between the recorded run and a re-execution; the
       shrunken values may vary within the semantic band without indicating error.

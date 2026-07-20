@@ -117,6 +117,13 @@
           "description": "Deterministic id: `\"{from_node}.{from_port}->{to_node}.{to_port}\"`.",
           "type": "string"
         },
+        "mutually_exclusive_group": {
+          "description": "T6.2 — `EdgeContract.mutually_exclusive_group`. When set, this edge is one member of a mutually-exclusive one-of input group; sibling members are ALTERNATIVES (only one is read at runtime, resolved to a single authoritative edge by observed-provenance in the RO-Crate). Preserved here so a generic consumer of `workflow-typed.json` sees the one-of structure — matching `proofs.jsonl` — and does NOT read an unread alternative as an authoritative data flow. `None` for ordinary edges.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "source_node_id": {
           "description": "`EdgeContract.from_node`.",
           "type": "string"

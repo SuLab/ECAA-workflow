@@ -116,14 +116,19 @@ pub(super) fn write_emit_time_sidecars(
         }),
     )?;
 
-    // `determinism-shim.json` is a forensic env capture (TZ/LANG/locale
-    // presence, seed policy). It is intentionally on the BagIt manifest
-    // exclusion list (see `emitter::bagit`, `runtime/determinism-shim.json`)
-    // because the captured env genuinely varies by host. The one field
-    // that could leak a host filesystem path — `temp_path_policy.root` —
-    // is normalized to the deterministic package-relative `runtime/scratch`
-    // in `serialize_active_settings`, so it never bakes the host `$TMPDIR`
-    // into the package (det-07).
+    // `determinism-shim.json` is a HOST-VARYING forensic env capture
+    // (locale/timezone/seed policy + the applied-policy env-var names). It is
+    // intentionally on the BagIt manifest exclusion list (see `emitter::bagit`,
+    // `runtime/determinism-shim.json`) because its bytes genuinely differ by
+    // compiler host and are refreshed at finalize by
+    // `determinism_shim::merge_container_env` — it is a diagnostic, NOT a
+    // re-verify input, so manifesting it would break cross-host
+    // byte-reproducibility (it is surfaced instead as an RO-Crate `@graph`
+    // CreativeWork, like `DEPOSIT-READINESS.json`). The one field that could
+    // leak a host filesystem path — `temp_path_policy.root` — is normalized to
+    // the deterministic package-relative `runtime/scratch` in
+    // `serialize_active_settings`, so it never bakes the host `$TMPDIR` into
+    // the package (det-07).
     let determinism = crate::determinism_shim::serialize_active_settings();
     write_pretty_json(&runtime.join("determinism-shim.json"), &determinism)?;
 

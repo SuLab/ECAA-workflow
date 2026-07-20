@@ -204,9 +204,11 @@ mod nondet_projection_tests {
     }
 
     /// The `differential_expression` atom declares its shrunken effect-size
-    /// columns (`log2FoldChange` + `lfcSE`) as adaptive-shrinkage
-    /// non-determinism; the projection must expand that to the task's FULL
-    /// package-relative artifact path, preserving all declared columns.
+    /// columns (`log2FC` + `lfcSE`) as adaptive-shrinkage non-determinism; the
+    /// projection must expand that to the task's FULL package-relative
+    /// artifact path, preserving all declared columns. The effect-size column
+    /// is the ECAA-canonical `log2FC` (matching the real de_results.tsv), NOT
+    /// the DESeq2-native `log2FoldChange` that would dangle.
     #[test]
     fn projects_de_atom_shrinkage_ack_to_full_path() {
         let reg = registry();
@@ -217,7 +219,7 @@ mod nondet_projection_tests {
             .expect("DE de_results.tsv ack projected to full path");
         assert_eq!(
             de.columns.as_deref(),
-            Some(&["log2FoldChange".to_string(), "lfcSE".to_string()][..])
+            Some(&["log2FC".to_string(), "lfcSE".to_string()][..])
         );
         assert_eq!(
             de.kind,
@@ -283,10 +285,16 @@ pub async fn write_security_policy(
     Ok(())
 }
 
-/// D5 (requested side) — write `runtime/dependency-lock.json` from the
-/// aggregated package prereqs. Offline + byte-reproducible: the resolved
-/// column is filled at runtime by the install-proxy fold (OPERATOR-GATED).
-/// Always written (empty columns when no language packages declared).
+/// D5 — write `runtime/dependency-lock.json` from the aggregated package
+/// prereqs (the REQUESTED side), then fold in the RESOLVED exact versions
+/// recorded in the per-task `runtime/outputs/<task>/{env.lock,env.explicit.lock}`
+/// snapshots when they exist. At a fresh emit `runtime/outputs/` is absent, so
+/// the fold is a no-op and the requested-only lock stays byte-reproducible (the
+/// emit determinism contract); the deposit / finalize re-emit — where the
+/// env.lock snapshots exist — folds the real installed versions in so the
+/// deposited `dependency-lock.json` is non-empty and reflects what ACTUALLY ran
+/// (wiring the otherwise-caller-less `RequestedLock::fold_resolved`). Always
+/// written (empty columns when no language packages declared and nothing ran).
 pub async fn write_dependency_lock(
     prereqs: &ecaa_workflow_core::runtime_prereqs::RuntimePrereqs,
     output_dir: &Path,
@@ -294,7 +302,8 @@ pub async fn write_dependency_lock(
     let runtime = output_dir.join("runtime");
     tokio::fs::create_dir_all(&runtime).await?;
     let path = runtime.join("dependency-lock.json");
-    let lock = ecaa_workflow_core::dependency_lock::RequestedLock::from_prereqs(prereqs);
+    let mut lock = ecaa_workflow_core::dependency_lock::RequestedLock::from_prereqs(prereqs);
+    lock.fold_from_package_outputs(output_dir);
     let body = serde_json::to_vec_pretty(&lock).context("serializing dependency-lock.json")?;
     tokio::fs::write(&path, body)
         .await

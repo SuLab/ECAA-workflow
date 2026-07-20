@@ -3153,16 +3153,21 @@ fn is_excluded_from_baseline(rel: &std::path::Path) -> bool {
     // `audit-proof-report.json` / `claim-verification.json` /
     // `verifier-decisions.jsonl` / `validation-reports.jsonl` /
     // `validation-summary.json` / `reexecution.json` /
-    // `intake-conversation.jsonl` / `determinism-shim.json`) are all
-    // byte-deterministic at emit and are now BagIt-manifested (see
-    // `bagit::walk_for_manifest`), so they are DELIBERATELY not excluded
-    // here anymore — the whole-package test now covers their bytes too
-    // (`audit-proof-report.json`'s `evaluated_at` was moved onto the
-    // deterministic run-epoch clock so it too is reproducible). Only the
+    // `intake-conversation.jsonl`) are all byte-deterministic at emit and are
+    // now BagIt-manifested (see `bagit::walk_for_manifest`), so they are
+    // DELIBERATELY not excluded here anymore — the whole-package test now
+    // covers their bytes too (`audit-proof-report.json`'s `evaluated_at` was
+    // moved onto the deterministic run-epoch clock so it too is reproducible).
+    //
+    // `determinism-shim.json` is EXCLUDED again: it is a HOST-VARYING
+    // diagnostic (locale/timezone/seed policy + applied-policy env-var names)
+    // that is refreshed at finalize and NOT BagIt-manifested, so this baseline
+    // walk mirrors `bagit::walk_for_manifest` by dropping it. Only the
     // non-integrity informational sidecars remain excluded.
     matches!(
         rel.to_string_lossy().as_ref(),
-        "runtime/ed-cf-self-assessment.json"
+        "runtime/determinism-shim.json"
+            | "runtime/ed-cf-self-assessment.json"
             | "runtime/ed-cf-delta.json"
             | "runtime/catalog-coverage-statement.json"
             | "runtime/policy-decisions.jsonl"

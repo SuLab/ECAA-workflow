@@ -368,6 +368,24 @@ pub struct PackageSafetyAggregate {
     pub package_max_network_policy: String,
     /// Package requires sandbox.
     pub package_requires_sandbox: bool,
+    /// DR-7 — the runtime ISOLATION MODEL applied to every task, stated
+    /// explicitly so the aggregate is not misread as "no code executed"
+    /// when every per-atom `code_execution` reads `None`. The per-atom
+    /// `code_execution` field records an atom's DECLARED code-authorship
+    /// stance (`None` = ships no code of its own, `Vetted` = curated
+    /// script, `GeneratedByAgent` = LLM-authored) — NOT whether code runs:
+    /// every task's step is executed by the agent inside a per-task
+    /// container, so a `code_execution: None` atom still runs code under
+    /// this isolation model. `package_requires_sandbox` refers to an
+    /// ADDITIONAL OS-level (bubblewrap) sandbox layered on top of container
+    /// isolation for `GeneratedByAgent` atoms, not to the presence of the
+    /// container boundary. Reconciled with the network policy so the string
+    /// also states the package's egress posture.
+    ///
+    /// `#[serde(default)]` so a pre-DR-7 `security-policy.json` (no
+    /// `isolation_model`) still deserializes — additive, low-ripple.
+    #[serde(default)]
+    pub isolation_model: String,
     /// Container image digests.
     pub container_image_digests: Vec<String>,
     /// Scan results summary.
@@ -455,12 +473,28 @@ pub fn aggregate_for_package(
         worst_level = SafetyLevel::default();
     }
 
+    // DR-7 — state the runtime isolation model explicitly (deterministic:
+    // depends only on the max-network rollup + whether an extra OS sandbox
+    // is required), so a reviewer never reads the aggregate as "no code ran".
+    let isolation_model = format!(
+        "container-per-task: every task's analysis step (agent-authored or vetted code) \
+         executes inside an isolated OCI container, never on the bare host; host egress is \
+         limited to the package network policy ({max_network}). The per-atom `code_execution` \
+         field records each atom's DECLARED code-authorship stance (None = ships no code, \
+         Vetted = curated script, GeneratedByAgent = LLM-authored) — NOT whether code runs: a \
+         `code_execution: None` atom still runs code under this isolation model. \
+         `package_requires_sandbox` ({needs_sandbox}) refers to an ADDITIONAL OS-level \
+         (bubblewrap) sandbox layered on top of the container boundary for GeneratedByAgent \
+         atoms, not to the presence of container isolation itself."
+    );
+
     PackageSafetyAggregate {
         schema_version: "1".into(),
         atom_policies: entries,
         package_max_safety_level: format!("{:?}", worst_level),
         package_max_network_policy: max_network.into(),
         package_requires_sandbox: needs_sandbox,
+        isolation_model,
         container_image_digests,
         // Populated when vulnerability-scan integration lands; nil
         // until then so the field is present in every emitted payload.

@@ -311,9 +311,9 @@ fn walk_for_manifest(
         // `audit-proof-report.json`, `claim-verification.json`,
         // `verifier-decisions.jsonl`, `validation-reports.jsonl`,
         // `validation-summary.json`, `reexecution.json`,
-        // `coverage-statement.json`, `plot_affordances.jsonl`,
-        // `intake-conversation.jsonl`, and `determinism-shim.json` are now
-        // covered (they are byte-deterministic across two same-input emits —
+        // `coverage-statement.json`, `plot_affordances.jsonl`, and
+        // `intake-conversation.jsonl` are now covered (they are
+        // byte-deterministic across two same-input emits —
         // `audit-proof-report.json`'s `evaluated_at` was moved onto the
         // deterministic run-epoch clock precisely so it could join them). A
         // deposit consumer needs these integrity-covered; they were the
@@ -326,6 +326,13 @@ fn walk_for_manifest(
         // violation at its source instead.
         //
         // The remaining exclusions below are NOT integrity-bearing evidence:
+        //   - `determinism-shim.json` — a HOST-VARYING diagnostic env capture
+        //     (locale/timezone/seed policy + the applied-policy env-var names).
+        //     Its bytes differ by compiler host and are refreshed at finalize
+        //     by `merge_container_env`, so it is NOT a re-verify input and
+        //     manifesting it would break cross-host byte-reproducibility. It is
+        //     surfaced instead as an RO-Crate `@graph` CreativeWork, like
+        //     `DEPOSIT-READINESS.json`.
         //   - `ed-cf-*` — re-emitted by the conversation path with the live
         //     `Tool::COUNT` (differs from the core baseline), informational.
         //   - `catalog-coverage-statement.json` / `policy-decisions.jsonl` /
@@ -334,7 +341,8 @@ fn walk_for_manifest(
         //   - `decisions.jsonl.mac` — a keyed HMAC over `decisions.jsonl`;
         //     verified with the session secret, NOT by re-hashing into the
         //     payload manifest, and non-reproducible across sessions.
-        if rel == std::path::Path::new("runtime/ed-cf-self-assessment.json")
+        if rel == std::path::Path::new("runtime/determinism-shim.json")
+            || rel == std::path::Path::new("runtime/ed-cf-self-assessment.json")
             || rel == std::path::Path::new("runtime/ed-cf-delta.json")
             || rel == std::path::Path::new("runtime/catalog-coverage-statement.json")
             || rel == std::path::Path::new("runtime/policy-decisions.jsonl")

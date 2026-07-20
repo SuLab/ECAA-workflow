@@ -105,6 +105,7 @@ pub fn lower_to_typed_workflow(dag: &WorkflowDag, ctx: &TypedWorkflowContext) ->
             target_node_id: e.to_node.clone(),
             source_output: e.from_port.clone(),
             target_input: e.to_port.clone(),
+            mutually_exclusive_group: e.mutually_exclusive_group.clone(),
         });
         parameter_mappings.push(ParameterMapping {
             source_step: e.from_node.clone(),
@@ -346,6 +347,16 @@ pub struct TypedEdge {
     pub source_output: String,
     /// `EdgeContract.to_port` — the consumer port name preserved.
     pub target_input: String,
+    /// T6.2 — `EdgeContract.mutually_exclusive_group`. When set, this edge is
+    /// one member of a mutually-exclusive one-of input group; sibling members
+    /// are ALTERNATIVES (only one is read at runtime, resolved to a single
+    /// authoritative edge by observed-provenance in the RO-Crate). Preserved
+    /// here so a generic consumer of `workflow-typed.json` sees the one-of
+    /// structure — matching `proofs.jsonl` — and does NOT read an unread
+    /// alternative as an authoritative data flow. `None` for ordinary edges.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub mutually_exclusive_group: Option<String>,
 }
 
 /// Port wiring projected from an edge. Mirrors the edge endpoints but keyed
@@ -730,6 +741,19 @@ mod tests {
                 step.step_id
             );
         }
+    }
+
+    #[test]
+    #[ignore = "one-shot schema regenerator; run with REGEN_TYPED_SCHEMA=1"]
+    fn regen_typed_schema() {
+        if std::env::var("REGEN_TYPED_SCHEMA").is_err() {
+            return;
+        }
+        let generated = schemars::schema_for!(TypedWorkflow);
+        let generated_json = serde_json::to_string_pretty(&generated).unwrap();
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/backend_emitters/_workflow-typed.schema.json");
+        std::fs::write(&path, format!("{generated_json}\n")).unwrap();
     }
 
     /// W2 — the committed schema is byte-equal to schemars's rendering of
