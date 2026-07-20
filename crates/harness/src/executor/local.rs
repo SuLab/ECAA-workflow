@@ -203,10 +203,12 @@ fn env_clear_disabled() -> bool {
 /// flag into a footgun. Fail closed instead: refuse to start the
 /// harness so the operator sees the typo before any agent dispatch.
 ///
-/// Valid values: unset (auto-detect via `detect_default_sandbox`),
-/// `off` (explicitly disable), empty string (treated as `off`),
-/// `bubblewrap` (require bwrap). Anything else is a configuration
-/// error.
+/// Valid values: unset (default OFF, or bwrap-ON under an active
+/// re-executable deposit profile — see
+/// `sandbox_enforcer::resolve_local_sandbox_mode`), `off` (explicitly
+/// disable — the escape hatch for hosts without bwrap), empty string
+/// (treated as `off`), `bubblewrap` (require bwrap). Anything else is a
+/// configuration error.
 pub(super) fn validate_sandbox_env() -> anyhow::Result<()> {
     match std::env::var("ECAA_LOCAL_SANDBOX").as_deref() {
         Ok("bubblewrap") | Ok("off") | Ok("") => Ok(()),
@@ -795,74 +797,50 @@ impl LocalExecutor {
     }
 }
 
-/// Defaults are SECURITY-RELEVANT: changes here affect blast radius of
-/// Implementation::GeneratedCode tasks.
-///
-/// Called when `ECAA_LOCAL_SANDBOX` is unset. Probes PATH for `bwrap`:
-/// - Found → returns `ProcessIsolation` (bubblewrap enabled).
-/// - Not found → emits a one-shot `tracing::warn!` and returns `None`.
-///
-/// The warn fires at most once per process lifetime via `std::sync::Once`.
-/// Operators who explicitly set `ECAA_LOCAL_SANDBOX=off` bypass this
-/// function entirely and see no warning.
-fn detect_default_sandbox() -> ecaa_workflow_core::atom::SandboxRequirement {
-    // One-shot warn so long-running harness loops don't spam logs.
-    static WARN_ONCE: std::sync::Once = std::sync::Once::new();
-
-    let bwrap_found = std::process::Command::new("which")
-        .arg("bwrap")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-
-    if bwrap_found {
-        ecaa_workflow_core::atom::SandboxRequirement::ProcessIsolation
-    } else {
-        WARN_ONCE.call_once(|| {
-            tracing::warn!(
-                "ECAA_LOCAL_SANDBOX unset and bwrap not found on PATH. \
-                 Implementation::GeneratedCode tasks will run unsandboxed. \
-                 Install bwrap (sudo apt install bubblewrap) or set \
-                 ECAA_LOCAL_SANDBOX=off explicitly to suppress this warning."
-            );
-        });
-        ecaa_workflow_core::atom::SandboxRequirement::None
-    }
-}
-
 impl Executor for LocalExecutor {
     fn name(&self) -> &'static str {
         "local"
     }
 
-    /// Local executor capability profile. Sandbox tier is
-    /// driven by `ECAA_LOCAL_SANDBOX`: `bubblewrap` enables the bwrap path;
-    /// `off` explicitly disables it; unset auto-detects via
-    /// `detect_default_sandbox`. Network is `Bridge` by default — the
-    /// host has the same egress as the operator's shell.
+    /// Local executor capability profile. Sandbox tier is driven by the
+    /// SHARED resolver `sandbox_enforcer::resolve_local_sandbox_mode`, the
+    /// SAME function `BubblewrapRunner::from_env` uses for enforcement — so
+    /// the advertised capability can never over-claim what is actually
+    /// enforced (§G-B2). `Bubblewrap` mode (explicit `ECAA_LOCAL_SANDBOX=
+    /// bubblewrap`, OR unset under an active re-executable deposit profile)
+    /// advertises `ProcessIsolation`; every other case advertises `None`.
+    ///
+    /// This deliberately does NOT probe PATH for `bwrap`: merely having
+    /// bwrap installed never activates the wrap (`from_env` returns
+    /// `Ok(None)` when the mode is `Off`), so claiming `ProcessIsolation`
+    /// off a bare PATH hit would advertise isolation the executor does not
+    /// enforce. Network is `Bridge` by default — the host has the same
+    /// egress as the operator's shell.
     fn capabilities(&self) -> super::ExecutorCapabilities {
         // W2.1: `validate_sandbox_env` is called at executor build time
-        // (see `executor::build` in `mod.rs`) and refuses to construct
-        // the LocalExecutor when ECAA_LOCAL_SANDBOX carries an unknown
-        // token. Reaching this match arm with an unknown value would
-        // require a TOCTOU between build and capabilities() — vanishingly
-        // unlikely in practice — but the match below still rejects loudly
-        // via tracing::warn! so the regression isn't silent.
-        let sandbox = match std::env::var("ECAA_LOCAL_SANDBOX").as_deref() {
-            Ok("bubblewrap") => ecaa_workflow_core::atom::SandboxRequirement::ProcessIsolation,
-            Ok("off") | Ok("") => ecaa_workflow_core::atom::SandboxRequirement::None,
-            Ok(other) => {
+        // (see `executor::build` in `mod.rs`) and refuses to construct the
+        // LocalExecutor when ECAA_LOCAL_SANDBOX carries an unknown token.
+        // Reaching the `Err` arm here would require a TOCTOU between build
+        // and capabilities() — vanishingly unlikely — but it still falls
+        // back to `None` loudly via tracing::warn! so the regression isn't
+        // silent.
+        let sandbox = match crate::sandbox_enforcer::resolve_local_sandbox_mode() {
+            Ok(crate::sandbox_enforcer::LocalSandboxMode::Bubblewrap) => {
+                ecaa_workflow_core::atom::SandboxRequirement::ProcessIsolation
+            }
+            Ok(crate::sandbox_enforcer::LocalSandboxMode::Off) => {
+                ecaa_workflow_core::atom::SandboxRequirement::None
+            }
+            Err(e) => {
                 tracing::warn!(
                     target: "local_sandbox",
-                    value = %other,
+                    error = %e,
                     "ECAA_LOCAL_SANDBOX changed to an unknown value after executor build; \
                      using SandboxRequirement::None (the build-time validator should have caught \
                      this — operator likely mutated the env mid-run)"
                 );
                 ecaa_workflow_core::atom::SandboxRequirement::None
             }
-            // Unset: probe for bwrap and smart-default.
-            Err(_) => detect_default_sandbox(),
         };
         super::ExecutorCapabilities {
             sandbox,
@@ -3056,28 +3034,39 @@ mod tests {
         );
     }
 
-    /// Verifies that the one-shot warning text for the no-bwrap default path
-    /// mentions both `ECAA_LOCAL_SANDBOX=off` (opt-out instruction) and `bwrap`
-    /// (the missing binary). This test does not exercise the probe itself
-    /// (filesystem-dependent) — it validates the message content by inspecting
-    /// the source literal.
+    /// §G-B2 — the local sandbox capability must NOT be claimed off a bare
+    /// bwrap-on-PATH hit. With `ECAA_LOCAL_SANDBOX` unset and no re-executable
+    /// deposit profile active, enforcement is inactive
+    /// (`resolve_local_sandbox_mode` → `Off`) regardless of whether bwrap is
+    /// installed, so `capabilities()` must report `None` — the executor never
+    /// advertises isolation it does not enforce. The `BwrapBinaryMissing`
+    /// escape-hatch guidance (`ECAA_LOCAL_SANDBOX=off`) lives on the runner
+    /// error, not a capability-time probe.
     #[test]
-    fn detect_default_sandbox_warn_mentions_opt_out_and_bwrap() {
-        // The warning string is a compile-time literal in detect_default_sandbox().
-        // Extract it here so changes to the message are caught by this test.
-        let warn_text = concat!(
-            "ECAA_LOCAL_SANDBOX unset and bwrap not found on PATH. ",
-            "Implementation::GeneratedCode tasks will run unsandboxed. ",
-            "Install bwrap (sudo apt install bubblewrap) or set ",
-            "ECAA_LOCAL_SANDBOX=off explicitly to suppress this warning."
+    fn capabilities_report_none_when_enforcement_inactive_even_if_bwrap_installed() {
+        use ecaa_workflow_core::atom::SandboxRequirement;
+        // Serialize env mutation with the other ECAA_LOCAL_SANDBOX tests.
+        let _guard = ENV_CLEAR_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        std::env::remove_var("ECAA_LOCAL_SANDBOX");
+        std::env::remove_var("ECAA_DEPOSIT_PROFILE");
+        let exec = LocalExecutor::new(&args(300));
+        let caps = exec.capabilities();
+        assert_eq!(
+            caps.sandbox,
+            SandboxRequirement::None,
+            "unset ECAA_LOCAL_SANDBOX + no re-exec profile → capability None (never a bare PATH probe)"
         );
-        assert!(
-            warn_text.contains("ECAA_LOCAL_SANDBOX=off"),
-            "warning must mention ECAA_LOCAL_SANDBOX=off opt-out: {warn_text}"
-        );
-        assert!(
-            warn_text.contains("bwrap"),
-            "warning must mention bwrap: {warn_text}"
+
+        // Under an active re-executable deposit profile, enforcement defaults
+        // ON, so the capability flips to ProcessIsolation (scoped default-on).
+        std::env::set_var("ECAA_DEPOSIT_PROFILE", "re-executable");
+        let exec = LocalExecutor::new(&args(300));
+        let caps = exec.capabilities();
+        std::env::remove_var("ECAA_DEPOSIT_PROFILE");
+        assert_eq!(
+            caps.sandbox,
+            SandboxRequirement::ProcessIsolation,
+            "re-executable deposit profile → local filesystem enforcement default-on"
         );
     }
 

@@ -4502,6 +4502,16 @@ fn run_loop(
             // finalize_completed_package). Gated + non-fatal internally.
             ecaa_workflow_harness::end_of_run_finalize::maybe_snapshot(path);
 
+            // T5.9 / DR-12 — backfill a pinned determinism-env for the
+            // input-staging (data_acquisition) stage on BOTH run paths. That
+            // stage is often pre-staged/pre-completed at emit and never
+            // dispatched through `stamp_determinism_env`, so its
+            // determinism-env.json keeps the emitter's empty pinning while
+            // every executed sibling recorded the run-stable envelope; this
+            // copies the envelope from a populated sibling so every stage
+            // matches. Re-seals the BagIt manifest itself on a mutation.
+            ecaa_workflow_harness::end_of_run_finalize::capture_staging_determinism_env(path);
+
             // Fire observed-read reconciliation on BOTH run paths. The session
             // (web-UI) path never calls finalize_completed_package — the server
             // finalizes per-task but does not reconcile — so without this the
