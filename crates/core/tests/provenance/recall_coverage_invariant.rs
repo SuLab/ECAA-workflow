@@ -38,6 +38,7 @@ fn verdict(entity: &str, table: Option<&str>, status: ClaimStatus) -> ClaimVerdi
         },
         status,
         strength: ClaimStrength::Exploratory,
+        audit: None,
     }
 }
 

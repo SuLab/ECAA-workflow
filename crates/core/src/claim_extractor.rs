@@ -224,8 +224,12 @@ impl ExtractorRegexCache {
                 // `of` arm requires a digit (optionally signed) IMMEDIATELY
                 // after, so cutoff phrasing like "log2FC of at least 1" does NOT
                 // capture a value (no false effect-size slot → no false flag).
+                // Accept `≈`/`~` separators (approximate assertions) in addition
+                // to `:`/`=`/`of`, and the collapsed base-10 exponent form
+                // `10-80` (== `1e-80`) as a value — parsed by
+                // [`parse_loose_number`].
                 let pat = format!(
-                    r"(?i){}(?:\s*[:=]\s*|\s+of\s+)(-?\d+(?:\.\d+)?(?:[eE]-?\d+)?)",
+                    r"(?i){}(?:\s*[:=≈~]\s*|\s+of\s+)(10-\d+|-?\d+(?:\.\d+)?(?:[eE]-?\d+)?)",
                     regex::escape(&kw)
                 );
                 let re = Regex::new(&pat).expect("static-shape regex");
@@ -236,7 +240,7 @@ impl ExtractorRegexCache {
             .into_iter()
             .map(|kw| {
                 let pat = format!(
-                    r"(?i)(?:\b|,|\s){}\s*[:=]\s*(\d+(?:\.\d+)?(?:[eE]-?\d+)?)",
+                    r"(?i)(?:\b|,|\s){}\s*[:=≈~]\s*(10-\d+|\d+(?:\.\d+)?(?:[eE]-?\d+)?)",
                     regex::escape(&kw)
                 );
                 let re = Regex::new(&pat).expect("static-shape regex");
@@ -1818,7 +1822,7 @@ fn scan_effect_size_positions(sentence: &str, cache: &ExtractorRegexCache) -> Ve
         for caps in re.captures_iter(sentence) {
             let Some(whole) = caps.get(0) else { continue };
             if let Some(m) = caps.get(1) {
-                if let Ok(v) = m.as_str().parse::<f64>() {
+                if let Some(v) = parse_loose_number(m.as_str()) {
                     let pos = whole.start();
                     if !hits.iter().any(|(p, _)| *p == pos) {
                         hits.push((pos, v));
@@ -1845,7 +1849,7 @@ fn scan_pvalue_positions(sentence: &str, cache: &ExtractorRegexCache) -> Vec<(us
         for caps in re.captures_iter(sentence) {
             let Some(whole) = caps.get(0) else { continue };
             if let Some(m) = caps.get(1) {
-                if let Ok(v) = m.as_str().parse::<f64>() {
+                if let Some(v) = parse_loose_number(m.as_str()) {
                     let pos = whole.start();
                     if !hits.iter().any(|(p, _, _)| *p == pos) {
                         hits.push((pos, v, kw.clone()));
@@ -1948,6 +1952,26 @@ static KEYED_CELL_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// claim like `padj = 1.49 × 10⁻¹⁵⁹` parses as `1.49`, producing a false
 /// mismatch that would wrongly block the session. Applied before any
 /// offset computation so entity/direction positions stay self-consistent.
+/// Parse a numeric value token, additively tolerating the collapsed base-10
+/// exponent form `10-80` (meaning `1e-80`) and `10^-80` on top of the standard
+/// float / scientific parse. Purely additive: identical to `str::parse::<f64>`
+/// for every token the previous scanners accepted, plus the base-10 form the
+/// extended regex now captures.
+pub(crate) fn parse_loose_number(raw: &str) -> Option<f64> {
+    if let Ok(v) = raw.parse::<f64>() {
+        return Some(v);
+    }
+    let s = raw.trim();
+    for pref in ["10^-", "10-"] {
+        if let Some(exp) = s.strip_prefix(pref) {
+            if !exp.is_empty() && exp.bytes().all(|b| b.is_ascii_digit()) {
+                return format!("1e-{exp}").parse::<f64>().ok();
+            }
+        }
+    }
+    None
+}
+
 pub(crate) fn canonicalize_scientific(text: &str) -> String {
     let mut s = String::with_capacity(text.len());
     for ch in text.chars() {
@@ -1967,6 +1991,19 @@ pub(crate) fn canonicalize_scientific(text: &str) -> String {
             '\u{2079}' => '9',
             // Superscript minus → '-'.
             '\u{207B}' => '-',
+            // Subscript digits → ASCII digits (so `log₂FC` → `log2FC`).
+            '\u{2080}' => '0',
+            '\u{2081}' => '1',
+            '\u{2082}' => '2',
+            '\u{2083}' => '3',
+            '\u{2084}' => '4',
+            '\u{2085}' => '5',
+            '\u{2086}' => '6',
+            '\u{2087}' => '7',
+            '\u{2088}' => '8',
+            '\u{2089}' => '9',
+            // Subscript minus → '-'.
+            '\u{208B}' => '-',
             // Multiplication sign / middle dot → '*' marker for the
             // scientific-notation collapse below.
             '\u{00D7}' | '\u{22C5}' | '\u{00B7}' => '*',

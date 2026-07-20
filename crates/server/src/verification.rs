@@ -276,6 +276,7 @@ mod signed_sink_wiring_tests {
                 claim: c,
                 status: ClaimStatus::Verified,
                 strength: ClaimStrength::default(),
+                audit: None,
             }],
             runtime_decision_log_path: None,
         };
@@ -354,6 +355,7 @@ mod recall_wiring_tests {
             },
             status: ClaimStatus::Verified,
             strength: ClaimStrength::Exploratory,
+            audit: None,
         };
         let cov = reconcile_coverage(&manifest, &[verdict]);
         assert_eq!(cov.required_addressed, 1);

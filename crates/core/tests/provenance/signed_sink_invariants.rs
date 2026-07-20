@@ -38,6 +38,7 @@ fn v(c: Claim, s: ClaimStatus) -> ClaimVerdict {
         claim: c,
         status: s,
         strength: ClaimStrength::default(),
+        audit: None,
     }
 }
 

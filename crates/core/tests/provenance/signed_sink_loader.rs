@@ -42,6 +42,7 @@ fn report() -> ClaimVerificationReport {
             claim: c,
             status: ClaimStatus::Verified,
             strength: ClaimStrength::default(),
+            audit: None,
         }],
         runtime_decision_log_path: None,
     }
@@ -112,6 +113,7 @@ fn two_claim_report() -> ClaimVerificationReport {
         claim: mk(entity),
         status: ClaimStatus::Verified,
         strength: ClaimStrength::default(),
+        audit: None,
     };
     ClaimVerificationReport {
         n_checked: 2,
