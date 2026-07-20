@@ -38,3 +38,20 @@ fn dispatch_identity_keys_are_in_forward_allowlist() {
         assert!(script.contains(key), "forward allowlist missing {key}");
     }
 }
+
+#[test]
+fn provenance_keys_are_in_forward_allowlist() {
+    // stamp_provenance_env sets these onto the per-task env; the
+    // plotting subprocess (spawned by the agent inside the container)
+    // reads them for the figure footer. If the container forward list
+    // drops them the footer silently degrades to `git@unknown` (RP-7).
+    let script = bootstrap_script();
+    for key in ["ECAA_GIT_SHA", "ECAA_PACKAGE_ID"] {
+        assert!(
+            script.contains(key),
+            "scripts/_agent-blas-bootstrap.sh forward allowlist is missing {key} — \
+             stamp_provenance_env sets it but the container (and the plotting \
+             subprocess) won't see it, so figure footers stamp git@unknown"
+        );
+    }
+}

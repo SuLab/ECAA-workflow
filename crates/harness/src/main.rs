@@ -27,7 +27,7 @@ use ecaa_workflow_harness::executor::stall_monitor::{StallSignal, StallThreshold
 use ecaa_workflow_harness::executor::{self, Executor, ExecutorArgs};
 use ecaa_workflow_harness::finalize_probe::{probe_one_task, ProbeOutcome};
 use ecaa_workflow_harness::multiprocess_lock::SessionLock;
-use ecaa_workflow_harness::required_artifacts::verify_required_artifacts;
+use ecaa_workflow_harness::status_reconciliation;
 use ecaa_workflow_harness::scheduler::{
     count_concurrent_peers_by_class, dag_with_ready_tasks_limited_to, lane_mode_from_env,
     pause_dependent_tasks, pick_ready_respecting_budgets, pick_ready_with_lanes,
@@ -562,6 +562,90 @@ fn collect_safety_policy_refusals(
 }
 
 #[cfg(test)]
+mod provenance_env_tests {
+    use super::*;
+
+    #[test]
+    fn stamp_inserts_both_keys() {
+        let mut env = std::collections::BTreeMap::new();
+        let prov = ProvenanceEnv {
+            git_sha: "abc1234def".into(),
+            package_id: "workflow-xyz".into(),
+        };
+        stamp_provenance_env(&mut env, &prov);
+        assert_eq!(env.get("ECAA_GIT_SHA").map(String::as_str), Some("abc1234def"));
+        assert_eq!(
+            env.get("ECAA_PACKAGE_ID").map(String::as_str),
+            Some("workflow-xyz")
+        );
+    }
+
+    #[test]
+    fn stamp_does_not_overwrite_existing() {
+        let mut env = std::collections::BTreeMap::new();
+        env.insert("ECAA_GIT_SHA".to_string(), "operator-set".to_string());
+        let prov = ProvenanceEnv {
+            git_sha: "resolved".into(),
+            package_id: "pkg".into(),
+        };
+        stamp_provenance_env(&mut env, &prov);
+        assert_eq!(env.get("ECAA_GIT_SHA").map(String::as_str), Some("operator-set"));
+        assert_eq!(env.get("ECAA_PACKAGE_ID").map(String::as_str), Some("pkg"));
+    }
+
+    #[test]
+    fn stamp_skips_empty_values() {
+        let mut env = std::collections::BTreeMap::new();
+        let prov = ProvenanceEnv {
+            git_sha: String::new(),
+            package_id: String::new(),
+        };
+        stamp_provenance_env(&mut env, &prov);
+        assert!(env.is_empty());
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn resolve_falls_back_to_workflow_id_for_package_id() {
+        // With ECAA_PACKAGE_ID unset, the package id derives from
+        // WORKFLOW.json's workflow_id.
+        std::env::remove_var("ECAA_PACKAGE_ID");
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        let dag = DAG {
+            version: "1.0".into(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
+            workflow_id: "workflow-deadbeef".into(),
+            current_task: None,
+            tasks: std::collections::BTreeMap::new(),
+            reverse_deps: std::collections::BTreeMap::new(),
+            run_id: None,
+            execution_order: Vec::new(),
+        };
+        std::fs::write(
+            pkg.join("WORKFLOW.json"),
+            serde_json::to_string(&dag).unwrap(),
+        )
+        .unwrap();
+        let prov = resolve_provenance_env(pkg);
+        assert_eq!(prov.package_id, "workflow-deadbeef");
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn resolve_honours_explicit_env_overrides() {
+        std::env::set_var("ECAA_GIT_SHA", "cafe1234");
+        std::env::set_var("ECAA_PACKAGE_ID", "explicit-pkg");
+        let tmp = tempfile::tempdir().unwrap();
+        let prov = resolve_provenance_env(tmp.path());
+        assert_eq!(prov.git_sha, "cafe1234");
+        assert_eq!(prov.package_id, "explicit-pkg");
+        std::env::remove_var("ECAA_GIT_SHA");
+        std::env::remove_var("ECAA_PACKAGE_ID");
+    }
+}
+
+#[cfg(test)]
 mod controlled_access_gate_tests {
     use super::*;
     use ecaa_workflow_core::atom::{NetworkPolicy, SandboxRequirement};
@@ -720,6 +804,76 @@ fn stamp_dispatch_identity(
             dispatch.harness_run_id.clone(),
         );
         env.insert("ECAA_DISPATCH_EPOCH".into(), dispatch.epoch.to_string());
+    }
+}
+
+/// Run-stable provenance identity propagated into every dispatched
+/// task's environment (RP-7). The agent inherits these, and so does the
+/// plotting subprocess it spawns (`python3 -m runtime.plotting render`),
+/// which stamps `ECAA_PACKAGE_ID`/`ECAA_GIT_SHA` into each figure footer.
+/// Without them the library falls back to `unknown` and footers read
+/// `git@unknown`.
+#[derive(Clone, Debug, Default)]
+struct ProvenanceEnv {
+    git_sha: String,
+    package_id: String,
+}
+
+/// Resolve the workspace git SHA + package identifier ONCE per run.
+///
+/// git SHA priority: explicit `ECAA_GIT_SHA` → `ECAA_WORKSPACE_SHA` →
+/// the package's git HEAD → the workspace (CWD) git HEAD.
+/// package id priority: explicit `ECAA_PACKAGE_ID` → WORKFLOW.json
+/// `workflow_id` → the package directory name.
+/// Empty/blank values are treated as unset so a blank override never
+/// shadows a real value.
+fn resolve_provenance_env(package: &Path) -> ProvenanceEnv {
+    fn nonempty(v: Option<String>) -> Option<String> {
+        v.map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+    }
+    fn git_sha(dir: &Path) -> Option<String> {
+        let s = git_head_sha(dir);
+        if s.is_empty() {
+            None
+        } else {
+            Some(s)
+        }
+    }
+    let sha = nonempty(std::env::var("ECAA_GIT_SHA").ok())
+        .or_else(|| nonempty(std::env::var("ECAA_WORKSPACE_SHA").ok()))
+        .or_else(|| git_sha(package))
+        .or_else(|| std::env::current_dir().ok().and_then(|d| git_sha(&d)))
+        .unwrap_or_default();
+    let package_id = nonempty(std::env::var("ECAA_PACKAGE_ID").ok())
+        .or_else(|| read_dag(package).ok().map(|d| d.workflow_id))
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            package
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+        })
+        .unwrap_or_default();
+    ProvenanceEnv {
+        git_sha: sha,
+        package_id,
+    }
+}
+
+/// Stamp the run-stable provenance identity onto a per-task envelope so
+/// the agent — and the plotting subprocess it spawns — inherit
+/// `ECAA_GIT_SHA` + `ECAA_PACKAGE_ID`. Only stamps non-empty values, and
+/// never overwrites a value the envelope already carries.
+fn stamp_provenance_env(
+    env: &mut std::collections::BTreeMap<String, String>,
+    provenance: &ProvenanceEnv,
+) {
+    if !provenance.git_sha.is_empty() {
+        env.entry("ECAA_GIT_SHA".into())
+            .or_insert_with(|| provenance.git_sha.clone());
+    }
+    if !provenance.package_id.is_empty() {
+        env.entry("ECAA_PACKAGE_ID".into())
+            .or_insert_with(|| provenance.package_id.clone());
     }
 }
 
@@ -2081,6 +2235,10 @@ fn run_loop(
     // the harness was launched (ECAA_CONFIG_DIR overrides for an operator).
     let finalize_config_dir =
         ecaa_workflow_harness::end_of_run_finalize::resolve_config_dir(path);
+    // Run-stable workspace SHA + package id, resolved once here and
+    // stamped onto every per-task envelope so the plotting subprocess
+    // stamps a real footer (RP-7) instead of `git@unknown`.
+    let provenance_env = resolve_provenance_env(path);
     // Inputs for the standalone per-task claim-coverage gate (guard (d) in the
     // silent-completion pass) — derived ONCE here so the gate reuses the SAME
     // values the end-of-run finalize does, rather than recomputing them
@@ -3169,6 +3327,7 @@ fn run_loop(
                         stamp_literature_scope(&mut env, should_freeze_method_authority(args));
                         stamp_provisioning_policy(&mut env, path, dag_snapshot, id, &declared);
                         stamp_safety_network(&mut env, dag_snapshot, id);
+                        stamp_provenance_env(&mut env, &provenance_env);
                         (id.clone(), env)
                     })
                     .collect()
@@ -3191,6 +3350,7 @@ fn run_loop(
                         stamp_literature_scope(&mut env, should_freeze_method_authority(args));
                         stamp_provisioning_policy(&mut env, path, dag_snapshot, id, &declared);
                         stamp_safety_network(&mut env, dag_snapshot, id);
+                        stamp_provenance_env(&mut env, &provenance_env);
                         (id.clone(), env)
                     })
                     .collect()
@@ -3483,6 +3643,24 @@ fn run_loop(
             restore_agent_workflow_edits(path, &dag_before_agent, read_dag(path), &picks)?;
         }
 
+        // CV-6 — backfill agent-code.json `executed_code` for tasks whose
+        // agent authored + ran standalone scripts under
+        // `runtime/outputs/<task_id>/scripts/`. The log-heuristic capture
+        // in agent-claude.sh finds nothing for those stages, leaving
+        // `executed_code` empty / `language:"unknown"`; this fills it from
+        // the scripts that actually ran so the deposit's code-provenance
+        // sidecar is truthful. Idempotent (only fills when empty).
+        for tid in &picks {
+            if ecaa_workflow_harness::agent_code_capture::backfill_executed_code(path, tid.as_str())
+            {
+                tracing::debug!(
+                    target: "agent_code",
+                    task_id = %tid,
+                    "backfilled executed_code from scripts/ (heuristic capture was empty)"
+                );
+            }
+        }
+
         // Aggregate output-directory size cap. Check each dispatched task
         // before merging its state.patch.json. Tasks whose output directory
         // total exceeds ECAA_TASK_OUTPUT_MAX_MB are blocked immediately; their
@@ -3752,6 +3930,49 @@ fn run_loop(
         // the reason string that the server promotes to
         // `BlockerKind::MissingArtifact` via the blocker mapper.
         let mut guard_flipped: Vec<String> = Vec::new();
+
+        // (a-pre) Killed-completion status reconciliation for the case
+        // the Completed-gated guard below misses: a task self-reports
+        // `status:"completed"` in result.json while the harness left its
+        // graph state non-`Completed` (a wall-clock kill can leave it
+        // Running/Ready). Only acts on a POSITIVE kill contradiction —
+        // an `error.json` kill that no later successful completion
+        // superseded — so a still-running or re-running task with a
+        // stale result.json is never falsely demoted; the required-
+        // artifact backstop for DAG-`Completed` tasks stays in the guard
+        // below. On a genuine phantom the reconciled state is routed
+        // through the SAME `verdict_for` so its declared
+        // `required_artifacts` surface as `[missing_artifact]`.
+        for (tid, task) in after.tasks.iter_mut() {
+            if matches!(
+                task.state,
+                TaskState::Completed { .. } | TaskState::Failed { .. } | TaskState::Blocked { .. }
+            ) {
+                continue;
+            }
+            if !status_reconciliation::result_json_reports_completed(path, tid.as_str()) {
+                continue;
+            }
+            // SME-acknowledged skip authorizes an empty/killed completion.
+            if sme_skip::detect_intent(path, tid.as_str()).is_skip() {
+                continue;
+            }
+            if !status_reconciliation::completion_contradicted_by_kill(path, tid.as_str()) {
+                continue;
+            }
+            if let status_reconciliation::CompletionVerdict::Demote(reason) =
+                status_reconciliation::verdict_for(path, tid.as_str(), &task.required_artifacts)
+            {
+                task.state = TaskState::Blocked {
+                    record: ecaa_workflow_core::dag::BlockedRecord {
+                        reason,
+                        attempts: vec![],
+                    },
+                };
+                guard_flipped.push(tid.to_string());
+            }
+        }
+
         for (tid, task) in after.tasks.iter_mut() {
             if let TaskState::Completed { result } = &task.state {
                 // SME-acknowledged skip short-circuit. When the SME has
@@ -3802,18 +4023,23 @@ fn run_loop(
                     guard_flipped.push(tid.to_string());
                     continue;
                 }
-                // (b) required-artifact verification
-                let missing = match verify_required_artifacts(
+                // (b) required-artifact verification + killed-completion
+                // status reconciliation (CV-4). `verdict_for` re-blocks
+                // with the byte-identical `[missing_artifact]` reason when
+                // a declared artifact is missing/empty/invalid (the
+                // server's blocker mapper promotes it to
+                // BlockerKind::MissingArtifact), AND additionally demotes
+                // a self-reported completion whose FINAL dispatch attempt
+                // was a kill that no later successful retry superseded
+                // (`[killed_incomplete]`) — a stage may not stay
+                // `completed` when the process outcome was a kill.
+                match status_reconciliation::verdict_for(
                     path,
                     tid.as_str(),
                     &task.required_artifacts,
                 ) {
-                    Ok(missing) => missing,
-                    Err(e) => {
-                        let reason = format!(
-                            "[missing_artifact] task={} paths=<invalid> — required artifact declaration is invalid: {}",
-                            tid, e
-                        );
+                    status_reconciliation::CompletionVerdict::Stands => {}
+                    status_reconciliation::CompletionVerdict::Demote(reason) => {
                         task.state = TaskState::Blocked {
                             record: ecaa_workflow_core::dag::BlockedRecord {
                                 reason,
@@ -3823,24 +4049,6 @@ fn run_loop(
                         guard_flipped.push(tid.to_string());
                         continue;
                     }
-                };
-                if !missing.is_empty() {
-                    // Marker prefix that the server's blocker mapper
-                    // recognizes to produce BlockerKind::MissingArtifact
-                    // with the paths pulled from the reason suffix.
-                    let reason = format!(
-                        "[missing_artifact] task={} paths={} — agent marked completed but required artifacts are missing or empty.",
-                        tid,
-                        missing.join(","),
-                    );
-                    task.state = TaskState::Blocked {
-                        record: ecaa_workflow_core::dag::BlockedRecord {
-                            reason,
-                            attempts: vec![],
-                        },
-                    };
-                    guard_flipped.push(tid.to_string());
-                    continue;
                 }
                 // (b.5) Input-form mismatch guard — data_acquisition only.
                 // data_acquisition's contract emits the RAW input a composed
