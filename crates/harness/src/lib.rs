@@ -6,6 +6,7 @@
 //! subprocess path.
 
 pub mod _observability;
+pub mod agent_code_capture;
 pub mod env_snapshot;
 pub mod cache_eviction;
 pub mod constants;
@@ -34,6 +35,7 @@ pub mod scratch_cleanup;
 pub mod sme_skip;
 pub mod stale_reset;
 pub mod stall_relay;
+pub mod status_reconciliation;
 pub mod validation_recovery;
 pub mod validators;
 pub mod watchdog;
