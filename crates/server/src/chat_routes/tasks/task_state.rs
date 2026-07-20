@@ -61,8 +61,43 @@ pub(crate) async fn post_set_task_state(
     if let Err(resp) = crate::chat_routes::package_import::ensure_not_imported(&session) {
         return resp;
     }
+    // CV-4 server-side artifact guard. A `Completed` write for a task
+    // whose declared `required_artifacts` are missing/empty on disk is
+    // refused and demoted to a `[missing_artifact]` blocker, mirroring the
+    // harness silent-completion guard (`verify_required_artifacts`) so a
+    // phantom artifact cannot escape into the deposit via this route.
+    // Evaluated against the pre-write snapshot: the declared artifacts and
+    // package root are structural and don't change under the write below.
+    let demotion: Option<(TaskState, String)> =
+        if matches!(req.state, TaskState::Completed { .. }) {
+            let missing = crate::chat_routes::artifact_guard::missing_declared_artifacts(
+                &session, &task_id,
+            );
+            if missing.is_empty() {
+                None
+            } else {
+                tracing::warn!(
+                    %session_id,
+                    task_id = %task_id,
+                    missing = ?missing,
+                    "set_task_state: refused Completed — declared required artifacts missing/empty; demoting to [missing_artifact] blocker"
+                );
+                let reason =
+                    crate::chat_routes::artifact_guard::missing_artifact_reason(&task_id, &missing);
+                let state =
+                    crate::chat_routes::artifact_guard::demoted_blocked_state(&task_id, &missing);
+                Some((state, reason))
+            }
+        } else {
+            None
+        };
+    let refused_reason: Option<String> = demotion.as_ref().map(|(_, r)| r.clone());
     let task_id_for_closure = task_id.clone();
-    let new_state = req.state.clone();
+    // The state actually written: the demoted `Blocked` state on a refused
+    // completion, else the requested state verbatim.
+    let new_state = demotion
+        .map(|(state, _)| state)
+        .unwrap_or_else(|| req.state.clone());
     // Capture both the pre-mutation status (so we can decrement the
     // matching bucket in the cached ProgressSummary) and the resulting
     // status (which may equal the existing terminal value on a refused
@@ -146,7 +181,10 @@ pub(crate) async fn post_set_task_state(
             // rerun's later terminal state overwrites the earlier one.
             // Best-effort; runs only on a successful write.
             match &req.state {
-                TaskState::Completed { .. } => {
+                // A demoted completion (refused_reason set) is NOT a
+                // terminal success disposition — it landed as `Blocked` —
+                // so it must not be recorded as a completed task.
+                TaskState::Completed { .. } if refused_reason.is_none() => {
                     app.conversation
                         .metrics()
                         .record_task_terminal(session_id, task_id.clone(), true)
@@ -159,6 +197,12 @@ pub(crate) async fn post_set_task_state(
                         .await;
                 }
                 _ => {}
+            }
+            // A refused completion returns 409 with the demotion reason so
+            // the caller (harness) sees the completion was not accepted;
+            // the `Blocked` demotion has already been written above.
+            if let Some(reason) = refused_reason {
+                return (StatusCode::CONFLICT, reason).into_response();
             }
             StatusCode::NO_CONTENT.into_response()
         }
@@ -191,11 +235,100 @@ pub(crate) fn routes() -> axum::Router<ChatAppState> {
 
 #[cfg(test)]
 mod tests {
-    use crate::chat_routes::test_support::{make_router, seed_session_with_completed_task};
+    use crate::chat_routes::test_support::{
+        make_router, seed_session_with_completed_task, seed_session_with_task_requiring_artifacts,
+    };
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use ecaa_workflow_core::dag::TaskState;
     use tower::util::ServiceExt;
+
+    /// CV-4: a `Completed` write for a task whose declared
+    /// `required_artifacts` are absent on disk must be REFUSED (409) and
+    /// the task demoted to a `[missing_artifact]` blocker — never recorded
+    /// as `Completed`, so a phantom artifact can't escape via this route.
+    #[tokio::test]
+    async fn post_set_task_state_refuses_completed_when_required_artifacts_missing() {
+        let (router, app) = make_router(vec![]).await;
+        let pkg = tempfile::tempdir().unwrap();
+        // Task output dir exists but the declared artifact is never written.
+        std::fs::create_dir_all(pkg.path().join("runtime/outputs/de")).unwrap();
+        let id = seed_session_with_task_requiring_artifacts(
+            &app,
+            "de",
+            pkg.path().to_path_buf(),
+            &["results/de.tsv"],
+        )
+        .await;
+        let body = serde_json::json!({
+            "state": { "status": "completed", "result": { "ok": true } }
+        });
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!("/api/chat/session/{}/task/de/state", id))
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&body).unwrap()))
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::CONFLICT,
+            "missing required artifact must refuse the completion with 409"
+        );
+        let session = app.conversation.get_session(id).await.unwrap();
+        match session.task_states.get("de") {
+            Some(TaskState::Blocked { record }) => {
+                assert!(
+                    record.reason.starts_with("[missing_artifact]"),
+                    "demotion reason must carry the [missing_artifact] marker: {}",
+                    record.reason
+                );
+            }
+            other => panic!("expected Blocked demotion, got {:?}", other),
+        }
+    }
+
+    /// CV-4: a `Completed` write is ACCEPTED (204, recorded `Completed`)
+    /// when every declared `required_artifact` exists and is non-empty.
+    #[tokio::test]
+    async fn post_set_task_state_accepts_completed_when_required_artifacts_present() {
+        let (router, app) = make_router(vec![]).await;
+        let pkg = tempfile::tempdir().unwrap();
+        let artifact = pkg.path().join("runtime/outputs/de/results/de.tsv");
+        std::fs::create_dir_all(artifact.parent().unwrap()).unwrap();
+        std::fs::write(&artifact, b"gene\tlog2fc\nCRISPLD2\t2.61\n").unwrap();
+        let id = seed_session_with_task_requiring_artifacts(
+            &app,
+            "de",
+            pkg.path().to_path_buf(),
+            &["results/de.tsv"],
+        )
+        .await;
+        let body = serde_json::json!({
+            "state": { "status": "completed", "result": { "ok": true } }
+        });
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!("/api/chat/session/{}/task/de/state", id))
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&body).unwrap()))
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::NO_CONTENT,
+            "present required artifact must accept the completion"
+        );
+        let session = app.conversation.get_session(id).await.unwrap();
+        assert!(
+            matches!(
+                session.task_states.get("de"),
+                Some(TaskState::Completed { .. })
+            ),
+            "completion with present artifacts must be recorded Completed: got {:?}",
+            session.task_states.get("de")
+        );
+    }
 
     #[tokio::test]
     async fn post_set_task_state_writes_through_task_states_authoritative_map() {

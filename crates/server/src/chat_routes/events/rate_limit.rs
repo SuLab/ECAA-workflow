@@ -303,6 +303,14 @@ fn apply_task_state_transition(
     heartbeat_age_secs: u64,
 ) {
     use ecaa_workflow_core::dag::{BlockedRecord, TaskState};
+    // Set when a `task_completed` event is refused by the CV-4 artifact
+    // guard: the declared required_artifacts are missing/empty on disk, so
+    // the completion is demoted to a `[missing_artifact]` blocker instead
+    // of `Completed`, and the session state machine is driven to `Blocked`
+    // below (as for a genuine task_blocked). Mirrors the harness
+    // silent-completion guard so a phantom artifact cannot escape via the
+    // progress-event completion path.
+    let mut demoted_missing: Option<Vec<String>> = None;
     // Sync task state into Session::task_states (the
     // authoritative map) and the eager DAG cache through the
     // session API. Directly mutating `s.dag` loses the state
@@ -313,9 +321,26 @@ fn apply_task_state_transition(
                 started_at: ecaa_workflow_core::time_helpers::now_rfc3339(),
                 remote: remote_state,
             }),
-            "task_completed" => Some(TaskState::Completed {
-                result: serde_json::json!({ "detail": detail }),
-            }),
+            "task_completed" => {
+                let missing =
+                    crate::chat_routes::artifact_guard::missing_declared_artifacts(s, task_id);
+                if missing.is_empty() {
+                    Some(TaskState::Completed {
+                        result: serde_json::json!({ "detail": detail }),
+                    })
+                } else {
+                    tracing::warn!(
+                        task_id = %task_id,
+                        missing = ?missing,
+                        "task_completed progress refused — declared required artifacts missing/empty; demoting to [missing_artifact] blocker"
+                    );
+                    let state = crate::chat_routes::artifact_guard::demoted_blocked_state(
+                        task_id, &missing,
+                    );
+                    demoted_missing = Some(missing);
+                    Some(state)
+                }
+            }
             "task_failed" => Some(TaskState::Failed {
                 reason: detail.to_string(),
             }),
@@ -331,13 +356,34 @@ fn apply_task_state_transition(
             s.set_task_state(task_id, state);
         }
     }
-    // Transition session state on task_blocked / heartbeat_stalled (same txn
-    // so the blocker isn't lost to a concurrent save).
-    if kind == "task_blocked" || kind == "heartbeat_stalled" {
+    // Transition session state on task_blocked / heartbeat_stalled OR a
+    // completion the CV-4 guard demoted (same txn so the blocker isn't lost
+    // to a concurrent save).
+    if kind == "task_blocked" || kind == "heartbeat_stalled" || demoted_missing.is_some() {
         eprintln!(
             "[closure] {} for {} — session state is {:?}",
             kind, task_id, s.state
         );
+        // For a demoted completion, drive the transition with the typed
+        // MissingArtifact blocker + the byte-identical `[missing_artifact]`
+        // marker reason so the UI renders the same BlockerCard the harness
+        // path produces. Otherwise use the event's own detail + mapped
+        // blocker kind.
+        let (transition_detail, transition_blocker) = if let Some(missing) = &demoted_missing {
+            (
+                crate::chat_routes::artifact_guard::missing_artifact_reason(task_id, missing),
+                crate::chat_routes::artifact_guard::missing_artifact_blocker(task_id, missing),
+            )
+        } else {
+            (
+                if kind == "heartbeat_stalled" && detail.is_empty() {
+                    format!("heartbeat stale for {} seconds", heartbeat_age_secs)
+                } else {
+                    detail.to_string()
+                },
+                blocker_kind.clone(),
+            )
+        };
         // The state machine table accepts HarnessTaskBlocked
         // from Emitted | ReadyToEmit | Amending — gating on
         // Emitted alone would silently swallow every blocker
@@ -348,12 +394,8 @@ fn apply_task_state_transition(
         match s.try_transition(
             ecaa_workflow_conversation::session::StateTrigger::HarnessTaskBlocked {
                 task_id: task_id.to_string(),
-                detail: if kind == "heartbeat_stalled" && detail.is_empty() {
-                    format!("heartbeat stale for {} seconds", heartbeat_age_secs)
-                } else {
-                    detail.to_string()
-                },
-                blocker_kind: blocker_kind.clone(),
+                detail: transition_detail,
+                blocker_kind: transition_blocker,
             },
         ) {
             Ok(()) => eprintln!("[closure] transition OK, new state = {:?}", s.state),

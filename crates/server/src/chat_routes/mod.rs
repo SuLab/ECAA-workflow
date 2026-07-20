@@ -211,6 +211,7 @@ pub(crate) mod _rate_limits;
 pub(crate) mod _session_lock;
 mod adjudication;
 pub(crate) mod app_state;
+pub(crate) mod artifact_guard;
 mod atoms;
 mod auto_title;
 mod branches;

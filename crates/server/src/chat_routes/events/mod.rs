@@ -423,6 +423,117 @@ mod tests {
         }
     }
 
+    /// CV-4 (progress path): a `task_completed` progress event for a task
+    /// whose declared `required_artifacts` are missing on disk must NOT
+    /// record `Completed`; the task is demoted to a `[missing_artifact]`
+    /// blocker and the session transitions to `Blocked`. Mirrors the
+    /// harness silent-completion guard on the server progress ingest.
+    #[tokio::test]
+    async fn task_completed_progress_refused_when_required_artifacts_missing() {
+        use crate::chat_routes::test_support::seed_session_with_task_requiring_artifacts;
+        use ecaa_workflow_conversation::SessionState;
+        use ecaa_workflow_core::dag::TaskState;
+
+        let (router, app) = make_router(vec![]).await;
+        let pkg = tempfile::tempdir().unwrap();
+        // Task output dir exists but the declared artifact is never written.
+        std::fs::create_dir_all(pkg.path().join("runtime/outputs/de")).unwrap();
+        let id = seed_session_with_task_requiring_artifacts(
+            &app,
+            "de",
+            pkg.path().to_path_buf(),
+            &["results/de.tsv"],
+        )
+        .await;
+        // Advance to Emitted so the HarnessTaskBlocked transition accepts.
+        app.conversation
+            .store_handle()
+            .update(id, |s| {
+                s.state = SessionState::Emitted;
+                Ok(())
+            })
+            .await
+            .unwrap();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!("/api/chat/session/{}/progress", id))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"kind":"task_completed","task_id":"de","status":"completed","detail":"done"}"#,
+            ))
+            .unwrap();
+        // The progress endpoint always 204s (event ingest); the refusal is
+        // observable in the recorded task/session state, not the status.
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+        let session = app.conversation.get_session(id).await.unwrap();
+        match session.task_states.get("de") {
+            Some(TaskState::Blocked { record }) => assert!(
+                record.reason.starts_with("[missing_artifact]"),
+                "reason must carry the marker: {}",
+                record.reason
+            ),
+            other => panic!("expected Blocked demotion, got {:?}", other),
+        }
+        assert!(
+            matches!(
+                session.state,
+                SessionState::Blocked {
+                    blocker_kind: Some(
+                        ecaa_workflow_core::blocker::BlockerKind::MissingArtifact { .. }
+                    ),
+                    ..
+                }
+            ),
+            "session must block with MissingArtifact on a demoted completion: {:?}",
+            session.state
+        );
+    }
+
+    /// CV-4 (progress path): a `task_completed` progress event is accepted
+    /// (recorded `Completed`) when the declared artifacts are present.
+    #[tokio::test]
+    async fn task_completed_progress_accepted_when_required_artifacts_present() {
+        use crate::chat_routes::test_support::seed_session_with_task_requiring_artifacts;
+        use ecaa_workflow_core::dag::TaskState;
+
+        let (router, app) = make_router(vec![]).await;
+        let pkg = tempfile::tempdir().unwrap();
+        let artifact = pkg.path().join("runtime/outputs/de/results/de.tsv");
+        std::fs::create_dir_all(artifact.parent().unwrap()).unwrap();
+        std::fs::write(&artifact, b"gene\tlog2fc\n").unwrap();
+        let id = seed_session_with_task_requiring_artifacts(
+            &app,
+            "de",
+            pkg.path().to_path_buf(),
+            &["results/de.tsv"],
+        )
+        .await;
+
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!("/api/chat/session/{}/progress", id))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"kind":"task_completed","task_id":"de","status":"completed","detail":"done"}"#,
+            ))
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+        let session = app.conversation.get_session(id).await.unwrap();
+        assert!(
+            matches!(
+                session.task_states.get("de"),
+                Some(TaskState::Completed { .. })
+            ),
+            "present artifacts must record Completed: {:?}",
+            session.task_states.get("de")
+        );
+    }
+
     #[tokio::test]
     async fn task_completed_progress_commits_package_artifacts() {
         use crate::chat_routes::test_support::seed_session_with_completed_task;
