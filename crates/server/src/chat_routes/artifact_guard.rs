@@ -77,6 +77,10 @@ pub(crate) fn missing_under_root(
         Err(_) => return required.iter().map(|a| a.path.clone()).collect(),
     };
     let mut missing = Vec::new();
+    // Canonical jail root for symlink-escape detection. Absent (the task
+    // output dir doesn't exist yet) => every declared artifact fails the
+    // `metadata` probe below and is already counted missing.
+    let base_canon = base.canonicalize().ok();
     for entry in required {
         let full = match safe_relative_join(&base, Path::new(&entry.path)) {
             Ok(f) => f,
@@ -92,6 +96,22 @@ pub(crate) fn missing_under_root(
                 if !meta.is_file() {
                     missing.push(entry.path.clone());
                     continue;
+                }
+                // Reject symlink escape: `std::fs::metadata` (and
+                // `safe_relative_join`, which only rejects lexical
+                // `..`/absolute in the DECLARED path) would otherwise let a
+                // declared artifact that is a symlink to a valid non-empty
+                // file OUTSIDE the task output jail (e.g. /etc/hosts)
+                // satisfy the guard. Mirror the harness guard: the
+                // resolved artifact's canonical path must stay under the
+                // canonical task-output root. Any canonicalize failure or
+                // escape => treat as missing (fail-closed).
+                match (base_canon.as_ref(), full.canonicalize().ok()) {
+                    (Some(root), Some(full_canon)) if full_canon.starts_with(root) => {}
+                    _ => {
+                        missing.push(entry.path.clone());
+                        continue;
+                    }
                 }
                 let min = entry.min_size_bytes.unwrap_or(0);
                 if meta.len() == 0 || meta.len() < min {
@@ -215,6 +235,50 @@ mod tests {
         // A `..`-bearing declared path is never satisfiable → missing.
         let missing = missing_under_root(tmp.path(), "t1", &[req("../escape.txt", None)]);
         assert_eq!(missing, vec!["../escape.txt".to_string()]);
+    }
+
+    /// A declared required_artifact that is a symlink whose target is a
+    /// valid non-empty file OUTSIDE the task output jail must be treated as
+    /// missing — otherwise an agent could satisfy a phantom artifact by
+    /// symlinking to, e.g., /etc/hosts. Mirrors the harness canonicalize +
+    /// range-check guard.
+    #[cfg(unix)]
+    #[test]
+    fn symlink_escaping_artifact_is_missing() {
+        let tmp = TempDir::new().unwrap();
+        let pkg = tmp.path().join("pkg");
+        let task_dir = pkg.join("runtime/outputs/t1/results");
+        std::fs::create_dir_all(&task_dir).unwrap();
+        // A valid, non-empty file OUTSIDE the task output jail.
+        let outside = tmp.path().join("outside_secret.txt");
+        std::fs::write(&outside, b"127.0.0.1 localhost\n").unwrap();
+        // The declared artifact resolves through a symlink to that file.
+        std::os::unix::fs::symlink(&outside, task_dir.join("de.tsv")).unwrap();
+        let missing = missing_under_root(&pkg, "t1", &[req("results/de.tsv", None)]);
+        assert_eq!(
+            missing,
+            vec!["results/de.tsv".to_string()],
+            "a symlink escaping the task output jail must be treated as missing"
+        );
+    }
+
+    /// A symlink whose target is a valid non-empty file INSIDE the jail is
+    /// still a legitimate artifact — canonicalization must not over-reject.
+    #[cfg(unix)]
+    #[test]
+    fn symlink_within_jail_is_accepted() {
+        let tmp = TempDir::new().unwrap();
+        let pkg = tmp.path().join("pkg");
+        let results = pkg.join("runtime/outputs/t1/results");
+        std::fs::create_dir_all(&results).unwrap();
+        let real = results.join("de.real.tsv");
+        std::fs::write(&real, b"gene\tlog2fc\n").unwrap();
+        std::os::unix::fs::symlink(&real, results.join("de.tsv")).unwrap();
+        let missing = missing_under_root(&pkg, "t1", &[req("results/de.tsv", None)]);
+        assert!(
+            missing.is_empty(),
+            "an in-jail symlink to a real non-empty file is a valid artifact: {missing:?}"
+        );
     }
 
     #[test]
