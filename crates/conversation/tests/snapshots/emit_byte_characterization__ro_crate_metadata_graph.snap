@@ -1,6 +1,5 @@
 ---
 source: crates/conversation/tests/emit_byte_characterization.rs
-assertion_line: 344
 expression: value
 ---
 {
@@ -205,6 +204,11 @@ expression: value
       "mainEntity": {
         "@id": "WORKFLOW.json"
       },
+      "mentions": [
+        {
+          "@id": "DEPOSIT-READINESS.json"
+        }
+      ],
       "name": "computational biology — scRNA-seq clustering + differential expression. Standard pipeline:\npreprocess, cell-level QC, normalise, optional batch correction +\nintegration sweep, dimensionality reduction, cluster, annotate cell\ntypes, test cluster-vs-rest or cross-condition DE, then pathway\nenrichment.\n"
     },
     {
@@ -502,6 +506,13 @@ expression: value
       "description": "ECAA audit-proof invariant verdicts.",
       "encodingFormat": "application/json",
       "name": "Audit-proof invariant report"
+    },
+    {
+      "@id": "DEPOSIT-READINESS.json",
+      "@type": "CreativeWork",
+      "description": "Self-validation verdict written by `ecaa-workflow export`: RO-Crate re-verify + BagIt checksum integrity (Layer 1) and, for the re-executable profile, re-execution equivalence (Layer 2). Mutable meta file — excluded from the payload manifest by design.",
+      "encodingFormat": "application/json",
+      "name": "Deposit-readiness attestation"
     },
     {
       "@id": "runtime/ed-cf-self-assessment.json",
