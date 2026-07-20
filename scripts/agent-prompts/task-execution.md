@@ -196,6 +196,25 @@ real runs and are cheap to avoid:
   GLM, with no random-effect term) is NOT a "linear mixed model" — a mixed
   model requires an actual random-effects term. Copy the model label from
   what you ran; don't reach for a more familiar-sounding name.
+- **Carry pathway DIRECTION into the overlap figure data.** When the
+  `reporting` stage emits its `pathway_overlap` figure-data table (in
+  `manifest.json`), give each entry a signed direction alongside its
+  `count`: a numeric `nes` (normalized enrichment score — positive =
+  enriched, negative = depleted) copied from the enrichment result, or,
+  when you have no NES, a string `direction` of `"up"`/`"down"` (equivalently
+  `"enriched"`/`"depleted"`). The renderer draws enriched and depleted
+  pathways in distinct diverging colors only when this field is present;
+  without it an enriched and a depleted set render as visually identical
+  bars. This is purely additive — a legacy `[{label, count}]` entry still
+  renders — so always include `nes` (or `direction`) when the sign is known.
+- **Emit `top_gene_down` in the DE summary.** When the
+  `differential_expression` stage writes `de_summary.json`, record BOTH the
+  top up-regulated and top down-regulated gene: a `top_gene_up` (largest
+  positive log2FC among significant genes) AND a `top_gene_down` (most
+  negative log2FC among significant genes), each taken from your own
+  `de_results.tsv` — do not report only the up direction. Report the
+  gene identifier exactly as it appears in the results table (resolve to a
+  symbol only via the run's pinned annotation, per the Identifiers section).
 
 These are the same pitfalls a source-level validator checks for in
 `validate_reporting`/`validate_final_reporting` when one is present for

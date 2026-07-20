@@ -42,121 +42,141 @@
       "term": "Pathway_0",
       "set_a": 21,
       "set_b": 45,
-      "overlap": 17
+      "overlap": 17,
+      "nes": 1.0
     },
     {
       "term": "Pathway_1",
       "set_a": 27,
       "set_b": 12,
-      "overlap": 2
+      "overlap": 2,
+      "nes": 1.2
     },
     {
       "term": "Pathway_2",
       "set_a": 46,
       "set_b": 12,
-      "overlap": 15
+      "overlap": 15,
+      "nes": 1.4
     },
     {
       "term": "Pathway_3",
       "set_a": 24,
       "set_b": 41,
-      "overlap": 1
+      "overlap": 1,
+      "nes": 1.6
     },
     {
       "term": "Pathway_4",
       "set_a": 34,
       "set_b": 26,
-      "overlap": 8
+      "overlap": 8,
+      "nes": 1.8
     },
     {
       "term": "Pathway_5",
       "set_a": 42,
       "set_b": 41,
-      "overlap": 18
+      "overlap": 18,
+      "nes": 2.0
     },
     {
       "term": "Pathway_6",
       "set_a": 43,
       "set_b": 19,
-      "overlap": 12
+      "overlap": 12,
+      "nes": 2.2
     },
     {
       "term": "Pathway_7",
       "set_a": 24,
       "set_b": 23,
-      "overlap": 19
+      "overlap": 19,
+      "nes": 2.4
     },
     {
       "term": "Pathway_8",
       "set_a": 48,
       "set_b": 13,
-      "overlap": 13
+      "overlap": 13,
+      "nes": 2.6
     },
     {
       "term": "Pathway_9",
       "set_a": 38,
       "set_b": 20,
-      "overlap": 4
+      "overlap": 4,
+      "nes": 2.8
     },
     {
       "term": "Pathway_10",
       "set_a": 25,
       "set_b": 38,
-      "overlap": 19
+      "overlap": 19,
+      "nes": -1.0
     },
     {
       "term": "Pathway_11",
       "set_a": 17,
       "set_b": 28,
-      "overlap": 15
+      "overlap": 15,
+      "nes": -1.2
     },
     {
       "term": "Pathway_12",
       "set_a": 11,
       "set_b": 14,
-      "overlap": 14
+      "overlap": 14,
+      "nes": -1.4
     },
     {
       "term": "Pathway_13",
       "set_a": 31,
       "set_b": 10,
-      "overlap": 3
+      "overlap": 3,
+      "nes": -1.6
     },
     {
       "term": "Pathway_14",
       "set_a": 8,
       "set_b": 32,
-      "overlap": 5
+      "overlap": 5,
+      "nes": -1.8
     },
     {
       "term": "Pathway_15",
       "set_a": 35,
       "set_b": 18,
-      "overlap": 15
+      "overlap": 15,
+      "nes": -2.0
     },
     {
       "term": "Pathway_16",
       "set_a": 9,
       "set_b": 28,
-      "overlap": 17
+      "overlap": 17,
+      "nes": -2.2
     },
     {
       "term": "Pathway_17",
       "set_a": 30,
       "set_b": 42,
-      "overlap": 18
+      "overlap": 18,
+      "nes": -2.4
     },
     {
       "term": "Pathway_18",
       "set_a": 38,
       "set_b": 30,
-      "overlap": 9
+      "overlap": 9,
+      "nes": -2.6
     },
     {
       "term": "Pathway_19",
       "set_a": 42,
       "set_b": 36,
-      "overlap": 14
+      "overlap": 14,
+      "nes": -2.8
     }
   ]
 }
