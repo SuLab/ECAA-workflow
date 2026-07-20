@@ -41,7 +41,17 @@ pub(crate) fn render_readme(
     dag: &DAG,
     classification: &ClassificationResult,
     objective: Option<&str>,
+    conformance_mode: bool,
 ) -> String {
+    // DR-5 — `package.ttl` is produced ONLY by the external conformance
+    // validator under `ECAA_CONFORMANCE_MODE`; in a normal product build it is
+    // never present. Advertise it in the file map only when it will actually
+    // exist, so the README stops pointing at an absent file.
+    let package_ttl_row = if conformance_mode {
+        "| `package.ttl` | The same provenance as an RDF graph, for machine validation (SHACL / OWL-DL). |\n"
+    } else {
+        ""
+    };
     let title = if !classification.domain.is_empty() {
         classification.domain.as_str()
     } else if !classification.modality.is_empty() {
@@ -108,7 +118,7 @@ name is the step id).\n\n\
 | `runtime/outputs/<step>/` | Per-step results: tables, `figures/`, `agent-code.json`, logs. |\n\
 | `runtime/outputs/<step>/report.md` | Human narrative for reporting steps. |\n\
 | `ro-crate-metadata.json` | RO-Crate / Workflow-Run-Crate provenance metadata — the front door for RO-Crate tooling. |\n\
-| `package.ttl` | The same provenance as an RDF graph, for machine validation (SHACL / OWL-DL). |\n\
+{package_ttl_row}\
 | `manifest-sha512.txt`, `tagmanifest-sha512.txt` | BagIt checksums — verify integrity with `bagit.py --validate .`. |\n\
 | `runtime/proofs.jsonl`, `decisions.jsonl`, `assumptions.jsonl`, `verifier-decisions.jsonl` | Provenance sidecars: typed-edge proofs, SME/agent decisions, assumptions, and the verification trace. |\n\
 | `CONTEXT.md`, `PROMPT.md`, `AGENT-EXECUTOR.md` | The brief the execution agent ran against. |\n\
@@ -690,7 +700,12 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
 
     // Root README — the human landing page. Deterministic; written before
     // the BagIt seal so it is hashed into the manifest.
-    let readme_payload = render_readme(config.dag, config.classification, config.objective);
+    let readme_payload = render_readme(
+        config.dag,
+        config.classification,
+        config.objective,
+        ecaa::conformance_mode_active(),
+    );
     crate::fs_helpers::atomic_write_bytes_sync(&dir.join("README.md"), readme_payload.as_bytes())
         .context("writing README.md")?;
 
@@ -766,7 +781,8 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
 
     // Always emit policies/container.json. A null image preserves the
     // host-env path for bio sessions that don't set preferred_container.
-    emit_container_spec(dir, config.preferred_container).context("emitting container spec")?;
+    emit_container_spec(dir, config.preferred_container, config.dag)
+        .context("emitting container spec")?;
 
     // Derived-image warm-up: always emit
     // policies/runtime-prereqs.json. Empty-but-valid manifest when the
@@ -910,20 +926,27 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
         .context("re-writing ro-crate-metadata.json with audit-proof verdicts")?;
     }
 
+    // Emit-time validation summary BEFORE the manifest so it is a
+    // manifest-covered evidence artifact (DR-4). It is deterministic
+    // (mode + schema counts + duration_ms:0) and reads only sidecars +
+    // ro-crate-metadata.json that are already on disk at this point. It may
+    // block emission on a conformance failure; blocking before the manifest
+    // is behaviour-neutral (a blocked emit returns `Err` regardless).
+    ecaa::write_validation_summary(dir).context("emitting ECAA validation summary")?;
+
     // BagIt 1.0-style manifest. Walks every file committed to the
     // package's deterministic surface and writes <sha512>
-    // <relative-path> per line. ECAA runtime sidecars are intentionally
-    // EXCLUDED from this manifest: the conversation emit path may overwrite
-    // them with richer session logs after core emit_package returns, so
-    // hashing them here would create a stale manifest on live emits.
+    // <relative-path> per line. The substantive ECAA runtime evidence
+    // sidecars ARE covered (DR-4); only non-integrity informational
+    // sidecars are excluded (see `bagit::walk_for_manifest`). The
+    // conversation emit path reconciles its later overwrites via a trailing
+    // `emitter::reseal_emit_manifest`.
     //
     // Contract: every reproducibility-bearing file in the emitted
     // package is captured in manifest-sha512.txt; consumers
     // (verify-reproducibility, downstream FAIR consumers) can compare
     // the manifest to detect drift without re-hashing every file.
     write_bagit_manifest(dir, &emit_clock).context("writing BagIt manifest")?;
-
-    ecaa::write_validation_summary(dir).context("emitting ECAA validation summary")?;
 
     Ok(())
 }

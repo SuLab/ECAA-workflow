@@ -153,24 +153,25 @@ pub(super) fn write_audit_proof_report(output_dir: &Path) -> Result<Option<Value
         return Ok(None);
     }
     let validator = crate::wrroc_validator::NoopWrrocValidator;
-    // The `WallClock` here stamps the report's `evaluated_at` field with the
-    // current wall-clock time. This is NOT a determinism bug: it is an
-    // INTENTIONAL, spec-documented byte-reproducibility exclusion. See
-    // `docs/ecaa-spec/operations.md` ("For identical input I, compose(I) =
-    // compose(I) byte-wise, with the following documented exclusions: the
-    // `evaluated_at` timestamp in audit-proof-report.json"). Consistent with
-    // that exclusion, `runtime/audit-proof-report.json` is on the BagIt
-    // manifest exclusion list (`emitter::bagit`), so its per-emit timestamp
-    // never perturbs payload checksums and is never mistaken for a
-    // determinism regression by the byte-characterization harness.
+    // DR-4: `evaluated_at` is anchored to the deterministic RUN epoch
+    // (`run_epoch_clock`, = `SOURCE_DATE_EPOCH` or the `2026-01-01` base),
+    // NOT the wall clock. This makes `audit-proof-report.json` byte-identical
+    // across two emits of the same input, so the report is now a first-class
+    // BagIt-manifested payload file at BOTH emit and reseal (rather than being
+    // held off the manifest to hide a per-emit timestamp). The value matches
+    // `ro-crate-metadata.json::dateCreated`, which is anchored to the same
+    // run-epoch clock, so the two are CONSISTENT. "Manifest only at reseal"
+    // does not make the manifest reproducible; stable bytes do.
     //
     // The projected `@graph` verdict nodes (`inject_audit_proof_verdict_nodes`)
-    // intentionally drop `evaluated_at`, so the wall-clock value here never
-    // reaches `ro-crate-metadata.json` (which IS in the byte-determinism
-    // baseline).
-    let report =
-        crate::audit_proof::run_audit_proof(output_dir, &validator, &crate::clock::WallClock)
-            .context("running audit-proof invariants")?;
+    // still drop `evaluated_at`; the deterministic value also reaches
+    // `ro-crate-metadata.json` cleanly if ever surfaced there.
+    let report = crate::audit_proof::run_audit_proof(
+        output_dir,
+        &validator,
+        &crate::clock::run_epoch_clock(),
+    )
+    .context("running audit-proof invariants")?;
     let report = serde_json::to_value(&report).context("serializing audit-proof report")?;
     write_pretty_json(
         &output_dir.join("runtime").join("audit-proof-report.json"),
@@ -432,6 +433,13 @@ fn read_conformance_mode() -> bool {
             .unwrap_or("0"),
         "1" | "true" | "yes" | "on"
     )
+}
+
+/// Sibling-module accessor for `ECAA_CONFORMANCE_MODE` so `render_readme`
+/// (DR-5) can gate the `package.ttl` file-map row on whether that file will
+/// actually be produced (it is emitted only by the conformance validator).
+pub(super) fn conformance_mode_active() -> bool {
+    read_conformance_mode()
 }
 
 fn validation_blocks_on_fail() -> bool {
