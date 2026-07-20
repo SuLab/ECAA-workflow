@@ -716,9 +716,33 @@ fn emit_proofs_jsonl(edges: &[EdgeContract]) -> String {
 }
 
 fn emit_assumptions_jsonl(dag: &WorkflowDag) -> String {
+    use crate::workflow_contracts::evidence::AssumptionResolution;
+    // PR-7 — an assumption whose affected nodes were ALL pruned from the DAG
+    // (e.g. the `alignment`/`quantification`/`sequence_trimming` atoms + their
+    // `discover_`/`validate_` companions dropped by a counts-first / excluded-
+    // atoms gate) is stale: it still asserts a plan fact for a node that no
+    // longer exists, contradicting `decisions.jsonl`'s `excluded_atoms`. Mark
+    // such orphaned assumptions as resolved-by-pruning (a terminal `Rejected`
+    // resolution whose rationale names the pruning) so the two ledgers agree.
+    let present: std::collections::BTreeSet<&str> =
+        dag.nodes.iter().map(|n| n.id.as_str()).collect();
     let mut out = String::new();
     for entry in &dag.assumptions.entries {
-        if let Ok(line) = serde_json::to_string(entry) {
+        let orphaned = !entry.affects_nodes.is_empty()
+            && entry
+                .affects_nodes
+                .iter()
+                .all(|n| !present.contains(n.as_str()));
+        let line = if orphaned {
+            let mut pruned = entry.clone();
+            pruned.resolution = AssumptionResolution::Rejected {
+                rationale: "atom pruned from workflow — excluded from the emitted plan".to_string(),
+            };
+            serde_json::to_string(&pruned)
+        } else {
+            serde_json::to_string(entry)
+        };
+        if let Ok(line) = line {
             out.push_str(&line);
             out.push('\n');
         }
@@ -1371,6 +1395,64 @@ mod tests {
             .filter(|l| !l.trim().is_empty())
             .count();
         assert_eq!(lines, 1);
+    }
+
+    /// PR-7 — an assumption whose affected nodes were all pruned from the DAG
+    /// is marked resolved-by-pruning (terminal `Rejected` with a pruning
+    /// rationale) so `assumptions.jsonl` stops contradicting the pruned set;
+    /// one whose affected node still exists is left untouched.
+    #[test]
+    fn pruned_atom_assumption_is_marked_rejected() {
+        let mut dag = simple_dag();
+        dag.assumptions.entries.push(Assumption {
+            id: "registry_default:quantify_features".into(),
+            statement: "kept — node still present".into(),
+            source: AssumptionSource::LlmInferred {
+                confidence: "low".into(),
+            },
+            affects_nodes: vec!["quantify_features".into()],
+            risk: RiskClass::Low,
+            resolution: AssumptionResolution::Unresolved,
+            chain_of_custody: None,
+        });
+        dag.assumptions.entries.push(Assumption {
+            id: "registry_default:alignment".into(),
+            statement: "pruned atom — node absent".into(),
+            source: AssumptionSource::LlmInferred {
+                confidence: "low".into(),
+            },
+            affects_nodes: vec!["ghost_pruned_atom".into()],
+            risk: RiskClass::Low,
+            resolution: AssumptionResolution::Unresolved,
+            chain_of_custody: None,
+        });
+        let result = lower_to_workflow_json(&dag, &EmitContext::defaults()).unwrap();
+        let rows: Vec<serde_json::Value> = result
+            .assumptions_jsonl
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        let kept = rows
+            .iter()
+            .find(|r| r["id"] == "registry_default:quantify_features")
+            .unwrap();
+        assert_eq!(
+            kept["resolution"]["kind"], "unresolved",
+            "assumption for a present node must be left untouched"
+        );
+        let pruned = rows
+            .iter()
+            .find(|r| r["id"] == "registry_default:alignment")
+            .unwrap();
+        assert_eq!(
+            pruned["resolution"]["kind"], "rejected",
+            "assumption for a pruned atom must be marked resolved-by-pruning"
+        );
+        assert!(pruned["resolution"]["rationale"]
+            .as_str()
+            .unwrap()
+            .contains("pruned"));
     }
 
     #[test]
