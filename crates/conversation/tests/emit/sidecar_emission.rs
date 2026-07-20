@@ -10,6 +10,7 @@
 use ecaa_workflow_conversation::emit::emit_with_conversation_log;
 use ecaa_workflow_conversation::session::Session;
 use ecaa_workflow_conversation::tools::{dispatch_one, BatchableTool, Tool, ToolContext};
+use serial_test::serial;
 use std::path::PathBuf;
 use tempfile::tempdir;
 
@@ -218,7 +219,17 @@ async fn proofs_and_assumptions_sidecars_present_even_when_empty() {
 /// (Two independently-booted sessions would differ only by their random
 /// session UUID, which the byte-characterization baseline excludes; this
 /// test instead exercises idempotent re-emission of one session.)
+///
+/// `#[serial]`: emit reads process-global ablation env vars (notably
+/// `ECAA_ABLATE_AUDIT_PROOF`, which gates whether the audit-proof
+/// `InvariantVerdict` nodes are injected into `ro-crate-metadata.json`).
+/// The sibling `#[serial]` tests in `audit_proof_sidecar_emit` /
+/// `validation_*` toggle those vars, so without serialization one of this
+/// test's two emits can observe the flag set and the other clear it,
+/// making the compared `ro-crate-metadata.json` differ. Joining the shared
+/// serial group guarantees no env-toggling test runs during these emits.
 #[tokio::test]
+#[serial]
 async fn proofs_and_assumptions_sidecars_byte_deterministic() {
     let dir_a = tempdir().unwrap();
     let dir_b = tempdir().unwrap();
