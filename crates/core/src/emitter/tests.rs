@@ -17,7 +17,18 @@ fn execution_order_md_is_nn_prefixed_and_ordered() {
 fn readme_is_human_landing_page() {
     let dag = rnaseq_dag();
     let clf = test_classification();
-    let readme = render_readme(&dag, &clf, Some("Find DE genes: treated vs control"));
+    let readme = render_readme(&dag, &clf, Some("Find DE genes: treated vs control"), false);
+    // DR-5 — product build (conformance mode off) must NOT advertise
+    // `package.ttl` (never produced outside conformance mode); conformance
+    // mode on DOES list it.
+    assert!(
+        !readme.contains("`package.ttl`"),
+        "package.ttl must not be advertised when conformance mode is off"
+    );
+    assert!(
+        render_readme(&dag, &clf, None, true).contains("`package.ttl`"),
+        "package.ttl must be advertised when conformance mode is on"
+    );
     // Title from the domain, objective verbatim, the section scaffold, the
     // pointers to the index + the front-door metadata, and the re-run command —
     // the things a reviewer needs first.
@@ -46,7 +57,7 @@ fn readme_is_human_landing_page() {
     // Deterministic: identical inputs render byte-identical output.
     assert_eq!(
         readme,
-        render_readme(&dag, &clf, Some("Find DE genes: treated vs control"))
+        render_readme(&dag, &clf, Some("Find DE genes: treated vs control"), false)
     );
 }
 
@@ -55,7 +66,7 @@ fn readme_objective_falls_back_to_description() {
     let dag = rnaseq_dag();
     let clf = test_classification();
     // No SME objective → the workflow description carries the "what was asked".
-    let readme = render_readme(&dag, &clf, None);
+    let readme = render_readme(&dag, &clf, None, false);
     assert!(readme.contains("Bulk RNA-seq differential expression analysis"));
 }
 
@@ -295,22 +306,22 @@ fn emit_package_writes_ecaa_runtime_artifacts() {
         manifest.contains("runtime/assumptions.jsonl"),
         "assumptions.jsonl is a substantive evidence artifact and must be BagIt-covered (RCA I-7)"
     );
-    // audit-proof-report.json carries a wall-clock `evaluated_at`, so unlike
-    // its RCA I-7 siblings it stays OUT of the manifest at EMIT (SealMode::
-    // Emit) to preserve compose-twice byte-reproducibility; it is manifested
-    // at RESEAL (SealMode::Reseal, the post-execution at-rest surface),
-    // covered by `deposit/bagit_coverage.rs`.
+    // DR-4 — audit-proof-report.json's `evaluated_at` was moved onto the
+    // deterministic run-epoch clock, so it is byte-reproducible and now
+    // manifested at EMIT (no longer held back to RESEAL only).
     assert!(
-        !manifest.contains("runtime/audit-proof-report.json"),
-        "audit-proof-report.json must stay OUT of the emit-time manifest (wall-clock evaluated_at)"
+        manifest.contains("runtime/audit-proof-report.json"),
+        "audit-proof-report.json is now byte-deterministic and must be BagIt-covered at emit (DR-4)"
     );
     assert!(
         manifest.contains("runtime/security-policy.json"),
         "security-policy.json is a substantive evidence artifact and must be BagIt-covered (RCA I-7)"
     );
+    // DR-4 — validation-summary.json is a deterministic evidence artifact and
+    // is now integrity-covered rather than held off the manifest.
     assert!(
-        !manifest.contains("runtime/validation-summary.json"),
-        "runtime ECAA sidecars should stay out of the BagIt payload manifest"
+        manifest.contains("runtime/validation-summary.json"),
+        "validation-summary.json is a substantive evidence artifact and must be BagIt-covered (DR-4)"
     );
     assert!(
         !manifest.contains("DEPOSIT-READINESS.json"),
@@ -1588,6 +1599,24 @@ fn ro_crate_is_valid_json_ld() {
     assert!(ids.contains(&"ro-crate-metadata.json"));
     assert!(ids.contains(&"./"));
     assert!(ids.contains(&"WORKFLOW.json"));
+
+    // DR-11 — DEPOSIT-READINESS.json is represented as a CreativeWork audit
+    // entity, linked from the root via `mentions` (not a sealed hasPart member).
+    assert!(
+        ids.contains(&"DEPOSIT-READINESS.json"),
+        "DEPOSIT-READINESS.json must be represented as an RO-Crate @graph entity (DR-11)"
+    );
+    let dr = graph
+        .iter()
+        .find(|e| e.get("@id").and_then(|v| v.as_str()) == Some("DEPOSIT-READINESS.json"))
+        .unwrap();
+    assert_eq!(dr.get("@type").and_then(|v| v.as_str()), Some("CreativeWork"));
+
+    // RP-10 — every EDAM reference uses the https scheme (no mixed http/https).
+    assert!(
+        !content.contains("http://edamontology.org"),
+        "EDAM URIs must all use the https scheme (RP-10)"
+    );
 
     // WORKFLOW.json must be ComputationalWorkflow
     let wf = graph
@@ -3119,25 +3148,25 @@ fn is_excluded_from_baseline(rel: &std::path::Path) -> bool {
     }
     // Runtime audit/ECAA sidecars + affordance sidecars — emitted after
     // the BagIt manifest and overwritable by the conversation emit path.
-    // RCA I-7 — `decisions.jsonl` / `proofs.jsonl` / `assumptions.jsonl` /
-    // `security-policy.json` are deterministic at emit (no per-emit
-    // timestamp) and are now BagIt-manifested (see
+    // DR-4 — the substantive evidence sidecars (`decisions.jsonl` /
+    // `proofs.jsonl` / `assumptions.jsonl` / `security-policy.json` /
+    // `audit-proof-report.json` / `claim-verification.json` /
+    // `verifier-decisions.jsonl` / `validation-reports.jsonl` /
+    // `validation-summary.json` / `reexecution.json` /
+    // `intake-conversation.jsonl` / `determinism-shim.json`) are all
+    // byte-deterministic at emit and are now BagIt-manifested (see
     // `bagit::walk_for_manifest`), so they are DELIBERATELY not excluded
-    // here anymore — the whole-package test now covers their bytes too.
-    // `audit-proof-report.json` keeps its wall-clock `evaluated_at` and
-    // stays excluded (mirrors `walk_for_manifest`'s SealMode::Emit guard).
+    // here anymore — the whole-package test now covers their bytes too
+    // (`audit-proof-report.json`'s `evaluated_at` was moved onto the
+    // deterministic run-epoch clock so it too is reproducible). Only the
+    // non-integrity informational sidecars remain excluded.
     matches!(
         rel.to_string_lossy().as_ref(),
-        "runtime/intake-conversation.jsonl"
-            | "runtime/claim-verification.json"
-            | "runtime/verifier-decisions.jsonl"
-            | "runtime/validation-reports.jsonl"
-            | "runtime/determinism-shim.json"
-            | "runtime/audit-proof-report.json"
-            | "runtime/validation-summary.json"
+        "runtime/ed-cf-self-assessment.json"
+            | "runtime/ed-cf-delta.json"
+            | "runtime/catalog-coverage-statement.json"
             | "runtime/policy-decisions.jsonl"
             | "runtime/decisions.jsonl.mac"
-            | "runtime/plot_affordances.jsonl"
             | "runtime/affordance_fallbacks.jsonl"
     )
 }

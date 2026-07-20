@@ -270,23 +270,74 @@ pub(super) fn emit_per_atom_runtime_prereqs(
     Ok(())
 }
 
+/// Classify a container digest string into a labeled `kind` (DR-9). The two
+/// kinds are DISTINCT and must not be conflated: `oci_digest` is a registry
+/// SHA-256 content digest of a pulled image (`sha256:` + 64 hex); `content_hash`
+/// is the ECAA emit-time content-address of a locally-derived per-atom image
+/// (`content-hash:sha256:` + a 16-hex short hash — INTENTIONALLY not 64 hex).
+fn classify_digest_kind(d: &str) -> &'static str {
+    if d.starts_with("content-hash:") {
+        return "content_hash";
+    }
+    let hex = d.strip_prefix("sha256:").unwrap_or(d);
+    let all_hex = !hex.is_empty() && hex.chars().all(|c| c.is_ascii_hexdigit());
+    if d.starts_with("sha256:") || (all_hex && hex.len() == 64) {
+        "oci_digest"
+    } else if all_hex && hex.len() == 16 {
+        "content_hash"
+    } else {
+        "unknown"
+    }
+}
+
 /// Serialize the taxonomy's `preferred_container` into
 /// `policies/container.json` so the agent scripts can read it without
-/// parsing YAML. `{ "image": "<tag>" | null }`. Always emitted — a null
-/// image means "use host environment".
+/// parsing YAML. Shape: `{ "image": "<tag>" | null, "digests": [ { "kind",
+/// "value" } ] }`. Always emitted — a null image means "use host environment".
+///
+/// DR-9 — the file now also carries the per-task container digests declared on
+/// the DAG (`Task.container.digest`, populated at emit per ADR 0025), each
+/// LABELED by kind so a deposit consumer can tell an execution OCI digest
+/// (`oci_digest`) apart from an ECAA emit-time content-hash (`content_hash`).
+/// The 16-hex content-hash short digests are preserved verbatim, never forced
+/// to 64 hex. Deterministic: digests are de-duplicated + sorted.
 pub(super) fn emit_container_spec(
     package_dir: &Path,
     preferred_container: Option<&str>,
+    dag: &crate::dag::DAG,
 ) -> Result<()> {
+    #[derive(serde::Serialize)]
+    struct DigestEntry {
+        kind: &'static str,
+        value: String,
+    }
     #[derive(serde::Serialize)]
     struct ContainerSpec<'a> {
         image: Option<&'a str>,
+        digests: Vec<DigestEntry>,
     }
+    let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for task in dag.tasks.values() {
+        if let Some(c) = &task.container {
+            let d = c.digest.trim();
+            if !d.is_empty() {
+                seen.insert(d.to_string());
+            }
+        }
+    }
+    let digests: Vec<DigestEntry> = seen
+        .into_iter()
+        .map(|value| DigestEntry {
+            kind: classify_digest_kind(&value),
+            value,
+        })
+        .collect();
     write_policy(
         package_dir,
         "container",
         &ContainerSpec {
             image: preferred_container,
+            digests,
         },
     )
 }
@@ -323,4 +374,27 @@ pub(super) fn emit_memory_discipline_policy(package_dir: &Path) -> Result<()> {
         ]
     });
     write_policy(package_dir, "memory-discipline", &payload)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::classify_digest_kind;
+
+    /// DR-9 — the two digest kinds must stay distinct + correctly labeled: a
+    /// registry OCI digest (`sha256:` + 64 hex, or bare 64 hex) is `oci_digest`;
+    /// an ECAA emit-time per-atom content hash (`content-hash:sha256:` prefix,
+    /// or bare 16 hex) is `content_hash` and is NEVER coerced to 64 hex.
+    #[test]
+    fn digest_kind_labels_oci_vs_content_hash() {
+        let sixty_four = "a".repeat(64);
+        let sixteen = "b".repeat(16);
+        assert_eq!(classify_digest_kind(&format!("sha256:{sixty_four}")), "oci_digest");
+        assert_eq!(classify_digest_kind(&sixty_four), "oci_digest");
+        assert_eq!(
+            classify_digest_kind(&format!("content-hash:sha256:{sixteen}")),
+            "content_hash"
+        );
+        assert_eq!(classify_digest_kind(&sixteen), "content_hash");
+        assert_eq!(classify_digest_kind("not-a-digest"), "unknown");
+    }
 }

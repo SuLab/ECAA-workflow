@@ -140,7 +140,12 @@ pub fn build_metadata(
                     {"@id": "runtime/ed-cf-self-assessment.json"},
                     {"@id": "runtime/validation-summary.json"}
                 ],
-                "mainEntity": {"@id": "WORKFLOW.json"}
+                "mainEntity": {"@id": "WORKFLOW.json"},
+                // DR-11 — link the deposit-readiness attestation as a related
+                // CreativeWork via `mentions` (NOT `hasPart`): it is a mutable
+                // meta file materialized by `export`, off the sealed payload
+                // manifest, so `mentions` is the honest RO-Crate 1.1 edge.
+                "mentions": [{"@id": "DEPOSIT-READINESS.json"}]
             });
             if let Some(run_id) = &dag.run_id {
                 let additional_property = serde_json::json!([{
@@ -329,6 +334,21 @@ pub fn build_metadata(
             "@type": "CreativeWork",
             "name": "Audit-proof invariant report",
             "description": "ECAA audit-proof invariant verdicts.",
+            "encodingFormat": "application/json"
+        }),
+        // DR-11 — the deposit-readiness attestation (`DEPOSIT-READINESS.json`,
+        // at the deposit root, materialized by `export`) is represented as a
+        // first-class `CreativeWork` audit entity in the graph so a deposit
+        // consumer finds it in the provenance record rather than encountering
+        // an unreferenced root-level mutable meta file. It is deliberately kept
+        // OUT of the BagIt payload manifest (mutable, wall-clock `verified_at`)
+        // and out of the root `hasPart` (not a sealed payload member); the
+        // root Dataset links it via `mentions` below.
+        json!({
+            "@id": "DEPOSIT-READINESS.json",
+            "@type": "CreativeWork",
+            "name": "Deposit-readiness attestation",
+            "description": "Self-validation verdict written by `ecaa-workflow export`: RO-Crate re-verify + BagIt checksum integrity (Layer 1) and, for the re-executable profile, re-execution equivalence (Layer 2). Mutable meta file — excluded from the payload manifest by design.",
             "encodingFormat": "application/json"
         }),
         json!({
@@ -2146,7 +2166,9 @@ fn register_parameter_connection_endpoints(graph: &mut Vec<Value>) {
             // and are not declared with a concrete format, so the honest,
             // non-overclaiming value is EDAM `data_0006` ("Data") — it asserts
             // only that the port is a data parameter, inventing no specific type.
-            "additionalType": {"@id": "http://edamontology.org/data_0006"},
+            // RP-10 — `https://` scheme, matching `edam_iri` and every other
+            // EDAM reference in ro-crate-metadata.json (no mixed http/https).
+            "additionalType": {"@id": edam_iri("data_0006")},
             "name": name,
             "description": format!(
                 "Declared {} port of workflow step '{}'.",
@@ -2804,6 +2826,245 @@ pub fn finalize_evidence_registration(
     finalize_evidence_registration_with_verifier(root, clock, None)
 }
 
+/// True when `e` is a `CreateAction` graph entity (`@type` string or array
+/// containing `"CreateAction"`).
+fn is_create_action_entity(e: &Value) -> bool {
+    match e.get("@type") {
+        Some(Value::String(s)) => s == "CreateAction",
+        Some(Value::Array(a)) => a.iter().any(|t| t.as_str() == Some("CreateAction")),
+        _ => false,
+    }
+}
+
+/// PR-6 — inject ONE top-level workflow-run `CreateAction` whose `instrument`
+/// is `WORKFLOW.json`, tying the per-stage CreateActions (each keyed to a
+/// per-task tool/step) into a single run-level activity for the Workflow Run
+/// Crate profile. Additive + idempotent (guarded on the fixed `#workflow-run`
+/// `@id`); a no-op when the graph carries no per-stage CreateActions yet
+/// (pre-execution). `endTime`/`agent` are populated ONLY from what the per-stage
+/// actions actually recorded — the run's `endTime` is the latest recorded stage
+/// `endTime` (ISO-8601 UTC ⇒ lexicographic max) and `agent` is set only when a
+/// single agent identity is unambiguous across the run. No `startTime` is
+/// emitted: no start timestamp is recorded anywhere (`.container-state.json`
+/// carries `ended_at` only), so it is honestly omitted rather than fabricated.
+fn register_workflow_run_action(package_root: &std::path::Path) -> std::io::Result<usize> {
+    const RUN_ID: &str = "#workflow-run";
+    let descriptor = package_root.join("ro-crate-metadata.json");
+    let Ok(bytes) = std::fs::read(&descriptor) else {
+        return Ok(0);
+    };
+    let Ok(mut doc) = serde_json::from_slice::<Value>(&bytes) else {
+        return Ok(0);
+    };
+    let Some(graph) = doc.get_mut("@graph").and_then(Value::as_array_mut) else {
+        return Ok(0);
+    };
+    if graph
+        .iter()
+        .any(|e| e.get("@id").and_then(Value::as_str) == Some(RUN_ID))
+    {
+        return Ok(0);
+    }
+
+    let mut end_times: Vec<String> = Vec::new();
+    let mut agents: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut results: Vec<Value> = Vec::new();
+    let mut seen_results: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut stage_actions = 0usize;
+    for e in graph.iter() {
+        if !is_create_action_entity(e) {
+            continue;
+        }
+        // A real per-stage activity carries an `instrument`.
+        if e.get("instrument").and_then(|i| i.get("@id")).is_none() {
+            continue;
+        }
+        stage_actions += 1;
+        if let Some(t) = e.get("endTime").and_then(Value::as_str) {
+            if !t.is_empty() {
+                end_times.push(t.to_string());
+            }
+        }
+        if let Some(a) = e
+            .get("agent")
+            .and_then(|a| a.get("@id"))
+            .and_then(Value::as_str)
+        {
+            agents.insert(a.to_string());
+        }
+        match e.get("result") {
+            Some(Value::Object(o)) => {
+                if let Some(id) = o.get("@id").and_then(Value::as_str) {
+                    if seen_results.insert(id.to_string()) {
+                        results.push(json!({ "@id": id }));
+                    }
+                }
+            }
+            Some(Value::Array(arr)) => {
+                for r in arr {
+                    if let Some(id) = r.get("@id").and_then(Value::as_str) {
+                        if seen_results.insert(id.to_string()) {
+                            results.push(json!({ "@id": id }));
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    if stage_actions == 0 {
+        return Ok(0);
+    }
+
+    let mut action = json!({
+        "@id": RUN_ID,
+        "@type": ["CreateAction", "prov:Activity"],
+        "name": "Workflow run — end-to-end execution of the emitted plan.",
+        "instrument": {"@id": "WORKFLOW.json"},
+    });
+    if !results.is_empty() {
+        action["result"] = Value::Array(results);
+    }
+    if let Some(max_end) = end_times.iter().max() {
+        action["endTime"] = json!(max_end);
+    }
+    if agents.len() == 1 {
+        action["agent"] = json!({ "@id": agents.into_iter().next().unwrap() });
+    }
+    graph.push(action);
+
+    let serialized = serde_json::to_vec_pretty(&doc)?;
+    crate::fs_helpers::atomic_write_bytes_sync(&descriptor, &serialized)?;
+    Ok(1)
+}
+
+/// DR-6 — re-stamp the root Dataset's `dateCreated`/`datePublished` with REAL
+/// run timestamps once the run has produced recorded `CreateAction.endTime`s,
+/// rather than leaving the deterministic emit-skeleton run-epoch (`2026-01-01`
+/// in the no-`SOURCE_DATE_EPOCH` case) that reads as a placeholder next to the
+/// real per-stage `endTime`s. `datePublished` = latest recorded stage `endTime`
+/// (the run's completion); `dateCreated` = earliest recorded stage `endTime`
+/// (the earliest real run timestamp available — no start timestamp is
+/// recorded). Additive + idempotent (values derive from the graph). No-op
+/// pre-execution (no recorded `endTime`s) so the byte-reproducible emit
+/// skeleton is untouched.
+fn restamp_root_dates_from_run(package_root: &std::path::Path) -> std::io::Result<usize> {
+    let descriptor = package_root.join("ro-crate-metadata.json");
+    let Ok(bytes) = std::fs::read(&descriptor) else {
+        return Ok(0);
+    };
+    let Ok(mut doc) = serde_json::from_slice::<Value>(&bytes) else {
+        return Ok(0);
+    };
+    let Some(graph) = doc.get("@graph").and_then(Value::as_array) else {
+        return Ok(0);
+    };
+    let mut end_times: Vec<String> = Vec::new();
+    for e in graph {
+        if !is_create_action_entity(e) {
+            continue;
+        }
+        if let Some(t) = e.get("endTime").and_then(Value::as_str) {
+            if !t.is_empty() {
+                end_times.push(t.to_string());
+            }
+        }
+    }
+    let (Some(earliest), Some(latest)) = (
+        end_times.iter().min().cloned(),
+        end_times.iter().max().cloned(),
+    ) else {
+        return Ok(0);
+    };
+    let Some(graph_mut) = doc.get_mut("@graph").and_then(Value::as_array_mut) else {
+        return Ok(0);
+    };
+    let Some(root) = graph_mut
+        .iter_mut()
+        .find(|e| e.get("@id").and_then(Value::as_str) == Some("./"))
+    else {
+        return Ok(0);
+    };
+    let Some(obj) = root.as_object_mut() else {
+        return Ok(0);
+    };
+    obj.insert("dateCreated".into(), json!(earliest));
+    obj.insert("datePublished".into(), json!(latest));
+
+    let serialized = serde_json::to_vec_pretty(&doc)?;
+    crate::fs_helpers::atomic_write_bytes_sync(&descriptor, &serialized)?;
+    Ok(1)
+}
+
+/// DR-9 — fold the REAL executed image digests from each task's
+/// `.container-state.json` (`image` = `<ref>@sha256:<digest>` resolved at run
+/// time) into `policies/container.json` as `oci_digest` entries, so the deposit
+/// records the image that ACTUALLY ran — the emit-time `container.json` carries
+/// only the DECLARED digest (or none, for host-environment atoms). Additive +
+/// idempotent (dedup by digest value); a no-op when no container-state records a
+/// resolved `@sha256:` digest (e.g. a host-env run). Kept DISTINCT from the
+/// emit-time `content_hash` entries — never coerces or overwrites them.
+fn fold_execution_container_digests(package_root: &std::path::Path) -> std::io::Result<usize> {
+    let container_json = package_root.join("policies/container.json");
+    let Ok(bytes) = std::fs::read(&container_json) else {
+        return Ok(0);
+    };
+    let Ok(mut doc) = serde_json::from_slice::<Value>(&bytes) else {
+        return Ok(0);
+    };
+    let Some(obj) = doc.as_object_mut() else {
+        return Ok(0);
+    };
+
+    let mut executed: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    if let Ok(rd) = std::fs::read_dir(package_root.join("runtime/outputs")) {
+        for entry in rd.flatten() {
+            let task_dir = entry.path();
+            if !task_dir.is_dir() {
+                continue;
+            }
+            if let Ok(Some(state)) =
+                crate::container_state::ContainerState::read_from_task_dir(&task_dir)
+            {
+                // Only a run-time-RESOLVED `<ref>@sha256:<digest>` carries an
+                // OCI content digest; a bare `image:tag` does not.
+                if let Some((_, digest)) = state.image.trim().split_once("@sha256:") {
+                    if !digest.is_empty() {
+                        executed.insert(format!("sha256:{digest}"));
+                    }
+                }
+            }
+        }
+    }
+    if executed.is_empty() {
+        return Ok(0);
+    }
+
+    let digests = obj
+        .entry("digests")
+        .or_insert_with(|| Value::Array(Vec::new()));
+    let Some(arr) = digests.as_array_mut() else {
+        return Ok(0);
+    };
+    let mut added = 0usize;
+    for value in executed {
+        let present = arr
+            .iter()
+            .any(|e| e.get("value").and_then(Value::as_str) == Some(value.as_str()));
+        if !present {
+            arr.push(json!({ "kind": "oci_digest", "value": value }));
+            added += 1;
+        }
+    }
+    if added == 0 {
+        return Ok(0);
+    }
+
+    let serialized = serde_json::to_vec_pretty(&doc)?;
+    crate::fs_helpers::atomic_write_bytes_sync(&container_json, &serialized)?;
+    Ok(added)
+}
+
 /// As [`finalize_evidence_registration`], plus — when a `verifier` is supplied —
 /// a C-subgraph BACK-FILL: read the HMAC-signed verdict sink
 /// (`runtime/verification-reports/claim-verification.signed.json`), project its
@@ -2856,6 +3117,16 @@ pub fn finalize_evidence_registration_with_verifier(
             "reexecutability sidecar registration failed"
         );
     }
+    // DR-9 — fold the real executed OCI image digests into policies/container.json
+    // (the emit-time file carries only declared/content-hash digests). Best-effort,
+    // additive, idempotent; runs before the reseal so the update is manifested.
+    if let Err(e) = fold_execution_container_digests(root) {
+        tracing::warn!(
+            target: "ecaa::ro_crate",
+            error = %e,
+            "execution container-digest fold failed"
+        );
+    }
     if let Some(verifier) = verifier {
         if let Err(e) = backfill_claim_subgraph(root, verifier) {
             // Best-effort: a back-fill failure must not abort the
@@ -2897,6 +3168,27 @@ pub fn finalize_evidence_registration_with_verifier(
             target: "ecaa::ro_crate",
             error = %e,
             "content integrity annotation failed"
+        );
+    }
+    // PR-6 — tie the per-stage CreateActions into one workflow-run action
+    // (instrument = WORKFLOW.json). Additive + idempotent; no-op pre-exec.
+    // Runs after per-stage actions exist and BEFORE the preview embed + reseal.
+    if let Err(e) = register_workflow_run_action(root) {
+        tracing::warn!(
+            target: "ecaa::ro_crate",
+            error = %e,
+            "workflow-run action registration failed"
+        );
+    }
+    // DR-6 — re-stamp the root Dataset dates with real run timestamps once
+    // CreateAction endTimes exist (replacing the 2026-01-01 emit skeleton).
+    // Runs LAST among @graph mutations (after the run action so its endTime is
+    // considered) and BEFORE the preview embed + reseal.
+    if let Err(e) = restamp_root_dates_from_run(root) {
+        tracing::warn!(
+            target: "ecaa::ro_crate",
+            error = %e,
+            "root date re-stamp failed"
         );
     }
     // ── ro-crate-preview.html (LAST step before re-seal) ─────────────────────
@@ -3493,6 +3785,158 @@ mod tests {
             // A non-md sibling must NOT be registered as a report.
             std::fs::write(dir.join("table.tsv"), "a\tb\n").unwrap();
         }
+    }
+
+    /// PR-6 + DR-6 — the finalize passes inject one workflow-run CreateAction
+    /// (instrument = WORKFLOW.json) tying the per-stage actions into a run, and
+    /// re-stamp the root Dataset dates from the real recorded endTimes (not the
+    /// 2026-01-01 emit skeleton). No `startTime` is fabricated.
+    #[test]
+    fn workflow_run_action_and_date_restamp_from_create_actions() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        let graph = json!({
+            "@context": "https://w3id.org/ro/crate/1.1/context",
+            "@graph": [
+                {"@id": "ro-crate-metadata.json", "@type": "CreativeWork", "about": {"@id": "./"}},
+                {"@id": "./", "@type": "Dataset",
+                 "dateCreated": "2026-01-01T00:00:00Z",
+                 "datePublished": "2026-01-01T00:00:00Z",
+                 "hasPart": []},
+                {"@id": "#action/align", "@type": ["CreateAction", "prov:Activity"],
+                 "instrument": {"@id": "#tool/align"},
+                 "result": {"@id": "runtime/outputs/align/out.bam"},
+                 "agent": {"@id": "#agent/claude"},
+                 "endTime": "2026-06-21T10:00:00Z"},
+                {"@id": "#action/de", "@type": ["CreateAction", "prov:Activity"],
+                 "instrument": {"@id": "#tool/de"},
+                 "result": {"@id": "runtime/outputs/de/de.tsv"},
+                 "agent": {"@id": "#agent/claude"},
+                 "endTime": "2026-06-21T12:30:00Z"},
+            ]
+        });
+        std::fs::write(
+            root.join("ro-crate-metadata.json"),
+            serde_json::to_vec_pretty(&graph).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(register_workflow_run_action(root).unwrap(), 1);
+        // Idempotent — a second call adds nothing.
+        assert_eq!(register_workflow_run_action(root).unwrap(), 0);
+        assert_eq!(restamp_root_dates_from_run(root).unwrap(), 1);
+
+        let doc: Value =
+            serde_json::from_slice(&std::fs::read(root.join("ro-crate-metadata.json")).unwrap())
+                .unwrap();
+        let graph = doc["@graph"].as_array().unwrap();
+
+        let run = graph
+            .iter()
+            .find(|e| e["@id"] == "#workflow-run")
+            .expect("workflow-run action present");
+        assert_eq!(run["instrument"]["@id"], "WORKFLOW.json");
+        assert_eq!(
+            run["endTime"], "2026-06-21T12:30:00Z",
+            "run endTime = latest stage endTime"
+        );
+        assert_eq!(run["agent"]["@id"], "#agent/claude", "single agent surfaced");
+        assert_eq!(
+            run["result"].as_array().unwrap().len(),
+            2,
+            "aggregates both stage results"
+        );
+        assert!(
+            run.get("startTime").is_none(),
+            "no start timestamp is recorded, so none is fabricated"
+        );
+
+        let root_ds = graph.iter().find(|e| e["@id"] == "./").unwrap();
+        assert_eq!(
+            root_ds["dateCreated"], "2026-06-21T10:00:00Z",
+            "dateCreated re-stamped to earliest real endTime"
+        );
+        assert_eq!(
+            root_ds["datePublished"], "2026-06-21T12:30:00Z",
+            "datePublished re-stamped to latest real endTime"
+        );
+    }
+
+    /// DR-6 — pre-execution (no recorded CreateActions), the re-stamp is a
+    /// no-op so the byte-reproducible emit skeleton dates are left intact.
+    #[test]
+    fn date_restamp_is_noop_without_create_actions() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        let graph = json!({
+            "@graph": [
+                {"@id": "./", "@type": "Dataset", "dateCreated": "2026-01-01T00:00:00Z"},
+            ]
+        });
+        std::fs::write(
+            root.join("ro-crate-metadata.json"),
+            serde_json::to_vec_pretty(&graph).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(restamp_root_dates_from_run(root).unwrap(), 0);
+        assert_eq!(register_workflow_run_action(root).unwrap(), 0);
+        let doc: Value =
+            serde_json::from_slice(&std::fs::read(root.join("ro-crate-metadata.json")).unwrap())
+                .unwrap();
+        assert_eq!(doc["@graph"][0]["dateCreated"], "2026-01-01T00:00:00Z");
+    }
+
+    /// DR-9 — the finalize fold records the run-time-resolved OCI image digest
+    /// from a task's `.container-state.json` into `policies/container.json`,
+    /// labeled `oci_digest`, WITHOUT touching the emit-time `content_hash` entry.
+    #[test]
+    fn execution_container_digest_fold_records_resolved_oci_digest() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join("policies")).unwrap();
+        std::fs::write(
+            root.join("policies/container.json"),
+            serde_json::to_vec_pretty(&json!({
+                "image": null,
+                "digests": [{"kind": "content_hash", "value": "abcdef0123456789"}]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let task = root.join("runtime/outputs/align");
+        std::fs::create_dir_all(&task).unwrap();
+        let executed_digest =
+            "1111111111111111111111111111111111111111111111111111111111111111";
+        std::fs::write(
+            task.join(".container-state.json"),
+            serde_json::to_vec(&json!({
+                "task_id": "align",
+                "image": format!("biocontainers/star@sha256:{executed_digest}"),
+                "ended_at": "2026-06-21T10:00:00Z"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(fold_execution_container_digests(root).unwrap(), 1);
+        // Idempotent — a second fold adds nothing.
+        assert_eq!(fold_execution_container_digests(root).unwrap(), 0);
+
+        let doc: Value =
+            serde_json::from_slice(&std::fs::read(root.join("policies/container.json")).unwrap())
+                .unwrap();
+        let digests = doc["digests"].as_array().unwrap();
+        assert!(
+            digests
+                .iter()
+                .any(|d| d["kind"] == "content_hash" && d["value"] == "abcdef0123456789"),
+            "emit-time content_hash entry must be preserved"
+        );
+        assert!(
+            digests.iter().any(|d| d["kind"] == "oci_digest"
+                && d["value"] == format!("sha256:{executed_digest}")),
+            "run-time resolved OCI digest must be folded in as oci_digest: {digests:?}"
+        );
     }
 
     #[test]

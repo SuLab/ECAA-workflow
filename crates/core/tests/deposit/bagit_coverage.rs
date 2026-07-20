@@ -9,17 +9,17 @@
 //! intentionally excluded (it is a documented, BagIt-manifest-excluded
 //! mutable meta file — see CLAUDE.md's Deposit verification section).
 //!
-//! Deviation from the brief's literal single-emit test: `audit-proof-
-//! report.json` carries a spec-documented wall-clock `evaluated_at`
-//! (`crates/core/src/emitter/ecaa.rs::write_audit_proof_report`), so
-//! manifesting it at a fresh EMIT would make `manifest-sha512.txt` itself
-//! wall-clock-dependent and break the compose-twice byte-reproducibility
-//! gate (`emitter::tests::emit_package_whole_package_byte_reproducible`).
-//! It is therefore manifested at RESEAL only (the post-execution at-rest
-//! surface, which is where the RCA's `611cf5ee` archive was actually
-//! inspected) — this test drives a reseal via the public
-//! `regenerate_bagit_manifest` to cover that file too, matching how a real
-//! run reaches the post-execution state the RCA describes.
+//! DR-4 — `audit-proof-report.json`'s `evaluated_at` was moved onto the
+//! deterministic run-epoch clock
+//! (`crates/core/src/emitter/ecaa.rs::write_audit_proof_report`), so it is
+//! byte-reproducible across two same-input emits and is now BagIt-manifested
+//! at EMIT alongside its evidence siblings — not held back to RESEAL only.
+//! `manifest_covers_audit_proof_report_at_emit_and_after_reseal` asserts it is
+//! covered at both a fresh emit and after a `regenerate_bagit_manifest` reseal.
+//! DR-4 also folds in the remaining present-on-disk-but-unmanifested evidence
+//! files from the `611cf5ee` deposit (claim-verification.json,
+//! validation-reports.jsonl, verifier-decisions.jsonl, validation-summary.json,
+//! reexecution.json).
 
 use ecaa_workflow_core::classify::ClassificationResult;
 use ecaa_workflow_core::clock::WallClock;
@@ -133,6 +133,15 @@ fn manifest_covers_evidence_files_at_emit() {
         "runtime/decisions.jsonl",
         "runtime/assumptions.jsonl",
         "runtime/security-policy.json",
+        // DR-4 — the deposit-integrity envelope additionally covers the
+        // substantive evidence sidecars that the `611cf5ee` deposit left
+        // present-on-disk-but-unmanifested.
+        "runtime/claim-verification.json",
+        "runtime/validation-reports.jsonl",
+        "runtime/verifier-decisions.jsonl",
+        "runtime/validation-summary.json",
+        "runtime/reexecution.json",
+        "runtime/audit-proof-report.json",
     ] {
         assert!(
             man.iter().any(|(p, _)| p == f),
@@ -143,22 +152,26 @@ fn manifest_covers_evidence_files_at_emit() {
 
     // DEPOSIT-READINESS.json stays intentionally excluded (mutable meta).
     assert!(!man.iter().any(|(p, _)| p == "DEPOSIT-READINESS.json"));
+    // The keyed HMAC over decisions.jsonl is verified with the session
+    // secret, not by re-hashing into the payload manifest.
+    assert!(!man.iter().any(|(p, _)| p == "runtime/decisions.jsonl.mac"));
 }
 
 #[test]
-fn manifest_covers_audit_proof_report_after_reseal() {
+fn manifest_covers_audit_proof_report_at_emit_and_after_reseal() {
     let pkg = emit_sample_package();
     let root = pkg.path();
 
-    // At a fresh EMIT, audit-proof-report.json's wall-clock `evaluated_at`
-    // keeps it out of the manifest (see module doc).
+    // DR-4 — audit-proof-report.json's `evaluated_at` now uses the
+    // deterministic run-epoch clock, so it is byte-reproducible and covered
+    // by the payload manifest already at a fresh EMIT.
     let man = read_manifest(root);
-    assert!(!man
-        .iter()
-        .any(|(p, _)| p == "runtime/audit-proof-report.json"));
+    assert!(
+        man.iter().any(|(p, _)| p == "runtime/audit-proof-report.json"),
+        "runtime/audit-proof-report.json must be manifested at emit (DR-4); manifest:\n{man:?}"
+    );
 
-    // The post-execution reseal — the state the RCA's `611cf5ee` archive was
-    // actually inspected in — must cover it.
+    // The post-execution reseal keeps covering it.
     regenerate_bagit_manifest(root, &WallClock).expect("regenerate_bagit_manifest");
     let man = read_manifest(root);
     assert!(
