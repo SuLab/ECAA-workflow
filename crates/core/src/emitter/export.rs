@@ -637,25 +637,25 @@ pub fn export_depositable_package_with_profile(
         dropped += pruned;
     }
 
-    // Re-seal BagIt over the kept set (rebuilds manifest + tagmanifest).
+    // Re-finalize the RO-Crate over the export, then prune dangling `@id`s that
+    // reference dropped files (dedup-deleted duplicates AND tier/profile-dropped
+    // files such as `intermediates/` tables). This MUST run BEFORE the reseal:
+    // `regenerate_bagit_manifest`'s post-seal content-hash recheck
+    // (`assert_ro_crate_hashes_match_payload`) fails outright if the `@graph`
+    // still declares a `sha512` for a file the export removed from disk. Register
+    // first (idempotent; only ever adds entries for tables that ARE on disk, so
+    // it never re-introduces a dangling reference), then prune, THEN reseal.
     let clock = WallClock;
-    crate::emitter::regenerate_bagit_manifest(dst, &clock)
-        .context("re-sealing BagIt manifest over export")?;
-
-    // Re-finalize the RO-Crate over the export, then prune dangling @ids that
-    // referenced dropped files. `register_produced_output_tables` is idempotent
-    // and only ever adds entries for tables that ARE on disk, so it never
-    // re-introduces a dangling reference.
     crate::ro_crate::register_produced_output_tables(dst)
         .map_err(anyhow::Error::from)
         .context("re-registering produced output tables over export")?;
-    let pruned = prune_rocrate_dangling(dst).context("pruning dangling RO-Crate @ids")?;
-    if pruned > 0 {
-        // The prune rewrote `ro-crate-metadata.json` (a manifested file), so
-        // re-seal once more to keep the BagIt manifest self-consistent.
-        crate::emitter::regenerate_bagit_manifest(dst, &clock)
-            .context("re-sealing BagIt manifest after RO-Crate prune")?;
-    }
+    prune_rocrate_dangling(dst).context("pruning dangling RO-Crate @ids")?;
+
+    // Re-seal BagIt over the kept, `@graph`-reconciled set (rebuilds manifest +
+    // tagmanifest); the post-seal RO-Crate recheck now sees a graph whose every
+    // declared content hash is backed by a present payload file.
+    crate::emitter::regenerate_bagit_manifest(dst, &clock)
+        .context("re-sealing BagIt manifest over export")?;
 
     // Re-record the audit-proof report against the deposit-scoped graph. The
     // prune above drops the embedded `C:*` Claim and `A:*` InvariantVerdict
@@ -1278,6 +1278,98 @@ mod tests {
         assert!(report.kept >= 3, "expected >=3 kept files, got {}", report.kept);
         assert!(report.dropped >= 3, "expected >=3 dropped files, got {}", report.dropped);
         assert_eq!(report.dst, dst, "report.dst must echo the dst arg");
+    }
+
+    /// Regression (export ordering): the RO-Crate dangling-`@id` prune must run
+    /// BEFORE the reseal's post-seal content-hash recheck. A dropped file — a
+    /// tier-E `intermediates/` table (never copied) or a dedup-deleted duplicate
+    /// — leaves a dangling `@graph` File entity whose recorded `sha512` the
+    /// recheck flags as "<absent from sealed payload>". If the prune runs after
+    /// the reseal (the pre-fix order), the recheck bails first and the whole
+    /// export fails on any executed package that carries such an entity.
+    #[test]
+    fn export_prunes_dropped_graph_entities_before_reseal_recheck() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let src = tmp.path().join("src");
+        let dst = tmp.path().join("dst");
+        std::fs::create_dir_all(&src).unwrap();
+        let write = |rel: &str, body: &str| {
+            let p = src.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, body).unwrap();
+        };
+        // Kept tier-A table + a byte-data-duplicate twin (identical data rows,
+        // different header) that dedup deletes, + a tier-E intermediates table
+        // (never copied). All three are declared as `@graph` File entities with a
+        // recorded `sha512` — exactly the shape a finalized executed package has.
+        write(
+            "runtime/outputs/t/de_results.tsv",
+            "gene\tpadj\nA\t0.01\nB\t0.2\n",
+        );
+        write(
+            "runtime/outputs/t/de_table.tsv",
+            "feature\tpadj\nA\t0.01\nB\t0.2\n",
+        );
+        write(
+            "runtime/outputs/t/intermediates/ranked.tsv",
+            "gene\tstat\nA\t5.0\n",
+        );
+        write(
+            "bagit.txt",
+            "BagIt-Version: 1.0\nTag-File-Character-Encoding: UTF-8\n",
+        );
+        // Full-length (128-hex) placeholder sha512s — the recheck refreshes the
+        // kept file's hash and leaves the dropped files' stale ones (they trip
+        // the recheck by being absent, not by value).
+        let sha = "0123456789abcdef".repeat(8);
+        let sha = sha.as_str();
+        let graph = serde_json::json!({
+            "@context": "https://w3id.org/ro/crate/1.1/context",
+            "@graph": [
+                {"@id":"ro-crate-metadata.json","@type":"CreativeWork","about":{"@id":"./"}},
+                {"@id":"./","@type":"Dataset","hasPart":[
+                    {"@id":"runtime/outputs/t/de_results.tsv"},
+                    {"@id":"runtime/outputs/t/de_table.tsv"},
+                    {"@id":"runtime/outputs/t/intermediates/ranked.tsv"}
+                ]},
+                {"@id":"runtime/outputs/t/de_results.tsv","@type":["File","Dataset"],"sha512":sha},
+                {"@id":"#action/runtime/outputs/t/de_results.tsv","@type":["CreateAction","prov:Activity"],"result":{"@id":"runtime/outputs/t/de_results.tsv"}},
+                {"@id":"runtime/outputs/t/de_table.tsv","@type":["File","Dataset"],"sha512":sha},
+                {"@id":"#action/runtime/outputs/t/de_table.tsv","@type":["CreateAction","prov:Activity"],"result":{"@id":"runtime/outputs/t/de_table.tsv"}},
+                {"@id":"runtime/outputs/t/intermediates/ranked.tsv","@type":["File","Dataset"],"sha512":sha}
+            ]
+        });
+        std::fs::write(
+            src.join("ro-crate-metadata.json"),
+            serde_json::to_vec_pretty(&graph).unwrap(),
+        )
+        .unwrap();
+
+        // Must SUCCEED: the prune reconciles the @graph before the recheck.
+        export_depositable_package(&src, &dst)
+            .expect("export must succeed: dropped @graph entities are pruned before the recheck");
+
+        assert!(
+            !dst.join("runtime/outputs/t/intermediates/ranked.tsv").exists(),
+            "tier-E intermediates must be dropped"
+        );
+        assert!(
+            !dst.join("runtime/outputs/t/de_table.tsv").exists(),
+            "dedup duplicate must be dropped"
+        );
+        assert!(
+            dst.join("runtime/outputs/t/de_results.tsv").is_file(),
+            "kept tier-A table must be present"
+        );
+        let meta = std::fs::read_to_string(dst.join("ro-crate-metadata.json")).unwrap();
+        assert!(
+            !meta.contains("intermediates/ranked.tsv"),
+            "@graph must not reference the dropped intermediates table:\n{meta}"
+        );
+        assert!(
+            !meta.contains("de_table.tsv"),
+            "@graph must not reference the dedup-dropped duplicate:\n{meta}"
+        );
     }
 
     /// The export must preserve symlinks under KEPT paths as symlinks (recreated
