@@ -840,6 +840,14 @@ pub fn reconcile_ro_crate_edges_with_allowances(
     // generic RO-Crate / PROV / runcrate consumer sees only the authoritative
     // edge (§G-B1).
     let mut unused_candidates: Vec<Value> = Vec::new();
+    // For each dropped unread one-of member: `(consuming_task, producer_task,
+    // index into `unused_candidates`)`. On the SESSION path the consuming
+    // task's retrospective `CreateAction` was registered DURING execution —
+    // BEFORE this end-of-run drop — so its `object` (PROV `used`) still lists
+    // the unread producer's output. After dropping the `ParameterConnection`
+    // we ALSO prune that `used` entry so a generic runcrate/WRROC consumer
+    // never reads the unread producer as an authoritative data flow (§G-B1).
+    let mut object_prunes: Vec<(String, String, usize)> = Vec::new();
 
     for task_id in task_ids {
         let edges_for_task: Vec<&crate::workflow_contracts::edge::EdgeContract> = declared_edges
@@ -901,6 +909,7 @@ pub fn reconcile_ro_crate_edges_with_allowances(
                 EdgeDisposition::UnusedCandidate { superseded_by } => {
                     let node_id = parameter_connection_node_id(&edge.from_node, &edge.to_node);
                     drop_ids.insert(node_id.clone());
+                    let record_index = unused_candidates.len();
                     unused_candidates.push(json!({
                         "task_id": task_id,
                         "from_node": edge.from_node,
@@ -912,6 +921,11 @@ pub fn reconcile_ro_crate_edges_with_allowances(
                         "ecaax:supersededByProducer": superseded_by,
                         "ecaax:droppedConnection": node_id,
                     }));
+                    object_prunes.push((
+                        edge.to_node.clone(),
+                        edge.from_node.clone(),
+                        record_index,
+                    ));
                 }
                 EdgeDisposition::UnresolvedCandidate => {
                     stamps.push((
@@ -941,6 +955,28 @@ pub fn reconcile_ro_crate_edges_with_allowances(
                 .map(|id| !drop_ids.contains(id))
                 .unwrap_or(true)
         });
+    }
+
+    // Having dropped the unread one-of members' `ParameterConnection`s, prune
+    // the matching `used` entry from the CONSUMING task's `CreateAction.object`
+    // so a generic runcrate/WRROC consumer sees only the authoritative
+    // producer's output as a data flow (§G-B1). The producer→output mapping
+    // mirrors `register_produced_output_tables`/`collect_task_inputs`: an
+    // `object` entry references the unread producer either by its bare
+    // `#step-<producer>` step or by a concrete `runtime/outputs/<producer>/…`
+    // output file. Gated on a resolved one-of (only `UnusedCandidate` populates
+    // `object_prunes`) and idempotent (a re-run finds the entry already gone).
+    for (consuming_task, producer_task, record_index) in &object_prunes {
+        let pruned = prune_unread_producer_from_create_action_objects(
+            graph,
+            consuming_task,
+            producer_task,
+        );
+        if !pruned.is_empty() {
+            if let Some(obj) = unused_candidates[*record_index].as_object_mut() {
+                obj.insert("ecaax:prunedUsedObject".to_string(), json!(pruned));
+            }
+        }
     }
 
     if let Some(root) = graph
@@ -1015,6 +1051,71 @@ fn stamp_parameter_connection_status(graph: &mut [Value], from_node: &str, to_no
             obj.insert("ecaax:provenanceStatus".to_string(), json!(status));
         }
     }
+}
+
+/// Prune the unread one-of producer's output from the CONSUMING task's
+/// retrospective `CreateAction.object` (PROV `used`).
+///
+/// The consuming task's `CreateAction`s are the ones whose `result` `@id`
+/// lives under `runtime/outputs/<consuming_task>/` (the id scheme
+/// [`register_produced_output_tables`] mints). Within each, an `object` entry
+/// references the unread `producer_task` in exactly the two forms that
+/// registrar emits: the bare `#step-<producer_task>` step reference, or a
+/// concrete `runtime/outputs/<producer_task>/…` produced-output file. Both are
+/// removed; the authoritative producer's output (a disjoint id prefix / a
+/// different step) is untouched.
+///
+/// Returns the removed `@id`s (sorted, deduped) for the `ecaax:` side channel.
+/// Idempotent — a re-run over an already-pruned graph matches nothing and
+/// returns empty.
+fn prune_unread_producer_from_create_action_objects(
+    graph: &mut [Value],
+    consuming_task: &str,
+    producer_task: &str,
+) -> Vec<String> {
+    let result_prefix = format!("runtime/outputs/{consuming_task}/");
+    let producer_step = format!("#step-{producer_task}");
+    let producer_output_prefix = format!("runtime/outputs/{producer_task}/");
+    let refers_to_producer = |id: &str| id == producer_step || id.starts_with(&producer_output_prefix);
+    let mut pruned: Vec<String> = Vec::new();
+    for node in graph.iter_mut() {
+        let is_create_action = match node.get("@type") {
+            Some(Value::String(s)) => s == "CreateAction",
+            Some(Value::Array(a)) => a.iter().any(|t| t.as_str() == Some("CreateAction")),
+            _ => false,
+        };
+        if !is_create_action {
+            continue;
+        }
+        let belongs = node
+            .get("result")
+            .and_then(|r| r.get("@id"))
+            .and_then(Value::as_str)
+            .map(|id| id.starts_with(&result_prefix))
+            .unwrap_or(false);
+        if !belongs {
+            continue;
+        }
+        let Some(object) = node.get_mut("object").and_then(Value::as_array_mut) else {
+            continue;
+        };
+        object.retain(|entry| {
+            let hit = entry
+                .get("@id")
+                .and_then(Value::as_str)
+                .map(refers_to_producer)
+                .unwrap_or(false);
+            if hit {
+                if let Some(id) = entry.get("@id").and_then(Value::as_str) {
+                    pruned.push(id.to_string());
+                }
+            }
+            !hit
+        });
+    }
+    pruned.sort();
+    pruned.dedup();
+    pruned
 }
 
 pub fn inject_audit_proof_verdict_nodes(metadata: &mut Value, report: &Value) -> Result<()> {
@@ -5082,6 +5183,187 @@ loaded via a namespace (and not attached):
         assert!(
             divergences.is_empty(),
             "expected no divergence records, got {divergences:?}"
+        );
+    }
+
+    /// Build the DE one-of graph AND the consuming task's retrospective
+    /// `CreateAction` exactly as the SESSION path leaves it: the server
+    /// registers the CreateAction DURING execution — BEFORE the end-of-run
+    /// reconcile drop — so its `object` (PROV `used`) already lists BOTH
+    /// producers' outputs (the authoritative one AND the unread one-of
+    /// sibling). `used_objects` are the `object` `@id`s to seed.
+    fn graph_with_de_create_action(
+        edges: &[crate::workflow_contracts::edge::EdgeContract],
+        used_objects: &[&str],
+    ) -> Value {
+        let mut metadata = graph_with_parameter_connections(edges);
+        let de_result = "runtime/outputs/differential_expression/tables/de_results.tsv";
+        let object: Vec<Value> = used_objects.iter().map(|id| json!({"@id": id})).collect();
+        metadata["@graph"].as_array_mut().unwrap().push(json!({
+            "@id": format!("#action/{de_result}"),
+            "@type": ["CreateAction", "prov:Activity"],
+            "name": "Production of de_results.tsv by stage 'differential_expression'.",
+            "instrument": {"@id": "#step-differential_expression"},
+            "result": {"@id": de_result},
+            "object": object,
+        }));
+        metadata
+    }
+
+    fn de_create_action_object_ids(metadata: &Value) -> Vec<String> {
+        metadata["@graph"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| {
+                e["@id"] == "#action/runtime/outputs/differential_expression/tables/de_results.tsv"
+            })
+            .expect("DE CreateAction present")["object"]
+            .as_array()
+            .expect("CreateAction.object is an array")
+            .iter()
+            .map(|o| o["@id"].as_str().unwrap_or_default().to_string())
+            .collect()
+    }
+
+    /// §G-B1 (session-path gap) — the reconcile drops the unread one-of
+    /// member's `ParameterConnection` (existing behavior), AND must ALSO prune
+    /// the consuming task's `CreateAction.object` (PROV `used`) so a generic
+    /// runcrate/WRROC consumer never reads the unread producer's output as an
+    /// authoritative data flow. After reconcile the consuming `object` MUST
+    /// `used` ONLY the authoritative producer's output; the unread producer's
+    /// output is recorded ONLY in the `ecaax:` side channel.
+    #[test]
+    fn reconcile_prunes_unread_producer_from_consuming_task_create_action_object() {
+        let edges = de_one_of_edges();
+        // The session path registered the DE CreateAction pre-drop → BOTH
+        // producers' concrete outputs are in `used`.
+        let mut metadata = graph_with_de_create_action(
+            &edges,
+            &[
+                "runtime/outputs/quantification/count_matrix.tsv",
+                "runtime/outputs/normalisation/normalized_counts.tsv",
+            ],
+        );
+        // Observed reads bind the RAW member (quantification is authoritative).
+        let reads = vec![crate::provenance::ObservedRead {
+            task_id: "differential_expression".into(),
+            declared_port: Some("raw_counts".into()),
+            path: "runtime/outputs/quantification/count_matrix.tsv".into(),
+        }];
+
+        reconcile_ro_crate_edges(&mut metadata, &edges, &reads);
+
+        let graph = metadata["@graph"].as_array().unwrap();
+        // (a) the unread ParameterConnection is dropped (existing behavior).
+        assert!(
+            graph.iter().all(|e| e["@id"]
+                != "#parameter-connection/normalisation__to__differential_expression"),
+            "the unread one-of candidate must NOT remain as a standard ParameterConnection"
+        );
+
+        // (b) the consuming CreateAction `object` now `used`s ONLY the
+        // authoritative producer's output.
+        let objects = de_create_action_object_ids(&metadata);
+        assert_eq!(
+            objects,
+            vec!["runtime/outputs/quantification/count_matrix.tsv".to_string()],
+            "the unread producer's output must be pruned from CreateAction.object"
+        );
+
+        // (c) the pruned `used` entry is recorded in the ecaax side channel.
+        let root = graph.iter().find(|e| e["@id"] == "./").unwrap();
+        let unused = root["ecaax:unusedCandidateEdge"].as_array().unwrap();
+        assert_eq!(unused.len(), 1);
+        assert_eq!(unused[0]["from_node"], "normalisation");
+        assert_eq!(
+            unused[0]["ecaax:prunedUsedObject"]
+                .as_array()
+                .expect("pruned-used-object recorded on the dropped edge"),
+            &vec![json!("runtime/outputs/normalisation/normalized_counts.tsv")]
+        );
+    }
+
+    /// The `object` prune is idempotent: a second reconcile over the same
+    /// (already-pruned) graph leaves the authoritative-only `used` array
+    /// unchanged and never re-introduces the unread producer.
+    #[test]
+    fn reconcile_object_prune_is_idempotent() {
+        let edges = de_one_of_edges();
+        let mut metadata = graph_with_de_create_action(
+            &edges,
+            &[
+                "runtime/outputs/quantification/count_matrix.tsv",
+                "runtime/outputs/normalisation/normalized_counts.tsv",
+            ],
+        );
+        let reads = vec![crate::provenance::ObservedRead {
+            task_id: "differential_expression".into(),
+            declared_port: Some("raw_counts".into()),
+            path: "runtime/outputs/quantification/count_matrix.tsv".into(),
+        }];
+
+        reconcile_ro_crate_edges(&mut metadata, &edges, &reads);
+        reconcile_ro_crate_edges(&mut metadata, &edges, &reads);
+
+        assert_eq!(
+            de_create_action_object_ids(&metadata),
+            vec!["runtime/outputs/quantification/count_matrix.tsv".to_string()],
+        );
+    }
+
+    /// The prune also handles the `#step-<producer>` bare fallback form the
+    /// registrar emits when the unread producer registered no output table.
+    #[test]
+    fn reconcile_prunes_bare_step_used_reference() {
+        let edges = de_one_of_edges();
+        let mut metadata =
+            graph_with_de_create_action(&edges, &["#step-quantification", "#step-normalisation"]);
+        let reads = vec![crate::provenance::ObservedRead {
+            task_id: "differential_expression".into(),
+            declared_port: Some("raw_counts".into()),
+            path: "runtime/outputs/quantification/count_matrix.tsv".into(),
+        }];
+
+        reconcile_ro_crate_edges(&mut metadata, &edges, &reads);
+
+        assert_eq!(
+            de_create_action_object_ids(&metadata),
+            vec!["#step-quantification".to_string()],
+            "the unread producer's bare step ref must be pruned from CreateAction.object"
+        );
+    }
+
+    /// An UNRESOLVED one-of group (the read matched neither declared producer)
+    /// must keep BOTH `ParameterConnection`s AND leave the consuming
+    /// `CreateAction.object` untouched — we never prune a member we cannot
+    /// rule out.
+    #[test]
+    fn reconcile_unresolved_one_of_keeps_both_create_action_object_entries() {
+        let edges = de_one_of_edges();
+        let mut metadata = graph_with_de_create_action(
+            &edges,
+            &[
+                "runtime/outputs/quantification/count_matrix.tsv",
+                "runtime/outputs/normalisation/normalized_counts.tsv",
+            ],
+        );
+        // A read matching NEITHER producer's output dir → unresolved group.
+        let reads = vec![crate::provenance::ObservedRead {
+            task_id: "differential_expression".into(),
+            declared_port: None,
+            path: "runtime/outputs/data_acquisition/counts.tsv".into(),
+        }];
+
+        reconcile_ro_crate_edges(&mut metadata, &edges, &reads);
+
+        assert_eq!(
+            de_create_action_object_ids(&metadata),
+            vec![
+                "runtime/outputs/quantification/count_matrix.tsv".to_string(),
+                "runtime/outputs/normalisation/normalized_counts.tsv".to_string(),
+            ],
+            "an unresolved one-of must leave both `used` entries in place"
         );
     }
 }
