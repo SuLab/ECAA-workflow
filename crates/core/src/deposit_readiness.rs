@@ -38,6 +38,18 @@
 //! invariant the per-path finalize blocking (harness `end_of_run_finalize`)
 //! also applies.
 //!
+//! Layer 1 also runs the DR-8 portability scan (`portability_warnings`, via
+//! [`scan_portability`]): a WARN-ONLY advisory listing residual absolute host
+//! paths (`/home/…`) and bare session-id occurrences found in the sealed
+//! deposit OUTSIDE the one declared identity field ([`DECLARED_IDENTITY_FIELD`]).
+//! It is deliberately NOT folded into `deposit_ready`: a `re-executable`
+//! deposit legitimately needs some absolute host paths to replay (captured
+//! conda `env.lock` prefixes, agent-authored `scripts/*`, the resolved BLAS
+//! `.so` path) — scrubbing those would break re-execution. So the scan
+//! surfaces the non-portability honestly without blocking a deposit whose
+//! replay genuinely depends on those paths. See [`scan_portability`] for the
+//! bounded set of residuals that cannot be safely relativized and why.
+//!
 //! The attestation is written to `DEPOSIT-READINESS.json` at the deposit root
 //! and is intentionally OFF the BagIt manifest (it carries a wall-clock
 //! `verified_at` + a verdict computed at export time), mirroring
@@ -151,6 +163,17 @@ pub struct DepositReadiness {
     /// a divergence; a clean package is unaffected).
     #[serde(default)]
     pub provenance_divergence: CheckStatus,
+    /// DR-8 portability advisory: residual absolute host paths (`/home/…`) and
+    /// bare session-id occurrences found in the sealed deposit OUTSIDE the one
+    /// declared identity field ([`DECLARED_IDENTITY_FIELD`]). WARN-ONLY —
+    /// surfaced for operator visibility but DELIBERATELY NOT folded into
+    /// `deposit_ready` (see [`scan_portability`]): a `re-executable` deposit
+    /// may legitimately need some absolute host paths to replay, so a residual
+    /// path must not block an otherwise-valid deposit. Empty ⇒ fully portable.
+    /// `#[serde(default)]` so an attestation predating this field deserializes
+    /// as clean (absence never fabricates a warning).
+    #[serde(default)]
+    pub portability_warnings: Vec<String>,
     /// Re-execution verdict (`not_verified` when the check was not run).
     pub reexecution: ReexecStatus,
     /// Human-readable failure/notes detail (empty on a clean all-pass).
@@ -486,6 +509,266 @@ pub fn scan_provenance_divergence(package_root: &Path) -> ProvenanceDivergenceSu
     ProvenanceDivergenceSummary { divergences: found }
 }
 
+/// The single field in which a portable deposit is permitted to carry the
+/// session/package identity (§G exemption, DR-8). `WORKFLOW.json`'s
+/// `workflow_id` is the canonical, content-stable package/workflow id (the
+/// `workflow-<session-uuid>` string the composer/conversation layer mints);
+/// the portability scan treats the identity there as EXEMPT and reports every
+/// OTHER occurrence of the raw session id as a residual advisory.
+pub const DECLARED_IDENTITY_FIELD: &str = "WORKFLOW.json::workflow_id";
+
+/// Absolute filesystem roots that make a path host-specific (non-portable).
+/// A path beginning with one of these embeds an operator's home / machine
+/// layout into the deposit.
+const HOST_PATH_ROOTS: &[&str] = &["/home/", "/Users/", "/root/"];
+
+/// File extensions whose bytes are binary (or otherwise not worth a text
+/// portability scan). Skipped by [`scan_portability`] — a `/home/…` reference
+/// worth surfacing lives in a TEXT config/lock/script, never inside a binary
+/// blob (the copied BLAS `.so` is skipped here; the TEXT `env.lock` /
+/// `determinism-env.json` that REFERENCES its absolute path is not).
+const PORTABILITY_SKIP_EXTS: &[&str] = &[
+    "so", "a", "o", "dylib", "dll", "zip", "gz", "bz2", "xz", "zst", "tar", "tgz", "pdf", "png",
+    "jpg", "jpeg", "gif", "bmp", "ico", "parquet", "feather", "arrow", "h5", "hdf5", "h5ad", "loom",
+    "bam", "sam", "cram", "bai", "crai", "npz", "npy", "pyc", "pyo", "whl", "rds", "rdata", "rda",
+    "bin", "pkl", "pickle", "db", "sqlite", "woff", "woff2", "ttf", "eot", "mp4", "mov",
+];
+
+/// Files larger than this are skipped by the portability scan (host-path
+/// references live in small config/lock/script files; a multi-MB file is data).
+const PORTABILITY_MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
+
+/// Cap on findings of each kind so the attestation stays bounded even for a
+/// deposit that leaks the same path across thousands of lines.
+const PORTABILITY_FINDINGS_CAP: usize = 100;
+
+/// DR-8 portability advisory. WARN-ONLY — never folded into `deposit_ready`.
+///
+/// A non-empty summary means the deposit carries host-specific state that
+/// makes it non-relocatable AS-IS. Some of that state is LOAD-BEARING for
+/// re-execution and cannot be safely scrubbed (see the module docs and the
+/// "honest residual" note on [`scan_portability`]); the scan therefore reports
+/// it as advisory rather than blocking.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PortabilitySummary {
+    /// `"<relpath>: <absolute-host-path>"` for each distinct absolute host path
+    /// found in a scanned TEXT artifact, sorted + de-duplicated.
+    pub host_paths: Vec<String>,
+    /// `"<relpath>: <session-uuid>"` for each scanned TEXT artifact that
+    /// carries the raw (hyphenated) session id OUTSIDE the one declared
+    /// identity field, sorted + de-duplicated. Empty when the deposit's
+    /// `workflow_id` is not a `workflow-<uuid>` identity (e.g. a CLI-built
+    /// package), in which case only the host-path axis applies.
+    pub session_id_leaks: Vec<String>,
+}
+
+impl PortabilitySummary {
+    /// `true` iff the deposit carries no residual host path and no bare
+    /// session-id leak — i.e. it is fully relocatable.
+    pub fn is_clean(&self) -> bool {
+        self.host_paths.is_empty() && self.session_id_leaks.is_empty()
+    }
+
+    /// Flatten to advisory warning strings for the attestation
+    /// (`portability_warnings`). Prefixed by kind so an operator reading the
+    /// attestation can tell a host-path residual from a session-id residual.
+    pub fn warnings(&self) -> Vec<String> {
+        let mut out = Vec::with_capacity(self.host_paths.len() + self.session_id_leaks.len());
+        for h in &self.host_paths {
+            out.push(format!("absolute host path — {h}"));
+        }
+        for s in &self.session_id_leaks {
+            out.push(format!("bare session id — {s}"));
+        }
+        out
+    }
+}
+
+/// Extract the raw (hyphenated) session UUID a deposit's `workflow_id` encodes,
+/// when it has the canonical `workflow-<32 hex>` shape. Returns `(hyphenated,
+/// declared_workflow_id)` so callers can search for the bare UUID form while
+/// exempting the declared `workflow-…` string itself. `None` for any other
+/// `workflow_id` shape (CLI-built packages, legacy ids) — the host-path axis
+/// still applies, only the session-id axis is skipped.
+fn declared_session_uuid(package_root: &Path) -> Option<(String, String)> {
+    let raw = std::fs::read_to_string(package_root.join("WORKFLOW.json")).ok()?;
+    let wf: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let workflow_id = wf.get("workflow_id")?.as_str()?.to_string();
+    let simple = workflow_id.strip_prefix("workflow-")?;
+    // Must be exactly a 32-hex-char UUID (hyphens stripped) to reconstruct.
+    if simple.len() != 32 || !simple.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let hyphenated = format!(
+        "{}-{}-{}-{}-{}",
+        &simple[0..8],
+        &simple[8..12],
+        &simple[12..16],
+        &simple[16..20],
+        &simple[20..32],
+    );
+    Some((hyphenated, workflow_id))
+}
+
+/// Scan `content` for absolute host paths, returning each match as
+/// `(start, end)` byte spans plus the matched path string. A match begins at a
+/// [`HOST_PATH_ROOTS`] prefix and runs until a path-terminating delimiter
+/// (whitespace, quotes, backtick, or JSON/markdown structural punctuation).
+fn find_host_paths(content: &str) -> Vec<(usize, usize, String)> {
+    /// A byte that terminates a filesystem path token in JSON / markdown /
+    /// shell contexts. `:` and `=` end key/value framing; brackets/quotes end
+    /// string literals. Unix paths in this codebase never contain these.
+    fn is_terminator(b: u8) -> bool {
+        b.is_ascii_whitespace()
+            || matches!(
+                b,
+                b'"' | b'\'' | b'`' | b',' | b'(' | b')' | b'[' | b']' | b'{' | b'}' | b'<' | b'>'
+                    | b';' | b':' | b'\\' | b'|' | b'*' | b'?' | b'='
+            )
+    }
+    // Scan on BYTES (not `str` slices) so a `/home/…` reference embedded in an
+    // otherwise-multibyte UTF-8 file never panics on a non-char-boundary index.
+    // The roots + path chars are ASCII, and every UTF-8 continuation byte is
+    // >= 0x80, so byte matching never splits a codepoint.
+    let bytes = content.as_bytes();
+    let mut spans: Vec<(usize, usize, String)> = Vec::new();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let at_root = HOST_PATH_ROOTS
+            .iter()
+            .any(|r| bytes[i..].starts_with(r.as_bytes()));
+        if !at_root {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        let mut end = i;
+        while end < bytes.len() && !is_terminator(bytes[end]) {
+            end += 1;
+        }
+        // Trim a trailing path separator or dot so `"/home/x/",` records
+        // `/home/x` rather than `/home/x/`.
+        let mut trimmed = end;
+        while trimmed > start && matches!(bytes[trimmed - 1], b'/' | b'.') {
+            trimmed -= 1;
+        }
+        if trimmed > start {
+            let seg = String::from_utf8_lossy(&bytes[start..trimmed]).into_owned();
+            spans.push((start, trimmed, seg));
+        }
+        i = end.max(start + 1);
+    }
+    spans
+}
+
+/// DR-8 portability scan over a sealed deposit (or an emitted package root).
+///
+/// Walks every TEXT artifact (skipping binary blobs by extension, files over
+/// [`PORTABILITY_MAX_FILE_BYTES`], and the manifest-excluded
+/// `DEPOSIT-READINESS.json` itself) and collects two residual signals:
+///
+/// 1. **Absolute host paths** (`/home/…`, `/Users/…`, `/root/…`) — anything
+///    that pins the deposit to one operator's machine layout.
+/// 2. **Bare session id** — the raw (hyphenated) session UUID the deposit's
+///    `workflow_id` encodes, found ANYWHERE other than inside an
+///    already-reported host path. The declared identity itself
+///    ([`DECLARED_IDENTITY_FIELD`], the `workflow-<uuid>` string) is EXEMPT.
+///
+/// **Honest residual — why this is WARN-only, not a hard gate.** A
+/// `re-executable` deposit's replay legitimately depends on absolute host
+/// paths that CANNOT be safely scrubbed by the compiler:
+/// - captured conda/pip lock files (`runtime/outputs/*/env.lock`) that pin a
+///   host-specific environment prefix,
+/// - the agent-authored per-task `scripts/*` and `agent-code.json`, which may
+///   hardcode an input or output path the run actually used,
+/// - the resolved BLAS shared object path (`…/libopenblasp-r0.3.33.so`) baked
+///   into a determinism/env capture,
+/// - the SME-registered EXTERNAL data root (`runtime/inputs.json::root_path`,
+///   surfaced in `CONTEXT.md`), which points at real data OUTSIDE the package.
+///
+/// Blindly relativizing any of these would break re-execution, so the scan
+/// SURFACES them (deposit non-portability is a real, documented property) but
+/// never flips `deposit_ready`. Deterministic: findings are de-duplicated and
+/// sorted; each axis is capped at [`PORTABILITY_FINDINGS_CAP`].
+pub fn scan_portability(package_root: &Path) -> PortabilitySummary {
+    let declared = declared_session_uuid(package_root);
+    let sid = declared.as_ref().map(|(hyphenated, _)| hyphenated.as_str());
+
+    let mut host_paths: Vec<String> = Vec::new();
+    let mut session_id_leaks: Vec<String> = Vec::new();
+
+    // Deterministic depth-first walk; entries within a directory are visited in
+    // sorted order so a truncated (capped) finding set is stable.
+    let mut stack: Vec<std::path::PathBuf> = vec![package_root.to_path_buf()];
+    while let Some(cur) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&cur) else {
+            continue;
+        };
+        let mut entries: Vec<std::path::PathBuf> = rd.filter_map(|e| e.ok().map(|e| e.path())).collect();
+        entries.sort();
+        // Push in reverse so the sorted order is preserved on the LIFO stack.
+        for path in entries.into_iter().rev() {
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let rel = path
+                .strip_prefix(package_root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            // Skip the attestation itself (written AFTER this scan; a prior
+            // copy would otherwise feed its own warnings back in) and binary
+            // blobs / oversized data files.
+            if rel == DEPOSIT_READINESS_FILE {
+                continue;
+            }
+            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                if PORTABILITY_SKIP_EXTS.contains(&ext.to_ascii_lowercase().as_str()) {
+                    continue;
+                }
+            }
+            match std::fs::metadata(&path) {
+                Ok(m) if m.len() > PORTABILITY_MAX_FILE_BYTES => continue,
+                Ok(_) => {}
+                Err(_) => continue,
+            }
+            let Ok(content) = std::fs::read_to_string(&path) else {
+                continue; // non-UTF8 → treat as binary, skip
+            };
+
+            let spans = find_host_paths(&content);
+            for (_, _, p) in &spans {
+                host_paths.push(format!("{rel}: {p}"));
+            }
+
+            // Session-id leak: the raw UUID found outside any host-path span.
+            // The `workflow-<uuid>` declared identity never matches (it carries
+            // the simple, hyphen-free form), so it is exempt by construction.
+            if let Some(sid) = sid {
+                let leaked_outside_path = content.match_indices(sid).any(|(idx, _)| {
+                    !spans.iter().any(|(s, e, _)| idx >= *s && idx < *e)
+                });
+                if leaked_outside_path {
+                    session_id_leaks.push(format!("{rel}: {sid}"));
+                }
+            }
+        }
+    }
+
+    host_paths.sort();
+    host_paths.dedup();
+    host_paths.truncate(PORTABILITY_FINDINGS_CAP);
+    session_id_leaks.sort();
+    session_id_leaks.dedup();
+    session_id_leaks.truncate(PORTABILITY_FINDINGS_CAP);
+
+    PortabilitySummary {
+        host_paths,
+        session_id_leaks,
+    }
+}
+
 /// Result of the Layer-1 deterministic self-validation over a sealed deposit.
 pub struct Tier1Validation {
     pub ro_crate: CheckStatus,
@@ -622,11 +905,26 @@ pub fn write_deposit_readiness(
         )
     });
 
+    // DR-8 portability advisory — residual absolute host paths + bare
+    // session-id occurrences. WARN-ONLY: surfaced in the attestation but NOT
+    // folded into `deposit_ready` (a re-executable deposit's replay may
+    // legitimately need some host paths — see `scan_portability`).
+    let portability = scan_portability(dst);
+    let portability_warnings = portability.warnings();
+    let portability_detail = (!portability_warnings.is_empty()).then(|| {
+        format!(
+            "portability warning(s): {} residual host path(s), {} bare session-id occurrence(s)",
+            portability.host_paths.len(),
+            portability.session_id_leaks.len()
+        )
+    });
+
     let detail = [
         tier1.detail.clone(),
         domain_detail,
         divergence_detail,
         reporting_warnings_detail,
+        portability_detail,
         reexec_detail,
     ]
     .into_iter()
@@ -634,6 +932,9 @@ pub fn write_deposit_readiness(
     .collect::<Vec<_>>();
     let detail = (!detail.is_empty()).then(|| detail.join("; "));
 
+    // `portability_warnings` is intentionally ABSENT from this fold: a residual
+    // host path is advisory (a re-executable deposit may need it to replay),
+    // so it must never flip `deposit_ready` false.
     let deposit_ready = compute_deposit_ready(
         profile,
         tier1.ro_crate,
@@ -650,6 +951,7 @@ pub fn write_deposit_readiness(
         bagit: tier1.bagit,
         domain_validation,
         provenance_divergence,
+        portability_warnings,
         reexecution,
         detail,
         image_digest,
@@ -1387,5 +1689,201 @@ mod tests {
         assert_eq!(dr.provenance_divergence, CheckStatus::Pass);
         assert!(dr.deposit_ready);
         assert!(check_deposit_readiness(tmp.path(), false).is_ok());
+    }
+
+    // -----------------------------------------------------------------------
+    // DR-8 — portability advisory (WARN-only)
+    // -----------------------------------------------------------------------
+
+    /// Session id used by the portability fixtures. Its `workflow_id` form is
+    /// the hyphen-free `workflow-<32hex>`; its raw (leaked) form is hyphenated.
+    const FIX_WORKFLOW_ID: &str = "workflow-805c50a6f70c4565a8e9ec5dad7dff16";
+    const FIX_SESSION_UUID: &str = "805c50a6-f70c-4565-a8e9-ec5dad7dff16";
+
+    fn write_workflow_id(root: &Path) {
+        let wf = serde_json::json!({ "workflow_id": FIX_WORKFLOW_ID, "tasks": {} });
+        fs::write(root.join("WORKFLOW.json"), serde_json::to_vec_pretty(&wf).unwrap()).unwrap();
+    }
+
+    /// The scan flags a residual absolute host path and the raw session id,
+    /// while EXEMPTING the declared `workflow_id` (the one declared identity
+    /// field) and NOT double-counting a session id that only appears inside a
+    /// host path.
+    #[test]
+    fn scan_portability_flags_host_paths_and_session_id_exempting_workflow_id() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write_workflow_id(root);
+        fs::create_dir_all(root.join("runtime")).unwrap();
+        // (1) An external SME data root — a genuine host path (load-bearing).
+        fs::write(
+            root.join("runtime/inputs.json"),
+            r#"[{"root_path":"/home/a/.ecaa-workflow/himes-inputs"}]"#,
+        )
+        .unwrap();
+        // (2) The raw session id embedded as a bare field (decisions.jsonl).
+        fs::write(
+            root.join("runtime/decisions.jsonl"),
+            format!("{{\"session_id\":\"{FIX_SESSION_UUID}\"}}\n"),
+        )
+        .unwrap();
+        // (3) The session id ONLY inside a host path — must count as a host
+        //     path, NOT separately as a session-id leak.
+        fs::write(
+            root.join("runtime/only-in-path.json"),
+            format!("{{\"p\":\"/home/a/.ecaa-workflow/packages/{FIX_SESSION_UUID}-bulk\"}}"),
+        )
+        .unwrap();
+
+        let s = scan_portability(root);
+        assert!(!s.is_clean(), "residual host path + session id are non-portable");
+
+        // Host paths surfaced for inputs.json and only-in-path.json.
+        assert!(
+            s.host_paths.iter().any(|h| h.starts_with("runtime/inputs.json:")
+                && h.contains("/home/a/.ecaa-workflow/himes-inputs")),
+            "expected the external SME data root as a host path; got {:?}",
+            s.host_paths
+        );
+        assert!(
+            s.host_paths.iter().any(|h| h.starts_with("runtime/only-in-path.json:")),
+            "expected the packages dir path as a host path; got {:?}",
+            s.host_paths
+        );
+
+        // Session-id leak surfaced for decisions.jsonl (bare field) ...
+        assert!(
+            s.session_id_leaks
+                .iter()
+                .any(|l| l.starts_with("runtime/decisions.jsonl:") && l.contains(FIX_SESSION_UUID)),
+            "expected the bare session id in decisions.jsonl; got {:?}",
+            s.session_id_leaks
+        );
+        // ... but NOT for the file where the id only appears inside a host path.
+        assert!(
+            !s.session_id_leaks
+                .iter()
+                .any(|l| l.starts_with("runtime/only-in-path.json:")),
+            "a session id that only appears inside a host path must not be double-counted; got {:?}",
+            s.session_id_leaks
+        );
+        // ... and NEVER for the declared identity field (WORKFLOW.json uses the
+        // hyphen-free workflow-<32hex> form, so the raw UUID never matches).
+        assert!(
+            !s.session_id_leaks.iter().any(|l| l.starts_with("WORKFLOW.json:")),
+            "the declared workflow_id identity must be exempt; got {:?}",
+            s.session_id_leaks
+        );
+    }
+
+    /// A relocatable package (no host paths, no bare session id) scans clean.
+    #[test]
+    fn scan_portability_clean_on_portable_package() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write_workflow_id(root);
+        fs::create_dir_all(root.join("runtime")).unwrap();
+        fs::write(
+            root.join("runtime/execution-order.json"),
+            r#"{"order":["data_acquisition","differential_expression"]}"#,
+        )
+        .unwrap();
+        fs::write(root.join("CONTEXT.md"), "# Context\nRelative path: runtime/outputs/x\n").unwrap();
+        let s = scan_portability(root);
+        assert!(s.is_clean(), "no residuals expected; got {s:?}");
+        assert!(s.warnings().is_empty());
+    }
+
+    /// A `workflow_id` that is not a `workflow-<uuid>` identity (e.g. a
+    /// CLI-built package) disables only the session-id axis; the host-path
+    /// axis still fires.
+    #[test]
+    fn scan_portability_no_session_axis_for_non_uuid_workflow_id() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let wf = serde_json::json!({ "workflow_id": "bulk-rnaseq-demo", "tasks": {} });
+        fs::write(root.join("WORKFLOW.json"), serde_json::to_vec_pretty(&wf).unwrap()).unwrap();
+        fs::write(root.join("CONTEXT.md"), "root: /home/a/data\n").unwrap();
+        let s = scan_portability(root);
+        assert!(s.session_id_leaks.is_empty(), "no derivable session id → no session axis");
+        assert!(
+            s.host_paths.iter().any(|h| h.contains("/home/a/data")),
+            "host-path axis still applies; got {:?}",
+            s.host_paths
+        );
+    }
+
+    /// The portability advisory is recorded in the attestation but MUST NOT
+    /// flip `deposit_ready` false, and MUST NOT make the Layer-3 gate refuse:
+    /// a re-executable deposit may need some host paths to replay.
+    #[test]
+    fn portability_warn_recorded_without_blocking_deposit_ready() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write_workflow_id(root);
+        fs::create_dir_all(root.join("runtime")).unwrap();
+        // A residual host path (as a captured env.lock / inputs.json would have).
+        fs::write(
+            root.join("runtime/inputs.json"),
+            r#"[{"root_path":"/home/a/.ecaa-workflow/himes-inputs"}]"#,
+        )
+        .unwrap();
+
+        write_deposit_readiness(
+            root,
+            REEXECUTABLE_PROFILE,
+            &tier1(CheckStatus::Pass, CheckStatus::Pass, None),
+            ReexecStatus::Partial,
+            None,
+            None,
+            &WallClock,
+        )
+        .unwrap();
+
+        let dr = read_deposit_readiness(root).unwrap().unwrap();
+        assert!(
+            !dr.portability_warnings.is_empty(),
+            "residual host path must be surfaced as a portability warning"
+        );
+        assert!(
+            dr.portability_warnings.iter().any(|w| w.contains("/home/a/.ecaa-workflow/himes-inputs")),
+            "the residual host path should appear in the warnings; got {:?}",
+            dr.portability_warnings
+        );
+        assert!(
+            dr.deposit_ready,
+            "a portability WARN alone must NOT flip deposit_ready false"
+        );
+        assert!(
+            dr.detail.as_deref().unwrap_or_default().contains("portability warning"),
+            "the human detail should note the portability warning; got {:?}",
+            dr.detail
+        );
+        // Layer-3 gate admits it (portability is advisory, not gated).
+        assert!(
+            check_deposit_readiness(root, false).is_ok(),
+            "portability residuals must not make the deposit gate refuse"
+        );
+    }
+
+    /// A clean deposit records an empty portability advisory.
+    #[test]
+    fn portability_warn_clear_on_clean_deposit() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write_workflow_id(root);
+        write_deposit_readiness(
+            root,
+            "full",
+            &tier1(CheckStatus::Pass, CheckStatus::Pass, None),
+            ReexecStatus::Pass,
+            None,
+            None,
+            &WallClock,
+        )
+        .unwrap();
+        let dr = read_deposit_readiness(root).unwrap().unwrap();
+        assert!(dr.portability_warnings.is_empty(), "clean deposit has no portability warnings");
+        assert!(dr.deposit_ready);
     }
 }

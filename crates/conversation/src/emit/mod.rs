@@ -1130,6 +1130,55 @@ mod tests {
             .join("config")
     }
 
+    /// DR-8 portability: the `emit_package` decision records the package's own
+    /// output directory, which the production emit tool sets to an ABSOLUTE
+    /// host path (`/home/…/packages/<session-id>-…`). That path pins the
+    /// deposit to one machine AND embeds the raw session id via the directory
+    /// name, so the decision-log writer must relativize it to the
+    /// package-root-relative "." before writing `decisions.jsonl`.
+    #[tokio::test]
+    async fn emit_package_decision_output_dir_relativized_for_portability() {
+        let mut session = Session::new(false);
+        let ctx = ToolContext::new(config_dir(), "claude-sonnet-4-6");
+        dispatch_one(
+            &Tool::Batchable(BatchableTool::AppendIntakeProse {
+                prose: "single cell scRNA-seq human samples".into(),
+            }),
+            &mut session,
+            &ctx,
+        )
+        .await;
+        let absolute_output_dir =
+            "/home/a/.ecaa-workflow/packages/deadbeef-1111-2222-3333-444455556666-bulk_rnaseq";
+        session.record_decision(
+            ecaa_workflow_core::decision_log::DecisionType::EmitPackage {
+                output_dir: absolute_output_dir.into(),
+            },
+            ecaa_workflow_core::decision_log::DecisionActor::Llm,
+            None,
+        );
+
+        let tmp = tempfile::tempdir().unwrap();
+        emit_with_conversation_log(&mut session, tmp.path(), &config_dir())
+            .await
+            .unwrap();
+
+        let body =
+            std::fs::read_to_string(tmp.path().join("runtime/decisions.jsonl")).unwrap();
+        assert!(
+            !body.contains(absolute_output_dir),
+            "absolute emit_package output_dir must be relativized out of decisions.jsonl; got: {body}"
+        );
+        assert!(
+            !body.contains("/home/a/.ecaa-workflow/packages/deadbeef"),
+            "no residual host path / session-id from the package dir name may remain; got: {body}"
+        );
+        assert!(
+            body.contains(r#""output_dir":".""#),
+            "emit_package output_dir must be the package-root-relative '.'; got: {body}"
+        );
+    }
+
     #[tokio::test]
     async fn emit_writes_conversation_log_and_patches_metadata() {
         let mut session = Session::new(false);

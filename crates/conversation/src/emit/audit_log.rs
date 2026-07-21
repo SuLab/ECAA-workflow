@@ -111,11 +111,27 @@ pub(super) async fn write_decision_log_tiered(
     use ecaa_workflow_core::provenance_tiers::{redact_record, RedactionPolicy};
     let runtime = output_dir.join("runtime");
     let policy = RedactionPolicy::default_policy();
-    let redacted: Vec<_> = session
+    let mut redacted: Vec<_> = session
         .decisions
         .iter()
         .filter_map(|r| redact_record(r, tier, &policy))
         .collect();
+    // DR-8 portability: the `emit_package` decision records the package's own
+    // output directory as an absolute host path (e.g.
+    // `/home/…/packages/<session-id>-…`), which pins the deposit to one
+    // machine AND embeds the raw session id via the directory name. That path
+    // is a self-reference — it always names THIS package — so relativize it to
+    // the package-root-relative "." before writing. Done here (on the written
+    // rows) rather than at record time so BOTH `decisions.jsonl` and its MAC
+    // sidecar sign the same relativized value, and so a value recorded during
+    // an earlier emit is relativized on a later re-emit too.
+    for rec in &mut redacted {
+        if let ecaa_workflow_core::decision_log::DecisionType::EmitPackage { output_dir } =
+            &mut rec.decision
+        {
+            *output_dir = ".".to_string();
+        }
+    }
     write_jsonl(&runtime, "decisions.jsonl", &redacted).await?;
 
     // HMAC-SHA256 sidecar (C5): one hex digest per row in
