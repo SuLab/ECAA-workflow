@@ -593,20 +593,56 @@ fn check_rp3_fdr_family(outputs: &Path, report: &mut ReportingInvariantsReport) 
 // RP-9 (Warn) — method label matches executed model
 // ---------------------------------------------------------------------------
 
+/// Mixed-model phrases whose AFFIRMATIVE use RP-9 flags.
+const MIXED_MODEL_PHRASES: &[&str] = &[
+    "linear mixed model",
+    "linear mixed-effects",
+    "linear mixed effects",
+    "mixed-effects model",
+    "mixed effects model",
+];
+
+/// True when the report AFFIRMATIVELY labels the DE model a linear mixed model.
+///
+/// A correct fixed-effects report often DISAVOWS a mixed model explicitly
+/// ("this is NOT a linear mixed model; the design is fixed-effects"). A naive
+/// substring match fired on that disavowal and flagged a correct report for the
+/// opposite of what it says (himes rerun audit 2026-07-21). So each occurrence
+/// is affirmative only when it is NOT immediately preceded by a negation cue.
+fn mentions_mixed_model_affirmatively(reports: &str) -> bool {
+    // Negation cues that, within the short window immediately before a phrase,
+    // mark the mention as a disavowal rather than a label.
+    const NEGATION_CUES: &[&str] = &[
+        "not ", "n't ", "rather than", "instead of", "no ", "without", "isn't", "aren't",
+    ];
+    const WINDOW: usize = 24;
+    let lower = reports.to_lowercase();
+    for phrase in MIXED_MODEL_PHRASES {
+        let mut from = 0;
+        while let Some(rel) = lower[from..].find(phrase) {
+            let idx = from + rel;
+            let before = &lower[idx.saturating_sub(WINDOW)..idx];
+            let negated = NEGATION_CUES.iter().any(|cue| before.contains(cue));
+            if !negated {
+                return true;
+            }
+            from = idx + phrase.len();
+        }
+    }
+    false
+}
+
 /// Warn when the report labels the DE model a "linear mixed model"; the
 /// executed model is a fixed-effects negative-binomial GLM (DESeq2
-/// `~ cell + dex`). Warn-only per §G-C1.
+/// `~ cell + dex`). Warn-only per §G-C1. Negation-aware: a report that
+/// explicitly disavows a mixed model is not flagged.
 fn check_rp9_method_label(outputs: &Path, report: &mut ReportingInvariantsReport) {
     let Some(reports) = read_reports(outputs) else {
         return;
     };
     report.checked.push("RP-9");
 
-    let lower = reports.to_lowercase();
-    if lower.contains("linear mixed model")
-        || lower.contains("linear mixed-effects")
-        || lower.contains("linear mixed effects")
-    {
+    if mentions_mixed_model_affirmatively(&reports) {
         report.findings.push(ReportingFinding {
             invariant: "RP-9",
             severity: Severity::Warn,
@@ -882,6 +918,30 @@ mod tests {
         assert!(
             report.warnings().iter().any(|w| w.contains("RP-9")),
             "RP-9 must surface as a warning: {:?}",
+            report.warnings()
+        );
+        assert!(report.required_failures().is_empty());
+    }
+
+    #[test]
+    fn rp9_negated_mixed_model_disavowal_does_not_warn() {
+        // Regression (himes rerun audit 2026-07-21): a report that CORRECTLY
+        // disavows a mixed model must NOT trip RP-9. The naive substring match
+        // fired on "This is NOT a linear mixed model", flagging a correct
+        // report for the opposite of what it says. RP-9 must fire only on
+        // AFFIRMATIVE use.
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "final_reporting/final_report.md",
+            "The design `~ cell + dex` treats cell line as a fixed effect. This is NOT a \
+             linear mixed model; results are a fixed-effects negative-binomial GLM (DESeq2).\n",
+        );
+        let report = check_reporting_invariants(tmp.path());
+        assert!(
+            !report.warnings().iter().any(|w| w.contains("RP-9")),
+            "RP-9 must NOT fire on a negated disavowal of a mixed model: {:?}",
             report.warnings()
         );
         assert!(report.required_failures().is_empty());
