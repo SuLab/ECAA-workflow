@@ -228,8 +228,14 @@ impl ExtractorRegexCache {
                 // to `:`/`=`/`of`, and the collapsed base-10 exponent form
                 // `10-80` (== `1e-80`) as a value — parsed by
                 // [`parse_loose_number`].
+                // The value accepts an optional leading sign. A narrative that
+                // writes a positive effect size with an explicit `+`
+                // ("log2FC = +10.985") must be captured; dropping it leaves fewer
+                // numeric hits than entities, so the remaining single value gets
+                // shared across every entity and binds the wrong number to a gene
+                // (a false numeric Mismatch).
                 let pat = format!(
-                    r"(?i){}(?:\s*[:=≈~]\s*|\s+of\s+)(10-\d+|-?\d+(?:\.\d+)?(?:[eE]-?\d+)?)",
+                    r"(?i){}(?:\s*[:=≈~]\s*|\s+of\s+)(10-\d+|[+-]?\d+(?:\.\d+)?(?:[eE]-?\d+)?)",
                     regex::escape(&kw)
                 );
                 let re = Regex::new(&pat).expect("static-shape regex");
@@ -833,7 +839,15 @@ pub fn classify_contract(sentence: &str) -> ClaimContract {
         "previously described",
     ];
     let has_literature_kw = literature_keywords.iter().any(|kw| lower.contains(kw));
-    if PMID_CITATION_RE.is_match(&lower) || has_literature_kw {
+    // A markdown blockquote (`> "…"`) is a QUOTATION of external text — a
+    // prior-work evidence quote the contextualize stage embeds, not the
+    // analysis's own assertion. Its direction/number describes the cited system
+    // (e.g. "GLCCI1 is down-regulated in asthmatic mouse lung"), so it must NOT
+    // be checked against THIS analysis's result table (which would false-flag a
+    // directional Mismatch). Route it to LiteratureGrounded so it adjudicates
+    // against claims_evidence_matrix.csv instead.
+    let is_blockquote = sentence.trim_start().starts_with('>');
+    if PMID_CITATION_RE.is_match(&lower) || has_literature_kw || is_blockquote {
         return ClaimContract::LiteratureGrounded;
     }
 
@@ -2856,6 +2870,84 @@ mod tests {
             claims.is_empty(),
             "rows with no numeric slot must yield no claims: {:?}",
             claims.iter().map(|c| &c.entity).collect::<Vec<_>>()
+        );
+    }
+
+    /// Load the real bulk-RNA-seq interpretation policy from the repo config, so
+    /// extractor reproductions match production entity/effect/direction vocab
+    /// (incl. the `^FDR$`-style entity excludes that shape the entity set).
+    fn bulk_policy() -> ExtractorConfig {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("config/downstream-policy/interpretation-policy.json");
+        let raw: Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).expect("read bulk policy"))
+                .expect("parse bulk policy");
+        ExtractorConfig::from_policy(&raw).expect("bulk interpretation-policy loads")
+    }
+
+    /// Regression (defect 1a): in a two-gene interleaved sentence where each gene
+    /// is immediately followed by its OWN parenthetical value, each gene binds
+    /// its own value — not the other gene's. The positive value uses an explicit
+    /// `+`; before the sign fix it was dropped, leaving one hit shared by both
+    /// genes. Production-exact narrative (report.md), incl. `**bold**` markers.
+    #[test]
+    fn repro_de_two_gene_effect_size_not_swapped() {
+        let cfg = bulk_policy();
+        let text = "The top upregulated gene by shrunken log2FC was **ENSG00000179593** \
+                    (log2FC = +10.985, gene-level FDR (padj) = 1.24 × 10⁻¹⁷), and the \
+                    top downregulated gene was **ENSG00000128285** (log2FC = −4.812, \
+                    gene-level FDR (padj) = 2.36 × 10⁻⁴).";
+        let claims = extract_claims(text, &cfg);
+        let shown: Vec<_> = claims
+            .iter()
+            .map(|c| (c.entity.clone(), c.effect_size))
+            .collect();
+        let up = claims
+            .iter()
+            .find(|c| c.entity == "ENSG00000179593")
+            .unwrap_or_else(|| panic!("no claim for ENSG00000179593; got {shown:?}"));
+        let down = claims
+            .iter()
+            .find(|c| c.entity == "ENSG00000128285")
+            .unwrap_or_else(|| panic!("no claim for ENSG00000128285; got {shown:?}"));
+        assert_eq!(
+            up.effect_size,
+            Some(10.985),
+            "upregulated gene must bind its own +10.985 (all: {shown:?})"
+        );
+        assert_eq!(
+            down.effect_size,
+            Some(-4.812),
+            "downregulated gene must bind its own -4.812 (all: {shown:?})"
+        );
+    }
+
+    /// Regression (defect 1b): a blockquote citing PRIOR literature (a different
+    /// biological system) must be adjudicated against the literature evidence
+    /// matrix, NOT the analysis DE table — so its contract is LiteratureGrounded
+    /// and the verifier never runs a directional-vs-table check that would
+    /// false-flag the (opposite-system) prior finding.
+    #[test]
+    fn repro_no_directional_claim_from_prior_lit_quote() {
+        let cfg = bulk_policy();
+        let text = "> *\"Glucocorticoid-induced transcript 1 (GLCCI1) is down-regulated \
+                    in the lung tissues of asthmatic mice.\"*";
+        let claims = extract_claims(text, &cfg);
+        let glcci1: Vec<_> = claims.iter().filter(|c| c.entity == "GLCCI1").collect();
+        let shown: Vec<_> = glcci1
+            .iter()
+            .map(|c| format!("dir={:?} contract={:?}", c.direction, c.contract))
+            .collect();
+        assert!(!glcci1.is_empty(), "expected a GLCCI1 claim; got {shown:?}");
+        assert!(
+            glcci1
+                .iter()
+                .all(|c| c.contract == ClaimContract::LiteratureGrounded),
+            "a blockquote prior-lit quote must be LiteratureGrounded: {shown:?}"
         );
     }
 }
