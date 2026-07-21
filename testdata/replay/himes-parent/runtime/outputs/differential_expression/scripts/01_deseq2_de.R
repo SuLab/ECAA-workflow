@@ -1,189 +1,141 @@
 #!/usr/bin/env Rscript
-# Tool: DESeq2 1.50.2
-# Command: Rscript scripts/01_deseq2_de.R
-# Inputs:
-#   - runtime/outputs/data_acquisition/data/himes-inputs/counts.tsv (raw counts, 63677 genes x 8 samples)
-#   - runtime/outputs/data_acquisition/data/himes-inputs/samples.csv (sample metadata)
-# Outputs:
-#   - runtime/outputs/differential_expression/de_results.tsv
-#   - runtime/outputs/differential_expression/de_summary.json
-#   - runtime/outputs/differential_expression/intermediates/deseq2_dds.rds
-#   - runtime/outputs/differential_expression/intermediates/size_factors.tsv
-# Design: ~ cell + dex  (paired donor blocking + dexamethasone treatment)
-# Contrast: dex trt vs untrt  (normal-prior LFC shrinkage via apeglm fallback to normal)
+# DESeq2 differential expression: dexamethasone treatment effect (~ cell + dex)
+# Tool: DESeq2 (Bioconductor, NB-GLM with Wald test + apeglm LFC shrinkage)
+# Input: runtime/outputs/data_acquisition/data/himes-inputs/counts.tsv
+#        runtime/outputs/data_acquisition/data/himes-inputs/samples.csv
+# Output: runtime/outputs/differential_expression/de_results.tsv, de_summary.json, manifest.json
+#
+# Command: conda run -n ecaa-bioc Rscript runtime/outputs/differential_expression/scripts/01_deseq2_de.R
+
+# Resolve the package root from the injected replay env vars (script_runner
+# sets both PACKAGE and PKG_ROOT to the staged scratch root); fall back to a
+# path relative to this script's location for a manual, non-replay run.
+PKG <- Sys.getenv("PACKAGE",
+  unset = Sys.getenv("PKG_ROOT",
+    unset = normalizePath(file.path(
+      dirname(tryCatch(normalizePath(sys.frame(1)$ofile), error = function(e) getwd())),
+      "../../../.."
+    ))
+  )
+)
+OUT_DIR <- file.path(PKG, "runtime/outputs/differential_expression")
+COUNTS_TSV <- file.path(PKG, "runtime/outputs/data_acquisition/data/himes-inputs/counts.tsv")
+SAMPLES_CSV <- file.path(PKG, "runtime/outputs/data_acquisition/data/himes-inputs/samples.csv")
 
 suppressPackageStartupMessages({
   library(DESeq2)
+  library(jsonlite)
 })
 
-PACKAGE <- Sys.getenv("PACKAGE",
-  unset = normalizePath(file.path(
-    dirname(tryCatch(normalizePath(sys.frame(1)$ofile), error = function(e) getwd())),
-    "../../.."
-  ))
-)
+t_start <- proc.time()["elapsed"]
 
-COUNTS_PATH  <- file.path(PACKAGE, "runtime/outputs/data_acquisition/data/himes-inputs/counts.tsv")
-SAMPLES_PATH <- file.path(PACKAGE, "runtime/outputs/data_acquisition/data/himes-inputs/samples.csv")
-OUT_DIR      <- file.path(PACKAGE, "runtime/outputs/differential_expression")
-INTER_DIR    <- file.path(OUT_DIR, "intermediates")
-dir.create(INTER_DIR, showWarnings = FALSE, recursive = TRUE)
-
-progress <- function(msg) {
-  cat(format(Sys.time(), "[%H:%M:%S]"), msg, "\n", file = stderr())
-  cat(msg, "\n", file = file.path(OUT_DIR, "progress.log"), append = TRUE)
-}
-
-progress("[step 2/6] Loading count matrix and sample metadata")
-
-# Load counts
-counts_mat <- read.table(COUNTS_PATH, header = TRUE, row.names = 1,
-                         sep = "\t", check.names = FALSE, comment.char = "")
-counts_mat <- as.matrix(counts_mat)
-storage.mode(counts_mat) <- "integer"
-cat("Raw counts:", nrow(counts_mat), "genes x", ncol(counts_mat), "samples\n")
-
-# Load sample metadata
-samples <- read.csv(SAMPLES_PATH, stringsAsFactors = FALSE)
+cat("[step 1] Loading count matrix and sample metadata\n")
+counts_raw <- read.table(COUNTS_TSV, header=TRUE, sep="\t", row.names=1, check.names=FALSE)
+samples <- read.csv(SAMPLES_CSV, stringsAsFactors=FALSE)
 rownames(samples) <- samples$sample
-# Reorder to match count matrix columns
-samples <- samples[colnames(counts_mat), , drop = FALSE]
+
+# Align columns to samples
+counts_raw <- counts_raw[, samples$sample, drop=FALSE]
+cat(sprintf("  %d genes x %d samples loaded\n", nrow(counts_raw), ncol(counts_raw)))
+
+# Make factors with reference levels
 samples$cell <- factor(samples$cell)
-samples$dex  <- factor(samples$dex, levels = c("untrt", "trt"))
+samples$dex <- factor(samples$dex, levels = c("untrt", "trt"))  # untrt is reference
 
-cat("Sample metadata:\n")
-print(samples)
-
-progress("[step 3/6] Building DESeqDataSet and estimating size factors")
-
-# Build DESeqDataSet with design ~ cell + dex
+cat("[step 2] Building DESeqDataSet with design ~ cell + dex\n")
 dds <- DESeqDataSetFromMatrix(
-  countData = counts_mat,
+  countData = as.matrix(counts_raw),
   colData   = samples,
   design    = ~ cell + dex
 )
 
-# Run full DESeq2 pipeline
-set.seed(42)
-dds <- DESeq(dds, parallel = FALSE)
+# Pre-filter: keep genes with rowSum >= 10
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep, ]
+cat(sprintf("  %d genes retained after low-count filter (rowSum >= 10)\n", sum(keep)))
 
-# Record size factors
-sf_df <- data.frame(
-  sample      = colnames(dds),
-  size_factor = sizeFactors(dds)
+cat("[step 3] Running DESeq2 (NB-GLM, Wald test)\n")
+# Use recommended thread count
+nthreads <- as.integer(Sys.getenv("ECAA_HW_RECOMMENDED_THREADS", unset="4"))
+if (requireNamespace("BiocParallel", quietly=TRUE)) {
+  BiocParallel::register(BiocParallel::MulticoreParam(workers=max(1L, nthreads - 1L)))
+}
+dds <- DESeq(dds)
+
+cat("[step 4] Extracting results for contrast: dex trt vs untrt (ref=untrt)\n")
+res <- results(dds, contrast=c("dex", "trt", "untrt"), alpha=0.05)
+cat(sprintf("  Tested %d genes; %d with padj < 0.05\n",
+            sum(!is.na(res$padj)), sum(res$padj < 0.05, na.rm=TRUE)))
+
+cat("[step 5] Applying apeglm LFC shrinkage\n")
+# apeglm shrinkage on the dex trt coefficient
+res_shr <- lfcShrink(dds, coef="dex_trt_vs_untrt", type="apeglm", quiet=TRUE)
+
+cat("[step 6] Writing de_results.tsv\n")
+# apeglm returns baseMean, log2FoldChange (shrunken), lfcSE, svalue, FSR
+# Merge shrunken LFC/SE with Wald stat and p-values from the unshrunken result
+df_base <- as.data.frame(res)           # has: baseMean, log2FoldChange, lfcSE, stat, pvalue, padj
+df_shr  <- as.data.frame(res_shr)      # has: baseMean, log2FoldChange (shrunken), lfcSE
+df <- df_base
+df$log2FoldChange <- df_shr[rownames(df), "log2FoldChange"]
+df$lfcSE          <- df_shr[rownames(df), "lfcSE"]
+df$gene <- rownames(df)
+df <- df[, c("gene","baseMean","log2FoldChange","lfcSE","stat","pvalue","padj")]
+# Sort by padj then abs(log2FoldChange)
+df <- df[order(is.na(df$padj), df$padj, -abs(df$log2FoldChange)), ]
+write.table(df, file.path(OUT_DIR, "de_results.tsv"),
+            sep="\t", quote=FALSE, row.names=FALSE)
+
+n_sig05 <- sum(df$padj < 0.05, na.rm=TRUE)
+n_sig01 <- sum(df$padj < 0.01, na.rm=TRUE)
+n_up    <- sum(df$padj < 0.05 & df$log2FoldChange > 0, na.rm=TRUE)
+n_down  <- sum(df$padj < 0.05 & df$log2FoldChange < 0, na.rm=TRUE)
+cat(sprintf("  DE results written: %d genes tested, %d sig (padj<0.05), %d up, %d down\n",
+            nrow(df), n_sig05, n_up, n_down))
+
+cat("[step 7] Writing de_summary.json\n")
+de_summary <- list(
+  task_id       = "differential_expression",
+  method        = "deseq2",
+  design_formula = "~ cell + dex",
+  contrast      = "dex: trt vs untrt",
+  reference_level = "untrt",
+  n_genes_tested  = nrow(df),
+  n_sig_padj05   = n_sig05,
+  n_sig_padj01   = n_sig01,
+  n_up_padj05    = n_up,
+  n_down_padj05  = n_down,
+  lfc_shrinkage  = "apeglm",
+  size_factors   = as.list(sizeFactors(dds))
 )
-write.table(sf_df, file.path(INTER_DIR, "size_factors.tsv"),
-            sep = "\t", quote = FALSE, row.names = FALSE)
-cat("Size factors:\n")
-print(sf_df)
+write_json(de_summary, file.path(OUT_DIR, "de_summary.json"), auto_unbox=TRUE, pretty=TRUE)
 
-# Save dds object
-saveRDS(dds, file.path(INTER_DIR, "deseq2_dds.rds"))
-
-progress("[step 4/6] Extracting DE results (dex trt vs untrt) with LFC shrinkage")
-
-# Extract results for contrast: dex trt vs untrt
-res_raw <- results(dds, contrast = c("dex", "trt", "untrt"),
-                   alpha = 0.05)
-cat("Results summary (raw):\n")
-summary(res_raw)
-
-# Apply normal-prior LFC shrinkage (as specified by SME)
-res_shrunk <- lfcShrink(dds, contrast = c("dex", "trt", "untrt"),
-                        type = "normal", res = res_raw)
-cat("Results summary (normal-prior LFC shrinkage):\n")
-summary(res_shrunk)
-
-# Convert to data frame for output
-res_df <- as.data.frame(res_shrunk)
-res_df$gene_id    <- rownames(res_df)
-res_df$tested     <- !is.na(res_df$padj)
-
-# Add unshrunken LFC for reference
-res_unsh          <- as.data.frame(res_raw)
-res_df$log2fc_raw <- res_unsh$log2FoldChange
-
-# Rename columns to canonical names for measure_de_effect_size.py compatibility
-colnames(res_df)[colnames(res_df) == "log2FoldChange"] <- "log2fc"
-colnames(res_df)[colnames(res_df) == "baseMean"]       <- "base_mean"
-colnames(res_df)[colnames(res_df) == "lfcSE"]          <- "lfc_se"
-colnames(res_df)[colnames(res_df) == "stat"]           <- "stat"
-colnames(res_df)[colnames(res_df) == "pvalue"]         <- "pvalue"
-colnames(res_df)[colnames(res_df) == "padj"]           <- "padj"
-
-# Reorder columns
-res_df <- res_df[, c("gene_id", "base_mean", "log2fc", "lfc_se", "stat",
-                     "pvalue", "padj", "log2fc_raw", "tested")]
-
-# Sort by adjusted p-value, then by |log2fc|
-res_df <- res_df[order(res_df$padj, -abs(res_df$log2fc), na.last = TRUE), ]
-
-progress("[step 5/6] Writing de_results.tsv")
-
-write.table(res_df, file.path(OUT_DIR, "de_results.tsv"),
-            sep = "\t", quote = FALSE, row.names = FALSE)
-cat("Wrote de_results.tsv:", nrow(res_df), "genes\n")
-
-# Compute summary statistics
-n_tested    <- sum(res_df$tested, na.rm = TRUE)
-n_sig_05    <- sum(!is.na(res_df$padj) & res_df$padj < 0.05, na.rm = TRUE)
-n_sig_01    <- sum(!is.na(res_df$padj) & res_df$padj < 0.01, na.rm = TRUE)
-n_up        <- sum(!is.na(res_df$padj) & res_df$padj < 0.05 & res_df$log2fc > 0, na.rm = TRUE)
-n_down      <- sum(!is.na(res_df$padj) & res_df$padj < 0.05 & res_df$log2fc < 0, na.rm = TRUE)
-top10_genes <- head(res_df$gene_id[!is.na(res_df$padj)], 10)
-
-summary_obj <- list(
-  task_id           = "differential_expression",
-  method            = "DESeq2",
-  design_formula    = "~ cell + dex",
-  contrast          = list("dex", "trt", "untrt"),
-  lfc_shrinkage     = "normal-prior",
-  n_genes_total     = nrow(res_df),
-  n_genes_tested    = n_tested,
-  n_sig_padj_0.05   = n_sig_05,
-  n_sig_padj_0.01   = n_sig_01,
-  n_upregulated     = n_up,
-  n_downregulated   = n_down,
-  top10_genes_by_padj = top10_genes,
-  deseq2_version    = as.character(packageVersion("DESeq2")),
-  r_version         = as.character(R.version$major_minor)
-)
-
-library(jsonlite)
-write_json(summary_obj, file.path(OUT_DIR, "de_summary.json"),
-           auto_unbox = TRUE, pretty = TRUE)
-cat("Wrote de_summary.json\n")
-
-progress("[step 6/6] Writing manifest.json")
-
+cat("[step 8] Writing manifest.json\n")
 manifest <- list(
-  task_id  = "differential_expression",
-  outputs  = list(
-    de_results   = "de_results.tsv",
-    de_summary   = "de_summary.json",
-    size_factors = "intermediates/size_factors.tsv",
-    dds_rds      = "intermediates/deseq2_dds.rds"
+  task_id = "differential_expression",
+  comparisons = list(
+    list(
+      id         = "dex_trt_vs_untrt",
+      table_path = "de_results.tsv",
+      reference  = "untrt",
+      treatment  = "trt",
+      n_tested   = nrow(df),
+      n_sig_padj05 = n_sig05
+    )
   ),
-  downstream_handoff = list(
-    de_results_path     = file.path(OUT_DIR, "de_results.tsv"),
-    effect_col          = "log2fc",
-    padj_col            = "padj",
-    gene_id_col         = "gene_id",
-    base_mean_col       = "base_mean",
-    reference_level     = "untrt",
-    treatment_level     = "trt",
-    factor_variable     = "dex",
-    n_sig_padj_0.05     = n_sig_05
-  )
+  design_formula = "~ cell + dex",
+  primary_variable = "dex",
+  method = "deseq2",
+  artifacts = c("de_results.tsv", "de_summary.json", "manifest.json", "result.json")
 )
+write_json(manifest, file.path(OUT_DIR, "manifest.json"), auto_unbox=TRUE, pretty=TRUE)
 
-write_json(manifest, file.path(OUT_DIR, "manifest.json"),
-           auto_unbox = TRUE, pretty = TRUE)
+cat("[step 9] Writing env.lock\n")
+si <- sessionInfo()
+writeLines(capture.output(print(si)), file.path(OUT_DIR, "env.lock"))
 
-cat("\nDE analysis complete.\n")
-cat("Significant (padj < 0.05):", n_sig_05, "\n")
-cat("  Up-regulated:", n_up, "\n")
-cat("  Down-regulated:", n_down, "\n")
-
-# Session info for env.lock
-capture.output(sessionInfo()) |> writeLines(file.path(OUT_DIR, "env.lock"))
+t_elapsed <- proc.time()["elapsed"] - t_start
+cat(sprintf("Done in %.1f seconds\n", t_elapsed))
+cat(sprintf("ELAPSED_SECONDS=%.1f\n", t_elapsed))
+cat(sprintf("N_GENES_TESTED=%d\n", nrow(df)))
+cat(sprintf("N_SIG_PADJ05=%d\n", n_sig05))

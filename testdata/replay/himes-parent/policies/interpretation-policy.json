@@ -326,6 +326,12 @@
         "entity": "differential_expression",
         "expected_output_table": "differential_expression",
         "requirement": "required"
+      },
+      {
+        "edam_data": "data:0951",
+        "entity": "pathway_enrichment",
+        "expected_output_table": "pathway_enrichment",
+        "requirement": "required"
       }
     ],
     "literatureGrounding": {

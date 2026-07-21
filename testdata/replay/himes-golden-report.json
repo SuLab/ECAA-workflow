@@ -55,14 +55,14 @@
       },
       {
         "check": "claim_verification.n_verified",
-        "recorded": 90,
-        "fresh": 90,
+        "recorded": 25,
+        "fresh": 25,
         "diverged": false
       },
       {
         "check": "claim_verification.n_checked",
-        "recorded": 122,
-        "fresh": 122,
+        "recorded": 72,
+        "fresh": 72,
         "diverged": false
       }
     ],

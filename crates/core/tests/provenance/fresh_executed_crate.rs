@@ -4,8 +4,9 @@
 //!
 //! ## Why this exists
 //!
-//! The committed `testdata/replay/himes-parent` executed fixture is stale. To
-//! validate the FINALIZE path's provenance shape against the shape *as the
+//! The committed `testdata/replay/himes-parent` executed fixture is a trimmed
+//! two-stage replay slice, not a full finalized crate from the current emitter.
+//! To validate the FINALIZE path's provenance shape against the shape *as the
 //! current emitter produces it*, we drive the real functions end to end with no
 //! live compute / network / containers:
 //!

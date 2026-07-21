@@ -1,7 +1,15 @@
 {
   "@context": [
     "https://w3id.org/ro/crate/1.1/context",
-    "https://w3id.org/ro/terms/workflow-run"
+    "https://w3id.org/ro/terms/workflow-run",
+    {
+      "evaluated_against": "https://w3id.org/ecaa/ns/0.2#evaluated_against",
+      "invariant_id": "https://w3id.org/ecaa/ns/0.2#invariantId",
+      "matchedArchetype": "https://w3id.org/ecaa/ns/0.2#matchedArchetype",
+      "rationale": "https://w3id.org/ecaa/ns/0.2#rationale",
+      "verdict": "https://w3id.org/ecaa/ns/0.2#verdict",
+      "wasGeneratedBy": "http://www.w3.org/ns/prov#wasGeneratedBy"
+    }
   ],
   "@graph": [
     {
@@ -18,6 +26,9 @@
           "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0"
         },
         {
+          "@id": "https://w3id.org/ecaa/v0.2"
+        },
+        {
           "@id": "https://w3id.org/ro/wfrun/process/0.5"
         },
         {
@@ -25,9 +36,6 @@
         },
         {
           "@id": "https://w3id.org/ro/wfrun/provenance/0.5"
-        },
-        {
-          "@id": "https://w3id.org/ecaa/v0.2"
         }
       ]
     },
@@ -42,6 +50,9 @@
           "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0"
         },
         {
+          "@id": "https://w3id.org/ecaa/v0.2"
+        },
+        {
           "@id": "https://w3id.org/ro/wfrun/process/0.5"
         },
         {
@@ -49,14 +60,15 @@
         },
         {
           "@id": "https://w3id.org/ro/wfrun/provenance/0.5"
-        },
-        {
-          "@id": "https://w3id.org/ecaa/v0.2"
         }
       ],
       "dateCreated": "2026-01-01T00:00:00+00:00",
-      "description": "Goal: Bulk RNA-seq differential expression analysis of human airway smooth muscle (ASM) cells treated with the glucocorticoid dexamethasone, from Himes et al. 2014. The 8 libraries come from FOUR independent donor airway smooth muscle cell lines, each assayed both dexamethasone-treated and untreated - a paired/blocked design. Control for the donor cell-line covariate so the estimated dexamethasone effect is not confounded by donor-to-donor baseline differences.\nModality: bulk_rnaseq (bulk RNA-seq)\nOrganism: Homo sapiens\nDesired outputs: Differential expression results table (adjusted p-values + fold-changes), a volcano plot, pathway enrichment (fgsea/GSEA) on the ranked gene list, and a summary report 8 libraries from 4 independent donor ASM cell lines, each assayed dexamethasone-treated and untreated (paired/blocked design). Count matrix already registered (counts.tsv 63677x8, samples.csv). Skip upstream sequence trimming, alignment, and quantification. DE model: DESeq2 with formula ~ cell + dex, contrast dex vs untrt, normal-prior LFC shrinkage. Include pathway enrichment (fgsea/GSEA on ranked DE gene list). Desired outputs: DE results table (adjusted p-values + fold-changes), volcano plot, pathway enrichment results, summary report.",
+      "datePublished": "2026-01-01T00:00:00+00:00",
+      "description": "I have a bulk RNA-seq dataset from Himes et al. (airway, GSE52778): 4 human airway smooth-muscle cell lines, each with dexamethasone-treated vs untreated samples (8 samples total). I have registered the gene-level count matrix and sample metadata under the input label himes-inputs. Please run a standard bulk RNA-seq differential expression analysis of the dexamethasone treatment effect, controlling for cell line (design ~ cell + dex), followed by pathway enrichment and a final report.",
       "hasPart": [
+        {
+          "@id": "README.md"
+        },
         {
           "@id": "WORKFLOW.json"
         },
@@ -130,6 +142,9 @@
           "@id": "runtime/outputs/normalisation/figures/hvg_count_bar.png"
         },
         {
+          "@id": "runtime/outputs/pathway_enrichment/figures/top_enriched_terms.png"
+        },
+        {
           "@id": "runtime/outputs/qc_preprocessing/figures/per_sample_metric_violin.png"
         },
         {
@@ -172,16 +187,37 @@
           "@id": "runtime/outputs/data_acquisition/data/himes-inputs/samples.csv"
         },
         {
-          "@id": "runtime/outputs/review_prior_work/method_landscape.csv"
-        },
-        {
           "@id": "runtime/outputs/review_prior_work/prior_claims_matrix.csv"
         },
         {
-          "@id": "runtime/outputs/differential_expression/de_results.tsv"
+          "@id": "runtime/outputs/validate_data_acquisition/result.json"
         },
         {
-          "@id": "runtime/outputs/differential_expression/intermediates/size_factors.tsv"
+          "@id": "runtime/outputs/review_prior_work/citation_verification_report.md"
+        },
+        {
+          "@id": "runtime/outputs/review_prior_work/literature_search_protocol.md"
+        },
+        {
+          "@id": "runtime/dependency-lock.json"
+        },
+        {
+          "@id": "policies/runtime-prereqs.json"
+        },
+        {
+          "@id": "policies/container.json"
+        },
+        {
+          "@id": "runtime/reexecution.json"
+        },
+        {
+          "@id": "runtime/cost-ledger.jsonl"
+        },
+        {
+          "@id": "ro-crate-preview.html"
+        },
+        {
+          "@id": "runtime/outputs/differential_expression/de_results.tsv"
         },
         {
           "@id": "runtime/outputs/normalisation/hvg_list.tsv"
@@ -190,7 +226,7 @@
           "@id": "runtime/outputs/normalisation/mean_variance.tsv"
         },
         {
-          "@id": "runtime/outputs/normalisation/vst_matrix.tsv"
+          "@id": "runtime/outputs/normalisation/normalized_counts.tsv"
         },
         {
           "@id": "runtime/outputs/qc_preprocessing/qc_metrics.tsv"
@@ -199,7 +235,73 @@
           "@id": "runtime/outputs/survey_method_landscape/method_landscape.csv"
         },
         {
+          "@id": "runtime/outputs/validate_review_prior_work/validation_checks.csv"
+        },
+        {
+          "@id": "runtime/outputs/discover_differential_expression/result.json"
+        },
+        {
+          "@id": "runtime/outputs/discover_normalisation/result.json"
+        },
+        {
+          "@id": "runtime/outputs/discover_pathway_enrichment/result.json"
+        },
+        {
+          "@id": "runtime/outputs/validate_normalisation/result.json"
+        },
+        {
+          "@id": "runtime/outputs/validate_qc_preprocessing/result.json"
+        },
+        {
+          "@id": "runtime/outputs/differential_expression/report.md"
+        },
+        {
           "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+        },
+        {
+          "@id": "runtime/outputs/contextualize_findings_with_literature/intermediates/symbol_lookup.tsv"
+        },
+        {
+          "@id": "runtime/outputs/validate_differential_expression/result.json"
+        },
+        {
+          "@id": "runtime/outputs/contextualize_findings_with_literature/citation_verification_report.md"
+        },
+        {
+          "@id": "runtime/outputs/contextualize_findings_with_literature/literature_search_protocol.md"
+        },
+        {
+          "@id": "runtime/outputs/pathway_enrichment/enrichment.tsv"
+        },
+        {
+          "@id": "runtime/outputs/pathway_enrichment/pathway_results.tsv"
+        },
+        {
+          "@id": "runtime/outputs/validate_contextualize_findings_with_literature/result.json"
+        },
+        {
+          "@id": "runtime/outputs/reporting/concordance_table.tsv"
+        },
+        {
+          "@id": "runtime/outputs/reporting/pathway_overlap_table.tsv"
+        },
+        {
+          "@id": "runtime/outputs/validate_pathway_enrichment/result.json"
+        },
+        {
+          "@id": "runtime/outputs/reporting/report.md"
+        },
+        {
+          "@id": "runtime/outputs/final_reporting/result.json"
+        },
+        {
+          "@id": "runtime/outputs/validate_reporting/result.json"
+        },
+        {
+          "@id": "runtime/outputs/final_reporting/final_report.md"
+        },
+        {
+          "@id": "runtime/outputs/validate_final_reporting/result.json"
         }
       ],
       "license": "https://www.apache.org/licenses/LICENSE-2.0",
@@ -212,7 +314,9 @@
       "@id": "WORKFLOW.json",
       "@type": [
         "File",
-        "ComputationalWorkflow"
+        "SoftwareSourceCode",
+        "ComputationalWorkflow",
+        "HowTo"
       ],
       "applicationSubCategory": {
         "@id": "https://edamontology.org/topic_3308"
@@ -220,17 +324,143 @@
       "conformsTo": {
         "@id": "https://bioschemas.org/profiles/ComputationalWorkflow/1.0-RELEASE"
       },
+      "contentSize": 56407,
       "encodingFormat": "application/json",
       "featureList": {
         "@id": "https://edamontology.org/operation_3223"
       },
-      "name": "workflow-9bffd538674b4edfa12ee2c00fb4ce9e DAG",
+      "hasPart": [
+        {
+          "@id": "#tool/data_acquisition"
+        },
+        {
+          "@id": "#tool/review_prior_work"
+        },
+        {
+          "@id": "#tool/validate_data_acquisition"
+        },
+        {
+          "@id": "#tool/differential_expression"
+        },
+        {
+          "@id": "#tool/discover_differential_expression"
+        },
+        {
+          "@id": "#tool/discover_normalisation"
+        },
+        {
+          "@id": "#tool/discover_pathway_enrichment"
+        },
+        {
+          "@id": "#tool/normalisation"
+        },
+        {
+          "@id": "#tool/qc_preprocessing"
+        },
+        {
+          "@id": "#tool/survey_method_landscape"
+        },
+        {
+          "@id": "#tool/validate_normalisation"
+        },
+        {
+          "@id": "#tool/validate_qc_preprocessing"
+        },
+        {
+          "@id": "#tool/validate_review_prior_work"
+        },
+        {
+          "@id": "#tool/contextualize_findings_with_literature"
+        },
+        {
+          "@id": "#tool/validate_differential_expression"
+        },
+        {
+          "@id": "#tool/pathway_enrichment"
+        },
+        {
+          "@id": "#tool/validate_contextualize_findings_with_literature"
+        },
+        {
+          "@id": "#tool/reporting"
+        },
+        {
+          "@id": "#tool/validate_pathway_enrichment"
+        },
+        {
+          "@id": "#tool/final_reporting"
+        },
+        {
+          "@id": "#tool/validate_reporting"
+        },
+        {
+          "@id": "#tool/validate_final_reporting"
+        }
+      ],
+      "name": "workflow-57bd1b5343ac411086bc1fc2be9c7cb3 DAG",
       "programmingLanguage": {
         "@id": "#ecaa-workflow-dag"
       },
       "sdPublisher": {
         "@id": "#ecaa-workflow"
       },
+      "sha512": "c87a950de0b295a5ab7061b09406fcc61b5fbc23f3ae7b055f3f95fd3a39f92d10ea5e4a3c341b5fe5609edb5a8dc5e12f49c57a4b5b429ea723d8d6c537b71b",
+      "softwareRequirements": [
+        {
+          "@id": "#dep/conda/python"
+        },
+        {
+          "@id": "#dep/conda/captured_at"
+        },
+        {
+          "@id": "#dep/conda/numpy"
+        },
+        {
+          "@id": "#dep/conda/pandas"
+        },
+        {
+          "@id": "#dep/r/Biobase"
+        },
+        {
+          "@id": "#dep/r/BiocGenerics"
+        },
+        {
+          "@id": "#dep/r/DESeq2"
+        },
+        {
+          "@id": "#dep/r/GenomicRanges"
+        },
+        {
+          "@id": "#dep/r/IRanges"
+        },
+        {
+          "@id": "#dep/r/MatrixGenerics"
+        },
+        {
+          "@id": "#dep/r/S4Vectors"
+        },
+        {
+          "@id": "#dep/r/Seqinfo"
+        },
+        {
+          "@id": "#dep/r/SummarizedExperiment"
+        },
+        {
+          "@id": "#dep/r/generics"
+        },
+        {
+          "@id": "#dep/r/jsonlite"
+        },
+        {
+          "@id": "#dep/r/matrixStats"
+        },
+        {
+          "@id": "#dep/r/AnnotationDbi"
+        },
+        {
+          "@id": "#dep/r/org.Hs.eg.db"
+        }
+      ],
       "step": [
         {
           "@id": "#step-review_prior_work"
@@ -246,6 +476,9 @@
         },
         {
           "@id": "#step-survey_method_landscape"
+        },
+        {
+          "@id": "#step-discover_pathway_enrichment"
         },
         {
           "@id": "#step-discover_normalisation"
@@ -270,6 +503,12 @@
         },
         {
           "@id": "#step-validate_differential_expression"
+        },
+        {
+          "@id": "#step-pathway_enrichment"
+        },
+        {
+          "@id": "#step-validate_pathway_enrichment"
         },
         {
           "@id": "#step-contextualize_findings_with_literature"
@@ -309,16 +548,32 @@
       "name": "Subject Matter Expert (intake)"
     },
     {
+      "@id": "README.md",
+      "@type": "File",
+      "about": {
+        "@id": "./"
+      },
+      "contentSize": 2933,
+      "description": "Human-readable entry point: what was asked, where the answer lands, a map of the package, and the re-run command.",
+      "encodingFormat": "text/markdown",
+      "name": "Package README — human landing page",
+      "sha512": "f331d780b383175c88d367f59268a91bfaa6810b2544fcb9ef610c66a7baa9c5c574096a110bdfb3cd22dfabff64e22b275fe7c3d0718fd7216c9ec74e9717f8"
+    },
+    {
       "@id": "PROMPT.md",
       "@type": "File",
+      "contentSize": 38789,
       "encodingFormat": "text/markdown",
-      "name": "Agent Instructions"
+      "name": "Agent Instructions",
+      "sha512": "994e88e5adca4287cef0b2c982ace908e6f978a01dea6c3d62ca912c80467c78200742c81651809c4c8cc239fb89ea06e38919a29418df2099645541e887ab30"
     },
     {
       "@id": "CONTEXT.md",
       "@type": "File",
+      "contentSize": 2057,
       "encodingFormat": "text/markdown",
-      "name": "Workflow Context"
+      "name": "Workflow Context",
+      "sha512": "e8384e004e8cc5ff3e3399352de55908f43d29a0cb0b4f61f11a1fb38ef0d5914ad027b3dec7f1b88649c774bc3f6d681f1256f240519eaad99556b1d0a436c3"
     },
     {
       "@id": "AGENT-EXECUTOR.md",
@@ -435,24 +690,6 @@
       "version": "1.0"
     },
     {
-      "@id": "https://w3id.org/ro/wfrun/process/0.5",
-      "@type": "CreativeWork",
-      "name": "Process Run Crate Profile",
-      "version": "0.5"
-    },
-    {
-      "@id": "https://w3id.org/ro/wfrun/workflow/0.5",
-      "@type": "CreativeWork",
-      "name": "Workflow Run Crate Profile",
-      "version": "0.5"
-    },
-    {
-      "@id": "https://w3id.org/ro/wfrun/provenance/0.5",
-      "@type": "CreativeWork",
-      "name": "Provenance Run Crate Profile",
-      "version": "0.5"
-    },
-    {
       "@id": "https://w3id.org/ecaa/v0.2",
       "@type": "CreativeWork",
       "name": "ECAA Conformance Profile",
@@ -469,133 +706,220 @@
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
-      "position": 1
+      "position": 1,
+      "workExample": {
+        "@id": "#tool/review_prior_work"
+      }
     },
     {
       "@id": "#step-validate_review_prior_work",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
-      "position": 2
+      "position": 2,
+      "workExample": {
+        "@id": "#tool/validate_review_prior_work"
+      }
     },
     {
       "@id": "#step-data_acquisition",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
-      "position": 3
+      "position": 3,
+      "workExample": {
+        "@id": "#tool/data_acquisition"
+      }
     },
     {
       "@id": "#step-validate_data_acquisition",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
-      "position": 4
+      "position": 4,
+      "workExample": {
+        "@id": "#tool/validate_data_acquisition"
+      }
     },
     {
       "@id": "#step-survey_method_landscape",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. When the task carries\nan attributes.goal_context (the SME analysis goal), treat it as RETRIEVAL\nSCOPE — gather candidate methods + evidence relevant to that goal (e.g. a\nlow-allele-frequency / heteroplasmy detection goal widens retrieval toward\nAF-window-aware candidates). This conditions WHAT is retrieved only; it is\nnever a ranking or recommendation instruction. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
-      "position": 5
+      "position": 5,
+      "workExample": {
+        "@id": "#tool/survey_method_landscape"
+      }
+    },
+    {
+      "@id": "#step-discover_pathway_enrichment",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for pathway_enrichment (options: fgsea, clusterprofiler, gsea, enrichr). Surface set_intake_method.",
+      "position": 6,
+      "workExample": {
+        "@id": "#tool/discover_pathway_enrichment"
+      }
     },
     {
       "@id": "#step-discover_normalisation",
       "@type": "HowToStep",
       "additionalType": "discovery",
       "name": "Discover method for normalisation (options: deseq2_vst, edger_tmm, scran, seurat_lognormalize, sctransform). Surface set_intake_method.",
-      "position": 6
+      "position": 7,
+      "workExample": {
+        "@id": "#tool/discover_normalisation"
+      }
     },
     {
       "@id": "#step-discover_differential_expression",
       "@type": "HowToStep",
       "additionalType": "discovery",
       "name": "Discover method for differential_expression (options: deseq2, edger, limma_voom, mast, wilcoxon). Surface set_intake_method.",
-      "position": 7
+      "position": 8,
+      "workExample": {
+        "@id": "#tool/discover_differential_expression"
+      }
     },
     {
       "@id": "#step-qc_preprocessing",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
-      "position": 8
+      "position": 9,
+      "workExample": {
+        "@id": "#tool/qc_preprocessing"
+      }
     },
     {
       "@id": "#step-validate_qc_preprocessing",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
-      "position": 9
+      "position": 10,
+      "workExample": {
+        "@id": "#tool/validate_qc_preprocessing"
+      }
     },
     {
       "@id": "#step-normalisation",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Standardise expression values to remove library-size and composition biases.\nMethod neutrality: DESeq2 VST / edgeR TMM / scran pooling / Seurat\nLogNormalize / scnorm / sctransform are selected at runtime.\n",
-      "position": 10
+      "position": 11,
+      "workExample": {
+        "@id": "#tool/normalisation"
+      }
     },
     {
       "@id": "#step-validate_normalisation",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Standardise expression values to remove library-size and composition biases.\nMethod neutrality: DESeq2 VST / edgeR TMM / scran pooling / Seurat\nLogNormalize / scnorm / sctransform are selected at runtime.\n",
-      "position": 11
+      "position": 12,
+      "workExample": {
+        "@id": "#tool/validate_normalisation"
+      }
     },
     {
       "@id": "#step-differential_expression",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n\nRECORD-WHAT-YOU-DID (audit, not instruction): in result.json, write down the\nmodel you actually fit so it can be audited — this does NOT tell you which\nmodel/test to use, only to state your own choice. Record:\n  - design_formula: the model formula you fit (e.g. \"~ condition + sex + RIN\").\n  - response_variable: the model's outcome / left-hand side (the thing being\n    explained). For a contrast-based DE this is the expression/count response;\n    for a regression against an outcome it is that outcome variable.\n  - available_covariates: the covariate columns you observed in the sample\n    metadata (your honest list of what was available, e.g.\n    [\"condition\",\"sex\",\"age\",\"RIN\"]).\n  - primary_variable: the main comparison variable for the contrast (e.g.\n    \"condition\").\n  - stated_outcome: the SME's stated outcome for the task, when the task names\n    one (otherwise omit).\nThese are YOUR record of YOUR choices and of the data/task — a domain-correctness\ncontract checks them for internal + task consistency (e.g. the design adjusts\nfor an available covariate; the response matches the stated outcome). It never\nprescribes a model.\n",
-      "position": 12
+      "position": 13,
+      "workExample": {
+        "@id": "#tool/differential_expression"
+      }
     },
     {
       "@id": "#step-validate_differential_expression",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n\nRECORD-WHAT-YOU-DID (audit, not instruction): in result.json, write down the\nmodel you actually fit so it can be audited — this does NOT tell you which\nmodel/test to use, only to state your own choice. Record:\n  - design_formula: the model formula you fit (e.g. \"~ condition + sex + RIN\").\n  - response_variable: the model's outcome / left-hand side (the thing being\n    explained). For a contrast-based DE this is the expression/count response;\n    for a regression against an outcome it is that outcome variable.\n  - available_covariates: the covariate columns you observed in the sample\n    metadata (your honest list of what was available, e.g.\n    [\"condition\",\"sex\",\"age\",\"RIN\"]).\n  - primary_variable: the main comparison variable for the contrast (e.g.\n    \"condition\").\n  - stated_outcome: the SME's stated outcome for the task, when the task names\n    one (otherwise omit).\nThese are YOUR record of YOUR choices and of the data/task — a domain-correctness\ncontract checks them for internal + task consistency (e.g. the design adjusts\nfor an available covariate; the response matches the stated outcome). It never\nprescribes a model.\n",
-      "position": 13
+      "position": 14,
+      "workExample": {
+        "@id": "#tool/validate_differential_expression"
+      }
+    },
+    {
+      "@id": "#step-pathway_enrichment",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
+      "position": 15,
+      "workExample": {
+        "@id": "#tool/pathway_enrichment"
+      }
+    },
+    {
+      "@id": "#step-validate_pathway_enrichment",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
+      "position": 16,
+      "workExample": {
+        "@id": "#tool/validate_pathway_enrichment"
+      }
     },
     {
       "@id": "#step-contextualize_findings_with_literature",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
-      "position": 14
+      "position": 17,
+      "workExample": {
+        "@id": "#tool/contextualize_findings_with_literature"
+      }
     },
     {
       "@id": "#step-validate_contextualize_findings_with_literature",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
-      "position": 15
+      "position": 18,
+      "workExample": {
+        "@id": "#tool/validate_contextualize_findings_with_literature"
+      }
     },
     {
       "@id": "#step-reporting",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "position": 16
+      "position": 19,
+      "workExample": {
+        "@id": "#tool/reporting"
+      }
     },
     {
       "@id": "#step-validate_reporting",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "position": 17
+      "position": 20,
+      "workExample": {
+        "@id": "#tool/validate_reporting"
+      }
     },
     {
       "@id": "#step-final_reporting",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
-      "position": 18
+      "position": 21,
+      "workExample": {
+        "@id": "#tool/final_reporting"
+      }
     },
     {
       "@id": "#step-validate_final_reporting",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
-      "position": 19
+      "position": 22,
+      "workExample": {
+        "@id": "#tool/validate_final_reporting"
+      }
     },
     {
       "@id": "runtime/outputs/data_acquisition/figures/samples_per_study.png",
@@ -603,12 +927,14 @@
         "File",
         "ImageObject"
       ],
+      "contentSize": 54523,
       "description": "Diagnostic figure 'samples_per_study' produced by stage 'data_acquisition' via runtime/plotting/stages/data_acquisition.py.",
       "encodingFormat": "image/png",
       "name": "data_acquisition — samples_per_study",
       "schema:about": {
         "@id": "#step-data_acquisition"
-      }
+      },
+      "sha512": "2cf5912482167a16ad8def640acf23cf1a4772d5b9da57e446410af2b088d0cf34abcf600199acd896665085bbe7ab68af8e1350aabefbafb17035269d5124d6"
     },
     {
       "@id": "runtime/outputs/differential_expression/figures/volcano.png",
@@ -616,12 +942,14 @@
         "File",
         "ImageObject"
       ],
+      "contentSize": 252699,
       "description": "Diagnostic figure 'volcano' produced by stage 'differential_expression' via runtime/plotting/stages/differential_expression.py.",
       "encodingFormat": "image/png",
       "name": "differential_expression — volcano",
       "schema:about": {
         "@id": "#step-differential_expression"
-      }
+      },
+      "sha512": "e9b0185b3b98a9c77f70c5ea44605644e1afe6a760a87e4d1014bbe3efff0fdaf44279e7945668eaec0894689b6cb929c8c8285466a9c41d8104687fcf40cb67"
     },
     {
       "@id": "runtime/outputs/differential_expression/figures/top_features_heatmap.png",
@@ -629,12 +957,14 @@
         "File",
         "ImageObject"
       ],
+      "contentSize": 200851,
       "description": "Diagnostic figure 'top_features_heatmap' produced by stage 'differential_expression' via runtime/plotting/stages/differential_expression.py.",
       "encodingFormat": "image/png",
       "name": "differential_expression — top_features_heatmap",
       "schema:about": {
         "@id": "#step-differential_expression"
-      }
+      },
+      "sha512": "3aa0f490327e928d8841251fb5e5a6620a7487f72508e93f605ddff1e9df7224b2563783da47de6117a46d57508bf689b71e3869806710a04fff748f21d01009"
     },
     {
       "@id": "runtime/outputs/final_reporting/figures/summary_dashboard.png",
@@ -642,12 +972,14 @@
         "File",
         "ImageObject"
       ],
+      "contentSize": 977519,
       "description": "Diagnostic figure 'summary_dashboard' produced by stage 'final_reporting' via runtime/plotting/stages/final_reporting.py.",
       "encodingFormat": "image/png",
       "name": "final_reporting — summary_dashboard",
       "schema:about": {
         "@id": "#step-final_reporting"
-      }
+      },
+      "sha512": "b9d0920f413dcb49e2f84438eb5e42fd7f334cf289189edcc418ebb3c6943cfa9c05688e865b7f374b8e0ede86761b29c2015ff92a168a5e89c0dd4ebeefe95f"
     },
     {
       "@id": "runtime/outputs/normalisation/figures/mean_variance.png",
@@ -655,12 +987,14 @@
         "File",
         "ImageObject"
       ],
+      "contentSize": 202131,
       "description": "Diagnostic figure 'mean_variance' produced by stage 'normalisation' via runtime/plotting/stages/normalisation.py.",
       "encodingFormat": "image/png",
       "name": "normalisation — mean_variance",
       "schema:about": {
         "@id": "#step-normalisation"
-      }
+      },
+      "sha512": "2079ef373f7512c8816d3a2682f010192aedc0a0e49a4565114a5632727b80945ee4edb97009cd80695f761180261bbeae43d13bb69ba0bb84f07f5bb5015131"
     },
     {
       "@id": "runtime/outputs/normalisation/figures/hvg_count_bar.png",
@@ -668,12 +1002,29 @@
         "File",
         "ImageObject"
       ],
+      "contentSize": 53549,
       "description": "Diagnostic figure 'hvg_count_bar' produced by stage 'normalisation' via runtime/plotting/stages/normalisation.py.",
       "encodingFormat": "image/png",
       "name": "normalisation — hvg_count_bar",
       "schema:about": {
         "@id": "#step-normalisation"
-      }
+      },
+      "sha512": "8328f0f3779460633129e9c27e8853340efe7d450aaa5324973cfc80b710cec2186b8cb585e4bc1ecb4b188174930cf20d1e6cffad686bd1f2935bd750449b19"
+    },
+    {
+      "@id": "runtime/outputs/pathway_enrichment/figures/top_enriched_terms.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "contentSize": 272381,
+      "description": "Diagnostic figure 'top_enriched_terms' produced by stage 'pathway_enrichment' via runtime/plotting/stages/pathway_enrichment.py.",
+      "encodingFormat": "image/png",
+      "name": "pathway_enrichment — top_enriched_terms",
+      "schema:about": {
+        "@id": "#step-pathway_enrichment"
+      },
+      "sha512": "7d499844196ae446320d703877cb142034d7410de61774ad6fe06baf7fc288ebe02a8bd0f177624d32042043679f58e35b4c981fdc676e1b20d39f7516bd49f2"
     },
     {
       "@id": "runtime/outputs/qc_preprocessing/figures/per_sample_metric_violin.png",
@@ -681,12 +1032,14 @@
         "File",
         "ImageObject"
       ],
+      "contentSize": 78725,
       "description": "Diagnostic figure 'per_sample_metric_violin' produced by stage 'qc_preprocessing' via runtime/plotting/stages/qc_preprocessing.py.",
       "encodingFormat": "image/png",
       "name": "qc_preprocessing — per_sample_metric_violin",
       "schema:about": {
         "@id": "#step-qc_preprocessing"
-      }
+      },
+      "sha512": "7278529b55bea7978317c1fc7676e58a7726b3ae08cb23965b438ad6c4a114cc48363bfc84e7de49e0f2ea6d0fefb25f48a9958c8df7e46ef57668b6ab3686b1"
     },
     {
       "@id": "runtime/outputs/qc_preprocessing/figures/per_sample_metric_bar.png",
@@ -694,12 +1047,14 @@
         "File",
         "ImageObject"
       ],
+      "contentSize": 84835,
       "description": "Diagnostic figure 'per_sample_metric_bar' produced by stage 'qc_preprocessing' via runtime/plotting/stages/qc_preprocessing.py.",
       "encodingFormat": "image/png",
       "name": "qc_preprocessing — per_sample_metric_bar",
       "schema:about": {
         "@id": "#step-qc_preprocessing"
-      }
+      },
+      "sha512": "6cb3803ff17962f1038d4ed51b1a5cc49185d01b8f53b0d2958558c2181a8f81aa37b0931e7d9e004c8c778b3b16a7b3554287a8f2228e702c18da4cf1156e28"
     },
     {
       "@id": "runtime/outputs/qc_preprocessing/figures/qc_summary_bar.png",
@@ -707,12 +1062,14 @@
         "File",
         "ImageObject"
       ],
+      "contentSize": 128100,
       "description": "Diagnostic figure 'qc_summary_bar' produced by stage 'qc_preprocessing' via runtime/plotting/stages/qc_preprocessing.py.",
       "encodingFormat": "image/png",
       "name": "qc_preprocessing — qc_summary_bar",
       "schema:about": {
         "@id": "#step-qc_preprocessing"
-      }
+      },
+      "sha512": "a416ff4c71ab390ddddd6f8f37bfbd7e46e57abe70685cd4f83ea49846c67f9a9e51e45c645ab840a29cf590a8614c6a344d7aa0ae0bde24392486ed364d9836"
     },
     {
       "@id": "runtime/outputs/reporting/figures/concordance_heatmap.png",
@@ -720,12 +1077,14 @@
         "File",
         "ImageObject"
       ],
+      "contentSize": 85727,
       "description": "Diagnostic figure 'concordance_heatmap' produced by stage 'reporting' via runtime/plotting/stages/reporting.py.",
       "encodingFormat": "image/png",
       "name": "reporting — concordance_heatmap",
       "schema:about": {
         "@id": "#step-reporting"
-      }
+      },
+      "sha512": "d87328abf04e534bc0e5be226b8a1c0c5f0c06f3b8b3d80c660841aa3bf73adbeb699f98a0804cdbaaf70d3b30606b8e2a1bda03eedff2a6f81a8986157a33d6"
     },
     {
       "@id": "runtime/outputs/reporting/figures/pathway_overlap_bar.png",
@@ -733,15 +1092,17 @@
         "File",
         "ImageObject"
       ],
+      "contentSize": 235088,
       "description": "Diagnostic figure 'pathway_overlap_bar' produced by stage 'reporting' via runtime/plotting/stages/reporting.py.",
       "encodingFormat": "image/png",
       "name": "reporting — pathway_overlap_bar",
       "schema:about": {
         "@id": "#step-reporting"
-      }
+      },
+      "sha512": "c49e8ad875350424ff22fc04f4d5a1dd5241d8ce04dceef831cfc790b64b9d998f688cf0e13c930f614bb26b1f757246291c631a42d14ca791a1a83a2ea6573f"
     },
     {
-      "@id": "#p-plan/workflow-9bffd538674b4edfa12ee2c00fb4ce9e",
+      "@id": "#p-plan/workflow-57bd1b5343ac411086bc1fc2be9c7cb3",
       "@type": [
         "Plan",
         "p-plan:Plan"
@@ -810,6 +1171,16 @@
       }
     },
     {
+      "@id": "#parameter-connection/survey_method_landscape__to__discover_pathway_enrichment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-discover_pathway_enrichment#input"
+      }
+    },
+    {
       "@id": "#parameter-connection/reporting__to__final_reporting",
       "@type": "ParameterConnection",
       "sourceParameter": {
@@ -837,6 +1208,26 @@
       },
       "targetParameter": {
         "@id": "#step-normalisation#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/differential_expression__to__pathway_enrichment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-differential_expression#output"
+      },
+      "targetParameter": {
+        "@id": "#step-pathway_enrichment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/discover_pathway_enrichment__to__pathway_enrichment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-discover_pathway_enrichment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-pathway_enrichment#input"
       }
     },
     {
@@ -874,6 +1265,16 @@
       "@type": "ParameterConnection",
       "sourceParameter": {
         "@id": "#step-differential_expression#output"
+      },
+      "targetParameter": {
+        "@id": "#step-reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/pathway_enrichment__to__reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-pathway_enrichment#output"
       },
       "targetParameter": {
         "@id": "#step-reporting#input"
@@ -940,6 +1341,16 @@
       }
     },
     {
+      "@id": "#parameter-connection/pathway_enrichment__to__validate_pathway_enrichment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-pathway_enrichment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-validate_pathway_enrichment#input"
+      }
+    },
+    {
       "@id": "#parameter-connection/qc_preprocessing__to__validate_qc_preprocessing",
       "@type": "ParameterConnection",
       "sourceParameter": {
@@ -976,7 +1387,7 @@
         "@id": "ro-crate-metadata.json"
       },
       "invariant_id": "claim_completeness",
-      "verdict": "pass"
+      "verdict": "fail"
     },
     {
       "@id": "A:cross_graph_integrity",
@@ -1029,9 +1440,11 @@
         "File",
         "CreativeWork"
       ],
+      "contentSize": 20191,
       "description": "W1 — first-class, schema-validated D.2 projection of the composed DAG: typed steps (tool_id, parameters, dependencies, estimated_duration), typed edges with port-level source_output/target_input, parameter_mappings, top-level typed parameters + validation_rules, and deterministic metadata. Byte-reproducible companion to WORKFLOW.json; validated against _workflow-typed.schema.json in `make conformance`.",
       "encodingFormat": "application/json",
-      "name": "Typed workflow (paper D.2 shape)"
+      "name": "Typed workflow (paper D.2 shape)",
+      "sha512": "23834b4c8d027acc7a9517ff22fa7e56be532f6edf4bd727e5d96f21f15855b5ae15f1469c7cbc76ba0076b86daa0d6d3a061d7d888c44cf91f872f44ff170bd"
     },
     {
       "@id": "runtime/task-nodes.json",
@@ -1039,9 +1452,11 @@
         "File",
         "CreativeWork"
       ],
+      "contentSize": 67330,
       "description": "Phase 14 — typed `TaskNode` list lowered from the v4 `WorkflowDag`. Consumed by the harness `pre_dispatch_check` so generated-code refusal can run at dispatch time alongside compose-time policy gating. Absent on v1/v2/v3 sessions and v4 sessions with no active policy bundle.",
       "encodingFormat": "application/json",
-      "name": "Task nodes (proof-carrying IR)"
+      "name": "Task nodes (proof-carrying IR)",
+      "sha512": "9511744f4049d7d4fdddec272338818cd6adf1f6ee631a571138683e6b1d6dffc5c7b561a7781feb39d657d0e24879cffa9e52554d785cb5a8f96ab9408765a7"
     },
     {
       "@id": "runtime/plot_affordances.jsonl",
@@ -1059,9 +1474,11 @@
         "File",
         "CreativeWork"
       ],
+      "contentSize": 280,
       "description": "v3 P7 — per-package manifest listing the SemVer of every IR type (`WorkflowIntent`, `Session`, `WorkflowDag`, `SessionLineage`, `DispatchRecord`) the package was emitted with. Replay consumers diff this against their own `SchemaVersionsManifest::current()` to detect which migrations they need to run (`core::migration::replay_provenance`).",
       "encodingFormat": "application/json",
-      "name": "Schema versions manifest (v3 P7)"
+      "name": "Schema versions manifest (v3 P7)",
+      "sha512": "0be8bd151032598e9dda9f462d52667fa2673fdccd81a86737c90fdcf8ea8fb1463addd5c939c49c27477fa798cce440e8510e30a09294aab7b4961bbe32b7e3"
     },
     {
       "@id": "runtime/coverage-statement.json",
@@ -1079,9 +1496,11 @@
         "File",
         "CreativeWork"
       ],
+      "contentSize": 344,
       "description": "Active Anthropic model, API version, SHA-256 of the assembled system prompt, tool-schema version, tool count (Tool::COUNT), and any escalation reason that selected the model. Mid-evaluation model-version changes therefore surface in the package diff.",
       "encodingFormat": "application/json",
-      "name": "LLM model pinning + system-prompt hash + tool-schema version"
+      "name": "LLM model pinning + system-prompt hash + tool-schema version",
+      "sha512": "a34603132bc921bbcaba32fe247817567a93eb64294ff7a02ccc8694744d3fa5ee02bec6ee91510a3c5cf27530461d7a18c887d36412dc0a27aa4f89d33f0db7"
     },
     {
       "@id": "runtime/outputs/data_acquisition/cohort_manifest.tsv",
@@ -1089,12 +1508,14 @@
         "File",
         "Dataset"
       ],
+      "contentSize": 1585,
       "description": "Analytical result table produced by stage 'data_acquisition'.",
       "encodingFormat": "text/tab-separated-values",
       "name": "data_acquisition — cohort_manifest.tsv",
       "schema:about": {
         "@id": "#step-data_acquisition"
       },
+      "sha512": "822eb5feae991c92569175fdf7f68278563a4aa923c7d2bbcf852d1b23b7cea912b2fa6947e6a150e13c27c8f00c21cd4cac09cf9a6e530af2d44f2cafba60cf",
       "wasGeneratedBy": {
         "@id": "#action/runtime/outputs/data_acquisition/cohort_manifest.tsv"
       }
@@ -1105,12 +1526,14 @@
         "File",
         "Dataset"
       ],
+      "contentSize": 2287691,
       "description": "Analytical result table produced by stage 'data_acquisition'.",
       "encodingFormat": "text/tab-separated-values",
       "name": "data_acquisition — data/himes-inputs/counts.tsv",
       "schema:about": {
         "@id": "#step-data_acquisition"
       },
+      "sha512": "8462e62eb2a6d361741f81788c279d1c04abc2c539aa6c033865e4cc487820df2b7f09df338fd602cb1f0da0aa9015867e96d3a91d43e18e13ff84d85005bf1e",
       "wasGeneratedBy": {
         "@id": "#action/runtime/outputs/data_acquisition/data/himes-inputs/counts.tsv"
       }
@@ -1121,30 +1544,16 @@
         "File",
         "Dataset"
       ],
+      "contentSize": 260,
       "description": "Analytical result table produced by stage 'data_acquisition'.",
       "encodingFormat": "text/csv",
       "name": "data_acquisition — data/himes-inputs/samples.csv",
       "schema:about": {
         "@id": "#step-data_acquisition"
       },
+      "sha512": "dba43a7abba76df0c117f57d8c2ce524829f44d7439c1e2fb76254c449e391d255423a2d406fac434e406bf2c2dad3d58958a5cc8ac9b6b6c03abc539686bfe7",
       "wasGeneratedBy": {
         "@id": "#action/runtime/outputs/data_acquisition/data/himes-inputs/samples.csv"
-      }
-    },
-    {
-      "@id": "runtime/outputs/review_prior_work/method_landscape.csv",
-      "@type": [
-        "File",
-        "Dataset"
-      ],
-      "description": "Analytical result table produced by stage 'review_prior_work'.",
-      "encodingFormat": "text/csv",
-      "name": "review_prior_work — method_landscape.csv",
-      "schema:about": {
-        "@id": "#step-review_prior_work"
-      },
-      "wasGeneratedBy": {
-        "@id": "#action/runtime/outputs/review_prior_work/method_landscape.csv"
       }
     },
     {
@@ -1153,14 +1562,33 @@
         "File",
         "Dataset"
       ],
+      "contentSize": 24721,
       "description": "Analytical result table produced by stage 'review_prior_work'.",
       "encodingFormat": "text/csv",
       "name": "review_prior_work — prior_claims_matrix.csv",
       "schema:about": {
         "@id": "#step-review_prior_work"
       },
+      "sha512": "eb4a838533e322330999df0df419b36efb723fe9df30abe2b58a2eeb4a1820ae11be9742cb0ec1689a34a7f0428539329b9ffaed30e8c970cc9830070bb43e61",
       "wasGeneratedBy": {
         "@id": "#action/runtime/outputs/review_prior_work/prior_claims_matrix.csv"
+      }
+    },
+    {
+      "@id": "runtime/outputs/validate_data_acquisition/result.json",
+      "@type": [
+        "File"
+      ],
+      "contentSize": 1245,
+      "description": "Primary recorded output of stage 'validate_data_acquisition'.",
+      "encodingFormat": "application/json",
+      "name": "validate_data_acquisition — result.json",
+      "schema:about": {
+        "@id": "#step-validate_data_acquisition"
+      },
+      "sha512": "8b51a3828d303a38bfeec33ec283c3a4cd09caefffbe12a150b1fec5f6cbb011f8a1df01773e44726291ddc53b33363b314746c83acb0268fda640182ab9420f",
+      "wasGeneratedBy": {
+        "@id": "#action/runtime/outputs/validate_data_acquisition/result.json"
       }
     },
     {
@@ -1172,9 +1600,9 @@
       "agent": {
         "@id": "#executor/bio-min_local"
       },
-      "endTime": "2026-06-23T12:46:22Z",
+      "endTime": "2026-07-11T15:52:13Z",
       "instrument": {
-        "@id": "#step-data_acquisition"
+        "@id": "#tool/data_acquisition"
       },
       "name": "Production of cohort_manifest.tsv by stage 'data_acquisition'.",
       "object": [],
@@ -1191,9 +1619,9 @@
       "agent": {
         "@id": "#executor/bio-min_local"
       },
-      "endTime": "2026-06-23T12:46:22Z",
+      "endTime": "2026-07-11T15:52:13Z",
       "instrument": {
-        "@id": "#step-data_acquisition"
+        "@id": "#tool/data_acquisition"
       },
       "name": "Production of data/himes-inputs/counts.tsv by stage 'data_acquisition'.",
       "object": [],
@@ -1210,33 +1638,14 @@
       "agent": {
         "@id": "#executor/bio-min_local"
       },
-      "endTime": "2026-06-23T12:46:22Z",
+      "endTime": "2026-07-11T15:52:13Z",
       "instrument": {
-        "@id": "#step-data_acquisition"
+        "@id": "#tool/data_acquisition"
       },
       "name": "Production of data/himes-inputs/samples.csv by stage 'data_acquisition'.",
       "object": [],
       "result": {
         "@id": "runtime/outputs/data_acquisition/data/himes-inputs/samples.csv"
-      }
-    },
-    {
-      "@id": "#action/runtime/outputs/review_prior_work/method_landscape.csv",
-      "@type": [
-        "CreateAction",
-        "prov:Activity"
-      ],
-      "agent": {
-        "@id": "#executor/bio-min_local"
-      },
-      "endTime": "2026-06-23T12:52:25Z",
-      "instrument": {
-        "@id": "#step-review_prior_work"
-      },
-      "name": "Production of method_landscape.csv by stage 'review_prior_work'.",
-      "object": [],
-      "result": {
-        "@id": "runtime/outputs/review_prior_work/method_landscape.csv"
       }
     },
     {
@@ -1248,14 +1657,43 @@
       "agent": {
         "@id": "#executor/bio-min_local"
       },
-      "endTime": "2026-06-23T12:52:25Z",
+      "endTime": "2026-07-11T15:56:54Z",
       "instrument": {
-        "@id": "#step-review_prior_work"
+        "@id": "#tool/review_prior_work"
       },
       "name": "Production of prior_claims_matrix.csv by stage 'review_prior_work'.",
       "object": [],
       "result": {
         "@id": "runtime/outputs/review_prior_work/prior_claims_matrix.csv"
+      }
+    },
+    {
+      "@id": "#action/runtime/outputs/validate_data_acquisition/result.json",
+      "@type": [
+        "CreateAction",
+        "prov:Activity"
+      ],
+      "agent": {
+        "@id": "#executor/bio-min_local"
+      },
+      "endTime": "2026-07-11T15:55:13Z",
+      "instrument": {
+        "@id": "#tool/validate_data_acquisition"
+      },
+      "name": "Execution of stage 'validate_data_acquisition' producing result.json.",
+      "object": [
+        {
+          "@id": "runtime/outputs/data_acquisition/cohort_manifest.tsv"
+        },
+        {
+          "@id": "runtime/outputs/data_acquisition/data/himes-inputs/counts.tsv"
+        },
+        {
+          "@id": "runtime/outputs/data_acquisition/data/himes-inputs/samples.csv"
+        }
+      ],
+      "result": {
+        "@id": "runtime/outputs/validate_data_acquisition/result.json"
       }
     },
     {
@@ -1266,34 +1704,550 @@
       "softwareVersion": "bio-min:local"
     },
     {
+      "@id": "runtime/outputs/data_acquisition/scripts/01_build_manifests.py",
+      "@type": [
+        "File",
+        "SoftwareSourceCode"
+      ],
+      "contentSize": 7203,
+      "description": "Executed script authored by stage 'data_acquisition'.",
+      "encodingFormat": "text/x-python",
+      "name": "01_build_manifests.py",
+      "sha512": "dddb36816f52d1d23711b52bf107cd3d427dce3e78d93ea7002ac133df8a5621327fd0c7581df8cf5bd23cd1beb5cd4d76979805d015d0a4f17ac29385da902f"
+    },
+    {
+      "@id": "runtime/outputs/review_prior_work/scripts/01_fetch_prior_literature.py",
+      "@type": [
+        "File",
+        "SoftwareSourceCode"
+      ],
+      "contentSize": 22576,
+      "description": "Executed script authored by stage 'review_prior_work'.",
+      "encodingFormat": "text/x-python",
+      "name": "01_fetch_prior_literature.py",
+      "sha512": "6292fb5b8492359c9915b2b8e2daa751502098ddb99a730dc0ac08fd8338c967d9510d84bb880543b709e68db193107ef067b11e2d751a74d2987453f3108da6"
+    },
+    {
+      "@id": "runtime/outputs/review_prior_work/scripts/02_add_method_papers.py",
+      "@type": [
+        "File",
+        "SoftwareSourceCode"
+      ],
+      "contentSize": 6407,
+      "description": "Executed script authored by stage 'review_prior_work'.",
+      "encodingFormat": "text/x-python",
+      "name": "02_add_method_papers.py",
+      "sha512": "201cd130845a9d4502aac4133eafa9d67a91d4e65a4be7b7afa34af5f33e1bbf3d9fa732195aa92bff226f00f8477e9b91e2e498c27252d414c572794242de85"
+    },
+    {
+      "@id": "runtime/outputs/validate_data_acquisition/scripts/01_validate_acquisition.py",
+      "@type": [
+        "File",
+        "SoftwareSourceCode"
+      ],
+      "contentSize": 10129,
+      "description": "Executed script authored by stage 'validate_data_acquisition'.",
+      "encodingFormat": "text/x-python",
+      "name": "01_validate_acquisition.py",
+      "sha512": "e715eb47e060bf2eefc09900388b7f4497e4c7c71ac65df0f363a4aeb8fe6092d3b84c9901988fb94bb5ddf1ba0ce43608f618a6910e3f5ba39dc322b34c6740"
+    },
+    {
+      "@id": "#tool/data_acquisition",
+      "@type": "SoftwareSourceCode",
+      "description": "The executable code stage 'data_acquisition' ran, grouping its recorded scripts.",
+      "hasPart": [
+        {
+          "@id": "runtime/outputs/data_acquisition/scripts/01_build_manifests.py"
+        }
+      ],
+      "name": "data_acquisition tool"
+    },
+    {
+      "@id": "#tool/review_prior_work",
+      "@type": "SoftwareSourceCode",
+      "description": "The executable code stage 'review_prior_work' ran, grouping its recorded scripts.",
+      "hasPart": [
+        {
+          "@id": "runtime/outputs/review_prior_work/scripts/01_fetch_prior_literature.py"
+        },
+        {
+          "@id": "runtime/outputs/review_prior_work/scripts/02_add_method_papers.py"
+        }
+      ],
+      "name": "review_prior_work tool"
+    },
+    {
+      "@id": "#tool/validate_data_acquisition",
+      "@type": "SoftwareSourceCode",
+      "description": "The executable code stage 'validate_data_acquisition' ran, grouping its recorded scripts.",
+      "hasPart": [
+        {
+          "@id": "runtime/outputs/validate_data_acquisition/scripts/01_validate_acquisition.py"
+        }
+      ],
+      "name": "validate_data_acquisition tool"
+    },
+    {
+      "@id": "#step-contextualize_findings_with_literature#input",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared input port of workflow step 'contextualize_findings_with_literature'.",
+      "name": "contextualize_findings_with_literature input"
+    },
+    {
+      "@id": "#step-contextualize_findings_with_literature#output",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared output port of workflow step 'contextualize_findings_with_literature'.",
+      "name": "contextualize_findings_with_literature output"
+    },
+    {
+      "@id": "#step-data_acquisition#output",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared output port of workflow step 'data_acquisition'.",
+      "name": "data_acquisition output"
+    },
+    {
+      "@id": "#step-differential_expression#input",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared input port of workflow step 'differential_expression'.",
+      "name": "differential_expression input"
+    },
+    {
+      "@id": "#step-differential_expression#output",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared output port of workflow step 'differential_expression'.",
+      "name": "differential_expression output"
+    },
+    {
+      "@id": "#step-discover_differential_expression#input",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared input port of workflow step 'discover_differential_expression'.",
+      "name": "discover_differential_expression input"
+    },
+    {
+      "@id": "#step-discover_differential_expression#output",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared output port of workflow step 'discover_differential_expression'.",
+      "name": "discover_differential_expression output"
+    },
+    {
+      "@id": "#step-discover_normalisation#input",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared input port of workflow step 'discover_normalisation'.",
+      "name": "discover_normalisation input"
+    },
+    {
+      "@id": "#step-discover_normalisation#output",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared output port of workflow step 'discover_normalisation'.",
+      "name": "discover_normalisation output"
+    },
+    {
+      "@id": "#step-discover_pathway_enrichment#input",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared input port of workflow step 'discover_pathway_enrichment'.",
+      "name": "discover_pathway_enrichment input"
+    },
+    {
+      "@id": "#step-discover_pathway_enrichment#output",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared output port of workflow step 'discover_pathway_enrichment'.",
+      "name": "discover_pathway_enrichment output"
+    },
+    {
+      "@id": "#step-final_reporting#input",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared input port of workflow step 'final_reporting'.",
+      "name": "final_reporting input"
+    },
+    {
+      "@id": "#step-final_reporting#output",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared output port of workflow step 'final_reporting'.",
+      "name": "final_reporting output"
+    },
+    {
+      "@id": "#step-normalisation#input",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared input port of workflow step 'normalisation'.",
+      "name": "normalisation input"
+    },
+    {
+      "@id": "#step-normalisation#output",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared output port of workflow step 'normalisation'.",
+      "name": "normalisation output"
+    },
+    {
+      "@id": "#step-pathway_enrichment#input",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared input port of workflow step 'pathway_enrichment'.",
+      "name": "pathway_enrichment input"
+    },
+    {
+      "@id": "#step-pathway_enrichment#output",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared output port of workflow step 'pathway_enrichment'.",
+      "name": "pathway_enrichment output"
+    },
+    {
+      "@id": "#step-qc_preprocessing#input",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared input port of workflow step 'qc_preprocessing'.",
+      "name": "qc_preprocessing input"
+    },
+    {
+      "@id": "#step-qc_preprocessing#output",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared output port of workflow step 'qc_preprocessing'.",
+      "name": "qc_preprocessing output"
+    },
+    {
+      "@id": "#step-reporting#input",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared input port of workflow step 'reporting'.",
+      "name": "reporting input"
+    },
+    {
+      "@id": "#step-reporting#output",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared output port of workflow step 'reporting'.",
+      "name": "reporting output"
+    },
+    {
+      "@id": "#step-review_prior_work#output",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared output port of workflow step 'review_prior_work'.",
+      "name": "review_prior_work output"
+    },
+    {
+      "@id": "#step-survey_method_landscape#input",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared input port of workflow step 'survey_method_landscape'.",
+      "name": "survey_method_landscape input"
+    },
+    {
+      "@id": "#step-survey_method_landscape#output",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared output port of workflow step 'survey_method_landscape'.",
+      "name": "survey_method_landscape output"
+    },
+    {
+      "@id": "#step-validate_contextualize_findings_with_literature#input",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared input port of workflow step 'validate_contextualize_findings_with_literature'.",
+      "name": "validate_contextualize_findings_with_literature input"
+    },
+    {
+      "@id": "#step-validate_data_acquisition#input",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared input port of workflow step 'validate_data_acquisition'.",
+      "name": "validate_data_acquisition input"
+    },
+    {
+      "@id": "#step-validate_differential_expression#input",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared input port of workflow step 'validate_differential_expression'.",
+      "name": "validate_differential_expression input"
+    },
+    {
+      "@id": "#step-validate_final_reporting#input",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared input port of workflow step 'validate_final_reporting'.",
+      "name": "validate_final_reporting input"
+    },
+    {
+      "@id": "#step-validate_normalisation#input",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared input port of workflow step 'validate_normalisation'.",
+      "name": "validate_normalisation input"
+    },
+    {
+      "@id": "#step-validate_pathway_enrichment#input",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared input port of workflow step 'validate_pathway_enrichment'.",
+      "name": "validate_pathway_enrichment input"
+    },
+    {
+      "@id": "#step-validate_qc_preprocessing#input",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared input port of workflow step 'validate_qc_preprocessing'.",
+      "name": "validate_qc_preprocessing input"
+    },
+    {
+      "@id": "#step-validate_reporting#input",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared input port of workflow step 'validate_reporting'.",
+      "name": "validate_reporting input"
+    },
+    {
+      "@id": "#step-validate_review_prior_work#input",
+      "@type": "FormalParameter",
+      "additionalType": {
+        "@id": "http://edamontology.org/data_0006"
+      },
+      "description": "Declared input port of workflow step 'validate_review_prior_work'.",
+      "name": "validate_review_prior_work input"
+    },
+    {
+      "@id": "https://w3id.org/ro/wfrun/process/0.5",
+      "@type": "CreativeWork",
+      "name": "Process Run Crate Profile",
+      "version": "0.5"
+    },
+    {
+      "@id": "https://w3id.org/ro/wfrun/workflow/0.5",
+      "@type": "CreativeWork",
+      "name": "Workflow Run Crate Profile",
+      "version": "0.5"
+    },
+    {
+      "@id": "https://w3id.org/ro/wfrun/provenance/0.5",
+      "@type": "CreativeWork",
+      "name": "Provenance Run Crate Profile",
+      "version": "0.5"
+    },
+    {
+      "@id": "runtime/outputs/review_prior_work/citation_verification_report.md",
+      "@type": [
+        "File",
+        "CreativeWork"
+      ],
+      "contentSize": 992,
+      "description": "Narrative report produced by stage 'review_prior_work'.",
+      "encodingFormat": "text/markdown",
+      "name": "review_prior_work — citation_verification_report.md",
+      "schema:about": {
+        "@id": "#step-review_prior_work"
+      },
+      "sha512": "9d549faf909476654f5b6cf4750d5aacef9378062a2fb8fbba624427f982ab7f83a599653d7837469fc67bc1baae2795290a6cf119ba7b9afdb943a74ed965f4"
+    },
+    {
+      "@id": "runtime/outputs/review_prior_work/literature_search_protocol.md",
+      "@type": [
+        "File",
+        "CreativeWork"
+      ],
+      "contentSize": 1405,
+      "description": "Narrative report produced by stage 'review_prior_work'.",
+      "encodingFormat": "text/markdown",
+      "name": "review_prior_work — literature_search_protocol.md",
+      "schema:about": {
+        "@id": "#step-review_prior_work"
+      },
+      "sha512": "245e551d930e0a7f52c7a75ed60a16df7ca20a79bd07db2963a25ee169e8c9ec92bd537a715a5a4f13630e8889f21c90fd049c36a1df952467d9e8cd18b5684d"
+    },
+    {
+      "@id": "runtime/dependency-lock.json",
+      "@type": [
+        "File",
+        "CreativeWork"
+      ],
+      "about": {
+        "@id": "./"
+      },
+      "contentSize": 69,
+      "description": "Re-executability signal: the pinned dependency set for the run.",
+      "encodingFormat": "application/json",
+      "name": "Dependency lock — requested R/Python/conda package versions",
+      "sha512": "61a913b3b500cf43864e11a05519faa7708e08c77d674c00f903656421cb0d2f3ec8f24daede4b63cfc0afce922306063f7e53c1944d21e1a7e5f9103888681f"
+    },
+    {
+      "@id": "policies/runtime-prereqs.json",
+      "@type": [
+        "File",
+        "CreativeWork"
+      ],
+      "about": {
+        "@id": "./"
+      },
+      "contentSize": 77,
+      "description": "Re-executability signal: the runtime environment requirements.",
+      "encodingFormat": "application/json",
+      "name": "Runtime prerequisites — base image, system + language packages",
+      "sha512": "ee4989f83a02de4fc85520dda5ccd781575b5af8ed9dff958d06c9a12c32a4714843baaefd98973bfe1e99e45f56b5451aa904f1ce894cef9da33a74da81f36b"
+    },
+    {
+      "@id": "policies/container.json",
+      "@type": [
+        "File",
+        "CreativeWork"
+      ],
+      "about": {
+        "@id": "./"
+      },
+      "contentSize": 175,
+      "description": "Re-executability signal: the container image used for execution.",
+      "encodingFormat": "application/json",
+      "name": "Container specification — execution image reference",
+      "sha512": "cfa78298e90a23071ddf18a89189fcd785bf6dfeb7e7e2cd755389e5171ef02be4f57e54f5a2cc5ee4ab3ed3399ec1a903f6af8baf3d09796da3051b03465513"
+    },
+    {
+      "@id": "runtime/reexecution.json",
+      "@type": [
+        "File",
+        "CreativeWork"
+      ],
+      "about": {
+        "@id": "./"
+      },
+      "description": "Provenance: how re-executed outputs compared to the recorded run.",
+      "encodingFormat": "application/json",
+      "name": "Re-execution equivalence report — per-artifact reproduction buckets"
+    },
+    {
+      "@id": "runtime/cost-ledger.jsonl",
+      "@type": [
+        "File",
+        "CreativeWork"
+      ],
+      "about": {
+        "@id": "./"
+      },
+      "contentSize": 224,
+      "description": "Accountability: recorded compute/cost ledger for the run.",
+      "encodingFormat": "application/jsonl",
+      "name": "Cost ledger — per-step resource/cost accounting",
+      "sha512": "a7eae5c1eba5fbd87e35d7a82f211c809957edd707aeb8afd7245da7ab6aa480883bf8e92b7a2aad37e9bd588208019cb0ef00cd921633f93d0f38a6f3be05d5"
+    },
+    {
       "@id": "C:review_prior_work_claim-0",
       "@type": "Claim",
       "status": "pending",
-      "text": "**PMID 24926665** is the source dataset paper: Himes et al. (2014), \"RNA-Seq transcriptome profiling identifies CRISPLD2 as a glucocorticoid responsive gene that modulates cytokine function in airway smooth muscle cells,\" *PLOS ONE*"
+      "text": "Each row's `evidence_quote` was normalized with `collapse_whitespace_lowercase_v1` (collapse whitespace runs to single space, lowercase, strip) and tested for substring presence against the same-normalized source text (PubMed abstract XML batch or PMC full-text XML)"
     },
     {
       "@id": "C:review_prior_work_claim-1",
       "@type": "Claim",
       "status": "pending",
-      "text": "**PMID 24926665** is the source dataset paper: Himes et al. (2014), \"RNA-Seq transcriptome profiling identifies CRISPLD2 as a glucocorticoid responsive gene that modulates cytokine function in airway smooth muscle cells,\" *PLOS ONE*"
+      "text": "All sources are PubMed/PMC (public domain US Gov work or PMC OA CC-licensed)"
     },
     {
       "@id": "C:review_prior_work_claim-2",
       "@type": "Claim",
       "status": "pending",
-      "text": "**PMID 24926665** is the source dataset paper: Himes et al. (2014), \"RNA-Seq transcriptome profiling identifies CRISPLD2 as a glucocorticoid responsive gene that modulates cytokine function in airway smooth muscle cells,\" *PLOS ONE*"
+      "text": "All sources are PubMed/PMC (public domain US Gov work or PMC OA CC-licensed)"
     },
     {
       "@id": "C:review_prior_work_claim-3",
       "@type": "Claim",
       "status": "pending",
-      "text": "US-Government work (NCBI/NLM)"
+      "text": "All sources are PubMed/PMC (public domain US Gov work or PMC OA CC-licensed)"
     },
     {
-      "@id": "C:review_prior_work_claim-4",
-      "@type": "Claim",
-      "status": "pending",
-      "text": "No tool-documentation or locally-stored PDF"
+      "@id": "#dep/conda/python",
+      "@type": "SoftwareApplication",
+      "applicationCategory": "conda",
+      "name": "python",
+      "softwareVersion": "3.11.15"
+    },
+    {
+      "@id": "ro-crate-preview.html",
+      "@type": [
+        "File",
+        "CreativeWork"
+      ],
+      "about": {
+        "@id": "./"
+      },
+      "description": "Static HTML rendering of the root Dataset entity. Embeds the RO-Crate JSON-LD in a typed application/ld+json block per the RO-Crate 1.1 specification §10. Zero executable JavaScript.",
+      "encodingFormat": "text/html",
+      "name": "RO-Crate preview — human-readable rendering"
     },
     {
       "@id": "runtime/outputs/differential_expression/de_results.tsv",
@@ -1301,30 +2255,16 @@
         "File",
         "Dataset"
       ],
+      "contentSize": 2711295,
       "description": "Analytical result table produced by stage 'differential_expression'.",
       "encodingFormat": "text/tab-separated-values",
       "name": "differential_expression — de_results.tsv",
       "schema:about": {
         "@id": "#step-differential_expression"
       },
+      "sha512": "0e7b0b4d4d2947ec78b7cf13e1b7ee0702d4b30af55651933f276ce73d5f958f9f5d05a9986c34445c578f636d1e185ff34535a3b0e12548ac3ebeb8adbdbd0a",
       "wasGeneratedBy": {
         "@id": "#action/runtime/outputs/differential_expression/de_results.tsv"
-      }
-    },
-    {
-      "@id": "runtime/outputs/differential_expression/intermediates/size_factors.tsv",
-      "@type": [
-        "File",
-        "Dataset"
-      ],
-      "description": "Analytical result table produced by stage 'differential_expression'.",
-      "encodingFormat": "text/tab-separated-values",
-      "name": "differential_expression — intermediates/size_factors.tsv",
-      "schema:about": {
-        "@id": "#step-differential_expression"
-      },
-      "wasGeneratedBy": {
-        "@id": "#action/runtime/outputs/differential_expression/intermediates/size_factors.tsv"
       }
     },
     {
@@ -1333,12 +2273,14 @@
         "File",
         "Dataset"
       ],
+      "contentSize": 110391,
       "description": "Analytical result table produced by stage 'normalisation'.",
       "encodingFormat": "text/tab-separated-values",
       "name": "normalisation — hvg_list.tsv",
       "schema:about": {
         "@id": "#step-normalisation"
       },
+      "sha512": "e9e8492aebca194b0a9d5aa5d5d7bd21c722e997b5c737b74ab5d439ca5d7839e08ab7e0289ced5f24a43dcdd81edfae27cca1add5317117c76bbbf2e97e77b5",
       "wasGeneratedBy": {
         "@id": "#action/runtime/outputs/normalisation/hvg_list.tsv"
       }
@@ -1349,30 +2291,34 @@
         "File",
         "Dataset"
       ],
+      "contentSize": 1163334,
       "description": "Analytical result table produced by stage 'normalisation'.",
       "encodingFormat": "text/tab-separated-values",
       "name": "normalisation — mean_variance.tsv",
       "schema:about": {
         "@id": "#step-normalisation"
       },
+      "sha512": "ba9515c70d8dfdba3dc7fbb244b772259075997d1fae87a1d0789e6543827c05235b3f5c43c3dd3f3f43b8d19eb6a050ea43945044b8cfa1b397568ff173744d",
       "wasGeneratedBy": {
         "@id": "#action/runtime/outputs/normalisation/mean_variance.tsv"
       }
     },
     {
-      "@id": "runtime/outputs/normalisation/vst_matrix.tsv",
+      "@id": "runtime/outputs/normalisation/normalized_counts.tsv",
       "@type": [
         "File",
         "Dataset"
       ],
+      "contentSize": 3379469,
       "description": "Analytical result table produced by stage 'normalisation'.",
       "encodingFormat": "text/tab-separated-values",
-      "name": "normalisation — vst_matrix.tsv",
+      "name": "normalisation — normalized_counts.tsv",
       "schema:about": {
         "@id": "#step-normalisation"
       },
+      "sha512": "112a8b40b29741e7636354bed0b873bd0bac10df6f1acaafcd2c9ed7cdc242a4972dabc0374fbb69a185ae3f6028b54db47609c1401a2ae570405c584e7d2017",
       "wasGeneratedBy": {
-        "@id": "#action/runtime/outputs/normalisation/vst_matrix.tsv"
+        "@id": "#action/runtime/outputs/normalisation/normalized_counts.tsv"
       }
     },
     {
@@ -1381,12 +2327,14 @@
         "File",
         "Dataset"
       ],
+      "contentSize": 1628,
       "description": "Analytical result table produced by stage 'qc_preprocessing'.",
       "encodingFormat": "text/tab-separated-values",
       "name": "qc_preprocessing — qc_metrics.tsv",
       "schema:about": {
         "@id": "#step-qc_preprocessing"
       },
+      "sha512": "580d370cdc1c8ebda6550847d640d15941d91f1ae7d7337dcec684fa553c55dc8effd4ea46810d7840435b9c91516a0e81ba07bc44eb3660a4adb2f295eb7c60",
       "wasGeneratedBy": {
         "@id": "#action/runtime/outputs/qc_preprocessing/qc_metrics.tsv"
       }
@@ -1397,14 +2345,119 @@
         "File",
         "Dataset"
       ],
+      "contentSize": 45440,
       "description": "Analytical result table produced by stage 'survey_method_landscape'.",
       "encodingFormat": "text/csv",
       "name": "survey_method_landscape — method_landscape.csv",
       "schema:about": {
         "@id": "#step-survey_method_landscape"
       },
+      "sha512": "b5d6e3154a1b648723ef91b8d9ccaf6e5372f34fd8ed1c2cfbfec51564c8fc5305753140dc85a3ad0a2b793cdc18d1dfc07d63ae835763374e3e8626495e429b",
       "wasGeneratedBy": {
         "@id": "#action/runtime/outputs/survey_method_landscape/method_landscape.csv"
+      }
+    },
+    {
+      "@id": "runtime/outputs/validate_review_prior_work/validation_checks.csv",
+      "@type": [
+        "File",
+        "Dataset"
+      ],
+      "contentSize": 1504,
+      "description": "Analytical result table produced by stage 'validate_review_prior_work'.",
+      "encodingFormat": "text/csv",
+      "name": "validate_review_prior_work — validation_checks.csv",
+      "schema:about": {
+        "@id": "#step-validate_review_prior_work"
+      },
+      "sha512": "dcc4ae2221b240accadac72b89d9c3c40c4ed219aca26307066361c3e47cb2f60418530730d80bbd16dacc7347502bd7b50a6a7d1876e4c2e3c04909745ce02f",
+      "wasGeneratedBy": {
+        "@id": "#action/runtime/outputs/validate_review_prior_work/validation_checks.csv"
+      }
+    },
+    {
+      "@id": "runtime/outputs/discover_differential_expression/result.json",
+      "@type": [
+        "File"
+      ],
+      "contentSize": 2875,
+      "description": "Primary recorded output of stage 'discover_differential_expression'.",
+      "encodingFormat": "application/json",
+      "name": "discover_differential_expression — result.json",
+      "schema:about": {
+        "@id": "#step-discover_differential_expression"
+      },
+      "sha512": "02b067e5a42343fcb8d0cbaabf05066932b24a86e26dc1c9e61f11f975de52d5cf8ffc3722f79d60a1b111151525ddceb33758f4922fbd7e7c147e5a5e39477a",
+      "wasGeneratedBy": {
+        "@id": "#action/runtime/outputs/discover_differential_expression/result.json"
+      }
+    },
+    {
+      "@id": "runtime/outputs/discover_normalisation/result.json",
+      "@type": [
+        "File"
+      ],
+      "contentSize": 3343,
+      "description": "Primary recorded output of stage 'discover_normalisation'.",
+      "encodingFormat": "application/json",
+      "name": "discover_normalisation — result.json",
+      "schema:about": {
+        "@id": "#step-discover_normalisation"
+      },
+      "sha512": "27a9caf936600f9b1460a7cfc73b2bfac4dbfc03aa94f2718fd98f9b43115f57072bb3329e5a90dde507c028dc56b2eb453b81de21864aea338144a7ff77c7a9",
+      "wasGeneratedBy": {
+        "@id": "#action/runtime/outputs/discover_normalisation/result.json"
+      }
+    },
+    {
+      "@id": "runtime/outputs/discover_pathway_enrichment/result.json",
+      "@type": [
+        "File"
+      ],
+      "contentSize": 3676,
+      "description": "Primary recorded output of stage 'discover_pathway_enrichment'.",
+      "encodingFormat": "application/json",
+      "name": "discover_pathway_enrichment — result.json",
+      "schema:about": {
+        "@id": "#step-discover_pathway_enrichment"
+      },
+      "sha512": "7e754cd796dcd622aa70892a2e7d0fecdd3f3112e2f172684cbbc451f9d9b1d761acbef8a71b62324ca5f28b80df8b0af6e6a134204deb4110974c8fb0fa708c",
+      "wasGeneratedBy": {
+        "@id": "#action/runtime/outputs/discover_pathway_enrichment/result.json"
+      }
+    },
+    {
+      "@id": "runtime/outputs/validate_normalisation/result.json",
+      "@type": [
+        "File"
+      ],
+      "contentSize": 1028,
+      "description": "Primary recorded output of stage 'validate_normalisation'.",
+      "encodingFormat": "application/json",
+      "name": "validate_normalisation — result.json",
+      "schema:about": {
+        "@id": "#step-validate_normalisation"
+      },
+      "sha512": "ff615ec3d42f97a1ff76d6364379e96a9a19c0abd2a8820eab0806494ba0deb98cee115f6670830805c2a035494ba41a24efa3b6b5ee7fc44be9d9ba247eafcc",
+      "wasGeneratedBy": {
+        "@id": "#action/runtime/outputs/validate_normalisation/result.json"
+      }
+    },
+    {
+      "@id": "runtime/outputs/validate_qc_preprocessing/result.json",
+      "@type": [
+        "File"
+      ],
+      "contentSize": 867,
+      "description": "Primary recorded output of stage 'validate_qc_preprocessing'.",
+      "encodingFormat": "application/json",
+      "name": "validate_qc_preprocessing — result.json",
+      "schema:about": {
+        "@id": "#step-validate_qc_preprocessing"
+      },
+      "sha512": "7bb62152d93b19a9579bad955939583199068e1c08865829dfdd005b7ccb7d37e7424fe16320190fd8ecc871228be90076a0a55103fec136f70583d431fa5507",
+      "wasGeneratedBy": {
+        "@id": "#action/runtime/outputs/validate_qc_preprocessing/result.json"
       }
     },
     {
@@ -1416,9 +2469,9 @@
       "agent": {
         "@id": "#executor/bio-min_local"
       },
-      "endTime": "2026-06-23T13:51:18Z",
+      "endTime": "2026-07-11T16:35:21Z",
       "instrument": {
-        "@id": "#step-differential_expression"
+        "@id": "#tool/differential_expression"
       },
       "name": "Production of de_results.tsv by stage 'differential_expression'.",
       "object": [
@@ -1432,43 +2485,11 @@
           "@id": "runtime/outputs/normalisation/mean_variance.tsv"
         },
         {
-          "@id": "runtime/outputs/normalisation/vst_matrix.tsv"
+          "@id": "runtime/outputs/normalisation/normalized_counts.tsv"
         }
       ],
       "result": {
         "@id": "runtime/outputs/differential_expression/de_results.tsv"
-      }
-    },
-    {
-      "@id": "#action/runtime/outputs/differential_expression/intermediates/size_factors.tsv",
-      "@type": [
-        "CreateAction",
-        "prov:Activity"
-      ],
-      "agent": {
-        "@id": "#executor/bio-min_local"
-      },
-      "endTime": "2026-06-23T13:51:18Z",
-      "instrument": {
-        "@id": "#step-differential_expression"
-      },
-      "name": "Production of intermediates/size_factors.tsv by stage 'differential_expression'.",
-      "object": [
-        {
-          "@id": "#step-discover_differential_expression"
-        },
-        {
-          "@id": "runtime/outputs/normalisation/hvg_list.tsv"
-        },
-        {
-          "@id": "runtime/outputs/normalisation/mean_variance.tsv"
-        },
-        {
-          "@id": "runtime/outputs/normalisation/vst_matrix.tsv"
-        }
-      ],
-      "result": {
-        "@id": "runtime/outputs/differential_expression/intermediates/size_factors.tsv"
       }
     },
     {
@@ -1480,9 +2501,9 @@
       "agent": {
         "@id": "#executor/bio-min_local"
       },
-      "endTime": "2026-06-23T13:20:22Z",
+      "endTime": "2026-07-11T16:27:27Z",
       "instrument": {
-        "@id": "#step-normalisation"
+        "@id": "#tool/normalisation"
       },
       "name": "Production of hvg_list.tsv by stage 'normalisation'.",
       "object": [
@@ -1506,9 +2527,9 @@
       "agent": {
         "@id": "#executor/bio-min_local"
       },
-      "endTime": "2026-06-23T13:20:22Z",
+      "endTime": "2026-07-11T16:27:27Z",
       "instrument": {
-        "@id": "#step-normalisation"
+        "@id": "#tool/normalisation"
       },
       "name": "Production of mean_variance.tsv by stage 'normalisation'.",
       "object": [
@@ -1524,7 +2545,7 @@
       }
     },
     {
-      "@id": "#action/runtime/outputs/normalisation/vst_matrix.tsv",
+      "@id": "#action/runtime/outputs/normalisation/normalized_counts.tsv",
       "@type": [
         "CreateAction",
         "prov:Activity"
@@ -1532,11 +2553,11 @@
       "agent": {
         "@id": "#executor/bio-min_local"
       },
-      "endTime": "2026-06-23T13:20:22Z",
+      "endTime": "2026-07-11T16:27:27Z",
       "instrument": {
-        "@id": "#step-normalisation"
+        "@id": "#tool/normalisation"
       },
-      "name": "Production of vst_matrix.tsv by stage 'normalisation'.",
+      "name": "Production of normalized_counts.tsv by stage 'normalisation'.",
       "object": [
         {
           "@id": "#step-discover_normalisation"
@@ -1546,7 +2567,7 @@
         }
       ],
       "result": {
-        "@id": "runtime/outputs/normalisation/vst_matrix.tsv"
+        "@id": "runtime/outputs/normalisation/normalized_counts.tsv"
       }
     },
     {
@@ -1558,9 +2579,9 @@
       "agent": {
         "@id": "#executor/bio-min_local"
       },
-      "endTime": "2026-06-23T13:07:23Z",
+      "endTime": "2026-07-11T16:20:47Z",
       "instrument": {
-        "@id": "#step-qc_preprocessing"
+        "@id": "#tool/qc_preprocessing"
       },
       "name": "Production of qc_metrics.tsv by stage 'qc_preprocessing'.",
       "object": [
@@ -1590,9 +2611,9 @@
       "agent": {
         "@id": "#executor/bio-min_local"
       },
-      "endTime": "2026-06-23T12:55:52Z",
+      "endTime": "2026-07-11T16:02:56Z",
       "instrument": {
-        "@id": "#step-survey_method_landscape"
+        "@id": "#tool/survey_method_landscape"
       },
       "name": "Production of method_landscape.csv by stage 'survey_method_landscape'.",
       "object": [
@@ -1611,6 +2632,410 @@
       }
     },
     {
+      "@id": "#action/runtime/outputs/validate_review_prior_work/validation_checks.csv",
+      "@type": [
+        "CreateAction",
+        "prov:Activity"
+      ],
+      "agent": {
+        "@id": "#executor/bio-min_local"
+      },
+      "endTime": "2026-07-11T16:00:26Z",
+      "instrument": {
+        "@id": "#tool/validate_review_prior_work"
+      },
+      "name": "Production of validation_checks.csv by stage 'validate_review_prior_work'.",
+      "object": [
+        {
+          "@id": "runtime/outputs/review_prior_work/prior_claims_matrix.csv"
+        }
+      ],
+      "result": {
+        "@id": "runtime/outputs/validate_review_prior_work/validation_checks.csv"
+      }
+    },
+    {
+      "@id": "#action/runtime/outputs/discover_differential_expression/result.json",
+      "@type": [
+        "CreateAction",
+        "prov:Activity"
+      ],
+      "agent": {
+        "@id": "#executor/bio-min_local"
+      },
+      "endTime": "2026-07-11T16:08:40Z",
+      "instrument": {
+        "@id": "#tool/discover_differential_expression"
+      },
+      "name": "Execution of stage 'discover_differential_expression' producing result.json.",
+      "object": [
+        {
+          "@id": "runtime/outputs/survey_method_landscape/method_landscape.csv"
+        }
+      ],
+      "result": {
+        "@id": "runtime/outputs/discover_differential_expression/result.json"
+      }
+    },
+    {
+      "@id": "#action/runtime/outputs/discover_normalisation/result.json",
+      "@type": [
+        "CreateAction",
+        "prov:Activity"
+      ],
+      "agent": {
+        "@id": "#executor/bio-min_local"
+      },
+      "endTime": "2026-07-11T16:13:37Z",
+      "instrument": {
+        "@id": "#tool/discover_normalisation"
+      },
+      "name": "Execution of stage 'discover_normalisation' producing result.json.",
+      "object": [
+        {
+          "@id": "runtime/outputs/survey_method_landscape/method_landscape.csv"
+        }
+      ],
+      "result": {
+        "@id": "runtime/outputs/discover_normalisation/result.json"
+      }
+    },
+    {
+      "@id": "#action/runtime/outputs/discover_pathway_enrichment/result.json",
+      "@type": [
+        "CreateAction",
+        "prov:Activity"
+      ],
+      "agent": {
+        "@id": "#executor/bio-min_local"
+      },
+      "endTime": "2026-07-11T16:17:54Z",
+      "instrument": {
+        "@id": "#tool/discover_pathway_enrichment"
+      },
+      "name": "Execution of stage 'discover_pathway_enrichment' producing result.json.",
+      "object": [
+        {
+          "@id": "runtime/outputs/survey_method_landscape/method_landscape.csv"
+        }
+      ],
+      "result": {
+        "@id": "runtime/outputs/discover_pathway_enrichment/result.json"
+      }
+    },
+    {
+      "@id": "#action/runtime/outputs/validate_normalisation/result.json",
+      "@type": [
+        "CreateAction",
+        "prov:Activity"
+      ],
+      "agent": {
+        "@id": "#executor/bio-min_local"
+      },
+      "endTime": "2026-07-11T16:31:14Z",
+      "instrument": {
+        "@id": "#tool/validate_normalisation"
+      },
+      "name": "Execution of stage 'validate_normalisation' producing result.json.",
+      "object": [
+        {
+          "@id": "runtime/outputs/normalisation/hvg_list.tsv"
+        },
+        {
+          "@id": "runtime/outputs/normalisation/mean_variance.tsv"
+        },
+        {
+          "@id": "runtime/outputs/normalisation/normalized_counts.tsv"
+        }
+      ],
+      "result": {
+        "@id": "runtime/outputs/validate_normalisation/result.json"
+      }
+    },
+    {
+      "@id": "#action/runtime/outputs/validate_qc_preprocessing/result.json",
+      "@type": [
+        "CreateAction",
+        "prov:Activity"
+      ],
+      "agent": {
+        "@id": "#executor/bio-min_local"
+      },
+      "endTime": "2026-07-11T16:23:44Z",
+      "instrument": {
+        "@id": "#tool/validate_qc_preprocessing"
+      },
+      "name": "Execution of stage 'validate_qc_preprocessing' producing result.json.",
+      "object": [
+        {
+          "@id": "runtime/outputs/qc_preprocessing/qc_metrics.tsv"
+        }
+      ],
+      "result": {
+        "@id": "runtime/outputs/validate_qc_preprocessing/result.json"
+      }
+    },
+    {
+      "@id": "runtime/outputs/differential_expression/scripts/01_deseq2_de.R",
+      "@type": [
+        "File",
+        "SoftwareSourceCode"
+      ],
+      "contentSize": 5410,
+      "description": "Executed script authored by stage 'differential_expression'.",
+      "encodingFormat": "text/x-r-source",
+      "name": "01_deseq2_de.R",
+      "sha512": "e8487e770da5895ae51612c29deb2d4d176190c2e061afde43b314f67845367eadfb71d4525980e6648d834436cfb351048c0ec0bf53577b1ae744ad4d9e1b0e"
+    },
+    {
+      "@id": "runtime/outputs/discover_differential_expression/scripts/01_score_candidates.py",
+      "@type": [
+        "File",
+        "SoftwareSourceCode"
+      ],
+      "contentSize": 13276,
+      "description": "Executed script authored by stage 'discover_differential_expression'.",
+      "encodingFormat": "text/x-python",
+      "name": "01_score_candidates.py",
+      "sha512": "fc7f4f5bc41afce802be95ce619d9cfff610f07a0879816b411c1374f9425ee10f4f8d7ca86f8dc7a4207efc556ee11efd7d5dd79d6f6bc5d24a6b540b24b283"
+    },
+    {
+      "@id": "runtime/outputs/discover_normalisation/scripts/01_score_candidates.py",
+      "@type": [
+        "File",
+        "SoftwareSourceCode"
+      ],
+      "contentSize": 14142,
+      "description": "Executed script authored by stage 'discover_normalisation'.",
+      "encodingFormat": "text/x-python",
+      "name": "01_score_candidates.py",
+      "sha512": "a4ffa7eba38d1d533b2a4ee97a764d1434d41894ec8f39e95aec6ad4ac94a102a888cdfbce9c468c2d824b7f953abdd5d093a8fcfb8cc956f492e24a6bc96af2"
+    },
+    {
+      "@id": "runtime/outputs/discover_pathway_enrichment/scripts/01_score_candidates.py",
+      "@type": [
+        "File",
+        "SoftwareSourceCode"
+      ],
+      "contentSize": 11892,
+      "description": "Executed script authored by stage 'discover_pathway_enrichment'.",
+      "encodingFormat": "text/x-python",
+      "name": "01_score_candidates.py",
+      "sha512": "95515a9892d769d60a67d52492a5c49ea6bf55c7fc2bc0b9cf7909eacb1541b259678c1141b79cb28d4d8c97a0b2054a5248f8c3bb6ebd4f610d97ebc49ac85a"
+    },
+    {
+      "@id": "runtime/outputs/normalisation/scripts/01_deseq2_vst.R",
+      "@type": [
+        "File",
+        "SoftwareSourceCode"
+      ],
+      "contentSize": 7411,
+      "description": "Executed script authored by stage 'normalisation'.",
+      "encodingFormat": "text/x-r-source",
+      "name": "01_deseq2_vst.R",
+      "sha512": "b47ab8f24f246d19f787bf94d864083cbc1eff67aa253a939ebf24d7796570284683ce685486ca219f44cc119311b72b2e1b0573b5803cfdec6cef2f5f788a41"
+    },
+    {
+      "@id": "runtime/outputs/qc_preprocessing/scripts/01_qc_preprocessing.py",
+      "@type": [
+        "File",
+        "SoftwareSourceCode"
+      ],
+      "contentSize": 9813,
+      "description": "Executed script authored by stage 'qc_preprocessing'.",
+      "encodingFormat": "text/x-python",
+      "name": "01_qc_preprocessing.py",
+      "sha512": "945f6b084549db4238c8c7c4fe449c5749ca1c3dc253894f58c63d27e98d8cfe7868b25a329c2ebc07eaa06543491479f0f13b83647d5a9989b7a32309fb9925"
+    },
+    {
+      "@id": "runtime/outputs/survey_method_landscape/scripts/01_fetch_method_landscape.py",
+      "@type": [
+        "File",
+        "SoftwareSourceCode"
+      ],
+      "contentSize": 18924,
+      "description": "Executed script authored by stage 'survey_method_landscape'.",
+      "encodingFormat": "text/x-python",
+      "name": "01_fetch_method_landscape.py",
+      "sha512": "bab37b4f38261ea583e621260d1325b3d0562b6634869d5508ae825b618a37ee166ce40d868027826dcf60907234c36485c2a207008ce0ec25b0c281fcb6652b"
+    },
+    {
+      "@id": "runtime/outputs/survey_method_landscape/scripts/02_augment_missing_candidates.py",
+      "@type": [
+        "File",
+        "SoftwareSourceCode"
+      ],
+      "contentSize": 15228,
+      "description": "Executed script authored by stage 'survey_method_landscape'.",
+      "encodingFormat": "text/x-python",
+      "name": "02_augment_missing_candidates.py",
+      "sha512": "7db60f17ebcec1cc219dedbcba3c1a46299c555b1711f625c3833f3964bbf8ba6aa0d0622931f1e87a2d3115b576d5a72dac242c6e004c4b2feda3acf3fe8411"
+    },
+    {
+      "@id": "runtime/outputs/validate_normalisation/scripts/01_validate_normalisation.py",
+      "@type": [
+        "File",
+        "SoftwareSourceCode"
+      ],
+      "contentSize": 16386,
+      "description": "Executed script authored by stage 'validate_normalisation'.",
+      "encodingFormat": "text/x-python",
+      "name": "01_validate_normalisation.py",
+      "sha512": "d5c6b5148d196b395ad815062aace92ec3876d2ce976782912d594d845a54419a4f2855e1fbc3a3b4f64853022f20600537a7c4092b5a5f0517223286c4b08cc"
+    },
+    {
+      "@id": "runtime/outputs/validate_qc_preprocessing/scripts/01_validate_qc_preprocessing.py",
+      "@type": [
+        "File",
+        "SoftwareSourceCode"
+      ],
+      "contentSize": 8072,
+      "description": "Executed script authored by stage 'validate_qc_preprocessing'.",
+      "encodingFormat": "text/x-python",
+      "name": "01_validate_qc_preprocessing.py",
+      "sha512": "872193a5e5c8764dad9813b25ed9877660612bcf85ebddeb6ef22f954a4241ce4a5b17097d0f83ebda621439a7c9b8aa98d44e30e42a67797ce1f4afe1c96c4e"
+    },
+    {
+      "@id": "runtime/outputs/validate_review_prior_work/scripts/01_validate_prior_claims.py",
+      "@type": [
+        "File",
+        "SoftwareSourceCode"
+      ],
+      "contentSize": 10820,
+      "description": "Executed script authored by stage 'validate_review_prior_work'.",
+      "encodingFormat": "text/x-python",
+      "name": "01_validate_prior_claims.py",
+      "sha512": "87244068f85fe8d23bac5eeedfc7fbeff52363c827d075a55531253a76c77611466a872e735c714b7d8c10aacf1558272ea99d0ca1dd05d741d471e7d9cf757a"
+    },
+    {
+      "@id": "#tool/differential_expression",
+      "@type": "SoftwareSourceCode",
+      "description": "The executable code stage 'differential_expression' ran, grouping its recorded scripts.",
+      "hasPart": [
+        {
+          "@id": "runtime/outputs/differential_expression/scripts/01_deseq2_de.R"
+        }
+      ],
+      "name": "differential_expression tool"
+    },
+    {
+      "@id": "#tool/discover_differential_expression",
+      "@type": "SoftwareSourceCode",
+      "description": "The executable code stage 'discover_differential_expression' ran, grouping its recorded scripts.",
+      "hasPart": [
+        {
+          "@id": "runtime/outputs/discover_differential_expression/scripts/01_score_candidates.py"
+        }
+      ],
+      "name": "discover_differential_expression tool"
+    },
+    {
+      "@id": "#tool/discover_normalisation",
+      "@type": "SoftwareSourceCode",
+      "description": "The executable code stage 'discover_normalisation' ran, grouping its recorded scripts.",
+      "hasPart": [
+        {
+          "@id": "runtime/outputs/discover_normalisation/scripts/01_score_candidates.py"
+        }
+      ],
+      "name": "discover_normalisation tool"
+    },
+    {
+      "@id": "#tool/discover_pathway_enrichment",
+      "@type": "SoftwareSourceCode",
+      "description": "The executable code stage 'discover_pathway_enrichment' ran, grouping its recorded scripts.",
+      "hasPart": [
+        {
+          "@id": "runtime/outputs/discover_pathway_enrichment/scripts/01_score_candidates.py"
+        }
+      ],
+      "name": "discover_pathway_enrichment tool"
+    },
+    {
+      "@id": "#tool/normalisation",
+      "@type": "SoftwareSourceCode",
+      "description": "The executable code stage 'normalisation' ran, grouping its recorded scripts.",
+      "hasPart": [
+        {
+          "@id": "runtime/outputs/normalisation/scripts/01_deseq2_vst.R"
+        }
+      ],
+      "name": "normalisation tool"
+    },
+    {
+      "@id": "#tool/qc_preprocessing",
+      "@type": "SoftwareSourceCode",
+      "description": "The executable code stage 'qc_preprocessing' ran, grouping its recorded scripts.",
+      "hasPart": [
+        {
+          "@id": "runtime/outputs/qc_preprocessing/scripts/01_qc_preprocessing.py"
+        }
+      ],
+      "name": "qc_preprocessing tool"
+    },
+    {
+      "@id": "#tool/survey_method_landscape",
+      "@type": "SoftwareSourceCode",
+      "description": "The executable code stage 'survey_method_landscape' ran, grouping its recorded scripts.",
+      "hasPart": [
+        {
+          "@id": "runtime/outputs/survey_method_landscape/scripts/01_fetch_method_landscape.py"
+        },
+        {
+          "@id": "runtime/outputs/survey_method_landscape/scripts/02_augment_missing_candidates.py"
+        }
+      ],
+      "name": "survey_method_landscape tool"
+    },
+    {
+      "@id": "#tool/validate_normalisation",
+      "@type": "SoftwareSourceCode",
+      "description": "The executable code stage 'validate_normalisation' ran, grouping its recorded scripts.",
+      "hasPart": [
+        {
+          "@id": "runtime/outputs/validate_normalisation/scripts/01_validate_normalisation.py"
+        }
+      ],
+      "name": "validate_normalisation tool"
+    },
+    {
+      "@id": "#tool/validate_qc_preprocessing",
+      "@type": "SoftwareSourceCode",
+      "description": "The executable code stage 'validate_qc_preprocessing' ran, grouping its recorded scripts.",
+      "hasPart": [
+        {
+          "@id": "runtime/outputs/validate_qc_preprocessing/scripts/01_validate_qc_preprocessing.py"
+        }
+      ],
+      "name": "validate_qc_preprocessing tool"
+    },
+    {
+      "@id": "#tool/validate_review_prior_work",
+      "@type": "SoftwareSourceCode",
+      "description": "The executable code stage 'validate_review_prior_work' ran, grouping its recorded scripts.",
+      "hasPart": [
+        {
+          "@id": "runtime/outputs/validate_review_prior_work/scripts/01_validate_prior_claims.py"
+        }
+      ],
+      "name": "validate_review_prior_work tool"
+    },
+    {
+      "@id": "runtime/outputs/differential_expression/report.md",
+      "@type": [
+        "File",
+        "CreativeWork"
+      ],
+      "contentSize": 2634,
+      "description": "Narrative report produced by stage 'differential_expression'.",
+      "encodingFormat": "text/markdown",
+      "name": "differential_expression — report.md",
+      "schema:about": {
+        "@id": "#step-differential_expression"
+      },
+      "sha512": "f49dd90e571a74d729e946a4bed0d4297c4acfbf575f4e131ef438b96b1a4de1d6a663ccc2021b30fc4d371db71bacc6d532fbd2c0308c6d4c3dd5889ac00b25"
+    },
+    {
       "@id": "C:differential_expression_claim-0",
       "@type": "Claim",
       "status": "verified",
@@ -1619,52 +3044,130 @@
           "@id": "runtime/outputs/differential_expression/de_results.tsv"
         }
       ],
-      "text": "The top gene by adjusted p-value is ENSG00000152583 (log2FC = 4.31, padj ≈ 3.7e-132), followed by ENSG00000165995 (log2FC = 3.19, padj ≈ 6.6e-131)"
+      "text": "The top gene by adjusted p-value and effect size is ENSG00000152583 (log2FC ≈ 4.56, padj ≈ 7.1e-132), associated with dexamethasone treatment in airway smooth-muscle cells"
     },
     {
       "@id": "C:differential_expression_claim-1",
       "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/differential_expression/de_results.tsv"
-        }
-      ],
-      "text": "The top gene by adjusted p-value is ENSG00000152583 (log2FC = 4.31, padj ≈ 3.7e-132), followed by ENSG00000165995 (log2FC = 3.19, padj ≈ 6.6e-131)"
+      "status": "pending",
+      "text": "DESeq2 (v1.50.2) was applied to the raw count matrix from Himes et al. (GSE52778) comprising 8 samples across 4 human airway smooth-muscle cell lines (N61311, N052611, N080611, N061011), each with an untreated and dexamethasone-treated replicate"
     },
     {
       "@id": "C:differential_expression_claim-2",
       "@type": "Claim",
       "status": "pending",
-      "text": "Size factors (median-of-ratios normalization) ranged from 0.67 to 1.40 across samples, reflecting expected library-size differences"
+      "text": "The `baseMean` column in `de_results.tsv` records the mean normalized count across all 8 samples for each tested gene"
     },
     {
       "@id": "C:differential_expression_claim-3",
       "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/differential_expression/de_results.tsv"
-        }
-      ],
-      "text": "4028 genes are differentially expressed at padj < 0.05 between dexamethasone-treated and untreated ASM cells (2211 up, 1817 down) using DESeq2 with design ~ cell + dex and normal-prior LFC shrinkage"
-    },
-    {
-      "@id": "C:differential_expression_claim-4",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/differential_expression/de_results.tsv"
-        }
-      ],
-      "text": "ENSG00000152583 is the top DE gene by adjusted p-value (log2FC=4.31, padj~3.7e-132), strongly associated with dexamethasone treatment"
-    },
-    {
-      "@id": "C:differential_expression_claim-5",
-      "@type": "Claim",
       "status": "pending",
-      "text": "33469 of 63677 genes had non-zero counts and were tested; 16687 were filtered by independent filtering (mean count < 7)"
+      "text": "- Dexamethasone treatment is statistically **associated** with expression changes in 4,030 genes (padj < 0.05) in human airway smooth-muscle cells, controlling for cell-line effects"
+    },
+    {
+      "@id": "#dep/conda/captured_at",
+      "@type": "SoftwareApplication",
+      "applicationCategory": "conda",
+      "name": "captured_at",
+      "softwareVersion": "2026-07-11T16:17:09Z"
+    },
+    {
+      "@id": "#dep/conda/numpy",
+      "@type": "SoftwareApplication",
+      "applicationCategory": "conda",
+      "name": "numpy",
+      "softwareVersion": "2.4.6"
+    },
+    {
+      "@id": "#dep/conda/pandas",
+      "@type": "SoftwareApplication",
+      "applicationCategory": "conda",
+      "name": "pandas",
+      "softwareVersion": "2.3.3"
+    },
+    {
+      "@id": "#dep/r/Biobase",
+      "@type": "SoftwareApplication",
+      "applicationCategory": "r",
+      "name": "Biobase",
+      "softwareVersion": "2.70.0"
+    },
+    {
+      "@id": "#dep/r/BiocGenerics",
+      "@type": "SoftwareApplication",
+      "applicationCategory": "r",
+      "name": "BiocGenerics",
+      "softwareVersion": "0.56.0"
+    },
+    {
+      "@id": "#dep/r/DESeq2",
+      "@type": "SoftwareApplication",
+      "applicationCategory": "r",
+      "name": "DESeq2",
+      "softwareVersion": "1.50.2"
+    },
+    {
+      "@id": "#dep/r/GenomicRanges",
+      "@type": "SoftwareApplication",
+      "applicationCategory": "r",
+      "name": "GenomicRanges",
+      "softwareVersion": "1.62.1"
+    },
+    {
+      "@id": "#dep/r/IRanges",
+      "@type": "SoftwareApplication",
+      "applicationCategory": "r",
+      "name": "IRanges",
+      "softwareVersion": "2.44.0"
+    },
+    {
+      "@id": "#dep/r/MatrixGenerics",
+      "@type": "SoftwareApplication",
+      "applicationCategory": "r",
+      "name": "MatrixGenerics",
+      "softwareVersion": "1.22.0"
+    },
+    {
+      "@id": "#dep/r/S4Vectors",
+      "@type": "SoftwareApplication",
+      "applicationCategory": "r",
+      "name": "S4Vectors",
+      "softwareVersion": "0.48.0"
+    },
+    {
+      "@id": "#dep/r/Seqinfo",
+      "@type": "SoftwareApplication",
+      "applicationCategory": "r",
+      "name": "Seqinfo",
+      "softwareVersion": "1.0.0"
+    },
+    {
+      "@id": "#dep/r/SummarizedExperiment",
+      "@type": "SoftwareApplication",
+      "applicationCategory": "r",
+      "name": "SummarizedExperiment",
+      "softwareVersion": "1.40.0"
+    },
+    {
+      "@id": "#dep/r/generics",
+      "@type": "SoftwareApplication",
+      "applicationCategory": "r",
+      "name": "generics",
+      "softwareVersion": "0.1.4"
+    },
+    {
+      "@id": "#dep/r/jsonlite",
+      "@type": "SoftwareApplication",
+      "applicationCategory": "r",
+      "name": "jsonlite",
+      "softwareVersion": "2.0.0"
+    },
+    {
+      "@id": "#dep/r/matrixStats",
+      "@type": "SoftwareApplication",
+      "applicationCategory": "r",
+      "name": "matrixStats",
+      "softwareVersion": "1.5.0"
     },
     {
       "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv",
@@ -1672,14 +3175,51 @@
         "File",
         "Dataset"
       ],
+      "contentSize": 393277,
       "description": "Analytical result table produced by stage 'contextualize_findings_with_literature'.",
       "encodingFormat": "text/csv",
       "name": "contextualize_findings_with_literature — claims_evidence_matrix.csv",
       "schema:about": {
         "@id": "#step-contextualize_findings_with_literature"
       },
+      "sha512": "ee31e70201ef6d97665b3579ff554ba954da3c25eb6de483848790ca82dcc2032da051c6e412e4d5686dc856d80ef6316e586f46629eee4fd355a605bee5e855",
       "wasGeneratedBy": {
         "@id": "#action/runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      }
+    },
+    {
+      "@id": "runtime/outputs/contextualize_findings_with_literature/intermediates/symbol_lookup.tsv",
+      "@type": [
+        "File",
+        "Dataset"
+      ],
+      "contentSize": 491271,
+      "description": "Analytical result table produced by stage 'contextualize_findings_with_literature'.",
+      "encodingFormat": "text/tab-separated-values",
+      "name": "contextualize_findings_with_literature — intermediates/symbol_lookup.tsv",
+      "schema:about": {
+        "@id": "#step-contextualize_findings_with_literature"
+      },
+      "sha512": "1a05d9fb6f653c43f7abf85742e95c9434eae6abac586e92eb3d87b4b4e12d50fcfc91f38ed3e67ac1250083511441e18799b1080a0e9ba2a7cc56d6ea906446",
+      "wasGeneratedBy": {
+        "@id": "#action/runtime/outputs/contextualize_findings_with_literature/intermediates/symbol_lookup.tsv"
+      }
+    },
+    {
+      "@id": "runtime/outputs/validate_differential_expression/result.json",
+      "@type": [
+        "File"
+      ],
+      "contentSize": 2341,
+      "description": "Primary recorded output of stage 'validate_differential_expression'.",
+      "encodingFormat": "application/json",
+      "name": "validate_differential_expression — result.json",
+      "schema:about": {
+        "@id": "#step-validate_differential_expression"
+      },
+      "sha512": "60a172b484e9439d855fa9c118b0319d79ba4f32096d219521fbb0025bffd5b9efc59f0934b4574894d505bac647edd8ebe66fe942585b76a328046fa4d3971a",
+      "wasGeneratedBy": {
+        "@id": "#action/runtime/outputs/validate_differential_expression/result.json"
       }
     },
     {
@@ -1691,20 +3231,14 @@
       "agent": {
         "@id": "#executor/bio-min_local"
       },
-      "endTime": "2026-06-23T14:06:42Z",
+      "endTime": "2026-07-11T16:44:47Z",
       "instrument": {
-        "@id": "#step-contextualize_findings_with_literature"
+        "@id": "#tool/contextualize_findings_with_literature"
       },
       "name": "Production of claims_evidence_matrix.csv by stage 'contextualize_findings_with_literature'.",
       "object": [
         {
           "@id": "runtime/outputs/differential_expression/de_results.tsv"
-        },
-        {
-          "@id": "runtime/outputs/differential_expression/intermediates/size_factors.tsv"
-        },
-        {
-          "@id": "runtime/outputs/review_prior_work/method_landscape.csv"
         },
         {
           "@id": "runtime/outputs/review_prior_work/prior_claims_matrix.csv"
@@ -1715,807 +3249,602 @@
       }
     },
     {
+      "@id": "#action/runtime/outputs/contextualize_findings_with_literature/intermediates/symbol_lookup.tsv",
+      "@type": [
+        "CreateAction",
+        "prov:Activity"
+      ],
+      "agent": {
+        "@id": "#executor/bio-min_local"
+      },
+      "endTime": "2026-07-11T16:44:47Z",
+      "instrument": {
+        "@id": "#tool/contextualize_findings_with_literature"
+      },
+      "name": "Production of intermediates/symbol_lookup.tsv by stage 'contextualize_findings_with_literature'.",
+      "object": [
+        {
+          "@id": "runtime/outputs/differential_expression/de_results.tsv"
+        },
+        {
+          "@id": "runtime/outputs/review_prior_work/prior_claims_matrix.csv"
+        }
+      ],
+      "result": {
+        "@id": "runtime/outputs/contextualize_findings_with_literature/intermediates/symbol_lookup.tsv"
+      }
+    },
+    {
+      "@id": "#action/runtime/outputs/validate_differential_expression/result.json",
+      "@type": [
+        "CreateAction",
+        "prov:Activity"
+      ],
+      "agent": {
+        "@id": "#executor/bio-min_local"
+      },
+      "endTime": "2026-07-11T16:41:01Z",
+      "instrument": {
+        "@id": "#tool/validate_differential_expression"
+      },
+      "name": "Execution of stage 'validate_differential_expression' producing result.json.",
+      "object": [
+        {
+          "@id": "runtime/outputs/differential_expression/de_results.tsv"
+        }
+      ],
+      "result": {
+        "@id": "runtime/outputs/validate_differential_expression/result.json"
+      }
+    },
+    {
+      "@id": "runtime/outputs/contextualize_findings_with_literature/scripts/01_build_concordance_matrix.R",
+      "@type": [
+        "File",
+        "SoftwareSourceCode"
+      ],
+      "contentSize": 8048,
+      "description": "Executed script authored by stage 'contextualize_findings_with_literature'.",
+      "encodingFormat": "text/x-r-source",
+      "name": "01_build_concordance_matrix.R",
+      "sha512": "64efb98eb899dbabfc2f8517d9f8ace092c16a9b6efb50b40de224f48cd5bc17911f7c7f3b51dcbdf8918004cd1599e0e0591c1809eb6ccb4b217e43d2a231ad"
+    },
+    {
+      "@id": "runtime/outputs/validate_differential_expression/scripts/01_validate_de.py",
+      "@type": [
+        "File",
+        "SoftwareSourceCode"
+      ],
+      "contentSize": 19593,
+      "description": "Executed script authored by stage 'validate_differential_expression'.",
+      "encodingFormat": "text/x-python",
+      "name": "01_validate_de.py",
+      "sha512": "7bb0f49cef8971a4e39f3a226f1f5113b94b7a1ca59e623365badd12ea3ae11785f9425e849596c8f2977aaa0656452dc890fa1f12c7f14543f1831a0c845b1f"
+    },
+    {
+      "@id": "#tool/contextualize_findings_with_literature",
+      "@type": "SoftwareSourceCode",
+      "description": "The executable code stage 'contextualize_findings_with_literature' ran, grouping its recorded scripts.",
+      "hasPart": [
+        {
+          "@id": "runtime/outputs/contextualize_findings_with_literature/scripts/01_build_concordance_matrix.R"
+        }
+      ],
+      "name": "contextualize_findings_with_literature tool"
+    },
+    {
+      "@id": "#tool/validate_differential_expression",
+      "@type": "SoftwareSourceCode",
+      "description": "The executable code stage 'validate_differential_expression' ran, grouping its recorded scripts.",
+      "hasPart": [
+        {
+          "@id": "runtime/outputs/validate_differential_expression/scripts/01_validate_de.py"
+        }
+      ],
+      "name": "validate_differential_expression tool"
+    },
+    {
+      "@id": "runtime/outputs/contextualize_findings_with_literature/citation_verification_report.md",
+      "@type": [
+        "File",
+        "CreativeWork"
+      ],
+      "contentSize": 3121,
+      "description": "Narrative report produced by stage 'contextualize_findings_with_literature'.",
+      "encodingFormat": "text/markdown",
+      "name": "contextualize_findings_with_literature — citation_verification_report.md",
+      "schema:about": {
+        "@id": "#step-contextualize_findings_with_literature"
+      },
+      "sha512": "15a7dc7497f53b06fa7488b9ba7cb87edb8a050ec3efad49dcd1a3d6ac0caf67cf37ea8586f9259ab7c4a835e8fd6587620b86759c10b103ef04f261fac83581"
+    },
+    {
+      "@id": "runtime/outputs/contextualize_findings_with_literature/literature_search_protocol.md",
+      "@type": [
+        "File",
+        "CreativeWork"
+      ],
+      "contentSize": 2357,
+      "description": "Narrative report produced by stage 'contextualize_findings_with_literature'.",
+      "encodingFormat": "text/markdown",
+      "name": "contextualize_findings_with_literature — literature_search_protocol.md",
+      "schema:about": {
+        "@id": "#step-contextualize_findings_with_literature"
+      },
+      "sha512": "93a635afcdd7de2b4b03e46872bfdf466ff0b80d1e063ebfba8cc6359d3c9160c5b2ef17448864c3171d60879ddb363e7f36edf1831e4eefa1aba3f3d4255aca"
+    },
+    {
       "@id": "C:contextualize_findings_with_literature_claim-0",
       "@type": "Claim",
       "status": "pending",
-      "text": "**Snapshot SHA-256**: `84c21d2fd1d32f25aa844203feb19f7b75fe77c39db1fb3c527977a08b10ee17`"
+      "text": "### PMID 24926665 - Himes et al. 2014, PLoS ONE"
     },
     {
       "@id": "C:contextualize_findings_with_literature_claim-1",
       "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes cited**: CRISPLD2, DUSP1, KLF15, PER1, TSC22D3, CCDC69"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-10",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "- DUSP1, KLF15, PER1, TSC22D3, CCDC69 (direction=unspecified): *\"we identified 316 differentially expressed genes, including both well known (DUSP1, KLF15, PER1, TSC22D3) and less investigated (C7, CCDC69, CRISPLD2) glucocorticoid-responsive genes\"*"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-11",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "- DUSP1, KLF15, PER1, TSC22D3, CCDC69 (direction=unspecified): *\"we identified 316 differentially expressed genes, including both well known (DUSP1, KLF15, PER1, TSC22D3) and less investigated (C7, CCDC69, CRISPLD2) glucocorticoid-responsive genes\"*"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-12",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "- DUSP1, KLF15, PER1, TSC22D3, CCDC69 (direction=unspecified): *\"we identified 316 differentially expressed genes, including both well known (DUSP1, KLF15, PER1, TSC22D3) and less investigated (C7, CCDC69, CRISPLD2) glucocorticoid-responsive genes\"*"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-13",
-      "@type": "Claim",
       "status": "pending",
-      "text": "- DUSP1, KLF15, PER1, TSC22D3, CCDC69 (direction=unspecified): *\"we identified 316 differentially expressed genes, including both well known (DUSP1, KLF15, PER1, TSC22D3) and less investigated (C7, CCDC69, CRISPLD2) glucocorticoid-responsive genes\"*"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-14",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "- DUSP1, KLF15, PER1, TSC22D3, CCDC69 (direction=unspecified): *\"we identified 316 differentially expressed genes, including both well known (DUSP1, KLF15, PER1, TSC22D3) and less investigated (C7, CCDC69, CRISPLD2) glucocorticoid-responsive genes\"*"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-15",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "Note: The listing of DUSP1, KLF15, PER1, TSC22D3, CCDC69 as \"glucocorticoid-responsive\" without explicit up/down direction in the abstract → concordance = **unverifiable** for those genes"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-16",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "Note: The listing of DUSP1, KLF15, PER1, TSC22D3, CCDC69 as \"glucocorticoid-responsive\" without explicit up/down direction in the abstract → concordance = **unverifiable** for those genes"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-17",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "Note: The listing of DUSP1, KLF15, PER1, TSC22D3, CCDC69 as \"glucocorticoid-responsive\" without explicit up/down direction in the abstract → concordance = **unverifiable** for those genes"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-18",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "Note: The listing of DUSP1, KLF15, PER1, TSC22D3, CCDC69 as \"glucocorticoid-responsive\" without explicit up/down direction in the abstract → concordance = **unverifiable** for those genes"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-19",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "Note: The listing of DUSP1, KLF15, PER1, TSC22D3, CCDC69 as \"glucocorticoid-responsive\" without explicit up/down direction in the abstract → concordance = **unverifiable** for those genes"
+      "text": "paper (format: `GENE chrN:start-end mean_ctrl mean_dex ln_fc p q`)"
     },
     {
       "@id": "C:contextualize_findings_with_literature_claim-2",
       "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes cited**: CRISPLD2, DUSP1, KLF15, PER1, TSC22D3, CCDC69"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-20",
-      "@type": "Claim",
       "status": "pending",
-      "text": "**Snapshot SHA-256**: `45ef74662d2115e8843142011db9fa46bda0ca302f8b91f9febae10c26acc94a`"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-21",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes cited**: KLF15, IRS2, APPL2, RAMP1, MFGE8, IL11, LIF"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-22",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes cited**: KLF15, IRS2, APPL2, RAMP1, MFGE8, IL11, LIF"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-23",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes cited**: KLF15, IRS2, APPL2, RAMP1, MFGE8, IL11, LIF"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-24",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes cited**: KLF15, IRS2, APPL2, RAMP1, MFGE8, IL11, LIF"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-25",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes cited**: KLF15, IRS2, APPL2, RAMP1, MFGE8, IL11, LIF"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-26",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes cited**: KLF15, IRS2, APPL2, RAMP1, MFGE8, IL11, LIF"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-27",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes cited**: KLF15, IRS2, APPL2, RAMP1, MFGE8, IL11, LIF"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-28",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "- KLF15 (direction=up): *\"the transcription factor, Krüppel-like factor 15 (KLF15), is directly induced by glucocorticoids in primary human ASM\"*"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-29",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "- IRS2, APPL2, RAMP1, MFGE8 (direction=up): *\"Genes with inducible GR occupancy and putative antiinflammatory properties included IRS2, APPL2, RAMP1, and MFGE8\"*"
+      "text": "- **Redistributable**: Yes (PMC Open Access, CC-licensed)"
     },
     {
       "@id": "C:contextualize_findings_with_literature_claim-3",
       "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes cited**: CRISPLD2, DUSP1, KLF15, PER1, TSC22D3, CCDC69"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-30",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "- IRS2, APPL2, RAMP1, MFGE8 (direction=up): *\"Genes with inducible GR occupancy and putative antiinflammatory properties included IRS2, APPL2, RAMP1, and MFGE8\"*"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-31",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "- IRS2, APPL2, RAMP1, MFGE8 (direction=up): *\"Genes with inducible GR occupancy and putative antiinflammatory properties included IRS2, APPL2, RAMP1, and MFGE8\"*"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-32",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "- IRS2, APPL2, RAMP1, MFGE8 (direction=up): *\"Genes with inducible GR occupancy and putative antiinflammatory properties included IRS2, APPL2, RAMP1, and MFGE8\"*"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-33",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "- IL11, LIF (direction=down): *\"we also observed GR occupancy in the absence of supplemental ligand, including robust GR binding peaks within the IL11 and LIF loci"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-34",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "- IL11, LIF (direction=down): *\"we also observed GR occupancy in the absence of supplemental ligand, including robust GR binding peaks within the IL11 and LIF loci"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-35",
-      "@type": "Claim",
       "status": "pending",
-      "text": "Detection of antibody-GR complexes at these areas was abrogated by dexamethasone treatment in association with reduced RNA polymerase II occupancy\"*"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-36",
-      "@type": "Claim",
-      "status": "pending",
-      "text": "**Snapshot SHA-256**: `bd06ddeeb9cb24b5a13e39baa91fe3cb1489164b66a5255a62b3ac8fd3bd719a`"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-37",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes cited**: TSC22D3 (GILZ)"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-38",
-      "@type": "Claim",
-      "status": "pending",
-      "text": "**Genes cited**: TSC22D3 (GILZ)"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-39",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "- TSC22D3 (direction=up): *\"genes that were induced...by dexamethasone (GILZ) only\"*"
+      "text": "- **Redistributable**: Yes (PMC Open Access, CC-licensed)"
     },
     {
       "@id": "C:contextualize_findings_with_literature_claim-4",
       "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes cited**: CRISPLD2, DUSP1, KLF15, PER1, TSC22D3, CCDC69"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-40",
-      "@type": "Claim",
       "status": "pending",
-      "text": "- TSC22D3 (direction=up): *\"genes that were induced...by dexamethasone (GILZ) only\"*"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-41",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "Note: CRISPLD2, SOCS3, CD200 from this abstract were listed as induced by Bay 60-6583 only (not by dexamethasone alone) → excluded from directional claims"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-42",
-      "@type": "Claim",
-      "status": "pending",
-      "text": "Note: CRISPLD2, SOCS3, CD200 from this abstract were listed as induced by Bay 60-6583 only (not by dexamethasone alone) → excluded from directional claims"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-43",
-      "@type": "Claim",
-      "status": "pending",
-      "text": "Note: CRISPLD2, SOCS3, CD200 from this abstract were listed as induced by Bay 60-6583 only (not by dexamethasone alone) → excluded from directional claims"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-44",
-      "@type": "Claim",
-      "status": "pending",
-      "text": "RGS2 and TTP were listed as cooperatively/additively induced by Bay60+DEX combination → direction for DEX alone was unverifiable → excluded"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-45",
-      "@type": "Claim",
-      "status": "pending",
-      "text": "RGS2 and TTP were listed as cooperatively/additively induced by Bay60+DEX combination → direction for DEX alone was unverifiable → excluded"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-46",
-      "@type": "Claim",
-      "status": "pending",
-      "text": "**Snapshot SHA-256**: `4bb8f558d3240d72d59f72d6cfa322fd322918cdeba7ba12cf659bd65fed2014`"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-47",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes cited**: CXCL1"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-48",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "- CXCL1 (direction=down): *\"DEX treatment was able to reduce the expression of neutrophil-mobilizing CXCL1 and CXCL2 in lung tissue\"*"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-49",
-      "@type": "Claim",
-      "status": "pending",
-      "text": "- CXCL1 (direction=down): *\"DEX treatment was able to reduce the expression of neutrophil-mobilizing CXCL1 and CXCL2 in lung tissue\"*"
+      "text": "| SERPINA3 | Our DESeq2 padj = 0.065 (above 0.05 threshold); directionally consistent (+0.58 LFC) but not significant |"
     },
     {
       "@id": "C:contextualize_findings_with_literature_claim-5",
       "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes cited**: CRISPLD2, DUSP1, KLF15, PER1, TSC22D3, CCDC69"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-50",
-      "@type": "Claim",
       "status": "pending",
-      "text": "Note: CSF3 (direction=up, \"CSF3 expression was upregulated by DEX treatment\") and CXCL2 (direction=down) were absent from the DE analysis (low counts, not tested) → excluded from matrix"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-51",
-      "@type": "Claim",
-      "status": "pending",
-      "text": "Note: CSF3 (direction=up, \"CSF3 expression was upregulated by DEX treatment\") and CXCL2 (direction=down) were absent from the DE analysis (low counts, not tested) → excluded from matrix"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-52",
-      "@type": "Claim",
-      "status": "pending",
-      "text": "**Snapshot SHA-256**: `9d6450861379418be051a01e5393311fba14a5da12540851569c836159e976fe`"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-53",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes cited**: KLF15"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-54",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "- KLF15 (direction=unspecified): *\"One GR-regulated gene, the transcription factor, Kruppel-like factor 15 (Klf15), was already known to modulate vascular smooth and cardiac muscle function\"*"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-55",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "Note: No explicit up/down direction for KLF15 in this abstract → concordance = **unverifiable**"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-56",
-      "@type": "Claim",
-      "status": "pending",
-      "text": "**Snapshot SHA-256**: `6fe44b9a0854141228332851d590a43917393adc920fa1b7dada1c917bf2adcb`"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-57",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes cited**: PVT1"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-58",
-      "@type": "Claim",
-      "status": "pending",
-      "text": "- PVT1 (direction=unspecified): *\"the expression of only one lncRNA (PVT1) is decreased in patients with corticosteroid-sensitive nonsevere asthma and increased in patients with corticosteroid-insensitive severe asthma\"*"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-59",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Rows with prior evidence**: 17 rows across 14 genes (3 genes have multiple PMID rows: KLF15 * 3 PMIDs, TSC22D3 * 2 PMIDs)"
+      "text": "All 15 matched genes show **same_direction** concordance with our DESeq2 analysis"
     },
     {
       "@id": "C:contextualize_findings_with_literature_claim-6",
       "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes cited**: CRISPLD2, DUSP1, KLF15, PER1, TSC22D3, CCDC69"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-60",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Rows with prior evidence**: 17 rows across 14 genes (3 genes have multiple PMID rows: KLF15 * 3 PMIDs, TSC22D3 * 2 PMIDs)"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-61",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes with same_direction**: CRISPLD2, LIF, MFGE8, TSC22D3, KLF15, IRS2, APPL2"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-62",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes with same_direction**: CRISPLD2, LIF, MFGE8, TSC22D3, KLF15, IRS2, APPL2"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-63",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes with same_direction**: CRISPLD2, LIF, MFGE8, TSC22D3, KLF15, IRS2, APPL2"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-64",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes with same_direction**: CRISPLD2, LIF, MFGE8, TSC22D3, KLF15, IRS2, APPL2"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-65",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes with same_direction**: CRISPLD2, LIF, MFGE8, TSC22D3, KLF15, IRS2, APPL2"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-66",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes with same_direction**: CRISPLD2, LIF, MFGE8, TSC22D3, KLF15, IRS2, APPL2"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-67",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes with same_direction**: CRISPLD2, LIF, MFGE8, TSC22D3, KLF15, IRS2, APPL2"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-68",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes with opposite_direction**: IL11, RAMP1, CXCL1"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-69",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes with opposite_direction**: IL11, RAMP1, CXCL1"
+      "status": "pending",
+      "text": "## Himes 2014 Table 1 genes not matched in our significant set"
     },
     {
       "@id": "C:contextualize_findings_with_literature_claim-7",
       "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "- CRISPLD2 (direction=up): *\"dexamethasone treatment significantly increased CRISPLD2 mRNA and protein expression in ASM cells\"*"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-70",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes with opposite_direction**: IL11, RAMP1, CXCL1"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-71",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes unverifiable**: DUSP1, KLF15 (from 24926665, 21257922), PER1, TSC22D3 (from 24926665), CCDC69, PVT1"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-72",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes unverifiable**: DUSP1, KLF15 (from 24926665, 21257922), PER1, TSC22D3 (from 24926665), CCDC69, PVT1"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-73",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes unverifiable**: DUSP1, KLF15 (from 24926665, 21257922), PER1, TSC22D3 (from 24926665), CCDC69, PVT1"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-74",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes unverifiable**: DUSP1, KLF15 (from 24926665, 21257922), PER1, TSC22D3 (from 24926665), CCDC69, PVT1"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-75",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes unverifiable**: DUSP1, KLF15 (from 24926665, 21257922), PER1, TSC22D3 (from 24926665), CCDC69, PVT1"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-76",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "**Genes unverifiable**: DUSP1, KLF15 (from 24926665, 21257922), PER1, TSC22D3 (from 24926665), CCDC69, PVT1"
-    },
-    {
-      "@id": "C:contextualize_findings_with_literature_claim-77",
-      "@type": "Claim",
       "status": "pending",
-      "text": "- DUSP1, KLF15, PER1, TSC22D3, CCDC69 (direction=unspecified): *\"we identified 316 differentially expressed genes, including both well known (DUSP1, KLF15, PER1, TSC22D3) and less investigated (C7, CCDC69, CRISPLD2) glucocorticoid-responsive genes\"*"
+      "text": "Two Table 1 genes did not receive a concordance row:"
     },
     {
-      "@id": "C:contextualize_findings_with_literature_claim-78",
-      "@type": "Claim",
-      "status": "pending",
-      "text": "**Rows with prior evidence**: 17 rows across 14 genes (3 genes have multiple PMID rows: KLF15 * 3 PMIDs, TSC22D3 * 2 PMIDs)"
+      "@id": "#dep/r/AnnotationDbi",
+      "@type": "SoftwareApplication",
+      "applicationCategory": "r",
+      "name": "AnnotationDbi",
+      "softwareVersion": "1.72.0"
     },
     {
-      "@id": "C:contextualize_findings_with_literature_claim-8",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
+      "@id": "#dep/r/org.Hs.eg.db",
+      "@type": "SoftwareApplication",
+      "applicationCategory": "r",
+      "name": "org.Hs.eg.db",
+      "softwareVersion": "3.22.0"
+    },
+    {
+      "@id": "runtime/outputs/pathway_enrichment/enrichment.tsv",
+      "@type": [
+        "File",
+        "Dataset"
+      ],
+      "contentSize": 414468,
+      "description": "Analytical result table produced by stage 'pathway_enrichment'.",
+      "encodingFormat": "text/tab-separated-values",
+      "name": "pathway_enrichment — enrichment.tsv",
+      "schema:about": {
+        "@id": "#step-pathway_enrichment"
+      },
+      "sha512": "37555b8b5d70a2489111500ba402bd1cfd3b1a31de9e944ec69143955194d2d19a4d956bb216429b9ec8361d606aaf02c70877164cf5b4d09b14a7277ee154cb",
+      "wasGeneratedBy": {
+        "@id": "#action/runtime/outputs/pathway_enrichment/enrichment.tsv"
+      }
+    },
+    {
+      "@id": "runtime/outputs/pathway_enrichment/pathway_results.tsv",
+      "@type": [
+        "File",
+        "Dataset"
+      ],
+      "contentSize": 988829,
+      "description": "Analytical result table produced by stage 'pathway_enrichment'.",
+      "encodingFormat": "text/tab-separated-values",
+      "name": "pathway_enrichment — pathway_results.tsv",
+      "schema:about": {
+        "@id": "#step-pathway_enrichment"
+      },
+      "sha512": "b4eef4efcacb4054b427a3324e2dd7e026d39a54346780611a7908c9d5fd3d5f226c348996be09d8667bcb3ef0a6557e0a0f1c61c18838c4b31ff04959b27fd9",
+      "wasGeneratedBy": {
+        "@id": "#action/runtime/outputs/pathway_enrichment/pathway_results.tsv"
+      }
+    },
+    {
+      "@id": "runtime/outputs/validate_contextualize_findings_with_literature/result.json",
+      "@type": [
+        "File"
+      ],
+      "contentSize": 1197,
+      "description": "Primary recorded output of stage 'validate_contextualize_findings_with_literature'.",
+      "encodingFormat": "application/json",
+      "name": "validate_contextualize_findings_with_literature — result.json",
+      "schema:about": {
+        "@id": "#step-validate_contextualize_findings_with_literature"
+      },
+      "sha512": "1e2e83b9df65d4e9ceda4d82b2af8f70dc0de563d33521e9908daa4aed32e7583bd29e9cc3820e211c3e2f765943dc9085ee33924bcdecb9927e575403320375",
+      "wasGeneratedBy": {
+        "@id": "#action/runtime/outputs/validate_contextualize_findings_with_literature/result.json"
+      }
+    },
+    {
+      "@id": "#action/runtime/outputs/pathway_enrichment/enrichment.tsv",
+      "@type": [
+        "CreateAction",
+        "prov:Activity"
+      ],
+      "agent": {
+        "@id": "#executor/bio-min_local"
+      },
+      "endTime": "2026-07-11T16:54:05Z",
+      "instrument": {
+        "@id": "#tool/pathway_enrichment"
+      },
+      "name": "Production of enrichment.tsv by stage 'pathway_enrichment'.",
+      "object": [
         {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+          "@id": "runtime/outputs/differential_expression/de_results.tsv"
+        },
+        {
+          "@id": "#step-discover_pathway_enrichment"
         }
       ],
-      "text": "- DUSP1, KLF15, PER1, TSC22D3, CCDC69 (direction=unspecified): *\"we identified 316 differentially expressed genes, including both well known (DUSP1, KLF15, PER1, TSC22D3) and less investigated (C7, CCDC69, CRISPLD2) glucocorticoid-responsive genes\"*"
+      "result": {
+        "@id": "runtime/outputs/pathway_enrichment/enrichment.tsv"
+      }
     },
     {
-      "@id": "C:contextualize_findings_with_literature_claim-9",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
+      "@id": "#action/runtime/outputs/pathway_enrichment/pathway_results.tsv",
+      "@type": [
+        "CreateAction",
+        "prov:Activity"
+      ],
+      "agent": {
+        "@id": "#executor/bio-min_local"
+      },
+      "endTime": "2026-07-11T16:54:05Z",
+      "instrument": {
+        "@id": "#tool/pathway_enrichment"
+      },
+      "name": "Production of pathway_results.tsv by stage 'pathway_enrichment'.",
+      "object": [
         {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+          "@id": "runtime/outputs/differential_expression/de_results.tsv"
+        },
+        {
+          "@id": "#step-discover_pathway_enrichment"
         }
       ],
-      "text": "- DUSP1, KLF15, PER1, TSC22D3, CCDC69 (direction=unspecified): *\"we identified 316 differentially expressed genes, including both well known (DUSP1, KLF15, PER1, TSC22D3) and less investigated (C7, CCDC69, CRISPLD2) glucocorticoid-responsive genes\"*"
+      "result": {
+        "@id": "runtime/outputs/pathway_enrichment/pathway_results.tsv"
+      }
+    },
+    {
+      "@id": "#action/runtime/outputs/validate_contextualize_findings_with_literature/result.json",
+      "@type": [
+        "CreateAction",
+        "prov:Activity"
+      ],
+      "agent": {
+        "@id": "#executor/bio-min_local"
+      },
+      "endTime": "2026-07-11T16:49:27Z",
+      "instrument": {
+        "@id": "#tool/validate_contextualize_findings_with_literature"
+      },
+      "name": "Execution of stage 'validate_contextualize_findings_with_literature' producing result.json.",
+      "object": [
+        {
+          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+        },
+        {
+          "@id": "runtime/outputs/contextualize_findings_with_literature/intermediates/symbol_lookup.tsv"
+        }
+      ],
+      "result": {
+        "@id": "runtime/outputs/validate_contextualize_findings_with_literature/result.json"
+      }
+    },
+    {
+      "@id": "runtime/outputs/pathway_enrichment/scripts/01_fgsea_enrichment.R",
+      "@type": [
+        "File",
+        "SoftwareSourceCode"
+      ],
+      "contentSize": 6206,
+      "description": "Executed script authored by stage 'pathway_enrichment'.",
+      "encodingFormat": "text/x-r-source",
+      "name": "01_fgsea_enrichment.R",
+      "sha512": "70769a6ebc2beb143c252879eaaef9d1fe492863e3f4a29261a5388bfa6618845625ef78b7e100df697d6f8c1745dccac3a871c57039a4a69809713c5f953332"
+    },
+    {
+      "@id": "runtime/outputs/validate_contextualize_findings_with_literature/scripts/01_validate_claims_evidence_matrix.py",
+      "@type": [
+        "File",
+        "SoftwareSourceCode"
+      ],
+      "contentSize": 12192,
+      "description": "Executed script authored by stage 'validate_contextualize_findings_with_literature'.",
+      "encodingFormat": "text/x-python",
+      "name": "01_validate_claims_evidence_matrix.py",
+      "sha512": "ee3c1d5969cf65f1dfe6fa74d5ddcf038928500ff1c26d2463277ac0e1139d4337f0b0498a3070da9cce5943a64365e96a6b96455bdea0e34a2aa0082b47e78c"
+    },
+    {
+      "@id": "#tool/pathway_enrichment",
+      "@type": "SoftwareSourceCode",
+      "description": "The executable code stage 'pathway_enrichment' ran, grouping its recorded scripts.",
+      "hasPart": [
+        {
+          "@id": "runtime/outputs/pathway_enrichment/scripts/01_fgsea_enrichment.R"
+        }
+      ],
+      "name": "pathway_enrichment tool"
+    },
+    {
+      "@id": "#tool/validate_contextualize_findings_with_literature",
+      "@type": "SoftwareSourceCode",
+      "description": "The executable code stage 'validate_contextualize_findings_with_literature' ran, grouping its recorded scripts.",
+      "hasPart": [
+        {
+          "@id": "runtime/outputs/validate_contextualize_findings_with_literature/scripts/01_validate_claims_evidence_matrix.py"
+        }
+      ],
+      "name": "validate_contextualize_findings_with_literature tool"
+    },
+    {
+      "@id": "runtime/outputs/reporting/concordance_table.tsv",
+      "@type": [
+        "File",
+        "Dataset"
+      ],
+      "contentSize": 182,
+      "description": "Analytical result table produced by stage 'reporting'.",
+      "encodingFormat": "text/tab-separated-values",
+      "name": "reporting — concordance_table.tsv",
+      "schema:about": {
+        "@id": "#step-reporting"
+      },
+      "sha512": "0a600a5f4392bc4824e5c518a598e80ff87be3f27c06f81656a1aa086390a2897568452601cb8d4907839287c4efd1a51e7150a5603a9acf9ba7df59e87dc636",
+      "wasGeneratedBy": {
+        "@id": "#action/runtime/outputs/reporting/concordance_table.tsv"
+      }
+    },
+    {
+      "@id": "runtime/outputs/reporting/pathway_overlap_table.tsv",
+      "@type": [
+        "File",
+        "Dataset"
+      ],
+      "contentSize": 799,
+      "description": "Analytical result table produced by stage 'reporting'.",
+      "encodingFormat": "text/tab-separated-values",
+      "name": "reporting — pathway_overlap_table.tsv",
+      "schema:about": {
+        "@id": "#step-reporting"
+      },
+      "sha512": "73db40c1831a9b6742e8a7d6623878e24bbd555dec4c46807f3bf01197676bbe919c1e449d5b02713f392be825e2d80b56da9189212571db64ef3211b8985014",
+      "wasGeneratedBy": {
+        "@id": "#action/runtime/outputs/reporting/pathway_overlap_table.tsv"
+      }
+    },
+    {
+      "@id": "runtime/outputs/validate_pathway_enrichment/result.json",
+      "@type": [
+        "File"
+      ],
+      "contentSize": 347,
+      "description": "Primary recorded output of stage 'validate_pathway_enrichment'.",
+      "encodingFormat": "application/json",
+      "name": "validate_pathway_enrichment — result.json",
+      "schema:about": {
+        "@id": "#step-validate_pathway_enrichment"
+      },
+      "sha512": "ef5943e0f1e707ddf9beb049ef332609b73662818c15eaaf083bcaa5d229432cc98e581645b5d849d81cb4f5a54b962fe0c84b30dcefcf77cbd32a6d4978a08b",
+      "wasGeneratedBy": {
+        "@id": "#action/runtime/outputs/validate_pathway_enrichment/result.json"
+      }
+    },
+    {
+      "@id": "#action/runtime/outputs/reporting/concordance_table.tsv",
+      "@type": [
+        "CreateAction",
+        "prov:Activity"
+      ],
+      "agent": {
+        "@id": "#executor/bio-min_local"
+      },
+      "endTime": "2026-07-11T16:57:49Z",
+      "instrument": {
+        "@id": "#tool/reporting"
+      },
+      "name": "Production of concordance_table.tsv by stage 'reporting'.",
+      "object": [
+        {
+          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+        },
+        {
+          "@id": "runtime/outputs/contextualize_findings_with_literature/intermediates/symbol_lookup.tsv"
+        },
+        {
+          "@id": "runtime/outputs/differential_expression/de_results.tsv"
+        },
+        {
+          "@id": "runtime/outputs/pathway_enrichment/enrichment.tsv"
+        },
+        {
+          "@id": "runtime/outputs/pathway_enrichment/pathway_results.tsv"
+        }
+      ],
+      "result": {
+        "@id": "runtime/outputs/reporting/concordance_table.tsv"
+      }
+    },
+    {
+      "@id": "#action/runtime/outputs/reporting/pathway_overlap_table.tsv",
+      "@type": [
+        "CreateAction",
+        "prov:Activity"
+      ],
+      "agent": {
+        "@id": "#executor/bio-min_local"
+      },
+      "endTime": "2026-07-11T16:57:49Z",
+      "instrument": {
+        "@id": "#tool/reporting"
+      },
+      "name": "Production of pathway_overlap_table.tsv by stage 'reporting'.",
+      "object": [
+        {
+          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+        },
+        {
+          "@id": "runtime/outputs/contextualize_findings_with_literature/intermediates/symbol_lookup.tsv"
+        },
+        {
+          "@id": "runtime/outputs/differential_expression/de_results.tsv"
+        },
+        {
+          "@id": "runtime/outputs/pathway_enrichment/enrichment.tsv"
+        },
+        {
+          "@id": "runtime/outputs/pathway_enrichment/pathway_results.tsv"
+        }
+      ],
+      "result": {
+        "@id": "runtime/outputs/reporting/pathway_overlap_table.tsv"
+      }
+    },
+    {
+      "@id": "#action/runtime/outputs/validate_pathway_enrichment/result.json",
+      "@type": [
+        "CreateAction",
+        "prov:Activity"
+      ],
+      "agent": {
+        "@id": "#executor/bio-min_local"
+      },
+      "endTime": "2026-07-11T16:57:02Z",
+      "instrument": {
+        "@id": "#tool/validate_pathway_enrichment"
+      },
+      "name": "Execution of stage 'validate_pathway_enrichment' producing result.json.",
+      "object": [
+        {
+          "@id": "runtime/outputs/pathway_enrichment/enrichment.tsv"
+        },
+        {
+          "@id": "runtime/outputs/pathway_enrichment/pathway_results.tsv"
+        }
+      ],
+      "result": {
+        "@id": "runtime/outputs/validate_pathway_enrichment/result.json"
+      }
+    },
+    {
+      "@id": "runtime/outputs/reporting/scripts/01_assemble_report.py",
+      "@type": [
+        "File",
+        "SoftwareSourceCode"
+      ],
+      "contentSize": 14760,
+      "description": "Executed script authored by stage 'reporting'.",
+      "encodingFormat": "text/x-python",
+      "name": "01_assemble_report.py",
+      "sha512": "fd05bc2832465449c386bd72b9793a5b940970395651be686e8f4197cdb5b7cf7f949acac6ec93f11b8685e3a114c2fd22b7bed9785965682380c918dbb9b24d"
+    },
+    {
+      "@id": "runtime/outputs/validate_pathway_enrichment/scripts/01_validate_pathway_enrichment.py",
+      "@type": [
+        "File",
+        "SoftwareSourceCode"
+      ],
+      "contentSize": 12304,
+      "description": "Executed script authored by stage 'validate_pathway_enrichment'.",
+      "encodingFormat": "text/x-python",
+      "name": "01_validate_pathway_enrichment.py",
+      "sha512": "a125ddf1d41e2fdb2f21378e3504499f1f5b57b2ed764af624f44fc04ac10db38b87b33fc937712718ba255b194573e440e9db4b0401597f83bbe9ab93b47f05"
+    },
+    {
+      "@id": "#tool/reporting",
+      "@type": "SoftwareSourceCode",
+      "description": "The executable code stage 'reporting' ran, grouping its recorded scripts.",
+      "hasPart": [
+        {
+          "@id": "runtime/outputs/reporting/scripts/01_assemble_report.py"
+        }
+      ],
+      "name": "reporting tool"
+    },
+    {
+      "@id": "#tool/validate_pathway_enrichment",
+      "@type": "SoftwareSourceCode",
+      "description": "The executable code stage 'validate_pathway_enrichment' ran, grouping its recorded scripts.",
+      "hasPart": [
+        {
+          "@id": "runtime/outputs/validate_pathway_enrichment/scripts/01_validate_pathway_enrichment.py"
+        }
+      ],
+      "name": "validate_pathway_enrichment tool"
+    },
+    {
+      "@id": "runtime/outputs/reporting/report.md",
+      "@type": [
+        "File",
+        "CreativeWork"
+      ],
+      "contentSize": 4461,
+      "description": "Narrative report produced by stage 'reporting'.",
+      "encodingFormat": "text/markdown",
+      "name": "reporting — report.md",
+      "schema:about": {
+        "@id": "#step-reporting"
+      },
+      "sha512": "8b1025b886204cf6bcb1f2c7170bef270d5d0922738fe4ad590ecfdadaf43cdc05d2fba8fe39497886bb9047775033b01091f1213649099be2c3f641592d6fb0"
     },
     {
       "@id": "C:reporting_claim-0",
       "@type": "Claim",
       "status": "pending",
-      "text": "Detection of antibody-GR complexes at these areas was abrogated by dexamethasone treatment in association with reduced RNA polymerase II occupancy |"
+      "text": "variation across the 4 HASM cell lines"
     },
     {
       "@id": "C:reporting_claim-1",
       "@type": "Claim",
       "status": "pending",
-      "text": "Detection of antibody-GR complexes at these areas was abrogated by dexamethasone treatment in association with reduced RNA polymerase II occupancy |"
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
     },
     {
       "@id": "C:reporting_claim-10",
       "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/differential_expression/de_results.tsv"
-        }
-      ],
-      "text": "| ENSG00000125148 |     2.17 | 5.41e-94  |"
+      "status": "pending",
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
     },
     {
       "@id": "C:reporting_claim-11",
       "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/differential_expression/de_results.tsv"
-        }
-      ],
-      "text": "| ENSG00000154734 |     2.29 | 5.47e-88  |"
+      "status": "pending",
+      "text": "adipogenesis signaling, TNF-α / NF-κB signaling (up), and nervous system development"
     },
     {
       "@id": "C:reporting_claim-12",
@@ -2526,7 +3855,7 @@
           "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
         }
       ],
-      "text": "| IL11     | opposite_direction |   0.113  | 0.82      |     2.84e+07 | we also observed GR occupancy in the absence of supplemental ligand, including robust GR binding peaks within the IL11 and LIF loci. Detection of antibody-GR complexes at these areas was abrogated by dexamethasone treatment in association with reduced RNA polymerase II occupancy |"
+      "text": "- The top up-regulated gene by padj is **SPARCL1** (LFC ≈ 4.56), with **KLF15** also among"
     },
     {
       "@id": "C:reporting_claim-13",
@@ -2537,278 +3866,563 @@
           "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
         }
       ],
-      "text": "| RAMP1    | opposite_direction |  -0.187  | 0.49      |     2.84e+07 | Genes with inducible GR occupancy and putative antiinflammatory properties included IRS2, APPL2, RAMP1, and MFGE8                                                                                                                                                                       |"
+      "text": "- The top up-regulated gene by padj is **SPARCL1** (LFC ≈ 4.56), with **KLF15** also among"
     },
     {
       "@id": "C:reporting_claim-14",
       "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "| CXCL1    | opposite_direction |   0.777  | 0.163     |     3.21e+07 | DEX treatment was able to reduce the expression of neutrophil-mobilizing CXCL1 and CXCL2 in lung tissue                                                                                                                                                                                 |"
+      "status": "pending",
+      "text": "**Dataset:** 4 human airway smooth-muscle cell lines * 2 conditions = 8 samples"
     },
     {
       "@id": "C:reporting_claim-15",
       "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "| APPL2    | same_direction     |   0.0789 | 0.548     |     2.84e+07 | Genes with inducible GR occupancy and putative antiinflammatory properties included IRS2, APPL2, RAMP1, and MFGE8                                                                                                                                                                       |"
+      "status": "pending",
+      "text": "The DESeq2 model fit `~ cell + dex` on 22,369 genes, blocking for cell-line"
     },
     {
       "@id": "C:reporting_claim-16",
       "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "| CRISPLD2 | same_direction     |   2.5    | 4.4e-46   |     2.49e+07 | dexamethasone treatment significantly increased CRISPLD2 mRNA and protein expression in ASM cells                                                                                                                                                                                       |"
+      "status": "pending",
+      "text": "variation across the 4 HASM cell lines"
     },
     {
       "@id": "C:reporting_claim-17",
       "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "| IRS2     | same_direction     |   2.03   | 6.05e-38  |     2.84e+07 | Genes with inducible GR occupancy and putative antiinflammatory properties included IRS2, APPL2, RAMP1, and MFGE8                                                                                                                                                                       |"
+      "status": "pending",
+      "text": "4,030 genes were associated with dexamethasone treatment at padj < 0.05"
     },
     {
       "@id": "C:reporting_claim-18",
       "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "| LIF      | same_direction     |  -2.27   | 4.89e-20  |     2.84e+07 | we also observed GR occupancy in the absence of supplemental ligand, including robust GR binding peaks within the IL11 and LIF loci. Detection of antibody-GR complexes at these areas was abrogated by dexamethasone treatment in association with reduced RNA polymerase II occupancy |"
+      "status": "pending",
+      "text": "(2,208 up-regulated, 1,822 down-regulated relative to untreated cells)"
     },
     {
       "@id": "C:reporting_claim-19",
       "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "| MFGE8    | same_direction     |   1.09   | 1.42e-27  |     2.84e+07 | Genes with inducible GR occupancy and putative antiinflammatory properties included IRS2, APPL2, RAMP1, and MFGE8                                                                                                                                                                       |"
+      "status": "pending",
+      "text": "215 gene sets were enriched at padj < 0.05 across Hallmark, KEGG, and GO BP"
     },
     {
       "@id": "C:reporting_claim-2",
       "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/differential_expression/de_results.tsv"
-        }
-      ],
-      "text": "| ENSG00000152583 |     4.31 | 3.73e-132 |"
+      "status": "pending",
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
     },
     {
       "@id": "C:reporting_claim-20",
       "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "| TSC22D3  | same_direction     |   2.69   | 3.23e-19  |     2.38e+07 | genes that were induced...by dexamethasone (GILZ) only                                                                                                                                                                                                                                  |"
+      "status": "pending",
+      "text": "Of 4,030 significant DE genes,"
     },
     {
       "@id": "C:reporting_claim-21",
       "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "| KLF15    | same_direction     |   4.07   | 2.33e-77  |     2.84e+07 | the transcription factor, Krüppel-like factor 15 (KLF15), is directly induced by glucocorticoids in primary human ASM                                                                                                                                                                   |"
+      "status": "pending",
+      "text": "- Dexamethasone treatment is associated with 4,030 differentially expressed genes"
     },
     {
       "@id": "C:reporting_claim-22",
       "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "| PER1     | unverifiable       |   3.04   | 2.54e-81  |     2.49e+07 | we identified 316 differentially expressed genes, including both well known (DUSP1, KLF15, PER1, TSC22D3) and less investigated (C7, CCDC69, CRISPLD2) glucocorticoid-responsive genes                                                                                                  |"
-    },
-    {
-      "@id": "C:reporting_claim-23",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "| TSC22D3  | unverifiable       |   2.69   | 3.23e-19  |     2.49e+07 | we identified 316 differentially expressed genes, including both well known (DUSP1, KLF15, PER1, TSC22D3) and less investigated (C7, CCDC69, CRISPLD2) glucocorticoid-responsive genes                                                                                                  |"
-    },
-    {
-      "@id": "C:reporting_claim-24",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "| KLF15    | unverifiable       |   4.07   | 2.33e-77  |     2.13e+07 | One GR-regulated gene, the transcription factor, Kruppel-like factor 15 (Klf15), was already known to modulate vascular smooth and cardiac muscle function                                                                                                                              |"
-    },
-    {
-      "@id": "C:reporting_claim-25",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "| CCDC69   | unverifiable       |   2.78   | 3.34e-70  |     2.49e+07 | we identified 316 differentially expressed genes, including both well known (DUSP1, KLF15, PER1, TSC22D3) and less investigated (C7, CCDC69, CRISPLD2) glucocorticoid-responsive genes                                                                                                  |"
-    },
-    {
-      "@id": "C:reporting_claim-26",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "| DUSP1    | unverifiable       |   2.87   | 2.05e-126 |     2.49e+07 | we identified 316 differentially expressed genes, including both well known (DUSP1, KLF15, PER1, TSC22D3) and less investigated (C7, CCDC69, CRISPLD2) glucocorticoid-responsive genes                                                                                                  |"
-    },
-    {
-      "@id": "C:reporting_claim-27",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "| KLF15    | unverifiable       |   4.07   | 2.33e-77  |     2.49e+07 | we identified 316 differentially expressed genes, including both well known (DUSP1, KLF15, PER1, TSC22D3) and less investigated (C7, CCDC69, CRISPLD2) glucocorticoid-responsive genes                                                                                                  |"
-    },
-    {
-      "@id": "C:reporting_claim-28",
-      "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
-        }
-      ],
-      "text": "| PVT1     | unverifiable       |   0.084  | 0.871     |     2.75e+07 | the expression of only one lncRNA (PVT1) is decreased in patients with corticosteroid-sensitive nonsevere asthma and increased in patients with corticosteroid-insensitive severe asthma                                                                                                |"
-    },
-    {
-      "@id": "C:reporting_claim-29",
-      "@type": "Claim",
       "status": "pending",
-      "text": "### Top 10 genes by adjusted p-value"
+      "text": "- All 15 genes with directional claims in the original Himes et al. 2014 publication are"
     },
     {
       "@id": "C:reporting_claim-3",
       "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/differential_expression/de_results.tsv"
-        }
-      ],
-      "text": "| ENSG00000165995 |     3.19 | 6.58e-131 |"
-    },
-    {
-      "@id": "C:reporting_claim-30",
-      "@type": "Claim",
       "status": "pending",
-      "text": "Cross-referenced 14 DE-table genes against prior evidence from"
-    },
-    {
-      "@id": "C:reporting_claim-31",
-      "@type": "Claim",
-      "status": "pending",
-      "text": "gene expression in the Himes et al. 2014 ASM cell-line dataset"
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
     },
     {
       "@id": "C:reporting_claim-4",
       "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/differential_expression/de_results.tsv"
-        }
-      ],
-      "text": "| ENSG00000120129 |     2.87 | 2.05e-126 |"
+      "status": "pending",
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
     },
     {
       "@id": "C:reporting_claim-5",
       "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/differential_expression/de_results.tsv"
-        }
-      ],
-      "text": "| ENSG00000101347 |     3.62 | 4.02e-126 |"
+      "status": "pending",
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
     },
     {
       "@id": "C:reporting_claim-6",
       "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/differential_expression/de_results.tsv"
-        }
-      ],
-      "text": "| ENSG00000189221 |     3.23 | 3.69e-120 |"
+      "status": "pending",
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
     },
     {
       "@id": "C:reporting_claim-7",
       "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/differential_expression/de_results.tsv"
-        }
-      ],
-      "text": "| ENSG00000211445 |     3.55 | 1.29e-108 |"
+      "status": "pending",
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
     },
     {
       "@id": "C:reporting_claim-8",
       "@type": "Claim",
-      "status": "verified",
-      "supported_by": [
-        {
-          "@id": "runtime/outputs/differential_expression/de_results.tsv"
-        }
-      ],
-      "text": "| ENSG00000157214 |     1.95 | 1.38e-103 |"
+      "status": "pending",
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
     },
     {
       "@id": "C:reporting_claim-9",
       "@type": "Claim",
+      "status": "pending",
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
+    },
+    {
+      "@id": "runtime/outputs/final_reporting/result.json",
+      "@type": [
+        "File"
+      ],
+      "contentSize": 1413,
+      "description": "Primary recorded output of stage 'final_reporting'.",
+      "encodingFormat": "application/json",
+      "name": "final_reporting — result.json",
+      "schema:about": {
+        "@id": "#step-final_reporting"
+      },
+      "sha512": "5f472f471b17838059d107f2a9f1a7a89f76fb7e06fb038a65de29f10eaed2b59734df3a5f6ed87059750f37d615406ce5c687a461f7b3f8ece83054ff8a6ebe",
+      "wasGeneratedBy": {
+        "@id": "#action/runtime/outputs/final_reporting/result.json"
+      }
+    },
+    {
+      "@id": "runtime/outputs/validate_reporting/result.json",
+      "@type": [
+        "File"
+      ],
+      "contentSize": 317,
+      "description": "Primary recorded output of stage 'validate_reporting'.",
+      "encodingFormat": "application/json",
+      "name": "validate_reporting — result.json",
+      "schema:about": {
+        "@id": "#step-validate_reporting"
+      },
+      "sha512": "df922763ea06973f37f05efb8d804a3434bf7de5808579c6fcfa4b09055339a7e95b9673f05234849cc5dd8afc664aecdbbc52d12f6abfc956e8f208f37e8b3c",
+      "wasGeneratedBy": {
+        "@id": "#action/runtime/outputs/validate_reporting/result.json"
+      }
+    },
+    {
+      "@id": "#action/runtime/outputs/final_reporting/result.json",
+      "@type": [
+        "CreateAction",
+        "prov:Activity"
+      ],
+      "agent": {
+        "@id": "#executor/bio-min_local"
+      },
+      "endTime": "2026-07-11T17:01:50Z",
+      "instrument": {
+        "@id": "#tool/final_reporting"
+      },
+      "name": "Execution of stage 'final_reporting' producing result.json.",
+      "object": [
+        {
+          "@id": "runtime/outputs/reporting/concordance_table.tsv"
+        },
+        {
+          "@id": "runtime/outputs/reporting/pathway_overlap_table.tsv"
+        }
+      ],
+      "result": {
+        "@id": "runtime/outputs/final_reporting/result.json"
+      }
+    },
+    {
+      "@id": "#action/runtime/outputs/validate_reporting/result.json",
+      "@type": [
+        "CreateAction",
+        "prov:Activity"
+      ],
+      "agent": {
+        "@id": "#executor/bio-min_local"
+      },
+      "endTime": "2026-07-11T17:00:56Z",
+      "instrument": {
+        "@id": "#tool/validate_reporting"
+      },
+      "name": "Execution of stage 'validate_reporting' producing result.json.",
+      "object": [
+        {
+          "@id": "runtime/outputs/reporting/concordance_table.tsv"
+        },
+        {
+          "@id": "runtime/outputs/reporting/pathway_overlap_table.tsv"
+        }
+      ],
+      "result": {
+        "@id": "runtime/outputs/validate_reporting/result.json"
+      }
+    },
+    {
+      "@id": "runtime/outputs/final_reporting/scripts/01_assemble_final_report.py",
+      "@type": [
+        "File",
+        "SoftwareSourceCode"
+      ],
+      "contentSize": 11734,
+      "description": "Executed script authored by stage 'final_reporting'.",
+      "encodingFormat": "text/x-python",
+      "name": "01_assemble_final_report.py",
+      "sha512": "08f4fef119611fafccc3a97be01065202804e4f08309e59f4a864ac6d938f514124959e6eec23a66f053903a7ecee2872fd185079f4a7609637bd6997c34d124"
+    },
+    {
+      "@id": "runtime/outputs/validate_reporting/scripts/01_validate_reporting.py",
+      "@type": [
+        "File",
+        "SoftwareSourceCode"
+      ],
+      "contentSize": 15156,
+      "description": "Executed script authored by stage 'validate_reporting'.",
+      "encodingFormat": "text/x-python",
+      "name": "01_validate_reporting.py",
+      "sha512": "a5d3f67b225a83f226681439151ebbd3cdcd6c00194883c61281d177d9cefb62c4dc0eb02261e4e8a971fdb3a5cea394edfedd1dfbd1be3b50588744719155e0"
+    },
+    {
+      "@id": "#tool/final_reporting",
+      "@type": "SoftwareSourceCode",
+      "description": "The executable code stage 'final_reporting' ran, grouping its recorded scripts.",
+      "hasPart": [
+        {
+          "@id": "runtime/outputs/final_reporting/scripts/01_assemble_final_report.py"
+        }
+      ],
+      "name": "final_reporting tool"
+    },
+    {
+      "@id": "#tool/validate_reporting",
+      "@type": "SoftwareSourceCode",
+      "description": "The executable code stage 'validate_reporting' ran, grouping its recorded scripts.",
+      "hasPart": [
+        {
+          "@id": "runtime/outputs/validate_reporting/scripts/01_validate_reporting.py"
+        }
+      ],
+      "name": "validate_reporting tool"
+    },
+    {
+      "@id": "runtime/outputs/final_reporting/final_report.md",
+      "@type": [
+        "File",
+        "CreativeWork"
+      ],
+      "contentSize": 8614,
+      "description": "Narrative report produced by stage 'final_reporting'.",
+      "encodingFormat": "text/markdown",
+      "name": "final_reporting — final_report.md",
+      "schema:about": {
+        "@id": "#step-final_reporting"
+      },
+      "sha512": "622bc69245e8dbffe25fa11465489ae85bfef27292dff35e48e15e9ad7d964d72a004b58dc2d2447dd544a3262da9a8c68ffce69f97aabaebb4c453afba69220"
+    },
+    {
+      "@id": "C:final_reporting_claim-0",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "This analysis applied a standard bulk RNA-seq pipeline to the Himes et al. 2014 (GSE52778) dataset to characterize the transcriptional response of human airway smooth-muscle (HASM) cells to dexamethasone treatment"
+    },
+    {
+      "@id": "C:final_reporting_claim-1",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "- Top-ranked enriched pathways include adipogenesis (NES = 1.96), TNF-α/NF-κB signaling (NES = 1.82), and inflammatory response suppression - consistent with the well-characterized anti-inflammatory mechanism of glucocorticoid therapy"
+    },
+    {
+      "@id": "C:final_reporting_claim-10",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
+    },
+    {
+      "@id": "C:final_reporting_claim-11",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
+    },
+    {
+      "@id": "C:final_reporting_claim-12",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
+    },
+    {
+      "@id": "C:final_reporting_claim-13",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
+    },
+    {
+      "@id": "C:final_reporting_claim-14",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
+    },
+    {
+      "@id": "C:final_reporting_claim-15",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "adipogenesis signaling, TNF-α / NF-κB signaling (up), and nervous system development"
+    },
+    {
+      "@id": "C:final_reporting_claim-16",
+      "@type": "Claim",
       "status": "verified",
       "supported_by": [
         {
-          "@id": "runtime/outputs/differential_expression/de_results.tsv"
+          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
         }
       ],
-      "text": "| ENSG00000162614 |     2    | 2.78e-100 |"
+      "text": "- The top up-regulated gene by padj is **SPARCL1** (LFC ≈ 4.56), with **KLF15** also among"
+    },
+    {
+      "@id": "C:final_reporting_claim-17",
+      "@type": "Claim",
+      "status": "verified",
+      "supported_by": [
+        {
+          "@id": "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+        }
+      ],
+      "text": "- The top up-regulated gene by padj is **SPARCL1** (LFC ≈ 4.56), with **KLF15** also among"
+    },
+    {
+      "@id": "C:final_reporting_claim-18",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "**Dataset:** 4 human airway smooth-muscle cell lines * 2 conditions = 8 samples (GSE52778)"
+    },
+    {
+      "@id": "C:final_reporting_claim-19",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "The study used a paired design with 4 cell lines each measured under treated and untreated conditions (8 samples total)"
+    },
+    {
+      "@id": "C:final_reporting_claim-2",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "The sample layout: 4 HASM cell lines (N61311, N052611, N080611, N061011), each with one dex-treated (trt) and one untreated (untrt) replicate"
+    },
+    {
+      "@id": "C:final_reporting_claim-20",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "- **4,030 genes** were differentially expressed at padj < 0.05 (2,208 up-regulated, 1,822 down-regulated in dex-treated vs. untreated)"
+    },
+    {
+      "@id": "C:final_reporting_claim-21",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "- **215 gene sets** were enriched at padj < 0.05 across Hallmark, KEGG, and GO:BP collections, with 146 enriched in the dex-up direction and 69 in the dex-down direction"
+    },
+    {
+      "@id": "C:final_reporting_claim-22",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "- **15/15 genes** with directional claims from the original Himes et al. 2014 publication (PMID 24926665) replicate in the same direction, and 0 replicate in the opposite direction - supporting full analytical concordance with the published findings"
+    },
+    {
+      "@id": "C:final_reporting_claim-23",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "**Input:** SME-registered count matrix and sample metadata (himes-inputs, 8 samples)"
+    },
+    {
+      "@id": "C:final_reporting_claim-24",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "**Output:** Staged count matrix (63,677 genes * 8 samples) and sample metadata (sample, cell, dex columns)"
+    },
+    {
+      "@id": "C:final_reporting_claim-25",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "The sample layout: 4 HASM cell lines (N61311, N052611, N080611, N061011), each with one dex-treated (trt) and one untreated (untrt) replicate"
+    },
+    {
+      "@id": "C:final_reporting_claim-26",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "**Result:** 8/8 samples passed QC thresholds"
+    },
+    {
+      "@id": "C:final_reporting_claim-27",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "**Input:** 63,677 genes; **Retained after low-count filter:** 22,369 genes (rowSum ≥ 10)"
+    },
+    {
+      "@id": "C:final_reporting_claim-28",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "**Result:** Median-of-ratios size factors applied; VST normalization produced a normalized_counts.tsv (22,369 genes * 8 samples)"
+    },
+    {
+      "@id": "C:final_reporting_claim-29",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "2,000 highly variable genes (HVGs) selected by post-VST variance"
+    },
+    {
+      "@id": "C:final_reporting_claim-3",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "Median library size: 20,901,052 counts; median genes detected: 24,647"
+    },
+    {
+      "@id": "C:final_reporting_claim-30",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "The low-count filter removed 41,308 genes (65% of the input) with negligible expression, retaining a high-confidence set of 22,369 expressed genes for downstream DE testing"
+    },
+    {
+      "@id": "C:final_reporting_claim-31",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "The DESeq2 model fit `~ cell + dex` on 22,369 genes, blocking for cell-line"
+    },
+    {
+      "@id": "C:final_reporting_claim-32",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "variation across the 4 HASM cell lines"
+    },
+    {
+      "@id": "C:final_reporting_claim-33",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "4,030 genes were associated with dexamethasone treatment at padj < 0.05"
+    },
+    {
+      "@id": "C:final_reporting_claim-34",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "(2,208 up-regulated, 1,822 down-regulated relative to untreated cells)"
+    },
+    {
+      "@id": "C:final_reporting_claim-35",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "215 gene sets were enriched at padj < 0.05 across Hallmark, KEGG, and GO BP"
+    },
+    {
+      "@id": "C:final_reporting_claim-36",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "Of 4,030 significant DE genes,"
+    },
+    {
+      "@id": "C:final_reporting_claim-37",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "- Dexamethasone treatment is associated with 4,030 differentially expressed genes"
+    },
+    {
+      "@id": "C:final_reporting_claim-38",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "- All 15 genes with directional claims in the original Himes et al. 2014 publication are"
+    },
+    {
+      "@id": "C:final_reporting_claim-4",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "variation across the 4 HASM cell lines"
+    },
+    {
+      "@id": "C:final_reporting_claim-5",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
+    },
+    {
+      "@id": "C:final_reporting_claim-6",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
+    },
+    {
+      "@id": "C:final_reporting_claim-7",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
+    },
+    {
+      "@id": "C:final_reporting_claim-8",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
+    },
+    {
+      "@id": "C:final_reporting_claim-9",
+      "@type": "Claim",
+      "status": "pending",
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
+    },
+    {
+      "@id": "runtime/outputs/validate_final_reporting/result.json",
+      "@type": [
+        "File"
+      ],
+      "contentSize": 371,
+      "description": "Primary recorded output of stage 'validate_final_reporting'.",
+      "encodingFormat": "application/json",
+      "name": "validate_final_reporting — result.json",
+      "schema:about": {
+        "@id": "#step-validate_final_reporting"
+      },
+      "sha512": "4c601d008f130d20b1e3d65274055201d0058874e79a513c8f32857ec3ede71a8734b3af8501d1e03c9c72381116898eba2c7975f3f8d138401d8c4d3c107447",
+      "wasGeneratedBy": {
+        "@id": "#action/runtime/outputs/validate_final_reporting/result.json"
+      }
+    },
+    {
+      "@id": "#action/runtime/outputs/validate_final_reporting/result.json",
+      "@type": [
+        "CreateAction",
+        "prov:Activity"
+      ],
+      "agent": {
+        "@id": "#executor/bio-min_local"
+      },
+      "endTime": "2026-07-11T17:05:38Z",
+      "instrument": {
+        "@id": "#tool/validate_final_reporting"
+      },
+      "name": "Execution of stage 'validate_final_reporting' producing result.json.",
+      "object": [
+        {
+          "@id": "#step-final_reporting"
+        }
+      ],
+      "result": {
+        "@id": "runtime/outputs/validate_final_reporting/result.json"
+      }
+    },
+    {
+      "@id": "runtime/outputs/validate_final_reporting/scripts/01_validate_final_reporting.py",
+      "@type": [
+        "File",
+        "SoftwareSourceCode"
+      ],
+      "contentSize": 18416,
+      "description": "Executed script authored by stage 'validate_final_reporting'.",
+      "encodingFormat": "text/x-python",
+      "name": "01_validate_final_reporting.py",
+      "sha512": "153861ac68122769f608fc7dea5a5d42f2499f6f1e47ba700b9244292de4342a4d619557030aa06eef57532983a69e950d30b03efc3b6b910e5dca8222dcc7af"
+    },
+    {
+      "@id": "#tool/validate_final_reporting",
+      "@type": "SoftwareSourceCode",
+      "description": "The executable code stage 'validate_final_reporting' ran, grouping its recorded scripts.",
+      "hasPart": [
+        {
+          "@id": "runtime/outputs/validate_final_reporting/scripts/01_validate_final_reporting.py"
+        }
+      ],
+      "name": "validate_final_reporting tool"
     }
   ]
 }

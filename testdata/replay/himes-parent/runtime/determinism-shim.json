@@ -1,9 +1,7 @@
 {
   "schema_version": "1",
   "env_capture": {
-    "captured_env_vars": [
-      "LANG"
-    ],
+    "captured_env_vars": [],
     "redacted_env_vars": [
       "ECAA_ANTHROPIC_API_KEY"
     ]
@@ -16,7 +14,18 @@
     "strategy": "stable-by-task-id",
     "root": "runtime/scratch"
   },
-  "locale": "en_US.UTF-8",
+  "locale": "C",
   "timezone": "UTC",
-  "ablation_engaged": false
+  "ablation_engaged": false,
+  "non_deterministic_artifacts": [
+    {
+      "artifact": "runtime/outputs/differential_expression/de_results.tsv",
+      "columns": [
+        "log2FoldChange",
+        "lfcSE"
+      ],
+      "kind": "adaptive_shrinkage",
+      "reason": "Empirical-Bayes adaptive shrinkage of effect sizes (e.g. DESeq2/apeglm or ashr) fits a prior from the data whose shrinkage of the log2FoldChange and lfcSE columns is not bit-reproducible across BLAS threadings, and whose chosen engine may differ between the recorded run and a re-execution; the shrunken values may vary within the semantic band without indicating error. The unshrunken Wald stat/pvalue/padj (and thus the significant set) are unaffected."
+    }
+  ]
 }

@@ -1,33 +1,15 @@
 {"obligation_id":"claim_row_has_finding_id","outcome":"passed","task_id":"contextualize_findings_with_literature"}
-{"obligation_id":"claim_row_has_finding_id","outcome":"passed","task_id":"contextualize_findings_with_literature"}
 {"obligation_id":"concordance_flag_in_closed_set","outcome":"passed","task_id":"contextualize_findings_with_literature"}
-{"obligation_id":"concordance_flag_in_closed_set","outcome":"passed","task_id":"contextualize_findings_with_literature"}
-{"obligation_id":"direction_supported_by_quote","outcome":"passed","task_id":"contextualize_findings_with_literature"}
-{"obligation_id":"direction_supported_by_quote","outcome":"passed","task_id":"contextualize_findings_with_literature"}
+{"obligation_id":"direction_supported_by_quote","outcome":"failed:row 0: {\"cause_kind\":\"literature_claim\",\"row_index\":0,\"artifact\":\"claims_evidence_matrix.csv\",\"kind\":\"direction_not_supported_by_quote\"}","task_id":"contextualize_findings_with_literature"}
 {"obligation_id":"evidence_quote_substring_match","outcome":"passed","task_id":"contextualize_findings_with_literature"}
-{"obligation_id":"evidence_quote_substring_match","outcome":"passed","task_id":"contextualize_findings_with_literature"}
-{"obligation_id":"gene_symbol_ensembl_consistent","outcome":"errored:no independent symbol↔Ensembl annotation table in package (no output table carries both a symbol and an Ensembl/gene_id column)","task_id":"contextualize_findings_with_literature"}
-{"obligation_id":"gene_symbol_ensembl_consistent","outcome":"errored:no independent symbol↔Ensembl annotation table in package (no output table carries both a symbol and an Ensembl/gene_id column)","task_id":"contextualize_findings_with_literature"}
-{"obligation_id":"pmid_resolves","outcome":"passed","task_id":"contextualize_findings_with_literature"}
+{"obligation_id":"gene_symbol_ensembl_consistent","outcome":"passed","task_id":"contextualize_findings_with_literature"}
 {"obligation_id":"pmid_resolves","outcome":"passed","task_id":"contextualize_findings_with_literature"}
 {"obligation_id":"redistributable_or_marked","outcome":"passed","task_id":"contextualize_findings_with_literature"}
-{"obligation_id":"redistributable_or_marked","outcome":"passed","task_id":"contextualize_findings_with_literature"}
-{"obligation_id":"evidence_quote_substring_match","outcome":"passed","task_id":"review_prior_work"}
-{"obligation_id":"evidence_quote_substring_match","outcome":"passed","task_id":"review_prior_work"}
-{"obligation_id":"evidence_quote_substring_match","outcome":"passed","task_id":"review_prior_work"}
-{"obligation_id":"pmid_resolves","outcome":"passed","task_id":"review_prior_work"}
-{"obligation_id":"pmid_resolves","outcome":"passed","task_id":"review_prior_work"}
+{"obligation_id":"evidence_quote_substring_match","outcome":"failed:row 0: {\"cause_kind\":\"literature_claim\",\"row_index\":0,\"artifact\":\"prior_claims_matrix.csv\",\"kind\":\"quote_not_in_source\"}","task_id":"review_prior_work"}
 {"obligation_id":"pmid_resolves","outcome":"passed","task_id":"review_prior_work"}
 {"obligation_id":"redistributable_or_marked","outcome":"passed","task_id":"review_prior_work"}
-{"obligation_id":"redistributable_or_marked","outcome":"passed","task_id":"review_prior_work"}
-{"obligation_id":"redistributable_or_marked","outcome":"passed","task_id":"review_prior_work"}
-{"obligation_id":"claim_support_satisfied","outcome":"failed:row 26: {\"cause_kind\":\"literature_claim\",\"row_index\":26,\"artifact\":\"method_landscape.csv\",\"kind\":\"insufficient_corroboration\"}","task_id":"survey_method_landscape"}
-{"obligation_id":"claim_support_satisfied","outcome":"failed:row 26: {\"cause_kind\":\"literature_claim\",\"row_index\":26,\"artifact\":\"method_landscape.csv\",\"kind\":\"insufficient_corroboration\"}","task_id":"survey_method_landscape"}
+{"obligation_id":"claim_support_satisfied","outcome":"passed","task_id":"survey_method_landscape"}
 {"obligation_id":"doc_page_matches_tool","outcome":"passed","task_id":"survey_method_landscape"}
-{"obligation_id":"doc_page_matches_tool","outcome":"passed","task_id":"survey_method_landscape"}
-{"obligation_id":"evidence_quote_substring_match","outcome":"passed","task_id":"survey_method_landscape"}
-{"obligation_id":"evidence_quote_substring_match","outcome":"passed","task_id":"survey_method_landscape"}
+{"obligation_id":"evidence_quote_substring_match","outcome":"failed:row 4: {\"cause_kind\":\"literature_claim\",\"row_index\":4,\"artifact\":\"method_landscape.csv\",\"kind\":\"quote_not_in_source\"}","task_id":"survey_method_landscape"}
 {"obligation_id":"redistributable_or_marked","outcome":"passed","task_id":"survey_method_landscape"}
-{"obligation_id":"redistributable_or_marked","outcome":"passed","task_id":"survey_method_landscape"}
-{"obligation_id":"source_resolves","outcome":"passed","task_id":"survey_method_landscape"}
 {"obligation_id":"source_resolves","outcome":"passed","task_id":"survey_method_landscape"}

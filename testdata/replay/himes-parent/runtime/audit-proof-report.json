@@ -3,7 +3,7 @@
   "ecaa_version": "0.2",
   "min_reader_version": "0.2",
   "package_iri": "ro-crate-metadata.json",
-  "evaluated_at": "2026-06-23T17:40:17.487500689+00:00",
+  "evaluated_at": "2026-07-21T16:06:12.875812039+00:00",
   "evaluator": {
     "impl": "ecaa-workflow-audit-proof",
     "version": "0.1.0",
@@ -14,22 +14,22 @@
       "id": "claim_completeness",
       "status": "pass",
       "detail": null,
-      "n_inspected": 122,
+      "n_inspected": 72,
       "n_violations": 0
     },
     {
       "id": "decision_justification",
       "status": "pass",
       "detail": null,
-      "n_inspected": 2,
+      "n_inspected": 3,
       "n_violations": 0
     },
     {
       "id": "evidence_coverage",
       "status": "warn",
-      "detail": "22 output(s) not referenced and not marked unused: runtime/outputs/data_acquisition/cohort_manifest.tsv, runtime/outputs/data_acquisition/data/himes-inputs/counts.tsv, runtime/outputs/data_acquisition/data/himes-inputs/samples.csv, runtime/outputs/data_acquisition/figures/samples_per_study.png, runtime/outputs/differential_expression/figures/top_features_heatmap.png, runtime/outputs/differential_expression/figures/volcano.png, runtime/outputs/differential_expression/intermediates/size_factors.tsv, runtime/outputs/final_reporting/figures/summary_dashboard.png, runtime/outputs/normalisation/figures/hvg_count_bar.png, runtime/outputs/normalisation/figures/mean_variance.png, runtime/outputs/normalisation/hvg_list.tsv, runtime/outputs/normalisation/mean_variance.tsv, runtime/outputs/normalisation/vst_matrix.tsv, runtime/outputs/qc_preprocessing/figures/per_sample_metric_bar.png, runtime/outputs/qc_preprocessing/figures/per_sample_metric_violin.png, runtime/outputs/qc_preprocessing/figures/qc_summary_bar.png, runtime/outputs/qc_preprocessing/qc_metrics.tsv, runtime/outputs/reporting/figures/concordance_heatmap.png, runtime/outputs/reporting/figures/pathway_overlap_bar.png, runtime/outputs/review_prior_work/method_landscape.csv, runtime/outputs/review_prior_work/prior_claims_matrix.csv, runtime/outputs/survey_method_landscape/method_landscape.csv",
-      "n_inspected": 24,
-      "n_violations": 22
+      "detail": "70 output(s) not referenced and not marked unused: runtime/outputs/contextualize_findings_with_literature/citation_verification_report.md, runtime/outputs/contextualize_findings_with_literature/intermediates/symbol_lookup.tsv, runtime/outputs/contextualize_findings_with_literature/literature_search_protocol.md, runtime/outputs/contextualize_findings_with_literature/scripts/01_build_concordance_matrix.R, runtime/outputs/data_acquisition/cohort_manifest.tsv, runtime/outputs/data_acquisition/data/himes-inputs/counts.tsv, runtime/outputs/data_acquisition/data/himes-inputs/samples.csv, runtime/outputs/data_acquisition/figures/samples_per_study.png, runtime/outputs/data_acquisition/scripts/01_build_manifests.py, runtime/outputs/differential_expression/figures/top_features_heatmap.png, runtime/outputs/differential_expression/figures/volcano.png, runtime/outputs/differential_expression/report.md, runtime/outputs/differential_expression/scripts/01_deseq2_de.R, runtime/outputs/discover_differential_expression/result.json, runtime/outputs/discover_differential_expression/scripts/01_score_candidates.py, runtime/outputs/discover_normalisation/result.json, runtime/outputs/discover_normalisation/scripts/01_score_candidates.py, runtime/outputs/discover_pathway_enrichment/result.json, runtime/outputs/discover_pathway_enrichment/scripts/01_score_candidates.py, runtime/outputs/final_reporting/figures/summary_dashboard.png, runtime/outputs/final_reporting/final_report.md, runtime/outputs/final_reporting/result.json, runtime/outputs/final_reporting/scripts/01_assemble_final_report.py, runtime/outputs/normalisation/figures/hvg_count_bar.png, runtime/outputs/normalisation/figures/mean_variance.png, runtime/outputs/normalisation/hvg_list.tsv, runtime/outputs/normalisation/mean_variance.tsv, runtime/outputs/normalisation/normalized_counts.tsv, runtime/outputs/normalisation/scripts/01_deseq2_vst.R, runtime/outputs/pathway_enrichment/enrichment.tsv, runtime/outputs/pathway_enrichment/figures/top_enriched_terms.png, runtime/outputs/pathway_enrichment/pathway_results.tsv, runtime/outputs/pathway_enrichment/scripts/01_fgsea_enrichment.R, runtime/outputs/qc_preprocessing/figures/per_sample_metric_bar.png, runtime/outputs/qc_preprocessing/figures/per_sample_metric_violin.png, runtime/outputs/qc_preprocessing/figures/qc_summary_bar.png, runtime/outputs/qc_preprocessing/qc_metrics.tsv, runtime/outputs/qc_preprocessing/scripts/01_qc_preprocessing.py, runtime/outputs/reporting/concordance_table.tsv, runtime/outputs/reporting/figures/concordance_heatmap.png, runtime/outputs/reporting/figures/pathway_overlap_bar.png, runtime/outputs/reporting/pathway_overlap_table.tsv, runtime/outputs/reporting/report.md, runtime/outputs/reporting/scripts/01_assemble_report.py, runtime/outputs/review_prior_work/citation_verification_report.md, runtime/outputs/review_prior_work/literature_search_protocol.md, runtime/outputs/review_prior_work/prior_claims_matrix.csv, runtime/outputs/review_prior_work/scripts/01_fetch_prior_literature.py, runtime/outputs/review_prior_work/scripts/02_add_method_papers.py, runtime/outputs/survey_method_landscape/method_landscape.csv, runtime/outputs/survey_method_landscape/scripts/01_fetch_method_landscape.py, runtime/outputs/survey_method_landscape/scripts/02_augment_missing_candidates.py, runtime/outputs/validate_contextualize_findings_with_literature/result.json, runtime/outputs/validate_contextualize_findings_with_literature/scripts/01_validate_claims_evidence_matrix.py, runtime/outputs/validate_data_acquisition/result.json, runtime/outputs/validate_data_acquisition/scripts/01_validate_acquisition.py, runtime/outputs/validate_differential_expression/result.json, runtime/outputs/validate_differential_expression/scripts/01_validate_de.py, runtime/outputs/validate_final_reporting/result.json, runtime/outputs/validate_final_reporting/scripts/01_validate_final_reporting.py, runtime/outputs/validate_normalisation/result.json, runtime/outputs/validate_normalisation/scripts/01_validate_normalisation.py, runtime/outputs/validate_pathway_enrichment/result.json, runtime/outputs/validate_pathway_enrichment/scripts/01_validate_pathway_enrichment.py, runtime/outputs/validate_qc_preprocessing/result.json, runtime/outputs/validate_qc_preprocessing/scripts/01_validate_qc_preprocessing.py, runtime/outputs/validate_reporting/result.json, runtime/outputs/validate_reporting/scripts/01_validate_reporting.py, runtime/outputs/validate_review_prior_work/scripts/01_validate_prior_claims.py, runtime/outputs/validate_review_prior_work/validation_checks.csv",
+      "n_inspected": 72,
+      "n_violations": 70
     },
     {
       "id": "equivalence_failure",
@@ -42,7 +42,7 @@
       "id": "cross_graph_integrity",
       "status": "pass",
       "detail": null,
-      "n_inspected": 180,
+      "n_inspected": 30,
       "n_violations": 0
     },
     {
