@@ -46,6 +46,20 @@ pub(crate) fn run(args: DepositCheckArgs) -> Result<()> {
     if let Some(detail) = &dr.detail {
         println!("  detail: {detail}");
     }
+    // DR-8: surface residual non-portability as a non-fatal advisory. These are
+    // deliberately not gated (a re-executable deposit may need some absolute
+    // host paths to replay), but an operator relocating/archiving the deposit
+    // should know it carries host-specific state.
+    if !dr.portability_warnings.is_empty() {
+        eprintln!(
+            "  warning: deposit is not fully portable ({} residual host-path / session-id reference(s)); \
+             re-execution may depend on these absolute paths. First few:",
+            dr.portability_warnings.len()
+        );
+        for w in dr.portability_warnings.iter().take(5) {
+            eprintln!("    - {w}");
+        }
+    }
     // Surface a non-fatal warning when re-execution was not verified (allowed
     // only because --strict was not given).
     if matches!(
