@@ -61,14 +61,14 @@ pinned_accessions: Array<PinnedAccession>,
  */
 pinned_reference_bundles: Array<PinnedReferenceBundle>, 
 /**
- * Phase G of the literature-atom plan — SME opt-in for the
- * `review_prior_work` + `contextualize_findings_with_literature`
- * atom family. Default false; flipping to true causes the v4
- * composer to include the optional literature atoms in supported
- * archetypes (bulk_rnaseq_de, chip_seq_peaks, variant_calling).
- * Set via the existing `set_intake_field` mutation tool.
+ * DAG fact: the emitted workflow includes the `review_prior_work` +
+ * `contextualize_findings_with_literature` atom family. The v4 composer
+ * adds literature contextualization unconditionally, so every emit records
+ * this `true` — it is a property of the emitted DAG, NOT captured SME
+ * intent. The `#[serde(alias)]` keeps packages emitted under the former
+ * `literature_review_requested` name deserializable.
  */
-literature_review_requested: boolean, 
+literature_review_included: boolean, 
 /**
  * Sub-archetype small-task exclusion list — mirrors
  * `Session.excluded_atoms`. Defaults to empty; not surfaced in the

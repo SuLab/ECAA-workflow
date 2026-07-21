@@ -256,7 +256,7 @@ async fn emit_steps(
     // carries the review_prior_work + contextualize_findings_with_literature
     // atoms, so policies/intake-facts.json records that the package was
     // grounded against prior work.
-    intake_facts.literature_review_requested = true;
+    intake_facts.literature_review_included = true;
     // If the SME just amended a stage, thread the
     // amendment context through to the core emitter so it can write
     // `prov:wasDerivedFrom`, the `UpdateAction` entity, and

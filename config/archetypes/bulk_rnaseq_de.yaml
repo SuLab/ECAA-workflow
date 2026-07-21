@@ -48,11 +48,10 @@ atoms:
     depends_on: [qc_preprocessing, data_acquisition]
   - atom_id: review_prior_work
     required: false
-    # Phase G of the literature-atom plan. Gated by
-    # intake.literature_review_requested via compose_with_intake; when
-    # the SME hasn't opted in, this atom + contextualize_findings_with_literature
-    # are filtered out before slot-fill so the emitted DAG is byte-identical
-    # to a pre-literature DAG.
+    # Literature-review atom. The v4 composer includes this +
+    # contextualize_findings_with_literature unconditionally; literature
+    # contextualization is not gated on intake. `required: false` means the
+    # archetype tolerates its absence, not that it is pruned.
   - atom_id: differential_expression
     required: true
     # DE's `counts` one-of binds `raw_counts` from `quantification` (the raw

@@ -940,7 +940,7 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
     // carries the review_prior_work + contextualize_findings_with_literature
     // atoms, so the persisted fact reflects that the package was grounded
     // against prior work.
-    intake_facts.literature_review_requested = true;
+    intake_facts.literature_review_included = true;
     let composed_atoms: Vec<_> = output_compose
         .composition
         .atoms

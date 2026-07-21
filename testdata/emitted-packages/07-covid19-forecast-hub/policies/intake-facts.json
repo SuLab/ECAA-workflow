@@ -2,5 +2,5 @@
   "modality": "time_series_forecast",
   "project_class": "bioinformatics",
   "methods": [],
-  "literature_review_requested": true
+  "literature_review_included": true
 }

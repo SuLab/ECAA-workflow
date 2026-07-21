@@ -2,7 +2,7 @@
 //!
 //! `compose_with_intake` keeps the `review_prior_work` +
 //! `contextualize_findings_with_literature` atoms regardless of
-//! `intake.literature_review_requested` — there is no longer an opt-in
+//! `intake.literature_review_included` — there is no longer an opt-in
 //! gate that drops them on plain prose. These tests assert the atoms
 //! survive composition on the default (opt-out) context as well as the
 //! explicit opt-in context.
@@ -93,7 +93,7 @@ fn literature_opt_in_atom_ids_constant_covers_both_atoms() {
     );
 }
 
-/// `IntakeContext::empty()` defaults `literature_review_requested` to
+/// `IntakeContext::empty()` defaults `literature_review_included` to
 /// false — but the literature atoms survive composition regardless,
 /// because contextualization is unconditional.
 #[test]
@@ -103,7 +103,7 @@ fn compose_with_intake_keeps_literature_on_default_context() {
         return;
     }
     let intake = IntakeContext {
-        literature_review_requested: false,
+        literature_review_included: false,
         ..IntakeContext::empty()
     };
     let result = compose_with_intake(&bulk_de_goal(), "bioinformatics", &atoms, &archs, &intake)
@@ -119,7 +119,7 @@ fn compose_with_intake_keeps_literature_on_default_context() {
     );
 }
 
-/// Explicit opt-in (`literature_review_requested = true`) also keeps the
+/// Explicit opt-in (`literature_review_included = true`) also keeps the
 /// atoms — the flag is now inert with respect to the literature family.
 #[test]
 fn compose_with_intake_keeps_literature_when_requested() {
@@ -128,7 +128,7 @@ fn compose_with_intake_keeps_literature_when_requested() {
         return;
     }
     let intake = IntakeContext {
-        literature_review_requested: true,
+        literature_review_included: true,
         ..IntakeContext::empty()
     };
     let result = compose_with_intake(&bulk_de_goal(), "bioinformatics", &atoms, &archs, &intake)

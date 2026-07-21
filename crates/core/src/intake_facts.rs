@@ -57,14 +57,14 @@ pub struct IntakeFacts {
     /// and the SHA-256 of the FASTA + GTF tarball.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pinned_reference_bundles: Vec<PinnedReferenceBundle>,
-    /// Phase G of the literature-atom plan — SME opt-in for the
-    /// `review_prior_work` + `contextualize_findings_with_literature`
-    /// atom family. Default false; flipping to true causes the v4
-    /// composer to include the optional literature atoms in supported
-    /// archetypes (bulk_rnaseq_de, chip_seq_peaks, variant_calling).
-    /// Set via the existing `set_intake_field` mutation tool.
-    #[serde(default)]
-    pub literature_review_requested: bool,
+    /// DAG fact: the emitted workflow includes the `review_prior_work` +
+    /// `contextualize_findings_with_literature` atom family. The v4 composer
+    /// adds literature contextualization unconditionally, so every emit records
+    /// this `true` — it is a property of the emitted DAG, NOT captured SME
+    /// intent. The `#[serde(alias)]` keeps packages emitted under the former
+    /// `literature_review_requested` name deserializable.
+    #[serde(default, alias = "literature_review_requested")]
+    pub literature_review_included: bool,
     /// Sub-archetype small-task exclusion list — mirrors
     /// `Session.excluded_atoms`. Defaults to empty; not surfaced in the
     /// emitted policies/intake-facts.json when empty.
@@ -127,25 +127,6 @@ pub struct PinnedReferenceBundle {
     pub content_hash: String,
 }
 
-/// Narrow keyword set that flips `literature_review_requested` true.
-///
-/// Detection is intentionally conservative: it fires ONLY when the SME
-/// prose explicitly asks for literature grounding (compare-to-prior-work,
-/// citations, contextualization). It must NOT fire on incidental mentions
-/// of biology that happen to share a stem — every entry is a phrase the
-/// SME would only write when they want the analysis grounded in
-/// published work. Matched case-insensitively as substrings on the
-/// whitespace-collapsed prose. Keeping this set small bounds the blast
-/// radius: corpus scenarios that don't mention literature stay unchanged.
-const LITERATURE_INTENT_KEYWORDS: &[&str] = &[
-    "literature",
-    "prior work",
-    "references",
-    "citations",
-    "contextualize",
-    "published",
-];
-
 /// Construct a minimal supplied-product contract for an SME-declared input
 /// stage (called peaks / VCF / BAM). Mirrors `gene_count_matrix`'s shape
 /// (`description_only: false`) so `prune_supplied_upstream` and the dispatch
@@ -165,30 +146,6 @@ fn supplied_product(
 }
 
 impl IntakeFacts {
-    /// Detect explicit literature-grounding intent in intake prose.
-    ///
-    /// Returns `true` when the prose contains any of
-    /// [`LITERATURE_INTENT_KEYWORDS`] (case-insensitive substring) OR the
-    /// phrase "compared to (the )?literature". This is the single source
-    /// of truth for whether `literature_review_requested` flips true; the
-    /// conversation v4 gate and the emit path both call it. Default false:
-    /// plain analysis prose leaves the opt-in atoms gated out.
-    pub fn detect_literature_intent(prose: &str) -> bool {
-        // Collapse internal whitespace so multi-word phrases match across
-        // newlines / runs of spaces, and lower-case for case-insensitive
-        // matching.
-        let normalized = prose.split_whitespace().collect::<Vec<_>>().join(" ");
-        let lower = normalized.to_lowercase();
-        if LITERATURE_INTENT_KEYWORDS.iter().any(|k| lower.contains(k)) {
-            return true;
-        }
-        // "compared to literature" / "compared to the literature" — the
-        // "literature" stem already covers these, but keep the phrase
-        // anchors explicit so the intent is documented even if the stem
-        // list ever changes.
-        lower.contains("compared to literature") || lower.contains("compared to the literature")
-    }
-
     /// Detect a declared INPUT data stage in the SME prose — a processed data
     /// product the SME already holds, so input-stage-aware composition can prune
     /// the upstream chain that would otherwise produce it. Returns the available
@@ -561,7 +518,7 @@ impl IntakeFacts {
             database_size_gb: None,
             pinned_accessions: Vec::new(),
             pinned_reference_bundles: Vec::new(),
-            literature_review_requested: false,
+            literature_review_included: false,
             excluded_atoms: Vec::new(),
         }
     }
@@ -698,7 +655,7 @@ mod tests {
             database_size_gb: Some(12),
             pinned_accessions: Vec::new(),
             pinned_reference_bundles: Vec::new(),
-            literature_review_requested: false,
+            literature_review_included: false,
             excluded_atoms: Vec::new(),
         };
         let json = serde_json::to_string(&facts).unwrap();
@@ -743,7 +700,7 @@ mod tests {
                 release: "Ensembl 115".into(),
                 content_hash: "sha256:def456".into(),
             }],
-            literature_review_requested: false,
+            literature_review_included: false,
             excluded_atoms: Vec::new(),
         };
         let json = serde_json::to_string(&facts).unwrap();
@@ -1151,52 +1108,6 @@ mod tests {
                 other => panic!("expected variant ontology term, got {other:?}"),
             }
         }
-    }
-
-    #[test]
-    fn detect_literature_intent_on_explicit_keywords() {
-        // Each phrase must flip the flag true.
-        for prose in [
-            "Please ground the findings in the published literature.",
-            "Compare our DE genes to prior work in the field.",
-            "Include references and citations for every called variant.",
-            "I want the report to contextualize results against published studies.",
-            "Add the relevant citations from PubMed.",
-            "Compared to the literature, are these peaks novel?",
-            "Compared to literature this looks consistent.",
-        ] {
-            assert!(
-                IntakeFacts::detect_literature_intent(prose),
-                "expected literature intent to fire on: {prose:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn detect_literature_intent_stays_false_on_plain_prose() {
-        // Plain analysis prose with no literature-grounding ask.
-        for prose in [
-            "Call variants in mtDNA across 36 samples and report allele frequencies.",
-            "Bulk RNA-seq differential expression between tumor and normal.",
-            "Run quality control on some omics data.",
-            "",
-            "single-cell clustering with leiden and report marker genes",
-        ] {
-            assert!(
-                !IntakeFacts::detect_literature_intent(prose),
-                "literature intent must NOT fire on plain prose: {prose:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn detect_literature_intent_is_case_insensitive() {
-        assert!(IntakeFacts::detect_literature_intent(
-            "GROUND THIS IN THE LITERATURE"
-        ));
-        assert!(IntakeFacts::detect_literature_intent(
-            "please add CITATIONS"
-        ));
     }
 
     #[test]

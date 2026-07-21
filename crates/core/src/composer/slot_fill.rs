@@ -75,13 +75,13 @@ pub struct IntakeContext<'a> {
     /// EDAM data class. When `None`, slot-fill is skipped entirely
     /// (legacy `compose()` behavior).
     pub port_mappings: Option<&'a PortMappingRegistry>,
-    /// Phase G of the literature-atom plan — opt-in for the
-    /// `review_prior_work` + `contextualize_findings_with_literature`
-    /// atom family. When `false` (the default), `compose_with_intake`
-    /// filters those atoms out of the result before slot-fill so the
-    /// emitted DAG is byte-identical to a pre-literature DAG. Set
-    /// from `IntakeFacts::literature_review_requested`.
-    pub literature_review_requested: bool,
+    /// Vestigial literature-opt-in flag. Literature contextualization is now
+    /// unconditional — the v4 composer always includes the `review_prior_work`
+    /// + `contextualize_findings_with_literature` atom family — so this is not
+    /// consulted (`prune_literature_atoms_from_workflow_dag` is a no-op). Kept
+    /// so the deterministic CLI `intake` path and the conversation layer share
+    /// a single call site.
+    pub literature_review_included: bool,
 }
 
 impl<'a> IntakeContext<'a> {
@@ -91,7 +91,7 @@ impl<'a> IntakeContext<'a> {
         Self {
             supplied_fields: BTreeSet::new(),
             port_mappings: None,
-            literature_review_requested: false,
+            literature_review_included: false,
         }
     }
 
@@ -104,14 +104,16 @@ impl<'a> IntakeContext<'a> {
         Self {
             supplied_fields: supplied.into_iter().collect(),
             port_mappings: Some(mappings),
-            literature_review_requested: false,
+            literature_review_included: false,
         }
     }
 }
 
-/// Phase G of the literature-atom plan — atom ids that get filtered
-/// out of `compose_with_intake` when `intake.literature_review_requested`
-/// is false. Centralized here so the gate is a single edit point.
+/// The literature-atom family (`review_prior_work` +
+/// `contextualize_findings_with_literature`). Historically the opt-in gate's
+/// prune list; contextualization is now unconditional, so this is retained as
+/// the canonical id list the no-op `prune_literature_atoms_from_workflow_dag`
+/// and its regression tests reference.
 pub const LITERATURE_OPT_IN_ATOM_IDS: &[&str] = &[
     "review_prior_work",
     "contextualize_findings_with_literature",

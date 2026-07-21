@@ -22,12 +22,11 @@ atoms:
     required: true
   - atom_id: review_prior_work
     required: false
-    # Literature-review atom. Gated by intake.literature_review_requested
-    # (set true only on explicit literature-grounding intent in the SME
-    # prose — see IntakeFacts::detect_literature_intent). When the SME
-    # hasn't opted in, this atom + contextualize_findings_with_literature
-    # are filtered out before lowering so the emitted DAG is byte-identical
-    # to a pre-literature catch-all DAG. Mirrors bulk_rnaseq_de.yaml.
+    # Literature-review atom. The v4 composer includes this +
+    # contextualize_findings_with_literature unconditionally; literature
+    # contextualization is not gated on intake. `required: false` means the
+    # archetype tolerates its absence, not that it is pruned. Mirrors
+    # bulk_rnaseq_de.yaml.
   - atom_id: generic_summary
     required: true
     depends_on: [data_acquisition]

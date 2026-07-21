@@ -176,7 +176,7 @@ mod tests {
             database_size_gb: None,
             pinned_accessions: vec![],
             pinned_reference_bundles: vec![],
-            literature_review_requested: false,
+            literature_review_included: false,
             excluded_atoms: Vec::new(),
         }
     }
