@@ -46,6 +46,40 @@ fn profile_entity(iri: &str) -> Value {
     })
 }
 
+/// The `#ecaa-workflow` publisher Organization entity, recording the compiler
+/// revision that authored the crate. On a `-dirty` build (uncommitted tree at
+/// build time) it additionally carries a `source_tree_dirty` PropertyValue so a
+/// reader never mistakes a dirty build for a clean tagged one.
+fn publisher_entity(source_commit: &str) -> Value {
+    let mut publisher = json!({
+        "@id": "#ecaa-workflow",
+        "@type": "Organization",
+        "name": "ecaa-workflow"
+    });
+    if source_commit != "unknown" {
+        let obj = publisher
+            .as_object_mut()
+            .expect("publisher is a JSON object literal above");
+        obj.insert("softwareVersion".to_string(), json!(source_commit));
+        if source_commit.ends_with("-dirty") {
+            obj.insert(
+                "additionalProperty".to_string(),
+                json!([{
+                    // A stable `@id` keeps this a well-identified graph node so
+                    // the runcrate WRROC substrate validator can parse the crate
+                    // (a bare inline PropertyValue nested under the Organization
+                    // trips its "no @id in {…}" flattening — himes rerun audit).
+                    "@id": "#source-tree-dirty",
+                    "@type": "PropertyValue",
+                    "name": "source_tree_dirty",
+                    "value": true
+                }]),
+            );
+        }
+    }
+    publisher
+}
+
 /// Build the complete ro-crate-metadata.json JSON-LD graph.
 ///
 /// When `dag.run_id` is `Some`, the root Dataset entity includes a
@@ -192,34 +226,7 @@ pub fn build_metadata(
         // `ECAA_SOURCE_COMMIT` compile-time const), so the emitted crate records
         // exactly which compiler revision produced it. The const is fixed per
         // binary, so this stays byte-reproducible across repeated emits.
-        {
-            let source_commit = env!("ECAA_SOURCE_COMMIT");
-            let mut publisher = json!({
-                "@id": "#ecaa-workflow",
-                "@type": "Organization",
-                "name": "ecaa-workflow"
-            });
-            if source_commit != "unknown" {
-                let obj = publisher
-                    .as_object_mut()
-                    .expect("publisher is a JSON object literal above");
-                obj.insert("softwareVersion".to_string(), json!(source_commit));
-                // A `-dirty` suffix means the tree had uncommitted changes at
-                // build time; surface that explicitly so a reader never mistakes
-                // a dirty build for a clean tagged one.
-                if source_commit.ends_with("-dirty") {
-                    obj.insert(
-                        "additionalProperty".to_string(),
-                        json!([{
-                            "@type": "PropertyValue",
-                            "name": "source_tree_dirty",
-                            "value": true
-                        }]),
-                    );
-                }
-            }
-            publisher
-        },
+        publisher_entity(env!("ECAA_SOURCE_COMMIT")),
         // SME role — used as agent on actions that record compile-time resolutions
         json!({
             "@id": "#sme",
@@ -3474,6 +3481,34 @@ mod tests {
     use super::*;
     use crate::clock::FrozenClock;
     use regex::Regex;
+
+    #[test]
+    fn publisher_dirty_build_property_value_carries_id() {
+        // Regression (himes rerun audit 2026-07-21): on a -dirty build the
+        // `source_tree_dirty` PropertyValue nested under the #ecaa-workflow
+        // Organization must carry an `@id`, or the runcrate WRROC substrate
+        // validator rejects the crate ("no @id in {PropertyValue …}"),
+        // failing the deposit's substrate_validity invariant.
+        let dirty = publisher_entity("abc123def456-dirty");
+        let props = dirty
+            .get("additionalProperty")
+            .and_then(|v| v.as_array())
+            .expect("dirty build must carry additionalProperty");
+        let pv = props
+            .iter()
+            .find(|p| p.get("name").and_then(|n| n.as_str()) == Some("source_tree_dirty"))
+            .expect("source_tree_dirty PropertyValue present");
+        assert!(
+            pv.get("@id").and_then(|v| v.as_str()).is_some(),
+            "source_tree_dirty PropertyValue must carry an @id, got {pv:?}"
+        );
+        // A clean build emits no source_tree_dirty property at all.
+        let clean = publisher_entity("abc123def456");
+        assert!(
+            clean.get("additionalProperty").is_none(),
+            "a clean build must not emit source_tree_dirty: {clean:?}"
+        );
+    }
 
     #[test]
     fn edam_iri_converts_curie_colon_to_underscore() {
