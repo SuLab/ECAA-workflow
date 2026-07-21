@@ -176,6 +176,40 @@ fn final_reporting_and_its_synthesized_validator_both_carry_a_read_allowance() {
     }
 }
 
+/// Regression (§G-B2 deposit gate): EVERY synthesized validator in a real
+/// composed DAG must carry a read-allowance — not only those whose validated
+/// stage happens to declare one. A validator without an allowance flags its
+/// intrinsic cross-stage re-reads as GENUINE observed-read divergences, which
+/// flips `deposit_ready` to false. In the himes run this blocked the deposit
+/// via `validate_normalisation` / `validate_reporting` /
+/// `validate_pathway_enrichment` / `validate_contextualize_findings_with_literature`,
+/// whose validated stages declare no allowance to inherit.
+#[test]
+fn every_synthesized_validator_carries_an_upstream_read_allowance() {
+    let dag = run_v4_planner("bulk_rnaseq", &bulk_rnaseq_de_goal());
+    let allowances = node_read_allowances(&dag);
+    let validators: Vec<String> = dag
+        .nodes
+        .iter()
+        .map(|n| n.id.clone())
+        .filter(|id| id.starts_with("validate_"))
+        .collect();
+    assert!(
+        !validators.is_empty(),
+        "composed bulk_rnaseq DAG carries no validate_* companions to check"
+    );
+    for v in &validators {
+        let a = allowances.get(v).unwrap_or_else(|| {
+            panic!("validator {v} has no read_allowance — its cross-stage re-reads would false-divergence and block the deposit")
+        });
+        assert!(
+            a.iter().any(|x| x.scope
+                == ecaa_workflow_core::atom::ReadAllowanceScope::AnyUpstreamStage),
+            "validator {v} allowance must include AnyUpstreamStage: {a:?}"
+        );
+    }
+}
+
 fn node_read_allowances(dag: &WorkflowDag) -> BTreeMap<String, Vec<ReadAllowance>> {
     let mut map = BTreeMap::new();
     for node in &dag.nodes {

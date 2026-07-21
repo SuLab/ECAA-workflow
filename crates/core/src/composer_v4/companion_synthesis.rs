@@ -126,16 +126,39 @@ pub fn synthesize_validate_companions(dag: &mut WorkflowDag, atom_reg: &AtomRegi
         // the thing it validates — e.g. `validate_final_reporting`
         // independently cross-checks `final_reporting`'s aggregated
         // numbers against the same upstream stage outputs
-        // `final_reporting` itself reads (RCA I-1). Only propagate to
-        // an AUTHORED validator when it didn't already declare its own
-        // (an authored atom's own facet wins); a synthesized validator
-        // never carries one of its own, so this is always additive there.
+        // `final_reporting` itself reads (RCA I-1). This holds for EVERY
+        // validator, not only those whose stage declared a broad scope: a
+        // validator re-reads the upstream outputs its stage consumed to
+        // verify the transformation (e.g. `validate_normalisation`
+        // re-reads `data_acquisition`'s counts), and those re-reads are
+        // NOT declared edges of the validator — even though the validated
+        // stage itself needs no allowance because ITS upstream reads ARE
+        // declared edges. So unless the validator already carries its own
+        // (an authored atom's own facet wins), grant it the scope: prefer
+        // the validated stage's declared allowance (preserving its
+        // rationale), else synthesize the default `AnyUpstreamStage`.
+        // Without this, the validator's cross-stage re-reads surface as
+        // genuine observed-read divergences and block the deposit (§G-B2).
         if !validator_node.attributes.contains_key("read_allowance") {
-            if let Some(allowance) = node.attributes.get("read_allowance") {
-                validator_node
-                    .attributes
-                    .insert("read_allowance".into(), allowance.clone());
-            }
+            let allowance = node
+                .attributes
+                .get("read_allowance")
+                .cloned()
+                .unwrap_or_else(|| {
+                    serde_json::to_value(vec![crate::atom::ReadAllowance {
+                        scope: crate::atom::ReadAllowanceScope::AnyUpstreamStage,
+                        rationale: format!(
+                            "Synthesized validator independently cross-checks {}'s outputs \
+                             against the upstream stage outputs it consumed; re-reading any \
+                             upstream stage is intrinsic to validation.",
+                            node.id
+                        ),
+                    }])
+                    .unwrap_or(serde_json::Value::Null)
+                });
+            validator_node
+                .attributes
+                .insert("read_allowance".into(), allowance);
         }
 
         // Wire the validator as a downstream consumer of the producer
@@ -368,6 +391,49 @@ mod tests {
         );
         assert_eq!(dag.edges[0].from_node, "differential_expression");
         assert_eq!(dag.edges[0].to_node, "validate_differential_expression");
+    }
+
+    /// Regression (§G-B2 deposit gate): a synthesized validator MUST carry an
+    /// `AnyUpstreamStage` read-allowance even when the validated stage declares
+    /// NONE. A validator re-reads the upstream outputs its stage consumed to
+    /// cross-check the transformation (e.g. `validate_normalisation` re-reads
+    /// `data_acquisition`'s counts), and those re-reads are not declared edges of
+    /// the validator — while the stage itself needs no allowance (its upstream
+    /// reads ARE declared edges). Without the validator's allowance those
+    /// re-reads are recorded as GENUINE observed-read divergences and flip
+    /// `deposit_ready` to false.
+    #[test]
+    fn synthesized_validator_gets_upstream_read_allowance_when_stage_declares_none() {
+        let mut dag = dummy_dag_with_node("normalisation", crate::atom::AtomRole::Operation);
+        // Precondition: the validated stage declares NO read_allowance.
+        assert!(
+            !dag.nodes[0].attributes.contains_key("read_allowance"),
+            "precondition: validated stage must declare no allowance to inherit"
+        );
+
+        let reg = AtomRegistry::default();
+        synthesize_validate_companions(&mut dag, &reg);
+
+        let validator = dag
+            .nodes
+            .iter()
+            .find(|n| n.id == "validate_normalisation")
+            .expect("validator must be synthesized");
+        let raw = validator.attributes.get("read_allowance").expect(
+            "validator must carry a read_allowance even though its stage declares none",
+        );
+        let parsed: Vec<crate::atom::ReadAllowance> =
+            serde_json::from_value(raw.clone()).expect("read_allowance deserializes");
+        assert!(
+            parsed
+                .iter()
+                .any(|a| a.scope == crate::atom::ReadAllowanceScope::AnyUpstreamStage),
+            "validator allowance must include AnyUpstreamStage: {parsed:?}"
+        );
+        assert!(
+            parsed.iter().all(|a| !a.rationale.is_empty()),
+            "each sanctioned-read allowance must carry a rationale"
+        );
     }
 
     /// Validation atoms do NOT get a companion.
