@@ -1999,6 +1999,18 @@ static EXTREME_PVAL_COL_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r"(?i)\b(padj|p[\s_-]?adj|fdr|q[\s_-]?value|qvalue|p[\s_-]?value|pvalue)\b")
         .expect("static regex")
 });
+/// Direction-of-regulation cues that mark the argMIN of a SIGNED effect column
+/// (a down-regulated / most-negative extreme).
+static EXTREME_DOWN_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"(?i)(down[\s-]?regulat|most[\s-]?negative|largest[\s-]?negative)")
+        .expect("static regex")
+});
+/// Direction-of-regulation cues that mark the argMAX of a SIGNED effect column
+/// (an up-regulated / most-positive extreme).
+static EXTREME_UP_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"(?i)(up[\s-]?regulat|most[\s-]?positive|largest[\s-]?positive)")
+        .expect("static regex")
+});
 
 /// A3 — verify an ordinal/superlative EXTREME claim ("the strongest enrichment
 /// by NES", "the most-downregulated gene by log2FC", "TP53 had the lowest
@@ -2046,26 +2058,41 @@ fn verify_extreme_value(
     // present) → abstain.
     let has_max = EXTREME_MAX_RE.is_match(excerpt);
     let has_min = EXTREME_MIN_RE.is_match(excerpt);
-    let kind = match (has_max, has_min) {
-        (true, false) => {
-            if over_pvalue {
-                ExtremeKind::Min
-            } else {
-                ExtremeKind::Max
+    // Direction-of-regulation cues over a SIGNED effect column disambiguate the
+    // extreme even when a generic superlative ("top") is also present: "top
+    // down-regulated / most negative" is an argMIN, "top up-regulated / most
+    // positive" an argMAX. Without this the word "top" (a max-word) forced an
+    // argmax reading of a down-regulation claim and false-Mismatched the true
+    // argmin gene (himes rerun audit 2026-07-21). The cue only governs a signed
+    // effect column, never a p-value column (whose extreme has no up/down sense).
+    let down_dir = !over_pvalue && EXTREME_DOWN_RE.is_match(excerpt);
+    let up_dir = !over_pvalue && EXTREME_UP_RE.is_match(excerpt);
+    let kind = if down_dir && !up_dir {
+        ExtremeKind::Min
+    } else if up_dir && !down_dir {
+        ExtremeKind::Max
+    } else {
+        match (has_max, has_min) {
+            (true, false) => {
+                if over_pvalue {
+                    ExtremeKind::Min
+                } else {
+                    ExtremeKind::Max
+                }
             }
-        }
-        (false, true) => {
-            if over_pvalue {
-                // "lowest p" is already the smallest; no inversion.
-                ExtremeKind::Min
-            } else {
-                ExtremeKind::Min
+            (false, true) => {
+                if over_pvalue {
+                    // "lowest p" is already the smallest; no inversion.
+                    ExtremeKind::Min
+                } else {
+                    ExtremeKind::Min
+                }
             }
-        }
-        _ => {
-            return ClaimStatus::Unverifiable {
-                reason: "extreme-value claim names no unambiguous superlative — cannot determine argmax/argmin".into(),
-            };
+            _ => {
+                return ClaimStatus::Unverifiable {
+                    reason: "extreme-value claim names no unambiguous superlative — cannot determine argmax/argmin".into(),
+                };
+            }
         }
     };
 
@@ -5607,6 +5634,66 @@ mod tests {
             matches!(report2.verdicts[0].status, ClaimStatus::Mismatch { .. }),
             "entity that is NOT the argmin must Mismatch, got {:?}",
             report2.verdicts[0].status
+        );
+    }
+
+    #[test]
+    fn a3_top_downregulated_most_negative_is_argmin_not_argmax() {
+        // Regression (himes rerun audit 2026-07-21): a report line
+        // "Top down-regulated gene (most negative log2FC ...): GENE" is an
+        // ARGMIN claim over a signed effect column. The generic superlative
+        // "Top" must NOT force an argmax reading — the down-regulation /
+        // most-negative direction cue governs. Before the fix, "Top" matched
+        // the max-word regex and "most negative" matched no min-word, so the
+        // verifier checked the argMAX and the true argmin gene false-Mismatched.
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_table(
+            tmp.path(),
+            "de_results.tsv",
+            "gene\tlog2FC\tpadj\nGUP\t5.0\t0.001\nGDOWN\t-4.8\t0.002\nGMID\t-1.0\t0.01\n",
+        );
+        // GDOWN is the argmin of log2FC → the true top down-regulated gene.
+        let down = Claim {
+            entity: "GDOWN".into(),
+            direction: None,
+            effect_size: None,
+            pvalue: None,
+            source_table: Some("de_results.tsv".into()),
+            excerpt: "Top down-regulated gene (most negative log2FC among significant genes): GDOWN"
+                .into(),
+            contract: ClaimContract::ExtremeValue,
+            literature_evidence: None,
+            matched_pvalue_keyword: None,
+            linear_fold: None,
+            aggregate_kind: None,
+            aggregate_column: None,
+            aggregate_rowset: None,
+            aggregate_value: None,
+            collection: None,
+            term: None,
+            keyed_column: None,
+            keyed_value: None,
+        };
+        let report = verify_claims(std::slice::from_ref(&down), tmp.path(), &cfg);
+        assert!(
+            matches!(report.verdicts[0].status, ClaimStatus::Verified),
+            "the true argmin named as 'top down-regulated (most negative)' must Verify, got {:?}",
+            report.verdicts[0].status
+        );
+        // Guard the symmetric case: top up-regulated (largest positive) still
+        // resolves to argmax and verifies GUP.
+        let up = Claim {
+            entity: "GUP".into(),
+            excerpt: "Top up-regulated gene (largest positive log2FC among significant genes): GUP"
+                .into(),
+            ..down.clone()
+        };
+        let up_report = verify_claims(std::slice::from_ref(&up), tmp.path(), &cfg);
+        assert!(
+            matches!(up_report.verdicts[0].status, ClaimStatus::Verified),
+            "top up-regulated (largest positive) must still Verify, got {:?}",
+            up_report.verdicts[0].status
         );
     }
 
