@@ -595,6 +595,7 @@ mod tests {
             entity_column: "entity".into(),
             significance: None,
             signed_effect_column: None,
+            signed_effect_aliases: Vec::new(),
             grouping_column: None,
         });
         atom.interpretation_exempt_from_word_budget = true;

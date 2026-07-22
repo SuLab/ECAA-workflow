@@ -162,6 +162,7 @@ mod tests {
                 comparator: Comparator::Lt,
             }),
             signed_effect_column: Some("log2FoldChange".into()),
+            signed_effect_aliases: Vec::new(),
             grouping_column: None,
         }
     }

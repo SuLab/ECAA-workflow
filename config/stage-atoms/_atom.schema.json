@@ -434,6 +434,7 @@
           }
         },
         "signed_effect_column": {"type": "string"},
+        "signed_effect_aliases": {"type": "array", "items": {"type": "string"}},
         "grouping_column": {"type": "string"}
       }
     },

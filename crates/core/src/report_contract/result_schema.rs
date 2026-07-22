@@ -23,6 +23,14 @@ pub struct ResultSchema {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub signed_effect_column: Option<String>,
+    /// Additional accepted header names for the signed-effect column (e.g. a
+    /// DESeq2-native name + its ECAA-canonical alias): resolution tries
+    /// `signed_effect_column` then each alias, in order. Data-driven — the
+    /// candidate names live in the atom's declaration, never hardcoded in the
+    /// assembler. Empty (the default) means only `signed_effect_column` is
+    /// accepted.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub signed_effect_aliases: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub grouping_column: Option<String>,
@@ -90,5 +98,19 @@ signed_effect_column: log2FoldChange
         let s: super::ResultSchema = serde_yaml_ng::from_str(y).unwrap();
         assert!(s.signed_effect_column.is_none());
         assert!(s.significance.is_none());
+        assert!(s.signed_effect_aliases.is_empty());
+    }
+
+    #[test]
+    fn parses_signed_effect_aliases_from_yaml() {
+        let y = r#"
+artifact: de_results.tsv
+entity_column: gene
+signed_effect_column: log2FoldChange
+signed_effect_aliases: [log2FC, logFC]
+"#;
+        let s: super::ResultSchema = serde_yaml_ng::from_str(y).unwrap();
+        assert_eq!(s.signed_effect_column.as_deref(), Some("log2FoldChange"));
+        assert_eq!(s.signed_effect_aliases, vec!["log2FC", "logFC"]);
     }
 }

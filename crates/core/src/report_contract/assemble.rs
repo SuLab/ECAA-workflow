@@ -127,6 +127,7 @@ pub fn assemble_report_data(
             n_significant: stats.n_significant,
             direction_split: stats.direction_split,
             effect_distribution: stats.effect_distribution,
+            grouped_significant: stats.grouped_significant,
             significant_entities: entities,
             significant_table_path: format!("runtime/outputs/{stage_id}/{sig_rel}"),
             full_table_path: format!("runtime/outputs/{stage_id}/{full_rel}"),
@@ -176,6 +177,7 @@ mod tests {
                 comparator: Comparator::Lt,
             }),
             signed_effect_column: Some("log2FoldChange".into()),
+            signed_effect_aliases: Vec::new(),
             grouping_column: None,
         }
     }
@@ -286,5 +288,57 @@ mod tests {
             .join("reporting")
             .join("report-data.json");
         assert!(report_json_path.exists(), "report-data.json is always written");
+    }
+
+    #[test]
+    fn threads_grouped_significant_onto_summary_when_grouping_declared() {
+        let tmp = tempfile::tempdir().unwrap();
+        let outputs = tmp.path().join("runtime").join("outputs");
+        let pe = outputs.join("pathway_enrichment");
+        std::fs::create_dir_all(&pe).unwrap();
+        std::fs::write(
+            pe.join("pathway_results.tsv"),
+            "pathway\tcollection\tpadj\n\
+             P1\tHALLMARK\t0.01\n\
+             P2\tGO_BP\t0.001\n\
+             P3\tGO_BP\t0.02\n\
+             P4\tKEGG\t0.9\n",
+        )
+        .unwrap();
+
+        let schema = ResultSchema {
+            artifact: "pathway_results.tsv".into(),
+            entity_column: "pathway".into(),
+            significance: Some(Significance {
+                column: "padj".into(),
+                threshold: 0.05,
+                comparator: Comparator::Lt,
+            }),
+            signed_effect_column: None,
+            signed_effect_aliases: Vec::new(),
+            grouping_column: Some("collection".into()),
+        };
+        let mut schemas = BTreeMap::new();
+        schemas.insert("pathway_enrichment".to_string(), schema);
+
+        let clock = FrozenClock::default();
+        let report = assemble_report_data(tmp.path(), &schemas, &clock).unwrap();
+        let grouped = report.artifacts[0]
+            .grouped_significant
+            .as_ref()
+            .expect("grouping_column resolved → grouped_significant present");
+        assert_eq!(
+            grouped,
+            &vec![
+                crate::report_contract::report_data::GroupCount {
+                    group: "GO_BP".into(),
+                    n_significant: 2
+                },
+                crate::report_contract::report_data::GroupCount {
+                    group: "HALLMARK".into(),
+                    n_significant: 1
+                },
+            ]
+        );
     }
 }

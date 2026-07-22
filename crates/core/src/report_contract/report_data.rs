@@ -35,6 +35,11 @@ pub struct ResultArtifactSummary {
     /// `Some` iff `ResultSchema::signed_effect_column` was declared and resolved.
     pub direction_split: Option<DirectionSplit>,
     pub effect_distribution: Option<Vec<DistBin>>,
+    /// Per-group significant breakdown — `Some` iff `ResultSchema::grouping_column`
+    /// was declared and resolved against the header (e.g. one entry per
+    /// pathway `collection`). Sorted by group name for determinism.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grouped_significant: Option<Vec<GroupCount>>,
     /// The ENTIRE significant set (or all rows if no significance declared).
     pub significant_entities: Vec<EntityRow>,
     /// Supplementary attachment (rel path).
@@ -49,6 +54,15 @@ pub struct ResultArtifactSummary {
 pub struct DirectionSplit {
     pub up: u64,
     pub down: u64,
+}
+
+/// The count of significant rows in one group of a `grouping_column`-declared
+/// artifact (e.g. one pathway `collection`). Agent-facing JSON only — no
+/// ts-rs derive, consistent with the other report_data types.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GroupCount {
+    pub group: String,
+    pub n_significant: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -115,6 +129,9 @@ pub struct ArtifactStats {
     pub n_significant: Option<u64>,
     pub direction_split: Option<DirectionSplit>,
     pub effect_distribution: Option<Vec<DistBin>>,
+    /// Per-group significant counts when the schema declares a
+    /// `grouping_column` that resolves against the header; `None` otherwise.
+    pub grouped_significant: Option<Vec<GroupCount>>,
     /// Indices into `rows` of the significant rows (or all rows when the
     /// schema declares no `significance`).
     pub significant_row_indices: Vec<usize>,
@@ -137,6 +154,20 @@ pub fn should_spill(significant_count: usize) -> bool {
 /// schema's column names are matched exactly against the parsed header row.
 fn resolve_column(headers: &csv::StringRecord, name: &str) -> Option<usize> {
     headers.iter().position(|h| h == name)
+}
+
+/// Resolves the signed-effect column index, trying the schema's declared
+/// `signed_effect_column` first and then each `signed_effect_aliases` entry,
+/// in order — the first candidate that resolves against the header wins.
+/// Every candidate name comes from the atom's schema declaration; this
+/// function never hardcodes an alias. `None` when no declared candidate
+/// resolves (there is no silent fallback beyond the declared names).
+fn resolve_effect_column(headers: &csv::StringRecord, schema: &ResultSchema) -> Option<usize> {
+    schema
+        .signed_effect_column
+        .iter()
+        .chain(schema.signed_effect_aliases.iter())
+        .find_map(|name| resolve_column(headers, name))
 }
 
 /// Parses a row's value at `idx` as a finite `f64`, excluding NA/blank/
@@ -173,9 +204,10 @@ pub fn summarize_artifact(
 ) -> ArtifactStats {
     let n_total = rows.len() as u64;
 
-    // Resolved by the schema's declared name only — the atom declaration is
-    // the sole source of truth for the column name, never a hardcoded alias.
-    let effect_idx = schema.signed_effect_column.as_deref().and_then(|name| resolve_column(headers, name));
+    // Resolved by the schema's declared name (then its declared aliases) only
+    // — the atom declaration is the sole source of truth for the column
+    // name(s); this never hardcodes an alias.
+    let effect_idx = resolve_effect_column(headers, schema);
 
     // Distinguishes three states: no significance declared (every row
     // counts, `n_significant` stays `None`); declared and resolved (normal
@@ -244,11 +276,39 @@ pub fn summarize_artifact(
         })
         .flatten();
 
+    // Per-group breakdown of the significant set, when the schema declares a
+    // grouping column that resolves against the header. Skipped when
+    // significance was declared-but-unresolvable (nothing was assessed, so an
+    // empty breakdown would read misleadingly as "no group has any"). The
+    // group value comes from the declared column — never a hardcoded name.
+    // BTreeMap → sorted Vec keeps the output deterministic.
+    let grouped_significant = (!significance_unresolvable)
+        .then(|| {
+            schema
+                .grouping_column
+                .as_deref()
+                .and_then(|name| resolve_column(headers, name))
+                .map(|gidx| {
+                    let mut counts: BTreeMap<String, u64> = BTreeMap::new();
+                    for &i in &significant_row_indices {
+                        if let Some(group) = rows[i].get(gidx) {
+                            *counts.entry(group.to_string()).or_insert(0) += 1;
+                        }
+                    }
+                    counts
+                        .into_iter()
+                        .map(|(group, n_significant)| GroupCount { group, n_significant })
+                        .collect::<Vec<_>>()
+                })
+        })
+        .flatten();
+
     ArtifactStats {
         n_total,
         n_significant,
         direction_split,
         effect_distribution,
+        grouped_significant,
         significant_row_indices,
     }
 }
@@ -313,10 +373,7 @@ pub(crate) fn build_entity_rows(
     let Some(entity_idx) = resolve_column(headers, &schema.entity_column) else {
         return Vec::new();
     };
-    let effect_idx = schema
-        .signed_effect_column
-        .as_deref()
-        .and_then(|name| resolve_column(headers, name));
+    let effect_idx = resolve_effect_column(headers, schema);
     let significance_idx = schema
         .significance
         .as_ref()
@@ -576,6 +633,7 @@ mod tests {
                 comparator: Comparator::Lt,
             }),
             signed_effect_column: Some("log2FoldChange".into()),
+            signed_effect_aliases: Vec::new(),
             grouping_column: None,
         }
     }
@@ -609,6 +667,7 @@ mod tests {
                 comparator: Comparator::Gt,
             }),
             signed_effect_column: None,
+            signed_effect_aliases: Vec::new(),
             grouping_column: None,
         };
         let s = summarize_artifact(&rows, &hdr, &schema);
@@ -627,6 +686,7 @@ mod tests {
             entity_column: "gene".into(),
             significance: None,
             signed_effect_column: Some("log2FoldChange".into()),
+            signed_effect_aliases: Vec::new(),
             grouping_column: None,
         };
         let s = summarize_artifact(&rows, &hdr, &schema);
@@ -639,17 +699,95 @@ mod tests {
     }
 
     #[test]
+    fn alias_resolves_signed_effect_column_when_declared_name_absent() {
+        // The table emits the ECAA-canonical `log2FC` header; the schema
+        // declares the DESeq2-native `log2FoldChange` as the primary name
+        // plus `log2FC` as an accepted alias. Resolution falls through to the
+        // alias — data-driven, from the schema, no hardcoded alias list here.
+        // This is the inverse of the negative test below.
+        let (hdr, rows) =
+            tsv("gene\tlog2FC\tpadj\nGUP\t5\t0.001\nGDOWN\t-4.8\t0.002\nNS\t0.1\t0.9");
+        let mut schema = de_schema();
+        schema.signed_effect_aliases = vec!["log2FC".into()];
+        let s = summarize_artifact(&rows, &hdr, &schema);
+        assert_eq!(s.n_significant, Some(2));
+        assert_eq!(s.direction_split, Some(DirectionSplit { up: 1, down: 1 }));
+        let dist = s.effect_distribution.expect("aliased effect column resolved");
+        assert_eq!(dist.iter().map(|b| b.count).sum::<u64>(), 2);
+    }
+
+    #[test]
     fn declared_effect_column_absent_yields_no_direction_split() {
-        // Schema-only resolution (no hardcoded aliases): the schema declares
-        // `log2FoldChange` but this table only has `log2FC`, so the effect
-        // column does not resolve → no direction split / distribution.
-        // Significance still computed off the resolvable `padj` column.
-        let (hdr, rows) = tsv("gene\tlog2FC\tpadj\nA\t3\t0.01\n");
-        let schema = de_schema();
+        // Schema-only resolution: the schema declares `log2FoldChange` plus
+        // the alias `log2FC`, but this table's effect column is named neither
+        // (`log2ratio`), so NO declared candidate resolves → no direction
+        // split / distribution. Proves resolution never falls back beyond the
+        // declared candidates (no silent fallback). Significance still
+        // computed off the resolvable `padj` column.
+        let (hdr, rows) = tsv("gene\tlog2ratio\tpadj\nA\t3\t0.01\n");
+        let mut schema = de_schema();
+        schema.signed_effect_aliases = vec!["log2FC".into()];
         let s = summarize_artifact(&rows, &hdr, &schema);
         assert_eq!(s.n_significant, Some(1));
         assert_eq!(s.direction_split, None);
         assert_eq!(s.effect_distribution, None);
+    }
+
+    #[test]
+    fn grouping_column_yields_per_group_significant_counts() {
+        // Pathway-shaped: `collection` groups the rows. padj<0.05 filters to
+        // the significant set (2 HALLMARK + 1 GO_BP), then per-collection
+        // counts are tallied in sorted (BTreeMap) order. KEGG's only row is
+        // non-significant, so it never appears in the breakdown.
+        let (hdr, rows) = tsv(
+            "pathway\tcollection\tpadj\n\
+             P1\tHALLMARK\t0.01\n\
+             P2\tHALLMARK\t0.02\n\
+             P3\tGO_BP\t0.001\n\
+             P4\tGO_BP\t0.9\n\
+             P5\tKEGG\t0.9",
+        );
+        let schema = ResultSchema {
+            artifact: "pathway_results.tsv".into(),
+            entity_column: "pathway".into(),
+            significance: Some(Significance {
+                column: "padj".into(),
+                threshold: 0.05,
+                comparator: Comparator::Lt,
+            }),
+            signed_effect_column: None,
+            signed_effect_aliases: Vec::new(),
+            grouping_column: Some("collection".into()),
+        };
+        let s = summarize_artifact(&rows, &hdr, &schema);
+        assert_eq!(s.n_significant, Some(3));
+        let grouped = s.grouped_significant.expect("grouping column resolved");
+        assert_eq!(
+            grouped,
+            vec![
+                GroupCount { group: "GO_BP".into(), n_significant: 1 },
+                GroupCount { group: "HALLMARK".into(), n_significant: 2 },
+            ]
+        );
+    }
+
+    #[test]
+    fn no_grouping_column_yields_none_grouped_significant() {
+        let (hdr, rows) = tsv("gene\tlog2FoldChange\tpadj\nA\t1\t0.01\nB\t-2\t0.02");
+        // de_schema declares no grouping_column.
+        let s = summarize_artifact(&rows, &hdr, &de_schema());
+        assert_eq!(s.grouped_significant, None);
+    }
+
+    #[test]
+    fn unresolved_grouping_column_yields_none_grouped_significant() {
+        // grouping_column declared but absent from the header → None (not an
+        // empty breakdown).
+        let (hdr, rows) = tsv("gene\tlog2FoldChange\tpadj\nA\t1\t0.01");
+        let mut schema = de_schema();
+        schema.grouping_column = Some("collection".into());
+        let s = summarize_artifact(&rows, &hdr, &schema);
+        assert_eq!(s.grouped_significant, None);
     }
 
     #[test]
