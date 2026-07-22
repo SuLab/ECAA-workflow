@@ -415,6 +415,38 @@
         }
       }
     },
+    "result_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact", "entity_column"],
+      "description": "Declares how this terminal atom's primary result artifact is read by the report-data assembler + reporting invariants. Present only on result-producing atoms.",
+      "properties": {
+        "artifact": {"type": "string"},
+        "entity_column": {"type": "string"},
+        "significance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["column", "threshold", "comparator"],
+          "properties": {
+            "column": {"type": "string"},
+            "threshold": {"type": "number"},
+            "comparator": {"enum": ["lt", "gt"]}
+          }
+        },
+        "signed_effect_column": {"type": "string"},
+        "grouping_column": {"type": "string"}
+      }
+    },
+    "required_report_sections": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Report sections (by id) this atom's narrative must cover when the reporting/final_reporting agent composes its output."
+    },
+    "required_tables": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Supplementary table ids this atom's narrative must reference or attach when composing its report."
+    },
     "validators": {
       "type": "array",
       "items": {

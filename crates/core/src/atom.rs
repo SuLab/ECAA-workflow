@@ -275,6 +275,24 @@ pub struct AtomDefinition {
     #[ts(type = "Array<{ path: string; min_size_bytes?: number; schema_ref?: string }>")]
     pub required_artifacts: Vec<crate::taxonomy::RequiredArtifactSpec>,
 
+    /// Declares how this terminal atom's primary result artifact is read
+    /// by the report-data assembler + reporting invariants. Present only
+    /// on result-producing atoms; absent atoms contribute no
+    /// Primary-Results block to the assembled report.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub result_schema: Option<crate::report_contract::ResultSchema>,
+
+    /// Report-section ids this atom's narrative must cover when the
+    /// reporting/final_reporting agent composes its output.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub required_report_sections: Vec<String>,
+
+    /// Supplementary table ids this atom's narrative must reference or
+    /// attach when composing its report.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub required_tables: Vec<String>,
+
     /// Validation-obligation ids that the harness
     /// runs against this atom's artifacts after task completion.
     /// Each id resolves against the runner registry
@@ -569,6 +587,9 @@ impl AtomDefinition {
             figure_exempt: None,
             expected_artifacts: Vec::new(),
             required_artifacts: Vec::new(),
+            result_schema: None,
+            required_report_sections: Vec::new(),
+            required_tables: Vec::new(),
             validators: Vec::new(),
             runtime_packages: crate::runtime_prereqs::RuntimePrereqs::default(),
             parameters: Vec::new(),
@@ -1399,6 +1420,42 @@ input_groups:
         assert!(bare.input_groups.is_empty());
     }
 
+    #[test]
+    fn atom_with_result_schema_parses_and_is_some() {
+        let yaml = r#"
+id: differential_expression
+version: "1.0.0"
+role: operation
+description: "test"
+edam_operation: "operation:0292"
+assignee: agent
+result_schema:
+  artifact: de_results.tsv
+  entity_column: gene
+  significance: { column: padj, threshold: 0.05, comparator: lt }
+  signed_effect_column: log2FoldChange
+"#;
+        let a: AtomDefinition = serde_yaml_ng::from_str(yaml).unwrap();
+        assert!(a.result_schema.is_some());
+        let rs = a.result_schema.unwrap();
+        assert_eq!(rs.artifact, "de_results.tsv");
+        assert_eq!(rs.entity_column, "gene");
+    }
+
+    #[test]
+    fn atom_without_result_schema_is_none() {
+        let yaml = r#"
+id: variant_calling
+version: "1.0.0"
+role: operation
+description: "test"
+edam_operation: "operation:0292"
+assignee: agent
+"#;
+        let a: AtomDefinition = serde_yaml_ng::from_str(yaml).unwrap();
+        assert!(a.result_schema.is_none());
+    }
+
     // Extended attribute-type classification + edge
     // satisfaction tests. The composer's attribute-resolution pass
     // (S7.4) exercises these on every depends_on edge; coverage
@@ -1554,6 +1611,9 @@ input_groups:
             figure_exempt: None,
             expected_artifacts: vec![],
             required_artifacts: vec![],
+            result_schema: None,
+            required_report_sections: vec![],
+            required_tables: vec![],
             validators: vec![],
             runtime_packages: Default::default(),
             parameters: Vec::new(),
@@ -1605,6 +1665,9 @@ input_groups:
             figure_exempt: None,
             expected_artifacts: vec![],
             required_artifacts: vec![],
+            result_schema: None,
+            required_report_sections: vec![],
+            required_tables: vec![],
             validators: vec![],
             runtime_packages: Default::default(),
             parameters: Vec::new(),
@@ -1660,6 +1723,9 @@ input_groups:
             figure_exempt: None,
             expected_artifacts: vec![],
             required_artifacts: vec![],
+            result_schema: None,
+            required_report_sections: vec![],
+            required_tables: vec![],
             validators: vec![],
             runtime_packages: Default::default(),
             parameters: Vec::new(),
@@ -1789,6 +1855,9 @@ input_groups:
             figure_exempt: None,
             expected_artifacts: vec![],
             required_artifacts: vec![],
+            result_schema: None,
+            required_report_sections: vec![],
+            required_tables: vec![],
             validators: vec![],
             runtime_packages: Default::default(),
             parameters: Vec::new(),

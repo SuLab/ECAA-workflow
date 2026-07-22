@@ -521,6 +521,17 @@ fn lower_task(node: &TaskNode, depends_on: Vec<TaskId>) -> Result<Task, EmitErro
     if let Some(ea) = node.attributes.get("expected_artifacts") {
         spec_map.insert("expected_artifacts".into(), ea.clone());
     }
+    // Report-contract obligations: which report sections + supplementary
+    // tables this atom's narrative must cover. Mirrors `required_figures` —
+    // an allowlisted pass-through so the reporting/final_reporting agent's
+    // prompt contract (scripts/agent-prompts/task-execution.md) can bind
+    // against `spec.required_report_sections` / `spec.required_tables`.
+    if let Some(rrs) = node.attributes.get("required_report_sections") {
+        spec_map.insert("required_report_sections".into(), rrs.clone());
+    }
+    if let Some(rt) = node.attributes.get("required_tables") {
+        spec_map.insert("required_tables".into(), rt.clone());
+    }
     // `required_input_stage` is the resolved composed-DAG entry-point EDAM IRI
     // stamped onto the `data_acquisition` staging anchor by
     // `composer_v4::planner::stamp_required_input_stage`. Folding it into the
