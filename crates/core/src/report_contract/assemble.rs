@@ -250,11 +250,13 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&sig_table).unwrap().lines().count(), 3);
         assert_eq!(std::fs::read_to_string(&full_table).unwrap().lines().count(), 4);
 
-        // Literature tags applied: ENSG1 → Concordant (same_direction),
-        // ENSG2 → Novel (no_prior_finding).
+        // Rollup built from the matrix rows: 1 same_direction (entity GONE) +
+        // 1 no_prior_finding (novel).
         let lit = report.literature.as_ref().expect("contextualize dir present");
         assert_eq!(lit.concordant.len(), 1);
-        assert_eq!(lit.concordant[0].entity, "ENSG1");
+        // LitFinding.entity is the matrix's `entity` column, not the report-data
+        // row identifier (which matched by finding_id).
+        assert_eq!(lit.concordant[0].entity, "GONE");
         assert_eq!(lit.novel_count, 1);
 
         let by_entity: BTreeMap<_, _> = artifact

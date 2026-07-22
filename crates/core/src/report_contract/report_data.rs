@@ -410,10 +410,12 @@ pub(crate) fn build_entity_rows(
         .collect()
 }
 
-/// One `claims_evidence_matrix.csv` row, keyed by both `finding_id` and
-/// `entity` (see [`join_literature`]).
+/// One `claims_evidence_matrix.csv` row. Retained in file order to build the
+/// authoritative literature rollup, and also indexed by both `finding_id` and
+/// `entity` for per-`EntityRow` tagging (see [`join_literature`]).
 #[derive(Debug, Clone)]
 struct MatrixRow {
+    entity: String,
     concordance_flag: String,
     pmid: String,
     effect: Option<f64>,
@@ -486,15 +488,26 @@ fn json_as_f64(v: &serde_json::Value) -> Option<f64> {
 }
 
 /// Joins the reporting significant set against the contextualize stage's
-/// literature outputs. Mutates each `EntityRow.literature` in place by
-/// matching on `finding_id` OR `entity` from `claims_matrix_csv`
-/// (`same_direction`→`Concordant`, `opposite_direction`→`Discordant`,
-/// `unverifiable`→`Unverifiable`, `no_prior_finding` or no matrix row at
-/// all→`Novel`). Returns the rollup: per-status `LitFinding` lists, the
-/// non-replication list built from `contextualize_result_json`'s
-/// `excluded_nonsig`, `novel_count`, and the union of every PMID touched
-/// (matrix-referenced ∪ non-replication PMIDs ∪ `result.json`'s
-/// `cited_pmids`), sorted.
+/// literature outputs.
+///
+/// The returned rollup is built from the `claims_matrix_csv` ROWS directly —
+/// the matrix already carries the authoritative per-finding
+/// `concordance_flag`, so the counts are independent of which report-data
+/// entities happen to have populated. Every matrix row is bucketed by its
+/// flag (`same_direction`→concordant, `opposite_direction`→discordant,
+/// `unverifiable`→unverifiable, `no_prior_finding` or any other/empty flag
+/// →`novel_count`). `non_replications` come from `contextualize_result_json`'s
+/// `excluded_nonsig`; `retrieved_sources` is the union of every matrix
+/// `prior_pmid` ∪ non-replication PMIDs ∪ `result.json`'s `cited_pmids`,
+/// sorted.
+///
+/// SEPARATELY, each `EntityRow.literature` is tagged in place by matching the
+/// entity (on `finding_id` OR `entity`) to a matrix row — the same flag→status
+/// mapping, but this per-entity tagging NEVER drives the rollup counts. An
+/// entity that matches no matrix row stays `NotAssessed` (it is NOT counted as
+/// novel — novel comes only from the matrix's `no_prior_finding` rows), so
+/// entities from a different modality (e.g. pathways against a gene-keyed
+/// matrix) cannot pollute the rollup.
 ///
 /// When `claims_matrix_csv` doesn't exist (or fails to parse), every
 /// entity is marked `NotAssessed` and an empty rollup is returned —
@@ -535,15 +548,25 @@ pub fn join_literature(
     let entity_idx = resolve_column(&headers, "entity");
     let flag_idx = resolve_column(&headers, "concordance_flag");
     let pmid_idx = resolve_column(&headers, "prior_pmid");
-    let lfc_idx = resolve_column(&headers, "lfc");
+    // The contextualize atom's effect column name varies across runs
+    // (`lfc` / `log2FoldChange` / `logFC`); try the known variants in order.
+    // Local to this matrix reader — the atom's output is fixed-ish, so a small
+    // candidate list tolerates its known column-name drift.
+    let effect_idx = ["lfc", "log2FoldChange", "logFC"]
+        .iter()
+        .find_map(|name| resolve_column(&headers, name));
     let quote_idx = resolve_column(&headers, "evidence_quote");
 
+    // File-order list of every matrix row (drives the authoritative rollup)
+    // plus a finding_id/entity → row index for per-EntityRow tagging.
+    let mut matrix_rows: Vec<MatrixRow> = Vec::new();
     let mut by_key: BTreeMap<String, MatrixRow> = BTreeMap::new();
     for rec in reader.records().flatten() {
         let row = MatrixRow {
+            entity: entity_idx.and_then(|i| rec.get(i)).unwrap_or("").to_string(),
             concordance_flag: flag_idx.and_then(|i| rec.get(i)).unwrap_or("").to_string(),
             pmid: pmid_idx.and_then(|i| rec.get(i)).unwrap_or("").to_string(),
-            effect: lfc_idx
+            effect: effect_idx
                 .and_then(|i| rec.get(i))
                 .and_then(|s| s.trim().parse::<f64>().ok()),
             evidence_quote: quote_idx.and_then(|i| rec.get(i)).unwrap_or("").to_string(),
@@ -554,49 +577,58 @@ pub fn join_literature(
         if let Some(ent) = entity_idx.and_then(|i| rec.get(i)).filter(|s| !s.is_empty()) {
             by_key.insert(ent.to_string(), row.clone());
         }
+        matrix_rows.push(row);
     }
 
+    // Rollup built from the matrix rows themselves — authoritative and
+    // independent of which report-data entities populated.
     let mut concordant = Vec::new();
     let mut discordant = Vec::new();
     let mut unverifiable = Vec::new();
     let mut novel_count = 0u64;
     let mut sources: BTreeSet<String> = BTreeSet::new();
 
-    for e in sig_entities.iter_mut() {
-        let Some(row) = by_key.get(&e.entity) else {
-            e.literature = LiteratureStatus::Novel;
-            novel_count += 1;
-            continue;
-        };
+    for row in &matrix_rows {
         if !row.pmid.is_empty() {
             sources.insert(row.pmid.clone());
         }
-        let finding = LitFinding {
-            entity: e.entity.clone(),
+        let finding = || LitFinding {
+            entity: row.entity.clone(),
             pmid: row.pmid.clone(),
             evidence_quote: row.evidence_quote.clone(),
             effect: row.effect,
         };
         match row.concordance_flag.as_str() {
-            "same_direction" => {
-                e.literature = LiteratureStatus::Concordant { pmid: row.pmid.clone() };
-                concordant.push(finding);
-            }
-            "opposite_direction" => {
-                e.literature = LiteratureStatus::Discordant { pmid: row.pmid.clone() };
-                discordant.push(finding);
-            }
-            "unverifiable" => {
-                e.literature = LiteratureStatus::Unverifiable { pmid: row.pmid.clone() };
-                unverifiable.push(finding);
-            }
-            // "no_prior_finding" (or any other/unrecognized flag) — treated
-            // as Novel, same as "no matrix row at all".
-            _ => {
-                e.literature = LiteratureStatus::Novel;
-                novel_count += 1;
-            }
+            "same_direction" => concordant.push(finding()),
+            "opposite_direction" => discordant.push(finding()),
+            "unverifiable" => unverifiable.push(finding()),
+            // "no_prior_finding" (or any other/unrecognized/empty flag) counts
+            // as a novel finding in this run.
+            _ => novel_count += 1,
         }
+    }
+
+    // Deterministic emission order (matrix file order is not a stable
+    // contract): sort each list by entity then pmid.
+    let sort_findings = |v: &mut Vec<LitFinding>| {
+        v.sort_by(|a, b| a.entity.cmp(&b.entity).then_with(|| a.pmid.cmp(&b.pmid)));
+    };
+    sort_findings(&mut concordant);
+    sort_findings(&mut discordant);
+    sort_findings(&mut unverifiable);
+
+    // Per-entity tagging — does NOT feed the rollup counts. An entity that
+    // matches no matrix row stays NotAssessed (never counted as novel).
+    for e in sig_entities.iter_mut() {
+        e.literature = match by_key.get(&e.entity) {
+            Some(row) => match row.concordance_flag.as_str() {
+                "same_direction" => LiteratureStatus::Concordant { pmid: row.pmid.clone() },
+                "opposite_direction" => LiteratureStatus::Discordant { pmid: row.pmid.clone() },
+                "unverifiable" => LiteratureStatus::Unverifiable { pmid: row.pmid.clone() },
+                _ => LiteratureStatus::Novel,
+            },
+            None => LiteratureStatus::NotAssessed,
+        };
     }
 
     let non_replications = parse_non_replications(contextualize_result_json);
@@ -987,22 +1019,29 @@ mod tests {
             sig_entities[2].literature,
             LiteratureStatus::Unverifiable { pmid: "333".to_string() }
         );
+        // F4 matches the no_prior_finding matrix row → Novel per-entity tag.
         assert_eq!(sig_entities[3].literature, LiteratureStatus::Novel);
-        assert_eq!(sig_entities[4].literature, LiteratureStatus::Novel);
+        // GNOMATCH matches no matrix row → NotAssessed (never counted as
+        // novel; novel comes only from the matrix's no_prior_finding rows).
+        assert_eq!(sig_entities[4].literature, LiteratureStatus::NotAssessed);
 
+        // Rollup is built from the matrix ROWS (entity column = GCON/GDIS/...),
+        // not from the sig_entities that matched.
         assert_eq!(rollup.concordant.len(), 1);
-        assert_eq!(rollup.concordant[0].entity, "F1");
+        assert_eq!(rollup.concordant[0].entity, "GCON");
         assert_eq!(rollup.concordant[0].pmid, "111");
         assert_eq!(rollup.concordant[0].evidence_quote, "quote1");
         assert_eq!(rollup.concordant[0].effect, Some(2.0));
 
         assert_eq!(rollup.discordant.len(), 1);
-        assert_eq!(rollup.discordant[0].entity, "F2");
+        assert_eq!(rollup.discordant[0].entity, "GDIS");
 
         assert_eq!(rollup.unverifiable.len(), 1);
-        assert_eq!(rollup.unverifiable[0].entity, "F3");
+        assert_eq!(rollup.unverifiable[0].entity, "GUNV");
 
-        assert_eq!(rollup.novel_count, 2);
+        // novel_count = the single no_prior_finding matrix row (F4/GNOPRIOR);
+        // GNOMATCH's non-match does NOT contribute.
+        assert_eq!(rollup.novel_count, 1);
 
         assert_eq!(rollup.non_replications.len(), 1);
         let nr = &rollup.non_replications[0];
@@ -1050,6 +1089,94 @@ mod tests {
             LiteratureStatus::Concordant { pmid: "111".to_string() }
         );
         assert!(rollup.non_replications.is_empty());
-        assert_eq!(rollup.retrieved_sources, vec!["111".to_string()]);
+        // retrieved_sources is the union of ALL matrix prior_pmids (rollup is
+        // matrix-driven), not just the PMID of the one matched entity.
+        assert_eq!(
+            rollup.retrieved_sources,
+            vec!["111".to_string(), "222".to_string(), "333".to_string()]
+        );
+    }
+
+    #[test]
+    fn join_literature_rollup_from_matrix_independent_of_entities() {
+        // A matrix with 2 same_direction + 1 opposite_direction +
+        // 3 no_prior_finding + 1 unverifiable. The rollup counts must come
+        // from these matrix rows REGARDLESS of which sig_entities are passed.
+        let tmp = tempfile::tempdir().unwrap();
+        let matrix_path = tmp.path().join("claims_evidence_matrix.csv");
+        std::fs::write(
+            &matrix_path,
+            "finding_id,entity,prior_pmid,concordance_flag,lfc,evidence_quote\n\
+             F1,GA,10,same_direction,2.0,qa\n\
+             F2,GB,11,same_direction,1.5,qb\n\
+             F3,GC,12,opposite_direction,-1.0,qc\n\
+             F4,GD,,no_prior_finding,0.3,\n\
+             F5,GE,,no_prior_finding,0.4,\n\
+             F6,GF,,no_prior_finding,0.5,\n\
+             F7,GG,13,unverifiable,0.9,qg\n",
+        )
+        .unwrap();
+        let missing_json = std::path::Path::new("/nonexistent/result.json");
+
+        let expected = |rollup: &LiteratureRollup| {
+            assert_eq!(rollup.concordant.len(), 2, "2 same_direction rows");
+            assert_eq!(rollup.discordant.len(), 1, "1 opposite_direction row");
+            assert_eq!(rollup.unverifiable.len(), 1, "1 unverifiable row");
+            assert_eq!(rollup.novel_count, 3, "3 no_prior_finding rows");
+        };
+
+        // (a) Empty entity slice — rollup identical.
+        let mut empty: Vec<EntityRow> = Vec::new();
+        let r_empty = super::join_literature(&mut empty, &matrix_path, missing_json);
+        expected(&r_empty);
+
+        // (b) A pathway-only slice that matches nothing in the gene-keyed
+        // matrix — rollup MUST be identical (pathways cannot pollute it), and
+        // every non-matching entity stays NotAssessed (never novel).
+        let mut pathways = vec![
+            entity_row("HALLMARK_HYPOXIA"),
+            entity_row("KEGG_MAPK"),
+        ];
+        let r_path = super::join_literature(&mut pathways, &matrix_path, missing_json);
+        expected(&r_path);
+        assert_eq!(r_empty, r_path, "rollup independent of the entities passed");
+        assert!(pathways
+            .iter()
+            .all(|e| e.literature == LiteratureStatus::NotAssessed));
+
+        // Per-entity tagging still applies to a matching gene entity.
+        let mut genes = vec![entity_row("GA"), entity_row("GC")];
+        let r_genes = super::join_literature(&mut genes, &matrix_path, missing_json);
+        expected(&r_genes);
+        assert_eq!(
+            genes[0].literature,
+            LiteratureStatus::Concordant { pmid: "10".to_string() }
+        );
+        assert_eq!(
+            genes[1].literature,
+            LiteratureStatus::Discordant { pmid: "12".to_string() }
+        );
+    }
+
+    #[test]
+    fn join_literature_resolves_log2foldchange_effect_column() {
+        // The matrix effect column is named `log2FoldChange` (not `lfc`);
+        // LitFinding.effect must still populate via the candidate set.
+        let tmp = tempfile::tempdir().unwrap();
+        let matrix_path = tmp.path().join("claims_evidence_matrix.csv");
+        std::fs::write(
+            &matrix_path,
+            "finding_id,entity,prior_pmid,concordance_flag,log2FoldChange,evidence_quote\n\
+             F1,GCON,111,same_direction,2.61,quote1\n",
+        )
+        .unwrap();
+        let mut entities = vec![entity_row("GCON")];
+        let rollup = super::join_literature(
+            &mut entities,
+            &matrix_path,
+            std::path::Path::new("/nonexistent/result.json"),
+        );
+        assert_eq!(rollup.concordant.len(), 1);
+        assert_eq!(rollup.concordant[0].effect, Some(2.61));
     }
 }
