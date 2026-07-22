@@ -2046,7 +2046,17 @@ fn verify_extreme_value(
     };
 
     let excerpt = &claim.excerpt;
-    let over_pvalue = EXTREME_PVAL_COL_RE.is_match(excerpt);
+    // A p-value-family token in the excerpt normally selects the p-value columns
+    // for the extreme — UNLESS the excerpt also carries a signed-effect direction
+    // cue ("top down-regulated" / "most negative log2FC"). In that case the
+    // extreme is over the EFFECT column and the p-value token is only the gene's
+    // OWN padj annotation ("…most negative log2FC…, padj ≈ 5.1e-81"). Without this
+    // guard the incidental padj flipped the extreme onto the p-value column and
+    // false-Mismatched the true argmin gene whose padj is not the table minimum
+    // (himes rerun 2026-07-22).
+    let has_effect_direction_cue =
+        EXTREME_DOWN_RE.is_match(excerpt) || EXTREME_UP_RE.is_match(excerpt);
+    let over_pvalue = EXTREME_PVAL_COL_RE.is_match(excerpt) && !has_effect_direction_cue;
     let columns: &[String] = if over_pvalue {
         &cfg.pvalue_columns
     } else {
