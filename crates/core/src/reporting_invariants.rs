@@ -1265,4 +1265,257 @@ mod tests {
         assert_eq!(parse_grouped_int("17190"), Some(17190));
         assert_eq!(parse_grouped_int("nope"), None);
     }
+
+    // -- RC-COUNT / RC-IDENTITY / RC-SECTIONS ------------------------------
+
+    /// A synthetic signed result table (`gene\tlog2FoldChange\tpadj`) with
+    /// exactly `up + down` significant (`padj < 0.05`) rows — `up` with a
+    /// positive `log2FoldChange`, `down` with a negative one — plus `nonsig`
+    /// additional non-significant (`padj = 0.9`) padding rows.
+    fn signed_result_tsv(up: usize, down: usize, nonsig: usize) -> String {
+        let mut s = String::from("gene\tlog2FoldChange\tpadj\n");
+        for i in 0..up {
+            s.push_str(&format!("GUP{i}\t2.0\t0.001\n"));
+        }
+        for i in 0..down {
+            s.push_str(&format!("GDOWN{i}\t-2.0\t0.001\n"));
+        }
+        for i in 0..nonsig {
+            s.push_str(&format!("GNS{i}\t0.01\t0.9\n"));
+        }
+        s
+    }
+
+    fn signed_de_schema_json() -> serde_json::Value {
+        serde_json::json!({
+            "artifact": "de_results.tsv",
+            "entity_column": "gene",
+            "significance": { "column": "padj", "threshold": 0.05, "comparator": "lt" },
+            "signed_effect_column": "log2FoldChange"
+        })
+    }
+
+    /// Writes a minimal `WORKFLOW.json` at `root` carrying, when present,
+    /// the `assemble_report_data` task's `spec.report_schemas` and the
+    /// `reporting` task's `spec.required_report_sections` — the two fields
+    /// `read_report_schemas`/`read_required_report_sections` resolve.
+    fn write_workflow_json(
+        root: &Path,
+        report_schemas: Option<serde_json::Value>,
+        required_sections: Option<&[&str]>,
+    ) {
+        let mut tasks = serde_json::Map::new();
+        if let Some(schemas) = report_schemas {
+            tasks.insert(
+                "assemble_report_data".to_string(),
+                serde_json::json!({ "spec": { "report_schemas": schemas } }),
+            );
+        }
+        if let Some(sections) = required_sections {
+            tasks.insert(
+                "reporting".to_string(),
+                serde_json::json!({ "spec": { "required_report_sections": sections } }),
+            );
+        }
+        let wf = serde_json::json!({ "tasks": tasks });
+        std::fs::write(root.join("WORKFLOW.json"), wf.to_string()).unwrap();
+    }
+
+    /// Writes `runtime/outputs/reporting/report-data.json` carrying exactly
+    /// one artifact summary — the minimal shape RC-COUNT/RC-IDENTITY read.
+    fn write_report_data(
+        outputs: &Path,
+        stage_id: &str,
+        artifact: &str,
+        n_total: u64,
+        n_significant: Option<u64>,
+        direction_split: Option<(u64, u64)>,
+    ) {
+        let split = direction_split.map(|(up, down)| serde_json::json!({ "up": up, "down": down }));
+        let payload = serde_json::json!({
+            "artifacts": [{
+                "stage_id": stage_id,
+                "artifact": artifact,
+                "n_total": n_total,
+                "n_significant": n_significant,
+                "direction_split": split,
+                "effect_distribution": null,
+                "significant_entities": [],
+                "significant_table_path": "",
+                "full_table_path": "",
+                "spilled_to_attachment_only": false
+            }],
+            "literature": null
+        });
+        write(outputs, "reporting/report-data.json", &payload.to_string());
+    }
+
+    #[test]
+    fn rc_count_flags_headline_that_disagrees_with_source() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        // Source recomputes to 4017 significant rows (2209 up + 1808 down).
+        write(
+            &outputs,
+            "differential_expression/de_results.tsv",
+            &signed_result_tsv(2209, 1808, 0),
+        );
+        write_workflow_json(
+            tmp.path(),
+            Some(serde_json::json!({ "differential_expression": signed_de_schema_json() })),
+            None,
+        );
+        // report-data.json states the WRONG headline count (3993, not 4017).
+        write_report_data(
+            &outputs,
+            "differential_expression",
+            "de_results.tsv",
+            4017,
+            Some(3993),
+            None,
+        );
+
+        let report = check_reporting_invariants(tmp.path());
+        assert!(
+            report
+                .required_failures()
+                .iter()
+                .any(|f| f.contains("RC-COUNT")),
+            "a headline count disagreeing with the recomputed source must be a REQUIRED \
+             failure: {report:?}"
+        );
+        assert!(!report.passed());
+    }
+
+    #[test]
+    fn rc_identity_has_zero_tolerance() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        // direction_split sums to 4017 but n_significant states 3993 — off
+        // by 24. No WORKFLOW.json / source table: isolates this test to
+        // RC-IDENTITY (RC-COUNT has no schema map to run against).
+        write_report_data(
+            &outputs,
+            "differential_expression",
+            "de_results.tsv",
+            4017,
+            Some(3993),
+            Some((2209, 1808)),
+        );
+
+        let report = check_reporting_invariants(tmp.path());
+        assert!(
+            report
+                .required_failures()
+                .iter()
+                .any(|f| f.contains("RC-IDENTITY")),
+            "direction_split up+down disagreeing with n_significant must be a REQUIRED \
+             failure, zero tolerance: {report:?}"
+        );
+    }
+
+    #[test]
+    fn rc_sections_flags_missing_required_section() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write_workflow_json(tmp.path(), None, Some(&["primary_results", "methods"]));
+        // "methods" is present with content; "primary_results" never appears.
+        write(
+            &outputs,
+            "final_reporting/final_report.md",
+            "## Methods\n\nDESeq2 fixed-effects negative-binomial GLM (`~ cell + dex`).\n",
+        );
+
+        let report = check_reporting_invariants(tmp.path());
+        assert!(
+            report
+                .required_failures()
+                .iter()
+                .any(|f| f.contains("RC-SECTIONS")),
+            "a missing required report section must be a REQUIRED failure: {report:?}"
+        );
+    }
+
+    #[test]
+    fn correct_comprehensive_report_passes() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "differential_expression/de_results.tsv",
+            &signed_result_tsv(2209, 1808, 0),
+        );
+        write_workflow_json(
+            tmp.path(),
+            Some(serde_json::json!({ "differential_expression": signed_de_schema_json() })),
+            Some(&["primary_results", "methods"]),
+        );
+        write_report_data(
+            &outputs,
+            "differential_expression",
+            "de_results.tsv",
+            4017,
+            Some(4017),
+            Some((2209, 1808)),
+        );
+        write(
+            &outputs,
+            "final_reporting/final_report.md",
+            "## Primary Results\n\n4,017 genes were significant at padj < 0.05.\n\n\
+             ## Methods\n\nDESeq2 fixed-effects negative-binomial GLM (`~ cell + dex`).\n",
+        );
+
+        let report = check_reporting_invariants(tmp.path());
+        assert!(
+            report.passed(),
+            "a fully consistent report must pass every RC-* check: {report:?}"
+        );
+        assert!(report.checked.contains(&"RC-COUNT"), "{report:?}");
+        assert!(report.checked.contains(&"RC-IDENTITY"), "{report:?}");
+        assert!(report.checked.contains(&"RC-SECTIONS"), "{report:?}");
+    }
+
+    #[test]
+    fn rc_count_generalizes_to_unsigned_modality() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        // 50 rows with qual>30 (significant), 10 padding rows that aren't.
+        let mut tsv = String::from("variant_id\tqual\n");
+        for i in 0..50 {
+            tsv.push_str(&format!("v{i}\t40\n"));
+        }
+        for i in 0..10 {
+            tsv.push_str(&format!("ns{i}\t10\n"));
+        }
+        write(&outputs, "variant_calling/variants.tsv", &tsv);
+
+        let unsigned_schema = serde_json::json!({
+            "artifact": "variants.tsv",
+            "entity_column": "variant_id",
+            "significance": { "column": "qual", "threshold": 30, "comparator": "gt" }
+        });
+        write_workflow_json(
+            tmp.path(),
+            Some(serde_json::json!({ "variant_calling": unsigned_schema })),
+            None,
+        );
+        write_report_data(&outputs, "variant_calling", "variants.tsv", 60, Some(50), None);
+
+        let report = check_reporting_invariants(tmp.path());
+        assert!(
+            report.checked.contains(&"RC-COUNT"),
+            "RC-COUNT must run for an unsigned (no direction_split) modality: {report:?}"
+        );
+        assert!(
+            !report
+                .required_failures()
+                .iter()
+                .any(|f| f.contains("RC-IDENTITY")),
+            "an unsigned artifact with no direction_split must never trip RC-IDENTITY: {report:?}"
+        );
+        assert!(
+            report.passed(),
+            "a correctly-reported unsigned recompute must pass: {report:?}"
+        );
+    }
 }
