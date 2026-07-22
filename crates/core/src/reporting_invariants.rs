@@ -51,9 +51,12 @@
 //!     [`crate::report_contract::summarize_artifact`] — zero tolerance.
 //!     Unlike RP-2 (DE/pathway-shaped), this generalizes to every
 //!     modality's terminal result artifact.
-//!   * **RC-IDENTITY** a `direction_split`'s `up + down` must equal
-//!     `n_significant` exactly; artifacts with no split (unsigned
-//!     modalities, e.g. variant calling) are skipped, never faulted.
+//!   * **RC-IDENTITY** a `direction_split`'s `up + down` must not EXCEED
+//!     `n_significant` (directional rows can't outnumber the significant
+//!     set). A shortfall is legitimate — a significant row with a zero/NA
+//!     effect counts in `n_significant` but in neither `up` nor `down`.
+//!     Artifacts with no split (unsigned modalities, e.g. variant calling)
+//!     are skipped, never faulted.
 //!   * **RC-SECTIONS** every `required_report_sections` id declared on the
 //!     `reporting`/`final_reporting` task specs must appear as a non-empty
 //!     section in the emitted report.
@@ -751,16 +754,28 @@ fn read_terminal_report(outputs: &Path) -> Option<String> {
     std::fs::read_to_string(outputs.join("reporting").join("report.md")).ok()
 }
 
-/// RC-COUNT: for every `report-data.json` artifact whose stage has a
-/// declared schema AND whose source artifact is present on disk, recompute
-/// its stats directly from the source table (via the same
-/// [`summarize_artifact`] the assembler itself used) and require its
+/// RC-COUNT: defense-in-depth over `report-data.json` itself. For every
+/// artifact whose stage has a declared schema AND whose source artifact is
+/// present on disk, recompute its stats directly from the source table (via
+/// the same [`summarize_artifact`] the assembler itself used) and require its
 /// `n_significant` — and, when both sides declare one, its `direction_split`
-/// — to equal what `report-data.json` states, EXACTLY. Zero tolerance: this
-/// is the enforcement mirror of the assembler, re-run at gate time over the
-/// same file, so a report whose headline count drifted from its source
-/// (whether by a stale re-run, a hand edit, or a narrative transcription
-/// error) can never reach deposit.
+/// — to equal what `report-data.json` states, EXACTLY (zero tolerance).
+///
+/// What this actually catches: a `report-data.json` whose headline counts no
+/// longer agree with a fresh recompute from the source artifact — e.g. a
+/// stale `report-data.json` left behind when the source stage re-ran without
+/// re-assembly, a hand-edit of the JSON, or a post-assembly mutation of the
+/// source table. On the untouched happy path (report-data.json written by
+/// this exact recompute) it is tautological, which is the point: it makes the
+/// deterministic contract file self-verifying at gate time.
+///
+/// What this does NOT do: it never reads or parses the human-readable
+/// narrative (`report.md` / `final_report.md`). Narrative-number correctness
+/// is not gated here (deterministically gating free-text prose numbers is
+/// fragile); it is enforced upstream — the assembler is the single source of
+/// truth for every headline number, and the task-execution prompt requires
+/// the reporting agent to cite those numbers from `report-data.json` rather
+/// than inventing them.
 fn check_rc_count(package_root: &Path, outputs: &Path, report: &mut ReportingInvariantsReport) {
     let Some(report_data) = read_report_data(outputs) else {
         return;
@@ -821,10 +836,16 @@ fn check_rc_count(package_root: &Path, outputs: &Path, report: &mut ReportingInv
 }
 
 /// RC-IDENTITY: for every `report-data.json` artifact that declares a
-/// `direction_split`, its `up + down` must equal `n_significant` exactly.
-/// Artifacts with no split (unsigned modalities — e.g. variant calling has
-/// no signed effect column) have nothing to reconcile and are silently
-/// skipped — never a failure.
+/// `direction_split`, its `up + down` must not EXCEED `n_significant` — the
+/// directional rows are a subset of the significant set, so they can never
+/// outnumber it. A shortfall (`up + down < n_significant`) is legitimate and
+/// NOT flagged: a significant row (padj passes) whose signed effect is exactly
+/// zero, NA, or unparseable is counted in `n_significant` but in neither `up`
+/// nor `down`. The gross inconsistency this guards against — a split that
+/// exceeds the significant count (himes-style `4017 > 3993`) — still fails.
+/// Artifacts with no split (unsigned modalities — e.g. variant calling has no
+/// signed effect column) or no `n_significant` to reconcile against have
+/// nothing to check and are silently skipped — never a failure.
 fn check_rc_identity(outputs: &Path, report: &mut ReportingInvariantsReport) {
     let Some(report_data) = read_report_data(outputs) else {
         return;
@@ -836,12 +857,18 @@ fn check_rc_identity(outputs: &Path, report: &mut ReportingInvariantsReport) {
         let Some(split) = &artifact.direction_split else {
             continue;
         };
+        // A split with no significance count (e.g. no significance declared,
+        // so the split was computed over all rows) has no significant set to
+        // be a subset of — nothing to reconcile.
+        let Some(n_sig) = artifact.n_significant else {
+            continue;
+        };
         ran = true;
         let sum = split.up + split.down;
-        if artifact.n_significant != Some(sum) {
+        if sum > n_sig {
             mismatches.push(format!(
-                "{}: direction_split up={}+down={}={} but n_significant={:?}",
-                artifact.stage_id, split.up, split.down, sum, artifact.n_significant
+                "{}: direction_split up={}+down={}={} exceeds n_significant={}",
+                artifact.stage_id, split.up, split.down, sum, n_sig
             ));
         }
     }
@@ -854,41 +881,58 @@ fn check_rc_identity(outputs: &Path, report: &mut ReportingInvariantsReport) {
             invariant: "RC-IDENTITY",
             severity: Severity::Required,
             detail: format!(
-                "direction_split up+down does not equal n_significant (zero tolerance) — {}",
+                "direction_split up+down exceeds n_significant (directional rows cannot \
+                 outnumber the significant set) — {}",
                 mismatches.join("; ")
             ),
         });
     }
 }
 
-/// Builds a case-insensitive, separator-tolerant search pattern for a
-/// required-section id (e.g. `"primary_results"`): its `_`/`-`/whitespace-
-/// separated words may appear in the report joined by any mix of space,
-/// hyphen, or underscore, in any case — `"Primary Results"`,
-/// `"primary-results"`, `"PRIMARY_RESULTS"` all match. Deliberately minimal:
-/// no per-modality heading vocabulary, so the check never hardcodes a
+/// The significant words of a required-section id, `_`/`-`/whitespace-split,
+/// lower-cased, empties dropped: `"provenance_method_rationale"` →
+/// `["provenance", "method", "rationale"]`. Deliberately minimal — no
+/// per-modality heading vocabulary, so the check never hardcodes a
 /// domain-specific section name.
-fn section_pattern(id: &str) -> Option<Regex> {
-    let words: Vec<String> = id
-        .split(|c: char| c == '_' || c == '-' || c.is_whitespace())
+fn section_id_words(id: &str) -> Vec<String> {
+    id.split(|c: char| c == '_' || c == '-' || c.is_whitespace())
         .filter(|w| !w.is_empty())
-        .map(regex::escape)
-        .collect();
+        .map(|w| w.to_lowercase())
+        .collect()
+}
+
+/// Whether a single line is a markdown HEADING that contains EVERY word of
+/// the section id (case-insensitive substring, order-independent). Only
+/// heading lines (`#`-prefixed after trimming) qualify, so a prose mention of
+/// the id's words can never anchor a section. Order-independence lets a
+/// natural heading like `## Provenance & Method-Selection Rationale` satisfy
+/// `provenance_method_rationale` (intervening words / punctuation are fine),
+/// which the old consecutive-words regex false-blocked.
+fn heading_matches_section(line: &str, words: &[String]) -> bool {
+    let trimmed = line.trim_start();
+    if !trimmed.starts_with('#') {
+        return false;
+    }
+    let lc = trimmed.to_lowercase();
+    words.iter().all(|w| lc.contains(w.as_str()))
+}
+
+/// Whether required section `id` is present as a matching markdown HEADING in
+/// `text` AND that heading is followed by non-whitespace content before the
+/// next heading (or EOF). `None` when no heading matches (missing);
+/// `Some(false)` when a heading matches but is immediately followed by nothing
+/// but blank lines / another heading (present but empty); `Some(true)`
+/// otherwise. Restricting the match to heading lines kills the false-anchor on
+/// a prose mention that preceded the real heading.
+fn section_has_content(text: &str, id: &str) -> Option<bool> {
+    let words = section_id_words(id);
     if words.is_empty() {
         return None;
     }
-    Regex::new(&format!(r"(?i){}", words.join(r"[\s_-]+"))).ok()
-}
-
-/// Whether required section `id` is present in `text` AND followed by
-/// non-whitespace content before the next markdown heading (or EOF). `None`
-/// when the section id doesn't appear anywhere (missing); `Some(false)` when
-/// it appears but is immediately followed by nothing but blank lines /
-/// another heading (present but empty); `Some(true)` otherwise.
-fn section_has_content(text: &str, id: &str) -> Option<bool> {
-    let pattern = section_pattern(id)?;
     let lines: Vec<&str> = text.lines().collect();
-    let start = lines.iter().position(|l| pattern.is_match(l))?;
+    let start = lines
+        .iter()
+        .position(|l| heading_matches_section(l, &words))?;
     let mut content = String::new();
     for line in lines.iter().skip(start + 1) {
         if line.trim_start().starts_with('#') {
@@ -1797,6 +1841,95 @@ mod tests {
         assert!(
             report.passed(),
             "a correctly-reported unsigned recompute must pass: {report:?}"
+        );
+    }
+
+    // -- RC-SECTIONS robust matcher (F4) ----------------------------------
+
+    #[test]
+    fn rc_sections_matches_natural_heading_with_intervening_words() {
+        // A natural heading whose words are separated by other words /
+        // punctuation satisfies the required id — order-independent,
+        // all-words-present, case-insensitive. The old consecutive-words
+        // regex false-blocked these correct headings.
+        assert_eq!(
+            section_has_content(
+                "## Provenance & Method-Selection Rationale\n\nThe aligner was chosen by the \
+                 agent at runtime.\n",
+                "provenance_method_rationale"
+            ),
+            Some(true)
+        );
+        assert_eq!(
+            section_has_content(
+                "## QC & Preprocessing\n\nAdapter trimming with fastp.\n",
+                "qc_preprocessing"
+            ),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn rc_sections_missing_and_empty_still_fail() {
+        // Genuinely-missing section → None (missing).
+        assert_eq!(
+            section_has_content("## Methods\n\nDESeq2 GLM.\n", "primary_results"),
+            None
+        );
+        // Heading present but immediately followed by the next heading → empty.
+        assert_eq!(
+            section_has_content(
+                "## Primary Results\n## Methods\n\nsome methods\n",
+                "primary_results"
+            ),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn rc_sections_prose_mention_does_not_anchor() {
+        // A prose line containing the id's words is NOT a heading, so it can
+        // never anchor the section (kills the old false-anchor on a mention
+        // that preceded the real heading). No `#`-heading → missing.
+        assert_eq!(
+            section_has_content(
+                "The primary results are summarized in the paragraphs that follow.\n\nProse only.\n",
+                "primary_results"
+            ),
+            None
+        );
+    }
+
+    // -- RC-IDENTITY <= (F6) ----------------------------------------------
+
+    #[test]
+    fn rc_identity_allows_up_plus_down_below_n_significant() {
+        // A correct report: 100 significant rows (padj passes), but 3 of them
+        // have a zero/NA signed effect, so they count in neither up nor down.
+        // up+down = 97 <= 100 → must NOT trip RC-IDENTITY. No WORKFLOW.json /
+        // source table, so this isolates the check to RC-IDENTITY.
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write_report_data(
+            &outputs,
+            "differential_expression",
+            "de_results.tsv",
+            200,
+            Some(100),
+            Some((60, 37)),
+        );
+        let report = check_reporting_invariants(tmp.path());
+        assert!(
+            report.checked.contains(&"RC-IDENTITY"),
+            "RC-IDENTITY must run when a direction_split with n_significant is present: {report:?}"
+        );
+        assert!(
+            !report
+                .required_failures()
+                .iter()
+                .any(|f| f.contains("RC-IDENTITY")),
+            "up+down (97) < n_significant (100) is a legitimate shortfall (zero/NA-effect \
+             significant rows) and must NOT trip RC-IDENTITY: {report:?}"
         );
     }
 }
