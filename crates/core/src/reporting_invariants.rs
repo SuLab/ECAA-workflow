@@ -901,6 +901,17 @@ fn section_id_words(id: &str) -> Vec<String> {
         .collect()
 }
 
+/// The markdown heading LEVEL of a line — the count of leading `#` after
+/// trimming leading whitespace — or `None` when the line is not a heading.
+/// `## X` → `Some(2)`, `#### Y` → `Some(4)`, prose → `None`.
+fn heading_level(line: &str) -> Option<usize> {
+    let trimmed = line.trim_start();
+    if !trimmed.starts_with('#') {
+        return None;
+    }
+    Some(trimmed.chars().take_while(|&c| c == '#').count())
+}
+
 /// Whether a single line is a markdown HEADING that contains EVERY word of
 /// the section id (case-insensitive substring, order-independent). Only
 /// heading lines (`#`-prefixed after trimming) qualify, so a prose mention of
@@ -919,11 +930,18 @@ fn heading_matches_section(line: &str, words: &[String]) -> bool {
 
 /// Whether required section `id` is present as a matching markdown HEADING in
 /// `text` AND that heading is followed by non-whitespace content before the
-/// next heading (or EOF). `None` when no heading matches (missing);
-/// `Some(false)` when a heading matches but is immediately followed by nothing
-/// but blank lines / another heading (present but empty); `Some(true)`
-/// otherwise. Restricting the match to heading lines kills the false-anchor on
-/// a prose mention that preceded the real heading.
+/// next heading of EQUAL-OR-SHALLOWER level (or EOF). `None` when no heading
+/// matches (missing); `Some(false)` when a heading matches but is immediately
+/// followed by nothing but blank lines / a same-or-shallower heading (present
+/// but empty); `Some(true)` otherwise. Restricting the match to heading lines
+/// kills the false-anchor on a prose mention that preceded the real heading.
+///
+/// The section boundary is heading-LEVEL-aware: the section ends at the next
+/// heading whose level (count of leading `#`) is <= the matched heading's
+/// level. A DEEPER subheading (more `#`) is part of this section's content, so
+/// a required section whose first content is a `###` subheading is correctly
+/// non-empty (its subheading text counts as non-whitespace) rather than
+/// false-flagged "present but empty".
 fn section_has_content(text: &str, id: &str) -> Option<bool> {
     let words = section_id_words(id);
     if words.is_empty() {
@@ -933,10 +951,15 @@ fn section_has_content(text: &str, id: &str) -> Option<bool> {
     let start = lines
         .iter()
         .position(|l| heading_matches_section(l, &words))?;
+    // The matched heading is `#`-prefixed (heading_matches_section required
+    // it), so `heading_level` is always `Some`; default 1 is defensive only.
+    let matched_level = heading_level(lines[start]).unwrap_or(1);
     let mut content = String::new();
     for line in lines.iter().skip(start + 1) {
-        if line.trim_start().starts_with('#') {
-            break;
+        if let Some(level) = heading_level(line) {
+            if level <= matched_level {
+                break;
+            }
         }
         content.push_str(line);
         content.push('\n');
@@ -1883,6 +1906,48 @@ mod tests {
                 "primary_results"
             ),
             Some(false)
+        );
+    }
+
+    #[test]
+    fn rc_sections_subheading_first_content_is_non_empty() {
+        // A required `## Primary Results` whose FIRST content is a deeper
+        // `### 3.1 ...` subheading is non-empty: the subheading is part of the
+        // section (deeper level = content), so the span carries non-whitespace.
+        // The old boundary (any `#`-line ends the section) false-flagged this
+        // as "present but empty" and over-gated a complete deposit.
+        assert_eq!(
+            section_has_content(
+                "## Primary Results\n### 3.1 Differential expression\n\n4030 genes at FDR<0.05.\n",
+                "primary_results"
+            ),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn rc_sections_same_level_heading_immediately_after_is_empty() {
+        // A `## X` immediately followed by a same-level `## Y` (no body between)
+        // is empty — the equal-level heading ends the section.
+        assert_eq!(
+            section_has_content(
+                "## Primary Results\n## Reproducibility\n\nSee the lockfile.\n",
+                "primary_results"
+            ),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn rc_sections_direct_body_content_is_non_empty() {
+        // A section whose content is direct body text (no subheading) stays
+        // non-empty — the level-aware boundary preserves the ordinary case.
+        assert_eq!(
+            section_has_content(
+                "## Primary Results\n\nDESeq2 identified 4030 significant genes.\n",
+                "primary_results"
+            ),
+            Some(true)
         );
     }
 
