@@ -8,6 +8,11 @@
 //! signed effect) enters the system only through these declarations —
 //! never hardcoded downstream.
 
+pub mod report_data;
 pub mod result_schema;
 
+pub use report_data::{
+    ArtifactStats, DirectionSplit, DistBin, EntityRow, LitFinding, LiteratureRollup,
+    LiteratureStatus, NonReplication, ReportData, ResultArtifactSummary, summarize_artifact,
+};
 pub use result_schema::{Comparator, ResultSchema, Significance};
