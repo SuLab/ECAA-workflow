@@ -9,4 +9,13 @@ import type { Significance } from "./Significance";
  * `signed_effect_column` are both optional — a schema with neither
  * still yields the reduced (unsigned, unfiltered) contract.
  */
-export type ResultSchema = { artifact: string, entity_column: string, significance?: Significance, signed_effect_column?: string, grouping_column?: string, };
+export type ResultSchema = { artifact: string, entity_column: string, significance?: Significance, signed_effect_column?: string, 
+/**
+ * Additional accepted header names for the signed-effect column (e.g. a
+ * DESeq2-native name + its ECAA-canonical alias): resolution tries
+ * `signed_effect_column` then each alias, in order. Data-driven — the
+ * candidate names live in the atom's declaration, never hardcoded in the
+ * assembler. Empty (the default) means only `signed_effect_column` is
+ * accepted.
+ */
+signed_effect_aliases: Array<string>, grouping_column?: string, };
