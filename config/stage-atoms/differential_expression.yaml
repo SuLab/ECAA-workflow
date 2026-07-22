@@ -200,6 +200,18 @@ outputs:
     units: "log2 fold change"
     statistical_state: "de_tested"
     privacy_class: internal
+# Declares how the report-data assembler + reporting invariants read this
+# stage's primary result artifact. The real de_results.tsv header is
+# `gene baseMean log2FoldChange lfcSE pvalue padj` — signed_effect_column
+# names the DESeq2-native `log2FoldChange` column (NOT the `log2FC` name
+# used in the non_determinism prose below, which describes the emitted
+# column under its ECAA-canonical alias; the assembler resolves either via
+# a small alias set).
+result_schema:
+  artifact: de_results.tsv
+  entity_column: gene
+  significance: { column: padj, threshold: 0.05, comparator: lt }
+  signed_effect_column: log2FoldChange
 # Declared non-determinism (Rec 1). Both shrunken effect-size columns —
 # log2FC AND lfcSE — are outputs of an empirical-Bayes adaptive-shrinkage
 # step (e.g. DESeq2/apeglm or ashr) whose fitted prior shifts both estimates

@@ -108,6 +108,15 @@ outputs:
       label: "Tabular text"
     statistical_state: "multiple_testing_corrected"
     privacy_class: internal
+# Declares how the report-data assembler + reporting invariants read this
+# stage's primary result artifact. Real pathway_results.tsv header:
+# `pathway collection pval padj log2err ES NES size leadingEdge`.
+result_schema:
+  artifact: pathway_results.tsv
+  entity_column: pathway
+  significance: { column: padj, threshold: 0.25, comparator: lt }
+  signed_effect_column: NES
+  grouping_column: collection
 # Network egress: the default Enrichr tool fetches gene-set libraries + computes
 # enrichment against the maayanlab.cloud API. Declared as egress (level: network
 # + non-empty allowlist) so the replay selector's `stage_requires_egress` treats

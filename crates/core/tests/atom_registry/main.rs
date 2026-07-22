@@ -21,5 +21,6 @@ mod parameters_field;
 mod pathway_enrichment_ports;
 mod port_schema_seal;
 mod provenance_field;
+mod result_schema_declared;
 mod snapshot_id;
 mod survey_method_landscape_loads;
