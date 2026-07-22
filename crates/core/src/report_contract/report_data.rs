@@ -594,9 +594,10 @@ fn json_as_f64(v: &serde_json::Value) -> Option<f64> {
 /// flag (`same_direction`→concordant, `opposite_direction`→discordant,
 /// `unverifiable`→unverifiable, `no_prior_finding` or any other/empty flag
 /// →`novel_count`). `non_replications` come from `contextualize_result_json`'s
-/// `excluded_nonsig`; `retrieved_sources` is the union of every matrix
-/// `prior_pmid` ∪ non-replication PMIDs ∪ `result.json`'s `cited_pmids`,
-/// sorted.
+/// `excluded_nonsig`; `retrieved_sources` is the union of every matrix PMID
+/// (the `prior_pmid`/`pmid` column, whichever resolves) ∪ non-replication PMIDs
+/// ∪ `result.json`'s `cited_pmids`, sorted — so it is non-empty from the matrix
+/// alone even when `result.json` has no `cited_pmids`.
 ///
 /// SEPARATELY, each `EntityRow.literature` is tagged in place by matching the
 /// entity (on `finding_id` OR `entity`) to a matrix row — the same flag→status
@@ -644,12 +645,19 @@ pub fn join_literature(
     let finding_idx = resolve_column(&headers, "finding_id");
     let entity_idx = resolve_column(&headers, "entity");
     let flag_idx = resolve_column(&headers, "concordance_flag");
-    let pmid_idx = resolve_column(&headers, "prior_pmid");
-    // The contextualize atom's effect column name varies across runs
-    // (`lfc` / `log2FoldChange` / `logFC`); try the known variants in order.
-    // Local to this matrix reader — the atom's output is fixed-ish, so a small
-    // candidate list tolerates its known column-name drift.
-    let effect_idx = ["lfc", "log2FoldChange", "logFC"]
+    // The contextualize atom's PMID column name varies across runs
+    // (`prior_pmid` / `pmid`); try the known variants in order. `retrieved_sources`
+    // then fills from whichever resolves, even when `result.json` has no
+    // `cited_pmids`.
+    let pmid_idx = ["prior_pmid", "pmid"]
+        .iter()
+        .find_map(|name| resolve_column(&headers, name));
+    // The contextualize atom's effect column name also varies across runs
+    // (`lfc` / `log2FoldChange` / `logFC` / `log2fc` / `nes` / `analysis_log2fc`);
+    // try the known variants in order. Local to this matrix reader — the atom's
+    // own output is fixed-ish, so a small candidate list tolerates its known
+    // column-name drift.
+    let effect_idx = ["lfc", "log2FoldChange", "logFC", "log2fc", "nes", "analysis_log2fc"]
         .iter()
         .find_map(|name| resolve_column(&headers, name));
     let quote_idx = resolve_column(&headers, "evidence_quote");
@@ -1376,5 +1384,40 @@ mod tests {
         );
         assert_eq!(rollup.concordant.len(), 1);
         assert_eq!(rollup.concordant[0].effect, Some(2.61));
+    }
+
+    #[test]
+    fn join_literature_resolves_pmid_and_analysis_log2fc_columns() {
+        // This run's matrix names the PMID column `pmid` (not `prior_pmid`) and
+        // the effect column `analysis_log2fc` (not `lfc`). Both resolve via the
+        // broadened candidate lists → LitFinding.pmid + effect populate, and
+        // `retrieved_sources` fills from the matrix `pmid` even with no
+        // result.json `cited_pmids`.
+        let tmp = tempfile::tempdir().unwrap();
+        let matrix_path = tmp.path().join("claims_evidence_matrix.csv");
+        std::fs::write(
+            &matrix_path,
+            "finding_id,entity,entity_kind,pmid,prior_direction,analysis_log2fc,analysis_padj,concordance_flag,evidence_quote\n\
+             F1,CRISPLD2,gene,999,up,2.61,0.001,same_direction,prior quote\n",
+        )
+        .unwrap();
+        let mut entities = vec![entity_row("CRISPLD2")];
+        let rollup = super::join_literature(
+            &mut entities,
+            &matrix_path,
+            std::path::Path::new("/nonexistent/result.json"),
+        );
+        assert_eq!(rollup.concordant.len(), 1);
+        assert_eq!(rollup.concordant[0].pmid, "999");
+        assert_eq!(rollup.concordant[0].effect, Some(2.61));
+        assert_eq!(
+            rollup.retrieved_sources,
+            vec!["999".to_string()],
+            "retrieved_sources fills from the matrix `pmid` column with no result.json"
+        );
+        assert_eq!(
+            entities[0].literature,
+            LiteratureStatus::Concordant { pmid: "999".to_string() }
+        );
     }
 }
