@@ -3369,6 +3369,87 @@ fn run_loop(
                         .map(|t| (id.clone(), t.kind.clone()))
                 })
                 .collect();
+        // Snapshot which picks are in-process builtins (a synthesized node
+        // carrying `spec.builtin`) so the dispatch loop below can route them
+        // away from the agent and this run's in-process execution can key on
+        // the same predicate. Read from the same `dispatch_snapshot` as
+        // `task_kinds`, no re-lock.
+        let builtin_by_task: std::collections::BTreeMap<
+            String,
+            std::collections::BTreeMap<String, ecaa_workflow_core::report_contract::ResultSchema>,
+        > = picks
+            .iter()
+            .filter_map(|id| {
+                dispatch_snapshot
+                    .tasks
+                    .get(id.as_str())
+                    .and_then(ecaa_workflow_harness::builtin_dispatch::assemble_report_data_request)
+                    .map(|schemas| (id.clone(), schemas))
+            })
+            .collect();
+
+        // Run in-process builtins BEFORE the agent thread scope, on the main
+        // thread. Each writes its own `state.patch.json` (+ result.json +
+        // heartbeat) carrying the dispatch identity the pre-mark loop stamped,
+        // so the strict patch merge below drives it to Completed/Failed
+        // exactly as it does an agent-run task — and the scheduler advances
+        // the downstream reporting task. These tasks never reach the executor
+        // (they're skipped in the dispatch loop), so `run_iteration` is never
+        // invoked for them. Deterministic + synchronous; no tokio, no agent.
+        for id in &picks {
+            let Some(schemas) = builtin_by_task.get(id.as_str()) else {
+                continue;
+            };
+            let Some(dispatch) = dispatch_by_task.get(id) else {
+                // No dispatch identity (task lost its WAL pre-mark this
+                // iteration) — leave it Running; the watchdog recovers it.
+                tracing::warn!(
+                    target: "builtin",
+                    task_id = %id,
+                    "no dispatch identity for builtin task; skipping in-process run"
+                );
+                continue;
+            };
+            match ecaa_workflow_harness::builtin_dispatch::run_assemble_report_data(
+                path, dispatch, schemas, clock,
+            ) {
+                Ok(state) => {
+                    println!(
+                        "  {} builtin assemble_report_data ran in-process on {} → {}",
+                        "✓".green(),
+                        id,
+                        match state {
+                            TaskState::Completed { .. } => "completed",
+                            TaskState::Failed { .. } => "failed",
+                            _ => "recorded",
+                        },
+                    );
+                    append_progress_log(
+                        path,
+                        id,
+                        "harness: assemble_report_data ran in-process (builtin; no agent)",
+                    );
+                }
+                Err(e) => {
+                    // A catastrophic patch-write failure: the task stays
+                    // Running and the heartbeat watchdog recovers it, exactly
+                    // as when a real agent cannot write its patch.
+                    eprintln!(
+                        "  {} builtin assemble_report_data on {} failed to record outcome: {:#}",
+                        "✗".red(),
+                        id,
+                        e
+                    );
+                    tracing::warn!(
+                        target: "builtin",
+                        task_id = %id,
+                        error = format!("{e:#}"),
+                        "in-process builtin could not write its state patch"
+                    );
+                }
+            }
+        }
+
         // Pre-dispatch baseline captured before the agent threads run.
         // No writes have occurred since `dispatch_snapshot` was read at
         // the top of this block, so cloning it is byte-equivalent to a
@@ -3379,6 +3460,11 @@ fn run_loop(
         std::thread::scope(|scope| {
             let mut handles = Vec::new();
             for id in &picks {
+                // In-process builtins already ran on the main thread above;
+                // they must never be dispatched to the executor/agent.
+                if builtin_by_task.contains_key(id.as_str()) {
+                    continue;
+                }
                 let envelope = envelopes.get(id).cloned().unwrap_or_default();
                 let is_validation = matches!(
                     task_kinds.get(id),
