@@ -46,11 +46,13 @@ outputs you actually need, prefer in-image tools over installing new ones
 when scores are close, and keep your final narrative under ~500 words.
 
 Exception: if your task spec carries `interpretation_exempt_from_word_budget:
-true` (the `biological_interpretation` and `final_reporting` stages), the
-~500 words cap does NOT apply. Those stages produce findings-first prose whose
-length scales with the number of result rows you are grounding — write as much
-as you need so that every claim cites its result-table row or PMID. Do not pad,
-but do not truncate citations to hit a word count.
+true` (the `biological_interpretation`, `final_reporting`, and `reporting`
+stages), the ~500 words cap does NOT apply. Those stages produce
+findings-first prose whose length scales with the number of result rows you
+are grounding — write as much as you need so that every claim cites its
+result-table row or PMID. Do not pad, but do not truncate citations to hit a
+word count. See "Report completeness contract" below for what
+"as much as you need" requires for these stages specifically.
 
 ### What to write (and only this)
 
@@ -220,6 +222,62 @@ These are the same pitfalls a source-level validator checks for in
 `validate_reporting`/`validate_final_reporting` when one is present for
 this run; getting them right at generation time avoids a re-dispatch
 block.
+
+### Report completeness contract (report-writing stages)
+
+A stage whose task spec carries `interpretation_exempt_from_word_budget:
+true` and/or a non-empty `required_report_sections` — `reporting`,
+`final_reporting`, and `biological_interpretation` all qualify — is judged
+by COMPLETENESS against `runtime/outputs/reporting/report-data.json`, not
+brevity. That file is the canonical, deterministically-assembled summary of
+every terminal result artifact (plus, when literature contextualization
+ran, a `literature` rollup); the assembler already resolved every entity /
+effect / significance / threshold BY NAME from this run's declared result
+schema, so your job is to narrate it faithfully — never to recompute it. A
+deterministic validator re-derives every number you state directly from the
+source result tables and blocks the deposit on a mismatch, so treat every
+rule below as a hard correctness contract, not a style preference. This
+generalizes across every modality the system runs: speak of "entities", the
+"significant set", "effect", and "significance" as this run's schema
+defines them — never assume genes/log2FC.
+
+- **Cite every quantitative claim — count, threshold, effect size, direction
+  split — DIRECTLY from `report-data.json`.** Never recompute, re-threshold,
+  or invent a count, threshold, or effect size yourself, even with the raw
+  result table open in front of you. If a number is not present in
+  `report-data.json`, do not state it.
+- **Render the full significant set as a table.** For each artifact in
+  `artifacts`, one row per entry in its `significant_entities` (`entity`,
+  `effect`, `significance`, and its literature tag). When that artifact's
+  `spilled_to_attachment_only` is `true` (the degenerate-output guard
+  tripped), do NOT inline the set — state plainly that the full significant
+  set is in the attached `significant_table_path`, and summarize it instead
+  via `direction_split` / `effect_distribution`.
+- **Cover every declared section and table.** Your task spec's
+  `required_report_sections` names every section id the report must contain
+  (e.g. `provenance_method_rationale`, `qc_preprocessing`,
+  `primary_results`, `literature_contextualization`, `reproducibility`,
+  `claim_boundary`); its `required_tables` names every table id to render
+  (e.g. `significant_entities`, `literature_concordance`). A missing
+  declared section or table is an incomplete report, not a shorter one.
+- **Contextualize against the `literature` rollup, not memory.** Per
+  entity, state its literature tag exactly as recorded — `concordant` /
+  `discordant` / `unverifiable` (each with its `pmid`) or `novel` — and give
+  `non_replications` its own dedicated treatment: for each, name the
+  entity, its `prior_claim`, and what this run actually observed
+  (`here_effect` / `here_significance`) — a prior-reported entity that was
+  NOT significant here is as reportable as a concordant hit, not an
+  omission. State the `novel_count` and what it covers, and list every
+  `retrieved_sources` entry.
+- **Claim-boundary discipline is unchanged by completeness.** Every
+  statement stays associative — "associated with" / "enriched in" — never
+  causal ("drives", "causes"); citing every number `report-data.json`
+  provides is not license to overstate what those numbers mean.
+
+The direction-word rule above (derive "up"/"down"/"higher"/"lower" from the
+sign of the statistic, never free text) applies unchanged here: when you
+render `direction_split` or an entity's `effect`, the words around them
+must still come from the sign you're citing, not from intuition.
 
 ### Data acquisition — required input stage
 

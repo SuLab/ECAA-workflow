@@ -32,6 +32,19 @@ description: |
   contract checks them for internal + task consistency (e.g. the design adjusts
   for an available covariate; the response matches the stated outcome). It never
   prescribes a model.
+
+  COUNT-CONSISTENCY (defense-in-depth): the significant-entity count you report
+  (and any `n_sig` you record) MUST come from the SAME significance vector
+  written to de_results.tsv — never from a separately-thresholded object. If you
+  build a shrunken-effect object (e.g. via `lfcShrink`) for the reported effect
+  sizes, construct it from the SAME fitted result used for the written `padj`
+  column (matching `alpha`/contrast) so its own `padj` agrees with the table you
+  emit; better still, count `n_sig` by re-reading the written de_results.tsv
+  rows directly rather than trusting a second in-memory object's own significance
+  call. Two objects built from the same fit but different defaults (e.g. one at
+  the DESeq2 default `alpha=0.1`, the other at this run's `adjusted_pvalue_threshold`)
+  will silently disagree on which rows are significant — report the count that
+  matches the rows you actually wrote to disk.
 edam_operation: "operation:3223"
 edam_data: "data:3917"
 edam_format: "format:3475"
