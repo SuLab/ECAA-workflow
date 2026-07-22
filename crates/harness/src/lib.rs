@@ -7,6 +7,7 @@
 
 pub mod _observability;
 pub mod agent_code_capture;
+pub mod builtin_dispatch;
 pub mod env_snapshot;
 pub mod cache_eviction;
 pub mod constants;
