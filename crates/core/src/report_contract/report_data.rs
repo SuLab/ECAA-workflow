@@ -170,6 +170,18 @@ fn resolve_effect_column(headers: &csv::StringRecord, schema: &ResultSchema) -> 
         .find_map(|name| resolve_column(headers, name))
 }
 
+/// Resolves the entity (row-identifier) column index, trying the schema's
+/// declared `entity_column` first and then each `entity_column_aliases` entry,
+/// in order — the first candidate that resolves against the header wins.
+/// Every candidate name comes from the atom's schema declaration; this
+/// function never hardcodes an alias. `None` when no declared candidate
+/// resolves (there is no silent fallback beyond the declared names).
+fn resolve_entity_column(headers: &csv::StringRecord, schema: &ResultSchema) -> Option<usize> {
+    std::iter::once(&schema.entity_column)
+        .chain(schema.entity_column_aliases.iter())
+        .find_map(|name| resolve_column(headers, name))
+}
+
 /// Parses a row's value at `idx` as a finite `f64`, excluding NA/blank/
 /// unparseable/non-finite values.
 fn parse_finite(row: &csv::StringRecord, idx: usize) -> Option<f64> {
@@ -360,17 +372,19 @@ pub fn write_supplementary(
 
 /// Builds the inline `EntityRow`s for a set of row indices, resolving
 /// entity/effect/significance columns BY NAME from the schema (never
-/// positionally). Returns an empty `Vec` when `entity_column` doesn't
-/// resolve against `headers` — the caller has no reliable identifier to
-/// key each row on. `literature` starts at `NotAssessed`; the caller runs
-/// [`join_literature`] to fill it in.
+/// positionally). The entity column is resolved via `entity_column` then each
+/// declared `entity_column_aliases` entry, in order (data-driven — no
+/// hardcoded synonym list here). Returns an empty `Vec` when no declared
+/// entity-column candidate resolves against `headers` — the caller has no
+/// reliable identifier to key each row on. `literature` starts at
+/// `NotAssessed`; the caller runs [`join_literature`] to fill it in.
 pub(crate) fn build_entity_rows(
     rows: &[csv::StringRecord],
     headers: &csv::StringRecord,
     schema: &ResultSchema,
     indices: &[usize],
 ) -> Vec<EntityRow> {
-    let Some(entity_idx) = resolve_column(headers, &schema.entity_column) else {
+    let Some(entity_idx) = resolve_entity_column(headers, schema) else {
         return Vec::new();
     };
     let effect_idx = resolve_effect_column(headers, schema);
@@ -627,6 +641,7 @@ mod tests {
         ResultSchema {
             artifact: "de_results.tsv".into(),
             entity_column: "gene".into(),
+            entity_column_aliases: Vec::new(),
             significance: Some(Significance {
                 column: "padj".into(),
                 threshold: 0.05,
@@ -661,6 +676,7 @@ mod tests {
         let schema = ResultSchema {
             artifact: "variants.tsv".into(),
             entity_column: "variant_id".into(),
+            entity_column_aliases: Vec::new(),
             significance: Some(Significance {
                 column: "qual".into(),
                 threshold: 30.0,
@@ -684,6 +700,7 @@ mod tests {
         let schema = ResultSchema {
             artifact: "x.tsv".into(),
             entity_column: "gene".into(),
+            entity_column_aliases: Vec::new(),
             significance: None,
             signed_effect_column: Some("log2FoldChange".into()),
             signed_effect_aliases: Vec::new(),
@@ -750,6 +767,7 @@ mod tests {
         let schema = ResultSchema {
             artifact: "pathway_results.tsv".into(),
             entity_column: "pathway".into(),
+            entity_column_aliases: Vec::new(),
             significance: Some(Significance {
                 column: "padj".into(),
                 threshold: 0.05,
@@ -801,6 +819,35 @@ mod tests {
         assert_eq!(s.n_significant, None);
         assert!(s.significant_row_indices.is_empty());
         assert_eq!(s.direction_split, None);
+    }
+
+    // -- build_entity_rows entity-column alias resolution --------------
+
+    #[test]
+    fn entity_column_alias_resolves_when_declared_header_absent() {
+        // The table emits `gene_id` (Ensembl-style) as the row identifier;
+        // the schema declares canonical `entity_column: gene` plus `gene_id`
+        // as an accepted alias. Resolution falls through to the alias —
+        // data-driven, from the schema, no hardcoded synonym list here.
+        let (hdr, rows) =
+            tsv("gene_id\tlog2FoldChange\tpadj\nENSG1\t5\t0.001\nENSG2\t-4.8\t0.002");
+        let mut schema = de_schema();
+        schema.entity_column_aliases = vec!["gene_id".into()];
+        let entities = build_entity_rows(&rows, &hdr, &schema, &[0, 1]);
+        assert_eq!(entities.len(), 2);
+        assert_eq!(entities[0].entity, "ENSG1");
+        assert_eq!(entities[1].entity, "ENSG2");
+    }
+
+    #[test]
+    fn entity_column_mismatch_without_alias_yields_empty() {
+        // Same `gene_id` header, but the schema declares only
+        // `entity_column: gene` with NO alias → no declared candidate
+        // resolves → empty (no silent fallback beyond the declared names).
+        let (hdr, rows) = tsv("gene_id\tlog2FoldChange\tpadj\nENSG1\t5\t0.001");
+        let schema = de_schema(); // entity_column "gene", no aliases
+        let entities = build_entity_rows(&rows, &hdr, &schema, &[0]);
+        assert!(entities.is_empty());
     }
 
     // -- Task 4: write_supplementary + degenerate-output guard --------

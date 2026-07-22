@@ -593,6 +593,7 @@ mod tests {
         atom.result_schema = Some(crate::report_contract::ResultSchema {
             artifact: "result.json".into(),
             entity_column: "entity".into(),
+            entity_column_aliases: Vec::new(),
             significance: None,
             signed_effect_column: None,
             signed_effect_aliases: Vec::new(),

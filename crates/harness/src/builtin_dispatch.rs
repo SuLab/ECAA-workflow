@@ -190,6 +190,7 @@ mod tests {
         ResultSchema {
             artifact: "de_results.tsv".into(),
             entity_column: "gene".into(),
+            entity_column_aliases: Vec::new(),
             significance: Some(Significance {
                 column: "padj".into(),
                 threshold: 0.05,

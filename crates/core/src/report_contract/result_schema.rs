@@ -17,6 +17,15 @@
 pub struct ResultSchema {
     pub artifact: String,
     pub entity_column: String,
+    /// Additional accepted header names for the entity column (e.g. an atom
+    /// whose canonical `entity_column` is `gene` but whose agent may emit the
+    /// row identifier under a synonym like `gene_id`/`gene_name`/`symbol`):
+    /// resolution tries `entity_column` then each alias, in order. Data-driven
+    /// — the candidate names live in the atom's declaration, never hardcoded in
+    /// the assembler. Empty (the default) means only `entity_column` is
+    /// accepted.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub entity_column_aliases: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub significance: Option<Significance>,
@@ -99,6 +108,19 @@ signed_effect_column: log2FoldChange
         assert!(s.signed_effect_column.is_none());
         assert!(s.significance.is_none());
         assert!(s.signed_effect_aliases.is_empty());
+        assert!(s.entity_column_aliases.is_empty());
+    }
+
+    #[test]
+    fn parses_entity_column_aliases_from_yaml() {
+        let y = r#"
+artifact: de_results.tsv
+entity_column: gene
+entity_column_aliases: [gene_id, gene_name, symbol]
+"#;
+        let s: super::ResultSchema = serde_yaml_ng::from_str(y).unwrap();
+        assert_eq!(s.entity_column, "gene");
+        assert_eq!(s.entity_column_aliases, vec!["gene_id", "gene_name", "symbol"]);
     }
 
     #[test]
