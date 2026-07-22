@@ -532,6 +532,21 @@ fn lower_task(node: &TaskNode, depends_on: Vec<TaskId>) -> Result<Task, EmitErro
     if let Some(rt) = node.attributes.get("required_tables") {
         spec_map.insert("required_tables".into(), rt.clone());
     }
+    // `builtin` + `report_schemas` — stamped by
+    // `composer_v4::report_data_synthesis::synthesize_report_data_companion`
+    // on the synthesized `assemble_report_data` task. `builtin` marks the
+    // task as core-assembler-run (not agent-executed); `report_schemas` is
+    // the `BTreeMap<stage_id, ResultSchema>` the assembler reads. Mirrors
+    // `required_figures`: an allowlisted pass-through so a later harness
+    // task can read `spec.builtin` / `spec.report_schemas` from
+    // task-spec.json. Additive: emitted only on the node the planner
+    // stamped.
+    if let Some(b) = node.attributes.get("builtin") {
+        spec_map.insert("builtin".into(), b.clone());
+    }
+    if let Some(rs) = node.attributes.get("report_schemas") {
+        spec_map.insert("report_schemas".into(), rs.clone());
+    }
     // `required_input_stage` is the resolved composed-DAG entry-point EDAM IRI
     // stamped onto the `data_acquisition` staging anchor by
     // `composer_v4::planner::stamp_required_input_stage`. Folding it into the

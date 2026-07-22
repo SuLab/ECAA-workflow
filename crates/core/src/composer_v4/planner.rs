@@ -345,6 +345,10 @@ pub fn plan(
         // result-producing atoms. Mirrors v2's `emit_stage` post-pass
         // so v4 emissions reach parity with the v2 baseline.
         super::companion_synthesis::synthesize_validate_companions(&mut dag, atom_reg);
+        // Wire the `assemble_report_data` companion for every stage that
+        // declares a `result_schema`, at parity with the validate-companion
+        // synthesis just above. No-op when no stage declares a schema.
+        super::report_data_synthesis::synthesize_report_data_companion(&mut dag, atom_reg);
         // Closure Phase B.3 — synthesize `discover_<axis>` companions
         // for any atom in the lifted DAG that signals runtime method
         // discovery (`method_choice.deferred_to` or
@@ -398,6 +402,7 @@ pub fn plan(
                 &mut dag,
             );
             super::companion_synthesis::synthesize_validate_companions(&mut dag, atom_reg);
+            super::report_data_synthesis::synthesize_report_data_companion(&mut dag, atom_reg);
         }
         // WG3 strict-mode (C2/C3): type the report/comparison fan-in edges
         // (producer -> reporting terminal) so they prove under Production.
@@ -498,6 +503,10 @@ pub fn plan(
             // baseline (validate_<id> companion per non-validation /
             // non-discovery / non-adapter operation atom).
             super::companion_synthesis::synthesize_validate_companions(&mut dag, atom_reg);
+            // Wire the `assemble_report_data` companion at parity with the
+            // archetype-seed branch above. No-op when no stage declares a
+            // `result_schema`.
+            super::report_data_synthesis::synthesize_report_data_companion(&mut dag, atom_reg);
             // Closure Phase B.3 — synthesize `discover_<axis>`
             // companions analogous to v2's `emit_stage` discovery-
             // task wrapper. Atoms with `method_choice.deferred_to` or
@@ -540,6 +549,7 @@ pub fn plan(
                     &mut dag,
                 );
                 super::companion_synthesis::synthesize_validate_companions(&mut dag, atom_reg);
+                super::report_data_synthesis::synthesize_report_data_companion(&mut dag, atom_reg);
             }
             // WG3 strict-mode (C2/C3): type the report/comparison fan-in edges.
             super::reporting_consumer_synthesis::type_aggregator_fan_in_edges(&mut dag);

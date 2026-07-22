@@ -16,6 +16,7 @@ mod multi_branch_synthesis;
 pub mod planner;
 pub mod policy_gate;
 pub mod prune_unsourced;
+pub mod report_data_synthesis;
 pub mod reporting_consumer_synthesis;
 pub mod scoring;
 pub mod source_typing;
