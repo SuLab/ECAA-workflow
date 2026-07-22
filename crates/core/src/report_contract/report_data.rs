@@ -272,9 +272,30 @@ fn resolve_significance_column(
     sig: &Significance,
     synonyms: &PolicyColumnSynonyms,
 ) -> Option<usize> {
-    std::iter::once(&sig.column)
-        .chain(synonyms.significance.iter())
-        .find_map(|name| resolve_column(headers, name))
+    // The declared name wins outright.
+    if let Some(idx) = resolve_column(headers, &sig.column) {
+        return Some(idx);
+    }
+    // Synonym fallback. When the atom declared an ADJUSTED-p column (padj / FDR /
+    // q-value — the FDR-controlled significance convention for DE + enrichment),
+    // prefer adjusted-p synonyms over raw ones: a header may carry BOTH `p_value`
+    // and `adj_p_value`, and the significance THRESHOLD is meant for the adjusted
+    // value — resolving the raw column would over-count the significant set.
+    if crate::claim_verifier::is_adjusted_pvalue_keyword(&sig.column) {
+        let (adjusted, raw): (Vec<&String>, Vec<&String>) = synonyms
+            .significance
+            .iter()
+            .partition(|c| crate::claim_verifier::is_adjusted_pvalue_keyword(c));
+        adjusted
+            .into_iter()
+            .chain(raw)
+            .find_map(|name| resolve_column(headers, name))
+    } else {
+        synonyms
+            .significance
+            .iter()
+            .find_map(|name| resolve_column(headers, name))
+    }
 }
 
 /// Parses a row's value at `idx` as a finite `f64`, excluding NA/blank/
@@ -986,11 +1007,16 @@ mod tests {
             "the real config/downstream-policy/interpretation-policy.json loaded"
         );
 
+        // The last row is raw-significant (p_value 0.03 < 0.05) but adjusted-
+        // NON-significant (adj_p_value 0.20 >= 0.05): it must NOT count, proving
+        // the significance filter resolves the ADJUSTED column, not raw `p_value`
+        // (both are present, and raw precedes adjusted in the policy list).
         let (hdr, rows) = tsv(
             "term\tcollection\tp_value\tadj_p_value\tlog2err\tes\tnes\tn_overlap\tn_leading_edge\n\
              HALLMARK_HYPOXIA\tHALLMARK\t0.001\t0.01\t0.1\t0.5\t2.1\t50\t10\n\
              GO_MAPK_CASCADE\tGO_BP\t0.002\t0.02\t0.1\t0.4\t1.8\t30\t8\n\
-             KEGG_METABOLISM\tKEGG\t0.5\t0.9\t0.1\t0.1\t0.3\t10\t2",
+             KEGG_METABOLISM\tKEGG\t0.5\t0.9\t0.1\t0.1\t0.3\t10\t2\n\
+             RAW_ONLY_SIG\tGO_BP\t0.03\t0.20\t0.1\t0.2\t1.1\t12\t3",
         );
         let schema = ResultSchema {
             artifact: "pathway_results.tsv".into(),
@@ -1007,8 +1033,14 @@ mod tests {
         };
 
         let s = summarize_artifact(&rows, &hdr, &schema, &synonyms);
-        // significance resolves via a pvalueColumns synonym → 2 of 3 rows pass.
-        assert_eq!(s.n_significant, Some(2), "n_significant resolves via a p-value synonym");
+        // significance resolves via the ADJUSTED p-value synonym (adj_p_value):
+        // 2 of 4 rows pass. If it wrongly resolved raw `p_value`, the RAW_ONLY_SIG
+        // row (p=0.03) would push this to 3.
+        assert_eq!(
+            s.n_significant,
+            Some(2),
+            "n_significant must resolve via the ADJUSTED p-value column, not raw p_value"
+        );
         assert!(
             s.effect_distribution.is_some(),
             "effect_distribution present via the `nes` effect synonym"

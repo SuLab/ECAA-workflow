@@ -3279,7 +3279,7 @@ static THRESH_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
 
 /// True when a p-value-family keyword (or column name) denotes a
 /// *multiple-testing-adjusted* quantity rather than a raw p-value.
-fn is_adjusted_pvalue_keyword(kw: &str) -> bool {
+pub(crate) fn is_adjusted_pvalue_keyword(kw: &str) -> bool {
     let k = kw.to_ascii_lowercase().replace([' ', '.', '_', '-'], "");
     k.contains("adj") || k.contains("fdr") || k.starts_with('q') || k == "padj"
 }
