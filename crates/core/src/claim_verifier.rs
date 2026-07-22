@@ -1266,6 +1266,26 @@ fn run_numeric_gate(
         }
     };
 
+    // Classify every comparable token as agree/disagree against the resolved
+    // row, tagged by numeric FAMILY (log2FC vs p-value). A DISAGREEING token
+    // becomes a Mismatch only when NO token of its family AGREED — the single
+    // wrong value the entity itself asserts. When an agreeing token of the same
+    // family is also present, the disagreeing one is another entity's value
+    // carried in the SAME multi-entity sentence ("the top up-regulated gene is
+    // A (log2FC=+11.0); the top down-regulated gene is B (log2FC=-4.8)"), and
+    // comparing it against this single entity's row would falsely flag it. This
+    // preserves fabrication detection (a lone wrong value with no correct
+    // counterpart still Mismatches) while removing the cross-entity FP.
+    struct ComparedToken {
+        agrees: bool,
+        family: usize,
+        audit: VerdictAudit,
+    }
+    let family_of = |k: NumericColumnKind| match k {
+        NumericColumnKind::Log2Fc => 0usize,
+        NumericColumnKind::PvalueAdjusted | NumericColumnKind::PvalueRaw => 1usize,
+    };
+    let mut compared: Vec<ComparedToken> = Vec::new();
     for tok in &tokens {
         let Some(claimed) = tok.claimed else {
             any_unparseable = true;
@@ -1320,13 +1340,30 @@ fn run_numeric_gate(
             .min_by(|a, b| dist(a.1).total_cmp(&dist(b.1)))
             .cloned()
             .expect("candidates non-empty");
-        n_compared += 1;
         let audit = mk_numeric_audit(Some(claimed), Some(obs), Some(col), tok.kind, Some(agrees));
-        if agrees {
-            pass.get_or_insert(audit);
-        } else {
-            mismatch.get_or_insert(audit);
+        compared.push(ComparedToken {
+            agrees,
+            family: family_of(tok.kind),
+            audit,
+        });
+    }
+    let mut family_agreed = [false, false];
+    for c in &compared {
+        if c.agrees {
+            family_agreed[c.family] = true;
         }
+    }
+    for c in compared {
+        if c.agrees {
+            n_compared += 1;
+            pass.get_or_insert(c.audit);
+        } else if !family_agreed[c.family] {
+            n_compared += 1;
+            mismatch.get_or_insert(c.audit);
+        }
+        // else: a disagreeing token whose family ALSO has an agreeing token —
+        // another entity's value in a shared sentence; neither pass nor
+        // mismatch (ambient, not counted toward parse coverage).
     }
 
     let parse_coverage = n_compared as f64 / n_tokens as f64;
@@ -1666,6 +1703,19 @@ fn median(sample: &mut [f64]) -> f64 {
     }
 }
 
+/// Non-significance assertion cues for a thresholded claim: prose stating the
+/// entity did NOT pass significance, or a p-value-family comparator pointing the
+/// wrong way (`padj > 0.05`). When present, a bare-significance threshold check
+/// must verify the OPPOSITE polarity (observed p >= threshold confirms the
+/// non-significance claim) rather than flag it. Kept narrow so an honest
+/// significance assertion ("padj < 0.05", "significant") never matches.
+static NONSIGNIFICANCE_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r"(?i)(not\s+(?:statistically\s+)?significant|non[\s-]?significant|did\s+not\s+reach\s+significance|failed\s+to\s+reach\s+significance|not\s+reach\s+significance|(?:padj|fdr|q[\s-]?value|adjusted\s*p|p[\s-]?value|\bp|\bq)\s*[>≥])",
+    )
+    .expect("static regex")
+});
+
 /// Verify a thresholded DE or enrichment claim.
 ///
 /// In addition to the base numeric checks, confirms that the observed
@@ -1742,7 +1792,25 @@ fn verify_thresholded(
                     let obs_p = lookup_numeric(&row.values, primary)
                         .or_else(|| lookup_numeric(&row.values, fallback));
                     if let Some(obs_p) = obs_p {
-                        if obs_p >= 0.05 {
+                        if NONSIGNIFICANCE_RE.is_match(&claim.excerpt) {
+                            // The narrative asserts the entity is NOT significant
+                            // ("not significant", "padj > 0.05"). This is confirmed
+                            // when the observed p is indeed >= threshold; it is a
+                            // Mismatch ONLY if the gene is actually significant
+                            // (p < threshold) despite the non-significance claim.
+                            // Without this the bare-significance branch flipped the
+                            // polarity and flagged an honest "CXCL1 … padj = 0.16 —
+                            // not significant" as a fabrication.
+                            if obs_p < 0.05 {
+                                return ClaimStatus::Mismatch {
+                                    detail: format!(
+                                        "thresholded claim: narrative reports non-significance but observed {} p-value {:.4e} is significant (< 0.05)",
+                                        if want_adjusted { "adjusted" } else { "raw" },
+                                        obs_p
+                                    ),
+                                };
+                            }
+                        } else if obs_p >= 0.05 {
                             return ClaimStatus::Mismatch {
                                 detail: format!(
                                     "thresholded claim: observed {} p-value {:.4e} does not meet the claimed significance (< 0.05)",
@@ -8049,6 +8117,106 @@ mod tests {
             "the stated log2FC (+0.098) and padj (0.82) both agree with the table → \
              Verified; got {:?}",
             v[0].status
+        );
+    }
+
+    #[test]
+    fn multi_entity_sentence_does_not_cross_flag_other_entitys_value() {
+        // Real himes FP: one sentence names TWO genes each with its own log2FC
+        // ("… GENEA (log2FC = +10.9963) and … GENEB (log2FC = -4.8136)"). The
+        // extractor binds each gene's OWN value, but run_numeric_gate scanned
+        // EVERY excerpt token and compared the OTHER gene's value against the
+        // resolved row → two false mismatches. Both must Verify.
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_pkg_table(
+            tmp.path(),
+            "de",
+            "de_results.tsv",
+            "gene\tlog2FC\tpadj\nGENEA\t10.9963\t1.1e-17\nGENEB\t-4.8136\t2.0e-4\n",
+        );
+        let claims = extract_claims(
+            "Representative changes included GENEA (log2FC = +10.9963) and GENEB (log2FC = -4.8136).",
+            &cfg,
+        );
+        // Guard the code path: these must be plain table-lookups (the numeric
+        // gate runs), not ExtremeValue/RankTopN claims routed elsewhere.
+        for entity in ["GENEA", "GENEB"] {
+            let c = claims.iter().find(|c| c.entity == entity).unwrap();
+            assert_eq!(
+                c.contract,
+                crate::claim_contract::ClaimContract::NumericTableLookup,
+                "{entity} should be a plain table-lookup so the numeric gate runs"
+            );
+        }
+        let v = verify_claims_with_discovery(&claims, tmp.path(), tmp.path(), &cfg);
+        for entity in ["GENEA", "GENEB"] {
+            let vd = v
+                .iter()
+                .find(|x| x.claim.entity == entity)
+                .unwrap_or_else(|| panic!("no verdict for {entity}"));
+            assert!(
+                !matches!(vd.status, ClaimStatus::Mismatch { .. }),
+                "{entity} must not Mismatch on the OTHER entity's token; got {:?}",
+                vd.status
+            );
+        }
+    }
+
+    #[test]
+    fn thresholded_nonsignificance_claim_verifies_when_gene_is_nonsignificant() {
+        // Real himes FP (CXCL1): "GENEA … was not significant (padj > 0.05)" on
+        // a gene whose table padj is indeed >= 0.05 must VERIFY. The
+        // bare-significance branch previously flipped polarity and flagged it as
+        // failing significance (< 0.05).
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_pkg_table(
+            tmp.path(),
+            "de",
+            "de_results.tsv",
+            "gene\tlog2FC\tpadj\nGENEA\t0.403\t0.16\n",
+        );
+        let claims = extract_claims(
+            "GENEA (log2FC = +0.403) was not significant in this study (padj > 0.05).",
+            &cfg,
+        );
+        let vd = verify_claims_with_discovery(&claims, tmp.path(), tmp.path(), &cfg)
+            .into_iter()
+            .find(|x| x.claim.entity == "GENEA")
+            .expect("verdict for GENEA");
+        assert!(
+            !matches!(vd.status, ClaimStatus::Mismatch { .. }),
+            "a non-significance claim on a genuinely non-significant gene must not Mismatch; got {:?}",
+            vd.status
+        );
+    }
+
+    #[test]
+    fn thresholded_nonsignificance_claim_mismatches_when_gene_is_actually_significant() {
+        // Converse guard: a "not significant" narrative for a gene that IS
+        // significant (padj < 0.05) is a REAL Mismatch — the narrative
+        // contradicts the table. The negation handling must not blanket-verify.
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_pkg_table(
+            tmp.path(),
+            "de",
+            "de_results.tsv",
+            "gene\tlog2FC\tpadj\nGENEA\t3.0\t0.001\n",
+        );
+        let claims = extract_claims(
+            "GENEA (log2FC = +3.0) was not significant in this study (padj > 0.05).",
+            &cfg,
+        );
+        let vd = verify_claims_with_discovery(&claims, tmp.path(), tmp.path(), &cfg)
+            .into_iter()
+            .find(|x| x.claim.entity == "GENEA")
+            .expect("verdict for GENEA");
+        assert!(
+            matches!(vd.status, ClaimStatus::Mismatch { .. }),
+            "a false non-significance claim on a significant gene must Mismatch; got {:?}",
+            vd.status
         );
     }
 
