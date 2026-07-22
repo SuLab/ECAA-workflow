@@ -420,4 +420,73 @@ mod tests {
             serde_json::from_value(schemas_val.clone()).expect("report_schemas deserializes");
         assert!(schemas.contains_key("differential_expression"));
     }
+
+    /// Task C — the real `reporting` atom (from `config/stage-atoms/`)
+    /// declares `required_report_sections` / `required_tables` /
+    /// `interpretation_exempt_from_word_budget: true`. Proves the full
+    /// chain: atom YAML -> typed `AtomDefinition` -> `TaskNode::from_atom`
+    /// attribute stamping -> `workflow_json.rs` emit-time allowlist ->
+    /// the lowered task's `spec`.
+    #[test]
+    fn lowered_reporting_task_spec_carries_report_contract_fields() {
+        use crate::backend_emitters::workflow_json::{lower_to_workflow_json, EmitContext};
+
+        let reg = atom_registry();
+        let reporting_atom = reg.get("reporting").expect("reporting atom present");
+        assert!(
+            reporting_atom.interpretation_exempt_from_word_budget,
+            "precondition: reporting must declare interpretation_exempt_from_word_budget: true"
+        );
+        assert!(
+            !reporting_atom.required_report_sections.is_empty(),
+            "precondition: reporting must declare required_report_sections"
+        );
+        let reporting_node = TaskNode::from_atom(reporting_atom);
+
+        let dag = dag_with(
+            vec![reporting_node, plain_node("final_reporting")],
+            vec![simple_edge("reporting", "final_reporting")],
+        );
+
+        let artifact = lower_to_workflow_json(&dag, &EmitContext::defaults())
+            .expect("lowering the dag must succeed");
+        let task = artifact
+            .dag
+            .tasks
+            .get("reporting")
+            .expect("reporting task must be present in the lowered DAG");
+        let spec = task
+            .spec
+            .as_ref()
+            .expect("reporting task must carry a spec");
+
+        let sections_val = spec
+            .get("required_report_sections")
+            .expect("lowered spec must carry 'required_report_sections'");
+        let sections: Vec<String> =
+            serde_json::from_value(sections_val.clone()).expect("sections deserialize");
+        assert_eq!(sections, reporting_atom.required_report_sections);
+
+        let tables_val = spec
+            .get("required_tables")
+            .expect("lowered spec must carry 'required_tables'");
+        let tables: Vec<String> =
+            serde_json::from_value(tables_val.clone()).expect("tables deserialize");
+        assert_eq!(tables, reporting_atom.required_tables);
+
+        assert_eq!(
+            spec.get("interpretation_exempt_from_word_budget")
+                .and_then(|v| v.as_bool()),
+            Some(true),
+            "lowered spec must carry interpretation_exempt_from_word_budget=true; spec={spec:?}"
+        );
+
+        // result_schema is stamped on the node but intentionally NOT
+        // allowlisted into the emitted task spec (the assembler reads
+        // report_schemas off the assemble_report_data node instead).
+        assert!(
+            spec.get("result_schema").is_none(),
+            "result_schema must not leak into the emitted task spec"
+        );
+    }
 }

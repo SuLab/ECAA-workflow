@@ -34,6 +34,17 @@ resource_profile:
   memory: small
   gpu: false
   runtime_class: minutes
+interpretation_exempt_from_word_budget: true
+required_report_sections:
+  - provenance_method_rationale
+  - qc_preprocessing
+  - primary_results
+  - literature_contextualization
+  - reproducibility
+  - claim_boundary
+required_tables:
+  - significant_entities
+  - literature_concordance
 # Explicit rich ports.
 # Aggregates upstream stage outputs into a per-stage report bundle.
 # Output bundle is a multi-format set: PDF (format:3508) + HTML

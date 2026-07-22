@@ -532,6 +532,16 @@ fn lower_task(node: &TaskNode, depends_on: Vec<TaskId>) -> Result<Task, EmitErro
     if let Some(rt) = node.attributes.get("required_tables") {
         spec_map.insert("required_tables".into(), rt.clone());
     }
+    // Word-budget exemption for interpretation/reporting narratives — see
+    // `AtomDefinition::interpretation_exempt_from_word_budget`. Only
+    // stamped on `node.attributes` (and therefore present here) when
+    // `true`, keeping the emitted spec lean for the common case.
+    if let Some(ex) = node
+        .attributes
+        .get("interpretation_exempt_from_word_budget")
+    {
+        spec_map.insert("interpretation_exempt_from_word_budget".into(), ex.clone());
+    }
     // `builtin` + `report_schemas` — stamped by
     // `composer_v4::report_data_synthesis::synthesize_report_data_companion`
     // on the synthesized `assemble_report_data` task. `builtin` marks the

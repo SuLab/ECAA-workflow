@@ -578,6 +578,7 @@ pub fn promoted_proposal_to_atom_definition(
         result_schema: None,
         required_report_sections: Vec::new(),
         required_tables: Vec::new(),
+        interpretation_exempt_from_word_budget: false,
         validators: proposal.validation_tests.clone(),
         runtime_packages: crate::runtime_prereqs::RuntimePrereqs::default(),
         parameters: Vec::new(),

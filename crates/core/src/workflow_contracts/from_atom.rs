@@ -36,6 +36,13 @@
 //! - plot_stage_id → `TaskNode::attributes["plot_stage_id"]`
 //! - expected_artifacts → `TaskNode::attributes["expected_artifacts"]`
 //! - required_artifacts → `TaskNode::attributes["required_artifacts"]`
+//! - required_report_sections →
+//!   `TaskNode::attributes["required_report_sections"]`
+//! - required_tables → `TaskNode::attributes["required_tables"]`
+//! - result_schema → `TaskNode::attributes["result_schema"]`
+//! - interpretation_exempt_from_word_budget →
+//!   `TaskNode::attributes["interpretation_exempt_from_word_budget"]`
+//!   (only stamped when `true`)
 //! - validators → `TaskNode.validators` (typed; populated as
 //!   `ValidatorRef { id, version: None, parameters: None }` per
 //!   atom-declared obligation id; threaded through to
@@ -313,6 +320,37 @@ fn preserve_attributes(atom: &AtomDefinition) -> BTreeMap<String, serde_json::Va
             serde_json::to_value(&atom.required_artifacts).unwrap_or(serde_json::Value::Null),
         );
     }
+    // Report-contract obligations: which report sections + supplementary
+    // tables this atom's narrative must cover, and whether its narrative
+    // is exempt from the agent's word-budget cap. Mirrors the
+    // `required_figures` pass-through so the emit-time allowlist
+    // (`backend_emitters::workflow_json`) can fold these into
+    // `Task.spec` without a runtime dependency on the atom registry.
+    if !atom.required_report_sections.is_empty() {
+        a.insert(
+            "required_report_sections".into(),
+            serde_json::to_value(&atom.required_report_sections)
+                .unwrap_or(serde_json::Value::Null),
+        );
+    }
+    if !atom.required_tables.is_empty() {
+        a.insert(
+            "required_tables".into(),
+            serde_json::to_value(&atom.required_tables).unwrap_or(serde_json::Value::Null),
+        );
+    }
+    if let Some(rs) = &atom.result_schema {
+        a.insert(
+            "result_schema".into(),
+            serde_json::to_value(rs).unwrap_or(serde_json::Value::Null),
+        );
+    }
+    if atom.interpretation_exempt_from_word_budget {
+        a.insert(
+            "interpretation_exempt_from_word_budget".into(),
+            serde_json::Value::Bool(true),
+        );
+    }
     // Runtime packages always serialize, but we only stash when
     // the atom declares anything non-default — mirrors the
     // skip_serializing_if predicate on AtomDefinition itself.
@@ -389,6 +427,7 @@ mod tests {
             result_schema: None,
             required_report_sections: vec![],
             required_tables: vec![],
+            interpretation_exempt_from_word_budget: false,
             validators: vec![],
             runtime_packages: RuntimePrereqs::default(),
             parameters: Vec::new(),
@@ -544,6 +583,67 @@ mod tests {
         assert!(a.contains_key("read_allowance"));
         // Author-supplied attribute is preserved too.
         assert_eq!(a.get("speed").unwrap(), &serde_json::json!("fast"));
+    }
+
+    #[test]
+    fn from_atom_stamps_report_contract_fields() {
+        let mut atom = minimal_atom("reporting_like");
+        atom.required_report_sections = vec!["primary_results".into(), "qc_preprocessing".into()];
+        atom.required_tables = vec!["significant_entities".into()];
+        atom.result_schema = Some(crate::report_contract::ResultSchema {
+            artifact: "result.json".into(),
+            entity_column: "entity".into(),
+            significance: None,
+            signed_effect_column: None,
+            grouping_column: None,
+        });
+        atom.interpretation_exempt_from_word_budget = true;
+
+        let node = TaskNode::from_atom(&atom);
+        let a = &node.attributes;
+
+        let sections = a
+            .get("required_report_sections")
+            .expect("required_report_sections must be stamped onto attributes");
+        let sections: Vec<String> =
+            serde_json::from_value(sections.clone()).expect("deserializes as Vec<String>");
+        assert_eq!(
+            sections,
+            vec!["primary_results".to_string(), "qc_preprocessing".to_string()]
+        );
+
+        let tables = a
+            .get("required_tables")
+            .expect("required_tables must be stamped onto attributes");
+        let tables: Vec<String> =
+            serde_json::from_value(tables.clone()).expect("deserializes as Vec<String>");
+        assert_eq!(tables, vec!["significant_entities".to_string()]);
+
+        assert!(
+            a.contains_key("result_schema"),
+            "result_schema must be stamped onto attributes"
+        );
+
+        assert_eq!(
+            a.get("interpretation_exempt_from_word_budget"),
+            Some(&serde_json::Value::Bool(true)),
+            "interpretation_exempt_from_word_budget must be stamped true"
+        );
+    }
+
+    #[test]
+    fn from_atom_omits_falsy_word_budget_flag_and_empty_report_contract_fields() {
+        // Default minimal_atom leaves required_report_sections/required_tables
+        // empty and interpretation_exempt_from_word_budget false — the
+        // stamping must stay lean (mirrors required_figures' empty-skip rule)
+        // rather than pollute every non-reporting atom's attributes bag.
+        let atom = minimal_atom("plain_atom");
+        let node = TaskNode::from_atom(&atom);
+        let a = &node.attributes;
+        assert!(!a.contains_key("required_report_sections"));
+        assert!(!a.contains_key("required_tables"));
+        assert!(!a.contains_key("result_schema"));
+        assert!(!a.contains_key("interpretation_exempt_from_word_budget"));
     }
 
     #[test]

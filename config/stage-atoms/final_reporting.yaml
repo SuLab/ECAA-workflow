@@ -43,6 +43,16 @@ claim_boundary: |
   fabrication, worse than an omission). Generic reporting discipline only;
   do not tailor content to any external grading rubric.
 interpretation_exempt_from_word_budget: true
+required_report_sections:
+  - provenance_method_rationale
+  - qc_preprocessing
+  - primary_results
+  - literature_contextualization
+  - reproducibility
+  - claim_boundary
+required_tables:
+  - significant_entities
+  - literature_concordance
 # RCA I-1 — declared read-allowance (not a port). This atom is shared
 # by ~30 archetypes with wholly different upstream analytical shapes
 # (DE-family, peak-calling, variant-calling, clinical, …), and its own

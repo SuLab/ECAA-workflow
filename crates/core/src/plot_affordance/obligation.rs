@@ -275,6 +275,7 @@ mod tests {
             result_schema: None,
             required_report_sections: vec![],
             required_tables: vec![],
+            interpretation_exempt_from_word_budget: false,
             validators: vec![],
             runtime_packages: Default::default(),
             parameters: Vec::new(),

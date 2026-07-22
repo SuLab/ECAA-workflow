@@ -293,6 +293,15 @@ pub struct AtomDefinition {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub required_tables: Vec<String>,
 
+    /// When true, this atom's interpretation/findings narrative is
+    /// exempt from the dispatched agent's ~500-word narrative cap (the
+    /// cap applies only to the factual-summary and methods sections).
+    /// Set on interpretation/reporting atoms whose value is depth of
+    /// interpretation. Mirrors `_atom.schema.json`'s
+    /// `interpretation_exempt_from_word_budget` boolean property.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub interpretation_exempt_from_word_budget: bool,
+
     /// Validation-obligation ids that the harness
     /// runs against this atom's artifacts after task completion.
     /// Each id resolves against the runner registry
@@ -590,6 +599,7 @@ impl AtomDefinition {
             result_schema: None,
             required_report_sections: Vec::new(),
             required_tables: Vec::new(),
+            interpretation_exempt_from_word_budget: false,
             validators: Vec::new(),
             runtime_packages: crate::runtime_prereqs::RuntimePrereqs::default(),
             parameters: Vec::new(),
@@ -1614,6 +1624,7 @@ assignee: agent
             result_schema: None,
             required_report_sections: vec![],
             required_tables: vec![],
+            interpretation_exempt_from_word_budget: false,
             validators: vec![],
             runtime_packages: Default::default(),
             parameters: Vec::new(),
@@ -1668,6 +1679,7 @@ assignee: agent
             result_schema: None,
             required_report_sections: vec![],
             required_tables: vec![],
+            interpretation_exempt_from_word_budget: false,
             validators: vec![],
             runtime_packages: Default::default(),
             parameters: Vec::new(),
@@ -1726,6 +1738,7 @@ assignee: agent
             result_schema: None,
             required_report_sections: vec![],
             required_tables: vec![],
+            interpretation_exempt_from_word_budget: false,
             validators: vec![],
             runtime_packages: Default::default(),
             parameters: Vec::new(),
@@ -1858,6 +1871,7 @@ assignee: agent
             result_schema: None,
             required_report_sections: vec![],
             required_tables: vec![],
+            interpretation_exempt_from_word_budget: false,
             validators: vec![],
             runtime_packages: Default::default(),
             parameters: Vec::new(),
