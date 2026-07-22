@@ -278,6 +278,14 @@ fn is_eligible_for_validate_companion(node: &TaskNode) -> bool {
         return false;
     }
 
+    // Builtin nodes (e.g. the deterministic `assemble_report_data` core
+    // assembler, marked with a `builtin` attribute) run in-process, not via an
+    // agent. A validate companion would spawn an AGENT task to check a
+    // deterministic core builtin — a role-separation smell — so skip them.
+    if node.attributes.contains_key("builtin") {
+        return false;
+    }
+
     // Role-based skip. The atom's role is preserved in
     // `attributes["role"]` (see `from_atom.rs::preserve_attributes`).
     //
@@ -464,6 +472,28 @@ mod tests {
         let reg = AtomRegistry::default();
         synthesize_validate_companions(&mut dag, &reg);
         assert_eq!(dag.nodes.len(), 1, "adapter received a companion");
+    }
+
+    /// Builtin nodes do NOT get a companion. The deterministic
+    /// `assemble_report_data` core builtin (marked with a `builtin`
+    /// attribute) runs in-process; an agent validate companion checking a
+    /// deterministic core builtin is a role-separation smell.
+    #[test]
+    fn synthesize_skips_builtin_nodes() {
+        let mut dag =
+            dummy_dag_with_node("assemble_report_data", crate::atom::AtomRole::Operation);
+        dag.nodes[0].attributes.insert(
+            "builtin".into(),
+            serde_json::Value::String("assemble_report_data".into()),
+        );
+        let reg = AtomRegistry::default();
+        synthesize_validate_companions(&mut dag, &reg);
+        let ids: BTreeSet<String> = dag.nodes.iter().map(|n| n.id.clone()).collect();
+        assert!(
+            !ids.contains("validate_assemble_report_data"),
+            "a builtin node must not receive an agent validate companion; got {ids:?}"
+        );
+        assert_eq!(dag.nodes.len(), 1, "builtin node received a companion");
     }
 
     /// Idempotency: running twice doesn't duplicate.
