@@ -2012,6 +2012,20 @@ static EXTREME_UP_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
         .expect("static regex")
 });
 
+/// Contrastive / non-replication phrasing that frames a direction word as a
+/// reference to a PRIOR or contrasted finding rather than a claim about THIS
+/// result — e.g. "in the opposite direction from the prior repression", "in
+/// contrast to the earlier report", "unlike the previous study". Used only to
+/// waive the direction hard-mismatch when the claim's OWN stated effect size
+/// already confirms the observed direction (see the direction cross-check in
+/// [`verify_one`]); it never turns a confirm into a flag.
+static CONTRASTIVE_DIRECTION_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r"(?i)(opposite[\s-]+(?:direction|to|of|from)|contrary\s+to|in\s+contrast|as\s+opposed\s+to|unlike\s+the|rather\s+than)",
+    )
+    .expect("static regex")
+});
+
 /// A3 — verify an ordinal/superlative EXTREME claim ("the strongest enrichment
 /// by NES", "the most-downregulated gene by log2FC", "TP53 had the lowest
 /// padj"). No explicit rank digit is present (those route to `RankTopN`). The
@@ -2503,17 +2517,34 @@ fn verify_one(
             // Mismatched a faithful "the hazard was reduced (HR=0.72)".
             let observed_direction = observed_effect_direction(obs, scale);
             if observed_direction != Some(direction) {
-                return ClaimStatus::Mismatch {
-                    detail: format!(
-                        "direction: narrative says {:?}, table effect value is {:+.4} (pivot {})",
-                        direction,
-                        obs,
-                        match scale {
-                            EffectScale::Log => "0",
-                            EffectScale::Ratio => "1",
-                        }
-                    ),
-                };
+                // The direction WORD contradicts the observed sign. This is a
+                // Mismatch UNLESS the sentence is contrastive / non-replication
+                // phrasing whose OWN stated effect size already confirms the
+                // observed direction — then the direction word refers to a PRIOR
+                // or contrasted finding, not this result (real himes: "IL11 …
+                // log2FC = +0.098 … in the opposite direction from [the prior]
+                // repression"). BOTH conditions are required: a bare claim, or
+                // one whose number contradicts its own word ("increased hazard
+                // (HR=0.72)"), still Mismatches — the number is what confirms the
+                // word is merely contextual.
+                let stated_confirms_observed = claim
+                    .effect_size
+                    .map(|e| observed_effect_direction(e, scale) == observed_direction)
+                    .unwrap_or(false);
+                let contrastive = CONTRASTIVE_DIRECTION_RE.is_match(&claim.excerpt);
+                if !(stated_confirms_observed && contrastive) {
+                    return ClaimStatus::Mismatch {
+                        detail: format!(
+                            "direction: narrative says {:?}, table effect value is {:+.4} (pivot {})",
+                            direction,
+                            obs,
+                            match scale {
+                                EffectScale::Log => "0",
+                                EffectScale::Ratio => "1",
+                            }
+                        ),
+                    };
+                }
             }
         }
     }
@@ -7961,6 +7992,63 @@ mod tests {
             matches!(v.status, ClaimStatus::Verified),
             "significant near-zero up-claim should verify, got {:?}",
             v.status
+        );
+    }
+
+    #[test]
+    fn stated_effect_size_contrastive_direction_word_on_nonsig_near_zero_is_not_a_mismatch() {
+        // Real himes FP (IL11): a NON-REPLICATION sentence STATES the observed
+        // effect size (+0.098, agreeing with the table) alongside a direction
+        // WORD ("repression") that refers to the PRIOR study, on a gene that is
+        // near-zero (|log2FC| < 0.5) AND non-significant (padj 0.82). The stated
+        // number agrees, so this must NOT be a Mismatch — on a non-significant
+        // near-zero effect the sign is statistical noise and the direction word
+        // is not mechanically refutable. The pre-existing near-zero guard only
+        // covered BARE direction claims (no stated effect size); an
+        // effect-size-stating claim fell through to the direction hard-mismatch.
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_pkg_table(
+            tmp.path(),
+            "de",
+            "de_results.tsv",
+            "gene\tlog2FC\tpadj\nACAN\t0.098\t0.82\n",
+        );
+        let claim = Claim {
+            entity: "ACAN".into(),
+            direction: Some(Direction::Down),
+            effect_size: Some(0.098),
+            pvalue: Some(0.82),
+            source_table: None,
+            excerpt: "ACAN was repressed in the prior study; here log2FC = +0.098 \
+                      and padj = 0.82 — not significant and in the opposite \
+                      direction from repression"
+                .into(),
+            contract: ClaimContract::NumericTableLookup,
+            literature_evidence: None,
+            matched_pvalue_keyword: Some("padj".into()),
+            linear_fold: None,
+            aggregate_kind: None,
+            aggregate_column: None,
+            aggregate_rowset: None,
+            aggregate_value: None,
+            collection: None,
+            term: None,
+            keyed_column: None,
+            keyed_value: None,
+        };
+        let v = verify_claims_with_discovery(&[claim], tmp.path(), tmp.path(), &cfg);
+        assert!(
+            !matches!(v[0].status, ClaimStatus::Mismatch { .. }),
+            "a stated near-zero effect that agrees with the table must not Mismatch \
+             on a contrastive direction word; got {:?}",
+            v[0].status
+        );
+        assert!(
+            matches!(v[0].status, ClaimStatus::Verified),
+            "the stated log2FC (+0.098) and padj (0.82) both agree with the table → \
+             Verified; got {:?}",
+            v[0].status
         );
     }
 
