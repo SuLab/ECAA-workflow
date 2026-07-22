@@ -16,7 +16,8 @@ pub mod assemble;
 pub use assemble::assemble_report_data;
 pub use report_data::{
     ArtifactStats, DirectionSplit, DistBin, EntityRow, GroupCount, LitFinding, LiteratureRollup,
-    LiteratureStatus, NonReplication, ReportData, ResultArtifactSummary, SPILL_THRESHOLD,
-    join_literature, should_spill, summarize_artifact, write_supplementary,
+    LiteratureStatus, NonReplication, PolicyColumnSynonyms, ReportData, ResultArtifactSummary,
+    SPILL_THRESHOLD, join_literature, load_policy_column_synonyms, should_spill, summarize_artifact,
+    write_supplementary,
 };
 pub use result_schema::{Comparator, ResultSchema, Significance};

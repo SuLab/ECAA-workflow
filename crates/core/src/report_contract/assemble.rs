@@ -17,7 +17,9 @@ use anyhow::{Context, Result};
 
 use crate::clock::Clock;
 
-use super::report_data::{build_entity_rows, join_literature, should_spill};
+use super::report_data::{
+    build_entity_rows, join_literature, load_policy_column_synonyms, should_spill,
+};
 use super::{ReportData, ResultArtifactSummary, ResultSchema, summarize_artifact, write_supplementary};
 
 /// The stage_id of the literature-contextualization atom whose outputs
@@ -77,6 +79,12 @@ pub fn assemble_report_data(
 ) -> Result<ReportData> {
     let _ = clock;
 
+    // Loaded once from the emitted package's interpretation policy and shared
+    // across every artifact's column resolution — data-driven tolerant column
+    // matching (see [`load_policy_column_synonyms`]). Absent policy → empty →
+    // declared-name-only resolution.
+    let synonyms = load_policy_column_synonyms(package_root);
+
     let outputs_dir = package_root.join("runtime").join("outputs");
     let mut artifacts: Vec<ResultArtifactSummary> = Vec::new();
     // Every collected significant EntityRow across all artifacts, plus the
@@ -93,7 +101,7 @@ pub fn assemble_report_data(
         }
 
         let (headers, rows) = read_table(&artifact_path)?;
-        let stats = summarize_artifact(&rows, &headers, schema);
+        let stats = summarize_artifact(&rows, &headers, schema, &synonyms);
 
         let stem = Path::new(&schema.artifact)
             .file_stem()
@@ -112,7 +120,7 @@ pub fn assemble_report_data(
         let entities = if spilled {
             Vec::new()
         } else {
-            build_entity_rows(&rows, &headers, schema, &stats.significant_row_indices)
+            build_entity_rows(&rows, &headers, schema, &synonyms, &stats.significant_row_indices)
         };
 
         let start = all_sig_entities.len();

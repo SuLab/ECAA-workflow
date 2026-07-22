@@ -82,7 +82,9 @@ use std::path::Path;
 use regex::Regex;
 use serde_json::Value;
 
-use crate::report_contract::{ReportData, ResultSchema, summarize_artifact};
+use crate::report_contract::{
+    ReportData, ResultSchema, load_policy_column_synonyms, summarize_artifact,
+};
 
 /// Severity of a reporting-invariant finding.
 #[non_exhaustive]
@@ -784,6 +786,10 @@ fn check_rc_count(package_root: &Path, outputs: &Path, report: &mut ReportingInv
         return;
     };
 
+    // The RC-COUNT recompute must resolve columns IDENTICALLY to the assembler,
+    // so it loads the SAME policy synonym lists (see `assemble_report_data`).
+    let synonyms = load_policy_column_synonyms(package_root);
+
     let mut ran = false;
     let mut mismatches: Vec<String> = Vec::new();
     for artifact in &report_data.artifacts {
@@ -799,7 +805,7 @@ fn check_rc_count(package_root: &Path, outputs: &Path, report: &mut ReportingInv
             continue;
         };
         ran = true;
-        let stats = summarize_artifact(&rows, &headers, schema);
+        let stats = summarize_artifact(&rows, &headers, schema, &synonyms);
 
         if stats.n_significant != artifact.n_significant {
             mismatches.push(format!(

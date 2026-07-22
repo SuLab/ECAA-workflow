@@ -15,7 +15,72 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use super::{Comparator, ResultSchema};
+use super::{Comparator, ResultSchema, Significance};
+
+/// Data-driven column-name synonym lists loaded from the emitted package's
+/// interpretation policy (`verifiableEntities` block) — the SAME maintained
+/// synonym source the claim-verifier uses. Threaded into report-data column
+/// resolution so a terminal artifact whose agent emitted a column under a
+/// policy-listed synonym (e.g. pathway `term`/`nes`/`adj_p_value` for the
+/// declared `pathway`/`NES`/`padj`) still resolves, without per-atom alias
+/// maintenance. The lists are DATA (loaded from the policy), never hardcoded
+/// column names in the resolution logic.
+///
+/// Empty (the [`Default`]) → resolution equals declared-name + declared-alias
+/// only (no behavior change from today). `#[non_exhaustive]` for SemVer
+/// headroom (a later kind — e.g. a grouping synonym list — can be added
+/// without a breaking change).
+#[derive(Debug, Clone, Default, PartialEq)]
+#[non_exhaustive]
+pub struct PolicyColumnSynonyms {
+    pub entity: Vec<String>,
+    pub significance: Vec<String>,
+    pub effect: Vec<String>,
+}
+
+/// Loads the column-name synonym lists from the emitted package's
+/// interpretation policy. Reads
+/// `package_root/policies/interpretation-policy.json` first, falling back to
+/// `package_root/config/downstream-policy/interpretation-policy.json`. Parses
+/// `verifiableEntities.{entityColumns → entity, pvalueColumns → significance,
+/// effectSizeColumns → effect}`. Best-effort: an absent, unreadable, or
+/// unparseable policy yields all-empty lists — resolution then falls back to
+/// declared-name-only, with no behavior change from before synonyms existed.
+pub fn load_policy_column_synonyms(package_root: &Path) -> PolicyColumnSynonyms {
+    let primary = package_root
+        .join("policies")
+        .join("interpretation-policy.json");
+    let path = if primary.exists() {
+        primary
+    } else {
+        package_root
+            .join("config")
+            .join("downstream-policy")
+            .join("interpretation-policy.json")
+    };
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return PolicyColumnSynonyms::default();
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return PolicyColumnSynonyms::default();
+    };
+    let ve = value.get("verifiableEntities");
+    let read_list = |key: &str| -> Vec<String> {
+        ve.and_then(|v| v.get(key))
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    PolicyColumnSynonyms {
+        entity: read_list("entityColumns"),
+        significance: read_list("pvalueColumns"),
+        effect: read_list("effectSizeColumns"),
+    }
+}
 
 /// Top-level `report-data.json` payload: one summary per terminal
 /// artifact plus an optional literature-concordance rollup.
@@ -157,28 +222,58 @@ fn resolve_column(headers: &csv::StringRecord, name: &str) -> Option<usize> {
 }
 
 /// Resolves the signed-effect column index, trying the schema's declared
-/// `signed_effect_column` first and then each `signed_effect_aliases` entry,
-/// in order — the first candidate that resolves against the header wins.
-/// Every candidate name comes from the atom's schema declaration; this
-/// function never hardcodes an alias. `None` when no declared candidate
-/// resolves (there is no silent fallback beyond the declared names).
-fn resolve_effect_column(headers: &csv::StringRecord, schema: &ResultSchema) -> Option<usize> {
+/// `signed_effect_column` first, then each `signed_effect_aliases` entry, then
+/// each policy `synonyms.effect` entry, in order — the first candidate that
+/// resolves against the header wins. The declared names come from the atom's
+/// schema; the synonym names are DATA loaded from the interpretation policy —
+/// this function never hardcodes a column name. `None` when no candidate
+/// resolves (there is no silent positional fallback).
+fn resolve_effect_column(
+    headers: &csv::StringRecord,
+    schema: &ResultSchema,
+    synonyms: &PolicyColumnSynonyms,
+) -> Option<usize> {
     schema
         .signed_effect_column
         .iter()
         .chain(schema.signed_effect_aliases.iter())
+        .chain(synonyms.effect.iter())
         .find_map(|name| resolve_column(headers, name))
 }
 
 /// Resolves the entity (row-identifier) column index, trying the schema's
-/// declared `entity_column` first and then each `entity_column_aliases` entry,
-/// in order — the first candidate that resolves against the header wins.
-/// Every candidate name comes from the atom's schema declaration; this
-/// function never hardcodes an alias. `None` when no declared candidate
-/// resolves (there is no silent fallback beyond the declared names).
-fn resolve_entity_column(headers: &csv::StringRecord, schema: &ResultSchema) -> Option<usize> {
+/// declared `entity_column` first, then each `entity_column_aliases` entry,
+/// then each policy `synonyms.entity` entry, in order — the first candidate
+/// that resolves against the header wins. The declared names come from the
+/// atom's schema; the synonym names are DATA loaded from the interpretation
+/// policy — this function never hardcodes a column name. `None` when no
+/// candidate resolves (there is no silent positional fallback).
+fn resolve_entity_column(
+    headers: &csv::StringRecord,
+    schema: &ResultSchema,
+    synonyms: &PolicyColumnSynonyms,
+) -> Option<usize> {
     std::iter::once(&schema.entity_column)
         .chain(schema.entity_column_aliases.iter())
+        .chain(synonyms.entity.iter())
+        .find_map(|name| resolve_column(headers, name))
+}
+
+/// Resolves the significance column index, trying the schema's declared
+/// `Significance::column` first, then each policy `synonyms.significance`
+/// entry, in order — the first candidate that resolves against the header
+/// wins. The schema's threshold + comparator apply to whichever column
+/// resolves. The declared name comes from the atom's schema; the synonym names
+/// are DATA loaded from the interpretation policy — this function never
+/// hardcodes a column name. `None` when no candidate resolves (unresolvable —
+/// must not be conflated with "zero rows pass").
+fn resolve_significance_column(
+    headers: &csv::StringRecord,
+    sig: &Significance,
+    synonyms: &PolicyColumnSynonyms,
+) -> Option<usize> {
+    std::iter::once(&sig.column)
+        .chain(synonyms.significance.iter())
         .find_map(|name| resolve_column(headers, name))
 }
 
@@ -213,22 +308,23 @@ pub fn summarize_artifact(
     rows: &[csv::StringRecord],
     headers: &csv::StringRecord,
     schema: &ResultSchema,
+    synonyms: &PolicyColumnSynonyms,
 ) -> ArtifactStats {
     let n_total = rows.len() as u64;
 
-    // Resolved by the schema's declared name (then its declared aliases) only
-    // — the atom declaration is the sole source of truth for the column
-    // name(s); this never hardcodes an alias.
-    let effect_idx = resolve_effect_column(headers, schema);
+    // Resolved by the schema's declared name, then its declared aliases, then
+    // the policy synonym list — all DATA-driven (schema declaration + loaded
+    // policy); this never hardcodes an alias.
+    let effect_idx = resolve_effect_column(headers, schema, synonyms);
 
     // Distinguishes three states: no significance declared (every row
     // counts, `n_significant` stays `None`); declared and resolved (normal
-    // filter); declared but the column is absent from the header
+    // filter); declared but no candidate column present in the header
     // (unresolvable — must NOT be conflated with "zero rows pass").
     let (significant_row_indices, n_significant, significance_unresolvable): (Vec<usize>, Option<u64>, bool) =
         match &schema.significance {
             None => ((0..rows.len()).collect(), None, false),
-            Some(sig) => match resolve_column(headers, &sig.column) {
+            Some(sig) => match resolve_significance_column(headers, sig, synonyms) {
                 Some(sig_idx) => {
                     let indices: Vec<usize> = rows
                         .iter()
@@ -371,27 +467,28 @@ pub fn write_supplementary(
 }
 
 /// Builds the inline `EntityRow`s for a set of row indices, resolving
-/// entity/effect/significance columns BY NAME from the schema (never
-/// positionally). The entity column is resolved via `entity_column` then each
-/// declared `entity_column_aliases` entry, in order (data-driven — no
-/// hardcoded synonym list here). Returns an empty `Vec` when no declared
-/// entity-column candidate resolves against `headers` — the caller has no
-/// reliable identifier to key each row on. `literature` starts at
-/// `NotAssessed`; the caller runs [`join_literature`] to fill it in.
+/// entity/effect/significance columns BY NAME (never positionally) via the
+/// schema's declared name, its declared aliases, then the policy synonym list
+/// (data-driven — the synonym names are loaded from the interpretation policy,
+/// not hardcoded here). Returns an empty `Vec` when no entity-column candidate
+/// resolves against `headers` — the caller has no reliable identifier to key
+/// each row on. `literature` starts at `NotAssessed`; the caller runs
+/// [`join_literature`] to fill it in.
 pub(crate) fn build_entity_rows(
     rows: &[csv::StringRecord],
     headers: &csv::StringRecord,
     schema: &ResultSchema,
+    synonyms: &PolicyColumnSynonyms,
     indices: &[usize],
 ) -> Vec<EntityRow> {
-    let Some(entity_idx) = resolve_entity_column(headers, schema) else {
+    let Some(entity_idx) = resolve_entity_column(headers, schema, synonyms) else {
         return Vec::new();
     };
-    let effect_idx = resolve_effect_column(headers, schema);
+    let effect_idx = resolve_effect_column(headers, schema, synonyms);
     let significance_idx = schema
         .significance
         .as_ref()
-        .and_then(|sig| resolve_column(headers, &sig.column));
+        .and_then(|sig| resolve_significance_column(headers, sig, synonyms));
 
     indices
         .iter()
@@ -691,7 +788,7 @@ mod tests {
             "gene\tlog2FoldChange\tpadj\nGUP\t5\t0.001\nGDOWN\t-4.8\t0.002\nNS\t0.1\t0.9",
         );
         let schema = de_schema();
-        let s = summarize_artifact(&rows, &hdr, &schema);
+        let s = summarize_artifact(&rows, &hdr, &schema, &PolicyColumnSynonyms::default());
         assert_eq!(s.n_total, 3);
         assert_eq!(s.n_significant, Some(2));
         assert_eq!(s.direction_split, Some(DirectionSplit { up: 1, down: 1 }));
@@ -718,7 +815,7 @@ mod tests {
             signed_effect_aliases: Vec::new(),
             grouping_column: None,
         };
-        let s = summarize_artifact(&rows, &hdr, &schema);
+        let s = summarize_artifact(&rows, &hdr, &schema, &PolicyColumnSynonyms::default());
         assert_eq!(s.n_total, 2);
         assert_eq!(s.n_significant, Some(1)); // qual>30
         assert_eq!(s.direction_split, None);
@@ -738,7 +835,7 @@ mod tests {
             signed_effect_aliases: Vec::new(),
             grouping_column: None,
         };
-        let s = summarize_artifact(&rows, &hdr, &schema);
+        let s = summarize_artifact(&rows, &hdr, &schema, &PolicyColumnSynonyms::default());
         assert_eq!(s.n_total, 3);
         assert_eq!(s.n_significant, None);
         assert_eq!(s.significant_row_indices, vec![0, 1, 2]);
@@ -758,7 +855,7 @@ mod tests {
             tsv("gene\tlog2FC\tpadj\nGUP\t5\t0.001\nGDOWN\t-4.8\t0.002\nNS\t0.1\t0.9");
         let mut schema = de_schema();
         schema.signed_effect_aliases = vec!["log2FC".into()];
-        let s = summarize_artifact(&rows, &hdr, &schema);
+        let s = summarize_artifact(&rows, &hdr, &schema, &PolicyColumnSynonyms::default());
         assert_eq!(s.n_significant, Some(2));
         assert_eq!(s.direction_split, Some(DirectionSplit { up: 1, down: 1 }));
         let dist = s.effect_distribution.expect("aliased effect column resolved");
@@ -776,7 +873,7 @@ mod tests {
         let (hdr, rows) = tsv("gene\tlog2ratio\tpadj\nA\t3\t0.01\n");
         let mut schema = de_schema();
         schema.signed_effect_aliases = vec!["log2FC".into()];
-        let s = summarize_artifact(&rows, &hdr, &schema);
+        let s = summarize_artifact(&rows, &hdr, &schema, &PolicyColumnSynonyms::default());
         assert_eq!(s.n_significant, Some(1));
         assert_eq!(s.direction_split, None);
         assert_eq!(s.effect_distribution, None);
@@ -809,7 +906,7 @@ mod tests {
             signed_effect_aliases: Vec::new(),
             grouping_column: Some("collection".into()),
         };
-        let s = summarize_artifact(&rows, &hdr, &schema);
+        let s = summarize_artifact(&rows, &hdr, &schema, &PolicyColumnSynonyms::default());
         assert_eq!(s.n_significant, Some(3));
         let grouped = s.grouped_significant.expect("grouping column resolved");
         assert_eq!(
@@ -825,7 +922,7 @@ mod tests {
     fn no_grouping_column_yields_none_grouped_significant() {
         let (hdr, rows) = tsv("gene\tlog2FoldChange\tpadj\nA\t1\t0.01\nB\t-2\t0.02");
         // de_schema declares no grouping_column.
-        let s = summarize_artifact(&rows, &hdr, &de_schema());
+        let s = summarize_artifact(&rows, &hdr, &de_schema(), &PolicyColumnSynonyms::default());
         assert_eq!(s.grouped_significant, None);
     }
 
@@ -836,7 +933,7 @@ mod tests {
         let (hdr, rows) = tsv("gene\tlog2FoldChange\tpadj\nA\t1\t0.01");
         let mut schema = de_schema();
         schema.grouping_column = Some("collection".into());
-        let s = summarize_artifact(&rows, &hdr, &schema);
+        let s = summarize_artifact(&rows, &hdr, &schema, &PolicyColumnSynonyms::default());
         assert_eq!(s.grouped_significant, None);
     }
 
@@ -847,10 +944,109 @@ mod tests {
         // Some(0) which would falsely read as "zero significant rows found".
         let (hdr, rows) = tsv("gene\tlog2FoldChange\nA\t3\nB\t-1");
         let schema = de_schema();
-        let s = summarize_artifact(&rows, &hdr, &schema);
+        let s = summarize_artifact(&rows, &hdr, &schema, &PolicyColumnSynonyms::default());
         assert_eq!(s.n_significant, None);
         assert!(s.significant_row_indices.is_empty());
         assert_eq!(s.direction_split, None);
+    }
+
+    // -- policy-synonym tolerant column resolution ---------------------
+
+    /// The real interpretation policy shipped under `config/downstream-policy/`,
+    /// loaded via the fallback path from the repo root (no `policies/` dir at
+    /// the repo root, so `load_policy_column_synonyms` falls back to
+    /// `config/downstream-policy/interpretation-policy.json`).
+    fn real_policy_synonyms() -> PolicyColumnSynonyms {
+        let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..");
+        super::load_policy_column_synonyms(&repo_root)
+    }
+
+    #[test]
+    fn policy_synonyms_resolve_pathway_shaped_table() {
+        // A pathway-shaped fgsea table whose headers match the pathway atom's
+        // result_schema on NONE of its declared names — entity `pathway` vs
+        // actual `term`, significance `padj` vs actual `p_value`/`adj_p_value`,
+        // effect `NES` vs actual lowercase `nes` — resolves once the real
+        // interpretation-policy synonym lists are threaded (term∈entityColumns,
+        // p_value/adj_p_value∈pvalueColumns, nes∈effectSizeColumns). Grouping
+        // `collection` is declared AND present (unchanged path).
+        let synonyms = real_policy_synonyms();
+        assert!(
+            !synonyms.entity.is_empty() && !synonyms.significance.is_empty(),
+            "the real config/downstream-policy/interpretation-policy.json loaded"
+        );
+
+        let (hdr, rows) = tsv(
+            "term\tcollection\tp_value\tadj_p_value\tlog2err\tes\tnes\tn_overlap\tn_leading_edge\n\
+             HALLMARK_HYPOXIA\tHALLMARK\t0.001\t0.01\t0.1\t0.5\t2.1\t50\t10\n\
+             GO_MAPK_CASCADE\tGO_BP\t0.002\t0.02\t0.1\t0.4\t1.8\t30\t8\n\
+             KEGG_METABOLISM\tKEGG\t0.5\t0.9\t0.1\t0.1\t0.3\t10\t2",
+        );
+        let schema = ResultSchema {
+            artifact: "pathway_results.tsv".into(),
+            entity_column: "pathway".into(),
+            entity_column_aliases: Vec::new(),
+            significance: Some(Significance {
+                column: "padj".into(),
+                threshold: 0.05,
+                comparator: Comparator::Lt,
+            }),
+            signed_effect_column: Some("NES".into()),
+            signed_effect_aliases: Vec::new(),
+            grouping_column: Some("collection".into()),
+        };
+
+        let s = summarize_artifact(&rows, &hdr, &schema, &synonyms);
+        // significance resolves via a pvalueColumns synonym → 2 of 3 rows pass.
+        assert_eq!(s.n_significant, Some(2), "n_significant resolves via a p-value synonym");
+        assert!(
+            s.effect_distribution.is_some(),
+            "effect_distribution present via the `nes` effect synonym"
+        );
+        assert!(s.direction_split.is_some());
+        assert!(
+            s.grouped_significant.is_some(),
+            "grouped_significant present via the declared `collection` grouping"
+        );
+
+        // entity resolves via `term` (an entityColumns synonym) → rows populated.
+        let entities =
+            build_entity_rows(&rows, &hdr, &schema, &synonyms, &s.significant_row_indices);
+        assert_eq!(entities.len(), 2, "significant_entities populated via the `term` synonym");
+        assert!(entities.iter().any(|e| e.entity == "HALLMARK_HYPOXIA"));
+        assert!(
+            entities.iter().all(|e| e.effect.is_some()),
+            "each entity's effect populated via the `nes` synonym"
+        );
+    }
+
+    #[test]
+    fn empty_synonyms_with_mismatched_header_yields_none_significant() {
+        // Same pathway-shaped header, but EMPTY synonyms and a schema whose
+        // declared significance column (`padj`) is absent → n_significant None
+        // (unchanged three-state: unresolvable, never Some(0)). Proves synonyms
+        // are the ONLY thing that made the mismatched header resolve above.
+        let (hdr, rows) = tsv(
+            "term\tcollection\tp_value\tadj_p_value\tnes\n\
+             HALLMARK_HYPOXIA\tHALLMARK\t0.001\t0.01\t2.1",
+        );
+        let schema = ResultSchema {
+            artifact: "pathway_results.tsv".into(),
+            entity_column: "pathway".into(),
+            entity_column_aliases: Vec::new(),
+            significance: Some(Significance {
+                column: "padj".into(),
+                threshold: 0.05,
+                comparator: Comparator::Lt,
+            }),
+            signed_effect_column: Some("NES".into()),
+            signed_effect_aliases: Vec::new(),
+            grouping_column: Some("collection".into()),
+        };
+        let s = summarize_artifact(&rows, &hdr, &schema, &PolicyColumnSynonyms::default());
+        assert_eq!(s.n_significant, None);
     }
 
     // -- build_entity_rows entity-column alias resolution --------------
@@ -865,7 +1061,8 @@ mod tests {
             tsv("gene_id\tlog2FoldChange\tpadj\nENSG1\t5\t0.001\nENSG2\t-4.8\t0.002");
         let mut schema = de_schema();
         schema.entity_column_aliases = vec!["gene_id".into()];
-        let entities = build_entity_rows(&rows, &hdr, &schema, &[0, 1]);
+        let entities =
+            build_entity_rows(&rows, &hdr, &schema, &PolicyColumnSynonyms::default(), &[0, 1]);
         assert_eq!(entities.len(), 2);
         assert_eq!(entities[0].entity, "ENSG1");
         assert_eq!(entities[1].entity, "ENSG2");
@@ -878,7 +1075,8 @@ mod tests {
         // resolves → empty (no silent fallback beyond the declared names).
         let (hdr, rows) = tsv("gene_id\tlog2FoldChange\tpadj\nENSG1\t5\t0.001");
         let schema = de_schema(); // entity_column "gene", no aliases
-        let entities = build_entity_rows(&rows, &hdr, &schema, &[0]);
+        let entities =
+            build_entity_rows(&rows, &hdr, &schema, &PolicyColumnSynonyms::default(), &[0]);
         assert!(entities.is_empty());
     }
 
