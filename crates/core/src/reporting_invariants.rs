@@ -44,6 +44,19 @@
 //!   * **RP-5** a figure caption's asserted data shape ("N samples") must
 //!     match the figure's actual data shape (`top_features_heatmap` is a
 //!     single-column log2FC heatmap, not a per-sample expression matrix).
+//!   * **RC-COUNT** every `report-data.json` headline count
+//!     (`n_significant` / `direction_split`) must equal the value
+//!     recomputed directly from its declared source artifact via
+//!     [`crate::report_contract::ResultSchema`] +
+//!     [`crate::report_contract::summarize_artifact`] — zero tolerance.
+//!     Unlike RP-2 (DE/pathway-shaped), this generalizes to every
+//!     modality's terminal result artifact.
+//!   * **RC-IDENTITY** a `direction_split`'s `up + down` must equal
+//!     `n_significant` exactly; artifacts with no split (unsigned
+//!     modalities, e.g. variant calling) are skipped, never faulted.
+//!   * **RC-SECTIONS** every `required_report_sections` id declared on the
+//!     `reporting`/`final_reporting` task specs must appear as a non-empty
+//!     section in the emitted report.
 //! * **Warn-only** — free-text prose invariants, so a brittle regex can
 //!   never block a scientifically-correct deposit:
 //!   * **RP-1** effect-abundance direction word (derived structurally from
@@ -65,6 +78,8 @@ use std::path::Path;
 
 use regex::Regex;
 use serde_json::Value;
+
+use crate::report_contract::{ReportData, ResultSchema, summarize_artifact};
 
 /// Severity of a reporting-invariant finding.
 #[non_exhaustive]
@@ -149,6 +164,9 @@ pub fn check_reporting_invariants(package_root: &Path) -> ReportingInvariantsRep
     check_rp4_mapping_reconciliation(&outputs, &mut report);
     check_rp5_figure_caption_shape(&outputs, &mut report);
     check_rp9_method_label(&outputs, &mut report);
+    check_rc_count(package_root, &outputs, &mut report);
+    check_rc_identity(&outputs, &mut report);
+    check_rc_sections(package_root, &outputs, &mut report);
 
     report
 }
@@ -650,6 +668,269 @@ fn check_rp9_method_label(outputs: &Path, report: &mut ReportingInvariantsReport
                      a fixed-effects negative-binomial GLM (e.g. DESeq2 ~ cell + dex), not a \
                      mixed model"
                 .to_string(),
+        });
+    }
+}
+
+// ---------------------------------------------------------------------------
+// RC-COUNT / RC-IDENTITY / RC-SECTIONS (Required) — recompute-from-source
+// enforcement layer, generalized to every modality via `ResultSchema`
+// (comprehensive-reporting-contract, §G-C1 Task E).
+// ---------------------------------------------------------------------------
+//
+// RP-2/RP-4/RP-5 above are DE/pathway-shaped: they recompute a specific
+// gene-set/mapping/figure invariant. These three checks generalize the same
+// source-owned posture — never trust a narrative or per-run validator, only
+// the package's own runtime outputs — to EVERY modality's terminal result
+// artifact, by reading exclusively through the atom-declared `ResultSchema`
+// (never a hardcoded gene/log2FC/padj literal). All three are
+// `Severity::Required`, so a genuine mismatch gates the deposit through
+// `deposit_readiness::scan_domain_validation`'s unfiltered fold of
+// `required_failures()`.
+
+/// Reads `WORKFLOW.json`'s `assemble_report_data` task's
+/// `spec.report_schemas` into the `BTreeMap<stage_id, ResultSchema>` the
+/// assembler itself was built from. `None` when the file, task, or field is
+/// absent/unparseable — a package with no schema map has nothing for
+/// RC-COUNT to recompute against.
+fn read_report_schemas(package_root: &Path) -> Option<BTreeMap<String, ResultSchema>> {
+    let wf = read_json(&package_root.join("WORKFLOW.json"))?;
+    let schemas_val = wf
+        .get("tasks")?
+        .get("assemble_report_data")?
+        .get("spec")?
+        .get("report_schemas")?;
+    serde_json::from_value(schemas_val.clone()).ok()
+}
+
+/// Reads the union of `required_report_sections` declared on WORKFLOW.json's
+/// `reporting` AND `final_reporting` task specs (both normally declare the
+/// same atom-level obligation; unioning is a no-op when they agree, and the
+/// conservative direction — checking more, not fewer, sections — when they
+/// don't). Empty when neither task declares any sections.
+fn read_required_report_sections(package_root: &Path) -> Vec<String> {
+    let Some(wf) = read_json(&package_root.join("WORKFLOW.json")) else {
+        return Vec::new();
+    };
+    let mut sections: BTreeSet<String> = BTreeSet::new();
+    for task_id in ["reporting", "final_reporting"] {
+        if let Some(arr) = wf
+            .get("tasks")
+            .and_then(|t| t.get(task_id))
+            .and_then(|t| t.get("spec"))
+            .and_then(|s| s.get("required_report_sections"))
+            .and_then(Value::as_array)
+        {
+            for v in arr {
+                if let Some(s) = v.as_str() {
+                    sections.insert(s.to_string());
+                }
+            }
+        }
+    }
+    sections.into_iter().collect()
+}
+
+/// Reads `report-data.json` from `outputs/reporting/report-data.json`.
+/// `None` when absent or unparseable.
+fn read_report_data(outputs: &Path) -> Option<ReportData> {
+    let raw = std::fs::read_to_string(outputs.join("reporting").join("report-data.json")).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
+/// Reads the emitted report text the SME actually reads: the terminal
+/// `final_reporting/final_report.md` when present, else the intermediate
+/// `reporting/report.md`. Unlike [`read_reports`] (which concatenates both
+/// for the RP-4/RP-9 narrative scans), RC-SECTIONS checks the ONE document a
+/// reader lands on, preferring the more complete terminal report.
+fn read_terminal_report(outputs: &Path) -> Option<String> {
+    let final_path = outputs.join("final_reporting").join("final_report.md");
+    if let Ok(text) = std::fs::read_to_string(&final_path) {
+        return Some(text);
+    }
+    std::fs::read_to_string(outputs.join("reporting").join("report.md")).ok()
+}
+
+/// RC-COUNT: for every `report-data.json` artifact whose stage has a
+/// declared schema AND whose source artifact is present on disk, recompute
+/// its stats directly from the source table (via the same
+/// [`summarize_artifact`] the assembler itself used) and require its
+/// `n_significant` — and, when both sides declare one, its `direction_split`
+/// — to equal what `report-data.json` states, EXACTLY. Zero tolerance: this
+/// is the enforcement mirror of the assembler, re-run at gate time over the
+/// same file, so a report whose headline count drifted from its source
+/// (whether by a stale re-run, a hand edit, or a narrative transcription
+/// error) can never reach deposit.
+fn check_rc_count(package_root: &Path, outputs: &Path, report: &mut ReportingInvariantsReport) {
+    let Some(report_data) = read_report_data(outputs) else {
+        return;
+    };
+    let Some(schemas) = read_report_schemas(package_root) else {
+        return;
+    };
+
+    let mut ran = false;
+    let mut mismatches: Vec<String> = Vec::new();
+    for artifact in &report_data.artifacts {
+        let Some(schema) = schemas.get(&artifact.stage_id) else {
+            continue;
+        };
+        let source_path = outputs.join(&artifact.stage_id).join(&schema.artifact);
+        if !source_path.exists() {
+            continue;
+        }
+        let Ok((headers, rows)) = crate::report_contract::assemble::read_table(&source_path)
+        else {
+            continue;
+        };
+        ran = true;
+        let stats = summarize_artifact(&rows, &headers, schema);
+
+        if stats.n_significant != artifact.n_significant {
+            mismatches.push(format!(
+                "{}: n_significant reported {:?} vs recomputed {:?} from {}",
+                artifact.stage_id, artifact.n_significant, stats.n_significant, schema.artifact
+            ));
+        }
+        if let (Some(reported), Some(actual)) =
+            (&artifact.direction_split, &stats.direction_split)
+        {
+            if reported.up != actual.up || reported.down != actual.down {
+                mismatches.push(format!(
+                    "{}: direction_split reported up={}/down={} vs recomputed up={}/down={}",
+                    artifact.stage_id, reported.up, reported.down, actual.up, actual.down
+                ));
+            }
+        }
+    }
+    if !ran {
+        return;
+    }
+    report.checked.push("RC-COUNT");
+    if !mismatches.is_empty() {
+        report.findings.push(ReportingFinding {
+            invariant: "RC-COUNT",
+            severity: Severity::Required,
+            detail: format!(
+                "report-data.json headline count(s) disagree with the value recomputed \
+                 directly from the source artifact (zero tolerance) — {}",
+                mismatches.join("; ")
+            ),
+        });
+    }
+}
+
+/// RC-IDENTITY: for every `report-data.json` artifact that declares a
+/// `direction_split`, its `up + down` must equal `n_significant` exactly.
+/// Artifacts with no split (unsigned modalities — e.g. variant calling has
+/// no signed effect column) have nothing to reconcile and are silently
+/// skipped — never a failure.
+fn check_rc_identity(outputs: &Path, report: &mut ReportingInvariantsReport) {
+    let Some(report_data) = read_report_data(outputs) else {
+        return;
+    };
+
+    let mut ran = false;
+    let mut mismatches: Vec<String> = Vec::new();
+    for artifact in &report_data.artifacts {
+        let Some(split) = &artifact.direction_split else {
+            continue;
+        };
+        ran = true;
+        let sum = split.up + split.down;
+        if artifact.n_significant != Some(sum) {
+            mismatches.push(format!(
+                "{}: direction_split up={}+down={}={} but n_significant={:?}",
+                artifact.stage_id, split.up, split.down, sum, artifact.n_significant
+            ));
+        }
+    }
+    if !ran {
+        return;
+    }
+    report.checked.push("RC-IDENTITY");
+    if !mismatches.is_empty() {
+        report.findings.push(ReportingFinding {
+            invariant: "RC-IDENTITY",
+            severity: Severity::Required,
+            detail: format!(
+                "direction_split up+down does not equal n_significant (zero tolerance) — {}",
+                mismatches.join("; ")
+            ),
+        });
+    }
+}
+
+/// Builds a case-insensitive, separator-tolerant search pattern for a
+/// required-section id (e.g. `"primary_results"`): its `_`/`-`/whitespace-
+/// separated words may appear in the report joined by any mix of space,
+/// hyphen, or underscore, in any case — `"Primary Results"`,
+/// `"primary-results"`, `"PRIMARY_RESULTS"` all match. Deliberately minimal:
+/// no per-modality heading vocabulary, so the check never hardcodes a
+/// domain-specific section name.
+fn section_pattern(id: &str) -> Option<Regex> {
+    let words: Vec<String> = id
+        .split(|c: char| c == '_' || c == '-' || c.is_whitespace())
+        .filter(|w| !w.is_empty())
+        .map(regex::escape)
+        .collect();
+    if words.is_empty() {
+        return None;
+    }
+    Regex::new(&format!(r"(?i){}", words.join(r"[\s_-]+"))).ok()
+}
+
+/// Whether required section `id` is present in `text` AND followed by
+/// non-whitespace content before the next markdown heading (or EOF). `None`
+/// when the section id doesn't appear anywhere (missing); `Some(false)` when
+/// it appears but is immediately followed by nothing but blank lines /
+/// another heading (present but empty); `Some(true)` otherwise.
+fn section_has_content(text: &str, id: &str) -> Option<bool> {
+    let pattern = section_pattern(id)?;
+    let lines: Vec<&str> = text.lines().collect();
+    let start = lines.iter().position(|l| pattern.is_match(l))?;
+    let mut content = String::new();
+    for line in lines.iter().skip(start + 1) {
+        if line.trim_start().starts_with('#') {
+            break;
+        }
+        content.push_str(line);
+        content.push('\n');
+    }
+    Some(!content.trim().is_empty())
+}
+
+/// RC-SECTIONS: every id in `required_report_sections` (declared on the
+/// `reporting`/`final_reporting` task specs) must appear in the emitted
+/// terminal report text as a non-empty section. Runs only when both the
+/// requirement list and a report are present — a package with neither has
+/// nothing to check.
+fn check_rc_sections(package_root: &Path, outputs: &Path, report: &mut ReportingInvariantsReport) {
+    let required = read_required_report_sections(package_root);
+    if required.is_empty() {
+        return;
+    }
+    let Some(text) = read_terminal_report(outputs) else {
+        return;
+    };
+    report.checked.push("RC-SECTIONS");
+
+    let mut offenders: Vec<String> = Vec::new();
+    for id in &required {
+        match section_has_content(&text, id) {
+            Some(true) => {}
+            Some(false) => offenders.push(format!("{id} (present but empty)")),
+            None => offenders.push(format!("{id} (missing)")),
+        }
+    }
+    if !offenders.is_empty() {
+        report.findings.push(ReportingFinding {
+            invariant: "RC-SECTIONS",
+            severity: Severity::Required,
+            detail: format!(
+                "required report section(s) missing or empty: {}",
+                offenders.join(", ")
+            ),
         });
     }
 }

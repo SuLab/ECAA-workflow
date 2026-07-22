@@ -308,6 +308,120 @@ fn rp5_caption_shape_mismatch_folds_into_rollup() {
     );
 }
 
+/// RC-COUNT (Required, §comprehensive-reporting): a `report-data.json`
+/// headline count that disagrees with the value recomputed directly from
+/// the declared source artifact (via the `assemble_report_data` task's
+/// `report_schemas`) must fold into the domain rollup under the synthetic
+/// `reporting_invariants` task and flip `deposit_ready` false — the
+/// enforcement layer that would have caught the himes 3,993-vs-4,017
+/// count drift. Confirms `scan_domain_validation` folds the RC-* Required
+/// findings with no invariant-id filter (no `deposit_readiness` change).
+#[test]
+fn rc_count_source_mismatch_folds_into_rollup_and_blocks_deposit() {
+    let tmp = TempDir::new().unwrap();
+    let outputs = outputs_of(&tmp);
+
+    // Source of truth: 4 rows are significant (padj < 0.05); 1 is not.
+    write(
+        &outputs,
+        "differential_expression/de_results.tsv",
+        "gene\tlog2FoldChange\tpadj\n\
+         A\t2.0\t0.001\n\
+         B\t-3.0\t0.002\n\
+         C\t1.0\t0.01\n\
+         D\t-1.0\t0.04\n\
+         E\t0.1\t0.9\n",
+    );
+    // report-data.json UNDERSTATES the count (2, not the true 4). No
+    // direction_split, so RC-IDENTITY is inapplicable and RC-COUNT is
+    // isolated as the sole required failure.
+    write(
+        &outputs,
+        "reporting/report-data.json",
+        &serde_json::json!({
+            "artifacts": [{
+                "stage_id": "differential_expression",
+                "artifact": "de_results.tsv",
+                "n_total": 5,
+                "n_significant": 2,
+                "direction_split": null,
+                "effect_distribution": null,
+                "significant_entities": [],
+                "significant_table_path": "runtime/outputs/differential_expression/de_results.significant.tsv",
+                "full_table_path": "runtime/outputs/differential_expression/de_results.full.tsv",
+                "spilled_to_attachment_only": false
+            }],
+            "literature": null
+        })
+        .to_string(),
+    );
+    // WORKFLOW.json carries the schema the assembler declared, exactly as
+    // the emitter stamps it onto the assemble_report_data task spec.
+    std::fs::write(
+        tmp.path().join("WORKFLOW.json"),
+        serde_json::json!({
+            "tasks": {
+                "assemble_report_data": {
+                    "spec": {
+                        "report_schemas": {
+                            "differential_expression": {
+                                "artifact": "de_results.tsv",
+                                "entity_column": "gene",
+                                "significance": { "column": "padj", "threshold": 0.05, "comparator": "lt" },
+                                "signed_effect_column": "log2FoldChange"
+                            }
+                        }
+                    }
+                }
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let summary = deposit_readiness::scan_domain_validation(tmp.path());
+    assert!(
+        !summary.passed(),
+        "an RC-COUNT source mismatch must fail the domain rollup: {summary:?}"
+    );
+    assert!(
+        summary
+            .required_failures
+            .iter()
+            .any(|f| f.contains("reporting_invariants") && f.contains("RC-COUNT")),
+        "the rolled-up required failure must name RC-COUNT (proves the recompute ran, \
+         not some unrelated check): {:?}",
+        summary.required_failures
+    );
+
+    deposit_readiness::write_deposit_readiness(
+        tmp.path(),
+        "full",
+        &tier1_pass(),
+        ReexecStatus::Partial,
+        None,
+        None,
+        &WallClock,
+    )
+    .expect("writing attestation");
+    let dr = deposit_readiness::read_deposit_readiness(tmp.path())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        dr.domain_validation,
+        CheckStatus::Fail,
+        "RC-COUNT mismatch must surface as a domain-validation failure: {dr:?}"
+    );
+    assert!(
+        !dr.deposit_ready,
+        "a REQUIRED RC-COUNT failure must block deposit: {dr:?}"
+    );
+    assert!(
+        deposit_readiness::check_deposit_readiness(tmp.path(), false).is_err(),
+        "the Layer-3 gate must refuse a package whose report count disagrees with source"
+    );
+}
+
 /// A warn-only prose finding (RP-9 "linear mixed model" label) must NOT
 /// block deposit: the domain rollup still passes and the warning is
 /// surfaced separately.

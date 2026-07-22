@@ -26,7 +26,7 @@ const CONTEXTUALIZE_STAGE_ID: &str = "contextualize_findings_with_literature";
 
 /// Picks the CSV delimiter from the artifact's file extension: `.tsv` →
 /// tab, anything else (including `.csv`) → comma.
-fn delimiter_for(path: &Path) -> u8 {
+pub(crate) fn delimiter_for(path: &Path) -> u8 {
     if path.extension().and_then(|e| e.to_str()) == Some("tsv") {
         b'\t'
     } else {
@@ -35,8 +35,10 @@ fn delimiter_for(path: &Path) -> u8 {
 }
 
 /// Reads a delimited table (TSV or CSV, by extension) into
-/// `(headers, rows)`.
-fn read_table(path: &Path) -> Result<(csv::StringRecord, Vec<csv::StringRecord>)> {
+/// `(headers, rows)`. `pub(crate)` so the reporting-invariants validator's
+/// RC-COUNT check can recompute over the same source artifact this
+/// assembler read, without duplicating the parsing logic.
+pub(crate) fn read_table(path: &Path) -> Result<(csv::StringRecord, Vec<csv::StringRecord>)> {
     let mut reader = csv::ReaderBuilder::new()
         .delimiter(delimiter_for(path))
         .has_headers(true)
