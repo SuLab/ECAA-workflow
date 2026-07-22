@@ -366,6 +366,9 @@ expression: value
           "@id": "#step-validate_contextualize_findings_with_literature"
         },
         {
+          "@id": "#step-assemble_report_data"
+        },
+        {
           "@id": "#step-reporting"
         },
         {
@@ -815,14 +818,14 @@ expression: value
       "@id": "#step-differential_expression",
       "@type": "HowToStep",
       "additionalType": "computation",
-      "name": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n\nRECORD-WHAT-YOU-DID (audit, not instruction): in result.json, write down the\nmodel you actually fit so it can be audited — this does NOT tell you which\nmodel/test to use, only to state your own choice. Record:\n  - design_formula: the model formula you fit (e.g. \"~ condition + sex + RIN\").\n  - response_variable: the model's outcome / left-hand side (the thing being\n    explained). For a contrast-based DE this is the expression/count response;\n    for a regression against an outcome it is that outcome variable.\n  - available_covariates: the covariate columns you observed in the sample\n    metadata (your honest list of what was available, e.g.\n    [\"condition\",\"sex\",\"age\",\"RIN\"]).\n  - primary_variable: the main comparison variable for the contrast (e.g.\n    \"condition\").\n  - stated_outcome: CONDITIONAL, NOT part of the standard checklist above —\n    record it ONLY when the task explicitly names a target outcome to\n    regress against (e.g. a named clinical/phenotypic variable). For a\n    plain DE-by-condition contrast (comparing groups/cell types — the\n    common case) OMIT this key entirely; do NOT copy response_variable's\n    or primary_variable's own value into it just to \"complete\" the record.\n    An unwarranted value here arms a domain-correctness check that is\n    designed to stay skipped for the common case (RCA I-10).\nThese are YOUR record of YOUR choices and of the data/task — a domain-correctness\ncontract checks them for internal + task consistency (e.g. the design adjusts\nfor an available covariate; the response matches the stated outcome). It never\nprescribes a model.\n",
+      "name": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n\nRECORD-WHAT-YOU-DID (audit, not instruction): in result.json, write down the\nmodel you actually fit so it can be audited — this does NOT tell you which\nmodel/test to use, only to state your own choice. Record:\n  - design_formula: the model formula you fit (e.g. \"~ condition + sex + RIN\").\n  - response_variable: the model's outcome / left-hand side (the thing being\n    explained). For a contrast-based DE this is the expression/count response;\n    for a regression against an outcome it is that outcome variable.\n  - available_covariates: the covariate columns you observed in the sample\n    metadata (your honest list of what was available, e.g.\n    [\"condition\",\"sex\",\"age\",\"RIN\"]).\n  - primary_variable: the main comparison variable for the contrast (e.g.\n    \"condition\").\n  - stated_outcome: CONDITIONAL, NOT part of the standard checklist above —\n    record it ONLY when the task explicitly names a target outcome to\n    regress against (e.g. a named clinical/phenotypic variable). For a\n    plain DE-by-condition contrast (comparing groups/cell types — the\n    common case) OMIT this key entirely; do NOT copy response_variable's\n    or primary_variable's own value into it just to \"complete\" the record.\n    An unwarranted value here arms a domain-correctness check that is\n    designed to stay skipped for the common case (RCA I-10).\nThese are YOUR record of YOUR choices and of the data/task — a domain-correctness\ncontract checks them for internal + task consistency (e.g. the design adjusts\nfor an available covariate; the response matches the stated outcome). It never\nprescribes a model.\n\nCOUNT-CONSISTENCY (defense-in-depth): the significant-entity count you report\n(and any `n_sig` you record) MUST come from the SAME significance vector\nwritten to de_results.tsv — never from a separately-thresholded object. If you\nbuild a shrunken-effect object (e.g. via `lfcShrink`) for the reported effect\nsizes, construct it from the SAME fitted result used for the written `padj`\ncolumn (matching `alpha`/contrast) so its own `padj` agrees with the table you\nemit; better still, count `n_sig` by re-reading the written de_results.tsv\nrows directly rather than trusting a second in-memory object's own significance\ncall. Two objects built from the same fit but different defaults (e.g. one at\nthe DESeq2 default `alpha=0.1`, the other at this run's `adjusted_pvalue_threshold`)\nwill silently disagree on which rows are significant — report the count that\nmatches the rows you actually wrote to disk.\n",
       "position": 38
     },
     {
       "@id": "#step-validate_differential_expression",
       "@type": "HowToStep",
       "additionalType": "validation",
-      "name": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n\nRECORD-WHAT-YOU-DID (audit, not instruction): in result.json, write down the\nmodel you actually fit so it can be audited — this does NOT tell you which\nmodel/test to use, only to state your own choice. Record:\n  - design_formula: the model formula you fit (e.g. \"~ condition + sex + RIN\").\n  - response_variable: the model's outcome / left-hand side (the thing being\n    explained). For a contrast-based DE this is the expression/count response;\n    for a regression against an outcome it is that outcome variable.\n  - available_covariates: the covariate columns you observed in the sample\n    metadata (your honest list of what was available, e.g.\n    [\"condition\",\"sex\",\"age\",\"RIN\"]).\n  - primary_variable: the main comparison variable for the contrast (e.g.\n    \"condition\").\n  - stated_outcome: CONDITIONAL, NOT part of the standard checklist above —\n    record it ONLY when the task explicitly names a target outcome to\n    regress against (e.g. a named clinical/phenotypic variable). For a\n    plain DE-by-condition contrast (comparing groups/cell types — the\n    common case) OMIT this key entirely; do NOT copy response_variable's\n    or primary_variable's own value into it just to \"complete\" the record.\n    An unwarranted value here arms a domain-correctness check that is\n    designed to stay skipped for the common case (RCA I-10).\nThese are YOUR record of YOUR choices and of the data/task — a domain-correctness\ncontract checks them for internal + task consistency (e.g. the design adjusts\nfor an available covariate; the response matches the stated outcome). It never\nprescribes a model.\n",
+      "name": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n\nRECORD-WHAT-YOU-DID (audit, not instruction): in result.json, write down the\nmodel you actually fit so it can be audited — this does NOT tell you which\nmodel/test to use, only to state your own choice. Record:\n  - design_formula: the model formula you fit (e.g. \"~ condition + sex + RIN\").\n  - response_variable: the model's outcome / left-hand side (the thing being\n    explained). For a contrast-based DE this is the expression/count response;\n    for a regression against an outcome it is that outcome variable.\n  - available_covariates: the covariate columns you observed in the sample\n    metadata (your honest list of what was available, e.g.\n    [\"condition\",\"sex\",\"age\",\"RIN\"]).\n  - primary_variable: the main comparison variable for the contrast (e.g.\n    \"condition\").\n  - stated_outcome: CONDITIONAL, NOT part of the standard checklist above —\n    record it ONLY when the task explicitly names a target outcome to\n    regress against (e.g. a named clinical/phenotypic variable). For a\n    plain DE-by-condition contrast (comparing groups/cell types — the\n    common case) OMIT this key entirely; do NOT copy response_variable's\n    or primary_variable's own value into it just to \"complete\" the record.\n    An unwarranted value here arms a domain-correctness check that is\n    designed to stay skipped for the common case (RCA I-10).\nThese are YOUR record of YOUR choices and of the data/task — a domain-correctness\ncontract checks them for internal + task consistency (e.g. the design adjusts\nfor an available covariate; the response matches the stated outcome). It never\nprescribes a model.\n\nCOUNT-CONSISTENCY (defense-in-depth): the significant-entity count you report\n(and any `n_sig` you record) MUST come from the SAME significance vector\nwritten to de_results.tsv — never from a separately-thresholded object. If you\nbuild a shrunken-effect object (e.g. via `lfcShrink`) for the reported effect\nsizes, construct it from the SAME fitted result used for the written `padj`\ncolumn (matching `alpha`/contrast) so its own `padj` agrees with the table you\nemit; better still, count `n_sig` by re-reading the written de_results.tsv\nrows directly rather than trusting a second in-memory object's own significance\ncall. Two objects built from the same fit but different defaults (e.g. one at\nthe DESeq2 default `alpha=0.1`, the other at this run's `adjusted_pvalue_threshold`)\nwill silently disagree on which rows are significant — report the count that\nmatches the rows you actually wrote to disk.\n",
       "position": 39
     },
     {
@@ -854,32 +857,39 @@ expression: value
       "position": 43
     },
     {
+      "@id": "#step-assemble_report_data",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Assemble the deterministic report-data contract from every terminal analytical result",
+      "position": 44
+    },
+    {
       "@id": "#step-reporting",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "position": 44
+      "position": 45
     },
     {
       "@id": "#step-validate_reporting",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "position": 45
+      "position": 46
     },
     {
       "@id": "#step-final_reporting",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
-      "position": 46
+      "position": 47
     },
     {
       "@id": "#step-validate_final_reporting",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
-      "position": 47
+      "position": 48
     },
     {
       "@id": "runtime/outputs/batch_correction/figures/mixing_score_bar.png",
@@ -1223,6 +1233,26 @@ expression: value
       }
     },
     {
+      "@id": "#parameter-connection/differential_expression__to__assemble_report_data",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-differential_expression#output"
+      },
+      "targetParameter": {
+        "@id": "#step-assemble_report_data#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/pathway_enrichment__to__assemble_report_data",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-pathway_enrichment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-assemble_report_data#input"
+      }
+    },
+    {
       "@id": "#parameter-connection/discover_batch_correction__to__batch_correction",
       "@type": "ParameterConnection",
       "sourceParameter": {
@@ -1463,6 +1493,16 @@ expression: value
       }
     },
     {
+      "@id": "#parameter-connection/assemble_report_data__to__final_reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-assemble_report_data#output"
+      },
+      "targetParameter": {
+        "@id": "#step-final_reporting#input"
+      }
+    },
+    {
       "@id": "#parameter-connection/reporting__to__final_reporting",
       "@type": "ParameterConnection",
       "sourceParameter": {
@@ -1560,6 +1600,16 @@ expression: value
       },
       "targetParameter": {
         "@id": "#step-raw_qc#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/assemble_report_data__to__reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-assemble_report_data#output"
+      },
+      "targetParameter": {
+        "@id": "#step-reporting#input"
       }
     },
     {
