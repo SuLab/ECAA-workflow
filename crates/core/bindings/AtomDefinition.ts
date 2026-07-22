@@ -14,6 +14,7 @@ import type { ParameterSpec } from "./ParameterSpec";
 import type { PortContract } from "./PortContract";
 import type { ReadAllowance } from "./ReadAllowance";
 import type { ResourceProfile } from "./ResourceProfile";
+import type { ResultSchema } from "./ResultSchema";
 import type { RuntimePrereqs } from "./RuntimePrereqs";
 import type { SafetyPolicy } from "./SafetyPolicy";
 
@@ -245,6 +246,32 @@ expected_artifacts: Array<string>,
  * completed task. Mirrors `StageSpec::required_artifacts`.
  */
 required_artifacts: Array<{ path: string; min_size_bytes?: number; schema_ref?: string }>, 
+/**
+ * Declares how this terminal atom's primary result artifact is read
+ * by the report-data assembler + reporting invariants. Present only
+ * on result-producing atoms; absent atoms contribute no
+ * Primary-Results block to the assembled report.
+ */
+result_schema?: ResultSchema, 
+/**
+ * Report-section ids this atom's narrative must cover when the
+ * reporting/final_reporting agent composes its output.
+ */
+required_report_sections: Array<string>, 
+/**
+ * Supplementary table ids this atom's narrative must reference or
+ * attach when composing its report.
+ */
+required_tables: Array<string>, 
+/**
+ * When true, this atom's interpretation/findings narrative is
+ * exempt from the dispatched agent's ~500-word narrative cap (the
+ * cap applies only to the factual-summary and methods sections).
+ * Set on interpretation/reporting atoms whose value is depth of
+ * interpretation. Mirrors `_atom.schema.json`'s
+ * `interpretation_exempt_from_word_budget` boolean property.
+ */
+interpretation_exempt_from_word_budget: boolean, 
 /**
  * Validation-obligation ids that the harness
  * runs against this atom's artifacts after task completion.
