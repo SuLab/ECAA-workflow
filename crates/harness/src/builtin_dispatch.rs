@@ -72,6 +72,22 @@ pub fn assemble_report_data_request(task: &Task) -> Option<BTreeMap<String, Resu
 /// catastrophic failure to write the patch file itself — the caller logs it
 /// and the task stays Running, recovered by the heartbeat watchdog exactly
 /// as when a real agent cannot write its patch.
+/// Postcondition for the report-data assembler builtin: the assembler must
+/// have left a non-empty `runtime/outputs/reporting/report-data.json`. The
+/// assembler writes it on Ok, so this only returns `false` on a filesystem
+/// anomaly (a truncated write, or the file removed between assembly and the
+/// check) — turning a silent empty/absent report into a hard Failed.
+fn report_data_present_and_non_empty(package_root: &Path) -> bool {
+    let report_path = package_root
+        .join("runtime")
+        .join("outputs")
+        .join("reporting")
+        .join("report-data.json");
+    std::fs::metadata(&report_path)
+        .map(|m| m.len() > 0)
+        .unwrap_or(false)
+}
+
 pub fn run_assemble_report_data(
     package_root: &Path,
     dispatch: &PickedDispatch,
@@ -82,15 +98,33 @@ pub fn run_assemble_report_data(
 
     let (state, result_json) = match assemble_report_data(package_root, schemas, clock) {
         Ok(report) => {
-            let n = report.artifacts.len();
-            let result = serde_json::json!({
-                "status": "completed",
-                "builtin": ASSEMBLE_REPORT_DATA,
-                "report_data": "runtime/outputs/reporting/report-data.json",
-                "n_artifacts": n,
-                "summary": format!("assembled report-data.json from {n} result artifact(s)"),
-            });
-            (TaskState::Completed { result: result.clone() }, result)
+            // Postcondition (belt-and-suspenders): the assembler writes
+            // report-data.json on Ok, so a missing/empty file here means a
+            // filesystem anomaly (truncated write, removed between assembly and
+            // this check). Convert that silent empty-report into a hard Failed
+            // rather than a false Completed — the synthesized builtin node
+            // carries no required_artifacts, so nothing else asserts it.
+            if report_data_present_and_non_empty(package_root) {
+                let n = report.artifacts.len();
+                let result = serde_json::json!({
+                    "status": "completed",
+                    "builtin": ASSEMBLE_REPORT_DATA,
+                    "report_data": "runtime/outputs/reporting/report-data.json",
+                    "n_artifacts": n,
+                    "summary": format!("assembled report-data.json from {n} result artifact(s)"),
+                });
+                (TaskState::Completed { result: result.clone() }, result)
+            } else {
+                let reason = "[builtin_assemble_report_data_failed] assembler returned Ok but \
+                     runtime/outputs/reporting/report-data.json is missing or empty"
+                    .to_string();
+                let result = serde_json::json!({
+                    "status": "failed",
+                    "builtin": ASSEMBLE_REPORT_DATA,
+                    "summary": reason,
+                });
+                (TaskState::Failed { reason: reason.clone() }, result)
+            }
         }
         Err(e) => {
             let reason = format!("[builtin_assemble_report_data_failed] {e:#}");
@@ -374,6 +408,46 @@ mod tests {
             run_assemble_report_data(root, &dispatch, &BTreeMap::new(), &clock).unwrap();
         assert!(matches!(state, TaskState::Completed { .. }));
         assert!(root.join("runtime/outputs/reporting/report-data.json").is_file());
+    }
+
+    /// F9 postcondition: the report-data.json existence/non-empty check that
+    /// converts a silent empty/absent report (assembler Ok but no file) into a
+    /// Failed task. The assembler always writes the file on Ok, so the failure
+    /// arm is exercised directly against the helper.
+    #[test]
+    fn report_data_postcondition_detects_missing_and_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        // Missing entirely → false.
+        assert!(!report_data_present_and_non_empty(root));
+        // Present but empty (zero bytes) → false.
+        let reporting = root.join("runtime/outputs/reporting");
+        std::fs::create_dir_all(&reporting).unwrap();
+        std::fs::write(reporting.join("report-data.json"), "").unwrap();
+        assert!(!report_data_present_and_non_empty(root));
+        // Non-empty → true.
+        std::fs::write(reporting.join("report-data.json"), "{}").unwrap();
+        assert!(report_data_present_and_non_empty(root));
+    }
+
+    /// F9 (happy path): a successful in-process run leaves a non-empty
+    /// report-data.json, so the postcondition holds and the task Completes.
+    #[test]
+    fn in_process_run_postcondition_holds_on_success() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        stage_de_results(&root.join("runtime").join("outputs"));
+        let mut schemas = BTreeMap::new();
+        schemas.insert("differential_expression".to_string(), de_schema());
+        let dispatch = PickedDispatch {
+            task_id: TaskId::from("assemble_report_data"),
+            harness_run_id: "run-1".into(),
+            epoch: 1,
+        };
+        let clock = WallClock;
+        let state = run_assemble_report_data(root, &dispatch, &schemas, &clock).unwrap();
+        assert!(matches!(state, TaskState::Completed { .. }));
+        assert!(report_data_present_and_non_empty(root));
     }
 
     /// Assembler error path: a report_schema pointing at an artifact that
