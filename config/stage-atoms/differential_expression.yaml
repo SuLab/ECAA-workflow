@@ -222,9 +222,14 @@ outputs:
 # signed_effect_aliases: the assembler resolves signed_effect_column first,
 # then each declared alias, in order. These candidate names are data-driven
 # from this declaration — never a hardcoded alias set in the assembler.
+# entity_column has the same dual-name fragility: the canonical row identifier
+# is `gene`, but a run may emit it as `gene_id` (Ensembl), `gene_name`, or
+# `symbol` — entity_column_aliases lists the accepted synonyms, resolved after
+# entity_column, in order (again data-driven from this declaration).
 result_schema:
   artifact: de_results.tsv
   entity_column: gene
+  entity_column_aliases: [gene_id, gene_name, symbol]
   significance: { column: padj, threshold: 0.05, comparator: lt }
   signed_effect_column: log2FoldChange
   signed_effect_aliases: [log2FC, logFC]

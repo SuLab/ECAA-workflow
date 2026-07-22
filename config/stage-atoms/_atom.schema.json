@@ -423,6 +423,7 @@
       "properties": {
         "artifact": {"type": "string"},
         "entity_column": {"type": "string"},
+        "entity_column_aliases": {"type": "array", "items": {"type": "string"}},
         "significance": {
           "type": "object",
           "additionalProperties": false,
