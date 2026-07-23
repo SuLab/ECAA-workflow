@@ -193,6 +193,16 @@ real runs and are cheap to avoid:
   (not only in a reproducibility appendix), "gene-level FDR (padj) <
   0.05" / "pathway-level (fgsea) FDR < 0.25", using the thresholds this
   run actually applied.
+- **Quote p-values precisely enough to match the source table.** When you
+  state a SPECIFIC p-value / padj / FDR in prose, copy it to at least TWO
+  significant figures directly from the results table (e.g. "padj = 6.5e-05",
+  "padj = 1.7e-04") — never round a p-value to a SINGLE significant figure
+  (writing "1e-04" for a table 6.5e-05, or "2e-04" for 1.7e-04). A
+  source-level validator compares every quoted p-value against the table
+  within a tight relative tolerance and flags a coarse one-sig-fig round as a
+  mismatch. If you only mean to convey the magnitude, write an inequality
+  ("padj < 1e-04") instead of a rounded point value — an inequality carries no
+  false precision to check.
 - **Name the statistical model exactly as executed.** A fixed-effects
   design (e.g. a DESeq2/edgeR `~ covariate + condition` negative-binomial
   GLM, with no random-effect term) is NOT a "linear mixed model" — a mixed
