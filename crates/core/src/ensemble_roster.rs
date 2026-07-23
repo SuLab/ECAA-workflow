@@ -144,8 +144,6 @@ const CONFIRMATION_SEEKING_PATTERNS: &[&str] = &[
     "prove the hypothesis",
     "proves the hypothesis",
     "proving the hypothesis",
-    "cherry-pick",
-    "cherry pick",
 ];
 
 /// Reject persona text containing any phrase from the fixed
