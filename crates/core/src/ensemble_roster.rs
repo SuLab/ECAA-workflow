@@ -5,6 +5,7 @@
 //! `_`-prefixed schema sidecars skipped, warn-and-continue on parse
 //! failure, `BTreeMap` for deterministic iteration).
 
+use crate::atom::AtomDefinition;
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -166,6 +167,35 @@ pub fn lint_persona_text(persona_id: &str, text: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Every `statistical_variant.tool` MUST be one of the base analytical
+/// atom's declared `attributes.candidate_tools`. Mirrors the
+/// candidate_tools read shape in `atom_registry::validate_de_substrate`.
+pub fn validate_variant_tools(
+    roster: &EnsembleRoster,
+    base_atom: &AtomDefinition,
+) -> Result<(), String> {
+    let tools: Vec<String> = base_atom
+        .attributes
+        .get("candidate_tools")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|t| t.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    for v in &roster.statistical_variants {
+        if !tools.iter().any(|t| t == &v.tool) {
+            return Err(format!(
+                "ensemble roster '{}' statistical variant '{}' names tool '{}' \
+                 not in base atom '{}' candidate_tools {:?}",
+                roster.modality, v.id, v.tool, base_atom.id, tools
+            ));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,5 +279,39 @@ caps:
     #[test]
     fn honest_lens_allows_legitimate_one_sided_test() {
         assert!(lint_persona_text("x", "Where appropriate, report a one-sided test.").is_ok());
+    }
+
+    #[test]
+    fn variant_tools_pass_when_in_candidate_tools() {
+        use crate::atom_registry::AtomRegistry;
+        let reg = AtomRegistry::load_from_dir(std::path::Path::new(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../../config/stage-atoms"),
+        ))
+        .expect("atom load");
+        let de = reg.get("differential_expression").expect("DE atom");
+
+        let roster: EnsembleRoster =
+            serde_yaml_ng::from_str(MINIMAL_ROSTER).expect("roster parses"); // deseq2 + edger
+        assert!(validate_variant_tools(&roster, de).is_ok());
+    }
+
+    #[test]
+    fn variant_tools_reject_unknown_tool() {
+        use crate::atom_registry::AtomRegistry;
+        let reg = AtomRegistry::load_from_dir(std::path::Path::new(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../../config/stage-atoms"),
+        ))
+        .expect("atom load");
+        let de = reg.get("differential_expression").expect("DE atom");
+
+        let mut roster: EnsembleRoster =
+            serde_yaml_ng::from_str(MINIMAL_ROSTER).expect("roster parses");
+        roster.statistical_variants.push(StatisticalVariant {
+            id: "made_up".into(),
+            tool: "not_a_real_de_tool".into(),
+            bootstrap_replicates: 0,
+        });
+        let err = validate_variant_tools(&roster, de).unwrap_err();
+        assert!(err.contains("not_a_real_de_tool"), "names the bad tool: {err}");
     }
 }
