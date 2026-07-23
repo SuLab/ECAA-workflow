@@ -4024,6 +4024,308 @@ mod tests {
         );
     }
 
+    /// Plan 3 Task 5 — end-to-end: build the real ensemble `bulk_rnaseq` DAG
+    /// (same ctx-builder as `plan_wires_ensemble_fanout_and_suppresses_report_data_when_flag_on`),
+    /// read the STAMPED aggregator-input attributes straight off the two
+    /// aggregator nodes (never re-derived/hardcoded), materialize fixture
+    /// artifacts on disk keyed by those stamped ids, and run the real
+    /// `report_contract::{assemble_statistical_distribution,
+    /// assemble_ensemble_distribution}` over them. Proves the stamped-ids ↔
+    /// output-path ↔ aggregator-reads chain is consistent: a drift in either
+    /// the synthesis stage-id convention, the aggregator's own stage-id
+    /// constants, or the cell-id parsing convention would surface here as a
+    /// missing node, a missing output file, or a wrong robustness/agreement
+    /// verdict — not just a green unit test with hand-picked fixture ids.
+    #[test]
+    fn ensemble_aggregators_end_to_end_from_stamped_ids() {
+        use std::path::Path;
+        use std::sync::Arc;
+
+        use crate::clock::FrozenClock;
+        use crate::composer_v4::ensemble_synthesis::{
+            ENSEMBLE_AGGREGATOR_ID, ENSEMBLE_STAT_AGGREGATOR_ID,
+        };
+        use crate::reexecution_bounds::ModalityBounds;
+        use crate::report_contract::{
+            self, ReportData, ResultSchema, RobustnessClass, assemble_ensemble_distribution,
+            assemble_statistical_distribution,
+        };
+
+        let atom_reg =
+            AtomRegistry::load_from_dir(Path::new("../../config/stage-atoms")).expect("atoms");
+        let archetype_reg =
+            ArchetypeRegistry::load_from_dir(Path::new("../../config/archetypes")).expect("arches");
+        let goal = GoalSpec {
+            edam_data: "data:0951".into(),
+            edam_format: Some("format:3475".into()),
+            modifiers: BTreeMap::new(),
+            source_prose: Some("differential expression table".into()),
+            confidence: 0.8,
+        };
+        let project_class = "bioinformatics";
+
+        let mut ctx = planning_context_for_goal_with_intake(
+            "rnaseq-ensemble-e2e",
+            &goal,
+            Some("bulk_rnaseq"),
+            None,
+            &[],
+        );
+        ctx.compose_ensemble = true;
+        ctx.ensemble_rosters = Some(Arc::new(
+            crate::ensemble_roster::EnsembleRosterProvider::from_dir(Path::new(
+                "../../config/ensemble-rosters",
+            )),
+        ));
+
+        let res = plan(&ctx, &goal, project_class, &atom_reg, &archetype_reg);
+        let dag = &res
+            .alternatives
+            .iter()
+            .find(|a| a.source == "archetype")
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected an archetype-seeded alternative; sources={:?}",
+                    res.alternatives
+                        .iter()
+                        .map(|a| a.source.as_str())
+                        .collect::<Vec<_>>()
+                )
+            })
+            .dag;
+
+        // Naming-convention drift guard: the id the synthesis pass stamps
+        // onto the DAG node must be the exact stage-id the aggregator
+        // itself writes its output directory under.
+        assert_eq!(
+            ENSEMBLE_STAT_AGGREGATOR_ID,
+            report_contract::ensemble_assemble::STAT_DISTRIBUTION_STAGE_ID,
+            "synthesis node id must match the stat aggregator's own stage-id constant"
+        );
+        assert_eq!(
+            ENSEMBLE_AGGREGATOR_ID,
+            report_contract::ensemble_assemble::ENSEMBLE_DISTRIBUTION_STAGE_ID,
+            "synthesis node id must match the ensemble aggregator's own stage-id constant"
+        );
+
+        let stat_agg = dag
+            .nodes
+            .iter()
+            .find(|n| n.id == ENSEMBLE_STAT_AGGREGATOR_ID)
+            .expect("stat aggregator node present in the real emitted DAG");
+        let variant_stage_ids: Vec<String> = stat_agg
+            .attributes
+            .get("variant_stage_ids")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .expect("variant_stage_ids stamped + deserializes to Vec<String>");
+        let schema: ResultSchema = stat_agg
+            .attributes
+            .get("result_schema")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .expect("result_schema stamped + deserializes to ResultSchema");
+        let relative_tolerance = stat_agg
+            .attributes
+            .get("relative_tolerance")
+            .and_then(|v| v.as_f64())
+            .expect("relative_tolerance stamped");
+        let absolute_tolerance = stat_agg
+            .attributes
+            .get("absolute_tolerance")
+            .and_then(|v| v.as_f64())
+            .expect("absolute_tolerance stamped");
+        assert!(
+            variant_stage_ids.len() >= 2,
+            "need >=2 statistical variants for robustness classification; got {variant_stage_ids:?}"
+        );
+
+        let ensemble_agg = dag
+            .nodes
+            .iter()
+            .find(|n| n.id == ENSEMBLE_AGGREGATOR_ID)
+            .expect("ensemble aggregator node present in the real emitted DAG");
+        let cell_ids: Vec<String> = ensemble_agg
+            .attributes
+            .get("interpretation_cell_ids")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .expect("interpretation_cell_ids stamped + deserializes to Vec<String>");
+        assert!(
+            cell_ids.len() >= 2,
+            "need >=2 interpretation cells for the ensemble rollup; got {cell_ids:?}"
+        );
+
+        // -- materialize fixtures on disk, keyed by the STAMPED ids -------
+        let tmp = tempfile::tempdir().unwrap();
+        let package_root = tmp.path();
+        let outputs_dir = package_root.join("runtime").join("outputs");
+
+        let entity_col = schema.entity_column.clone();
+        let effect_col = schema
+            .signed_effect_column
+            .clone()
+            .expect("DE schema declares a signed_effect_column");
+        let sig_col = schema
+            .significance
+            .as_ref()
+            .expect("DE schema declares a significance column")
+            .column
+            .clone();
+
+        // One robustness-Robust entity (same sign + significant in every
+        // variant) and one robustness-Discordant entity (a sign flip on
+        // exactly one variant) — a known outcome per variant, driven purely
+        // by the stamped `variant_stage_ids` + `schema`, never hardcoded
+        // method names.
+        for (idx, vid) in variant_stage_ids.iter().enumerate() {
+            let dir = outputs_dir.join(vid);
+            std::fs::create_dir_all(&dir).unwrap();
+            let robust_effect = 2.0 + 0.1 * idx as f64;
+            let discord_effect = if idx == 1 {
+                -(4.0 + 0.1 * idx as f64)
+            } else {
+                4.0 + 0.1 * idx as f64
+            };
+            let body = format!(
+                "{entity_col}\t{effect_col}\t{sig_col}\n\
+                 ROBUST_GENE\t{robust_effect}\t0.001\n\
+                 DISCORD_GENE\t{discord_effect}\t0.01\n"
+            );
+            std::fs::write(dir.join(&schema.artifact), body).unwrap();
+        }
+
+        // A known majority (all-support) with a single dissenting hotspot
+        // cell — any single dissenter in a full method x lens factorial
+        // grid bucks BOTH its method- and lens-marginal majority, so it
+        // must land in `interaction_hotspots`.
+        let mut sorted_cells = cell_ids.clone();
+        sorted_cells.sort();
+        let hotspot_id = sorted_cells[0].clone();
+        for cid in &cell_ids {
+            let dir = outputs_dir.join(cid);
+            std::fs::create_dir_all(&dir).unwrap();
+            let support = cid != &hotspot_id;
+            let body = serde_json::json!({ "hypothesis_supported": support });
+            std::fs::write(
+                dir.join("result.json"),
+                serde_json::to_string_pretty(&body).unwrap(),
+            )
+            .unwrap();
+        }
+
+        // -- run the real aggregators over the stamped ids -----------------
+        let clock = FrozenClock::default();
+        let bounds = ModalityBounds {
+            relative_tolerance,
+            absolute_tolerance,
+        };
+
+        let stat_dist = assemble_statistical_distribution(
+            package_root,
+            &variant_stage_ids,
+            &schema,
+            &bounds,
+            &clock,
+        )
+        .expect("stat aggregator runs over the stamped variant ids");
+        let ensemble_dist = assemble_ensemble_distribution(package_root, &cell_ids, &clock)
+            .expect("ensemble aggregator runs over the stamped cell ids");
+
+        // Robustness counts match the crafted entities.
+        assert_eq!(stat_dist.n_robust, 1, "exactly ROBUST_GENE classifies Robust");
+        assert_eq!(
+            stat_dist.n_discordant, 1,
+            "exactly DISCORD_GENE classifies Discordant"
+        );
+        let by_entity: BTreeMap<String, RobustnessClass> = stat_dist
+            .entities
+            .iter()
+            .map(|e| (e.entity.clone(), e.robustness.clone()))
+            .collect();
+        assert_eq!(by_entity["ROBUST_GENE"], RobustnessClass::Robust);
+        assert_eq!(by_entity["DISCORD_GENE"], RobustnessClass::Discordant);
+
+        // Agreement + hotspot match the crafted cell grid.
+        let n_cells = cell_ids.len();
+        let expected_agreement = (n_cells - 1) as f64 / n_cells as f64;
+        assert!(
+            (ensemble_dist.agreement - expected_agreement).abs() < 1e-9,
+            "agreement == (N-1)/N with a single dissenter; got {}",
+            ensemble_dist.agreement
+        );
+        assert_eq!(
+            ensemble_dist.attribution.interaction_hotspots,
+            vec![hotspot_id],
+            "the sole dissenter must be the interaction hotspot"
+        );
+
+        // Products written under each aggregator's OWN stage-id directory —
+        // the exact directory convention `builtin_dispatch.rs` reads back.
+        let stat_dir = outputs_dir.join(ENSEMBLE_STAT_AGGREGATOR_ID);
+        let ensemble_dir = outputs_dir.join(ENSEMBLE_AGGREGATOR_ID);
+        assert!(stat_dir.join("stat-distribution.json").exists());
+        assert!(ensemble_dir.join("ensemble-distribution.json").exists());
+
+        // Pooled report-data.json exists + is non-empty (reporting-invariants
+        // headroom): the ensemble path still gives the recompute machinery a
+        // single-artifact ReportData to read.
+        let report_data_path = stat_dir.join("report-data.json");
+        assert!(report_data_path.exists());
+        let report_data_raw = std::fs::read_to_string(&report_data_path).unwrap();
+        assert!(!report_data_raw.trim().is_empty());
+        let report_data: ReportData = serde_json::from_str(&report_data_raw)
+            .expect("pooled report-data.json deserializes to ReportData");
+        assert_eq!(report_data.artifacts.len(), 1);
+
+        // -- determinism: re-run both aggregators, expect byte-identical --
+        let stat_json_1 = serde_json::to_string_pretty(&stat_dist).unwrap();
+        let ensemble_json_1 = serde_json::to_string_pretty(&ensemble_dist).unwrap();
+        let stat_disk_1 = std::fs::read_to_string(stat_dir.join("stat-distribution.json")).unwrap();
+        let ensemble_disk_1 =
+            std::fs::read_to_string(ensemble_dir.join("ensemble-distribution.json")).unwrap();
+        let report_disk_1 = std::fs::read_to_string(&report_data_path).unwrap();
+
+        let stat_dist_2 = assemble_statistical_distribution(
+            package_root,
+            &variant_stage_ids,
+            &schema,
+            &bounds,
+            &clock,
+        )
+        .unwrap();
+        let ensemble_dist_2 =
+            assemble_ensemble_distribution(package_root, &cell_ids, &clock).unwrap();
+
+        assert_eq!(stat_dist, stat_dist_2, "StatDistribution identical across runs");
+        assert_eq!(
+            ensemble_dist, ensemble_dist_2,
+            "EnsembleDistribution identical across runs"
+        );
+        assert_eq!(
+            serde_json::to_string_pretty(&stat_dist_2).unwrap(),
+            stat_json_1,
+            "serialized StatDistribution byte-identical across runs"
+        );
+        assert_eq!(
+            serde_json::to_string_pretty(&ensemble_dist_2).unwrap(),
+            ensemble_json_1,
+            "serialized EnsembleDistribution byte-identical across runs"
+        );
+        assert_eq!(
+            std::fs::read_to_string(stat_dir.join("stat-distribution.json")).unwrap(),
+            stat_disk_1,
+            "on-disk stat-distribution.json byte-identical across runs"
+        );
+        assert_eq!(
+            std::fs::read_to_string(ensemble_dir.join("ensemble-distribution.json")).unwrap(),
+            ensemble_disk_1,
+            "on-disk ensemble-distribution.json byte-identical across runs"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&report_data_path).unwrap(),
+            report_disk_1,
+            "on-disk pooled report-data.json byte-identical across runs"
+        );
+    }
+
     #[test]
     fn empty_registry_returns_partial_dag() {
         let ctx = planning_context_for_goal("test", &simple_goal());
