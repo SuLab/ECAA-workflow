@@ -167,6 +167,33 @@ pub fn lint_persona_text(persona_id: &str, text: &str) -> Result<(), String> {
     Ok(())
 }
 
+impl EnsembleRoster {
+    /// Members under `full` factorial: K statistical + M contextualization
+    /// + K*M interpretation cells (the two aggregator nodes are not counted).
+    pub fn full_member_count(&self) -> u32 {
+        let k = self.statistical_variants.len() as u32;
+        let m = self.interpretive_lenses.len() as u32;
+        k + m + k * m
+    }
+
+    /// The `max_ensemble_members` cap must hold the full expansion.
+    pub fn validate_caps(&self) -> Result<(), String> {
+        let needed = self.full_member_count();
+        if self.caps.max_ensemble_members < needed {
+            return Err(format!(
+                "ensemble roster '{}' caps.max_ensemble_members={} < full expansion {} \
+                 (K={} + M={} + K*M)",
+                self.modality,
+                self.caps.max_ensemble_members,
+                needed,
+                self.statistical_variants.len(),
+                self.interpretive_lenses.len()
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Every `statistical_variant.tool` MUST be one of the base analytical
 /// atom's declared `attributes.candidate_tools`. Mirrors the
 /// candidate_tools read shape in `atom_registry::validate_de_substrate`.
@@ -313,5 +340,21 @@ caps:
         });
         let err = validate_variant_tools(&roster, de).unwrap_err();
         assert!(err.contains("not_a_real_de_tool"), "names the bad tool: {err}");
+    }
+
+    #[test]
+    fn member_count_is_k_plus_m_plus_km() {
+        let roster: EnsembleRoster = serde_yaml_ng::from_str(MINIMAL_ROSTER).unwrap();
+        // K=2 (deseq2, edger), M=1 lens → 2 + 1 + 2*1 = 5.
+        assert_eq!(roster.full_member_count(), 5);
+    }
+
+    #[test]
+    fn validate_caps_rejects_too_small_cap() {
+        let mut roster: EnsembleRoster = serde_yaml_ng::from_str(MINIMAL_ROSTER).unwrap();
+        assert!(roster.validate_caps().is_ok(), "24 >= 5");
+        roster.caps.max_ensemble_members = 3; // < 5
+        let err = roster.validate_caps().unwrap_err();
+        assert!(err.contains("max_ensemble_members"), "explains the cap: {err}");
     }
 }
