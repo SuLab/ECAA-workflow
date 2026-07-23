@@ -24,7 +24,13 @@ use super::{ReportData, ResultArtifactSummary, ResultSchema, summarize_artifact,
 
 /// The stage_id of the literature-contextualization atom whose outputs
 /// (`claims_evidence_matrix.csv` + `result.json`) feed [`join_literature`].
-const CONTEXTUALIZE_STAGE_ID: &str = "contextualize_findings_with_literature";
+/// The stage whose `claims_evidence_matrix.csv` + `result.json` feed
+/// [`join_literature`]. Shared as the single source of truth with the composer
+/// (`composer_v4::report_data_synthesis`), which adds the ordering edge
+/// `CONTEXTUALIZE_STAGE_ID -> assemble_report_data` so the assembler never runs
+/// before the literature matrix exists — the read-side and the dependency-side
+/// therefore cannot drift.
+pub const CONTEXTUALIZE_STAGE_ID: &str = "contextualize_findings_with_literature";
 
 /// Picks the CSV delimiter from the artifact's file extension: `.tsv` →
 /// tab, anything else (including `.csv`) → comma.

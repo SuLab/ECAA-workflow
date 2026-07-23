@@ -13,7 +13,7 @@ pub mod result_schema;
 
 pub mod assemble;
 
-pub use assemble::assemble_report_data;
+pub use assemble::{CONTEXTUALIZE_STAGE_ID, assemble_report_data};
 pub use report_data::{
     ArtifactStats, DirectionSplit, DistBin, EntityRow, GroupCount, LitFinding, LiteratureRollup,
     LiteratureStatus, NonReplication, PolicyColumnSynonyms, ReportData, ResultArtifactSummary,

@@ -145,6 +145,29 @@ pub fn synthesize_report_data_companion(dag: &mut WorkflowDag, atom_reg: &AtomRe
         new_edges.push(ordering_edge(stage_id, "report", NODE_ID, "analysis_result"));
     }
 
+    // contextualize_findings_with_literature -> assemble_report_data. The
+    // assembler's `join_literature` reads that stage's
+    // `claims_evidence_matrix.csv`, but contextualize declares no `ResultSchema`
+    // so the schema-bearing loop above never wires it. Without this ordering
+    // edge the harness can dispatch the assembler before the (network-bound,
+    // slow) contextualize stage finishes → the matrix is absent → an EMPTY
+    // literature rollup. The stage id is the SAME constant the assembler reads
+    // from, so the read-side and the dependency-side cannot drift. Skip if it
+    // is (unexpectedly) already a schema-bearing source to avoid a duplicate.
+    if dag
+        .nodes
+        .iter()
+        .any(|n| n.id == crate::report_contract::CONTEXTUALIZE_STAGE_ID)
+        && !schemas.contains_key(crate::report_contract::CONTEXTUALIZE_STAGE_ID)
+    {
+        new_edges.push(ordering_edge(
+            crate::report_contract::CONTEXTUALIZE_STAGE_ID,
+            "literature",
+            NODE_ID,
+            "literature_matrix",
+        ));
+    }
+
     // assemble_report_data -> reporting / final_reporting, only for
     // terminals that already exist as node ids in the dag.
     for terminal_id in REPORTING_TERMINAL_IDS {
@@ -313,6 +336,61 @@ mod tests {
                 .iter()
                 .any(|e| e.from_node == "reporting" && e.to_node == "final_reporting"),
             "pre-existing reporting -> final_reporting edge must be preserved"
+        );
+    }
+
+    /// The assembler's `join_literature` READS
+    /// `contextualize_findings_with_literature/claims_evidence_matrix.csv`, but
+    /// contextualize declares no `ResultSchema`, so the schema-bearing loop
+    /// never wires it. Without an explicit ordering edge the harness can
+    /// dispatch `assemble_report_data` BEFORE contextualize finishes (it is
+    /// network-bound and slow) → the matrix is absent at assemble time → an
+    /// EMPTY literature rollup (the real himes FP that forced the reporting
+    /// agent to hand-count from the raw matrix). Assert the edge is synthesized
+    /// whenever the contextualize stage is present.
+    #[test]
+    fn wires_contextualize_stage_to_assembler_when_present() {
+        let reg = atom_registry();
+        let de_atom = reg.get("differential_expression").expect("atom present");
+        let de_node = TaskNode::from_atom(de_atom);
+        let mut dag = dag_with(
+            vec![
+                de_node,
+                plain_node(crate::report_contract::CONTEXTUALIZE_STAGE_ID),
+                plain_node("reporting"),
+            ],
+            vec![],
+        );
+
+        synthesize_report_data_companion(&mut dag, &reg);
+
+        assert!(
+            dag.edges.iter().any(|e| e.from_node
+                == crate::report_contract::CONTEXTUALIZE_STAGE_ID
+                && e.to_node == "assemble_report_data"),
+            "contextualize -> assemble_report_data ordering edge missing; edges={:?}",
+            dag.edges
+                .iter()
+                .map(|e| (e.from_node.as_str(), e.to_node.as_str()))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// With NO contextualize stage in the DAG, no contextualize edge is
+    /// synthesized (the fix is scoped to the stage actually being present).
+    #[test]
+    fn no_contextualize_edge_when_stage_absent() {
+        let reg = atom_registry();
+        let de_atom = reg.get("differential_expression").expect("atom present");
+        let de_node = TaskNode::from_atom(de_atom);
+        let mut dag = dag_with(vec![de_node, plain_node("reporting")], vec![]);
+        synthesize_report_data_companion(&mut dag, &reg);
+        assert!(
+            !dag.edges
+                .iter()
+                .any(|e| e.to_node == "assemble_report_data"
+                    && e.from_node == crate::report_contract::CONTEXTUALIZE_STAGE_ID),
+            "no contextualize edge should exist when the stage is absent"
         );
     }
 

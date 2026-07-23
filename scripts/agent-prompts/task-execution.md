@@ -269,6 +269,31 @@ defines them — never assume genes/log2FC.
   NOT significant here is as reportable as a concordant hit, not an
   omission. State the `novel_count` and what it covers, and list every
   `retrieved_sources` entry.
+- **Account for every assessed entity, and label each count's denominator.**
+  When you summarize the `literature` rollup (or any categorized set), the
+  category counts must account for the WHOLE assessed set — `concordant` +
+  `discordant` + `unverifiable` + `novel_count` covers every entity
+  contextualized; never drop the `unverifiable` bucket from a headline just
+  because it is the least interesting, and never state a total that omits it.
+  When you report both an entity-level count and a source-level (PMID) count,
+  name each denominator explicitly ("4 of 8 assessed entities" vs "10 of 30
+  PMIDs") so the two are never conflated.
+- **Every count in a filtering funnel must be traceable to `report-data.json`.**
+  If you describe an entity-count funnel (input → retained → tested →
+  reported), each number must be one `report-data.json` provides (e.g.
+  `n_total`, `n_significant`); do not introduce a stage-internal intermediate
+  count a reader cannot reconcile against the file, and make the funnel
+  arithmetic add up.
+- **Caveat context heterogeneity uniformly.** When a concordance or discordance
+  rests on prior evidence from a different biological context than this analysis
+  — a different tissue, organism, or assay, evident from the `evidence_quote` —
+  say so, and apply that caveat to EVERY such entity, not only the ones whose
+  direction disagrees.
+- **Frame extreme effects as extremes.** When you cite an entity at the tail of
+  the `effect_distribution` (an outlier effect size), present it as an extreme,
+  not a calibrated point estimate — an extreme effect commonly reflects
+  near-absent signal in one arm, so avoid wording that implies a precise
+  fold-change.
 - **Claim-boundary discipline is unchanged by completeness.** Every
   statement stays associative — "associated with" / "enriched in" — never
   causal ("drives", "causes"); citing every number `report-data.json`

@@ -1,5 +1,6 @@
 ---
 source: crates/conversation/tests/emit_byte_characterization.rs
+assertion_line: 344
 expression: value
 ---
 {
@@ -1230,6 +1231,16 @@ expression: value
       },
       "targetParameter": {
         "@id": "#step-alignment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/contextualize_findings_with_literature__to__assemble_report_data",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-contextualize_findings_with_literature#output"
+      },
+      "targetParameter": {
+        "@id": "#step-assemble_report_data#input"
       }
     },
     {
