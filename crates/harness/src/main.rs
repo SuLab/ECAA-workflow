@@ -3372,19 +3372,22 @@ fn run_loop(
         // Snapshot which picks are in-process builtins (a synthesized node
         // carrying `spec.builtin`) so the dispatch loop below can route them
         // away from the agent and this run's in-process execution can key on
-        // the same predicate. Read from the same `dispatch_snapshot` as
+        // the same predicate. Covers all three in-process builtins
+        // (`assemble_report_data` / `assemble_statistical_distribution` /
+        // `assemble_ensemble_distribution`) via the generalized
+        // `BuiltinRequest`. Read from the same `dispatch_snapshot` as
         // `task_kinds`, no re-lock.
         let builtin_by_task: std::collections::BTreeMap<
             String,
-            std::collections::BTreeMap<String, ecaa_workflow_core::report_contract::ResultSchema>,
+            ecaa_workflow_harness::builtin_dispatch::BuiltinRequest,
         > = picks
             .iter()
             .filter_map(|id| {
                 dispatch_snapshot
                     .tasks
                     .get(id.as_str())
-                    .and_then(ecaa_workflow_harness::builtin_dispatch::assemble_report_data_request)
-                    .map(|schemas| (id.clone(), schemas))
+                    .and_then(ecaa_workflow_harness::builtin_dispatch::builtin_request)
+                    .map(|request| (id.clone(), request))
             })
             .collect();
 
@@ -3393,11 +3396,11 @@ fn run_loop(
         // heartbeat) carrying the dispatch identity the pre-mark loop stamped,
         // so the strict patch merge below drives it to Completed/Failed
         // exactly as it does an agent-run task — and the scheduler advances
-        // the downstream reporting task. These tasks never reach the executor
-        // (they're skipped in the dispatch loop), so `run_iteration` is never
-        // invoked for them. Deterministic + synchronous; no tokio, no agent.
+        // the downstream task. These tasks never reach the executor (they're
+        // skipped in the dispatch loop), so `run_iteration` is never invoked
+        // for them. Deterministic + synchronous; no tokio, no agent.
         for id in &picks {
-            let Some(schemas) = builtin_by_task.get(id.as_str()) else {
+            let Some(request) = builtin_by_task.get(id.as_str()) else {
                 continue;
             };
             let Some(dispatch) = dispatch_by_task.get(id) else {
@@ -3410,13 +3413,15 @@ fn run_loop(
                 );
                 continue;
             };
-            match ecaa_workflow_harness::builtin_dispatch::run_assemble_report_data(
-                path, dispatch, schemas, clock,
+            let builtin_name = request.builtin_name();
+            match ecaa_workflow_harness::builtin_dispatch::run_builtin(
+                path, dispatch, request, clock,
             ) {
                 Ok(state) => {
                     println!(
-                        "  {} builtin assemble_report_data ran in-process on {} → {}",
+                        "  {} builtin {} ran in-process on {} → {}",
                         "✓".green(),
+                        builtin_name,
                         id,
                         match state {
                             TaskState::Completed { .. } => "completed",
@@ -3427,7 +3432,7 @@ fn run_loop(
                     append_progress_log(
                         path,
                         id,
-                        "harness: assemble_report_data ran in-process (builtin; no agent)",
+                        &format!("harness: {builtin_name} ran in-process (builtin; no agent)"),
                     );
                 }
                 Err(e) => {
@@ -3435,14 +3440,16 @@ fn run_loop(
                     // Running and the heartbeat watchdog recovers it, exactly
                     // as when a real agent cannot write its patch.
                     eprintln!(
-                        "  {} builtin assemble_report_data on {} failed to record outcome: {:#}",
+                        "  {} builtin {} on {} failed to record outcome: {:#}",
                         "✗".red(),
+                        builtin_name,
                         id,
                         e
                     );
                     tracing::warn!(
                         target: "builtin",
                         task_id = %id,
+                        builtin = builtin_name,
                         error = format!("{e:#}"),
                         "in-process builtin could not write its state patch"
                     );

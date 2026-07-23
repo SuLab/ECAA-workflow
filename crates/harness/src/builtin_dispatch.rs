@@ -1,11 +1,15 @@
 //! In-process dispatch for `builtin`-tagged DAG tasks.
 //!
 //! Some synthesized DAG nodes carry a `spec.builtin` marker instead of
-//! being agent-executed. The composer emits one `assemble_report_data`
-//! node — downstream of every schema-bearing analytical stage, upstream of
-//! the reporting terminals — that the harness runs deterministically IN
-//! PROCESS (no agent subprocess) by calling the committed core assembler
-//! [`ecaa_workflow_core::report_contract::assemble_report_data`].
+//! being agent-executed. The composer emits synthesized nodes — downstream
+//! of every schema-bearing analytical stage, upstream of the reporting
+//! terminals — that the harness runs deterministically IN PROCESS (no
+//! agent subprocess) by calling the committed core assemblers:
+//! [`assemble_report_data`] (single-artifact reporting rollup),
+//! [`assemble_statistical_distribution`] (cross-method robustness rollup
+//! over one terminal stage's K statistical-method variants), and
+//! [`assemble_ensemble_distribution`] (cross-axis method×lens rollup over
+//! the multi-analyst interpretation cells).
 //!
 //! Completion is recorded through the EXACT same per-task
 //! `runtime/outputs/<task_id>/state.patch.json` protocol a normal agent
@@ -16,16 +20,20 @@
 //! ([`crate::dag_patch::apply_pending_patches_strict`]) then drives the
 //! task to its terminal state, the silent-completion / required-artifact
 //! guards see a normal Completed task with a `result.json`, and the
-//! scheduler advances the downstream `reporting` task with zero
-//! special-casing. The builtin task never reaches the executor, so
-//! `Executor::run_iteration` is never invoked for it.
+//! scheduler advances the downstream task with zero special-casing. The
+//! builtin task never reaches the executor, so `Executor::run_iteration`
+//! is never invoked for it.
 
 use std::collections::BTreeMap;
 use std::path::Path;
 
 use ecaa_workflow_core::clock::Clock;
 use ecaa_workflow_core::dag::{Task, TaskState};
-use ecaa_workflow_core::report_contract::{assemble_report_data, ResultSchema};
+use ecaa_workflow_core::reexecution_bounds::ModalityBounds;
+use ecaa_workflow_core::report_contract::{
+    assemble_ensemble_distribution, assemble_report_data, assemble_statistical_distribution,
+    ResultSchema,
+};
 
 use crate::dag_patch::{state_patch_schema_version, PickedDispatch, StatePatch};
 
@@ -33,6 +41,94 @@ use crate::dag_patch::{state_patch_schema_version, PickedDispatch, StatePatch};
 /// assembler builtin (stamped by the composer's report-data synthesis
 /// pass; surfaced into the lowered task spec by the workflow_json emitter).
 pub const ASSEMBLE_REPORT_DATA: &str = "assemble_report_data";
+
+/// Value of a task's `spec.builtin` attribute marking the cross-method
+/// statistical-distribution aggregator builtin (one per terminal
+/// analytical stage that was multi-analyst-fanned across statistical
+/// methods).
+pub const ASSEMBLE_STATISTICAL_DISTRIBUTION: &str = "assemble_statistical_distribution";
+
+/// Value of a task's `spec.builtin` attribute marking the cross-axis
+/// (method × interpretive-lens) ensemble-distribution aggregator builtin.
+pub const ASSEMBLE_ENSEMBLE_DISTRIBUTION: &str = "assemble_ensemble_distribution";
+
+/// Deserialized `spec` attributes for the [`ASSEMBLE_STATISTICAL_DISTRIBUTION`]
+/// builtin: the K variant stage ids to pool, the shared [`ResultSchema`]
+/// used to read each variant's artifact, and the modality re-execution
+/// tolerance used for the concordance classification.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StatBuiltinArgs {
+    pub variant_stage_ids: Vec<String>,
+    pub schema: ResultSchema,
+    pub bounds: ModalityBounds,
+}
+
+/// One in-process builtin's decoded request, keyed by which core assembler
+/// it dispatches to. Produced by [`builtin_request`]; consumed by
+/// [`run_builtin`]. DRYs the dispatch-site snapshot/loop in
+/// `main.rs::run_loop` over all three builtins.
+#[derive(Debug, Clone, PartialEq)]
+pub enum BuiltinRequest {
+    ReportData(BTreeMap<String, ResultSchema>),
+    StatDistribution(StatBuiltinArgs),
+    EnsembleDistribution(Vec<String>),
+}
+
+impl BuiltinRequest {
+    /// The `spec.builtin` value this request was decoded from — used for
+    /// log/progress-line labeling at the dispatch site.
+    pub fn builtin_name(&self) -> &'static str {
+        match self {
+            BuiltinRequest::ReportData(_) => ASSEMBLE_REPORT_DATA,
+            BuiltinRequest::StatDistribution(_) => ASSEMBLE_STATISTICAL_DISTRIBUTION,
+            BuiltinRequest::EnsembleDistribution(_) => ASSEMBLE_ENSEMBLE_DISTRIBUTION,
+        }
+    }
+}
+
+/// Decision predicate for the dispatch site, generalized over all three
+/// in-process builtins. Returns `None` for every non-builtin task (and for
+/// an unrecognized `spec.builtin` value) so the caller falls through to
+/// the normal agent dispatch — regression-safe: tasks without the marker
+/// are untouched.
+pub fn builtin_request(task: &Task) -> Option<BuiltinRequest> {
+    if let Some(schemas) = assemble_report_data_request(task) {
+        return Some(BuiltinRequest::ReportData(schemas));
+    }
+    if let Some(args) = assemble_statistical_distribution_request(task) {
+        return Some(BuiltinRequest::StatDistribution(args));
+    }
+    if let Some(cell_ids) = assemble_ensemble_distribution_request(task) {
+        return Some(BuiltinRequest::EnsembleDistribution(cell_ids));
+    }
+    None
+}
+
+/// Runs whichever builtin `request` decodes to, in process, and records
+/// the outcome through the normal `state.patch.json` protocol. Thin
+/// dispatch wrapper over [`run_assemble_report_data`] /
+/// [`run_assemble_statistical_distribution`] /
+/// [`run_assemble_ensemble_distribution`] — see those for the
+/// success/failure/postcondition contract, which is identical across all
+/// three.
+pub fn run_builtin(
+    package_root: &Path,
+    dispatch: &PickedDispatch,
+    request: &BuiltinRequest,
+    clock: &dyn Clock,
+) -> anyhow::Result<TaskState> {
+    match request {
+        BuiltinRequest::ReportData(schemas) => {
+            run_assemble_report_data(package_root, dispatch, schemas, clock)
+        }
+        BuiltinRequest::StatDistribution(args) => {
+            run_assemble_statistical_distribution(package_root, dispatch, args, clock)
+        }
+        BuiltinRequest::EnsembleDistribution(cell_ids) => {
+            run_assemble_ensemble_distribution(package_root, dispatch, cell_ids, clock)
+        }
+    }
+}
 
 /// Decision predicate for the dispatch site.
 ///
@@ -94,8 +190,6 @@ pub fn run_assemble_report_data(
     schemas: &BTreeMap<String, ResultSchema>,
     clock: &dyn Clock,
 ) -> anyhow::Result<TaskState> {
-    let task_id = dispatch.task_id.as_str();
-
     let (state, result_json) = match assemble_report_data(package_root, schemas, clock) {
         Ok(report) => {
             // Postcondition (belt-and-suspenders): the assembler writes
@@ -142,20 +236,33 @@ pub fn run_assemble_report_data(
         }
     };
 
+    write_builtin_completion(package_root, dispatch, state, &result_json)
+}
+
+/// Shared completion write-up for every in-process builtin: `result.json`
+/// (the reliable deliverable a normal agent always writes, feeding
+/// `status_reconciliation`'s completed-detection and the patch-merge
+/// recovery path), `state.patch.json` (carrying the dispatch identity so
+/// the strict merge accepts it exactly as it would a real agent's patch),
+/// and a refreshed `.heartbeat` (best-effort — the patch is the
+/// load-bearing signal). Identical across all three builtins; only the
+/// caller's `state`/`result_json` differ.
+fn write_builtin_completion(
+    package_root: &Path,
+    dispatch: &PickedDispatch,
+    state: TaskState,
+    result_json: &serde_json::Value,
+) -> anyhow::Result<TaskState> {
+    let task_id = dispatch.task_id.as_str();
     let task_dir = package_root.join("runtime").join("outputs").join(task_id);
     std::fs::create_dir_all(&task_dir)
         .map_err(|e| anyhow::anyhow!("creating {}: {e}", task_dir.display()))?;
 
-    // result.json — the reliable deliverable a normal agent always writes.
-    // Feeds status_reconciliation's completed-detection and the patch-merge
-    // recovery path.
-    let result_pretty = serde_json::to_string_pretty(&result_json)
+    let result_pretty = serde_json::to_string_pretty(result_json)
         .map_err(|e| anyhow::anyhow!("serializing result.json for {task_id}: {e}"))?;
     std::fs::write(task_dir.join("result.json"), result_pretty)
         .map_err(|e| anyhow::anyhow!("writing result.json for {task_id}: {e}"))?;
 
-    // state.patch.json — carries the dispatch identity so the strict merge
-    // accepts it exactly as it would a real agent's patch.
     let patch = StatePatch {
         schema_version: state_patch_schema_version(),
         from: Some("running".to_string()),
@@ -169,13 +276,219 @@ pub fn run_assemble_report_data(
     std::fs::write(task_dir.join("state.patch.json"), patch_pretty)
         .map_err(|e| anyhow::anyhow!("writing state.patch.json for {task_id}: {e}"))?;
 
-    // Refresh the heartbeat so no stall/orphan watchdog false-fires between
-    // the in-process run and the patch merge. Best-effort (the patch is the
-    // load-bearing signal).
     let hb = task_dir.join(".heartbeat");
     let _ = std::fs::write(&hb, ecaa_workflow_core::time_helpers::now_rfc3339());
 
     Ok(state)
+}
+
+/// Decision predicate for the [`ASSEMBLE_STATISTICAL_DISTRIBUTION`]
+/// builtin. Returns `Some(args)` when `task.spec.builtin ==
+/// "assemble_statistical_distribution"` AND `task.spec.result_schema`
+/// deserializes into a [`ResultSchema`] — the schema is load-bearing (there
+/// is no sensible default), so an unparseable/absent schema returns `None`
+/// (falls through to the normal agent dispatch) rather than fabricating
+/// one. `variant_stage_ids` degrades to an empty vec when missing or
+/// unparseable (the assembler then reports zero methods rather than
+/// failing). `relative_tolerance`/`absolute_tolerance` default to
+/// [`ModalityBounds::default`] (±5% relative) when absent.
+pub fn assemble_statistical_distribution_request(task: &Task) -> Option<StatBuiltinArgs> {
+    let spec = task.spec.as_ref()?;
+    let builtin = spec.get("builtin").and_then(|v| v.as_str())?;
+    if builtin != ASSEMBLE_STATISTICAL_DISTRIBUTION {
+        return None;
+    }
+    let schema = spec
+        .get("result_schema")
+        .and_then(|v| serde_json::from_value::<ResultSchema>(v.clone()).ok())?;
+    let variant_stage_ids = spec
+        .get("variant_stage_ids")
+        .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok())
+        .unwrap_or_default();
+    let mut bounds = ModalityBounds::default();
+    if let Some(r) = spec.get("relative_tolerance").and_then(|v| v.as_f64()) {
+        bounds.relative_tolerance = r;
+    }
+    if let Some(a) = spec.get("absolute_tolerance").and_then(|v| v.as_f64()) {
+        bounds.absolute_tolerance = a;
+    }
+    Some(StatBuiltinArgs {
+        variant_stage_ids,
+        schema,
+        bounds,
+    })
+}
+
+/// Postcondition for the statistical-distribution aggregator builtin: the
+/// assembler must have left a non-empty
+/// `runtime/outputs/assemble_statistical_distribution/stat-distribution.json`.
+/// See [`report_data_present_and_non_empty`] for the rationale (only
+/// returns `false` on a filesystem anomaly).
+fn stat_distribution_present_and_non_empty(package_root: &Path) -> bool {
+    let path = package_root
+        .join("runtime")
+        .join("outputs")
+        .join(ASSEMBLE_STATISTICAL_DISTRIBUTION)
+        .join("stat-distribution.json");
+    std::fs::metadata(&path)
+        .map(|m| m.len() > 0)
+        .unwrap_or(false)
+}
+
+/// Run the cross-method statistical-distribution aggregator in process for
+/// a `builtin`-tagged task, mirroring [`run_assemble_report_data`]'s
+/// success/failure/postcondition contract exactly.
+pub fn run_assemble_statistical_distribution(
+    package_root: &Path,
+    dispatch: &PickedDispatch,
+    args: &StatBuiltinArgs,
+    clock: &dyn Clock,
+) -> anyhow::Result<TaskState> {
+    let (state, result_json) = match assemble_statistical_distribution(
+        package_root,
+        &args.variant_stage_ids,
+        &args.schema,
+        &args.bounds,
+        clock,
+    ) {
+        Ok(dist) => {
+            if stat_distribution_present_and_non_empty(package_root) {
+                let n_entities = dist.entities.len();
+                let n_methods = dist.methods.len();
+                let result = serde_json::json!({
+                    "status": "completed",
+                    "builtin": ASSEMBLE_STATISTICAL_DISTRIBUTION,
+                    "stat_distribution": format!(
+                        "runtime/outputs/{ASSEMBLE_STATISTICAL_DISTRIBUTION}/stat-distribution.json"
+                    ),
+                    "n_methods": n_methods,
+                    "n_entities": n_entities,
+                    "n_robust": dist.n_robust,
+                    "n_concordant": dist.n_concordant,
+                    "n_fragile": dist.n_fragile,
+                    "n_discordant": dist.n_discordant,
+                    "summary": format!(
+                        "assembled stat-distribution.json across {n_methods} method(s), {n_entities} entities"
+                    ),
+                });
+                (TaskState::Completed { result: result.clone() }, result)
+            } else {
+                let reason = format!(
+                    "[builtin_assemble_statistical_distribution_failed] assembler returned Ok \
+                     but runtime/outputs/{ASSEMBLE_STATISTICAL_DISTRIBUTION}/stat-distribution.json \
+                     is missing or empty"
+                );
+                let result = serde_json::json!({
+                    "status": "failed",
+                    "builtin": ASSEMBLE_STATISTICAL_DISTRIBUTION,
+                    "summary": reason,
+                });
+                (TaskState::Failed { reason: reason.clone() }, result)
+            }
+        }
+        Err(e) => {
+            let reason = format!("[builtin_assemble_statistical_distribution_failed] {e:#}");
+            let result = serde_json::json!({
+                "status": "failed",
+                "builtin": ASSEMBLE_STATISTICAL_DISTRIBUTION,
+                "summary": reason,
+            });
+            (TaskState::Failed { reason: reason.clone() }, result)
+        }
+    };
+
+    write_builtin_completion(package_root, dispatch, state, &result_json)
+}
+
+/// Decision predicate for the [`ASSEMBLE_ENSEMBLE_DISTRIBUTION`] builtin.
+/// Returns `Some(cell_ids)` when `task.spec.builtin ==
+/// "assemble_ensemble_distribution"`, deserializing
+/// `task.spec.interpretation_cell_ids` into a `Vec<String>`. A missing,
+/// null, or unparseable list degrades to an empty vec — the assembler then
+/// writes a cells-empty (still valid) distribution rather than failing.
+/// Returns `None` for every non-matching task.
+pub fn assemble_ensemble_distribution_request(task: &Task) -> Option<Vec<String>> {
+    let spec = task.spec.as_ref()?;
+    let builtin = spec.get("builtin").and_then(|v| v.as_str())?;
+    if builtin != ASSEMBLE_ENSEMBLE_DISTRIBUTION {
+        return None;
+    }
+    let cell_ids = spec
+        .get("interpretation_cell_ids")
+        .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok())
+        .unwrap_or_default();
+    Some(cell_ids)
+}
+
+/// Postcondition for the ensemble-distribution aggregator builtin: the
+/// assembler must have left a non-empty
+/// `runtime/outputs/assemble_ensemble_distribution/ensemble-distribution.json`.
+/// See [`report_data_present_and_non_empty`] for the rationale.
+fn ensemble_distribution_present_and_non_empty(package_root: &Path) -> bool {
+    let path = package_root
+        .join("runtime")
+        .join("outputs")
+        .join(ASSEMBLE_ENSEMBLE_DISTRIBUTION)
+        .join("ensemble-distribution.json");
+    std::fs::metadata(&path)
+        .map(|m| m.len() > 0)
+        .unwrap_or(false)
+}
+
+/// Run the cross-axis (method × interpretive-lens) ensemble-distribution
+/// aggregator in process for a `builtin`-tagged task, mirroring
+/// [`run_assemble_report_data`]'s success/failure/postcondition contract
+/// exactly.
+pub fn run_assemble_ensemble_distribution(
+    package_root: &Path,
+    dispatch: &PickedDispatch,
+    cell_ids: &[String],
+    clock: &dyn Clock,
+) -> anyhow::Result<TaskState> {
+    let (state, result_json) =
+        match assemble_ensemble_distribution(package_root, cell_ids, clock) {
+            Ok(dist) => {
+                if ensemble_distribution_present_and_non_empty(package_root) {
+                    let n_cells = dist.cells.len();
+                    let result = serde_json::json!({
+                        "status": "completed",
+                        "builtin": ASSEMBLE_ENSEMBLE_DISTRIBUTION,
+                        "ensemble_distribution": format!(
+                            "runtime/outputs/{ASSEMBLE_ENSEMBLE_DISTRIBUTION}/ensemble-distribution.json"
+                        ),
+                        "n_cells": n_cells,
+                        "agreement": dist.agreement,
+                        "summary": format!(
+                            "assembled ensemble-distribution.json across {n_cells} interpretation cell(s)"
+                        ),
+                    });
+                    (TaskState::Completed { result: result.clone() }, result)
+                } else {
+                    let reason = format!(
+                        "[builtin_assemble_ensemble_distribution_failed] assembler returned Ok \
+                         but runtime/outputs/{ASSEMBLE_ENSEMBLE_DISTRIBUTION}/ensemble-distribution.json \
+                         is missing or empty"
+                    );
+                    let result = serde_json::json!({
+                        "status": "failed",
+                        "builtin": ASSEMBLE_ENSEMBLE_DISTRIBUTION,
+                        "summary": reason,
+                    });
+                    (TaskState::Failed { reason: reason.clone() }, result)
+                }
+            }
+            Err(e) => {
+                let reason = format!("[builtin_assemble_ensemble_distribution_failed] {e:#}");
+                let result = serde_json::json!({
+                    "status": "failed",
+                    "builtin": ASSEMBLE_ENSEMBLE_DISTRIBUTION,
+                    "summary": reason,
+                });
+                (TaskState::Failed { reason: reason.clone() }, result)
+            }
+        };
+
+    write_builtin_completion(package_root, dispatch, state, &result_json)
 }
 
 #[cfg(test)]
@@ -513,5 +826,334 @@ mod tests {
             ),
             "task must merge to Failed"
         );
+    }
+
+    // ---- assemble_statistical_distribution builtin --------------------
+
+    fn write_variant(outputs: &Path, vid: &str, body: &str) {
+        let dir = outputs.join(vid);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("de_results.tsv"), body).unwrap();
+    }
+
+    const DESEQ2: &str = "differential_expression__v_deseq2";
+    const EDGER: &str = "differential_expression__v_edger";
+
+    /// Two method tables agreeing on every gene (both significant, same
+    /// sign) — everything classifies Robust.
+    fn write_two_robust_variants(outputs: &Path) {
+        write_variant(
+            outputs,
+            DESEQ2,
+            "gene\tlog2FoldChange\tpadj\n\
+             ENSG1\t2.0\t0.001\n\
+             ENSG2\t-3.0\t0.002\n",
+        );
+        write_variant(
+            outputs,
+            EDGER,
+            "gene\tlog2FoldChange\tpadj\n\
+             ENSG1\t2.1\t0.002\n\
+             ENSG2\t-2.9\t0.003\n",
+        );
+    }
+
+    /// Build a Task carrying the `assemble_statistical_distribution`
+    /// builtin spec.
+    fn stat_builtin_task(state: TaskState, args: &StatBuiltinArgs) -> Task {
+        let spec = serde_json::json!({
+            "builtin": ASSEMBLE_STATISTICAL_DISTRIBUTION,
+            "variant_stage_ids": args.variant_stage_ids,
+            "result_schema": args.schema,
+            "relative_tolerance": args.bounds.relative_tolerance,
+            "absolute_tolerance": args.bounds.absolute_tolerance,
+        });
+        Task {
+            spec: Some(spec),
+            ..builtin_task(state, &BTreeMap::new())
+        }
+    }
+
+    #[test]
+    fn predicate_detects_stat_distribution_and_extracts_args() {
+        let args = StatBuiltinArgs {
+            variant_stage_ids: vec![DESEQ2.to_string(), EDGER.to_string()],
+            schema: de_schema(),
+            bounds: ModalityBounds::default(),
+        };
+        let task = stat_builtin_task(TaskState::Ready, &args);
+        let got = assemble_statistical_distribution_request(&task)
+            .expect("stat-distribution builtin task must be detected");
+        assert_eq!(got, args);
+    }
+
+    /// A stat-distribution task with no `result_schema` (or an unparseable
+    /// one) returns `None` — the schema is load-bearing and there is no
+    /// sensible default, so the dispatch site falls through rather than
+    /// fabricating one.
+    #[test]
+    fn predicate_stat_distribution_returns_none_without_schema() {
+        let t = Task {
+            spec: Some(serde_json::json!({
+                "builtin": ASSEMBLE_STATISTICAL_DISTRIBUTION,
+                "variant_stage_ids": [DESEQ2],
+            })),
+            ..builtin_task(TaskState::Ready, &BTreeMap::new())
+        };
+        assert!(assemble_statistical_distribution_request(&t).is_none());
+    }
+
+    /// Regression guard: normal / non-matching tasks fall through.
+    #[test]
+    fn predicate_stat_distribution_returns_none_for_normal_task() {
+        let mut t = builtin_task(TaskState::Ready, &BTreeMap::new());
+        t.spec = None;
+        assert!(assemble_statistical_distribution_request(&t).is_none());
+
+        let t2 = Task {
+            spec: Some(serde_json::json!({ "builtin": ASSEMBLE_REPORT_DATA })),
+            ..builtin_task(TaskState::Ready, &BTreeMap::new())
+        };
+        assert!(assemble_statistical_distribution_request(&t2).is_none());
+    }
+
+    #[test]
+    fn stat_distribution_builtin_runs_in_process() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let outputs = root.join("runtime").join("outputs");
+        write_two_robust_variants(&outputs);
+
+        let args = StatBuiltinArgs {
+            variant_stage_ids: vec![DESEQ2.to_string(), EDGER.to_string()],
+            schema: de_schema(),
+            bounds: ModalityBounds::default(),
+        };
+
+        let dag = single_task_dag(
+            ASSEMBLE_STATISTICAL_DISTRIBUTION,
+            stat_builtin_task(
+                TaskState::Running {
+                    started_at: "2026-01-01T00:00:00Z".into(),
+                    remote: None,
+                },
+                &args,
+            ),
+        );
+        write_workflow(root, &dag);
+
+        let dispatch = PickedDispatch {
+            task_id: TaskId::from(ASSEMBLE_STATISTICAL_DISTRIBUTION),
+            harness_run_id: "run-1".into(),
+            epoch: 1,
+        };
+        let clock = WallClock;
+        let state = run_assemble_statistical_distribution(root, &dispatch, &args, &clock)
+            .expect("no write failure");
+        assert!(
+            matches!(state, TaskState::Completed { .. }),
+            "assembler success must record Completed, got {state:?}"
+        );
+
+        assert!(
+            outputs
+                .join(ASSEMBLE_STATISTICAL_DISTRIBUTION)
+                .join("stat-distribution.json")
+                .is_file(),
+            "stat-distribution.json must exist after the in-process run"
+        );
+        let task_dir = outputs.join(ASSEMBLE_STATISTICAL_DISTRIBUTION);
+        assert!(task_dir.join("result.json").is_file());
+        assert!(task_dir.join("state.patch.json").is_file());
+        assert!(task_dir.join(".heartbeat").is_file());
+
+        // Drive completion through the exact strict merge the harness uses.
+        let merged = apply_pending_patches_strict(root, &[dispatch]).unwrap();
+        match &merged
+            .tasks
+            .get(ASSEMBLE_STATISTICAL_DISTRIBUTION)
+            .unwrap()
+            .state
+        {
+            TaskState::Completed { result } => {
+                assert_eq!(result["builtin"], ASSEMBLE_STATISTICAL_DISTRIBUTION);
+                assert_eq!(result["n_robust"], 2);
+            }
+            other => panic!("expected Completed after strict merge, got {other:?}"),
+        }
+    }
+
+    /// Through the generalized dispatch predicate/runner, exercised end to
+    /// end alongside `assemble_report_data`.
+    #[test]
+    fn builtin_request_detects_stat_distribution_variant() {
+        let args = StatBuiltinArgs {
+            variant_stage_ids: vec![DESEQ2.to_string()],
+            schema: de_schema(),
+            bounds: ModalityBounds::default(),
+        };
+        let task = stat_builtin_task(TaskState::Ready, &args);
+        match builtin_request(&task) {
+            Some(BuiltinRequest::StatDistribution(got)) => assert_eq!(got, args),
+            other => panic!("expected StatDistribution request, got {other:?}"),
+        }
+    }
+
+    // ---- assemble_ensemble_distribution builtin ------------------------
+
+    fn ensemble_cell_id(method: &str, lens: &str) -> String {
+        format!("biological_interpretation__m_{method}__lens_{lens}")
+    }
+
+    fn write_cell(outputs: &Path, method: &str, lens: &str, support: bool) {
+        let id = ensemble_cell_id(method, lens);
+        let dir = outputs.join(&id);
+        std::fs::create_dir_all(&dir).unwrap();
+        let body = serde_json::json!({ "hypothesis_supported": support, "literature": [] });
+        std::fs::write(dir.join("result.json"), serde_json::to_string_pretty(&body).unwrap())
+            .unwrap();
+    }
+
+    /// Build a Task carrying the `assemble_ensemble_distribution` builtin
+    /// spec with the given `interpretation_cell_ids`.
+    fn ensemble_builtin_task(state: TaskState, cell_ids: &[String]) -> Task {
+        let spec = serde_json::json!({
+            "builtin": ASSEMBLE_ENSEMBLE_DISTRIBUTION,
+            "interpretation_cell_ids": cell_ids,
+        });
+        Task {
+            spec: Some(spec),
+            ..builtin_task(state, &BTreeMap::new())
+        }
+    }
+
+    #[test]
+    fn predicate_detects_ensemble_distribution_and_extracts_cell_ids() {
+        let ids = vec![
+            ensemble_cell_id("deseq2", "molecular_mechanism"),
+            ensemble_cell_id("edger", "molecular_mechanism"),
+        ];
+        let task = ensemble_builtin_task(TaskState::Ready, &ids);
+        let got = assemble_ensemble_distribution_request(&task)
+            .expect("ensemble-distribution builtin task must be detected");
+        assert_eq!(got, ids);
+    }
+
+    /// Regression guard: normal / non-matching tasks fall through.
+    #[test]
+    fn predicate_ensemble_distribution_returns_none_for_normal_task() {
+        let mut t = builtin_task(TaskState::Ready, &BTreeMap::new());
+        t.spec = None;
+        assert!(assemble_ensemble_distribution_request(&t).is_none());
+
+        let t2 = Task {
+            spec: Some(serde_json::json!({ "builtin": ASSEMBLE_REPORT_DATA })),
+            ..builtin_task(TaskState::Ready, &BTreeMap::new())
+        };
+        assert!(assemble_ensemble_distribution_request(&t2).is_none());
+    }
+
+    #[test]
+    fn ensemble_distribution_builtin_runs_in_process() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let outputs = root.join("runtime").join("outputs");
+        write_cell(&outputs, "deseq2", "molecular_mechanism", true);
+        write_cell(&outputs, "edger", "molecular_mechanism", true);
+        write_cell(&outputs, "limma", "molecular_mechanism", false);
+        let ids = vec![
+            ensemble_cell_id("deseq2", "molecular_mechanism"),
+            ensemble_cell_id("edger", "molecular_mechanism"),
+            ensemble_cell_id("limma", "molecular_mechanism"),
+        ];
+
+        let dag = single_task_dag(
+            ASSEMBLE_ENSEMBLE_DISTRIBUTION,
+            ensemble_builtin_task(
+                TaskState::Running {
+                    started_at: "2026-01-01T00:00:00Z".into(),
+                    remote: None,
+                },
+                &ids,
+            ),
+        );
+        write_workflow(root, &dag);
+
+        let dispatch = PickedDispatch {
+            task_id: TaskId::from(ASSEMBLE_ENSEMBLE_DISTRIBUTION),
+            harness_run_id: "run-1".into(),
+            epoch: 1,
+        };
+        let clock = WallClock;
+        let state = run_assemble_ensemble_distribution(root, &dispatch, &ids, &clock)
+            .expect("no write failure");
+        assert!(
+            matches!(state, TaskState::Completed { .. }),
+            "assembler success must record Completed, got {state:?}"
+        );
+
+        assert!(
+            outputs
+                .join(ASSEMBLE_ENSEMBLE_DISTRIBUTION)
+                .join("ensemble-distribution.json")
+                .is_file(),
+            "ensemble-distribution.json must exist after the in-process run"
+        );
+        let task_dir = outputs.join(ASSEMBLE_ENSEMBLE_DISTRIBUTION);
+        assert!(task_dir.join("result.json").is_file());
+        assert!(task_dir.join("state.patch.json").is_file());
+        assert!(task_dir.join(".heartbeat").is_file());
+
+        // Drive completion through the exact strict merge the harness uses.
+        let merged = apply_pending_patches_strict(root, &[dispatch]).unwrap();
+        match &merged
+            .tasks
+            .get(ASSEMBLE_ENSEMBLE_DISTRIBUTION)
+            .unwrap()
+            .state
+        {
+            TaskState::Completed { result } => {
+                assert_eq!(result["builtin"], ASSEMBLE_ENSEMBLE_DISTRIBUTION);
+                assert_eq!(result["n_cells"], 3);
+            }
+            other => panic!("expected Completed after strict merge, got {other:?}"),
+        }
+    }
+
+    /// Through the generalized dispatch predicate/runner, exercised end to
+    /// end alongside the other two builtins.
+    #[test]
+    fn builtin_request_detects_ensemble_distribution_variant() {
+        let ids = vec![ensemble_cell_id("deseq2", "molecular_mechanism")];
+        let task = ensemble_builtin_task(TaskState::Ready, &ids);
+        match builtin_request(&task) {
+            Some(BuiltinRequest::EnsembleDistribution(got)) => assert_eq!(got, ids),
+            other => panic!("expected EnsembleDistribution request, got {other:?}"),
+        }
+    }
+
+    /// The generalized runner dispatches to the correct assembler for each
+    /// of the three builtin kinds.
+    #[test]
+    fn run_builtin_dispatches_to_report_data_variant() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        stage_de_results(&root.join("runtime").join("outputs"));
+        let mut schemas = BTreeMap::new();
+        schemas.insert("differential_expression".to_string(), de_schema());
+        let dispatch = PickedDispatch {
+            task_id: TaskId::from("assemble_report_data"),
+            harness_run_id: "run-1".into(),
+            epoch: 1,
+        };
+        let clock = WallClock;
+        let state = run_builtin(
+            root,
+            &dispatch,
+            &BuiltinRequest::ReportData(schemas),
+            &clock,
+        )
+        .unwrap();
+        assert!(matches!(state, TaskState::Completed { .. }));
     }
 }
