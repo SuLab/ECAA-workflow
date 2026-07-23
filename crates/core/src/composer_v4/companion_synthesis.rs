@@ -286,6 +286,19 @@ fn is_eligible_for_validate_companion(node: &TaskNode) -> bool {
         return false;
     }
 
+    // Ensemble variant nodes (statistical method variants, contextualization
+    // lens variants, and K×M interpretation cells) carry an `ensemble_variant`
+    // marker. Every variant in a family shares the same self-describing
+    // `validate_<base>` prefix root (e.g. `validate_differential_expression`
+    // for `differential_expression__v_deseq2/edger/limma`), so synthesizing a
+    // per-variant companion would trip the DAG's prefix-uniqueness check
+    // (`DagError::DuplicatePrefix`). Their results are cross-checked
+    // collectively at the ensemble aggregators, not one variant at a time, so
+    // skip per-variant companions entirely.
+    if node.attributes.contains_key("ensemble_variant") {
+        return false;
+    }
+
     // Role-based skip. The atom's role is preserved in
     // `attributes["role"]` (see `from_atom.rs::preserve_attributes`).
     //
@@ -494,6 +507,32 @@ mod tests {
             "a builtin node must not receive an agent validate companion; got {ids:?}"
         );
         assert_eq!(dag.nodes.len(), 1, "builtin node received a companion");
+    }
+
+    /// Ensemble variant nodes (marked with `ensemble_variant`) do NOT get a
+    /// per-variant companion: every variant in a family shares the same
+    /// self-describing `validate_<base>` prefix root, so per-variant companions
+    /// would trip the DAG's `DuplicatePrefix` uniqueness check. Guards the
+    /// regression that kept ensemble-mode emission blocked even after the
+    /// duplicate-stage_id fix.
+    #[test]
+    fn ensemble_variant_node_gets_no_validate_companion() {
+        let mut dag = dummy_dag_with_node(
+            "differential_expression__v_deseq2",
+            crate::atom::AtomRole::Operation,
+        );
+        dag.nodes[0].attributes.insert(
+            "ensemble_variant".into(),
+            serde_json::json!({ "axis": "statistical", "variant_id": "deseq2" }),
+        );
+        let reg = AtomRegistry::default();
+        synthesize_validate_companions(&mut dag, &reg);
+        let ids: BTreeSet<String> = dag.nodes.iter().map(|n| n.id.clone()).collect();
+        assert!(
+            !ids.contains("validate_differential_expression__v_deseq2"),
+            "ensemble variant must not receive a validate companion; got {ids:?}"
+        );
+        assert_eq!(dag.nodes.len(), 1, "ensemble variant received a companion");
     }
 
     /// Idempotency: running twice doesn't duplicate.

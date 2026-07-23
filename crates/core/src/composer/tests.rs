@@ -1346,3 +1346,111 @@ fn compose_unknown_falls_back_to_v2() {
         "unknown version must fall back to v2 archetype routing"
     );
 }
+
+/// Ensemble dispatch-path regression guard (would have caught Plan-2
+/// Crit-1 + Crit-2). Exercises the REAL lowering + validation path — not
+/// just `lower_to_workflow_json` — over an ensemble-fanned DAG.
+///
+/// This guard lives in `composer::tests` (not `composer_v4`) because
+/// `validate_composition` is `pub(super)` to `composer`, so this is the
+/// only module where both it and the `pub`
+/// `composer_v4::planner::lower_dag_to_composition_result` are in scope.
+/// The base DE node is manually stamped with `attributes["stage_id"]`
+/// exactly as the v4 lift pass does — that stamp is the precondition that
+/// made Crit-1 (K cloned variants inheriting one stage_id →
+/// `CycleDetected{cycle:[]}`) fire only on the dispatch path, never in
+/// the `TaskNode::from_atom`-based unit tests.
+#[test]
+fn ensemble_lowering_validates_without_cycle_and_reaches_reporting() {
+    use crate::atom_registry::AtomRegistry;
+    use crate::composer_v4::ensemble_synthesis::{
+        synthesize_ensemble_fanout, ENSEMBLE_AGGREGATOR_ID,
+    };
+    use crate::composer_v4::planner::lower_dag_to_composition_result;
+    use crate::ensemble_roster::EnsembleRosterProvider;
+    use crate::workflow_contracts::task_node::{TaskNode, WorkflowDag};
+    use std::path::Path;
+
+    let cfg = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../config"));
+    let reg = AtomRegistry::load_from_dir(&cfg.join("stage-atoms")).unwrap();
+    let roster = EnsembleRosterProvider::from_dir(&cfg.join("ensemble-rosters"))
+        .roster_for("bulk_rnaseq")
+        .cloned()
+        .unwrap();
+
+    // Base DE node carrying attributes["stage_id"] exactly as the lift
+    // pass stamps it — the Crit-1 precondition.
+    let mut de = TaskNode::from_atom(reg.get("differential_expression").unwrap());
+    de.attributes.insert(
+        "stage_id".into(),
+        serde_json::Value::String("differential_expression".into()),
+    );
+
+    let mut dag = WorkflowDag {
+        id: "t".into(),
+        nodes: vec![
+            de,
+            TaskNode::skeleton("reporting", "r"),
+            TaskNode::skeleton("final_reporting", "f"),
+        ],
+        edges: vec![],
+        assumptions: Default::default(),
+        source_template: None,
+    };
+
+    synthesize_ensemble_fanout(&mut dag, &reg, &roster);
+
+    // Crit-1 guard: lower into a CompositionResult and run the real
+    // validation pass. Pre-fix, the K variants collapse onto one stage_id
+    // and `detect_cycle` reports CycleDetected{cycle:[]}. Wildcard goal so
+    // goal-reachability is a no-op; workflow_dag=None so the
+    // unsourced-required-input backstop (which the edge-free synthetic DAG
+    // cannot satisfy) doesn't mask the acyclicity guard.
+    let goal = GoalSpec {
+        edam_data: String::new(),
+        edam_format: None,
+        modifiers: BTreeMap::new(),
+        source_prose: None,
+        confidence: 0.8,
+    };
+    let result =
+        lower_dag_to_composition_result(&dag, &reg, &goal).expect("lowering the ensemble DAG");
+    validate_composition(&result, &reg, None)
+        .expect("ensemble lowering must not trip CycleDetected (Crit-1)");
+
+    // Crit-2 guard (a): the cross-axis aggregator must feed a reporting
+    // terminal — pre-fix it was a dead-end sink.
+    assert!(
+        dag.edges.iter().any(|e| e.from_node == ENSEMBLE_AGGREGATOR_ID
+            && (e.to_node == "reporting" || e.to_node == "final_reporting")),
+        "assemble_ensemble_distribution must feed a reporting terminal (Crit-2)"
+    );
+
+    // Crit-2 guard (b): BFS from an interpretation cell must REACH a
+    // reporting terminal.
+    let start = dag
+        .nodes
+        .iter()
+        .map(|n| n.id.clone())
+        .find(|id| id.starts_with("biological_interpretation__m_") && id.contains("__lens_"))
+        .expect("at least one interpretation cell");
+    let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut stack = vec![start.clone()];
+    let mut reached = false;
+    while let Some(cur) = stack.pop() {
+        if cur == "reporting" || cur == "final_reporting" {
+            reached = true;
+            break;
+        }
+        if !seen.insert(cur.clone()) {
+            continue;
+        }
+        for e in dag.edges.iter().filter(|e| e.from_node == cur) {
+            stack.push(e.to_node.clone());
+        }
+    }
+    assert!(
+        reached,
+        "interpretation cell {start} must reach a reporting terminal (Crit-2)"
+    );
+}

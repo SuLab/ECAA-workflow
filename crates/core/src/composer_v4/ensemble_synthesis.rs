@@ -23,26 +23,54 @@
 //!
 //! # Shape
 //!
-//! For every node in the DAG whose atom (resolved by id, or by its
+//! The pass collects every node whose atom (resolved by id, or by its
 //! `attributes["atom_id"]` back-reference) declares a `result_schema`
-//! (the same fan-out-target selector `report_data_synthesis` uses):
+//! (the same fan-out-target selector `report_data_synthesis` uses),
+//! sorts them, and fans out ONLY the primary — the sorted-first
+//! schema-bearing target, the same node the interpretation grid centers
+//! on. Any additional schema-bearing targets (e.g. `pathway_enrichment`
+//! alongside `differential_expression`) are left untouched — their
+//! roster of statistical methods is disjoint from the primary's, so
+//! fanning them over the primary's variants would be nonsense.
 //!
-//! - Replace the base node with one `<base_id>__v_<variant.id>` clone
-//!   per `roster.statistical_variants` entry. Each clone keeps
-//!   `attributes["atom_id"] = <base_id>` (so schema/safety resolution
-//!   still finds the underlying atom) and stamps
-//!   `attributes["ensemble_variant"] = { axis: "statistical", method,
-//!   variant_id, bootstrap_replicates }`.
-//! - Rewire every inbound edge that fed the base node onto EACH variant
+//! For the primary:
+//!
+//! - Replace it with one `<primary>__v_<variant.id>` clone per
+//!   `roster.statistical_variants` entry. Each clone keeps
+//!   `attributes["atom_id"] = <primary>` (so schema/safety resolution
+//!   still finds the underlying atom), stamps a UNIQUE
+//!   `attributes["stage_id"] = <clone id>` (the lifted base carries a
+//!   `stage_id` attr and a bare clone would inherit it, collapsing all K
+//!   variants onto one stage_id and tripping `validate_composition`'s
+//!   acyclicity check), and stamps `attributes["ensemble_variant"] =
+//!   { axis: "statistical", method, variant_id, bootstrap_replicates }`.
+//! - Rewire every inbound edge that fed the primary onto EACH variant
 //!   (fan-out on the input side).
 //! - Wire every variant to the `assemble_statistical_distribution`
 //!   builtin aggregator (fan-in on the output side; Plan 3 fills in the
 //!   aggregation logic — this pass only stubs the node + edges).
-//! - Remove the base target nodes and every edge touching them (inbound
-//!   AND outbound) — any outbound edge that fed `reporting` /
-//!   `final_reporting` / `assemble_report_data` directly is
-//!   intentionally dropped here; a later pass wires the aggregator
-//!   onward.
+//!
+//! The base `contextualize_findings_with_literature` node (when present)
+//! is likewise fanned into `__v_<lens>` lens variants and its base node
+//! removed. For every removed base (the primary and the base
+//! contextualize) the stale `validate_<base>` companion the pre-ensemble
+//! pass synthesized is removed too.
+//!
+//! Edge cleanup when the primary is removed: an outbound edge to a
+//! `reporting` / `final_reporting` terminal is DROPPED (the cross-axis
+//! ensemble aggregator now feeds those terminals — see below); an
+//! outbound edge to a node that is itself being removed (the base
+//! contextualize) is DROPPED (its lens variants read the statistical
+//! aggregator instead); any other analytical consumer (e.g.
+//! `pathway_enrichment` reading the primary's result) is REDIRECTED onto
+//! the statistical aggregator so no surviving edge cites the removed
+//! primary.
+//!
+//! Reporting wiring: this pass wires the cross-axis ensemble aggregator
+//! (`assemble_ensemble_distribution`) directly to every `reporting` /
+//! `final_reporting` terminal present in the DAG, mirroring
+//! `report_data_synthesis`'s `REPORTING_TERMINAL_IDS` wiring — the
+//! ensemble grid would otherwise be a dead-end sink.
 //!
 //! # Skip rule
 //!
@@ -77,6 +105,16 @@ pub const ENSEMBLE_STAT_AGGREGATOR_ID: &str = "assemble_statistical_distribution
 /// over the K×M interpretation grid (`builtin`-marked stub; Plan 3 fills
 /// the aggregation logic).
 pub const ENSEMBLE_AGGREGATOR_ID: &str = "assemble_ensemble_distribution";
+
+/// Reporting-terminal ids the cross-axis aggregator feeds when present.
+/// Exact-id match only — mirrors `report_data_synthesis`'s constant of
+/// the same name (the two canonical terminal ids, no alias matching).
+const REPORTING_TERMINAL_IDS: [&str; 2] = ["reporting", "final_reporting"];
+
+/// The base contextualization node id fanned into per-lens variants and
+/// removed by this pass. Kept as a named constant so the fan-out, the
+/// base-node removal, and the stale-companion removal cannot drift.
+const CONTEXTUALIZE_BASE_ID: &str = "contextualize_findings_with_literature";
 
 /// Fan the schema-bearing statistical node(s) out over the roster's
 /// method variants, and inject the statistical-distribution aggregator
@@ -126,58 +164,68 @@ pub fn synthesize_ensemble_fanout(
         "stat_distribution",
     );
 
-    for base_id in &targets {
-        // Capture the base node's inbound edges (upstream -> base) to rewire onto each variant.
-        let inbound: Vec<EdgeContract> = dag
-            .edges
-            .iter()
-            .filter(|e| &e.to_node == base_id)
-            .cloned()
-            .collect();
-        let base_node = dag.nodes.iter().find(|n| &n.id == base_id).cloned();
-        for sv in &roster.statistical_variants {
-            let vid = format!("{base_id}__v_{}", sv.id);
-            let mut vn = base_node
-                .clone()
-                .unwrap_or_else(|| TaskNode::skeleton(&vid, "statistical variant"));
-            vn.id = vid.clone();
-            vn.human_name = vid.clone();
-            vn.machine_name = vid.clone();
-            // Keep atom_id pointing at the base atom (schema/safety inherited; resolver still works).
-            vn.attributes
-                .insert("atom_id".into(), serde_json::Value::String(base_id.clone()));
-            vn.attributes.insert(
-                "ensemble_variant".into(),
-                serde_json::json!({
-                    "axis": "statistical",
-                    "method": sv.tool,
-                    "variant_id": sv.id,
-                    "bootstrap_replicates": sv.bootstrap_replicates,
-                }),
-            );
-            // Upstream -> variant (rewire each inbound edge onto the variant).
-            for e in &inbound {
-                new_edges.push(ordering_edge(&e.from_node, &e.from_port, &vid, "input"));
-            }
-            // Variant -> statistical aggregator.
-            new_edges.push(ordering_edge(
-                &vid,
-                "report",
-                ENSEMBLE_STAT_AGGREGATOR_ID,
-                "method_result",
-            ));
-            new_nodes.push(vn);
+    // Fan out ONLY the primary — the sorted-first schema-bearing target,
+    // the same node the interpretation grid centers on. Any additional
+    // schema-bearing targets (e.g. `pathway_enrichment`) keep their own
+    // nodes: their statistical roster is disjoint from the primary's, so
+    // fanning them over the primary's method variants would be nonsense.
+    let primary = targets[0].clone();
+
+    // Capture the primary's inbound edges (upstream -> primary) to rewire onto each variant.
+    let inbound: Vec<EdgeContract> = dag
+        .edges
+        .iter()
+        .filter(|e| e.to_node == primary)
+        .cloned()
+        .collect();
+    let base_node = dag.nodes.iter().find(|n| n.id == primary).cloned();
+    for sv in &roster.statistical_variants {
+        let vid = format!("{primary}__v_{}", sv.id);
+        let mut vn = base_node
+            .clone()
+            .unwrap_or_else(|| TaskNode::skeleton(&vid, "statistical variant"));
+        vn.id = vid.clone();
+        vn.human_name = vid.clone();
+        vn.machine_name = vid.clone();
+        // Keep atom_id pointing at the base atom (schema/safety inherited; resolver still works).
+        vn.attributes
+            .insert("atom_id".into(), serde_json::Value::String(primary.clone()));
+        // Stamp a UNIQUE stage_id per variant. The lifted base carries
+        // `attributes["stage_id"]`; a bare clone inherits it, so without
+        // this every variant collapses onto one stage_id in
+        // `lower_dag_to_composition_result` (which keys `ComposedAtom.stage_id`
+        // off this attr, falling back to node.id only when absent) and
+        // `validate_composition`'s acyclicity check reports CycleDetected.
+        vn.attributes
+            .insert("stage_id".into(), serde_json::Value::String(vid.clone()));
+        vn.attributes.insert(
+            "ensemble_variant".into(),
+            serde_json::json!({
+                "axis": "statistical",
+                "method": sv.tool,
+                "variant_id": sv.id,
+                "bootstrap_replicates": sv.bootstrap_replicates,
+            }),
+        );
+        // Upstream -> variant (rewire each inbound edge onto the variant).
+        for e in &inbound {
+            new_edges.push(ordering_edge(&e.from_node, &e.from_port, &vid, "input"));
         }
+        // Variant -> statistical aggregator.
+        new_edges.push(ordering_edge(
+            &vid,
+            "report",
+            ENSEMBLE_STAT_AGGREGATOR_ID,
+            "method_result",
+        ));
+        new_nodes.push(vn);
     }
 
     // ---- Contextualization fan-out (M) + K×M interpretation grid + ensemble aggregator ----
     //
-    // The interpretation grid centers on ONE primary statistical base:
-    // the first (sorted) schema-bearing target. v1 fans a single primary
-    // statistical node out over the interpretive lenses; any additional
-    // schema-bearing targets keep their own K statistical variants
-    // (fanned out above) but do not seed their own interpretation grid.
-    let base_id = targets[0].clone();
+    // The interpretation grid centers on the same `primary` statistical
+    // base fanned out above.
+    let base_id = &primary;
 
     // M contextualization variants — each reads the pooled statistical
     // distribution off the statistical aggregator.
@@ -266,10 +314,69 @@ pub fn synthesize_ensemble_fanout(
         "ensemble_distribution",
     ));
 
-    // Remove base target nodes + every edge touching them (replaced by variants + aggregator).
-    dag.nodes.retain(|n| !targets.contains(&n.id));
+    // Wire the cross-axis aggregator onward to the reporting terminals it
+    // supersedes. The base primary's direct reporting feed is dropped
+    // below, so without this the whole ensemble grid is a dead-end sink.
+    // Mirrors report_data_synthesis's REPORTING_TERMINAL_IDS wiring.
+    for terminal in REPORTING_TERMINAL_IDS {
+        if dag.nodes.iter().any(|n| n.id == terminal) {
+            new_edges.push(ordering_edge(
+                ENSEMBLE_AGGREGATOR_ID,
+                "ensemble_distribution",
+                terminal,
+                "tributaries",
+            ));
+        }
+    }
+
+    // Base nodes the ensemble expansion supersedes: the primary
+    // statistical target (fanned into K method variants) and — when
+    // present — the base contextualize node (fanned into M lens
+    // variants). Their stale `validate_<base>` companions, synthesized by
+    // the pre-ensemble pass for a node that no longer exists, go with
+    // them.
+    let mut removed_ids: Vec<String> = vec![primary.clone()];
+    if dag.nodes.iter().any(|n| n.id == CONTEXTUALIZE_BASE_ID) {
+        removed_ids.push(CONTEXTUALIZE_BASE_ID.to_string());
+    }
+    for base in removed_ids.clone() {
+        let companion = format!("validate_{base}");
+        if dag.nodes.iter().any(|n| n.id == companion) {
+            removed_ids.push(companion);
+        }
+    }
+
+    // Re-home the primary's outbound consumers before dropping it. A
+    // reporting-terminal consumer is dropped (the cross-axis aggregator
+    // now feeds reporting, above); a consumer that is itself being removed
+    // (the base contextualize) is dropped (its lens variants read the
+    // statistical aggregator instead); any other analytical consumer
+    // (e.g. `pathway_enrichment` reading the primary's result) is
+    // redirected onto the statistical aggregator so no surviving edge
+    // cites the removed primary (keeps the original to_node + ports).
+    for e in &dag.edges {
+        if e.from_node != primary {
+            continue;
+        }
+        if REPORTING_TERMINAL_IDS.contains(&e.to_node.as_str()) || removed_ids.contains(&e.to_node)
+        {
+            continue;
+        }
+        new_edges.push(ordering_edge(
+            ENSEMBLE_STAT_AGGREGATOR_ID,
+            &e.from_port,
+            &e.to_node,
+            &e.to_port,
+        ));
+    }
+
+    // Remove the superseded base nodes + their stale validate companions,
+    // and every original edge that still touches one of them. Inbound
+    // edges to the primary were rewired onto the variants above; its
+    // outbound edges were re-homed or dropped just above.
+    dag.nodes.retain(|n| !removed_ids.contains(&n.id));
     dag.edges
-        .retain(|e| !targets.contains(&e.from_node) && !targets.contains(&e.to_node));
+        .retain(|e| !removed_ids.contains(&e.from_node) && !removed_ids.contains(&e.to_node));
 
     dag.nodes.push(agg);
     dag.nodes.extend(new_nodes);
@@ -382,6 +489,10 @@ fn builtin_aggregator(id: &str, intent: &str, read_rationale: &str, output_name:
     );
     agg.attributes
         .insert("builtin".into(), serde_json::Value::String(id.into()));
+    // Stamp stage_id = node id defensively so no future clone path can
+    // regress a duplicate stage_id (see the statistical-variant loop).
+    agg.attributes
+        .insert("stage_id".into(), serde_json::Value::String(id.into()));
     agg.attributes.insert(
         "read_allowance".into(),
         serde_json::to_value(vec![crate::atom::ReadAllowance {
@@ -419,6 +530,13 @@ fn variant_node(
     n.machine_name = node_id.to_string();
     n.attributes
         .insert("atom_id".into(), serde_json::Value::String(atom_id.into()));
+    // Stamp a UNIQUE stage_id = node id defensively — from_atom may carry
+    // no stage_id attr, but a future lift/clone path could, and a
+    // duplicate stage_id trips validate_composition's acyclicity check
+    // (see the statistical-variant loop). Covers the contextualize lens
+    // variants and the K×M interpretation cells.
+    n.attributes
+        .insert("stage_id".into(), serde_json::Value::String(node_id.into()));
     n
 }
 
