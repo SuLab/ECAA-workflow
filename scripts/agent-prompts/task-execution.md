@@ -279,6 +279,16 @@ defines them — never assume genes/log2FC.
   NOT significant here is as reportable as a concordant hit, not an
   omission. State the `novel_count` and what it covers, and list every
   `retrieved_sources` entry.
+- **Never cite a PMID that is not in `retrieved_sources` / the evidence
+  matrix — not even as background context.** Every PMID that appears anywhere
+  in the report (including "Note", "Background", or discussion asides) MUST be
+  one this run actually retrieved and verified (present in `retrieved_sources`
+  or the `claims_evidence_matrix`). Do NOT pull a paper from your own memory,
+  however relevant it seems — a source-level validator flags any cited PMID
+  with no supporting matrix row as an ungrounded (hallucinated) citation and
+  blocks the deposit. If prior context is genuinely missing, say so
+  ("no prior-work PMID was retrieved for gene X") rather than supplying one
+  from recall.
 - **Account for every assessed entity, and label each count's denominator.**
   When you summarize the `literature` rollup (or any categorized set), the
   category counts must account for the WHOLE assessed set — `concordant` +

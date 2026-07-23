@@ -2094,6 +2094,22 @@ static CONTRASTIVE_DIRECTION_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     .expect("static regex")
 });
 
+/// EXPLICIT p-value / significance EXTREME phrasing — the extreme IS taken over
+/// the p-value column regardless of any signed-effect direction aside. "Most
+/// significant gene (by padj)" ranks by padj (argmin, smallest p); a trailing
+/// "strongly upregulated" merely describes that gene, it does not move the
+/// extreme onto log2FC. This is DISTINCT from an INCIDENTAL padj annotation on
+/// an effect-extreme claim ("most negative log2FC …, padj ≈ 5e-81"), which the
+/// `EXTREME_PVAL_COL_RE` + direction-cue guard still routes to the effect
+/// column. When this matches, the reported extreme on a p-value column is the
+/// STRONGEST significance = smallest p (argmin).
+static EXTREME_PVAL_EXPLICIT_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r"(?i)(most\s+(?:highly\s+)?significant|highly\s+significant|(?:greatest|highest|strongest)\s+significance|by\s+(?:padj|p[\s_-]?adj|fdr|q[\s_-]?value|p[\s_-]?value|pvalue)|(?:lowest|smallest)\s+(?:padj|p[\s_-]?adj|fdr|q[\s_-]?value|p[\s_-]?value|pvalue))",
+    )
+    .expect("static regex")
+});
+
 /// A3 — verify an ordinal/superlative EXTREME claim ("the strongest enrichment
 /// by NES", "the most-downregulated gene by log2FC", "TP53 had the lowest
 /// padj"). No explicit rank digit is present (those route to `RankTopN`). The
@@ -2138,7 +2154,17 @@ fn verify_extreme_value(
     // (himes rerun 2026-07-22).
     let has_effect_direction_cue =
         EXTREME_DOWN_RE.is_match(excerpt) || EXTREME_UP_RE.is_match(excerpt);
-    let over_pvalue = EXTREME_PVAL_COL_RE.is_match(excerpt) && !has_effect_direction_cue;
+    // An EXPLICIT p-value/significance extreme ("most significant", "by padj",
+    // "lowest padj") takes the extreme over the p-value column regardless of a
+    // signed-effect direction ASIDE ("Most significant gene (by padj): SPARCL1
+    // … strongly upregulated" ranks by padj — the "upregulated" describes that
+    // gene, it does not move the extreme onto log2FC). Otherwise a bare p-value
+    // token selects the p-value column only when no direction cue is present
+    // (an incidental padj annotation on an effect-extreme claim stays on the
+    // effect column — the 2026-07-22 guard).
+    let explicit_pvalue_extreme = EXTREME_PVAL_EXPLICIT_RE.is_match(excerpt);
+    let over_pvalue = explicit_pvalue_extreme
+        || (EXTREME_PVAL_COL_RE.is_match(excerpt) && !has_effect_direction_cue);
     let columns: &[String] = if over_pvalue {
         &cfg.pvalue_columns
     } else {
@@ -2163,23 +2189,18 @@ fn verify_extreme_value(
         ExtremeKind::Min
     } else if up_dir && !down_dir {
         ExtremeKind::Max
+    } else if over_pvalue {
+        // On a p-value column the reported extreme is the STRONGEST significance
+        // = smallest p (argmin): "most significant", "lowest padj", "smallest
+        // p-value", and a generic "top … by padj" all select the minimum
+        // (a max-word like "top"/"strongest" means strongest significance, i.e.
+        // the smallest p). A "least significant" / "largest padj" argmax is not
+        // asserted in practice, so p-value extremes resolve to argmin.
+        ExtremeKind::Min
     } else {
         match (has_max, has_min) {
-            (true, false) => {
-                if over_pvalue {
-                    ExtremeKind::Min
-                } else {
-                    ExtremeKind::Max
-                }
-            }
-            (false, true) => {
-                if over_pvalue {
-                    // "lowest p" is already the smallest; no inversion.
-                    ExtremeKind::Min
-                } else {
-                    ExtremeKind::Min
-                }
-            }
+            (true, false) => ExtremeKind::Max,
+            (false, true) => ExtremeKind::Min,
             _ => {
                 return ClaimStatus::Unverifiable {
                     reason: "extreme-value claim names no unambiguous superlative — cannot determine argmax/argmin".into(),
@@ -5803,6 +5824,74 @@ mod tests {
             matches!(up_report.verdicts[0].status, ClaimStatus::Verified),
             "top up-regulated (largest positive) must still Verify, got {:?}",
             up_report.verdicts[0].status
+        );
+    }
+
+    #[test]
+    fn a3_most_significant_by_padj_ranks_padj_despite_direction_aside() {
+        // Real himes report line: "Most significant gene (by padj): SPARCL1 …
+        // padj = 7.06e-132 - strongly upregulated". This is an argMIN over padj
+        // (SPARCL1 has the smallest padj); the trailing "strongly upregulated"
+        // is a descriptive aside and must NOT flip the extreme onto log2FC
+        // (where SPARCL1 is not the maximum). Before the fix, the up-direction
+        // cue set has_effect_direction_cue → over_pvalue=false → the verifier
+        // checked the argMAX log2FC and false-Mismatched the true
+        // most-significant gene.
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        // GSIG has the SMALLEST padj (most significant) but NOT the largest
+        // log2FC; GBIG has the largest log2FC; GNEG the most-negative log2FC.
+        write_table(
+            tmp.path(),
+            "de_results.tsv",
+            "gene\tlog2FC\tpadj\nGBIG\t10.0\t1e-10\nGSIG\t4.0\t1e-100\nGNEG\t-5.0\t1e-3\n",
+        );
+        let claim = Claim {
+            entity: "GSIG".into(),
+            direction: None,
+            effect_size: None,
+            pvalue: None,
+            source_table: Some("de_results.tsv".into()),
+            excerpt: "Most significant gene (by padj): GSIG (log2FC = +4.0, padj = 1e-100) - \
+                      strongly upregulated in dexamethasone-treated cells"
+                .into(),
+            contract: ClaimContract::ExtremeValue,
+            literature_evidence: None,
+            matched_pvalue_keyword: None,
+            linear_fold: None,
+            aggregate_kind: None,
+            aggregate_column: None,
+            aggregate_rowset: None,
+            aggregate_value: None,
+            collection: None,
+            term: None,
+            keyed_column: None,
+            keyed_value: None,
+        };
+        let report = verify_claims(std::slice::from_ref(&claim), tmp.path(), &cfg);
+        assert!(
+            matches!(report.verdicts[0].status, ClaimStatus::Verified),
+            "'most significant (by padj)' must rank by padj (argmin) despite the \
+             upregulated aside; got {:?}",
+            report.verdicts[0].status
+        );
+        // Guard the 2026-07-22 incidental-padj case is untouched: a "most
+        // negative log2FC … (padj ≈ 1e-100)" claim still ranks the EFFECT column
+        // — GSIG (+4.0) is not the argmin log2FC (GNEG is), so it Mismatches,
+        // proving over_pvalue did not over-trigger on the trailing padj.
+        let incidental = Claim {
+            entity: "GSIG".into(),
+            excerpt: "Top down-regulated gene (most negative log2FC among significant genes): \
+                      GSIG (padj ≈ 1e-100)"
+                .into(),
+            ..claim.clone()
+        };
+        let r2 = verify_claims(std::slice::from_ref(&incidental), tmp.path(), &cfg);
+        assert!(
+            matches!(r2.verdicts[0].status, ClaimStatus::Mismatch { .. }),
+            "incidental trailing padj must not flip to the p-value column; GSIG is not the \
+             most-negative log2FC → Mismatch; got {:?}",
+            r2.verdicts[0].status
         );
     }
 
