@@ -357,4 +357,28 @@ caps:
         let err = roster.validate_caps().unwrap_err();
         assert!(err.contains("max_ensemble_members"), "explains the cap: {err}");
     }
+
+    #[test]
+    fn ships_valid_bulk_rnaseq_roster_and_personas() {
+        use crate::atom_registry::AtomRegistry;
+        let cfg = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../config"));
+        let provider = EnsembleRosterProvider::from_dir(&cfg.join("ensemble-rosters"));
+        let roster = provider.roster_for("bulk_rnaseq").expect("bulk_rnaseq roster ships");
+
+        // Caps hold the full expansion.
+        roster.validate_caps().expect("caps valid");
+
+        // Every method is a real DE candidate_tool.
+        let reg = AtomRegistry::load_from_dir(&cfg.join("stage-atoms")).expect("atoms");
+        let de = reg.get("differential_expression").expect("DE atom");
+        validate_variant_tools(roster, de).expect("variant tools valid");
+
+        // Every persona file exists and passes the honest-lens lint.
+        for lens in &roster.interpretive_lenses {
+            let p = cfg.join("ensemble-rosters/personas").join(&lens.persona_ref);
+            let text = std::fs::read_to_string(&p)
+                .unwrap_or_else(|_| panic!("persona file missing: {}", p.display()));
+            lint_persona_text(&lens.id, &text).expect("persona is an honest lens");
+        }
+    }
 }
