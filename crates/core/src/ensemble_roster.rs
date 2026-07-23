@@ -70,6 +70,7 @@ pub struct EnsembleCaps {
 #[derive(Debug, Clone, Default)]
 pub struct EnsembleRosterProvider {
     by_modality: BTreeMap<String, EnsembleRoster>,
+    root: std::path::PathBuf,
 }
 
 impl EnsembleRosterProvider {
@@ -79,7 +80,10 @@ impl EnsembleRosterProvider {
     pub fn from_dir(dir: &Path) -> Self {
         let mut by_modality = BTreeMap::new();
         let Ok(entries) = std::fs::read_dir(dir) else {
-            return Self { by_modality };
+            return Self {
+                by_modality,
+                root: dir.to_path_buf(),
+            };
         };
         for entry in entries.flatten() {
             let path = entry.path();
@@ -105,12 +109,23 @@ impl EnsembleRosterProvider {
                 ),
             }
         }
-        Self { by_modality }
+        Self {
+            by_modality,
+            root: dir.to_path_buf(),
+        }
     }
 
     /// The roster for a modality, or `None` when unconfigured.
     pub fn roster_for(&self, modality: &str) -> Option<&EnsembleRoster> {
         self.by_modality.get(modality)
+    }
+
+    /// The persona directory the ensemble synthesis pass reads
+    /// `InterpretiveLens::persona_ref` files from: `<root>/personas`,
+    /// where `root` is the directory `from_dir` was loaded from (i.e.
+    /// `<config_dir>/ensemble-rosters`).
+    pub fn personas_dir(&self) -> std::path::PathBuf {
+        self.root.join("personas")
     }
 }
 
@@ -314,6 +329,23 @@ caps:
     fn missing_dir_yields_empty_provider() {
         let provider = EnsembleRosterProvider::from_dir(std::path::Path::new("/nonexistent/xyz"));
         assert!(provider.roster_for("anything").is_none());
+    }
+
+    #[test]
+    fn personas_dir_is_root_join_personas() {
+        let cfg = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../config"));
+        let provider = EnsembleRosterProvider::from_dir(&cfg.join("ensemble-rosters"));
+        assert_eq!(
+            provider.personas_dir(),
+            cfg.join("ensemble-rosters").join("personas")
+        );
+
+        // Also holds for a missing dir (never panics, root still recorded).
+        let missing = EnsembleRosterProvider::from_dir(std::path::Path::new("/nonexistent/xyz"));
+        assert_eq!(
+            missing.personas_dir(),
+            std::path::Path::new("/nonexistent/xyz/personas")
+        );
     }
 
     #[test]

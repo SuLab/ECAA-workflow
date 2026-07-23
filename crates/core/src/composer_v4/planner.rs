@@ -404,6 +404,47 @@ pub fn plan(
             super::companion_synthesis::synthesize_validate_companions(&mut dag, atom_reg);
             super::report_data_synthesis::synthesize_report_data_companion(&mut dag, atom_reg);
         }
+        // Plan 2 Task 6 — fan the schema-bearing statistical node out
+        // into the modality's K×M multi-analyst ensemble, gated on
+        // ECAA_COMPOSE_ENSEMBLE and a per-modality roster. Runs AFTER
+        // interpretation injection (so the pass sees the same
+        // reporting-anchored shape as the non-ensemble DAG) and BEFORE
+        // aggregator-edge typing (so the ensemble's OrderingOnly fan-in
+        // edges are re-proven along with every other reporting edge).
+        // Ensemble mode subsumes `assemble_report_data` — it is dropped
+        // before expansion and only re-synthesized if the validated
+        // expansion itself is rejected (fail-safe: never blocks emission).
+        if ctx.compose_ensemble {
+            if let (Some(provider), Some(modality)) =
+                (ctx.ensemble_rosters.as_ref(), ctx.intent.modality.as_deref())
+            {
+                if let Some(roster) = provider.roster_for(modality) {
+                    if roster.enabled {
+                        dag.nodes.retain(|n| n.id != "assemble_report_data");
+                        dag.edges.retain(|e| {
+                            e.from_node != "assemble_report_data"
+                                && e.to_node != "assemble_report_data"
+                        });
+                        if let Err(e) = super::ensemble_synthesis::synthesize_ensemble_fanout_validated(
+                            &mut dag,
+                            atom_reg,
+                            roster,
+                            &provider.personas_dir(),
+                        ) {
+                            tracing::warn!(
+                                "[ensemble] roster '{modality}' rejected, staying non-ensemble: {e}"
+                            );
+                            super::report_data_synthesis::synthesize_report_data_companion(
+                                &mut dag, atom_reg,
+                            );
+                        }
+                        super::companion_synthesis::synthesize_validate_companions(
+                            &mut dag, atom_reg,
+                        );
+                    }
+                }
+            }
+        }
         // WG3 strict-mode (C2/C3): type the report/comparison fan-in edges
         // (producer -> reporting terminal) so they prove under Production.
         super::reporting_consumer_synthesis::type_aggregator_fan_in_edges(&mut dag);
@@ -550,6 +591,44 @@ pub fn plan(
                 );
                 super::companion_synthesis::synthesize_validate_companions(&mut dag, atom_reg);
                 super::report_data_synthesis::synthesize_report_data_companion(&mut dag, atom_reg);
+            }
+            // Plan 2 Task 6 — fan the schema-bearing statistical node out
+            // into the modality's K×M multi-analyst ensemble, at parity
+            // with the archetype-seed branch above. Gated on
+            // ECAA_COMPOSE_ENSEMBLE + a per-modality roster; ensemble
+            // mode subsumes `assemble_report_data`.
+            if ctx.compose_ensemble {
+                if let (Some(provider), Some(modality)) =
+                    (ctx.ensemble_rosters.as_ref(), ctx.intent.modality.as_deref())
+                {
+                    if let Some(roster) = provider.roster_for(modality) {
+                        if roster.enabled {
+                            dag.nodes.retain(|n| n.id != "assemble_report_data");
+                            dag.edges.retain(|e| {
+                                e.from_node != "assemble_report_data"
+                                    && e.to_node != "assemble_report_data"
+                            });
+                            if let Err(e) =
+                                super::ensemble_synthesis::synthesize_ensemble_fanout_validated(
+                                    &mut dag,
+                                    atom_reg,
+                                    roster,
+                                    &provider.personas_dir(),
+                                )
+                            {
+                                tracing::warn!(
+                                    "[ensemble] roster '{modality}' rejected, staying non-ensemble: {e}"
+                                );
+                                super::report_data_synthesis::synthesize_report_data_companion(
+                                    &mut dag, atom_reg,
+                                );
+                            }
+                            super::companion_synthesis::synthesize_validate_companions(
+                                &mut dag, atom_reg,
+                            );
+                        }
+                    }
+                }
             }
             // WG3 strict-mode (C2/C3): type the report/comparison fan-in edges.
             super::reporting_consumer_synthesis::type_aggregator_fan_in_edges(&mut dag);
@@ -3711,6 +3790,91 @@ mod tests {
                 .iter()
                 .any(|n| n.id == "validate_biological_interpretation"),
             "validate companion must be synthesized for the interpretation node"
+        );
+    }
+
+    /// Plan 2 Task 6 — when `ctx.compose_ensemble` is on and the shipped
+    /// `bulk_rnaseq` roster is attached, `plan()` fans the DE node out
+    /// into `differential_expression__v_*` statistical variants plus the
+    /// `assemble_ensemble_distribution` cross-axis aggregator, and
+    /// suppresses `assemble_report_data` (ensemble mode subsumes it). No
+    /// bare `differential_expression` node survives. Mirrors
+    /// `plan_injects_interpretation_only_when_flag_on`'s goal/archetype
+    /// setup (matches `bulk_rnaseq_de`) so the archetype seed reaches a
+    /// reporting terminal for the pass to anchor onto.
+    #[test]
+    fn plan_wires_ensemble_fanout_and_suppresses_report_data_when_flag_on() {
+        use std::path::Path;
+        use std::sync::Arc;
+
+        let atom_reg =
+            AtomRegistry::load_from_dir(Path::new("../../config/stage-atoms")).expect("atoms");
+        let archetype_reg =
+            ArchetypeRegistry::load_from_dir(Path::new("../../config/archetypes")).expect("arches");
+        let goal = GoalSpec {
+            edam_data: "data:0951".into(),
+            edam_format: Some("format:3475".into()),
+            modifiers: BTreeMap::new(),
+            source_prose: Some("differential expression table".into()),
+            confidence: 0.8,
+        };
+        let project_class = "bioinformatics";
+
+        let mut ctx = planning_context_for_goal_with_intake(
+            "rnaseq-ensemble-on",
+            &goal,
+            Some("bulk_rnaseq"),
+            None,
+            &[],
+        );
+        ctx.compose_ensemble = true;
+        ctx.ensemble_rosters = Some(Arc::new(
+            crate::ensemble_roster::EnsembleRosterProvider::from_dir(Path::new(
+                "../../config/ensemble-rosters",
+            )),
+        ));
+
+        let res = plan(&ctx, &goal, project_class, &atom_reg, &archetype_reg);
+        // Pin to the archetype-seeded alternative specifically: for this
+        // goal the search seed can independently reach `data:0951` via an
+        // unrelated atom (`clinical_safety_summary`) and out-rank the DE
+        // archetype on raw score, so `alternatives.first()` is not
+        // reliably the DE pipeline. The `bulk_rnaseq_de` archetype seed
+        // is what carries the schema-bearing `differential_expression`
+        // node the ensemble pass fans out.
+        let dag = &res
+            .alternatives
+            .iter()
+            .find(|a| a.source == "archetype")
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected an archetype-seeded alternative; sources={:?}",
+                    res.alternatives
+                        .iter()
+                        .map(|a| a.source.as_str())
+                        .collect::<Vec<_>>()
+                )
+            })
+            .dag;
+        let node_ids: Vec<&str> = dag.nodes.iter().map(|n| n.id.as_str()).collect();
+
+        assert!(
+            node_ids
+                .iter()
+                .any(|id| id.starts_with("differential_expression__v_")),
+            "ensemble fan-out must produce statistical variants; nodes={node_ids:?}"
+        );
+        assert!(
+            node_ids.contains(&"assemble_ensemble_distribution"),
+            "cross-axis ensemble aggregator must be present; nodes={node_ids:?}"
+        );
+        assert!(
+            !node_ids.contains(&"differential_expression"),
+            "bare DE node must be replaced by variants; nodes={node_ids:?}"
+        );
+        assert!(
+            !node_ids.contains(&"assemble_report_data"),
+            "ensemble mode must suppress assemble_report_data; nodes={node_ids:?}"
         );
     }
 
