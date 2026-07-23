@@ -557,6 +557,15 @@ fn lower_task(node: &TaskNode, depends_on: Vec<TaskId>) -> Result<Task, EmitErro
     if let Some(rs) = node.attributes.get("report_schemas") {
         spec_map.insert("report_schemas".into(), rs.clone());
     }
+    // `ensemble_variant` is stamped onto fan-out variant nodes by the v4
+    // planner to surface analytical parallelization choices (e.g. statistical
+    // method axis + selected method) into the task spec so the reporting
+    // agent can key on per-variant semantics. Mirrors `required_figures`:
+    // an allowlisted pass-through. Additive: emitted only when the node
+    // carries the attribute.
+    if let Some(ev) = node.attributes.get("ensemble_variant") {
+        spec_map.insert("ensemble_variant".into(), ev.clone());
+    }
     // `required_input_stage` is the resolved composed-DAG entry-point EDAM IRI
     // stamped onto the `data_acquisition` staging anchor by
     // `composer_v4::planner::stamp_required_input_stage`. Folding it into the
@@ -1227,6 +1236,24 @@ mod tests {
             Some("measure_af_spectrum.py"),
             "measurement_script must reach spec.attributes so the AF-spectrum runbook gate fires",
         );
+    }
+
+    #[test]
+    fn lowered_spec_carries_ensemble_variant() {
+        use crate::workflow_contracts::port::PortContract;
+        let mut node = TaskNode::skeleton("differential_expression__v_edger", "edger variant");
+        node.attributes.insert("atom_id".into(), serde_json::Value::String("differential_expression".into()));
+        node.attributes.insert(
+            "ensemble_variant".into(),
+            serde_json::json!({"axis": "statistical", "method": "edger"}),
+        );
+        node.outputs = vec![PortContract::from_edam("out", Some("data:0006"), Some("format:2331"))];
+        let dag = WorkflowDag { id: "t".into(), nodes: vec![node], edges: vec![],
+            assumptions: Default::default(), source_template: None };
+        let art = lower_to_workflow_json(&dag, &EmitContext::defaults()).expect("lower");
+        let task = art.dag.tasks.get("differential_expression__v_edger").expect("task");
+        let spec = task.spec.as_ref().expect("spec");
+        assert_eq!(spec.get("ensemble_variant").and_then(|v| v.get("method")).and_then(|v| v.as_str()), Some("edger"));
     }
 
     #[test]
