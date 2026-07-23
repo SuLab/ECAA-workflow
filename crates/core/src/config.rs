@@ -371,6 +371,11 @@ pub struct Config {
     /// preserves the passing corpus + byte-reproducibility baseline.
     pub compose_interpretation: bool,
 
+    /// `ECAA_COMPOSE_ENSEMBLE`. When true, the v4 planner fans the
+    /// analysis + contextualization + interpretation out into a K×M
+    /// multi-analyst ensemble (see the multi-analyst-ensemble spec).
+    pub compose_ensemble: bool,
+
     /// Operator-declared curated external-registry snapshot dirs (F3).
     /// Colon-separated `ECAA_EXTERNAL_CURATED_DIRS`. Dirs NOT in this
     /// list resolve at `RegistryTier::Community`. Empty by default.
@@ -593,6 +598,10 @@ impl Config {
         // `biological_interpretation` node. Off by default so the corpus +
         // byte baseline are unchanged.
         let compose_interpretation = parse_bool(env, "ECAA_COMPOSE_INTERPRETATION", false);
+        // `ECAA_COMPOSE_ENSEMBLE` — fan analysis + contextualization +
+        // interpretation into a K×M multi-analyst ensemble. Off by default
+        // so the corpus + byte baseline are unchanged.
+        let compose_ensemble = parse_bool(env, "ECAA_COMPOSE_ENSEMBLE", false);
 
         // `ECAA_EXTERNAL_CURATED_DIRS` (F3) — colon-separated curated
         // registry dirs. Empties dropped; authored order preserved.
@@ -657,6 +666,7 @@ impl Config {
             git_enabled,
             compose_strict,
             compose_interpretation,
+            compose_ensemble,
             external_curated_dirs,
             replay_lock_registry_allowlist,
             modality_drift_mode,
@@ -717,6 +727,7 @@ impl std::fmt::Debug for Config {
             .field("git_enabled", &self.git_enabled)
             .field("compose_strict", &self.compose_strict)
             .field("compose_interpretation", &self.compose_interpretation)
+            .field("compose_ensemble", &self.compose_ensemble)
             .field(
                 "replay_lock_registry_allowlist",
                 &self.replay_lock_registry_allowlist,
@@ -785,6 +796,7 @@ impl Default for ConfigBuilder {
                 git_enabled: true,
                 compose_strict: false,
                 compose_interpretation: false,
+                compose_ensemble: false,
                 external_curated_dirs: Vec::new(),
                 replay_lock_registry_allowlist: crate::replay::lock_policy::DEFAULT_LOCK_ALLOWLIST
                     .iter()
@@ -1395,6 +1407,21 @@ mod tests {
         assert!(
             cfg.compose_interpretation,
             "ECAA_COMPOSE_INTERPRETATION=1 must enable"
+        );
+    }
+
+    #[test]
+    fn compose_ensemble_defaults_off_and_parses_on() {
+        let empty: HashMap<&str, &str> = HashMap::new();
+        let cfg = Config::from_env_map(&empty).expect("empty env config");
+        assert!(!cfg.compose_ensemble, "compose_ensemble must default off");
+
+        let mut env: HashMap<&str, &str> = HashMap::new();
+        env.insert("ECAA_COMPOSE_ENSEMBLE", "1");
+        let cfg = Config::from_env_map(&env).expect("env config");
+        assert!(
+            cfg.compose_ensemble,
+            "ECAA_COMPOSE_ENSEMBLE=1 must enable"
         );
     }
 
