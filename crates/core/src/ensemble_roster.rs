@@ -176,18 +176,57 @@ impl EnsembleRoster {
         k + m + k * m
     }
 
-    /// The `max_ensemble_members` cap must hold the full expansion.
+    /// The (stat_idx, lens_idx) interpretation cells this roster expands
+    /// into. `Full` → every pair in deterministic k-outer/m-inner order
+    /// (K*M cells). `Fractional` → a Latin-square-style balanced subset
+    /// `(0..max(K,M)).map(|i| (i % K, i % M))` (len = max(K,M); every
+    /// stat index and every lens index appears at least once). Empty when
+    /// K==0 or M==0 (the fractional modulo would otherwise divide by zero).
+    pub fn selected_cells(&self) -> Vec<(usize, usize)> {
+        let k = self.statistical_variants.len();
+        let m = self.interpretive_lenses.len();
+        if k == 0 || m == 0 {
+            return Vec::new();
+        }
+        match self.factorial {
+            FactorialMode::Full => {
+                let mut cells = Vec::with_capacity(k * m);
+                for ki in 0..k {
+                    for mi in 0..m {
+                        cells.push((ki, mi));
+                    }
+                }
+                cells
+            }
+            FactorialMode::Fractional => (0..k.max(m)).map(|i| (i % k, i % m)).collect(),
+        }
+    }
+
+    /// Ensemble members under the roster's factorial mode: K statistical
+    /// + M contextualization + one interpretation cell per
+    /// [`Self::selected_cells`] entry (the two aggregator nodes are not
+    /// counted). `Full` = K + M + K*M; `Fractional` = K + M + max(K,M).
+    pub fn member_count(&self) -> u32 {
+        let k = self.statistical_variants.len() as u32;
+        let m = self.interpretive_lenses.len() as u32;
+        k + m + self.selected_cells().len() as u32
+    }
+
+    /// The `max_ensemble_members` cap must hold the factorial-mode
+    /// expansion ([`Self::member_count`] — fractional-aware).
     pub fn validate_caps(&self) -> Result<(), String> {
-        let needed = self.full_member_count();
+        let needed = self.member_count();
         if self.caps.max_ensemble_members < needed {
             return Err(format!(
-                "ensemble roster '{}' caps.max_ensemble_members={} < full expansion {} \
-                 (K={} + M={} + K*M)",
+                "ensemble roster '{}' caps.max_ensemble_members={} < {:?} expansion {} \
+                 (K={} + M={} + {} cells)",
                 self.modality,
                 self.caps.max_ensemble_members,
+                self.factorial,
                 needed,
                 self.statistical_variants.len(),
-                self.interpretive_lenses.len()
+                self.interpretive_lenses.len(),
+                self.selected_cells().len()
             ));
         }
         Ok(())
@@ -356,6 +395,67 @@ caps:
         roster.caps.max_ensemble_members = 3; // < 5
         let err = roster.validate_caps().unwrap_err();
         assert!(err.contains("max_ensemble_members"), "explains the cap: {err}");
+    }
+
+    /// A K=3, M=2 fractional roster derived from `MINIMAL_ROSTER`.
+    fn fractional_k3_m2() -> EnsembleRoster {
+        let mut roster: EnsembleRoster = serde_yaml_ng::from_str(MINIMAL_ROSTER).unwrap();
+        roster.factorial = FactorialMode::Fractional;
+        // MINIMAL has K=2 (deseq2, edger), M=1 (molecular_mechanism); grow to K=3, M=2.
+        roster.statistical_variants.push(StatisticalVariant {
+            id: "limma".into(),
+            tool: "limma_voom".into(),
+            bootstrap_replicates: 0,
+        });
+        roster.interpretive_lenses.push(InterpretiveLens {
+            id: "clinical_translational".into(),
+            persona_ref: "clinical_translational.md".into(),
+            model_tier: "sonnet".into(),
+            retrieval: "foundational".into(),
+            model: None,
+        });
+        roster
+    }
+
+    #[test]
+    fn full_selected_cells_len_eq_km() {
+        // MINIMAL_ROSTER: K=2, M=1, Full → K*M = 2 cells, k-outer/m-inner order.
+        let roster: EnsembleRoster = serde_yaml_ng::from_str(MINIMAL_ROSTER).unwrap();
+        let k = roster.statistical_variants.len();
+        let m = roster.interpretive_lenses.len();
+        let cells = roster.selected_cells();
+        assert_eq!(cells.len(), k * m, "Full → K*M cells");
+        assert_eq!(cells, vec![(0, 0), (1, 0)], "deterministic k-outer/m-inner order");
+    }
+
+    #[test]
+    fn fractional_selected_cells_balanced_and_deterministic() {
+        let roster = fractional_k3_m2();
+        let k = roster.statistical_variants.len(); // 3
+        let m = roster.interpretive_lenses.len(); // 2
+        let cells = roster.selected_cells();
+        assert_eq!(cells.len(), k.max(m), "Fractional → max(K,M) cells");
+
+        // Every stat index and every lens index appears at least once.
+        for ki in 0..k {
+            assert!(cells.iter().any(|&(a, _)| a == ki), "stat idx {ki} present");
+        }
+        for mi in 0..m {
+            assert!(cells.iter().any(|&(_, b)| b == mi), "lens idx {mi} present");
+        }
+
+        // Determinism: identical output on two calls.
+        assert_eq!(cells, roster.selected_cells(), "byte-stable");
+    }
+
+    #[test]
+    fn member_count_fractional() {
+        let roster = fractional_k3_m2();
+        let k = roster.statistical_variants.len() as u32; // 3
+        let m = roster.interpretive_lenses.len() as u32; // 2
+        // Fractional → K + M + max(K,M) = 3 + 2 + 3 = 8.
+        assert_eq!(roster.member_count(), k + m + k.max(m));
+        assert_eq!(roster.member_count(), 8);
     }
 
     #[test]

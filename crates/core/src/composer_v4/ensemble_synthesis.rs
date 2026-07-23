@@ -73,8 +73,9 @@ use crate::workflow_contracts::task_node::{TaskNode, WorkflowDag};
 /// aggregation logic; here it is a `builtin`-marked stub).
 pub const ENSEMBLE_STAT_AGGREGATOR_ID: &str = "assemble_statistical_distribution";
 
-/// The synthesized cross-axis ensemble-aggregator node id (reserved for
-/// the interpretive-lens fan-out pass; unused by this pass today).
+/// The synthesized cross-axis ensemble-aggregator node id: the fan-in
+/// over the K×M interpretation grid (`builtin`-marked stub; Plan 3 fills
+/// the aggregation logic).
 pub const ENSEMBLE_AGGREGATOR_ID: &str = "assemble_ensemble_distribution";
 
 /// Fan the schema-bearing statistical node(s) out over the roster's
@@ -118,32 +119,12 @@ pub fn synthesize_ensemble_fanout(
     let mut new_edges: Vec<EdgeContract> = Vec::new();
 
     // Statistical aggregator stub (builtin -> skipped by validate-companion synthesis).
-    let mut agg = TaskNode::skeleton(
+    let agg = builtin_aggregator(
         ENSEMBLE_STAT_AGGREGATOR_ID,
         "Aggregate cross-method statistical distribution (Plan 3 fills the logic)",
-    );
-    agg.attributes.insert(
-        "role".into(),
-        serde_json::to_value(crate::atom::AtomRole::Operation).unwrap_or(serde_json::Value::Null),
-    );
-    agg.attributes.insert(
-        "builtin".into(),
-        serde_json::Value::String(ENSEMBLE_STAT_AGGREGATOR_ID.into()),
-    );
-    agg.attributes.insert(
-        "read_allowance".into(),
-        serde_json::to_value(vec![crate::atom::ReadAllowance {
-            scope: crate::atom::ReadAllowanceScope::AnyUpstreamStage,
-            rationale: "aggregates every method variant's result artifact off disk".into(),
-        }])
-        .unwrap_or(serde_json::Value::Null),
-    );
-    agg.lifecycle_state = crate::workflow_contracts::lifecycle::LifecycleState::Production;
-    agg.outputs = vec![PortContract::from_edam(
+        "aggregates every method variant's result artifact off disk",
         "stat_distribution",
-        Some("data:2048"),
-        Some("format:3464"),
-    )];
+    );
 
     for base_id in &targets {
         // Capture the base node's inbound edges (upstream -> base) to rewire onto each variant.
@@ -189,6 +170,102 @@ pub fn synthesize_ensemble_fanout(
         }
     }
 
+    // ---- Contextualization fan-out (M) + K×M interpretation grid + ensemble aggregator ----
+    //
+    // The interpretation grid centers on ONE primary statistical base:
+    // the first (sorted) schema-bearing target. v1 fans a single primary
+    // statistical node out over the interpretive lenses; any additional
+    // schema-bearing targets keep their own K statistical variants
+    // (fanned out above) but do not seed their own interpretation grid.
+    let base_id = targets[0].clone();
+
+    // M contextualization variants — each reads the pooled statistical
+    // distribution off the statistical aggregator.
+    for lens in &roster.interpretive_lenses {
+        let ctx_id = format!("contextualize_findings_with_literature__v_{}", lens.id);
+        let mut cn = variant_node(
+            atom_reg,
+            "contextualize_findings_with_literature",
+            &ctx_id,
+            "contextualization variant",
+        );
+        cn.attributes.insert(
+            "ensemble_variant".into(),
+            serde_json::json!({
+                "axis": "contextualization",
+                "persona_ref": lens.persona_ref,
+                "retrieval": lens.retrieval,
+                "lens": lens.id,
+            }),
+        );
+        new_edges.push(ordering_edge(
+            ENSEMBLE_STAT_AGGREGATOR_ID,
+            "stat_distribution",
+            &ctx_id,
+            "findings",
+        ));
+        new_nodes.push(cn);
+    }
+
+    // K×M interpretation grid (or the fractional balanced subset). Each
+    // cell reads its method variant's result and its lens's literature
+    // concordance, and feeds the cross-axis ensemble aggregator.
+    for (k, m) in roster.selected_cells() {
+        let method = &roster.statistical_variants[k];
+        let lens = &roster.interpretive_lenses[m];
+        let cell_id = format!(
+            "biological_interpretation__m_{}__lens_{}",
+            method.id, lens.id
+        );
+        let mut cell = variant_node(
+            atom_reg,
+            "biological_interpretation",
+            &cell_id,
+            "interpretation cell",
+        );
+        cell.attributes.insert(
+            "ensemble_variant".into(),
+            serde_json::json!({
+                "axis": "interpretive",
+                "method": method.tool,
+                "method_variant": method.id,
+                "persona_ref": lens.persona_ref,
+                "model_tier": lens.model_tier,
+                "lens": lens.id,
+            }),
+        );
+        // Method-variant result -> cell.
+        new_edges.push(ordering_edge(
+            &format!("{base_id}__v_{}", method.id),
+            "report",
+            &cell_id,
+            "method_result",
+        ));
+        // Lens contextualization -> cell.
+        new_edges.push(ordering_edge(
+            &format!("contextualize_findings_with_literature__v_{}", lens.id),
+            "findings",
+            &cell_id,
+            "literature_concordance",
+        ));
+        // Cell -> cross-axis ensemble aggregator.
+        new_edges.push(ordering_edge(
+            &cell_id,
+            "interpretation",
+            ENSEMBLE_AGGREGATOR_ID,
+            "cell_result",
+        ));
+        new_nodes.push(cell);
+    }
+
+    // Cross-axis ensemble aggregator (builtin -> skipped by validate-companion synthesis).
+    new_nodes.push(builtin_aggregator(
+        ENSEMBLE_AGGREGATOR_ID,
+        "Aggregate cross-axis ensemble distribution over the K×M interpretation grid",
+        "aggregates every interpretation cell's result artifact off disk",
+        "ensemble_distribution",
+    ));
+
     // Remove base target nodes + every edge touching them (replaced by variants + aggregator).
     dag.nodes.retain(|n| !targets.contains(&n.id));
     dag.edges
@@ -221,6 +298,59 @@ fn ordering_edge(from: &str, from_port: &str, to: &str, to_port: &str) -> EdgeCo
         chain_of_custody: None,
         mutually_exclusive_group: None,
     }
+}
+
+/// Build a `builtin`-marked aggregator stub: `AtomRole::Operation`,
+/// `AnyUpstreamStage` read allowance (it reads every upstream variant's
+/// result artifact off disk), `Production` lifecycle, and a single EDAM
+/// output port. Shared by the statistical (`stat_distribution`) and the
+/// cross-axis ensemble (`ensemble_distribution`) aggregators.
+fn builtin_aggregator(id: &str, intent: &str, read_rationale: &str, output_name: &str) -> TaskNode {
+    let mut agg = TaskNode::skeleton(id, intent);
+    agg.attributes.insert(
+        "role".into(),
+        serde_json::to_value(crate::atom::AtomRole::Operation).unwrap_or(serde_json::Value::Null),
+    );
+    agg.attributes
+        .insert("builtin".into(), serde_json::Value::String(id.into()));
+    agg.attributes.insert(
+        "read_allowance".into(),
+        serde_json::to_value(vec![crate::atom::ReadAllowance {
+            scope: crate::atom::ReadAllowanceScope::AnyUpstreamStage,
+            rationale: read_rationale.into(),
+        }])
+        .unwrap_or(serde_json::Value::Null),
+    );
+    agg.lifecycle_state = crate::workflow_contracts::lifecycle::LifecycleState::Production;
+    agg.outputs = vec![PortContract::from_edam(
+        output_name,
+        Some("data:2048"),
+        Some("format:3464"),
+    )];
+    agg
+}
+
+/// Build an ensemble variant node from its base atom (schema/safety
+/// inherited) — falling back to a skeleton when the atom is absent — and
+/// stamp its id/human_name/machine_name plus the `atom_id` back-reference
+/// so schema/safety resolution still finds the underlying atom. The
+/// caller stamps `ensemble_variant` and wires edges.
+fn variant_node(
+    atom_reg: &AtomRegistry,
+    atom_id: &str,
+    node_id: &str,
+    skeleton_intent: &str,
+) -> TaskNode {
+    let mut n = match atom_reg.get(atom_id) {
+        Some(atom) => TaskNode::from_atom(atom),
+        None => TaskNode::skeleton(node_id, skeleton_intent),
+    };
+    n.id = node_id.to_string();
+    n.human_name = node_id.to_string();
+    n.machine_name = node_id.to_string();
+    n.attributes
+        .insert("atom_id".into(), serde_json::Value::String(atom_id.into()));
+    n
 }
 
 /// Re-sort nodes/edges by their canonical keys so the DAG stays
@@ -315,5 +445,190 @@ mod tests {
         synthesize_ensemble_fanout(&mut dag, &reg, &roster);
         assert_eq!(dag.nodes.len(), n0, "idempotent nodes");
         assert_eq!(dag.edges.len(), e0, "idempotent edges");
+    }
+
+    /// Full K×M grid over the shipped `bulk_rnaseq` roster (K=3, M=3):
+    /// 3 contextualization variants, 9 interpretation cells (each with
+    /// both inbound edges + `ensemble_variant.axis="interpretive"`), and
+    /// the `assemble_ensemble_distribution` builtin aggregator fed by
+    /// every cell. Also asserts the pass never synthesizes
+    /// `assemble_report_data`.
+    #[test]
+    fn interpretation_grid_full_topology() {
+        use crate::atom_registry::AtomRegistry;
+        use crate::ensemble_roster::EnsembleRosterProvider;
+        use crate::workflow_contracts::task_node::{TaskNode, WorkflowDag};
+
+        let cfg = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../config"));
+        let reg = AtomRegistry::load_from_dir(&cfg.join("stage-atoms")).unwrap();
+        let roster = EnsembleRosterProvider::from_dir(&cfg.join("ensemble-rosters"))
+            .roster_for("bulk_rnaseq")
+            .cloned()
+            .unwrap();
+        assert_eq!(roster.statistical_variants.len(), 3, "K=3 fixture");
+        assert_eq!(roster.interpretive_lenses.len(), 3, "M=3 fixture");
+
+        let de = TaskNode::from_atom(reg.get("differential_expression").unwrap());
+        let mut dag = WorkflowDag {
+            id: "t".into(),
+            nodes: vec![
+                de,
+                TaskNode::skeleton("reporting", "r"),
+                TaskNode::skeleton("final_reporting", "f"),
+            ],
+            edges: vec![],
+            assumptions: Default::default(),
+            source_template: None,
+        };
+
+        synthesize_ensemble_fanout(&mut dag, &reg, &roster);
+
+        // M contextualization variants.
+        for lens in &roster.interpretive_lenses {
+            let cid = format!("contextualize_findings_with_literature__v_{}", lens.id);
+            let node = dag
+                .nodes
+                .iter()
+                .find(|n| n.id == cid)
+                .unwrap_or_else(|| panic!("contextualize variant {cid} present"));
+            assert_eq!(
+                node.attributes
+                    .get("ensemble_variant")
+                    .and_then(|v| v.get("axis"))
+                    .and_then(|v| v.as_str()),
+                Some("contextualization"),
+                "{cid} axis"
+            );
+            assert_eq!(
+                node.attributes.get("atom_id").and_then(|v| v.as_str()),
+                Some("contextualize_findings_with_literature")
+            );
+            // Fed by the stat aggregator.
+            assert!(
+                dag.edges.iter().any(|e| e.from_node == ENSEMBLE_STAT_AGGREGATOR_ID
+                    && e.to_node == cid),
+                "stat aggregator -> {cid}"
+            );
+        }
+        let ctx_count = dag
+            .nodes
+            .iter()
+            .filter(|n| n.id.starts_with("contextualize_findings_with_literature__v_"))
+            .count();
+        assert_eq!(ctx_count, 3, "3 contextualization variants");
+
+        // K×M interpretation cells.
+        let mut cell_count = 0;
+        for method in &roster.statistical_variants {
+            for lens in &roster.interpretive_lenses {
+                let cell_id =
+                    format!("biological_interpretation__m_{}__lens_{}", method.id, lens.id);
+                let node = dag
+                    .nodes
+                    .iter()
+                    .find(|n| n.id == cell_id)
+                    .unwrap_or_else(|| panic!("cell {cell_id} present"));
+                cell_count += 1;
+                let variant = node.attributes.get("ensemble_variant").unwrap();
+                assert_eq!(
+                    variant.get("axis").and_then(|v| v.as_str()),
+                    Some("interpretive"),
+                    "{cell_id} axis"
+                );
+                assert_eq!(
+                    variant.get("method_variant").and_then(|v| v.as_str()),
+                    Some(method.id.as_str())
+                );
+                assert_eq!(
+                    variant.get("persona_ref").and_then(|v| v.as_str()),
+                    Some(lens.persona_ref.as_str())
+                );
+                assert_eq!(
+                    variant.get("model_tier").and_then(|v| v.as_str()),
+                    Some(lens.model_tier.as_str())
+                );
+                assert_eq!(
+                    node.attributes.get("atom_id").and_then(|v| v.as_str()),
+                    Some("biological_interpretation")
+                );
+
+                // Inbound: method variant -> cell (method_result).
+                let method_src = format!("differential_expression__v_{}", method.id);
+                assert!(
+                    dag.edges.iter().any(|e| e.from_node == method_src
+                        && e.to_node == cell_id
+                        && e.to_port == "method_result"),
+                    "{method_src} -> {cell_id} (method_result)"
+                );
+                // Inbound: lens contextualize -> cell (literature_concordance).
+                let lens_src =
+                    format!("contextualize_findings_with_literature__v_{}", lens.id);
+                assert!(
+                    dag.edges.iter().any(|e| e.from_node == lens_src
+                        && e.to_node == cell_id
+                        && e.to_port == "literature_concordance"),
+                    "{lens_src} -> {cell_id} (literature_concordance)"
+                );
+                // Outbound: cell -> ensemble aggregator (cell_result).
+                assert!(
+                    dag.edges.iter().any(|e| e.from_node == cell_id
+                        && e.to_node == ENSEMBLE_AGGREGATOR_ID
+                        && e.to_port == "cell_result"),
+                    "{cell_id} -> ensemble aggregator (cell_result)"
+                );
+            }
+        }
+        assert_eq!(cell_count, 9, "K*M = 9 interpretation cells");
+
+        // Ensemble aggregator is a builtin node.
+        let agg = dag
+            .nodes
+            .iter()
+            .find(|n| n.id == ENSEMBLE_AGGREGATOR_ID)
+            .expect("ensemble aggregator present");
+        assert!(agg.attributes.contains_key("builtin"), "aggregator is builtin");
+
+        // The pass never synthesizes assemble_report_data.
+        assert!(
+            !dag.nodes.iter().any(|n| n.id == "assemble_report_data"),
+            "ensemble pass does not depend on assemble_report_data"
+        );
+    }
+
+    /// Fractional roster: the grid has exactly `selected_cells().len()`
+    /// interpretation cells, and every method + lens is still covered.
+    #[test]
+    fn interpretation_grid_fractional_cell_count() {
+        use crate::atom_registry::AtomRegistry;
+        use crate::ensemble_roster::EnsembleRosterProvider;
+        use crate::ensemble_roster::FactorialMode;
+        use crate::workflow_contracts::task_node::{TaskNode, WorkflowDag};
+
+        let cfg = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../config"));
+        let reg = AtomRegistry::load_from_dir(&cfg.join("stage-atoms")).unwrap();
+        let mut roster = EnsembleRosterProvider::from_dir(&cfg.join("ensemble-rosters"))
+            .roster_for("bulk_rnaseq")
+            .cloned()
+            .unwrap();
+        roster.factorial = FactorialMode::Fractional;
+        let expected = roster.selected_cells().len(); // max(3,3) = 3
+
+        let de = TaskNode::from_atom(reg.get("differential_expression").unwrap());
+        let mut dag = WorkflowDag {
+            id: "t".into(),
+            nodes: vec![de, TaskNode::skeleton("final_reporting", "f")],
+            edges: vec![],
+            assumptions: Default::default(),
+            source_template: None,
+        };
+
+        synthesize_ensemble_fanout(&mut dag, &reg, &roster);
+
+        let cells = dag
+            .nodes
+            .iter()
+            .filter(|n| n.id.starts_with("biological_interpretation__m_"))
+            .count();
+        assert_eq!(cells, expected, "fractional cell count == selected_cells().len()");
     }
 }
