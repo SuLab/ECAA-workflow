@@ -52,7 +52,7 @@ pub struct InterpretiveLens {
     pub model_tier: String,
     #[serde(default)]
     pub retrieval: String,
-    /// Reserved for multi-family models (Phase 2 of the spec); unused in v1.
+    /// Reserved for multi-family models; deferred, unused in v1.
     #[serde(default)]
     pub model: Option<String>,
 }
