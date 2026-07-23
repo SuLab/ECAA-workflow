@@ -30,6 +30,9 @@ use std::path::Path;
 use ecaa_workflow_core::clock::Clock;
 use ecaa_workflow_core::dag::{Task, TaskState};
 use ecaa_workflow_core::reexecution_bounds::ModalityBounds;
+use ecaa_workflow_core::report_contract::ensemble_assemble::{
+    ENSEMBLE_DISTRIBUTION_STAGE_ID, STAT_DISTRIBUTION_STAGE_ID,
+};
 use ecaa_workflow_core::report_contract::{
     assemble_ensemble_distribution, assemble_report_data, assemble_statistical_distribution,
     ResultSchema,
@@ -40,17 +43,28 @@ use crate::dag_patch::{state_patch_schema_version, PickedDispatch, StatePatch};
 /// Value of a task's `spec.builtin` attribute marking the report-data
 /// assembler builtin (stamped by the composer's report-data synthesis
 /// pass; surfaced into the lowered task spec by the workflow_json emitter).
+/// No core const backs this one today — kept as a harness-local literal.
 pub const ASSEMBLE_REPORT_DATA: &str = "assemble_report_data";
 
 /// Value of a task's `spec.builtin` attribute marking the cross-method
 /// statistical-distribution aggregator builtin (one per terminal
 /// analytical stage that was multi-analyst-fanned across statistical
 /// methods).
-pub const ASSEMBLE_STATISTICAL_DISTRIBUTION: &str = "assemble_statistical_distribution";
+///
+/// Re-exported from core's `report_contract::ensemble_assemble::STAT_DISTRIBUTION_STAGE_ID`
+/// rather than redeclared as an independent literal: that is the single
+/// source of truth the composer stamps into `spec.builtin`, so a core
+/// rename can never silently desync this match value (see
+/// `harness_builtin_ids_are_core_stage_ids` below).
+pub const ASSEMBLE_STATISTICAL_DISTRIBUTION: &str = STAT_DISTRIBUTION_STAGE_ID;
 
 /// Value of a task's `spec.builtin` attribute marking the cross-axis
 /// (method × interpretive-lens) ensemble-distribution aggregator builtin.
-pub const ASSEMBLE_ENSEMBLE_DISTRIBUTION: &str = "assemble_ensemble_distribution";
+///
+/// Re-exported from core's `report_contract::ensemble_assemble::ENSEMBLE_DISTRIBUTION_STAGE_ID`
+/// — see [`ASSEMBLE_STATISTICAL_DISTRIBUTION`] for the drift-safety
+/// rationale.
+pub const ASSEMBLE_ENSEMBLE_DISTRIBUTION: &str = ENSEMBLE_DISTRIBUTION_STAGE_ID;
 
 /// Deserialized `spec` attributes for the [`ASSEMBLE_STATISTICAL_DISTRIBUTION`]
 /// builtin: the K variant stage ids to pool, the shared [`ResultSchema`]
@@ -83,6 +97,28 @@ impl BuiltinRequest {
             BuiltinRequest::StatDistribution(_) => ASSEMBLE_STATISTICAL_DISTRIBUTION,
             BuiltinRequest::EnsembleDistribution(_) => ASSEMBLE_ENSEMBLE_DISTRIBUTION,
         }
+    }
+}
+
+/// Returns the matched builtin id when `task.spec.builtin` names ANY of
+/// the three in-process builtins — regardless of whether the rest of the
+/// payload parses. Distinguishes "not a builtin task at all" (this
+/// returns `None`, so the caller's normal agent dispatch is correct) from
+/// "a known builtin marker whose payload is missing/unparseable" (this
+/// returns `Some`, but [`builtin_request`]/[`assemble_statistical_distribution_request`]/etc.
+/// also return `None` for the same task) — that second case must fail
+/// loud rather than silently falling through to an agent dispatch, since
+/// no agent has an atom that can run a builtin id. See
+/// `main.rs::run_loop`'s bad-builtin-spec guard, which uses this to mark
+/// such a task `Failed` instead of dispatching it.
+pub fn known_builtin_marker(task: &Task) -> Option<&'static str> {
+    let spec = task.spec.as_ref()?;
+    let builtin = spec.get("builtin").and_then(|v| v.as_str())?;
+    match builtin {
+        ASSEMBLE_REPORT_DATA => Some(ASSEMBLE_REPORT_DATA),
+        ASSEMBLE_STATISTICAL_DISTRIBUTION => Some(ASSEMBLE_STATISTICAL_DISTRIBUTION),
+        ASSEMBLE_ENSEMBLE_DISTRIBUTION => Some(ASSEMBLE_ENSEMBLE_DISTRIBUTION),
+        _ => None,
     }
 }
 
@@ -1155,5 +1191,97 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(state, TaskState::Completed { .. }));
+    }
+
+    // ---- cross-crate const contract + fail-loud bad-spec guard --------
+
+    /// Pins the harness↔core builtin-id contract from Fix A: the harness's
+    /// match-values are core's [`STAT_DISTRIBUTION_STAGE_ID`]/
+    /// [`ENSEMBLE_DISTRIBUTION_STAGE_ID`]. The `use` import already makes
+    /// this definitional (a core rename would be a compile error here, not
+    /// a silent runtime desync) — this test documents the contract
+    /// explicitly rather than relying solely on that structural guarantee.
+    #[test]
+    fn harness_builtin_ids_are_core_stage_ids() {
+        assert_eq!(
+            ASSEMBLE_STATISTICAL_DISTRIBUTION,
+            ecaa_workflow_core::report_contract::ensemble_assemble::STAT_DISTRIBUTION_STAGE_ID
+        );
+        assert_eq!(
+            ASSEMBLE_ENSEMBLE_DISTRIBUTION,
+            ecaa_workflow_core::report_contract::ensemble_assemble::ENSEMBLE_DISTRIBUTION_STAGE_ID
+        );
+    }
+
+    /// Fix B: a task carrying a KNOWN builtin marker
+    /// (`spec.builtin == STAT_DISTRIBUTION_STAGE_ID`) but missing the
+    /// load-bearing `result_schema` is recognized by
+    /// [`known_builtin_marker`] even though [`builtin_request`] (and
+    /// [`assemble_statistical_distribution_request`]) correctly return
+    /// `None` for it — the dispatch-site gap that lets such a task fall
+    /// through to an agent with no atom to run. `main.rs::run_loop`'s
+    /// bad-builtin-spec guard uses exactly this asymmetry to fail loud
+    /// instead.
+    #[test]
+    fn known_builtin_with_bad_spec_fails_loud() {
+        let t = Task {
+            spec: Some(serde_json::json!({
+                "builtin": ASSEMBLE_STATISTICAL_DISTRIBUTION,
+                // no "result_schema" — load-bearing, no default.
+            })),
+            ..builtin_task(TaskState::Ready, &BTreeMap::new())
+        };
+
+        // The normal decision predicates fall through (None) — this is the
+        // silent-fallthrough half of the bug.
+        assert!(
+            assemble_statistical_distribution_request(&t).is_none(),
+            "missing result_schema must not fabricate a request"
+        );
+        assert!(
+            builtin_request(&t).is_none(),
+            "generalized predicate must also fall through"
+        );
+
+        // But the marker IS recognized — the loud-fail path can trigger.
+        assert_eq!(
+            known_builtin_marker(&t),
+            Some(ASSEMBLE_STATISTICAL_DISTRIBUTION),
+            "a known builtin id with a bad payload must still be recognized \
+             as a builtin task, not treated as a normal agent task"
+        );
+    }
+
+    /// Regression guard: a genuinely normal (non-builtin) task is neither a
+    /// builtin request NOR a known-but-bad-spec marker — it must dispatch
+    /// to the agent exactly as before.
+    #[test]
+    fn known_builtin_marker_returns_none_for_normal_task() {
+        let mut t = builtin_task(TaskState::Ready, &BTreeMap::new());
+        t.spec = None;
+        assert!(known_builtin_marker(&t).is_none());
+
+        let t2 = Task {
+            spec: Some(serde_json::json!({ "atom_id": "differential_expression" })),
+            ..builtin_task(TaskState::Ready, &BTreeMap::new())
+        };
+        assert!(known_builtin_marker(&t2).is_none());
+
+        let t3 = Task {
+            spec: Some(serde_json::json!({ "builtin": "something_else" })),
+            ..builtin_task(TaskState::Ready, &BTreeMap::new())
+        };
+        assert!(known_builtin_marker(&t3).is_none());
+    }
+
+    /// A well-formed builtin task IS recognized by both the marker and the
+    /// full decision predicate.
+    #[test]
+    fn known_builtin_marker_matches_well_formed_report_data_task() {
+        let mut schemas = BTreeMap::new();
+        schemas.insert("differential_expression".to_string(), de_schema());
+        let t = builtin_task(TaskState::Ready, &schemas);
+        assert_eq!(known_builtin_marker(&t), Some(ASSEMBLE_REPORT_DATA));
+        assert!(assemble_report_data_request(&t).is_some());
     }
 }

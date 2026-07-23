@@ -3391,6 +3391,77 @@ fn run_loop(
             })
             .collect();
 
+        // Fail LOUD, not silently agent-dispatch, a task whose
+        // `spec.builtin` names a KNOWN in-process builtin id but whose
+        // payload failed to decode into a `BuiltinRequest` above (e.g.
+        // `assemble_statistical_distribution` missing its load-bearing
+        // `result_schema`). Left alone such a task falls through
+        // `builtin_by_task` straight to the agent thread scope below — an
+        // agent has no atom that can run a builtin id, so the failure would
+        // otherwise surface as a confusing agent-side error far from its
+        // cause. Marked Failed here, before dispatch, and excluded from the
+        // agent thread scope exactly like a real builtin. Mirrors the
+        // fail-fast "agent exited non-zero with no patch" pattern below.
+        let bad_builtin_specs: Vec<(String, &'static str)> = picks
+            .iter()
+            .filter(|id| !builtin_by_task.contains_key(id.as_str()))
+            .filter_map(|id| {
+                dispatch_snapshot
+                    .tasks
+                    .get(id.as_str())
+                    .and_then(ecaa_workflow_harness::builtin_dispatch::known_builtin_marker)
+                    .map(|builtin_id| (id.clone(), builtin_id))
+            })
+            .collect();
+        for (id, builtin_id) in &bad_builtin_specs {
+            let reason = format!(
+                "[builtin_{builtin_id}_bad_spec] builtin marker present but spec payload missing/unparseable"
+            );
+            let failed_state = TaskState::Failed { reason: reason.clone() };
+            match read_dag(path) {
+                Ok(mut dag) => {
+                    let writable = dag
+                        .tasks
+                        .get(id.as_str())
+                        .map(|t| !t.state.is_terminal())
+                        .unwrap_or(false);
+                    if writable {
+                        if let Some(t) = dag.tasks.get_mut(id.as_str()) {
+                            t.state = failed_state.clone();
+                        }
+                        if let Err(e) = write_dag(path, &dag) {
+                            tracing::warn!(
+                                target: "builtin",
+                                task_id = %id,
+                                error = format!("{:#}", e),
+                                "could not persist Failed state for bad builtin spec"
+                            );
+                        }
+                        if let Some(ref pc) = progress {
+                            pc.set_task_state(id, &failed_state);
+                        }
+                        eprintln!(
+                            "  {} builtin {} on {} has an unparseable spec — marking Failed",
+                            "✗".red(),
+                            builtin_id,
+                            id.red(),
+                        );
+                        append_progress_log(path, id, &reason);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "builtin",
+                        task_id = %id,
+                        error = format!("{:#}", e),
+                        "could not read DAG to mark bad-builtin-spec task Failed"
+                    );
+                }
+            }
+        }
+        let bad_builtin_ids: std::collections::BTreeSet<String> =
+            bad_builtin_specs.iter().map(|(id, _)| id.clone()).collect();
+
         // Run in-process builtins BEFORE the agent thread scope, on the main
         // thread. Each writes its own `state.patch.json` (+ result.json +
         // heartbeat) carrying the dispatch identity the pre-mark loop stamped,
@@ -3468,8 +3539,12 @@ fn run_loop(
             let mut handles = Vec::new();
             for id in &picks {
                 // In-process builtins already ran on the main thread above;
-                // they must never be dispatched to the executor/agent.
-                if builtin_by_task.contains_key(id.as_str()) {
+                // they must never be dispatched to the executor/agent. Same
+                // for a task carrying a known-but-bad-spec builtin marker —
+                // already marked Failed above, never handed to an agent.
+                if builtin_by_task.contains_key(id.as_str())
+                    || bad_builtin_ids.contains(id.as_str())
+                {
                     continue;
                 }
                 let envelope = envelopes.get(id).cloned().unwrap_or_default();

@@ -1,20 +1,33 @@
 //! Deterministic cross-method robustness aggregator for the multi-analyst
-//! ensemble. Given the K statistical-method variants of one terminal
-//! analytical stage (e.g. `differential_expression__v_deseq2` /
-//! `..edger` / `..limma`), it reads each variant's declared result
-//! artifact, resolves the per-entity effect + significance BY THE SHARED
+//! ensemble, hosting BOTH ensemble aggregators: the cross-method
+//! statistical-distribution rollup and the cross-axis (method × lens)
+//! ensemble-distribution rollup. Given the K statistical-method variants
+//! of one terminal analytical stage (e.g.
+//! `differential_expression__v_deseq2` / `..edger` / `..limma`), the
+//! statistical aggregator reads each variant's declared result artifact,
+//! resolves the per-entity effect + significance BY THE SHARED
 //! [`ResultSchema`] (never positionally), and classifies every entity's
 //! cross-method robustness into one of four buckets. It also emits a
-//! pooled consensus single-artifact view (`report-data.json`) so the
-//! existing reporting-invariants recompute machinery still has something
-//! to read for the ensemble.
+//! pooled consensus single-artifact view (`report-data.json`) that is
+//! SHAPE-COMPATIBLE with the normal (non-ensemble) `report-data.json` —
+//! it deserializes to the same [`ReportData`] type. Consumption of that
+//! pooled artifact by the reporting-invariants recompute machinery in
+//! ensemble mode is DEFERRED to a follow-up: today
+//! `reporting_invariants::read_report_data` reads only
+//! `outputs/reporting/report-data.json`, which the ensemble path never
+//! writes (`check_rc_count` re-derives `outputs/<stage_id>/<schema.artifact>`
+//! directly instead), so the pooled artifact written here and under
+//! `assemble_ensemble_distribution/` is inert for that validator until the
+//! wiring lands.
 //!
 //! Pure over its on-disk inputs and never touches the wall clock (threads
 //! [`Clock`] per the emit-path determinism contract, though it is
 //! reserved/unused today); iterates inputs in sorted / `BTreeMap` order so
 //! the emitted JSON is byte-reproducible. Outputs live under
-//! `runtime/outputs/assemble_statistical_distribution/` and are runtime
-//! products (excluded from the emitted-package byte-repro baseline).
+//! `runtime/outputs/assemble_statistical_distribution/` and
+//! `runtime/outputs/assemble_ensemble_distribution/` respectively, and are
+//! runtime products (excluded from the emitted-package byte-repro
+//! baseline).
 //!
 //! Lives inside the `report_contract` module so it can reach the
 //! `pub(crate)` [`read_table`](super::assemble::read_table) parser and the

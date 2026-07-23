@@ -4264,9 +4264,9 @@ mod tests {
         assert!(stat_dir.join("stat-distribution.json").exists());
         assert!(ensemble_dir.join("ensemble-distribution.json").exists());
 
-        // Pooled report-data.json exists + is non-empty (reporting-invariants
-        // headroom): the ensemble path still gives the recompute machinery a
-        // single-artifact ReportData to read.
+        // Pooled report-data.json written; RC-COUNT consumption wiring
+        // deferred to a follow-up (today `reporting_invariants` reads only
+        // `outputs/reporting/report-data.json`, not this pooled artifact).
         let report_data_path = stat_dir.join("report-data.json");
         assert!(report_data_path.exists());
         let report_data_raw = std::fs::read_to_string(&report_data_path).unwrap();
