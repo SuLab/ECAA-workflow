@@ -16,7 +16,8 @@ pub mod ensemble_assemble;
 
 pub use assemble::{CONTEXTUALIZE_STAGE_ID, assemble_report_data};
 pub use ensemble_assemble::{
-    EntityMethodRow, RobustnessClass, StatDistribution, assemble_statistical_distribution,
+    CellRollup, EnsembleDistribution, EntityMethodRow, FactorialAttribution, RobustnessClass,
+    StatDistribution, assemble_ensemble_distribution, assemble_statistical_distribution,
 };
 pub use report_data::{
     ArtifactStats, DirectionSplit, DistBin, EntityRow, GroupCount, LitFinding, LiteratureRollup,

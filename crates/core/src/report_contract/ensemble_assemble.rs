@@ -21,6 +21,7 @@
 //! `pub(crate)` [`build_entity_rows`](super::report_data::build_entity_rows)
 //! per-entity resolver without duplicating either.
 
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
@@ -32,9 +33,9 @@ use crate::reexecution_bounds::ModalityBounds;
 use super::assemble::read_table;
 use super::report_data::build_entity_rows;
 use super::{
-    DirectionSplit, DistBin, EntityRow, LiteratureStatus, ReportData, ResultArtifactSummary,
-    ResultSchema, load_policy_column_synonyms, should_spill, summarize_artifact,
-    write_supplementary,
+    DirectionSplit, DistBin, EntityRow, LitFinding, LiteratureStatus, ReportData,
+    ResultArtifactSummary, ResultSchema, load_policy_column_synonyms, should_spill,
+    summarize_artifact, write_supplementary,
 };
 
 /// The stage_id (and output-dir name) of the statistical-distribution
@@ -484,6 +485,299 @@ fn build_pooled_summary(
     })
 }
 
+// ---------------------------------------------------------------------------
+// Cross-axis (method × interpretive-lens) ensemble distribution.
+// ---------------------------------------------------------------------------
+
+/// The stage_id (and output-dir name) of the cross-axis ensemble
+/// aggregator. Shared with the composer/harness as the single source of
+/// truth for where this aggregator's products live.
+pub const ENSEMBLE_DISTRIBUTION_STAGE_ID: &str = "assemble_ensemble_distribution";
+
+/// The result.json keys read for a cell's hypothesis-support verdict, in
+/// precedence order: `hypothesis_supported` (canonical) then `support`
+/// (fixture/legacy alias). The first present-and-coercible value wins.
+const SUPPORT_KEYS: [&str; 2] = ["hypothesis_supported", "support"];
+
+/// Per-cell rollup of one method × interpretive-lens interpretation cell.
+///
+/// One cell corresponds to `runtime/outputs/<cell_id>/result.json`, where
+/// `cell_id == biological_interpretation__m_<method>__lens_<lens>`. The
+/// [`verification`](Self::verification) slot is reserved for Plan-4
+/// per-cell claim verification and is always `None` here.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CellRollup {
+    pub cell_id: String,
+    /// Statistical-method axis parsed from the cell id (empty when the id
+    /// does not match the canonical `..__m_<method>__lens_<lens>` shape).
+    pub method: String,
+    /// Interpretive-lens axis parsed from the cell id (empty on a
+    /// non-matching id).
+    pub lens: String,
+    /// Hypothesis-support verdict read from the cell's result.json (see
+    /// [`SUPPORT_KEYS`]); `None` when absent or not coercible to a bool.
+    pub support: Option<bool>,
+    /// The raw parsed result.json value, retained verbatim for Plan-4
+    /// per-cell claim verification.
+    pub claims_json: serde_json::Value,
+    /// PLAN-4 SLOT — per-cell verification is not computed here.
+    pub verification: Option<serde_json::Value>,
+}
+
+/// Factorial decomposition of the support signal across the two ensemble
+/// axes plus the compounding-fragility (interaction) signal.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FactorialAttribution {
+    /// Per-method support rate (mean of support as 0/1 over that method's
+    /// support-bearing cells). Methods with no support-bearing cell are
+    /// omitted.
+    pub by_method: BTreeMap<String, f64>,
+    /// Per-lens support rate, computed the same way as `by_method`.
+    pub by_lens: BTreeMap<String, f64>,
+    /// Cell ids whose support verdict differs from BOTH its method-marginal
+    /// AND its lens-marginal majority — the compounding-fragility signal
+    /// (a finding that only one method×lens combination disagrees on).
+    pub interaction_hotspots: Vec<String>,
+}
+
+/// Top-level `ensemble-distribution.json` payload: the per-cell rollups,
+/// the ensemble-wide agreement fraction, the factorial attribution, the
+/// deduplicated literature union across the cells, its coverage, and the
+/// fixed consensus label.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct EnsembleDistribution {
+    /// One rollup per cell whose result.json was present on disk (sorted by
+    /// cell id; absent cells are skipped).
+    pub cells: Vec<CellRollup>,
+    /// Fraction of support-bearing cells that agree with the majority
+    /// support verdict (1.0 when ≤1 support-bearing cell; 0.0 when none).
+    pub agreement: f64,
+    pub attribution: FactorialAttribution,
+    /// PMID-deduplicated union of any [`LitFinding`]s surfaced across the
+    /// cells' result.jsons (sorted-cell, then in-cell order).
+    pub literature_union: Vec<LitFinding>,
+    /// Unique PMID count across `literature_union`.
+    pub coverage: u64,
+    /// Always `"model agreement across N cells — not verified truth"`, where
+    /// N is the number of cells carrying a support verdict.
+    pub consensus_label: String,
+}
+
+/// Parses the `(method, lens)` axes from a canonical interpretation cell id
+/// `biological_interpretation__m_<method>__lens_<lens>`. Returns
+/// `("", "")` for a non-matching id so a malformed id still surfaces a
+/// rollup rather than being silently dropped.
+fn parse_cell_axes(cell_id: &str) -> (String, String) {
+    cell_id
+        .strip_prefix("biological_interpretation__m_")
+        .and_then(|rest| rest.split_once("__lens_"))
+        .map(|(m, l)| (m.to_string(), l.to_string()))
+        .unwrap_or_default()
+}
+
+/// Coerces a JSON value to a boolean support verdict. Accepts native
+/// booleans and a small set of case-insensitive string forms; anything
+/// else (numbers, null, objects, unknown strings) yields `None`.
+fn coerce_support(v: &serde_json::Value) -> Option<bool> {
+    match v {
+        serde_json::Value::Bool(b) => Some(*b),
+        serde_json::Value::String(s) => match s.trim().to_ascii_lowercase().as_str() {
+            "true" | "supported" | "yes" | "support" => Some(true),
+            "false" | "unsupported" | "not_supported" | "refuted" | "no" => Some(false),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Reads the support verdict from a cell result.json value using the
+/// [`SUPPORT_KEYS`] precedence.
+fn read_support(v: &serde_json::Value) -> Option<bool> {
+    for key in SUPPORT_KEYS {
+        if let Some(found) = v.get(key).and_then(coerce_support) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// Best-effort parse of a cell's `literature` field as `Vec<LitFinding>`
+/// (empty when the field is absent or does not deserialize).
+fn read_literature(v: &serde_json::Value) -> Vec<LitFinding> {
+    v.get("literature")
+        .and_then(|lit| serde_json::from_value::<Vec<LitFinding>>(lit.clone()).ok())
+        .unwrap_or_default()
+}
+
+/// Strict majority of a boolean slice: `Some(true)`/`Some(false)` when one
+/// verdict strictly outnumbers the other, `None` on an empty slice or a tie
+/// (a tie has no defined majority to differ from).
+fn strict_majority(votes: &[bool]) -> Option<bool> {
+    if votes.is_empty() {
+        return None;
+    }
+    let t = votes.iter().filter(|&&b| b).count();
+    let f = votes.len() - t;
+    match t.cmp(&f) {
+        Ordering::Greater => Some(true),
+        Ordering::Less => Some(false),
+        Ordering::Equal => None,
+    }
+}
+
+/// Support rate (mean of support as 0/1) over a non-empty boolean slice.
+fn support_rate(votes: &[bool]) -> f64 {
+    let t = votes.iter().filter(|&&b| b).count();
+    t as f64 / votes.len() as f64
+}
+
+/// Assembles the cross-axis (method × interpretive-lens) ensemble
+/// distribution over `cell_ids` and writes `ensemble-distribution.json`
+/// under `package_root/runtime/outputs/assemble_ensemble_distribution/`.
+///
+/// Each cell id is expected to be
+/// `biological_interpretation__m_<method>__lens_<lens>`; its
+/// `runtime/outputs/<cell_id>/result.json` is read for the hypothesis
+/// support verdict (see [`SUPPORT_KEYS`]). A cell whose result.json is
+/// absent is SKIPPED (not an error), mirroring
+/// [`assemble_statistical_distribution`].
+///
+/// Deterministic over its on-disk inputs: cell ids are sorted+deduped, all
+/// per-axis maps are `BTreeMap`s, and the literature union is built in
+/// sorted-cell order. `clock` is threaded per the emit-path determinism
+/// contract but unused (the payload carries no timestamp).
+///
+/// Per-cell claim verification (`CellRollup.verification`) is deferred to
+/// Plan 4 and is always `None` here.
+pub fn assemble_ensemble_distribution(
+    package_root: &Path,
+    cell_ids: &[String],
+    clock: &dyn Clock,
+) -> Result<EnsembleDistribution> {
+    let _ = clock;
+
+    let outputs_dir = package_root.join("runtime").join("outputs");
+
+    let mut ids: Vec<String> = cell_ids.to_vec();
+    ids.sort();
+    ids.dedup();
+
+    // Per-cell rollups (only cells whose result.json is present on disk).
+    let mut cells: Vec<CellRollup> = Vec::new();
+    // Marginal support votes per axis + the ensemble-wide vote set.
+    let mut method_votes: BTreeMap<String, Vec<bool>> = BTreeMap::new();
+    let mut lens_votes: BTreeMap<String, Vec<bool>> = BTreeMap::new();
+    let mut all_votes: Vec<bool> = Vec::new();
+    // PMID-deduplicated literature union, first-seen order.
+    let mut literature_union: Vec<LitFinding> = Vec::new();
+    let mut seen_pmids: BTreeSet<String> = BTreeSet::new();
+
+    for cell_id in &ids {
+        let result_path = outputs_dir.join(cell_id).join("result.json");
+        if !result_path.exists() {
+            continue;
+        }
+        let raw = std::fs::read_to_string(&result_path)
+            .with_context(|| format!("reading {}", result_path.display()))?;
+        let claims_json: serde_json::Value = serde_json::from_str(&raw)
+            .with_context(|| format!("parsing {}", result_path.display()))?;
+
+        let (method, lens) = parse_cell_axes(cell_id);
+        let support = read_support(&claims_json);
+
+        if let Some(s) = support {
+            method_votes.entry(method.clone()).or_default().push(s);
+            lens_votes.entry(lens.clone()).or_default().push(s);
+            all_votes.push(s);
+        }
+
+        for finding in read_literature(&claims_json) {
+            if seen_pmids.insert(finding.pmid.clone()) {
+                literature_union.push(finding);
+            }
+        }
+
+        cells.push(CellRollup {
+            cell_id: cell_id.clone(),
+            method,
+            lens,
+            support,
+            claims_json,
+            verification: None,
+        });
+    }
+
+    // Agreement = fraction of support-bearing cells sharing the majority
+    // verdict. 1.0 when ≤1 such cell, 0.0 when none.
+    let agreement = match all_votes.len() {
+        0 => 0.0,
+        1 => 1.0,
+        n => {
+            let t = all_votes.iter().filter(|&&b| b).count();
+            let f = n - t;
+            t.max(f) as f64 / n as f64
+        }
+    };
+
+    let by_method: BTreeMap<String, f64> = method_votes
+        .iter()
+        .map(|(m, v)| (m.clone(), support_rate(v)))
+        .collect();
+    let by_lens: BTreeMap<String, f64> = lens_votes
+        .iter()
+        .map(|(l, v)| (l.clone(), support_rate(v)))
+        .collect();
+
+    // Interaction hotspots: cells that buck BOTH marginal majorities.
+    let method_majority: BTreeMap<&String, Option<bool>> = method_votes
+        .iter()
+        .map(|(m, v)| (m, strict_majority(v)))
+        .collect();
+    let lens_majority: BTreeMap<&String, Option<bool>> = lens_votes
+        .iter()
+        .map(|(l, v)| (l, strict_majority(v)))
+        .collect();
+
+    let differs = |maj: Option<Option<bool>>, s: bool| matches!(maj, Some(Some(m)) if m != s);
+    let mut interaction_hotspots: Vec<String> = Vec::new();
+    for cell in &cells {
+        if let Some(s) = cell.support {
+            let mm = method_majority.get(&cell.method).copied();
+            let lm = lens_majority.get(&cell.lens).copied();
+            if differs(mm, s) && differs(lm, s) {
+                interaction_hotspots.push(cell.cell_id.clone());
+            }
+        }
+    }
+
+    let n_supported = all_votes.len();
+    let dist = EnsembleDistribution {
+        cells,
+        agreement,
+        attribution: FactorialAttribution {
+            by_method,
+            by_lens,
+            interaction_hotspots,
+        },
+        coverage: literature_union.len() as u64,
+        literature_union,
+        consensus_label: format!(
+            "model agreement across {n_supported} cells — not verified truth"
+        ),
+    };
+
+    let agg_dir = outputs_dir.join(ENSEMBLE_DISTRIBUTION_STAGE_ID);
+    std::fs::create_dir_all(&agg_dir)
+        .with_context(|| format!("creating {}", agg_dir.display()))?;
+    let dist_json =
+        serde_json::to_string_pretty(&dist).context("serializing ensemble-distribution.json")?;
+    let dist_path = agg_dir.join("ensemble-distribution.json");
+    std::fs::write(&dist_path, dist_json)
+        .with_context(|| format!("writing {}", dist_path.display()))?;
+
+    Ok(dist)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -698,5 +992,187 @@ mod tests {
 
         assert_eq!(a_json, b_json, "serialized result identical across runs");
         assert_eq!(a_disk, b_disk, "on-disk stat-distribution.json byte-identical");
+    }
+
+    // -- ensemble (method × lens) distribution tests ---------------------
+
+    fn cell_id(method: &str, lens: &str) -> String {
+        format!("biological_interpretation__m_{method}__lens_{lens}")
+    }
+
+    /// Writes a cell's `result.json` with a `hypothesis_supported` verdict
+    /// and an optional literature array.
+    fn write_cell(root: &Path, method: &str, lens: &str, support: bool, lit: serde_json::Value) {
+        let id = cell_id(method, lens);
+        let dir = root.join("runtime").join("outputs").join(&id);
+        std::fs::create_dir_all(&dir).unwrap();
+        let body = serde_json::json!({
+            "hypothesis_supported": support,
+            "literature": lit,
+        });
+        std::fs::write(
+            dir.join("result.json"),
+            serde_json::to_string_pretty(&body).unwrap(),
+        )
+        .unwrap();
+    }
+
+    const METHODS: [&str; 3] = ["deseq2", "edger", "limma"];
+    const LENSES: [&str; 3] = ["molecular_mechanism", "clinical_translation", "pathway_context"];
+
+    /// A 3×3 grid where every cell supports the hypothesis EXCEPT
+    /// `(deseq2, molecular_mechanism)`, which is the sole interaction
+    /// hotspot: it bucks its method marginal (deseq2 = 2 true / 1 false) AND
+    /// its lens marginal (molecular_mechanism = 2 true / 1 false).
+    fn write_grid(root: &Path) -> Vec<String> {
+        let mut ids = Vec::new();
+        for m in METHODS {
+            for l in LENSES {
+                let support = !(m == "deseq2" && l == "molecular_mechanism");
+                // molecular_mechanism cells surface a shared PMID so the
+                // literature union exercises PMID dedup.
+                let lit = if l == "molecular_mechanism" {
+                    serde_json::json!([{
+                        "entity": "CRISPLD2",
+                        "pmid": "12345678",
+                        "evidence_quote": "prior CRISPLD2 association",
+                        "effect": 2.61
+                    }])
+                } else {
+                    serde_json::json!([])
+                };
+                write_cell(root, m, l, support, lit);
+                ids.push(cell_id(m, l));
+            }
+        }
+        ids
+    }
+
+    #[test]
+    fn ensemble_distribution_rolls_up_cells() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ids = write_grid(tmp.path());
+        let clock = FrozenClock::default();
+
+        let dist = assemble_ensemble_distribution(tmp.path(), &ids, &clock).unwrap();
+
+        // 9 cells, all support-bearing; 8 true / 1 false → majority true.
+        assert_eq!(dist.cells.len(), 9);
+        assert!((dist.agreement - 8.0 / 9.0).abs() < 1e-9);
+
+        // Method marginals: deseq2 = 2/3; edger, limma = 1.0.
+        assert!((dist.attribution.by_method["deseq2"] - 2.0 / 3.0).abs() < 1e-9);
+        assert!((dist.attribution.by_method["edger"] - 1.0).abs() < 1e-9);
+        assert!((dist.attribution.by_method["limma"] - 1.0).abs() < 1e-9);
+
+        // Lens marginals: molecular_mechanism = 2/3; others = 1.0.
+        assert!(
+            (dist.attribution.by_lens["molecular_mechanism"] - 2.0 / 3.0).abs() < 1e-9
+        );
+        assert!((dist.attribution.by_lens["clinical_translation"] - 1.0).abs() < 1e-9);
+        assert!((dist.attribution.by_lens["pathway_context"] - 1.0).abs() < 1e-9);
+
+        // Exactly the compounding-fragility cell is a hotspot.
+        assert_eq!(
+            dist.attribution.interaction_hotspots,
+            vec![cell_id("deseq2", "molecular_mechanism")]
+        );
+
+        // Literature union deduped by PMID across the 3 molecular_mechanism
+        // cells that carried the same PMID.
+        assert_eq!(dist.literature_union.len(), 1);
+        assert_eq!(dist.literature_union[0].pmid, "12345678");
+        assert_eq!(dist.coverage, 1);
+
+        // Exact consensus label with N = support-bearing cell count.
+        assert_eq!(
+            dist.consensus_label,
+            "model agreement across 9 cells — not verified truth"
+        );
+
+        // Product written to disk and round-trips.
+        let path = tmp
+            .path()
+            .join("runtime/outputs/assemble_ensemble_distribution/ensemble-distribution.json");
+        assert!(path.exists());
+        let round: EnsembleDistribution =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(round, dist);
+    }
+
+    #[test]
+    fn ensemble_distribution_skips_absent_cells() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Only one of the two declared cells exists on disk.
+        write_cell(
+            tmp.path(),
+            "deseq2",
+            "molecular_mechanism",
+            true,
+            serde_json::json!([]),
+        );
+        let ids = vec![
+            cell_id("deseq2", "molecular_mechanism"),
+            cell_id("edger", "pathway_context"), // no result.json → skipped
+        ];
+        let clock = FrozenClock::default();
+
+        let dist = assemble_ensemble_distribution(tmp.path(), &ids, &clock).unwrap();
+
+        assert_eq!(dist.cells.len(), 1);
+        assert_eq!(dist.cells[0].method, "deseq2");
+        assert_eq!(dist.cells[0].lens, "molecular_mechanism");
+        // Single support-bearing cell → agreement 1.0, N = 1.
+        assert!((dist.agreement - 1.0).abs() < 1e-9);
+        assert_eq!(
+            dist.consensus_label,
+            "model agreement across 1 cells — not verified truth"
+        );
+    }
+
+    #[test]
+    fn ensemble_distribution_deterministic() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ids = write_grid(tmp.path());
+        let clock = FrozenClock::default();
+
+        let a = assemble_ensemble_distribution(tmp.path(), &ids, &clock).unwrap();
+        let a_json = serde_json::to_string_pretty(&a).unwrap();
+        let a_disk = std::fs::read_to_string(
+            tmp.path()
+                .join("runtime/outputs/assemble_ensemble_distribution/ensemble-distribution.json"),
+        )
+        .unwrap();
+
+        let b = assemble_ensemble_distribution(tmp.path(), &ids, &clock).unwrap();
+        let b_json = serde_json::to_string_pretty(&b).unwrap();
+        let b_disk = std::fs::read_to_string(
+            tmp.path()
+                .join("runtime/outputs/assemble_ensemble_distribution/ensemble-distribution.json"),
+        )
+        .unwrap();
+
+        assert_eq!(a_json, b_json, "serialized result identical across runs");
+        assert_eq!(
+            a_disk, b_disk,
+            "on-disk ensemble-distribution.json byte-identical"
+        );
+    }
+
+    #[test]
+    fn verification_slot_is_none() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ids = write_grid(tmp.path());
+        let clock = FrozenClock::default();
+
+        let dist = assemble_ensemble_distribution(tmp.path(), &ids, &clock).unwrap();
+        assert!(!dist.cells.is_empty());
+        for cell in &dist.cells {
+            assert!(
+                cell.verification.is_none(),
+                "Plan-4 slot must be None for {}",
+                cell.cell_id
+            );
+        }
     }
 }
