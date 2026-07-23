@@ -82,6 +82,7 @@ use std::path::Path;
 use regex::Regex;
 use serde_json::Value;
 
+use crate::report_contract::ensemble_assemble::STAT_DISTRIBUTION_STAGE_ID;
 use crate::report_contract::{
     ReportData, ResultSchema, load_policy_column_synonyms, summarize_artifact,
 };
@@ -695,17 +696,39 @@ fn check_rp9_method_label(outputs: &Path, report: &mut ReportingInvariantsReport
 
 /// Reads `WORKFLOW.json`'s `assemble_report_data` task's
 /// `spec.report_schemas` into the `BTreeMap<stage_id, ResultSchema>` the
-/// assembler itself was built from. `None` when the file, task, or field is
-/// absent/unparseable — a package with no schema map has nothing for
-/// RC-COUNT to recompute against.
+/// assembler itself was built from. `None` when the file or task is
+/// absent — a package with no schema map has nothing for RC-COUNT to
+/// recompute against.
+///
+/// **Ensemble fallback:** in ensemble mode the composer drops
+/// `assemble_report_data` entirely (see `ensemble_synthesis.rs`), so that
+/// task never appears in `WORKFLOW.json`. When it's absent, fall back to
+/// the stat-aggregator task (`STAT_DISTRIBUTION_STAGE_ID`)'s stamped
+/// `spec.result_schema` — a single [`ResultSchema`], not a map — and wrap
+/// it into the one-entry map shape `check_rc_count`/`check_rc_identity`
+/// expect, keyed by the SAME id (the pooled artifact's `stage_id` in
+/// `report-data.json` is the aggregator's own task id — see
+/// `build_pooled_summary`). Non-ensemble packages are unaffected: they
+/// always declare `assemble_report_data`, so the first branch resolves and
+/// the fallback is never reached.
 fn read_report_schemas(package_root: &Path) -> Option<BTreeMap<String, ResultSchema>> {
     let wf = read_json(&package_root.join("WORKFLOW.json"))?;
-    let schemas_val = wf
-        .get("tasks")?
-        .get("assemble_report_data")?
+    let tasks = wf.get("tasks")?;
+    if let Some(schemas_val) = tasks
+        .get("assemble_report_data")
+        .and_then(|t| t.get("spec"))
+        .and_then(|s| s.get("report_schemas"))
+    {
+        return serde_json::from_value(schemas_val.clone()).ok();
+    }
+    let schema_val = tasks
+        .get(STAT_DISTRIBUTION_STAGE_ID)?
         .get("spec")?
-        .get("report_schemas")?;
-    serde_json::from_value(schemas_val.clone()).ok()
+        .get("result_schema")?;
+    let schema: ResultSchema = serde_json::from_value(schema_val.clone()).ok()?;
+    let mut map = BTreeMap::new();
+    map.insert(STAT_DISTRIBUTION_STAGE_ID.to_string(), schema);
+    Some(map)
 }
 
 /// Reads the union of `required_report_sections` declared on WORKFLOW.json's
@@ -737,9 +760,27 @@ fn read_required_report_sections(package_root: &Path) -> Vec<String> {
 }
 
 /// Reads `report-data.json` from `outputs/reporting/report-data.json`.
-/// `None` when absent or unparseable.
+///
+/// **Ensemble fallback:** the ensemble composer drops `assemble_report_data`
+/// (and therefore never writes `outputs/reporting/report-data.json`); when
+/// that path is absent, fall back to the pooled `report-data.json` the
+/// statistical aggregator writes at
+/// `outputs/<STAT_DISTRIBUTION_STAGE_ID>/report-data.json`
+/// (`build_pooled_summary` in `report_contract/ensemble_assemble.rs`) — it
+/// deserializes to the same [`ReportData`] shape. Non-ensemble packages are
+/// unaffected: the primary path exists, so the fallback is never reached.
+///
+/// `None` when neither path is present or parseable.
 fn read_report_data(outputs: &Path) -> Option<ReportData> {
-    let raw = std::fs::read_to_string(outputs.join("reporting").join("report-data.json")).ok()?;
+    let primary = outputs.join("reporting").join("report-data.json");
+    let path = if primary.exists() {
+        primary
+    } else {
+        outputs
+            .join(STAT_DISTRIBUTION_STAGE_ID)
+            .join("report-data.json")
+    };
+    let raw = std::fs::read_to_string(path).ok()?;
     serde_json::from_str(&raw).ok()
 }
 
@@ -796,7 +837,19 @@ fn check_rc_count(package_root: &Path, outputs: &Path, report: &mut ReportingInv
         let Some(schema) = schemas.get(&artifact.stage_id) else {
             continue;
         };
-        let source_path = outputs.join(&artifact.stage_id).join(&schema.artifact);
+        // The ensemble stat aggregator's pooled artifact is a SYNTHESIZED
+        // per-entity table (median effect/significance across the K method
+        // variants) — the base atom's raw `schema.artifact` was never written
+        // under the aggregator's own stage dir, so `outputs/<stage_id>/
+        // <schema.artifact>` doesn't exist there. Its real recompute source is
+        // `full_table_path`, the pooled table `build_pooled_summary` wrote via
+        // the same `write_supplementary` helper the non-ensemble assembler
+        // uses. Every other stage_id (the non-ensemble path) is unaffected.
+        let source_path = if artifact.stage_id == STAT_DISTRIBUTION_STAGE_ID {
+            package_root.join(&artifact.full_table_path)
+        } else {
+            outputs.join(&artifact.stage_id).join(&schema.artifact)
+        };
         if !source_path.exists() {
             continue;
         }
@@ -2001,6 +2054,169 @@ mod tests {
                 .any(|f| f.contains("RC-IDENTITY")),
             "up+down (97) < n_significant (100) is a legitimate shortfall (zero/NA-effect \
              significant rows) and must NOT trip RC-IDENTITY: {report:?}"
+        );
+    }
+
+    // -- RC-COUNT / RC-IDENTITY over the ensemble pooled report-data ------
+    //
+    // Ensemble mode drops `assemble_report_data`, so `report-data.json`
+    // lives at `outputs/<STAT_DISTRIBUTION_STAGE_ID>/report-data.json`
+    // (written by `build_pooled_summary`) rather than
+    // `outputs/reporting/report-data.json`, and the schema map is replaced
+    // by a single `spec.result_schema` stamped on the aggregator's own
+    // task. These tests prove the recompute actually RUNS over that pooled
+    // artifact (not a vacuous skip) and recomputes against the pooled
+    // `full_table_path` table the aggregator wrote (never the base atom's
+    // raw per-run artifact, which was never written under the aggregator's
+    // stage dir).
+
+    /// Writes a minimal WORKFLOW.json carrying ONLY the ensemble
+    /// stat-aggregator task's `spec.result_schema` (a single `ResultSchema`,
+    /// not a `stage_id -> schema` map) — mirrors exactly what
+    /// `ensemble_synthesis.rs` stamps onto `assemble_statistical_distribution`
+    /// and what the ensemble composer emits: no `assemble_report_data` task
+    /// at all.
+    fn write_ensemble_workflow_json(root: &Path, result_schema: serde_json::Value) {
+        let wf = serde_json::json!({
+            "tasks": {
+                STAT_DISTRIBUTION_STAGE_ID: {
+                    "spec": { "result_schema": result_schema }
+                }
+            }
+        });
+        std::fs::write(root.join("WORKFLOW.json"), wf.to_string()).unwrap();
+    }
+
+    /// Writes the pooled `report-data.json` + its `.full.tsv` under
+    /// `outputs/<STAT_DISTRIBUTION_STAGE_ID>/`, mirroring
+    /// `build_pooled_summary`'s exact shape: one artifact whose `stage_id`
+    /// equals `STAT_DISTRIBUTION_STAGE_ID` and whose `full_table_path` points
+    /// at the pooled table below. No `outputs/reporting/` dir is created —
+    /// isolates the ensemble fallback path.
+    fn write_ensemble_pooled(
+        outputs: &Path,
+        n_total: u64,
+        n_significant: Option<u64>,
+        direction_split: Option<(u64, u64)>,
+        full_tsv: &str,
+    ) {
+        let agg_dir = outputs.join(STAT_DISTRIBUTION_STAGE_ID);
+        std::fs::create_dir_all(&agg_dir).unwrap();
+        std::fs::write(agg_dir.join("de_results.full.tsv"), full_tsv).unwrap();
+        let split =
+            direction_split.map(|(up, down)| serde_json::json!({ "up": up, "down": down }));
+        let payload = serde_json::json!({
+            "artifacts": [{
+                "stage_id": STAT_DISTRIBUTION_STAGE_ID,
+                "artifact": "de_results.tsv",
+                "n_total": n_total,
+                "n_significant": n_significant,
+                "direction_split": split,
+                "effect_distribution": null,
+                "significant_entities": [],
+                "significant_table_path": format!(
+                    "runtime/outputs/{STAT_DISTRIBUTION_STAGE_ID}/de_results.significant.tsv"
+                ),
+                "full_table_path": format!(
+                    "runtime/outputs/{STAT_DISTRIBUTION_STAGE_ID}/de_results.full.tsv"
+                ),
+                "spilled_to_attachment_only": false
+            }],
+            "literature": null
+        });
+        std::fs::write(agg_dir.join("report-data.json"), payload.to_string()).unwrap();
+    }
+
+    #[test]
+    fn rc_count_runs_over_ensemble_pooled_report_data() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write_ensemble_workflow_json(tmp.path(), signed_de_schema_json());
+        // Pooled table the aggregator wrote: 3 up + 2 down significant
+        // (padj<0.05), 2 non-significant padding rows → 5 significant of 7.
+        let full_tsv = signed_result_tsv(3, 2, 2);
+        write_ensemble_pooled(&outputs, 7, Some(5), Some((3, 2)), &full_tsv);
+
+        let report = check_reporting_invariants(tmp.path());
+        assert!(
+            report.checked.contains(&"RC-COUNT"),
+            "RC-COUNT must actually RUN over the ensemble pooled report-data \
+             (not vacuously skip because assemble_report_data is absent): {report:?}"
+        );
+        assert!(
+            report.checked.contains(&"RC-IDENTITY"),
+            "RC-IDENTITY must run over the pooled report-data too: {report:?}"
+        );
+        assert!(
+            report.passed(),
+            "a pooled report-data.json consistent with the pooled table it was built from \
+             must pass: {report:?}"
+        );
+    }
+
+    #[test]
+    fn rc_count_fails_on_tampered_ensemble_pooled_count() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write_ensemble_workflow_json(tmp.path(), signed_de_schema_json());
+        // The pooled table itself still recomputes to 5 significant (3 up + 2
+        // down), but the pooled report-data.json falsely claims 999.
+        let full_tsv = signed_result_tsv(3, 2, 2);
+        write_ensemble_pooled(&outputs, 7, Some(999), Some((3, 2)), &full_tsv);
+
+        let report = check_reporting_invariants(tmp.path());
+        assert!(report.checked.contains(&"RC-COUNT"), "{report:?}");
+        assert!(
+            !report.passed(),
+            "a pooled n_significant disagreeing with the pooled table's recomputed count \
+             must be a REQUIRED RC-COUNT failure: {report:?}"
+        );
+        assert!(
+            report
+                .required_failures()
+                .iter()
+                .any(|f| f.contains("RC-COUNT") && f.contains(STAT_DISTRIBUTION_STAGE_ID)),
+            "RC-COUNT must name the tampered ensemble aggregator stage: {:?}",
+            report.required_failures()
+        );
+    }
+
+    #[test]
+    fn non_ensemble_reporting_invariants_unchanged() {
+        // Same fixture shape as `correct_comprehensive_report_passes` (minus
+        // required-sections, to isolate RC-COUNT/RC-IDENTITY): a normal
+        // non-ensemble package — `outputs/reporting/report-data.json` +
+        // `assemble_report_data`'s schema map — must still resolve through
+        // the ORIGINAL (non-ensemble) branch exactly as before the ensemble
+        // fallback was added.
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "differential_expression/de_results.tsv",
+            &signed_result_tsv(2209, 1808, 0),
+        );
+        write_workflow_json(
+            tmp.path(),
+            Some(serde_json::json!({ "differential_expression": signed_de_schema_json() })),
+            None,
+        );
+        write_report_data(
+            &outputs,
+            "differential_expression",
+            "de_results.tsv",
+            4017,
+            Some(4017),
+            Some((2209, 1808)),
+        );
+
+        let report = check_reporting_invariants(tmp.path());
+        assert!(report.checked.contains(&"RC-COUNT"), "{report:?}");
+        assert!(report.checked.contains(&"RC-IDENTITY"), "{report:?}");
+        assert!(
+            report.passed(),
+            "the non-ensemble RC-COUNT/RC-IDENTITY path must behave exactly as before the \
+             ensemble fallback was added: {report:?}"
         );
     }
 }
