@@ -562,9 +562,11 @@ fn lower_task(node: &TaskNode, depends_on: Vec<TaskId>) -> Result<Task, EmitErro
     // two builtin aggregator nodes it synthesizes. `variant_stage_ids` /
     // `result_schema` / `relative_tolerance` / `absolute_tolerance` land on
     // `assemble_statistical_distribution` (the cross-method robustness
-    // runner's inputs); `interpretation_cell_ids` lands on
-    // `assemble_ensemble_distribution` (the cross-axis rollup runner's
-    // inputs). Mirrors `report_schemas`: an allowlisted pass-through so the
+    // runner's inputs); `interpretation_cell_ids` + `primary_stage_id` land
+    // on `assemble_ensemble_distribution` (the cross-axis rollup runner's
+    // inputs — the cell ids to roll up + the base stage whose method-variant
+    // tables each cell's narrative is verified against). Mirrors
+    // `report_schemas`: an allowlisted pass-through so the
     // harness's in-process builtin dispatch can read them from
     // `spec.<key>` without a runtime AtomRegistry/config dependency.
     // Additive: emitted only on the two nodes the pass stamped.
@@ -574,6 +576,7 @@ fn lower_task(node: &TaskNode, depends_on: Vec<TaskId>) -> Result<Task, EmitErro
         "relative_tolerance",
         "absolute_tolerance",
         "interpretation_cell_ids",
+        "primary_stage_id",
     ] {
         if let Some(v) = node.attributes.get(key) {
             spec_map.insert(key.into(), v.clone());

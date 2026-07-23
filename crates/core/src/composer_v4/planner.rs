@@ -4152,6 +4152,12 @@ mod tests {
             cell_ids.len() >= 2,
             "need >=2 interpretation cells for the ensemble rollup; got {cell_ids:?}"
         );
+        let primary_stage_id: String = ensemble_agg
+            .attributes
+            .get("primary_stage_id")
+            .and_then(|v| v.as_str())
+            .expect("primary_stage_id stamped on the ensemble aggregator")
+            .to_string();
 
         // -- materialize fixtures on disk, keyed by the STAMPED ids -------
         let tmp = tempfile::tempdir().unwrap();
@@ -4226,8 +4232,9 @@ mod tests {
             &clock,
         )
         .expect("stat aggregator runs over the stamped variant ids");
-        let ensemble_dist = assemble_ensemble_distribution(package_root, &cell_ids, &clock)
-            .expect("ensemble aggregator runs over the stamped cell ids");
+        let ensemble_dist =
+            assemble_ensemble_distribution(package_root, &cell_ids, &primary_stage_id, &clock)
+                .expect("ensemble aggregator runs over the stamped cell ids");
 
         // Robustness counts match the crafted entities.
         assert_eq!(stat_dist.n_robust, 1, "exactly ROBUST_GENE classifies Robust");
@@ -4292,7 +4299,8 @@ mod tests {
         )
         .unwrap();
         let ensemble_dist_2 =
-            assemble_ensemble_distribution(package_root, &cell_ids, &clock).unwrap();
+            assemble_ensemble_distribution(package_root, &cell_ids, &primary_stage_id, &clock)
+                .unwrap();
 
         assert_eq!(stat_dist, stat_dist_2, "StatDistribution identical across runs");
         assert_eq!(

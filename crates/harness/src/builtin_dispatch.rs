@@ -77,6 +77,18 @@ pub struct StatBuiltinArgs {
     pub bounds: ModalityBounds,
 }
 
+/// Deserialized `spec` attributes for the [`ASSEMBLE_ENSEMBLE_DISTRIBUTION`]
+/// builtin: the K×M interpretation cell ids to roll up, and the primary base
+/// stage_id whose per-method variant tables
+/// (`runtime/outputs/<primary_stage_id>__v_<method>/`) each cell's narrative
+/// is verified against. `primary_stage_id` degrades to an empty string when
+/// absent (per-cell verification then skips — nothing to locate).
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnsembleBuiltinArgs {
+    pub cell_ids: Vec<String>,
+    pub primary_stage_id: String,
+}
+
 /// One in-process builtin's decoded request, keyed by which core assembler
 /// it dispatches to. Produced by [`builtin_request`]; consumed by
 /// [`run_builtin`]. DRYs the dispatch-site snapshot/loop in
@@ -85,7 +97,7 @@ pub struct StatBuiltinArgs {
 pub enum BuiltinRequest {
     ReportData(BTreeMap<String, ResultSchema>),
     StatDistribution(StatBuiltinArgs),
-    EnsembleDistribution(Vec<String>),
+    EnsembleDistribution(EnsembleBuiltinArgs),
 }
 
 impl BuiltinRequest {
@@ -134,8 +146,8 @@ pub fn builtin_request(task: &Task) -> Option<BuiltinRequest> {
     if let Some(args) = assemble_statistical_distribution_request(task) {
         return Some(BuiltinRequest::StatDistribution(args));
     }
-    if let Some(cell_ids) = assemble_ensemble_distribution_request(task) {
-        return Some(BuiltinRequest::EnsembleDistribution(cell_ids));
+    if let Some(args) = assemble_ensemble_distribution_request(task) {
+        return Some(BuiltinRequest::EnsembleDistribution(args));
     }
     None
 }
@@ -160,8 +172,8 @@ pub fn run_builtin(
         BuiltinRequest::StatDistribution(args) => {
             run_assemble_statistical_distribution(package_root, dispatch, args, clock)
         }
-        BuiltinRequest::EnsembleDistribution(cell_ids) => {
-            run_assemble_ensemble_distribution(package_root, dispatch, cell_ids, clock)
+        BuiltinRequest::EnsembleDistribution(args) => {
+            run_assemble_ensemble_distribution(package_root, dispatch, args, clock)
         }
     }
 }
@@ -437,13 +449,15 @@ pub fn run_assemble_statistical_distribution(
 }
 
 /// Decision predicate for the [`ASSEMBLE_ENSEMBLE_DISTRIBUTION`] builtin.
-/// Returns `Some(cell_ids)` when `task.spec.builtin ==
+/// Returns `Some(args)` when `task.spec.builtin ==
 /// "assemble_ensemble_distribution"`, deserializing
-/// `task.spec.interpretation_cell_ids` into a `Vec<String>`. A missing,
-/// null, or unparseable list degrades to an empty vec — the assembler then
-/// writes a cells-empty (still valid) distribution rather than failing.
-/// Returns `None` for every non-matching task.
-pub fn assemble_ensemble_distribution_request(task: &Task) -> Option<Vec<String>> {
+/// `task.spec.interpretation_cell_ids` into a `Vec<String>` and
+/// `task.spec.primary_stage_id` into a `String`. A missing, null, or
+/// unparseable cell list degrades to an empty vec — the assembler then
+/// writes a cells-empty (still valid) distribution rather than failing; an
+/// absent `primary_stage_id` degrades to an empty string (per-cell
+/// verification then skips). Returns `None` for every non-matching task.
+pub fn assemble_ensemble_distribution_request(task: &Task) -> Option<EnsembleBuiltinArgs> {
     let spec = task.spec.as_ref()?;
     let builtin = spec.get("builtin").and_then(|v| v.as_str())?;
     if builtin != ASSEMBLE_ENSEMBLE_DISTRIBUTION {
@@ -453,7 +467,15 @@ pub fn assemble_ensemble_distribution_request(task: &Task) -> Option<Vec<String>
         .get("interpretation_cell_ids")
         .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok())
         .unwrap_or_default();
-    Some(cell_ids)
+    let primary_stage_id = spec
+        .get("primary_stage_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    Some(EnsembleBuiltinArgs {
+        cell_ids,
+        primary_stage_id,
+    })
 }
 
 /// Postcondition for the ensemble-distribution aggregator builtin: the
@@ -478,11 +500,11 @@ fn ensemble_distribution_present_and_non_empty(package_root: &Path) -> bool {
 pub fn run_assemble_ensemble_distribution(
     package_root: &Path,
     dispatch: &PickedDispatch,
-    cell_ids: &[String],
+    args: &EnsembleBuiltinArgs,
     clock: &dyn Clock,
 ) -> anyhow::Result<TaskState> {
     let (state, result_json) =
-        match assemble_ensemble_distribution(package_root, cell_ids, clock) {
+        match assemble_ensemble_distribution(package_root, &args.cell_ids, &args.primary_stage_id, clock) {
             Ok(dist) => {
                 if ensemble_distribution_present_and_non_empty(package_root) {
                     let n_cells = dist.cells.len();
@@ -1051,11 +1073,12 @@ mod tests {
     }
 
     /// Build a Task carrying the `assemble_ensemble_distribution` builtin
-    /// spec with the given `interpretation_cell_ids`.
+    /// spec with the given `interpretation_cell_ids` + `primary_stage_id`.
     fn ensemble_builtin_task(state: TaskState, cell_ids: &[String]) -> Task {
         let spec = serde_json::json!({
             "builtin": ASSEMBLE_ENSEMBLE_DISTRIBUTION,
             "interpretation_cell_ids": cell_ids,
+            "primary_stage_id": "differential_expression",
         });
         Task {
             spec: Some(spec),
@@ -1072,7 +1095,8 @@ mod tests {
         let task = ensemble_builtin_task(TaskState::Ready, &ids);
         let got = assemble_ensemble_distribution_request(&task)
             .expect("ensemble-distribution builtin task must be detected");
-        assert_eq!(got, ids);
+        assert_eq!(got.cell_ids, ids);
+        assert_eq!(got.primary_stage_id, "differential_expression");
     }
 
     /// Regression guard: normal / non-matching tasks fall through.
@@ -1121,7 +1145,11 @@ mod tests {
             epoch: 1,
         };
         let clock = WallClock;
-        let state = run_assemble_ensemble_distribution(root, &dispatch, &ids, &clock)
+        let args = EnsembleBuiltinArgs {
+            cell_ids: ids.clone(),
+            primary_stage_id: "differential_expression".into(),
+        };
+        let state = run_assemble_ensemble_distribution(root, &dispatch, &args, &clock)
             .expect("no write failure");
         assert!(
             matches!(state, TaskState::Completed { .. }),
@@ -1163,7 +1191,7 @@ mod tests {
         let ids = vec![ensemble_cell_id("deseq2", "molecular_mechanism")];
         let task = ensemble_builtin_task(TaskState::Ready, &ids);
         match builtin_request(&task) {
-            Some(BuiltinRequest::EnsembleDistribution(got)) => assert_eq!(got, ids),
+            Some(BuiltinRequest::EnsembleDistribution(got)) => assert_eq!(got.cell_ids, ids),
             other => panic!("expected EnsembleDistribution request, got {other:?}"),
         }
     }

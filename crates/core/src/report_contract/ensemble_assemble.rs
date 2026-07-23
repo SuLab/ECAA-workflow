@@ -40,6 +40,8 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
+use crate::claim_extractor::ExtractorConfig;
+use crate::claim_verifier::ClaimVerificationReport;
 use crate::clock::Clock;
 use crate::reexecution_bounds::ModalityBounds;
 
@@ -516,8 +518,12 @@ const SUPPORT_KEYS: [&str; 2] = ["hypothesis_supported", "support"];
 ///
 /// One cell corresponds to `runtime/outputs/<cell_id>/result.json`, where
 /// `cell_id == biological_interpretation__m_<method>__lens_<lens>`. The
-/// [`verification`](Self::verification) slot is reserved for Plan-4
-/// per-cell claim verification and is always `None` here.
+/// [`verification`](Self::verification) slot carries the serialized
+/// [`ClaimVerificationReport`](crate::claim_verifier::ClaimVerificationReport)
+/// when the cell's narrative was cross-checked against its method-variant
+/// result table (see [`assemble_ensemble_distribution`]); it is `None` when
+/// there was nothing to verify (no embedded interpretation policy, no
+/// narrative, or the method-variant table dir was absent).
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CellRollup {
     pub cell_id: String,
@@ -530,10 +536,15 @@ pub struct CellRollup {
     /// Hypothesis-support verdict read from the cell's result.json (see
     /// [`SUPPORT_KEYS`]); `None` when absent or not coercible to a bool.
     pub support: Option<bool>,
-    /// The raw parsed result.json value, retained verbatim for Plan-4
-    /// per-cell claim verification.
+    /// The raw parsed result.json value, retained verbatim for per-cell
+    /// claim verification.
     pub claims_json: serde_json::Value,
-    /// PLAN-4 SLOT — per-cell verification is not computed here.
+    /// Serialized per-cell [`ClaimVerificationReport`](crate::claim_verifier::ClaimVerificationReport):
+    /// `Some` when the cell's narrative was checked for consistency with its
+    /// method-variant result table, `None` when nothing was verifiable. A
+    /// report with `n_mismatch > 0` (`has_mismatch()`) tags the cell as
+    /// pruned — it is RETAINED here with its verdict but excluded from the
+    /// ensemble consensus/marginals.
     pub verification: Option<serde_json::Value>,
 }
 
@@ -562,9 +573,15 @@ pub struct EnsembleDistribution {
     /// One rollup per cell whose result.json was present on disk (sorted by
     /// cell id; absent cells are skipped).
     pub cells: Vec<CellRollup>,
-    /// Fraction of support-bearing cells that agree with the majority
-    /// support verdict (1.0 when ≤1 support-bearing cell; 0.0 when none).
+    /// Fraction of the SURVIVING (non-pruned) support-bearing cells that
+    /// agree with the majority support verdict (1.0 when ≤1 such cell; 0.0
+    /// when none).
     pub agreement: f64,
+    /// Count of cells excluded from the consensus because their per-cell
+    /// verification carried a `Mismatch` (a narrative inconsistent with its
+    /// method-variant result table). Pruned cells are RETAINED in `cells`
+    /// with their verdict attached; they simply do not vote.
+    pub n_pruned: u64,
     pub attribution: FactorialAttribution,
     /// PMID-deduplicated union of any [`LitFinding`]s surfaced across the
     /// cells' result.jsons (sorted-cell, then in-cell order).
@@ -574,6 +591,56 @@ pub struct EnsembleDistribution {
     /// Always `"model agreement across N cells — not verified truth"`, where
     /// N is the number of cells carrying a support verdict.
     pub consensus_label: String,
+}
+
+/// Builds the per-cell claim-verifier [`ExtractorConfig`] from the package's
+/// OWN embedded `policies/interpretation-policy.json`, when it declares an
+/// enabled `verifiableEntities` block. Returns `None` (verification skipped)
+/// when no usable policy is embedded — the honest "nothing to verify"
+/// degrade, mirroring `verify_task_with_context`. Reads only package-relative
+/// files so the aggregator stays deterministic. `ProjectClass::default()`
+/// (`Bioinformatics`) selects the base policy with no class overlay.
+fn load_cell_verifier_cfg(package_root: &Path) -> Option<ExtractorConfig> {
+    let policy_dir = package_root.join("policies");
+    let policy_path =
+        crate::claim_extractor::resolve_policy_file(&policy_dir, "interpretation-policy.json")?;
+    let raw = std::fs::read_to_string(&policy_path).ok()?;
+    let policy: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    ExtractorConfig::from_policy_for_class(
+        &policy,
+        &policy_dir,
+        crate::project_class::ProjectClass::default(),
+    )
+    .ok()
+}
+
+/// Verifies one cell's narrative for CONSISTENCY-WITH-ITS-NUMBERS against its
+/// METHOD-VARIANT result table. The table dir is
+/// `runtime/outputs/<primary_stage_id>__v_<method>/` — the statistical
+/// variant the cell reports over, NOT the cell's own dir. The cell's
+/// narrative (`report`/`interpretation`/`summary` `.md`/`.txt`) lives in the
+/// cell dir. Returns `None` (nothing to verify) when the primary/method is
+/// unknown, the method-variant table dir is absent, or the cell wrote no
+/// narrative. This checks numeric consistency, never biological truth.
+fn verify_cell(
+    package_root: &Path,
+    outputs_dir: &Path,
+    cell_id: &str,
+    primary_stage_id: &str,
+    method: &str,
+    cfg: &ExtractorConfig,
+) -> Option<ClaimVerificationReport> {
+    if primary_stage_id.is_empty() || method.is_empty() {
+        return None;
+    }
+    let table_dir = outputs_dir.join(format!("{primary_stage_id}__v_{method}"));
+    if !table_dir.is_dir() {
+        return None;
+    }
+    let narrative_path = crate::claim_verifier::find_narrative_artifact(package_root, cell_id)?;
+    let narrative = std::fs::read_to_string(&narrative_path).ok()?;
+    let claims = crate::claim_extractor::extract_claims(&narrative, cfg);
+    Some(crate::claim_verifier::verify_claims(&claims, &table_dir, cfg))
 }
 
 /// Parses the `(method, lens)` axes from a canonical interpretation cell id
@@ -660,11 +727,25 @@ fn support_rate(votes: &[bool]) -> f64 {
 /// sorted-cell order. `clock` is threaded per the emit-path determinism
 /// contract but unused (the payload carries no timestamp).
 ///
-/// Per-cell claim verification (`CellRollup.verification`) is deferred to
-/// Plan 4 and is always `None` here.
+/// ## Per-cell verification (pruning)
+/// Each cell's narrative is cross-checked against its METHOD-VARIANT result
+/// table — the table lives at `runtime/outputs/<primary_stage_id>__v_<method>/`
+/// (the statistical variant the cell reports over), NOT the cell's own dir.
+/// The verifier checks the prose for CONSISTENCY-WITH-ITS-NUMBERS (does the
+/// asserted direction/value/threshold match the table?), NOT biological
+/// truth. Only a `Mismatch` prunes a cell from the consensus (mirroring
+/// [`ClaimVerificationReport::has_mismatch`](crate::claim_verifier::ClaimVerificationReport::has_mismatch));
+/// a `Suspicious` verdict is review-only and never prunes. Verification runs
+/// only when the package embeds an enabled `verifiableEntities`
+/// interpretation policy; otherwise it is SKIPPED (every cell's
+/// `verification` stays `None`, nothing is pruned) — the honest
+/// "nothing to verify" degrade. Pruned cells are RETAINED in `cells` (tagged
+/// with their verdict); they are excluded from `agreement`, the factorial
+/// marginals, the interaction hotspots, and the literature union.
 pub fn assemble_ensemble_distribution(
     package_root: &Path,
     cell_ids: &[String],
+    primary_stage_id: &str,
     clock: &dyn Clock,
 ) -> Result<EnsembleDistribution> {
     let _ = clock;
@@ -675,15 +756,26 @@ pub fn assemble_ensemble_distribution(
     ids.sort();
     ids.dedup();
 
+    // Per-cell verifier config from the package's OWN embedded interpretation
+    // policy. `None` = no enabled `verifiableEntities` block → per-cell
+    // verification is skipped entirely (every `verification` stays None,
+    // nothing pruned). The verifier checks consistency-with-numbers, NOT
+    // biological truth; only a `Mismatch` prunes (see `has_mismatch`).
+    let cfg = load_cell_verifier_cfg(package_root);
+
     // Per-cell rollups (only cells whose result.json is present on disk).
     let mut cells: Vec<CellRollup> = Vec::new();
-    // Marginal support votes per axis + the ensemble-wide vote set.
+    // Marginal support votes per axis + the ensemble-wide vote set — built
+    // over the SURVIVING (non-pruned) cells only.
     let mut method_votes: BTreeMap<String, Vec<bool>> = BTreeMap::new();
     let mut lens_votes: BTreeMap<String, Vec<bool>> = BTreeMap::new();
     let mut all_votes: Vec<bool> = Vec::new();
-    // PMID-deduplicated literature union, first-seen order.
+    // PMID-deduplicated literature union (surviving cells only), first-seen order.
     let mut literature_union: Vec<LitFinding> = Vec::new();
     let mut seen_pmids: BTreeSet<String> = BTreeSet::new();
+    // Cell ids excluded from the consensus because their narrative was
+    // inconsistent with its method-variant table (`Mismatch`).
+    let mut pruned_ids: BTreeSet<String> = BTreeSet::new();
 
     for cell_id in &ids {
         let result_path = outputs_dir.join(cell_id).join("result.json");
@@ -698,15 +790,41 @@ pub fn assemble_ensemble_distribution(
         let (method, lens) = parse_cell_axes(cell_id);
         let support = read_support(&claims_json);
 
-        if let Some(s) = support {
-            method_votes.entry(method.clone()).or_default().push(s);
-            lens_votes.entry(lens.clone()).or_default().push(s);
-            all_votes.push(s);
-        }
+        // Per-cell verification against the method-variant table. A cell is
+        // PRUNED iff it produced a report AND that report `has_mismatch()`
+        // (Mismatch only — `Suspicious` is review-only and never prunes).
+        let report = cfg.as_ref().and_then(|cfg| {
+            verify_cell(
+                package_root,
+                &outputs_dir,
+                cell_id,
+                primary_stage_id,
+                &method,
+                cfg,
+            )
+        });
+        let pruned = report.as_ref().map(|r| r.has_mismatch()).unwrap_or(false);
+        let verification = match report.as_ref() {
+            Some(r) => Some(
+                serde_json::to_value(r).context("serializing per-cell verification report")?,
+            ),
+            None => None,
+        };
 
-        for finding in read_literature(&claims_json) {
-            if seen_pmids.insert(finding.pmid.clone()) {
-                literature_union.push(finding);
+        // Only surviving cells vote / contribute literature; pruned cells are
+        // retained in `cells` (tagged) but excluded from the consensus.
+        if pruned {
+            pruned_ids.insert(cell_id.clone());
+        } else {
+            if let Some(s) = support {
+                method_votes.entry(method.clone()).or_default().push(s);
+                lens_votes.entry(lens.clone()).or_default().push(s);
+                all_votes.push(s);
+            }
+            for finding in read_literature(&claims_json) {
+                if seen_pmids.insert(finding.pmid.clone()) {
+                    literature_union.push(finding);
+                }
             }
         }
 
@@ -716,9 +834,10 @@ pub fn assemble_ensemble_distribution(
             lens,
             support,
             claims_json,
-            verification: None,
+            verification,
         });
     }
+    let n_pruned = pruned_ids.len() as u64;
 
     // Agreement = fraction of support-bearing cells sharing the majority
     // verdict. 1.0 when ≤1 such cell, 0.0 when none.
@@ -754,6 +873,11 @@ pub fn assemble_ensemble_distribution(
     let differs = |maj: Option<Option<bool>>, s: bool| matches!(maj, Some(Some(m)) if m != s);
     let mut interaction_hotspots: Vec<String> = Vec::new();
     for cell in &cells {
+        // Pruned cells did not vote, so they can't be a compounding-fragility
+        // hotspot against marginals they never contributed to.
+        if pruned_ids.contains(&cell.cell_id) {
+            continue;
+        }
         if let Some(s) = cell.support {
             let mm = method_majority.get(&cell.method).copied();
             let lm = lens_majority.get(&cell.lens).copied();
@@ -767,6 +891,7 @@ pub fn assemble_ensemble_distribution(
     let dist = EnsembleDistribution {
         cells,
         agreement,
+        n_pruned,
         attribution: FactorialAttribution {
             by_method,
             by_lens,
@@ -1067,7 +1192,7 @@ mod tests {
         let ids = write_grid(tmp.path());
         let clock = FrozenClock::default();
 
-        let dist = assemble_ensemble_distribution(tmp.path(), &ids, &clock).unwrap();
+        let dist = assemble_ensemble_distribution(tmp.path(), &ids, "", &clock).unwrap();
 
         // 9 cells, all support-bearing; 8 true / 1 false → majority true.
         assert_eq!(dist.cells.len(), 9);
@@ -1130,7 +1255,7 @@ mod tests {
         ];
         let clock = FrozenClock::default();
 
-        let dist = assemble_ensemble_distribution(tmp.path(), &ids, &clock).unwrap();
+        let dist = assemble_ensemble_distribution(tmp.path(), &ids, "", &clock).unwrap();
 
         assert_eq!(dist.cells.len(), 1);
         assert_eq!(dist.cells[0].method, "deseq2");
@@ -1149,7 +1274,7 @@ mod tests {
         let ids = write_grid(tmp.path());
         let clock = FrozenClock::default();
 
-        let a = assemble_ensemble_distribution(tmp.path(), &ids, &clock).unwrap();
+        let a = assemble_ensemble_distribution(tmp.path(), &ids, "", &clock).unwrap();
         let a_json = serde_json::to_string_pretty(&a).unwrap();
         let a_disk = std::fs::read_to_string(
             tmp.path()
@@ -1157,7 +1282,7 @@ mod tests {
         )
         .unwrap();
 
-        let b = assemble_ensemble_distribution(tmp.path(), &ids, &clock).unwrap();
+        let b = assemble_ensemble_distribution(tmp.path(), &ids, "", &clock).unwrap();
         let b_json = serde_json::to_string_pretty(&b).unwrap();
         let b_disk = std::fs::read_to_string(
             tmp.path()
@@ -1173,19 +1298,234 @@ mod tests {
     }
 
     #[test]
-    fn verification_slot_is_none() {
+    fn verification_skipped_without_policy() {
+        // No embedded interpretation policy → per-cell verification is the
+        // honest "nothing to verify" degrade: every slot stays None and no
+        // cell is pruned.
         let tmp = tempfile::tempdir().unwrap();
         let ids = write_grid(tmp.path());
         let clock = FrozenClock::default();
 
-        let dist = assemble_ensemble_distribution(tmp.path(), &ids, &clock).unwrap();
+        let dist = assemble_ensemble_distribution(tmp.path(), &ids, "", &clock).unwrap();
         assert!(!dist.cells.is_empty());
+        assert_eq!(dist.n_pruned, 0, "nothing to prune without a policy");
         for cell in &dist.cells {
             assert!(
                 cell.verification.is_none(),
-                "Plan-4 slot must be None for {}",
+                "verification must be None without a policy for {}",
                 cell.cell_id
             );
         }
+    }
+
+    // -- per-cell verifier pruning ---------------------------------------
+
+    /// Writes the package-embedded `policies/interpretation-policy.json` with
+    /// an enabled `verifiableEntities` block (the same shape the claim
+    /// verifier's own tests use) so the aggregator builds a real
+    /// `ExtractorConfig`.
+    fn write_interpretation_policy(root: &Path) {
+        let dir = root.join("policies");
+        std::fs::create_dir_all(&dir).unwrap();
+        let policy = serde_json::json!({
+            "verifiableEntities": {
+                "enabled": true,
+                "entityNamePatterns": ["[A-Z][A-Z0-9]{1,}"],
+                "directionVocab": {
+                    "up": ["upregulated", "increased", "elevated"],
+                    "down": ["downregulated", "decreased", "reduced"]
+                },
+                "effectSizeColumns": ["log2FC", "logFC"],
+                "entityColumns": ["gene", "symbol"],
+                "pvalueColumns": ["padj", "pvalue"]
+            }
+        });
+        std::fs::write(
+            dir.join("interpretation-policy.json"),
+            serde_json::to_string_pretty(&policy).unwrap(),
+        )
+        .unwrap();
+    }
+
+    /// Writes a cell's METHOD-VARIANT result table under
+    /// `runtime/outputs/<primary>__v_<method>/de_summary_s1.tsv` — the dir the
+    /// verifier resolves the cell's cited table against (NOT the cell dir).
+    fn write_method_variant_table(root: &Path, primary: &str, method: &str, body: &str) {
+        let dir = root
+            .join("runtime")
+            .join("outputs")
+            .join(format!("{primary}__v_{method}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("de_summary_s1.tsv"), body).unwrap();
+    }
+
+    /// Writes a cell dir carrying a `result.json` (support verdict) and a
+    /// prose `report.md` narrative the verifier cross-checks.
+    fn write_cell_with_narrative(root: &Path, method: &str, lens: &str, support: bool, narrative: &str) {
+        let id = cell_id(method, lens);
+        let dir = root.join("runtime").join("outputs").join(&id);
+        std::fs::create_dir_all(&dir).unwrap();
+        let body = serde_json::json!({ "hypothesis_supported": support, "literature": [] });
+        std::fs::write(
+            dir.join("result.json"),
+            serde_json::to_string_pretty(&body).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(dir.join("report.md"), narrative).unwrap();
+    }
+
+    /// `verification` reads `n_mismatch` off a cell's serialized report.
+    fn n_mismatch(cell: &CellRollup) -> Option<u64> {
+        cell.verification
+            .as_ref()
+            .and_then(|v| v.get("n_mismatch"))
+            .and_then(|v| v.as_u64())
+    }
+
+    fn n_checked(cell: &CellRollup) -> Option<u64> {
+        cell.verification
+            .as_ref()
+            .and_then(|v| v.get("n_checked"))
+            .and_then(|v| v.as_u64())
+    }
+
+    const PRIMARY: &str = "differential_expression";
+    // ACAN is DOWN-regulated (log2FC = -1.2) in the method-variant table.
+    const DOWN_TABLE: &str = "gene\tlog2FC\tpadj\nACAN\t-1.2\t0.001\n";
+    // Narrative CONTRADICTS the table (claims UP with a positive effect).
+    const CONTRADICTING_NARRATIVE: &str = "ACAN was upregulated (log2FC=2.1, Table S1).";
+    // Narrative CONSISTENT with the table (down, matching magnitude).
+    const CONSISTENT_NARRATIVE: &str = "ACAN was downregulated (log2FC=-1.2, Table S1).";
+
+    #[test]
+    fn cell_with_contradicting_narrative_is_pruned() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write_interpretation_policy(root);
+
+        // Two cells over the same lens; both tables say ACAN is DOWN.
+        write_method_variant_table(root, PRIMARY, "deseq2", DOWN_TABLE);
+        write_method_variant_table(root, PRIMARY, "edger", DOWN_TABLE);
+        // deseq2 cell's narrative contradicts its table → Mismatch → pruned.
+        write_cell_with_narrative(root, "deseq2", "molecular_mechanism", true, CONTRADICTING_NARRATIVE);
+        // edger cell's narrative is consistent → verified → counts.
+        write_cell_with_narrative(root, "edger", "molecular_mechanism", true, CONSISTENT_NARRATIVE);
+
+        let ids = vec![
+            cell_id("deseq2", "molecular_mechanism"),
+            cell_id("edger", "molecular_mechanism"),
+        ];
+        let clock = FrozenClock::default();
+        let dist = assemble_ensemble_distribution(root, &ids, PRIMARY, &clock).unwrap();
+
+        // Both cells retained.
+        assert_eq!(dist.cells.len(), 2, "pruned cells are retained, not dropped");
+        let bad = dist
+            .cells
+            .iter()
+            .find(|c| c.method == "deseq2")
+            .expect("deseq2 cell retained");
+        let good = dist
+            .cells
+            .iter()
+            .find(|c| c.method == "edger")
+            .expect("edger cell retained");
+
+        // The contradicting cell carries a Mismatch verdict.
+        assert!(
+            n_mismatch(bad).unwrap_or(0) > 0,
+            "contradicting cell must show n_mismatch>0; verification={:?}",
+            bad.verification
+        );
+        // The consistent cell verified cleanly (and actually ran).
+        assert_eq!(n_mismatch(good), Some(0), "consistent cell has no mismatch");
+        assert!(
+            n_checked(good).unwrap_or(0) > 0,
+            "verification must have actually run on the consistent cell"
+        );
+
+        // Exactly one cell pruned.
+        assert_eq!(dist.n_pruned, 1);
+
+        // Consensus/marginals computed over the SURVIVING cell only: the
+        // pruned deseq2 cell does not vote, so `edger` is the only method
+        // marginal and agreement is over the single survivor.
+        assert!(
+            !dist.attribution.by_method.contains_key("deseq2"),
+            "pruned cell must not appear in the method marginals"
+        );
+        assert!((dist.attribution.by_method["edger"] - 1.0).abs() < 1e-9);
+        assert!((dist.agreement - 1.0).abs() < 1e-9, "one surviving vote → 1.0");
+        assert_eq!(
+            dist.consensus_label,
+            "model agreement across 1 cells — not verified truth"
+        );
+    }
+
+    #[test]
+    fn clean_cell_counts_toward_consensus() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write_interpretation_policy(root);
+
+        // Two consistent cells → both verified, none pruned, both vote.
+        write_method_variant_table(root, PRIMARY, "deseq2", DOWN_TABLE);
+        write_method_variant_table(root, PRIMARY, "edger", DOWN_TABLE);
+        write_cell_with_narrative(root, "deseq2", "molecular_mechanism", true, CONSISTENT_NARRATIVE);
+        write_cell_with_narrative(root, "edger", "molecular_mechanism", true, CONSISTENT_NARRATIVE);
+
+        let ids = vec![
+            cell_id("deseq2", "molecular_mechanism"),
+            cell_id("edger", "molecular_mechanism"),
+        ];
+        let clock = FrozenClock::default();
+        let dist = assemble_ensemble_distribution(root, &ids, PRIMARY, &clock).unwrap();
+
+        assert_eq!(dist.n_pruned, 0, "no contradictions → nothing pruned");
+        for cell in &dist.cells {
+            assert_eq!(n_mismatch(cell), Some(0), "clean cell has no mismatch");
+            assert!(n_checked(cell).unwrap_or(0) > 0, "verification ran");
+        }
+        // Both surviving support-bearing cells agree → agreement 1.0, N=2.
+        assert!((dist.agreement - 1.0).abs() < 1e-9);
+        assert!((dist.attribution.by_method["deseq2"] - 1.0).abs() < 1e-9);
+        assert!((dist.attribution.by_method["edger"] - 1.0).abs() < 1e-9);
+        assert_eq!(
+            dist.consensus_label,
+            "model agreement across 2 cells — not verified truth"
+        );
+    }
+
+    #[test]
+    fn verification_pruning_is_deterministic() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write_interpretation_policy(root);
+        write_method_variant_table(root, PRIMARY, "deseq2", DOWN_TABLE);
+        write_method_variant_table(root, PRIMARY, "edger", DOWN_TABLE);
+        write_cell_with_narrative(root, "deseq2", "molecular_mechanism", true, CONTRADICTING_NARRATIVE);
+        write_cell_with_narrative(root, "edger", "molecular_mechanism", true, CONSISTENT_NARRATIVE);
+        let ids = vec![
+            cell_id("deseq2", "molecular_mechanism"),
+            cell_id("edger", "molecular_mechanism"),
+        ];
+        let clock = FrozenClock::default();
+
+        let a = assemble_ensemble_distribution(root, &ids, PRIMARY, &clock).unwrap();
+        let a_json = serde_json::to_string_pretty(&a).unwrap();
+        let a_disk = std::fs::read_to_string(
+            root.join("runtime/outputs/assemble_ensemble_distribution/ensemble-distribution.json"),
+        )
+        .unwrap();
+        let b = assemble_ensemble_distribution(root, &ids, PRIMARY, &clock).unwrap();
+        let b_json = serde_json::to_string_pretty(&b).unwrap();
+        let b_disk = std::fs::read_to_string(
+            root.join("runtime/outputs/assemble_ensemble_distribution/ensemble-distribution.json"),
+        )
+        .unwrap();
+
+        assert_eq!(a, b, "verified EnsembleDistribution identical across runs");
+        assert_eq!(a_json, b_json, "serialized result byte-identical across runs");
+        assert_eq!(a_disk, b_disk, "on-disk product byte-identical across runs");
     }
 }

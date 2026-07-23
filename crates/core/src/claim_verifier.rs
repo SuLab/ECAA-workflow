@@ -658,7 +658,7 @@ pub(crate) fn resolve_task_runtime_dir(package_root: &Path, task_id: &str) -> Op
 /// Returns `None` when the directory is missing or contains no narrative
 /// candidates — the caller treats this as "nothing to verify" rather than
 /// an error so the emit-time and GET-time entry points stay cheap.
-fn find_narrative_artifact(package_root: &Path, task_id: &str) -> Option<PathBuf> {
+pub(crate) fn find_narrative_artifact(package_root: &Path, task_id: &str) -> Option<PathBuf> {
     let runtime_dir = resolve_task_runtime_dir(package_root, task_id)?;
     let rd = std::fs::read_dir(&runtime_dir).ok()?;
     let mut candidates: Vec<PathBuf> = Vec::new();

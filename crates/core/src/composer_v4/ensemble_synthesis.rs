@@ -371,6 +371,14 @@ pub fn synthesize_ensemble_fanout(
         "interpretation_cell_ids".into(),
         serde_json::to_value(&interpretation_cell_ids).unwrap_or(serde_json::Value::Null),
     );
+    // The primary statistical base stage_id, so the harness runner can locate
+    // each cell's method-variant result table
+    // (`runtime/outputs/<primary_stage_id>__v_<method>/`) for per-cell claim
+    // verification.
+    cross_agg.attributes.insert(
+        "primary_stage_id".into(),
+        serde_json::Value::String(primary.clone()),
+    );
     new_nodes.push(cross_agg);
 
     // Wire the cross-axis aggregator onward to the reporting terminals it
