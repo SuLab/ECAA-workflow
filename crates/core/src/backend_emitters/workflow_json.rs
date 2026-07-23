@@ -1256,6 +1256,117 @@ mod tests {
         assert_eq!(spec.get("ensemble_variant").and_then(|v| v.get("method")).and_then(|v| v.as_str()), Some("edger"));
     }
 
+    /// Plan 2 Task 7 (3/3) — end-to-end emit fidelity: a real
+    /// `plan()`-produced ensemble DAG (not the hand-built skeleton
+    /// `lowered_spec_carries_ensemble_variant` uses above), lowered via
+    /// the real `lower_to_workflow_json`, must surface the statistical
+    /// variant + cross-axis aggregator in the emitted `WORKFLOW.json`
+    /// task spec shape, and must not carry the suppressed
+    /// `assemble_report_data` companion.
+    #[test]
+    fn ensemble_lowered_workflow_json_carries_variant_specs() {
+        use std::path::Path;
+        use std::sync::Arc;
+
+        let atom_reg = crate::atom_registry::AtomRegistry::load_from_dir(Path::new(
+            "../../config/stage-atoms",
+        ))
+        .expect("atoms");
+        let archetype_reg = crate::archetype_registry::ArchetypeRegistry::load_from_dir(
+            Path::new("../../config/archetypes"),
+        )
+        .expect("arches");
+        let goal = crate::goal_spec::GoalSpec {
+            edam_data: "data:0951".into(),
+            edam_format: Some("format:3475".into()),
+            modifiers: BTreeMap::new(),
+            source_prose: Some("differential expression table".into()),
+            confidence: 0.8,
+        };
+        let project_class = "bioinformatics";
+
+        let mut ctx = crate::composer_v4::planning_context_for_goal_with_intake(
+            "rnaseq-ensemble-lowered",
+            &goal,
+            Some("bulk_rnaseq"),
+            None,
+            &[],
+        );
+        ctx.compose_ensemble = true;
+        ctx.ensemble_rosters = Some(Arc::new(
+            crate::ensemble_roster::EnsembleRosterProvider::from_dir(Path::new(
+                "../../config/ensemble-rosters",
+            )),
+        ));
+
+        let res = crate::composer_v4::plan(&ctx, &goal, project_class, &atom_reg, &archetype_reg);
+        let dag = &res
+            .alternatives
+            .iter()
+            .find(|a| a.source == "archetype")
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected an archetype-seeded alternative; sources={:?}",
+                    res.alternatives
+                        .iter()
+                        .map(|a| a.source.as_str())
+                        .collect::<Vec<_>>()
+                )
+            })
+            .dag;
+
+        let art = lower_to_workflow_json(dag, &EmitContext::defaults()).expect("lower");
+
+        let variant_task = art
+            .dag
+            .tasks
+            .get("differential_expression__v_edger")
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected differential_expression__v_edger task; tasks={:?}",
+                    art.dag.tasks.keys().collect::<Vec<_>>()
+                )
+            });
+        let variant_spec = variant_task
+            .spec
+            .as_ref()
+            .expect("variant task must carry a spec");
+        assert_eq!(
+            variant_spec
+                .get("ensemble_variant")
+                .and_then(|v| v.get("method"))
+                .and_then(|v| v.as_str()),
+            Some("edger"),
+            "lowered variant spec must carry ensemble_variant.method=edger; spec={variant_spec:?}"
+        );
+
+        let agg_task = art
+            .dag
+            .tasks
+            .get("assemble_ensemble_distribution")
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected assemble_ensemble_distribution task; tasks={:?}",
+                    art.dag.tasks.keys().collect::<Vec<_>>()
+                )
+            });
+        assert!(
+            agg_task
+                .spec
+                .as_ref()
+                .and_then(|s| s.get("builtin"))
+                .is_some(),
+            "aggregator task must carry spec.builtin; spec={:?}",
+            agg_task.spec
+        );
+
+        assert!(
+            !art.dag.tasks.contains_key("assemble_report_data"),
+            "ensemble mode must not lower an assemble_report_data task; tasks={:?}",
+            art.dag.tasks.keys().collect::<Vec<_>>()
+        );
+    }
+
     #[test]
     fn depends_on_threads_through_edges() {
         let dag = simple_dag();

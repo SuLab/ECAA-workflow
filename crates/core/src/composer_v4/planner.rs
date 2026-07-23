@@ -3878,6 +3878,152 @@ mod tests {
         );
     }
 
+    /// Plan 2 Task 7 (1/3) — the ensemble fan-out re-sort must be
+    /// deterministic: calling `plan()` twice against the identical
+    /// `PlanningContext` (same intake, same roster, same registries)
+    /// must yield byte-identical serialized DAGs. Guards the
+    /// fan-out/re-sort machinery against nondeterministic ordering
+    /// (e.g. iterating a `HashMap` roster or unstable sort) that would
+    /// otherwise break the emitted-package byte-reproducibility
+    /// contract.
+    #[test]
+    fn ensemble_emission_is_byte_deterministic() {
+        use std::path::Path;
+        use std::sync::Arc;
+
+        let atom_reg =
+            AtomRegistry::load_from_dir(Path::new("../../config/stage-atoms")).expect("atoms");
+        let archetype_reg =
+            ArchetypeRegistry::load_from_dir(Path::new("../../config/archetypes")).expect("arches");
+        let goal = GoalSpec {
+            edam_data: "data:0951".into(),
+            edam_format: Some("format:3475".into()),
+            modifiers: BTreeMap::new(),
+            source_prose: Some("differential expression table".into()),
+            confidence: 0.8,
+        };
+        let project_class = "bioinformatics";
+
+        let mut ctx = planning_context_for_goal_with_intake(
+            "rnaseq-ensemble-determinism",
+            &goal,
+            Some("bulk_rnaseq"),
+            None,
+            &[],
+        );
+        ctx.compose_ensemble = true;
+        ctx.ensemble_rosters = Some(Arc::new(
+            crate::ensemble_roster::EnsembleRosterProvider::from_dir(Path::new(
+                "../../config/ensemble-rosters",
+            )),
+        ));
+
+        fn archetype_dag(res: &PlannerResult) -> &WorkflowDag {
+            &res.alternatives
+                .iter()
+                .find(|a| a.source == "archetype")
+                .unwrap_or_else(|| {
+                    panic!(
+                        "expected an archetype-seeded alternative; sources={:?}",
+                        res.alternatives
+                            .iter()
+                            .map(|a| a.source.as_str())
+                            .collect::<Vec<_>>()
+                    )
+                })
+                .dag
+        }
+
+        let res1 = plan(&ctx, &goal, project_class, &atom_reg, &archetype_reg);
+        let res2 = plan(&ctx, &goal, project_class, &atom_reg, &archetype_reg);
+
+        let json1 = serde_json::to_string(archetype_dag(&res1)).expect("serialize dag1");
+        let json2 = serde_json::to_string(archetype_dag(&res2)).expect("serialize dag2");
+        assert_eq!(
+            json1, json2,
+            "ensemble fan-out DAG must serialize byte-identically across repeated plan() \
+             calls against the same PlanningContext"
+        );
+    }
+
+    /// Plan 2 Task 7 (2/3) — with `ctx.compose_ensemble = false` (all
+    /// else identical to the flag-on setup above), `plan()` must
+    /// reproduce pre-ensemble behavior exactly: a bare
+    /// `differential_expression` node, the ordinary
+    /// `assemble_report_data` companion, zero `__v_`-suffixed variant
+    /// nodes, and no `assemble_ensemble_distribution` aggregator. This
+    /// is the opt-in regression guard — the ensemble pass must be a
+    /// strict no-op when its flag is off.
+    #[test]
+    fn ensemble_off_is_unchanged() {
+        use std::path::Path;
+        use std::sync::Arc;
+
+        let atom_reg =
+            AtomRegistry::load_from_dir(Path::new("../../config/stage-atoms")).expect("atoms");
+        let archetype_reg =
+            ArchetypeRegistry::load_from_dir(Path::new("../../config/archetypes")).expect("arches");
+        let goal = GoalSpec {
+            edam_data: "data:0951".into(),
+            edam_format: Some("format:3475".into()),
+            modifiers: BTreeMap::new(),
+            source_prose: Some("differential expression table".into()),
+            confidence: 0.8,
+        };
+        let project_class = "bioinformatics";
+
+        let mut ctx = planning_context_for_goal_with_intake(
+            "rnaseq-ensemble-off",
+            &goal,
+            Some("bulk_rnaseq"),
+            None,
+            &[],
+        );
+        ctx.compose_ensemble = false;
+        // Roster is still attached (mirrors the flag-on ctx aside from
+        // the flag itself) to prove the flag — not roster absence — is
+        // what gates the fan-out.
+        ctx.ensemble_rosters = Some(Arc::new(
+            crate::ensemble_roster::EnsembleRosterProvider::from_dir(Path::new(
+                "../../config/ensemble-rosters",
+            )),
+        ));
+
+        let res = plan(&ctx, &goal, project_class, &atom_reg, &archetype_reg);
+        let dag = &res
+            .alternatives
+            .iter()
+            .find(|a| a.source == "archetype")
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected an archetype-seeded alternative; sources={:?}",
+                    res.alternatives
+                        .iter()
+                        .map(|a| a.source.as_str())
+                        .collect::<Vec<_>>()
+                )
+            })
+            .dag;
+        let node_ids: Vec<&str> = dag.nodes.iter().map(|n| n.id.as_str()).collect();
+
+        assert!(
+            node_ids.contains(&"differential_expression"),
+            "flag off must keep the bare DE node; nodes={node_ids:?}"
+        );
+        assert!(
+            node_ids.contains(&"assemble_report_data"),
+            "flag off must keep the ordinary report-data companion; nodes={node_ids:?}"
+        );
+        assert!(
+            !node_ids.iter().any(|id| id.contains("__v_")),
+            "flag off must not produce any ensemble variant nodes; nodes={node_ids:?}"
+        );
+        assert!(
+            !node_ids.contains(&"assemble_ensemble_distribution"),
+            "flag off must not produce the ensemble aggregator; nodes={node_ids:?}"
+        );
+    }
+
     #[test]
     fn empty_registry_returns_partial_dag() {
         let ctx = planning_context_for_goal("test", &simple_goal());
