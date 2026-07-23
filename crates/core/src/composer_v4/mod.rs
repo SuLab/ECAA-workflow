@@ -8,6 +8,7 @@ mod coherence_gate;
 pub mod companion_synthesis;
 pub mod dag_mutation;
 pub mod discover_companion_synthesis;
+pub mod ensemble_synthesis;
 pub mod forward_search;
 pub mod input_stage_prune;
 pub mod interpretation_synthesis;
