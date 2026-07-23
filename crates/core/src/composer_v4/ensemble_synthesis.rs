@@ -278,6 +278,75 @@ pub fn synthesize_ensemble_fanout(
     resort(dag);
 }
 
+/// Validated entry point for the ensemble pass — Plan-1 safety handoff
+/// N1. Runs every Plan-1 validator ([`crate::ensemble_roster::EnsembleRoster::validate_caps`],
+/// [`crate::ensemble_roster::validate_variant_tools`] against the resolved
+/// base atom, and [`crate::ensemble_roster::lint_persona_text`] over every
+/// interpretive lens's persona file) BEFORE touching `dag`. If any
+/// validator fails, `dag` is returned unmutated and the error is
+/// propagated — the honest-lens safety property only holds if these
+/// checks run before expansion, not after.
+///
+/// The four-conditions emission rule (see `CLAUDE.md`) means this
+/// function must never itself block emission: on `Err`, the caller (the
+/// planner) logs and degrades to the normal non-ensemble DAG — it does
+/// not abort emit.
+///
+/// When no schema-bearing fan-out target exists in `dag`, the core pass
+/// would no-op anyway, so this returns `Ok(())` without resolving a base
+/// atom or running `validate_variant_tools`.
+pub fn synthesize_ensemble_fanout_validated(
+    dag: &mut WorkflowDag,
+    atom_reg: &AtomRegistry,
+    roster: &EnsembleRoster,
+    persona_dir: &std::path::Path,
+) -> Result<(), String> {
+    roster.validate_caps()?;
+
+    // Resolve the first (sorted) schema-bearing fan-out target's base atom
+    // — same selector `synthesize_ensemble_fanout` uses. No target means
+    // the core pass would no-op, so there is nothing to validate against.
+    let mut target_ids: Vec<&str> = Vec::new();
+    for node in &dag.nodes {
+        let atom = atom_reg.get(&node.id).or_else(|| {
+            node.attributes
+                .get("atom_id")
+                .and_then(|v| v.as_str())
+                .and_then(|id| atom_reg.get(id))
+        });
+        if atom.map(|a| a.result_schema.is_some()).unwrap_or(false) {
+            target_ids.push(node.id.as_str());
+        }
+    }
+    target_ids.sort_unstable();
+    if let Some(&base_id) = target_ids.first() {
+        let base_atom = atom_reg
+            .get(base_id)
+            .or_else(|| {
+                dag.nodes
+                    .iter()
+                    .find(|n| n.id == base_id)
+                    .and_then(|n| n.attributes.get("atom_id"))
+                    .and_then(|v| v.as_str())
+                    .and_then(|id| atom_reg.get(id))
+            })
+            .ok_or_else(|| format!("ensemble validation: base atom '{base_id}' not resolvable"))?;
+        crate::ensemble_roster::validate_variant_tools(roster, base_atom)?;
+    } else {
+        return Ok(());
+    }
+
+    for lens in &roster.interpretive_lenses {
+        let path = persona_dir.join(&lens.persona_ref);
+        let text = std::fs::read_to_string(&path)
+            .map_err(|_| format!("persona file missing: {}", path.display()))?;
+        crate::ensemble_roster::lint_persona_text(&lens.id, &text)?;
+    }
+
+    synthesize_ensemble_fanout(dag, atom_reg, roster);
+    Ok(())
+}
+
 /// Build an `OrderingOnly` edge; the port strings are diagnostic — the
 /// lowering pass only reads `from_node`/`to_node` for `depends_on`.
 /// Mirrors `report_data_synthesis.rs::ordering_edge` /
@@ -630,5 +699,127 @@ mod tests {
             .filter(|n| n.id.starts_with("biological_interpretation__m_"))
             .count();
         assert_eq!(cells, expected, "fractional cell count == selected_cells().len()");
+    }
+
+    /// Shared fixture for the `*_validated` tests: a real
+    /// `differential_expression` node plus a real `final_reporting`
+    /// terminal, and the shipped `bulk_rnaseq` roster (cloned so callers
+    /// can mutate it freely).
+    fn validated_fixture() -> (
+        crate::atom_registry::AtomRegistry,
+        EnsembleRoster,
+        crate::workflow_contracts::task_node::WorkflowDag,
+        std::path::PathBuf,
+    ) {
+        use crate::atom_registry::AtomRegistry;
+        use crate::ensemble_roster::EnsembleRosterProvider;
+        use crate::workflow_contracts::task_node::{TaskNode, WorkflowDag};
+
+        let cfg = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../config"));
+        let reg = AtomRegistry::load_from_dir(&cfg.join("stage-atoms")).unwrap();
+        let roster = EnsembleRosterProvider::from_dir(&cfg.join("ensemble-rosters"))
+            .roster_for("bulk_rnaseq")
+            .cloned()
+            .unwrap();
+        let de = TaskNode::from_atom(reg.get("differential_expression").unwrap());
+        let dag = WorkflowDag {
+            id: "t".into(),
+            nodes: vec![de, TaskNode::skeleton("final_reporting", "f")],
+            edges: vec![],
+            assumptions: Default::default(),
+            source_template: None,
+        };
+        let persona_dir = cfg.join("ensemble-rosters/personas");
+        (reg, roster, dag, persona_dir)
+    }
+
+    fn no_v_nodes(dag: &crate::workflow_contracts::task_node::WorkflowDag) -> bool {
+        !dag.nodes.iter().any(|n| n.id.contains("__v_"))
+    }
+
+    #[test]
+    fn validated_rejects_too_small_caps() {
+        let (reg, mut roster, mut dag, persona_dir) = validated_fixture();
+        roster.caps.max_ensemble_members = 1;
+
+        let err = synthesize_ensemble_fanout_validated(&mut dag, &reg, &roster, &persona_dir)
+            .expect_err("caps too small must reject");
+        assert!(
+            err.contains("max_ensemble_members"),
+            "explains the cap: {err}"
+        );
+        assert!(no_v_nodes(&dag), "dag unchanged on validator failure");
+        assert!(
+            dag.nodes.iter().any(|n| n.id == "differential_expression"),
+            "base node still present, untouched"
+        );
+    }
+
+    #[test]
+    fn validated_rejects_unknown_tool() {
+        use crate::ensemble_roster::StatisticalVariant;
+
+        let (reg, mut roster, mut dag, persona_dir) = validated_fixture();
+        roster.statistical_variants.push(StatisticalVariant {
+            id: "x".into(),
+            tool: "not_a_de_tool".into(),
+            bootstrap_replicates: 0,
+        });
+
+        let err = synthesize_ensemble_fanout_validated(&mut dag, &reg, &roster, &persona_dir)
+            .expect_err("unknown tool must reject");
+        assert!(err.contains("not_a_de_tool"), "names the bad tool: {err}");
+        assert!(no_v_nodes(&dag), "dag unchanged on validator failure");
+    }
+
+    #[test]
+    fn validated_rejects_forbidden_persona() {
+        let (reg, mut roster, mut dag, _real_persona_dir) = validated_fixture();
+
+        let tmp = std::env::temp_dir().join(format!(
+            "ens_synth_personas_{}_{}",
+            std::process::id(),
+            "forbidden"
+        ));
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(
+            tmp.join("bad_lens.md"),
+            "You are a reviewer. Your job is to maximize the evidence for the hypothesis.",
+        )
+        .unwrap();
+
+        roster.interpretive_lenses = vec![crate::ensemble_roster::InterpretiveLens {
+            id: "bad_lens".into(),
+            persona_ref: "bad_lens.md".into(),
+            model_tier: "opus".into(),
+            retrieval: "recent".into(),
+            model: None,
+        }];
+
+        let err = synthesize_ensemble_fanout_validated(&mut dag, &reg, &roster, &tmp)
+            .expect_err("forbidden persona language must reject");
+        assert!(err.contains("bad_lens"), "names the persona: {err}");
+        assert!(no_v_nodes(&dag), "dag unchanged on validator failure");
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn validated_passes_shipped_roster_and_expands() {
+        let (reg, roster, mut dag, persona_dir) = validated_fixture();
+
+        synthesize_ensemble_fanout_validated(&mut dag, &reg, &roster, &persona_dir)
+            .expect("shipped bulk_rnaseq roster + real personas must validate");
+
+        let variant_count = dag
+            .nodes
+            .iter()
+            .filter(|n| n.id.starts_with("differential_expression__v_"))
+            .count();
+        assert_eq!(variant_count, 3, "K=3 variants expanded");
+        assert!(
+            dag.nodes.iter().any(|n| n.id == ENSEMBLE_AGGREGATOR_ID),
+            "cross-axis ensemble aggregator present"
+        );
     }
 }
