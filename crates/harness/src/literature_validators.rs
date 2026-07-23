@@ -1779,6 +1779,23 @@ pub fn run_doc_page_matches_tool(
 // (`use crate::validators::{ValidatorOutcome, ValidatorRunner};`), which is
 // module-scoped and so is in scope here too.
 
+/// An unresolved / missing gene-symbol sentinel — the value the contextualize
+/// step (or an org.Hs.eg.db lookup) writes when a locus has no symbol. It is
+/// NOT a real symbol, so it carries no symbol↔Ensembl binding to validate:
+/// BOTH the truth-map loader and the per-row consistency check skip it.
+/// Without this, several unresolved loci that all share `"NA"` collapse to the
+/// first `NA → Ensembl` binding in the truth map, and every other `NA` row then
+/// false-flags as a cross-gene wrong-binding against that arbitrary first
+/// Ensembl (the 2026-07-23 himes deposit domain-validation failure).
+fn is_unresolved_gene_symbol(s: &str) -> bool {
+    let t = s.trim();
+    t.is_empty()
+        || matches!(
+            t.to_ascii_lowercase().as_str(),
+            "na" | "n/a" | "nan" | "null" | "none" | "-" | "." | "?"
+        )
+}
+
 /// Read a delimited table into a `(symbol -> ensembl)` map by HEADER NAME,
 /// tolerating column-name variance: the symbol column is the first header in
 /// {`symbol`, `gene_symbol`, `gene_name`, `gene`} and the Ensembl column the
@@ -1815,7 +1832,7 @@ fn load_symbol_ensembl_map(path: &Path) -> Option<BTreeMap<String, String>> {
             continue;
         };
         let (sym, ens) = (sym.trim(), ens.trim());
-        if sym.is_empty() || ens.is_empty() {
+        if is_unresolved_gene_symbol(sym) || ens.is_empty() {
             continue;
         }
         // First binding wins (deterministic over the BTreeMap on re-read); the
@@ -2373,7 +2390,10 @@ pub fn gene_symbol_ensembl_consistent(package_root: &Path) -> ValidatorOutcome {
         let Some(symbol) = rec.get(sym_idx).map(str::trim) else {
             continue;
         };
-        if symbol.is_empty() {
+        // Skip unresolved-symbol rows ("NA", empty, …): an unresolved locus has
+        // no real symbol↔Ensembl binding to adjudicate, and several NA rows
+        // would otherwise all mismatch the first NA→Ensembl in the truth map.
+        if is_unresolved_gene_symbol(symbol) {
             continue;
         }
         let finding_id = rec.get(fid_idx).map(str::trim).unwrap_or("");
