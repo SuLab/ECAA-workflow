@@ -93,6 +93,7 @@
 
 use crate::atom_registry::AtomRegistry;
 use crate::ensemble_roster::EnsembleRoster;
+use crate::reexecution_bounds::ModalityBounds;
 use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind};
 use crate::workflow_contracts::port::PortContract;
 use crate::workflow_contracts::task_node::{TaskNode, WorkflowDag};
@@ -120,10 +121,18 @@ const CONTEXTUALIZE_BASE_ID: &str = "contextualize_findings_with_literature";
 /// method variants, and inject the statistical-distribution aggregator
 /// stub. No-op when: no schema-bearing node exists, or the pass has
 /// already run (idempotent). See module docs.
+///
+/// `bounds` is the caller-resolved [`ModalityBounds`] for `roster.modality`
+/// (the pass itself has no config-dir access, so callers resolve it —
+/// `synthesize_ensemble_fanout_validated` derives the config root from its
+/// `persona_dir` argument). Stamped onto the statistical aggregator as
+/// `relative_tolerance`/`absolute_tolerance` so the Plan-3 harness runner
+/// can classify cross-method robustness without its own config lookup.
 pub fn synthesize_ensemble_fanout(
     dag: &mut WorkflowDag,
     atom_reg: &AtomRegistry,
     roster: &EnsembleRoster,
+    bounds: &ModalityBounds,
 ) {
     // Idempotency guard.
     if dag
@@ -157,7 +166,7 @@ pub fn synthesize_ensemble_fanout(
     let mut new_edges: Vec<EdgeContract> = Vec::new();
 
     // Statistical aggregator stub (builtin -> skipped by validate-companion synthesis).
-    let agg = builtin_aggregator(
+    let mut agg = builtin_aggregator(
         ENSEMBLE_STAT_AGGREGATOR_ID,
         "Aggregate cross-method statistical distribution (Plan 3 fills the logic)",
         "aggregates every method variant's result artifact off disk",
@@ -179,6 +188,18 @@ pub fn synthesize_ensemble_fanout(
         .cloned()
         .collect();
     let base_node = dag.nodes.iter().find(|n| n.id == primary).cloned();
+    // Resolve the primary's base atom the same way the target-selection
+    // loop above does (id first, `atom_id` back-reference fallback) so the
+    // stat aggregator can carry the schema the Plan-3 harness runner reads
+    // to know which columns are entity/effect/significance.
+    let base_atom = atom_reg.get(&primary).or_else(|| {
+        base_node
+            .as_ref()
+            .and_then(|n| n.attributes.get("atom_id"))
+            .and_then(|v| v.as_str())
+            .and_then(|id| atom_reg.get(id))
+    });
+    let mut variant_stage_ids: Vec<String> = Vec::new();
     for sv in &roster.statistical_variants {
         let vid = format!("{primary}__v_{}", sv.id);
         let mut vn = base_node
@@ -218,8 +239,36 @@ pub fn synthesize_ensemble_fanout(
             ENSEMBLE_STAT_AGGREGATOR_ID,
             "method_result",
         ));
+        variant_stage_ids.push(vid.clone());
         new_nodes.push(vn);
     }
+    variant_stage_ids.sort();
+
+    // Stamp the Plan-3 harness runner's inputs onto the statistical
+    // aggregator: the K variant node ids to read off disk, the base atom's
+    // `result_schema` (so the runner knows which columns are
+    // entity/effect/significance; `null` when the base atom declares
+    // none), and the modality's re-execution tolerances (the same bounds
+    // `reexecution_bounds` uses to classify SemanticEquivalent, reused here
+    // to classify cross-method robustness).
+    agg.attributes.insert(
+        "variant_stage_ids".into(),
+        serde_json::to_value(&variant_stage_ids).unwrap_or(serde_json::Value::Null),
+    );
+    agg.attributes.insert(
+        "result_schema".into(),
+        base_atom
+            .map(|a| serde_json::to_value(&a.result_schema).unwrap_or(serde_json::Value::Null))
+            .unwrap_or(serde_json::Value::Null),
+    );
+    agg.attributes.insert(
+        "relative_tolerance".into(),
+        serde_json::json!(bounds.relative_tolerance),
+    );
+    agg.attributes.insert(
+        "absolute_tolerance".into(),
+        serde_json::json!(bounds.absolute_tolerance),
+    );
 
     // ---- Contextualization fan-out (M) + K×M interpretation grid + ensemble aggregator ----
     //
@@ -258,6 +307,7 @@ pub fn synthesize_ensemble_fanout(
     // K×M interpretation grid (or the fractional balanced subset). Each
     // cell reads its method variant's result and its lens's literature
     // concordance, and feeds the cross-axis ensemble aggregator.
+    let mut interpretation_cell_ids: Vec<String> = Vec::new();
     for (k, m) in roster.selected_cells() {
         let method = &roster.statistical_variants[k];
         let lens = &roster.interpretive_lenses[m];
@@ -303,16 +353,25 @@ pub fn synthesize_ensemble_fanout(
             ENSEMBLE_AGGREGATOR_ID,
             "cell_result",
         ));
+        interpretation_cell_ids.push(cell_id.clone());
         new_nodes.push(cell);
     }
+    interpretation_cell_ids.sort();
 
     // Cross-axis ensemble aggregator (builtin -> skipped by validate-companion synthesis).
-    new_nodes.push(builtin_aggregator(
+    // Stamp the K×M interpretation cell node ids so the Plan-3 harness
+    // runner knows which per-cell result artifacts to roll up.
+    let mut cross_agg = builtin_aggregator(
         ENSEMBLE_AGGREGATOR_ID,
         "Aggregate cross-axis ensemble distribution over the K×M interpretation grid",
         "aggregates every interpretation cell's result artifact off disk",
         "ensemble_distribution",
-    ));
+    );
+    cross_agg.attributes.insert(
+        "interpretation_cell_ids".into(),
+        serde_json::to_value(&interpretation_cell_ids).unwrap_or(serde_json::Value::Null),
+    );
+    new_nodes.push(cross_agg);
 
     // Wire the cross-axis aggregator onward to the reporting terminals it
     // supersedes. The base primary's direct reporting feed is dropped
@@ -450,7 +509,25 @@ pub fn synthesize_ensemble_fanout_validated(
         crate::ensemble_roster::lint_persona_text(&lens.id, &text)?;
     }
 
-    synthesize_ensemble_fanout(dag, atom_reg, roster);
+    // Resolve `roster.modality`'s re-execution bounds for the stat
+    // aggregator. `persona_dir` is always
+    // `<config>/ensemble-rosters/personas` (see
+    // `EnsembleRosterProvider::personas_dir`), so its grandparent is the
+    // config root; `ModalityBoundsProvider::from_dir` degrades to the
+    // fallback-only provider on a missing/malformed dir (never panics),
+    // so an unexpected `persona_dir` shape just yields the generic ±5%
+    // bounds rather than an error here.
+    let config_root = persona_dir.parent().and_then(std::path::Path::parent);
+    let bounds = config_root
+        .map(|root| {
+            crate::reexecution_bounds::ModalityBoundsProvider::from_dir(
+                &root.join("reexecution-bounds"),
+            )
+            .bounds_for(&roster.modality)
+        })
+        .unwrap_or_default();
+
+    synthesize_ensemble_fanout(dag, atom_reg, roster, &bounds);
     Ok(())
 }
 
@@ -586,7 +663,7 @@ mod tests {
             source_template: None,
         };
 
-        synthesize_ensemble_fanout(&mut dag, &reg, &roster);
+        synthesize_ensemble_fanout(&mut dag, &reg, &roster, &ModalityBounds::default());
 
         let variant_ids: Vec<&str> = dag
             .nodes
@@ -629,7 +706,7 @@ mod tests {
 
         let n0 = dag.nodes.len();
         let e0 = dag.edges.len();
-        synthesize_ensemble_fanout(&mut dag, &reg, &roster);
+        synthesize_ensemble_fanout(&mut dag, &reg, &roster, &ModalityBounds::default());
         assert_eq!(dag.nodes.len(), n0, "idempotent nodes");
         assert_eq!(dag.edges.len(), e0, "idempotent edges");
     }
@@ -668,7 +745,7 @@ mod tests {
             source_template: None,
         };
 
-        synthesize_ensemble_fanout(&mut dag, &reg, &roster);
+        synthesize_ensemble_fanout(&mut dag, &reg, &roster, &ModalityBounds::default());
 
         // M contextualization variants.
         for lens in &roster.interpretive_lenses {
@@ -809,7 +886,7 @@ mod tests {
             source_template: None,
         };
 
-        synthesize_ensemble_fanout(&mut dag, &reg, &roster);
+        synthesize_ensemble_fanout(&mut dag, &reg, &roster, &ModalityBounds::default());
 
         let cells = dag
             .nodes
@@ -939,5 +1016,90 @@ mod tests {
             dag.nodes.iter().any(|n| n.id == ENSEMBLE_AGGREGATOR_ID),
             "cross-axis ensemble aggregator present"
         );
+    }
+
+    /// Plan-3 Task-1: the two aggregator nodes carry the inputs their
+    /// harness runners need — the stat aggregator gets the sorted K
+    /// variant ids, the base atom's `result_schema`, and the shipped
+    /// `bulk_rnaseq` re-execution bounds (0.02 / 0.001); the ensemble
+    /// aggregator gets the sorted K×M cell ids. Goes through the real
+    /// `*_validated` entry point so bounds resolution (persona_dir ->
+    /// config root -> reexecution-bounds) is exercised end-to-end.
+    #[test]
+    fn aggregator_inputs_stamped() {
+        let (reg, roster, mut dag, persona_dir) = validated_fixture();
+
+        synthesize_ensemble_fanout_validated(&mut dag, &reg, &roster, &persona_dir)
+            .expect("shipped bulk_rnaseq roster + real personas must validate");
+
+        let stat_agg = dag
+            .nodes
+            .iter()
+            .find(|n| n.id == ENSEMBLE_STAT_AGGREGATOR_ID)
+            .expect("stat aggregator present");
+
+        let variant_ids: Vec<String> = stat_agg
+            .attributes
+            .get("variant_stage_ids")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .expect("variant_stage_ids present + deserializes to Vec<String>");
+        assert_eq!(
+            variant_ids,
+            vec![
+                "differential_expression__v_deseq2".to_string(),
+                "differential_expression__v_edger".to_string(),
+                "differential_expression__v_limma".to_string(),
+            ],
+            "variant_stage_ids == sorted K=3 DE variant ids"
+        );
+
+        let result_schema = stat_agg
+            .attributes
+            .get("result_schema")
+            .expect("result_schema key present");
+        assert!(!result_schema.is_null(), "base atom declares a result_schema");
+        let schema: crate::report_contract::ResultSchema =
+            serde_json::from_value(result_schema.clone())
+                .expect("result_schema deserializes to ResultSchema");
+        let base_atom = reg
+            .get("differential_expression")
+            .expect("differential_expression atom");
+        assert_eq!(
+            Some(schema),
+            base_atom.result_schema.clone(),
+            "stamped result_schema matches the DE atom's declared schema"
+        );
+
+        assert_eq!(
+            stat_agg
+                .attributes
+                .get("relative_tolerance")
+                .and_then(|v| v.as_f64()),
+            Some(0.02),
+            "bulk_rnaseq relative_tolerance"
+        );
+        assert_eq!(
+            stat_agg
+                .attributes
+                .get("absolute_tolerance")
+                .and_then(|v| v.as_f64()),
+            Some(0.001),
+            "bulk_rnaseq absolute_tolerance"
+        );
+
+        let ensemble_agg = dag
+            .nodes
+            .iter()
+            .find(|n| n.id == ENSEMBLE_AGGREGATOR_ID)
+            .expect("ensemble aggregator present");
+        let cell_ids: Vec<String> = ensemble_agg
+            .attributes
+            .get("interpretation_cell_ids")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .expect("interpretation_cell_ids present + deserializes to Vec<String>");
+        assert_eq!(cell_ids.len(), 9, "K*M = 9 interpretation cell ids");
+        let mut sorted = cell_ids.clone();
+        sorted.sort();
+        assert_eq!(cell_ids, sorted, "interpretation_cell_ids is sorted");
     }
 }

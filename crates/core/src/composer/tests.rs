@@ -1398,7 +1398,12 @@ fn ensemble_lowering_validates_without_cycle_and_reaches_reporting() {
         source_template: None,
     };
 
-    synthesize_ensemble_fanout(&mut dag, &reg, &roster);
+    synthesize_ensemble_fanout(
+        &mut dag,
+        &reg,
+        &roster,
+        &crate::reexecution_bounds::ModalityBounds::default(),
+    );
 
     // Crit-1 guard: lower into a CompositionResult and run the real
     // validation pass. Pre-fix, the K variants collapse onto one stage_id

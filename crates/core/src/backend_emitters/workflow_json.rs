@@ -557,6 +557,28 @@ fn lower_task(node: &TaskNode, depends_on: Vec<TaskId>) -> Result<Task, EmitErro
     if let Some(rs) = node.attributes.get("report_schemas") {
         spec_map.insert("report_schemas".into(), rs.clone());
     }
+    // Plan-3 ensemble aggregator inputs — stamped by
+    // `composer_v4::ensemble_synthesis::synthesize_ensemble_fanout` on the
+    // two builtin aggregator nodes it synthesizes. `variant_stage_ids` /
+    // `result_schema` / `relative_tolerance` / `absolute_tolerance` land on
+    // `assemble_statistical_distribution` (the cross-method robustness
+    // runner's inputs); `interpretation_cell_ids` lands on
+    // `assemble_ensemble_distribution` (the cross-axis rollup runner's
+    // inputs). Mirrors `report_schemas`: an allowlisted pass-through so the
+    // harness's in-process builtin dispatch can read them from
+    // `spec.<key>` without a runtime AtomRegistry/config dependency.
+    // Additive: emitted only on the two nodes the pass stamped.
+    for key in [
+        "variant_stage_ids",
+        "result_schema",
+        "relative_tolerance",
+        "absolute_tolerance",
+        "interpretation_cell_ids",
+    ] {
+        if let Some(v) = node.attributes.get(key) {
+            spec_map.insert(key.into(), v.clone());
+        }
+    }
     // `ensemble_variant` is stamped onto fan-out variant nodes by the v4
     // planner to surface analytical parallelization choices (e.g. statistical
     // method axis + selected method) into the task spec so the reporting
@@ -1365,6 +1387,124 @@ mod tests {
             "ensemble mode must not lower an assemble_report_data task; tasks={:?}",
             art.dag.tasks.keys().collect::<Vec<_>>()
         );
+    }
+
+    /// Plan-3 Task-1: the two aggregator tasks' lowered `spec` carries the
+    /// Task-1 allowlisted keys — mirrors
+    /// `ensemble_lowered_workflow_json_carries_variant_specs` but asserts
+    /// the harness-runner inputs instead of `ensemble_variant`/`builtin`.
+    #[test]
+    fn ensemble_lowered_workflow_json_carries_aggregator_inputs() {
+        use std::path::Path;
+        use std::sync::Arc;
+
+        let atom_reg = crate::atom_registry::AtomRegistry::load_from_dir(Path::new(
+            "../../config/stage-atoms",
+        ))
+        .expect("atoms");
+        let archetype_reg = crate::archetype_registry::ArchetypeRegistry::load_from_dir(
+            Path::new("../../config/archetypes"),
+        )
+        .expect("arches");
+        let goal = crate::goal_spec::GoalSpec {
+            edam_data: "data:0951".into(),
+            edam_format: Some("format:3475".into()),
+            modifiers: BTreeMap::new(),
+            source_prose: Some("differential expression table".into()),
+            confidence: 0.8,
+        };
+        let project_class = "bioinformatics";
+
+        let mut ctx = crate::composer_v4::planning_context_for_goal_with_intake(
+            "rnaseq-ensemble-aggregator-inputs",
+            &goal,
+            Some("bulk_rnaseq"),
+            None,
+            &[],
+        );
+        ctx.compose_ensemble = true;
+        ctx.ensemble_rosters = Some(Arc::new(
+            crate::ensemble_roster::EnsembleRosterProvider::from_dir(Path::new(
+                "../../config/ensemble-rosters",
+            )),
+        ));
+
+        let res = crate::composer_v4::plan(&ctx, &goal, project_class, &atom_reg, &archetype_reg);
+        let dag = &res
+            .alternatives
+            .iter()
+            .find(|a| a.source == "archetype")
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected an archetype-seeded alternative; sources={:?}",
+                    res.alternatives
+                        .iter()
+                        .map(|a| a.source.as_str())
+                        .collect::<Vec<_>>()
+                )
+            })
+            .dag;
+
+        let art = lower_to_workflow_json(dag, &EmitContext::defaults()).expect("lower");
+
+        let stat_task = art
+            .dag
+            .tasks
+            .get("assemble_statistical_distribution")
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected assemble_statistical_distribution task; tasks={:?}",
+                    art.dag.tasks.keys().collect::<Vec<_>>()
+                )
+            });
+        let stat_spec = stat_task
+            .spec
+            .as_ref()
+            .expect("stat aggregator task must carry a spec");
+        let variant_ids = stat_spec
+            .get("variant_stage_ids")
+            .and_then(|v| v.as_array())
+            .unwrap_or_else(|| panic!("spec.variant_stage_ids present; spec={stat_spec:?}"));
+        assert_eq!(variant_ids.len(), 3, "K=3 variant ids in the lowered spec");
+        assert!(
+            !stat_spec
+                .get("result_schema")
+                .unwrap_or(&serde_json::Value::Null)
+                .is_null(),
+            "spec.result_schema present + non-null; spec={stat_spec:?}"
+        );
+        assert_eq!(
+            stat_spec.get("relative_tolerance").and_then(|v| v.as_f64()),
+            Some(0.02),
+            "spec.relative_tolerance == bulk_rnaseq bounds; spec={stat_spec:?}"
+        );
+        assert_eq!(
+            stat_spec.get("absolute_tolerance").and_then(|v| v.as_f64()),
+            Some(0.001),
+            "spec.absolute_tolerance == bulk_rnaseq bounds; spec={stat_spec:?}"
+        );
+
+        let ensemble_task = art
+            .dag
+            .tasks
+            .get("assemble_ensemble_distribution")
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected assemble_ensemble_distribution task; tasks={:?}",
+                    art.dag.tasks.keys().collect::<Vec<_>>()
+                )
+            });
+        let ensemble_spec = ensemble_task
+            .spec
+            .as_ref()
+            .expect("ensemble aggregator task must carry a spec");
+        let cell_ids = ensemble_spec
+            .get("interpretation_cell_ids")
+            .and_then(|v| v.as_array())
+            .unwrap_or_else(|| {
+                panic!("spec.interpretation_cell_ids present; spec={ensemble_spec:?}")
+            });
+        assert_eq!(cell_ids.len(), 9, "K*M = 9 interpretation cell ids in the lowered spec");
     }
 
     #[test]
