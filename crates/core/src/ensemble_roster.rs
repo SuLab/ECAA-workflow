@@ -118,23 +118,42 @@ impl EnsembleRosterProvider {
 /// prior-framing barely moves conclusions while *active* confirmation-
 /// seeking drives 34–66pp support-rate swings — the ensemble's honesty
 /// requires lenses to be subfield viewpoints, never advocates.
+///
+/// NON-EXHAUSTIVE literal-phrase blocklist: a load-time backstop over
+/// operator-authored, human-reviewed persona files, not a complete
+/// adversarial filter.
 const CONFIRMATION_SEEKING_PATTERNS: &[&str] = &[
     "maximize evidence",
     "maximize the evidence",
+    "maximise evidence",
+    "maximise the evidence",
     "find support",
+    "finding support",
     "find supporting",
     "most supportive",
-    "one-sided",
     "p-hack",
+    "p hack",
     "p hacking",
     "specification search",
     "seek confirmation",
+    "seeks confirmation",
+    "seeking confirmation",
     "confirm the hypothesis",
+    "confirms the hypothesis",
+    "confirming the hypothesis",
     "prove the hypothesis",
+    "proves the hypothesis",
+    "proving the hypothesis",
+    "cherry-pick",
+    "cherry pick",
 ];
 
-/// Reject any persona text containing confirmation-seeking / advocacy
-/// language (case-insensitive). Returns the offending phrase in the error.
+/// Reject persona text containing any phrase from the fixed
+/// [`CONFIRMATION_SEEKING_PATTERNS`] blocklist (case-insensitive substring
+/// match). This is a non-exhaustive backstop over human-reviewed persona
+/// files, not an exhaustive adversarial filter — it will not catch every
+/// paraphrase of confirmation-seeking language. Returns the offending
+/// phrase in the error.
 pub fn lint_persona_text(persona_id: &str, text: &str) -> Result<(), String> {
     let lower = text.to_lowercase();
     for pat in CONFIRMATION_SEEKING_PATTERNS {
@@ -220,5 +239,17 @@ caps:
             err.to_lowercase().contains("confirmation-seeking"),
             "error explains the rule: {err}"
         );
+    }
+
+    #[test]
+    fn honest_lens_catches_inflected_variant() {
+        assert!(
+            lint_persona_text("x", "This analysis confirms the hypothesis strongly.").is_err()
+        );
+    }
+
+    #[test]
+    fn honest_lens_allows_legitimate_one_sided_test() {
+        assert!(lint_persona_text("x", "Where appropriate, report a one-sided test.").is_ok());
     }
 }
