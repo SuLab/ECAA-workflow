@@ -862,9 +862,11 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
         );
     // WG3 — honor ECAA_COMPOSE_STRICT (RiskMode::Production) at the CLI
     // intake entry. Default off keeps the byte-reproducible baseline.
-    let compose_strict = ecaa_workflow_core::config::Config::from_env()
-        .map(|c| c.compose_strict)
-        .unwrap_or(false);
+    // Read both compose gates from the one typed Config; ECAA_COMPOSE_ENSEMBLE
+    // (default off) drives the multi-analyst ensemble fan-out.
+    let (compose_strict, compose_ensemble) = ecaa_workflow_core::config::Config::from_env()
+        .map(|c| (c.compose_strict, c.compose_ensemble))
+        .unwrap_or((false, false));
     let output_compose =
         ecaa_workflow_core::composer::compose_with_modalities_full_pref_strict(
             &goal,
@@ -879,6 +881,10 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
             None,
             &preferred_methods,
             compose_strict,
+            // Ensemble roster provider loads from the same config dir the
+            // atom/archetype registries came from.
+            Some(config_path),
+            compose_ensemble,
         )
         .map_err(|e| anyhow::anyhow!("v4 composer dispatch failed: {:?}", e))?;
     // Literature contextualization is unconditional — the

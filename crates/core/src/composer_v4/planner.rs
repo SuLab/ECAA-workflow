@@ -3419,6 +3419,22 @@ pub fn planning_context_with_ontology_scope(
     ctx
 }
 
+/// Attach the per-modality ensemble roster provider, loading it from
+/// `<config_dir>/ensemble-rosters`. Mirrors
+/// `planning_context_with_ontology_scope`. A missing directory yields an
+/// empty provider (never panics), so the attach is always safe; the
+/// ensemble pass is gated separately on `ctx.compose_ensemble`.
+pub fn planning_context_with_ensemble_rosters(
+    mut ctx: PlanningContext,
+    config_dir: &std::path::Path,
+) -> PlanningContext {
+    let provider = crate::ensemble_roster::EnsembleRosterProvider::from_dir(
+        &config_dir.join("ensemble-rosters"),
+    );
+    ctx.ensemble_rosters = Some(std::sync::Arc::new(provider));
+    ctx
+}
+
 /// One-line summary used in the UI alternative-comparison card.
 fn summarize_dag(dag: &WorkflowDag, score: &ScoringTuple) -> String {
     format!(

@@ -217,6 +217,16 @@ pub(crate) fn compose_v4_dispatch_full(
     // `RiskMode::Production` (declared OrderingOnly edges also reject);
     // `false` keeps `RiskMode::Draft`. Bare/test callers pass `false`.
     compose_strict: bool,
+    // Config-root used to load the per-modality ensemble rosters when
+    // `compose_ensemble` is set. `None` at bare/test/delegator call
+    // sites (no roster attach → byte-identical emit); the two production
+    // seams (CLI `intake`, chat `rebuild_dag`) pass the same config dir
+    // the atom/archetype registries were loaded from.
+    config_dir: Option<&std::path::Path>,
+    // `ECAA_COMPOSE_ENSEMBLE`. When true (and a roster exists for the
+    // modality), the v4 planner fans into a K×M multi-analyst ensemble.
+    // Default false preserves the byte-reproducibility baseline.
+    compose_ensemble: bool,
 ) -> Result<ComposerOutput, CompositionError> {
     use crate::composer_v4;
 
@@ -488,6 +498,15 @@ pub(crate) fn compose_v4_dispatch_full(
     } else {
         crate::compatibility::engine::RiskMode::Draft
     };
+    // Ensemble fan-out gate. Default off (bare/test/delegator callers)
+    // keeps the byte-reproducibility baseline; when the operator sets
+    // `ECAA_COMPOSE_ENSEMBLE=1` at a production seam, attach the
+    // per-modality roster provider loaded from the same config dir the
+    // registries came from so the (later) ensemble pass can read it.
+    ctx.compose_ensemble = compose_ensemble;
+    if let Some(dir) = config_dir.filter(|_| compose_ensemble) {
+        ctx = composer_v4::planning_context_with_ensemble_rosters(ctx, dir);
+    }
     // Session-scope every verifier-substrate row recorded for the rest
     // of this dispatch (the engine + planner rows fired inside `plan()`
     // below, plus the policy-gate rows fired by `collect_policy_decisions`)
@@ -831,6 +850,10 @@ pub fn compose_with_modalities_full_pref(
         opaque_session_id,
         preferred_methods,
         false,
+        // Bare/test/CLI-build delegator: no ensemble roster attach,
+        // gate off → byte-identical emit.
+        None,
+        false,
     )
 }
 
@@ -859,6 +882,12 @@ pub fn compose_with_modalities_full_pref_strict(
     opaque_session_id: Option<&str>,
     preferred_methods: &crate::preferred_methods::PreferredMethods,
     compose_strict: bool,
+    // Config-root for the ensemble-roster provider + the
+    // `ECAA_COMPOSE_ENSEMBLE` gate. `None`/`false` at bare/test callers
+    // (byte-identical emit); the two production seams pass the config
+    // dir their registries came from and `Config::compose_ensemble`.
+    config_dir: Option<&std::path::Path>,
+    compose_ensemble: bool,
 ) -> Result<ComposerOutput, CompositionError> {
     // Atypical-shape fall-through. The v4 dispatch jumps straight to
     // `compose_v4_dispatch_full` for the normal path, so flex-shape /
@@ -911,6 +940,8 @@ pub fn compose_with_modalities_full_pref_strict(
             opaque_session_id,
             preferred_methods,
             compose_strict,
+            config_dir,
+            compose_ensemble,
         );
     }
     // v4 dispatch already takes the policy context; for multi-modality
@@ -930,5 +961,7 @@ pub fn compose_with_modalities_full_pref_strict(
         opaque_session_id,
         preferred_methods,
         compose_strict,
+        config_dir,
+        compose_ensemble,
     )
 }

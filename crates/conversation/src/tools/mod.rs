@@ -3612,10 +3612,12 @@ fn try_build_via_composer(
     // WG3 — honor ECAA_COMPOSE_STRICT (RiskMode::Production) on the chat
     // rebuild_dag path. Default off keeps Draft behavior + the corpus
     // baseline; clinical-tier sessions that want ordering exemptions
-    // re-justified set the env var.
-    let compose_strict = ecaa_workflow_core::config::Config::from_env()
-        .map(|c| c.compose_strict)
-        .unwrap_or(false);
+    // re-justified set the env var. ECAA_COMPOSE_ENSEMBLE (default off)
+    // drives the multi-analyst ensemble fan-out; both read from the one
+    // typed Config.
+    let (compose_strict, compose_ensemble) = ecaa_workflow_core::config::Config::from_env()
+        .map(|c| (c.compose_strict, c.compose_ensemble))
+        .unwrap_or((false, false));
     let output = match ecaa_workflow_core::composer::compose_with_modalities_full_pref_strict(
         &goal,
         project_class_str,
@@ -3627,6 +3629,10 @@ fn try_build_via_composer(
         Some(session_id_str.as_str()),
         &preferred_methods,
         compose_strict,
+        // Ensemble roster provider loads from the same config dir the
+        // atom/archetype registries were loaded from above.
+        Some(config_dir),
+        compose_ensemble,
     ) {
         Ok(c) => c,
         Err(e) => {

@@ -29,7 +29,8 @@ pub use forward_search::{forward_search, ForwardFrontier, ForwardFrontierEntry};
 pub use meet_in_middle::{meet_in_the_middle, MeetResult};
 pub use planner::{
     lift_to_workflow_dag, lower_dag_to_composition_result, plan, planning_context_for_goal,
-    planning_context_for_goal_with_intake, planning_context_for_goal_with_modalities, rescore_dag,
+    planning_context_for_goal_with_intake, planning_context_for_goal_with_modalities,
+    planning_context_with_ensemble_rosters, rescore_dag,
 };
 pub use scoring::{ScoringTuple, ScoringValue};
 
@@ -194,6 +195,18 @@ pub struct PlanningContext {
     /// derive) preserves the byte-reproducibility baseline; the
     /// dispatcher sets it from `Config::compose_interpretation`.
     pub compose_interpretation: bool,
+    /// `ECAA_COMPOSE_ENSEMBLE`. When true (and a roster exists for the
+    /// modality), the v4 planner fans analysis + contextualization +
+    /// interpretation into a K×M multi-analyst ensemble. Default false
+    /// (via the struct's `Default` derive) preserves the
+    /// byte-reproducibility baseline; the dispatcher sets it from
+    /// `Config::compose_ensemble`.
+    pub compose_ensemble: bool,
+    /// Per-modality ensemble rosters, loaded from `config/ensemble-rosters/`.
+    /// `None` → the ensemble pass is a no-op. Same `Option<Arc<...>>`
+    /// shape as the other provider fields so existing call sites compile
+    /// unchanged; attached by `planner::planning_context_with_ensemble_rosters`.
+    pub ensemble_rosters: Option<std::sync::Arc<crate::ensemble_roster::EnsembleRosterProvider>>,
 }
 
 impl PlanningContext {
@@ -354,6 +367,18 @@ mod tests {
             !ctx.compose_interpretation,
             "PlanningContext.compose_interpretation must default off"
         );
+    }
+
+    #[test]
+    fn planning_context_carries_ensemble_gate_and_rosters() {
+        use std::path::Path;
+        let cfg = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../config"));
+        let ctx = crate::composer_v4::PlanningContext::default();
+        assert!(!ctx.compose_ensemble, "gate defaults off");
+        assert!(ctx.ensemble_rosters.is_none(), "no provider by default");
+        let ctx = crate::composer_v4::planning_context_with_ensemble_rosters(ctx, cfg);
+        let provider = ctx.ensemble_rosters.expect("provider attached");
+        assert!(provider.roster_for("bulk_rnaseq").is_some(), "loads shipped roster");
     }
 
     #[test]

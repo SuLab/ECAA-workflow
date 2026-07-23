@@ -74,6 +74,9 @@ fn promoted_cross_omics_archetypes_compose_clean_under_production() {
             None,
             &PreferredMethods::new(),
             true,
+            // Ensemble gate off for this promotion-gate check.
+            None,
+            false,
         );
         assert!(
             out.is_ok(),
