@@ -113,6 +113,42 @@ impl EnsembleRosterProvider {
     }
 }
 
+/// Confirmation-seeking / advocacy phrases forbidden in a persona file.
+/// PNAS (Bertran, Fogliato & Wu 2026, arXiv:2602.18710) shows *passive*
+/// prior-framing barely moves conclusions while *active* confirmation-
+/// seeking drives 34–66pp support-rate swings — the ensemble's honesty
+/// requires lenses to be subfield viewpoints, never advocates.
+const CONFIRMATION_SEEKING_PATTERNS: &[&str] = &[
+    "maximize evidence",
+    "maximize the evidence",
+    "find support",
+    "find supporting",
+    "most supportive",
+    "one-sided",
+    "p-hack",
+    "p hacking",
+    "specification search",
+    "seek confirmation",
+    "confirm the hypothesis",
+    "prove the hypothesis",
+];
+
+/// Reject any persona text containing confirmation-seeking / advocacy
+/// language (case-insensitive). Returns the offending phrase in the error.
+pub fn lint_persona_text(persona_id: &str, text: &str) -> Result<(), String> {
+    let lower = text.to_lowercase();
+    for pat in CONFIRMATION_SEEKING_PATTERNS {
+        if lower.contains(pat) {
+            return Err(format!(
+                "persona '{persona_id}' contains forbidden confirmation-seeking \
+                 language '{pat}'; lenses must be honest subfield viewpoints, \
+                 never advocacy"
+            ));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -165,5 +201,24 @@ caps:
     fn missing_dir_yields_empty_provider() {
         let provider = EnsembleRosterProvider::from_dir(std::path::Path::new("/nonexistent/xyz"));
         assert!(provider.roster_for("anything").is_none());
+    }
+
+    #[test]
+    fn honest_lens_passes_clean_persona() {
+        let ok = "You are a molecular-mechanism biologist. Interpret each result \
+                  strictly against the evidence; note mechanisms salient to your field.";
+        assert!(lint_persona_text("molecular_mechanism", ok).is_ok());
+    }
+
+    #[test]
+    fn honest_lens_rejects_confirmation_seeking() {
+        let bad = "Conduct a specification search to maximize the evidence in favor \
+                   of the hypothesis and present the most supportive result.";
+        let err = lint_persona_text("bad_lens", bad).unwrap_err();
+        assert!(err.contains("bad_lens"), "error names the persona: {err}");
+        assert!(
+            err.to_lowercase().contains("confirmation-seeking"),
+            "error explains the rule: {err}"
+        );
     }
 }
