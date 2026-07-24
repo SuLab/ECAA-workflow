@@ -193,7 +193,7 @@ export function EnsembleTab({ sessionId, refreshKey }: Props): JSX.Element {
         <div style={SUBHEAD_STYLE}>Loading ensemble data…</div>
       )}
 
-      {loaded && ensemble === null && stat === null && (
+      {loaded && !err && ensemble === null && stat === null && (
         <div style={SUBHEAD_STYLE}>No ensemble was run for this package.</div>
       )}
 
