@@ -751,8 +751,8 @@ export default function TaskDetailDrawer({
             </span>
           </div>
           {(task.execution_index != null ||
-            task.inputs.length > 0 ||
-            task.outputs.length > 0 ||
+            (task.inputs?.length ?? 0) > 0 ||
+            (task.outputs?.length ?? 0) > 0 ||
             task.edam_operation) && (
             // Additive, presentational: execution-order ordinal + per-port EDAM
             // data/operation types. Read-only; never affects execution.
@@ -787,7 +787,7 @@ export default function TaskDetailDrawer({
                   {task.edam_operation}
                 </span>
               )}
-              {task.inputs
+              {(task.inputs ?? [])
                 .filter((p) => p.edam_data)
                 .map((p) => (
                   <span
@@ -805,7 +805,7 @@ export default function TaskDetailDrawer({
                     in {p.edam_data}
                   </span>
                 ))}
-              {task.outputs
+              {(task.outputs ?? [])
                 .filter((p) => p.edam_data)
                 .map((p) => (
                   <span

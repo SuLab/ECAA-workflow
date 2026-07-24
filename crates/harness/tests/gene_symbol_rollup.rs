@@ -123,3 +123,41 @@ fn benign_paralog_leaves_domain_rollup_passing() {
         ReexecStatus::Partial
     ));
 }
+
+/// Unresolved-symbol rows ("NA") carry no real symbol↔Ensembl binding, so they
+/// must be SKIPPED — not collapsed to the first `NA → Ensembl` in the truth map
+/// and then false-flagged as cross-gene wrong-bindings. Reproduces the
+/// 2026-07-23 himes deposit domain-validation failure: two DE loci whose symbol
+/// org.Hs.eg.db could not resolve ("NA") each mismatched the first "NA" Ensembl.
+#[test]
+fn unresolved_na_symbols_are_skipped_not_false_flagged() {
+    let dir = TempDir::new().unwrap();
+    // Truth table + matrix both carry several genes whose symbol is "NA"
+    // (unresolved); a real gene (CRISPLD2 → its correct Ensembl) is consistent.
+    scaffold(
+        dir.path(),
+        "symbol\tgene_id\tstat\n\
+         NA\tENSG00000002079\t3.0\n\
+         NA\tENSG00000006114\t-2.0\n\
+         NA\tENSG00000056661\t-1.0\n\
+         CRISPLD2\tENSG00000103196\t16.7\n",
+        "finding_id,gene_symbol\n\
+         ENSG00000006114,NA\n\
+         ENSG00000056661,NA\n\
+         ENSG00000103196,CRISPLD2\n",
+    );
+
+    assert!(
+        matches!(
+            gene_symbol_ensembl_consistent(dir.path()),
+            ValidatorOutcome::Passed
+        ),
+        "unresolved NA-symbol rows must be skipped, not flagged as wrong-bindings"
+    );
+    let summary = scan_domain_validation(dir.path());
+    assert!(
+        summary.passed(),
+        "NA-symbol rows must not fail the domain rollup: {summary:?}"
+    );
+    assert!(summary.required_failures.is_empty());
+}

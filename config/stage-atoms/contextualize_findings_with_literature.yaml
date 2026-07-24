@@ -5,8 +5,8 @@ description: |
   Map each row of the upstream findings table (DE genes / called peaks /
   called variants) to PMID-anchored prior-work rows. Emit
   claims_evidence_matrix.csv with deterministic concordance flags
-  (same_direction / opposite_direction / no_prior_finding / unverifiable).
-  No synthesis; no narrative.
+  (same_direction / opposite_direction / no_prior_finding / unverifiable /
+  not_assessed). No synthesis; no narrative.
 edam_operation: "operation:0305"
 assignee: agent
 depends_on:
@@ -121,10 +121,16 @@ claim_boundary: |
   concordance flag whose semantics are: same_direction iff the prior's effect
   direction matches the analysis effect direction AND both effect-size
   magnitudes are >0; opposite_direction iff signs differ; no_prior_finding
-  iff zero prior rows for this entity in this tissue; unverifiable iff prior
-  rows exist but their evidence_quote does not specify a direction. Do NOT
-  introduce composite or narrative claims. Do NOT generate paragraphs that
-  the upstream atom did not also generate row-wise.
+  iff a literature query WAS ACTUALLY ISSUED for this entity and returned zero
+  usable prior rows (searched, nothing found); unverifiable iff prior rows
+  exist but their evidence_quote does not specify a direction; not_assessed
+  iff retrieval was NOT performed for this entity — it lies outside the set of
+  entities a query was issued for. no_prior_finding and not_assessed are
+  distinct and MUST NOT be conflated: absence of retrieved evidence for an
+  entity you never searched is not a "no prior finding" result, and downstream
+  reporting treats only the searched no_prior_finding set as candidate-novel.
+  Do NOT introduce composite or narrative claims. Do NOT generate paragraphs
+  that the upstream atom did not also generate row-wise.
 
   EVIDENCE GATING (MANDATORY; enforced by post-task validation): cite a prior
   PMID — and assert same_direction / opposite_direction / unverifiable — ONLY
@@ -133,8 +139,11 @@ claim_boundary: |
   task's own or an upstream literature task's such as review_prior_work /
   survey_method_landscape). Before writing ANY PMID into
   claims_evidence_matrix.csv, confirm it resolves to such a manifest entry; if it
-  does not, DROP the citation and set that row to no_prior_finding (leave the
-  prior PMID column empty). NEVER cite a PMID from memory, from the finding's
+  does not, DROP the citation and leave the prior PMID column empty. Choose the
+  flag by whether a query was issued for that entity: set no_prior_finding only
+  if you ACTUALLY searched for this entity and found no usable prior row; set
+  not_assessed if you did not perform retrieval for this entity (it was outside
+  the searched set). NEVER cite a PMID from memory, from the finding's
   gene/region/variant name, or one you have not actually retrieved — an
   unretrieved PMID is an unsupported claim and will block the workflow. Record
   every PMID you DO cite as an entry in THIS task's evidence/manifest.json

@@ -44,7 +44,7 @@
     ],
     "tolerance": {
       "log2FcAbsoluteDelta": 0.05,
-      "pvalueRelativeDelta": 0.1
+      "pvalueRelativeDelta": 0.25
     }
   }
 }

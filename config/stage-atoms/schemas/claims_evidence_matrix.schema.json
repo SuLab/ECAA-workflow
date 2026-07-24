@@ -13,7 +13,7 @@
     "entity_kind": { "type": "string", "enum": ["gene", "region", "variant"] },
     "prior_pmids": { "type": "array", "items": { "type": "string", "pattern": "^[1-9][0-9]{6,8}$" }, "uniqueItems": true },
     "concordance_flag": { "type": "string",
-                          "enum": ["same_direction", "opposite_direction", "no_prior_finding", "unverifiable"] },
+                          "enum": ["same_direction", "opposite_direction", "no_prior_finding", "unverifiable", "not_assessed"] },
     "evidence_quote": { "type": "string" },
     "evidence_quote_offset": { "type": "integer", "minimum": 0 },
     "source_kind": { "type": "string", "enum": ["pmc_oa_full_text", "abstract_only", "external_pdf_local_only", "none"] },

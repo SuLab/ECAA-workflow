@@ -1676,16 +1676,22 @@ mod tests {
             "the unread one-of sibling must be dropped from the standard graph"
         );
 
-        // ...and survives ONLY in the ecaax side channel on the root Dataset.
+        // ...and survives ONLY in the ecaax side channel on the root Dataset,
+        // which now references a first-class @graph node by `@id` (the
+        // RO-Crate/runcrate `@id` fix) rather than inlining a value object.
         let root = graph.iter().find(|e| e["@id"] == "./").unwrap();
         let unused = root["ecaax:unusedCandidateEdge"]
             .as_array()
             .expect("unused-candidate side channel recorded on root Dataset");
         assert_eq!(unused.len(), 1);
-        assert_eq!(unused[0]["from_node"], "normalisation");
-        assert_eq!(unused[0]["to_node"], "differential_expression");
-        assert_eq!(unused[0]["ecaax:provenanceStatus"], "candidate_unused");
-        assert_eq!(unused[0]["ecaax:supersededByProducer"], "quantification");
+        let unused0 = graph
+            .iter()
+            .find(|e| e["@id"] == unused[0]["@id"])
+            .expect("unused-candidate reference resolves to a @graph node");
+        assert_eq!(unused0["from_node"], "normalisation");
+        assert_eq!(unused0["to_node"], "differential_expression");
+        assert_eq!(unused0["ecaax:provenanceStatus"], "candidate_unused");
+        assert_eq!(unused0["ecaax:supersededByProducer"], "quantification");
     }
 
     /// Sessions without runtime installs (the

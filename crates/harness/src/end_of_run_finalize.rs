@@ -1161,14 +1161,22 @@ mod tests {
             .iter()
             .find(|e| e["@id"] == "./")
             .expect("root Dataset node present");
+        // The side channel now references a first-class @graph node by `@id`
+        // (the RO-Crate/runcrate `@id` fix), so resolve each reference before
+        // reading its fields.
         let unused = root["ecaax:unusedCandidateEdge"]
             .as_array()
             .expect("unused-candidate side channel recorded on root Dataset");
         assert!(
-            unused.iter().any(|u| {
-                u["to_node"] == "differential_expression"
-                    && u["to_port"] == "normalized_counts"
-                    && u["ecaax:provenanceStatus"] == "candidate_unused"
+            unused.iter().any(|r| {
+                graph
+                    .iter()
+                    .find(|e| e["@id"] == r["@id"])
+                    .is_some_and(|u| {
+                        u["to_node"] == "differential_expression"
+                            && u["to_port"] == "normalized_counts"
+                            && u["ecaax:provenanceStatus"] == "candidate_unused"
+                    })
             }),
             "the unread normalized-counts edge must be recorded candidate_unused in the ecaax side channel"
         );

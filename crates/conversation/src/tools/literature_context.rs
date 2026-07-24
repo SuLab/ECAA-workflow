@@ -62,10 +62,16 @@ pub enum ConcordanceFlag {
     SameDirection,
     /// New finding disagrees with the prior publication.
     OppositeDirection,
-    /// No prior published finding exists for this entity.
+    /// A query was issued for this entity and no prior published finding
+    /// was retrieved.
     NoPriorFinding,
     /// Agreement cannot be determined from the available evidence.
     Unverifiable,
+    /// Retrieval was not performed for this entity — it lies outside the
+    /// searched set. Distinct from `NoPriorFinding` (searched, nothing found):
+    /// absence of retrieved evidence for an unsearched entity is not a novelty
+    /// claim.
+    NotAssessed,
 }
 
 /// Literature retrieval scope used when this session was emitted.
@@ -462,6 +468,7 @@ fn parse_concordance_flag(s: &str) -> Result<ConcordanceFlag, LiteratureContextE
         "opposite_direction" => Ok(ConcordanceFlag::OppositeDirection),
         "no_prior_finding" => Ok(ConcordanceFlag::NoPriorFinding),
         "unverifiable" => Ok(ConcordanceFlag::Unverifiable),
+        "not_assessed" => Ok(ConcordanceFlag::NotAssessed),
         _ => Err(LiteratureContextError::CsvSchemaMismatch(format!(
             "bad concordance_flag: {}",
             s

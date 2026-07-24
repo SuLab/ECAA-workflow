@@ -272,22 +272,42 @@ defines them — never assume genes/log2FC.
   declared section or table is an incomplete report, not a shorter one.
 - **Contextualize against the `literature` rollup, not memory.** Per
   entity, state its literature tag exactly as recorded — `concordant` /
-  `discordant` / `unverifiable` (each with its `pmid`) or `novel` — and give
-  `non_replications` its own dedicated treatment: for each, name the
-  entity, its `prior_claim`, and what this run actually observed
-  (`here_effect` / `here_significance`) — a prior-reported entity that was
-  NOT significant here is as reportable as a concordant hit, not an
-  omission. State the `novel_count` and what it covers, and list every
-  `retrieved_sources` entry.
-- **Account for every assessed entity, and label each count's denominator.**
+  `discordant` / `unverifiable` (each with its `pmid`), `novel`, or
+  `not_assessed` — and give `non_replications` its own dedicated treatment:
+  for each, name the entity, its `prior_claim`, and what this run actually
+  observed (`here_effect` / `here_significance`) — a prior-reported entity
+  that was NOT significant here is as reportable as a concordant hit, not an
+  omission. "Novel" is a claim about the SEARCHED set ONLY: an entity is
+  `novel` only when a literature query was actually issued for it and returned
+  no prior finding (`novel_count`). An entity retrieval was NOT performed for
+  is `not_assessed`, NOT novel and NOT "no prior work" — never describe an
+  unsearched entity as novel or as having no prior literature. State the
+  `novel_count` and the `not_assessed_count` as SEPARATE headline buckets, say
+  how many entities were actually searched (novel + concordant + discordant +
+  unverifiable) versus not assessed, and list every `retrieved_sources` entry.
+- **Never cite a PMID that is not in `retrieved_sources` / the evidence
+  matrix — not even as background context.** Every PMID that appears anywhere
+  in the report (including "Note", "Background", or discussion asides) MUST be
+  one this run actually retrieved and verified (present in `retrieved_sources`
+  or the `claims_evidence_matrix`). Do NOT pull a paper from your own memory,
+  however relevant it seems — a source-level validator flags any cited PMID
+  with no supporting matrix row as an ungrounded (hallucinated) citation and
+  blocks the deposit. If prior context is genuinely missing, say so
+  ("no prior-work PMID was retrieved for gene X") rather than supplying one
+  from recall.
+- **Account for every entity, and label each count's denominator.**
   When you summarize the `literature` rollup (or any categorized set), the
-  category counts must account for the WHOLE assessed set — `concordant` +
-  `discordant` + `unverifiable` + `novel_count` covers every entity
-  contextualized; never drop the `unverifiable` bucket from a headline just
-  because it is the least interesting, and never state a total that omits it.
-  When you report both an entity-level count and a source-level (PMID) count,
-  name each denominator explicitly ("4 of 8 assessed entities" vs "10 of 30
-  PMIDs") so the two are never conflated.
+  category counts must account for every row — `concordant` + `discordant` +
+  `unverifiable` + `novel_count` covers the SEARCHED set (entities a query was
+  issued for), and `not_assessed_count` covers the entities retrieval was NOT
+  performed for. Report `not_assessed_count` as its own headline bucket; never
+  fold it into `novel_count`, and never call the not-assessed entities novel
+  or "no prior finding". Never drop the `unverifiable` bucket from a headline
+  just because it is the least interesting, and never state a total that omits
+  it. When you report both an entity-level count and a source-level (PMID)
+  count, name each denominator explicitly ("4 of 8 searched entities" vs
+  "10 of 30 PMIDs", and separately "12 entities not assessed") so the counts
+  are never conflated.
 - **Every count in a filtering funnel must be traceable to `report-data.json`.**
   If you describe an entity-count funnel (input → retained → tested →
   reported), each number must be one `report-data.json` provides (e.g.
