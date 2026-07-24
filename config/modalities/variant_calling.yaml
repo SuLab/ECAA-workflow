@@ -13,6 +13,9 @@ edam_topic: "topic:3673"
 edam_operation: "operation:3227"
 taxonomy_path: stage-taxonomies/variant-calling.yaml
 archetype_id: variant_calling_germline
+entity_noun:
+  singular: variant
+  plural: variants
 semantic_equivalence_bounds:
   - metric: vcf_concordance
     operator: ">="

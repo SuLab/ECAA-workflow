@@ -6,6 +6,9 @@ edam_topic: "topic:3308"
 edam_operation: "operation:3223"
 taxonomy_path: stage-taxonomies/rnaseq-de.yaml
 archetype_id: bulk_rnaseq_de
+entity_noun:
+  singular: gene
+  plural: genes
 semantic_equivalence_bounds:
   - metric: log2fc_abs_delta
     operator: "<="

@@ -77,6 +77,35 @@ pub struct ModalityDefinition {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     /// Prompt addendum path.
     pub prompt_addendum_path: Option<String>,
+    /// Per-modality noun pair (e.g. gene/genes, variant/variants) used
+    /// to resolve the `{entity}`/`{entities}` placeholders in ensemble
+    /// persona prompts. `entity_noun_for` supplies the modality-agnostic
+    /// default (`entity`/`entities`) when a manifest omits this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entity_noun: Option<EntityNoun>,
+}
+
+/// Singular/plural noun pair for the entities a modality's analysis
+/// reasons about (gene/genes, variant/variants, taxon/taxa, …).
+/// Resolved via [`entity_noun_for`].
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
+pub struct EntityNoun {
+    /// Singular form, e.g. "gene".
+    pub singular: String,
+    /// Plural form, e.g. "genes".
+    pub plural: String,
+}
+
+/// Resolves the singular/plural entity-noun pair for a modality.
+/// Returns the manifest's declared `entity_noun` when present, else the
+/// modality-agnostic default `("entity", "entities")` — so every
+/// modality (including the ~22 without an explicit noun) resolves the
+/// ensemble personas' `{entity}`/`{entities}` prompt placeholders.
+pub fn entity_noun_for(m: &ModalityDefinition) -> (String, String) {
+    match &m.entity_noun {
+        Some(noun) => (noun.singular.clone(), noun.plural.clone()),
+        None => ("entity".to_string(), "entities".to_string()),
+    }
 }
 
 /// In-memory modality registry.
@@ -429,6 +458,7 @@ mod tests {
                 fixture_corpus_rows: vec![],
                 interpretation_policy_override: None,
                 prompt_addendum_path: None,
+                entity_noun: None,
             },
         );
         let legacy = vec![(
@@ -529,5 +559,45 @@ mod tests {
             }
             other => panic!("expected SchemaVersionMismatch, got {other:?}"),
         }
+    }
+
+    /// `bulk_rnaseq`'s manifest declares `entity_noun: {gene, genes}`;
+    /// the resolver must surface that pair verbatim for ensemble
+    /// persona prompts (`{entity}`/`{entities}` placeholders).
+    #[test]
+    fn entity_noun_for_resolves_manifest_pair() {
+        let reg = ModalityRegistry::load_from_dir(&workspace_config_dir().join("modalities"))
+            .expect("registry must load");
+        let bulk_rnaseq = reg.get("bulk_rnaseq").expect("bulk_rnaseq must load");
+        assert_eq!(
+            entity_noun_for(bulk_rnaseq),
+            ("gene".to_string(), "genes".to_string())
+        );
+    }
+
+    /// A modality manifest that omits `entity_noun` (the common case —
+    /// ~22 of the ~24 shipped modalities) must resolve to the
+    /// modality-agnostic default, not panic or leave the placeholder
+    /// unresolved.
+    #[test]
+    fn entity_noun_for_defaults_when_manifest_omits_field() {
+        let synthetic = ModalityDefinition {
+            schema_version: CURRENT_MODALITY_SCHEMA_VERSION.into(),
+            id: "synthetic".into(),
+            display_name: "Synth".into(),
+            keywords: vec!["foo".into()],
+            edam_topic: "topic:0001".into(),
+            edam_operation: "operation:0001".into(),
+            taxonomy_path: None,
+            archetype_id: None,
+            fixture_corpus_rows: vec![],
+            interpretation_policy_override: None,
+            prompt_addendum_path: None,
+            entity_noun: None,
+        };
+        assert_eq!(
+            entity_noun_for(&synthetic),
+            ("entity".to_string(), "entities".to_string())
+        );
     }
 }

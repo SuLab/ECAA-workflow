@@ -68,6 +68,22 @@
       "minLength": 1,
       "description": "Optional path to a per-modality prompt addendum the conversation crate appends after the project-class block. Most modalities don't need this; reserve for modalities with strong claim-boundary or vocabulary-fence requirements."
     },
+    "entity_noun": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["singular", "plural"],
+      "properties": {
+        "singular": {
+          "type": "string",
+          "description": "Singular form of the entity this modality's analysis reasons about, e.g. 'gene', 'variant'."
+        },
+        "plural": {
+          "type": "string",
+          "description": "Plural form, e.g. 'genes', 'variants'."
+        }
+      },
+      "description": "Noun pair resolving the `{entity}`/`{entities}` placeholders in ensemble persona prompts (see `modality_registry::entity_noun_for`). Optional — modalities without a natural noun fall back to entity/entities."
+    },
     "semantic_equivalence_bounds": {
       "type": "array",
       "description": "Per-modality numeric tolerances that define when two independent runs of the analysis are considered semantically equivalent. Used by the claim verifier and the evaluation rubric scorer to gate PAR-26-040 §G2 reproducibility claims.",
