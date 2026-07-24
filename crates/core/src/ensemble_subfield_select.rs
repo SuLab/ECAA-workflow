@@ -128,6 +128,35 @@ mod tests {
     }
 
     #[test]
+    fn word_boundary_avoids_substring_false_positives() {
+        let mut by_id = BTreeMap::new();
+        by_id.insert("genetics".to_string(), lens("genetics", &["variant", "genome"]));
+        by_id.insert("biophysics".to_string(), lens("biophysics", &["kinetics", "conformation"]));
+        let cat = SubfieldCatalog {
+            by_id,
+            root: PathBuf::new(),
+        };
+        // "invariant" must NOT match keyword "variant", and "pharmacokinetics"
+        // must NOT match "kinetics" — both are substrings, not word-boundary hits.
+        assert!(
+            select_subfields(
+                "invariant natural killer T cells; pharmacokinetics of the drug",
+                &cat,
+                3,
+                1
+            )
+            .is_empty(),
+            "substring-only matches must be rejected by word-boundary matching"
+        );
+        // A real whole-word hit still matches, including its plural.
+        let got = select_subfields("germline variants across the genome", &cat, 3, 1);
+        assert_eq!(
+            got.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+            ["genetics"]
+        );
+    }
+
+    #[test]
     fn ties_broken_by_id_and_capped_at_s_max() {
         let cat = test_catalog();
         // "immune" hits immunology once; "tumor" hits oncology once — a tie.

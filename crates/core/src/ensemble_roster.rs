@@ -740,13 +740,12 @@ caps:
         let de = reg.get("differential_expression").expect("DE atom");
         validate_variant_tools(roster, de).expect("variant tools valid");
 
-        // Every persona file exists and passes the honest-lens lint.
-        for lens in &roster.interpretive_lenses {
-            let p = cfg.join("ensemble-rosters/personas").join(&lens.persona_ref);
-            let text = std::fs::read_to_string(&p)
-                .unwrap_or_else(|_| panic!("persona file missing: {}", p.display()));
-            lint_persona_text(&lens.id, &text).expect("persona is an honest lens");
-        }
+        // Persona honesty-linting now lives with the UNIVERSAL lens set —
+        // rosters no longer declare inline `interpretive_lenses` (they are
+        // composed per-analysis). The epistemic-core personas are linted by
+        // `load_epistemic_core` (asserted in `loads_five_epistemic_core_lenses`)
+        // and the subfield personas by the catalog's honest-lens test, so there
+        // is no per-roster persona loop to run here anymore.
     }
 
     #[test]

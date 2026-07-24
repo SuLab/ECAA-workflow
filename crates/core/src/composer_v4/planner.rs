@@ -3809,6 +3809,69 @@ mod tests {
     /// setup (matches `bulk_rnaseq_de`) so the archetype seed reaches a
     /// reporting terminal for the pass to anchor onto.
     #[test]
+    fn ensemble_immune_goal_emits_immunology_subfield_cell() {
+        use std::path::Path;
+        use std::sync::Arc;
+        let atom_reg =
+            AtomRegistry::load_from_dir(Path::new("../../config/stage-atoms")).expect("atoms");
+        let archetype_reg =
+            ArchetypeRegistry::load_from_dir(Path::new("../../config/archetypes")).expect("arches");
+        // Immune-saturated prose so the deterministic selector picks `immunology`.
+        let goal = GoalSpec {
+            edam_data: "data:0951".into(),
+            edam_format: Some("format:3475".into()),
+            modifiers: BTreeMap::new(),
+            source_prose: Some(
+                "differential expression of T cell inflammation and cytokine immune response"
+                    .into(),
+            ),
+            confidence: 0.8,
+        };
+        let mut ctx = planning_context_for_goal_with_intake(
+            "rnaseq-ensemble-immune",
+            &goal,
+            Some("bulk_rnaseq"),
+            None,
+            &[],
+        );
+        ctx.compose_ensemble = true;
+        ctx.ensemble_rosters = Some(Arc::new(
+            crate::ensemble_roster::EnsembleRosterProvider::from_config_dir(Path::new(
+                "../../config",
+            )),
+        ));
+        let res = plan(&ctx, &goal, "bioinformatics", &atom_reg, &archetype_reg);
+        let dag = &res
+            .alternatives
+            .iter()
+            .find(|a| a.source == "archetype")
+            .expect("archetype-seeded alternative")
+            .dag;
+        // S≥1 through-emit: a selected biomedical subfield ('immunology') fans
+        // out a real interpretation cell alongside the 5 epistemic-core lenses.
+        // (That the cells exist at all also proves caps=40 did NOT trip the
+        // fail-safe fallback for the 6-lens expansion.)
+        assert!(
+            dag.nodes.iter().any(|n| n.id.contains("__lens_immunology")),
+            "immune goal must emit an immunology interpretation cell; lens cells={:?}",
+            dag.nodes
+                .iter()
+                .map(|n| n.id.as_str())
+                .filter(|id| id.contains("__lens_"))
+                .collect::<Vec<_>>()
+        );
+        let cell_count = dag
+            .nodes
+            .iter()
+            .filter(|n| n.id.starts_with("biological_interpretation__m_"))
+            .count();
+        assert!(
+            (18..=24).contains(&cell_count) && cell_count % 3 == 0,
+            "5 core + 1..3 subfield lenses × 3 methods = 18/21/24 cells; got {cell_count}"
+        );
+    }
+
+    #[test]
     fn plan_wires_ensemble_fanout_and_suppresses_report_data_when_flag_on() {
         use std::path::Path;
         use std::sync::Arc;
