@@ -60,6 +60,13 @@
 //!   * **RC-SECTIONS** every `required_report_sections` id declared on the
 //!     `reporting`/`final_reporting` task specs must appear as a non-empty
 //!     section in the emitted report.
+//!   * **RC-TABLE** every significant entity embedded in `report-data.json`
+//!     (for an artifact whose set is not `spilled_to_attachment_only`) must
+//!     be rendered in the terminal report — the deterministic backstop for
+//!     the otherwise prompt-only "inline the full significant table"
+//!     obligation, so a summarized report can't silently ship an incomplete
+//!     significant set that RC-COUNT (JSON-only) and RC-SECTIONS (headings)
+//!     both miss.
 //! * **Warn-only** — free-text prose invariants, so a brittle regex can
 //!   never block a scientifically-correct deposit:
 //!   * **RP-1** effect-abundance direction word (derived structurally from
@@ -172,6 +179,7 @@ pub fn check_reporting_invariants(package_root: &Path) -> ReportingInvariantsRep
     check_rc_count(package_root, &outputs, &mut report);
     check_rc_identity(&outputs, &mut report);
     check_rc_sections(package_root, &outputs, &mut report);
+    check_rc_table(&outputs, &mut report);
 
     report
 }
@@ -1003,6 +1011,91 @@ fn check_rc_sections(package_root: &Path, outputs: &Path, report: &mut Reporting
             detail: format!(
                 "required report section(s) missing or empty: {}",
                 offenders.join(", ")
+            ),
+        });
+    }
+}
+
+/// RC-TABLE: every significant entity recorded in `report-data.json` must
+/// actually appear in the rendered TERMINAL report. `report-data.json` is the
+/// deterministic single source of truth for the significant set, and RC-COUNT
+/// guarantees its counts are correct — but nothing otherwise guarantees the
+/// human-readable report the SME lands on renders that set in full. The
+/// "render the full significant set as a table" obligation lives ONLY in the
+/// agent prompt (`scripts/agent-prompts/task-execution.md`), so an agent can
+/// silently ship a summarized report — e.g. a 39-row digest of a 4030-row set
+/// — that still passes RC-COUNT (reads only `report-data.json`) and RC-SECTIONS
+/// (checks heading presence, not row coverage). This check is the deterministic
+/// backstop for that gap: for every artifact whose full significant set is
+/// embedded (`spilled_to_attachment_only == false`), every `EntityRow::entity`
+/// must appear as a substring of the terminal report text.
+///
+/// Modality-agnostic: it iterates whatever entities the assembler resolved
+/// (gene ids, peak ids, variant loci, pathway names, …) — it never assumes a
+/// domain-specific entity vocabulary. Spilled artifacts (the degenerate-output
+/// guard tripped, `> SPILL_THRESHOLD` rows) are skipped, matching the prompt's
+/// explicit carve-out that a spilled set may be summarized rather than inlined.
+/// Uses [`read_terminal_report`] (prefers `final_reporting/final_report.md`),
+/// so a complete intermediate `reporting/report.md` cannot mask a truncated
+/// terminal report. Substring membership is deliberately lenient (an entity id
+/// that is a prefix of another can read as present) so the check biases toward
+/// never false-blocking a correct deposit; the gross truncation it targets
+/// (thousands of rows absent) is caught regardless.
+fn check_rc_table(outputs: &Path, report: &mut ReportingInvariantsReport) {
+    let Some(report_data) = read_report_data(outputs) else {
+        return;
+    };
+    // Only artifacts whose full significant set is embedded and non-empty have
+    // a table to verify; a spilled or empty artifact has nothing to inline.
+    let has_checkable = report_data
+        .artifacts
+        .iter()
+        .any(|a| !a.spilled_to_attachment_only && !a.significant_entities.is_empty());
+    if !has_checkable {
+        return;
+    }
+    let Some(text) = read_terminal_report(outputs) else {
+        return;
+    };
+    report.checked.push("RC-TABLE");
+
+    let mut offenders: Vec<String> = Vec::new();
+    for artifact in &report_data.artifacts {
+        if artifact.spilled_to_attachment_only || artifact.significant_entities.is_empty() {
+            continue;
+        }
+        let total = artifact.significant_entities.len();
+        let mut missing = 0usize;
+        let mut examples: Vec<&str> = Vec::new();
+        for row in &artifact.significant_entities {
+            if row.entity.is_empty() {
+                continue;
+            }
+            if !text.contains(row.entity.as_str()) {
+                missing += 1;
+                if examples.len() < 3 {
+                    examples.push(row.entity.as_str());
+                }
+            }
+        }
+        if missing > 0 {
+            offenders.push(format!(
+                "{}: {missing} of {total} significant entities absent from the terminal \
+                 report (e.g. {})",
+                artifact.stage_id,
+                examples.join(", ")
+            ));
+        }
+    }
+    if !offenders.is_empty() {
+        report.findings.push(ReportingFinding {
+            invariant: "RC-TABLE",
+            severity: Severity::Required,
+            detail: format!(
+                "the terminal report does not render every significant entity recorded in \
+                 report-data.json (an un-spilled significant set must be inlined in full, not \
+                 summarized) — {}",
+                offenders.join("; ")
             ),
         });
     }
@@ -2001,6 +2094,163 @@ mod tests {
                 .any(|f| f.contains("RC-IDENTITY")),
             "up+down (97) < n_significant (100) is a legitimate shortfall (zero/NA-effect \
              significant rows) and must NOT trip RC-IDENTITY: {report:?}"
+        );
+    }
+
+    // -- RC-TABLE ---------------------------------------------------------
+
+    /// A `report-data.json` with one DE-shaped artifact carrying the given
+    /// significant entities, `spilled_to_attachment_only` as specified.
+    fn report_data_json(entities: &[&str], spilled: bool) -> String {
+        let rows: Vec<_> = entities
+            .iter()
+            .map(|e| {
+                serde_json::json!({
+                    "entity": e, "effect": 1.0, "significance": 0.01,
+                    "literature": {"status": "novel"}
+                })
+            })
+            .collect();
+        serde_json::json!({
+            "artifacts": [{
+                "stage_id": "differential_expression",
+                "artifact": "de_results.tsv",
+                "n_total": 100,
+                "n_significant": entities.len(),
+                "direction_split": null,
+                "effect_distribution": null,
+                "significant_entities": rows,
+                "significant_table_path": "reporting/de.significant.tsv",
+                "full_table_path": "reporting/de.full.tsv",
+                "spilled_to_attachment_only": spilled
+            }],
+            "literature": null
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn rc_table_truncated_terminal_report_is_required_failure() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "reporting/report-data.json",
+            &report_data_json(&["ENSG_AAA", "ENSG_BBB", "ENSG_CCC"], false),
+        );
+        // The terminal report renders only ONE of the three significant entities.
+        write(
+            &outputs,
+            "final_reporting/final_report.md",
+            "# Final\n## Primary Results\n| entity |\n| --- |\n| ENSG_AAA |\n",
+        );
+        let report = check_reporting_invariants(tmp.path());
+        assert!(
+            report.checked.contains(&"RC-TABLE"),
+            "RC-TABLE must run when an un-spilled artifact and a terminal report are present: {report:?}"
+        );
+        assert!(
+            !report.passed(),
+            "a terminal report that renders only 1 of 3 significant entities must be a \
+             REQUIRED failure: {report:?}"
+        );
+        let failures = report.required_failures();
+        assert!(
+            failures.iter().any(|f| f.contains("RC-TABLE")
+                && f.contains("differential_expression")
+                && f.contains("2 of 3")),
+            "RC-TABLE failure must name the stage and the 2-of-3 missing count: {failures:?}"
+        );
+    }
+
+    #[test]
+    fn rc_table_full_terminal_report_passes() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "reporting/report-data.json",
+            &report_data_json(&["ENSG_AAA", "ENSG_BBB", "ENSG_CCC"], false),
+        );
+        write(
+            &outputs,
+            "final_reporting/final_report.md",
+            "# Final\n## Primary Results\n| ENSG_AAA |\n| ENSG_BBB |\n| ENSG_CCC |\n",
+        );
+        let report = check_reporting_invariants(tmp.path());
+        assert!(report.checked.contains(&"RC-TABLE"));
+        assert!(
+            !report
+                .required_failures()
+                .iter()
+                .any(|f| f.contains("RC-TABLE")),
+            "a terminal report rendering every significant entity must pass RC-TABLE: {report:?}"
+        );
+    }
+
+    #[test]
+    fn rc_table_spilled_artifact_is_skipped() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        // Spilled: the degenerate-output guard tripped, so a summary is allowed.
+        write(
+            &outputs,
+            "reporting/report-data.json",
+            &report_data_json(&["ENSG_AAA", "ENSG_BBB"], true),
+        );
+        write(
+            &outputs,
+            "final_reporting/final_report.md",
+            "# Final\n## Primary Results\nSummarized: 2 significant genes (set spilled to attachment).\n",
+        );
+        let report = check_reporting_invariants(tmp.path());
+        assert!(
+            !report.checked.contains(&"RC-TABLE"),
+            "RC-TABLE must be skipped when the only artifact's set is spilled: {report:?}"
+        );
+        assert!(
+            report
+                .required_failures()
+                .iter()
+                .all(|f| !f.contains("RC-TABLE"))
+        );
+    }
+
+    #[test]
+    fn rc_table_complete_intermediate_does_not_mask_truncated_terminal() {
+        // The exact observed bug: reporting/report.md carries the full table,
+        // but the terminal final_reporting/final_report.md was summarized.
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "reporting/report-data.json",
+            &report_data_json(&["ENSG_AAA", "ENSG_BBB", "ENSG_CCC"], false),
+        );
+        // Intermediate report HAS all three...
+        write(
+            &outputs,
+            "reporting/report.md",
+            "# Report\n| ENSG_AAA |\n| ENSG_BBB |\n| ENSG_CCC |\n",
+        );
+        // ...but the terminal report the SME lands on has only one.
+        write(
+            &outputs,
+            "final_reporting/final_report.md",
+            "# Final\n## Primary Results\n| ENSG_AAA |\n",
+        );
+        let report = check_reporting_invariants(tmp.path());
+        assert!(
+            !report.passed(),
+            "a complete intermediate report must NOT mask a truncated terminal report: {report:?}"
+        );
+        assert!(
+            report
+                .required_failures()
+                .iter()
+                .any(|f| f.contains("RC-TABLE")),
+            "RC-TABLE must fault the truncated terminal report despite the complete \
+             intermediate: {report:?}"
         );
     }
 }
