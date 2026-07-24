@@ -48,3 +48,7 @@ export const LazyCompositionTab = lazy(() =>
 export const LazyRepairsTab = lazy(() =>
   import('./RepairsTab').then((m) => ({ default: m.RepairsTab })),
 )
+// Multi-analyst ensemble robustness rollup (opt-in ensemble mode).
+export const LazyEnsembleTab = lazy(() =>
+  import('./EnsembleTab').then((m) => ({ default: m.EnsembleTab })),
+)

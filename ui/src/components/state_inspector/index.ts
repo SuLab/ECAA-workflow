@@ -21,6 +21,12 @@ export { RepairsTab } from './RepairsTab'
 // per completed task). Distinct from `VerifierDecisionsTab`, which
 // surfaces composer-time port-unification trace events.
 export { ClaimsTab } from './ClaimsTab'
+// Multi-analyst ensemble robustness rollup (opt-in ensemble mode):
+// cross-method/cross-lens agreement, per-entity robustness class, and
+// the deduplicated literature union. Distinct from Claims above — that
+// verifies a single narrative against its own result table; this one
+// compares across independently-run analyst variants.
+export { EnsembleTab } from './EnsembleTab'
 export {
   PlaceholderPane,
   backgroundForKind,
@@ -46,6 +52,7 @@ export type Tab =
   | 'verifier_decisions'
   | 'repairs'
   | 'claims'
+  | 'ensemble'
   | 'reproducibility'
 
 export interface TabConfig {
@@ -80,6 +87,10 @@ export const TABS: readonly TabConfig[] = [
   // narrative match the tables?" surface — distinct from the
   // composer-time port-unification trace below.
   { id: 'claims', label: 'Claims' },
+  // Multi-analyst ensemble robustness rollup: cross-method/cross-lens
+  // agreement + per-entity robustness class. Opt-in (ensemble mode) —
+  // renders an empty state when no ensemble ran for this session.
+  { id: 'ensemble', label: 'Robustness' },
   // v4 P2 / F18 — typed port-unification trace from the v4 proof-
   // carrying composer. Successful unifications form the edges of the
   // emitted DAG; failed ones are dead-end search branches the planner

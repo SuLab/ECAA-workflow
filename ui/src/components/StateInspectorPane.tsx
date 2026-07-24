@@ -30,6 +30,7 @@ import {
   LazyCompositionTab,
   LazyDashboardPane,
   LazyDecisionsTab,
+  LazyEnsembleTab,
   LazyFiguresPane,
   LazyHistoryPane,
   LazyInputsTab,
@@ -347,6 +348,17 @@ export default function StateInspectorPane() {
         // runs `claim_extractor` + `claim_verifier` on per-task
         // narratives against result tables.
         return <ClaimsTab sessionId={sessionId} dag={dag} />
+      case 'ensemble':
+        // Multi-analyst ensemble robustness rollup (opt-in ensemble
+        // mode): cross-method/cross-lens agreement + per-entity
+        // robustness class. Renders its own empty state when no
+        // ensemble ran for this session.
+        return (
+          <LazyEnsembleTab
+            sessionId={sessionId}
+            refreshKey={state?.state.kind ?? 'idle'}
+          />
+        )
       case 'reproducibility':
         // Deterministic reproducibility surface: re-run the 6 audit-proof
         // invariants with the session secret + drive the offline replay

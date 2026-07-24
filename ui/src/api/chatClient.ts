@@ -84,6 +84,8 @@ import type { PackageCapabilities } from '../types/PackageCapabilities'
 import type { TaskParametersResponse } from '../types/TaskParametersResponse'
 import type { BranchEdits } from '../types/BranchEdits'
 import type { SmeValidationBound } from '../types/SmeValidationBound'
+import type { EnsembleDistribution } from '../types/EnsembleDistribution'
+import type { StatDistribution } from '../types/StatDistribution'
 import {
   ApiClientError,
   FetchError,
@@ -1351,6 +1353,37 @@ export async function getReplay(
   sessionId: string,
 ): Promise<ReplayStatusResponse> {
   return jsonFetch(sessionUrl(sessionId, 'replay'), { method: 'GET' })
+}
+
+// ── Ensemble / robustness (multi-analyst cross-method rollups) ─────────
+// Both artifacts are opt-in (ensemble mode) and 404 when absent — the
+// Robustness tab treats `null` as "no ensemble was run", not a fetch
+// error.
+
+/**
+ * GET `…/ensemble-distribution` — per-cell (method × lens) rollup,
+ * agreement fraction, factorial attribution, and deduplicated literature
+ * union. `null` when no ensemble ran for this session's emitted package.
+ */
+export function getEnsembleDistribution(
+  sessionId: string,
+): Promise<EnsembleDistribution | null> {
+  return jsonFetchOrNull<EnsembleDistribution>(
+    sessionUrl(sessionId, 'ensemble-distribution'),
+  )
+}
+
+/**
+ * GET `…/stat-distribution` — per-entity cross-method robustness rollup
+ * plus the robust/concordant/fragile/discordant class-count histogram.
+ * `null` when no ensemble ran for this session's emitted package.
+ */
+export function getStatDistribution(
+  sessionId: string,
+): Promise<StatDistribution | null> {
+  return jsonFetchOrNull<StatDistribution>(
+    sessionUrl(sessionId, 'stat-distribution'),
+  )
 }
 
 // ── Package import (upload & explore) ──────────────────────────────────
