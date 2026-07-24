@@ -25,8 +25,9 @@
 //! `validation_passed: false`, which is a SEPARATE axis from computational
 //! completion (whether the stage ran and produced output at all). The
 //! headline `deposit_ready` bool folds `ro_crate` + `bagit` +
-//! `domain_validation` + `provenance_divergence` + `reexecution` so a run can
-//! be computationally complete while `deposit_ready` reads `false`.
+//! `domain_validation` + `provenance_divergence` + `substrate_validity` +
+//! `reexecution` so a run can be computationally complete while
+//! `deposit_ready` reads `false`.
 //!
 //! Layer 1 also runs the §G-B2 observed-read provenance-divergence backstop
 //! (`provenance_divergence`, via [`scan_provenance_divergence`]): a genuine
@@ -37,6 +38,16 @@
 //! execution path minted it. This is the path-independent enforcement of the
 //! invariant the per-path finalize blocking (harness `end_of_run_finalize`)
 //! also applies.
+//!
+//! Layer 1 also READS (never re-runs) the audit-proof `substrate_validity`
+//! verdict (`substrate_validity`, via [`scan_substrate_validity`]) — the
+//! runcrate/WRROC-substrate axis of the audit-proof invariant suite
+//! (Invariant 6, `crate::audit_proof::invariants::substrate_validity`) already
+//! recorded in `runtime/audit-proof-report.json`. A concrete recorded `fail`
+//! blocks the deposit; `unverified`/`warn`, or an absent/unparseable report —
+//! the honest outcome for an offline deposit that never ran the external
+//! `runcrate` validator — stay non-blocking, mirroring how `reexecution:
+//! NotVerified` is admitted outside the `re-executable` profile.
 //!
 //! Layer 1 also runs the DR-8 portability scan (`portability_warnings`, via
 //! [`scan_portability`]): a WARN-ONLY advisory listing residual absolute host
@@ -127,8 +138,8 @@ pub struct DepositReadiness {
     /// `re-executable` / `minimal`).
     pub profile: String,
     /// Headline signal: `true` iff `ro_crate`, `bagit`,
-    /// `domain_validation`, and `provenance_divergence` all `Pass` AND
-    /// `reexecution != Fail` (RCA I-10, §G-B2).
+    /// `domain_validation`, `provenance_divergence`, and `substrate_validity`
+    /// all `Pass` AND `reexecution != Fail` (RCA I-10, §G-B2).
     /// Computed once at attestation-write time by [`compute_deposit_ready`]
     /// and re-derived whenever a component field changes (e.g. the Layer-2
     /// re-execution update). Deliberately SEPARATE from computational
@@ -163,6 +174,19 @@ pub struct DepositReadiness {
     /// a divergence; a clean package is unaffected).
     #[serde(default)]
     pub provenance_divergence: CheckStatus,
+    /// Substrate-validity axis (the runcrate/WRROC-substrate audit-proof
+    /// invariant, Invariant 6): `Fail` when the ALREADY-RECORDED
+    /// `substrate_validity` verdict in `runtime/audit-proof-report.json` is a
+    /// concrete `fail` — see [`scan_substrate_validity`]. READ-ONLY: writing
+    /// this attestation never forces a fresh `runcrate` run. `unverified` /
+    /// `warn` (or an absent/unparseable report — the honest outcome for an
+    /// offline deposit that never ran the external runcrate validator) are
+    /// NON-blocking, mirroring how `reexecution: NotVerified` is admitted
+    /// outside the `re-executable` profile. `#[serde(default)]` → `Pass` for
+    /// attestations predating this field (absence never fabricates a
+    /// substrate failure).
+    #[serde(default)]
+    pub substrate_validity: CheckStatus,
     /// DR-8 portability advisory: residual absolute host paths (`/home/…`) and
     /// bare session-id occurrences found in the sealed deposit OUTSIDE the one
     /// declared identity field ([`DECLARED_IDENTITY_FIELD`]). WARN-ONLY —
@@ -507,6 +531,55 @@ pub fn scan_provenance_divergence(package_root: &Path) -> ProvenanceDivergenceSu
     found.sort();
     found.dedup();
     ProvenanceDivergenceSummary { divergences: found }
+}
+
+/// Path-independent substrate-validity signal, mirroring
+/// [`ProvenanceDivergenceSummary`]: the audit-proof `substrate_validity`
+/// invariant verdict (the runcrate/WRROC-substrate axis, recorded by
+/// `crate::audit_proof::invariants::substrate_validity::check_substrate_validity`)
+/// read back from `runtime/audit-proof-report.json` — see
+/// [`scan_substrate_validity`].
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SubstrateValiditySummary {
+    /// `true` only for a concrete recorded `fail`. Everything else (`pass`,
+    /// `warn`, `unverified`, a missing report, or an unparseable one) leaves
+    /// this `false` — an offline deposit legitimately never runs the external
+    /// runcrate validator (it records `unverified`), and that honest absence
+    /// must never read as a failure.
+    pub failed: bool,
+    /// Human-readable detail from the recorded verdict, when present.
+    pub detail: Option<String>,
+}
+
+/// Read the already-recorded `substrate_validity` invariant verdict (the
+/// runcrate/WRROC-substrate axis, Invariant 6) back from
+/// `runtime/audit-proof-report.json`. NEVER forces a fresh runcrate run —
+/// only reads what a prior `emit_package` / `reseal_audit_report` already
+/// recorded, mirroring [`scan_provenance_divergence`]'s path-independent,
+/// best-effort read: a missing file, an unparseable report, or a report that
+/// carries no `substrate_validity` verdict all contribute nothing (absence is
+/// never a failure). Only a concrete recorded `InvariantStatus::Fail` sets
+/// [`SubstrateValiditySummary::failed`] — `Warn`/`Unverified` (including the
+/// no-op-validator outcome recorded when `runcrate` never ran) stay clean.
+pub fn scan_substrate_validity(package_root: &Path) -> SubstrateValiditySummary {
+    let path = package_root.join("runtime").join("audit-proof-report.json");
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return SubstrateValiditySummary::default();
+    };
+    let Ok(report) = serde_json::from_str::<crate::audit_proof::AuditProofReport>(&raw) else {
+        return SubstrateValiditySummary::default();
+    };
+    let Some(verdict) = report
+        .verdicts
+        .iter()
+        .find(|v| v.id == crate::audit_proof::InvariantId::SubstrateValidity)
+    else {
+        return SubstrateValiditySummary::default();
+    };
+    SubstrateValiditySummary {
+        failed: verdict.status == crate::audit_proof::InvariantStatus::Fail,
+        detail: verdict.detail.clone(),
+    }
 }
 
 /// The single field in which a portable deposit is permitted to carry the
@@ -894,6 +967,25 @@ pub fn write_deposit_readiness(
             divergence.divergences.join("; ")
         )
     });
+
+    // Substrate-validity axis (Invariant 6) — READ the already-recorded
+    // verdict from `runtime/audit-proof-report.json`; never forces a fresh
+    // `runcrate` run here. A concrete recorded `fail` blocks the deposit; the
+    // honest offline `unverified`/`warn` outcome (or an absent report) stays
+    // non-blocking.
+    let substrate = scan_substrate_validity(dst);
+    let substrate_validity = if substrate.failed {
+        CheckStatus::Fail
+    } else {
+        CheckStatus::Pass
+    };
+    let substrate_detail = substrate.failed.then(|| {
+        format!(
+            "substrate-validity failure: {}",
+            substrate.detail.as_deref().unwrap_or("no detail recorded")
+        )
+    });
+
     // Advisory reporting-correctness warnings (RP-1/RP-3/RP-9): recorded in
     // the attestation for operator visibility but deliberately NOT folded
     // into `deposit_ready` — a warn-only prose finding must never block a
@@ -923,6 +1015,7 @@ pub fn write_deposit_readiness(
         tier1.detail.clone(),
         domain_detail,
         divergence_detail,
+        substrate_detail,
         reporting_warnings_detail,
         portability_detail,
         reexec_detail,
@@ -941,7 +1034,8 @@ pub fn write_deposit_readiness(
         tier1.bagit,
         domain_validation,
         reexecution,
-    ) && provenance_divergence == CheckStatus::Pass;
+    ) && provenance_divergence == CheckStatus::Pass
+        && substrate_validity == CheckStatus::Pass;
 
     let att = DepositReadiness {
         schema_version: "0.1".to_string(),
@@ -951,6 +1045,7 @@ pub fn write_deposit_readiness(
         bagit: tier1.bagit,
         domain_validation,
         provenance_divergence,
+        substrate_validity,
         portability_warnings,
         reexecution,
         detail,
@@ -967,6 +1062,16 @@ pub fn write_deposit_readiness(
 /// called by the CLI export handler after it runs the re-execution check). Reads
 /// the attestation Layer 1 wrote, overwrites `reexecution` + folds in the detail,
 /// and rewrites. Bails if no attestation is present (Layer 1 must have run).
+///
+/// Also RE-SCANS `substrate_validity` from `runtime/audit-proof-report.json`
+/// before re-deriving `deposit_ready`: the CLI's Layer-2 fold-back
+/// (`reseal_audit_report` / `audit_fold::reseal_deferred`) re-records that
+/// file's `substrate_validity` verdict from a real `runcrate` run BEFORE
+/// calling this function, so the value Layer 1 captured at write time can be
+/// stale here. Re-reading (never re-running) closes that window — a genuine
+/// substrate `fail` folded in by the reseal step must flip `deposit_ready`
+/// false even though Layer 1 saw the pre-reseal (typically `unverified`)
+/// verdict.
 pub fn update_deposit_readiness_reexecution(
     dst: &Path,
     reexecution: ReexecStatus,
@@ -989,18 +1094,40 @@ pub fn update_deposit_readiness_reexecution(
     if image_digest.is_some() {
         att.image_digest = image_digest;
     }
+    // Re-scan the substrate-validity axis: a Layer-2 reseal (which may have
+    // just run before this call) can have refreshed the on-disk
+    // `runtime/audit-proof-report.json` verdict since Layer 1 wrote this
+    // attestation.
+    let substrate = scan_substrate_validity(dst);
+    att.substrate_validity = if substrate.failed {
+        CheckStatus::Fail
+    } else {
+        CheckStatus::Pass
+    };
+    if substrate.failed {
+        let d = format!(
+            "substrate-validity failure: {}",
+            substrate.detail.as_deref().unwrap_or("no detail recorded")
+        );
+        att.detail = Some(match att.detail.take() {
+            Some(existing) => format!("{existing}; {d}"),
+            None => d,
+        });
+    }
     // Re-derive the headline signal: ro_crate/bagit/domain_validation and the
     // §G-B2 provenance-divergence axis are unchanged by a Layer-2 re-execution
     // update, but the new `reexecution` value can flip `deposit_ready` (e.g. a
     // fresh `Fail`, or — for the `re-executable` profile — a re-execution that
-    // never ran). A recorded divergence still hard-blocks readiness.
+    // never ran), and the freshly re-scanned `substrate_validity` can too. A
+    // recorded divergence still hard-blocks readiness.
     att.deposit_ready = compute_deposit_ready(
         &att.profile,
         att.ro_crate,
         att.bagit,
         att.domain_validation,
         att.reexecution,
-    ) && att.provenance_divergence == CheckStatus::Pass;
+    ) && att.provenance_divergence == CheckStatus::Pass
+        && att.substrate_validity == CheckStatus::Pass;
     att.verified_at = clock.now_rfc3339();
     let body = serde_json::to_vec_pretty(&att).context("serializing DEPOSIT-READINESS.json")?;
     let path = dst.join(DEPOSIT_READINESS_FILE);
@@ -1022,7 +1149,8 @@ pub fn read_deposit_readiness(pkg: &Path) -> Result<Option<DepositReadiness>> {
 
 /// Layer 3: the downstream deposit gate. Refuses a package that was not produced
 /// by a self-validating export (no attestation), or whose RO-Crate / BagIt
-/// self-validation failed, or whose re-execution FAILED. A `NotVerified`
+/// self-validation failed, or whose re-execution FAILED, or whose recorded
+/// `substrate_validity` verdict is a concrete FAIL. A `NotVerified`
 /// re-execution is a hard block (DR-1) when EITHER `strict` is set OR the
 /// attestation's `profile` claims re-executability (`re-executable`) — a
 /// deposit marketing replayability that was never re-executed must not pass;
@@ -1071,6 +1199,19 @@ pub fn check_deposit_readiness(pkg: &Path, strict: bool) -> Result<DepositReadin
              provenance is unsound, so the deposit is refused. Reconcile the read/declared edge \
              (or record a sanctioned read-allowance) and re-export",
             dr.provenance_divergence,
+            dr.detail.as_deref().map(|d| format!(" — {d}")).unwrap_or_default()
+        );
+    }
+    // Substrate-validity axis (Invariant 6): refuse a deposit whose recorded
+    // WRROC/runcrate substrate verdict is a concrete FAIL. `unverified`/`warn`
+    // (the honest offline outcome — see `scan_substrate_validity`) are not
+    // blocked here.
+    if dr.substrate_validity != CheckStatus::Pass {
+        bail!(
+            "deposit gate: recorded substrate-validity verdict did not pass ({:?}){} — \
+             the WRROC/runcrate substrate audit (Invariant 6) recorded a FAIL; remediate \
+             and re-export (or re-run `ecaa-workflow reexec --reseal`)",
+            dr.substrate_validity,
             dr.detail.as_deref().map(|d| format!(" — {d}")).unwrap_or_default()
         );
     }
@@ -1689,6 +1830,207 @@ mod tests {
         assert_eq!(dr.provenance_divergence, CheckStatus::Pass);
         assert!(dr.deposit_ready);
         assert!(check_deposit_readiness(tmp.path(), false).is_ok());
+    }
+
+    // -----------------------------------------------------------------------
+    // Invariant 6 — substrate-validity (runcrate/WRROC) axis
+    // -----------------------------------------------------------------------
+
+    /// Plant `runtime/audit-proof-report.json` with the `substrate_validity`
+    /// verdict set to `status`/`detail`, everything else left at the
+    /// `AuditProofReport::empty()` default (`Unverified`).
+    fn write_audit_proof_substrate(
+        root: &Path,
+        status: crate::audit_proof::InvariantStatus,
+        detail: Option<&str>,
+    ) {
+        use crate::audit_proof::InvariantId;
+        let mut report = crate::audit_proof::AuditProofReport::empty();
+        for v in report.verdicts.iter_mut() {
+            if v.id == InvariantId::SubstrateValidity {
+                v.status = status;
+                v.detail = detail.map(str::to_string);
+            }
+        }
+        let runtime = root.join("runtime");
+        fs::create_dir_all(&runtime).unwrap();
+        fs::write(
+            runtime.join("audit-proof-report.json"),
+            serde_json::to_vec_pretty(&report).unwrap(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn scan_substrate_validity_reads_recorded_fail_and_ignores_unverified_or_absent() {
+        // Absent report ⇒ clean (never fabricate a failure from silence).
+        let absent = tempfile::tempdir().unwrap();
+        let s = scan_substrate_validity(absent.path());
+        assert!(!s.failed);
+
+        // Recorded `unverified` (the honest offline outcome, no `runcrate` run)
+        // ⇒ NOT a failure.
+        let unverified = tempfile::tempdir().unwrap();
+        write_audit_proof_substrate(
+            unverified.path(),
+            crate::audit_proof::InvariantStatus::Unverified,
+            Some("runcrate not installed"),
+        );
+        assert!(!scan_substrate_validity(unverified.path()).failed);
+
+        // Recorded `warn` (execution-consistency drift downgrade) ⇒ NOT a
+        // failure either.
+        let warn = tempfile::tempdir().unwrap();
+        write_audit_proof_substrate(
+            warn.path(),
+            crate::audit_proof::InvariantStatus::Warn,
+            Some("execution-consistency drift"),
+        );
+        assert!(!scan_substrate_validity(warn.path()).failed);
+
+        // Recorded concrete `fail` ⇒ IS a failure, detail carried through.
+        let failed = tempfile::tempdir().unwrap();
+        write_audit_proof_substrate(
+            failed.path(),
+            crate::audit_proof::InvariantStatus::Fail,
+            Some("runcrate report exited nonzero"),
+        );
+        let s = scan_substrate_validity(failed.path());
+        assert!(s.failed);
+        assert_eq!(s.detail.as_deref(), Some("runcrate report exited nonzero"));
+    }
+
+    /// A concrete recorded `substrate_validity` FAIL must flip
+    /// `deposit_ready` false and make the Layer-3 gate refuse — even for a
+    /// `full` profile and even non-strict (mirrors the provenance-divergence
+    /// backstop's hard-block semantics).
+    #[test]
+    fn substrate_validity_fail_blocks_deposit_ready_and_gate() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_audit_proof_substrate(
+            tmp.path(),
+            crate::audit_proof::InvariantStatus::Fail,
+            Some("runcrate report exited nonzero"),
+        );
+        write_deposit_readiness(
+            tmp.path(),
+            "full",
+            &tier1(CheckStatus::Pass, CheckStatus::Pass, None),
+            ReexecStatus::Pass,
+            None,
+            None,
+            &WallClock,
+        )
+        .unwrap();
+        let dr = read_deposit_readiness(tmp.path()).unwrap().unwrap();
+        assert_eq!(dr.substrate_validity, CheckStatus::Fail);
+        assert!(!dr.deposit_ready, "a recorded substrate FAIL must block deposit-readiness");
+        assert!(dr.detail.as_deref().unwrap().contains("substrate"));
+        let err = check_deposit_readiness(tmp.path(), false)
+            .expect_err("Layer-3 gate must refuse a recorded substrate FAIL even non-strict");
+        assert!(format!("{err:#}").contains("substrate"));
+    }
+
+    /// An `unverified` substrate-validity verdict (the honest outcome for an
+    /// offline deposit that never ran `runcrate`) — or no audit-proof report
+    /// at all — must NOT block `deposit_ready` when every other axis passes.
+    #[test]
+    fn substrate_validity_unverified_or_absent_does_not_block_deposit_ready() {
+        // No `runtime/audit-proof-report.json` at all.
+        let absent = tempfile::tempdir().unwrap();
+        write_deposit_readiness(
+            absent.path(),
+            "full",
+            &tier1(CheckStatus::Pass, CheckStatus::Pass, None),
+            ReexecStatus::Pass,
+            None,
+            None,
+            &WallClock,
+        )
+        .unwrap();
+        let dr = read_deposit_readiness(absent.path()).unwrap().unwrap();
+        assert_eq!(dr.substrate_validity, CheckStatus::Pass);
+        assert!(dr.deposit_ready);
+        assert!(check_deposit_readiness(absent.path(), false).is_ok());
+
+        // Recorded `unverified`.
+        let unverified = tempfile::tempdir().unwrap();
+        write_audit_proof_substrate(
+            unverified.path(),
+            crate::audit_proof::InvariantStatus::Unverified,
+            Some("runcrate not installed"),
+        );
+        write_deposit_readiness(
+            unverified.path(),
+            "re-executable",
+            &tier1(CheckStatus::Pass, CheckStatus::Pass, None),
+            ReexecStatus::Pass,
+            None,
+            None,
+            &WallClock,
+        )
+        .unwrap();
+        let dr = read_deposit_readiness(unverified.path()).unwrap().unwrap();
+        assert_eq!(dr.substrate_validity, CheckStatus::Pass);
+        assert!(dr.deposit_ready);
+        assert!(check_deposit_readiness(unverified.path(), false).is_ok());
+    }
+
+    /// Regression for the ordering bug this fix closes: the CLI's Layer-2
+    /// fold-back (`reseal_deferred`/`reseal_audit_report`) rewrites
+    /// `runtime/audit-proof-report.json`'s `substrate_validity` verdict from a
+    /// real `runcrate` run AFTER Layer 1 already wrote the attestation (see
+    /// `crates/cli/src/export.rs`: `reseal_deferred` then
+    /// `update_deposit_readiness_reexecution`). `update_deposit_readiness_reexecution`
+    /// must RE-SCAN the axis rather than trust the stale Layer-1 value, so a
+    /// substrate FAIL folded in by the reseal step still flips `deposit_ready`
+    /// false.
+    #[test]
+    fn update_deposit_readiness_reexecution_rescans_substrate_validity_after_reseal() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Layer 1: no audit-proof report yet (pre-reseal) — attestation
+        // records a clean, non-blocking substrate axis.
+        write_deposit_readiness(
+            tmp.path(),
+            "re-executable",
+            &tier1(CheckStatus::Pass, CheckStatus::Pass, None),
+            ReexecStatus::NotVerified,
+            None,
+            None,
+            &WallClock,
+        )
+        .unwrap();
+        assert_eq!(
+            read_deposit_readiness(tmp.path()).unwrap().unwrap().substrate_validity,
+            CheckStatus::Pass
+        );
+
+        // Simulate the CLI's `reseal_deferred` step running between Layer 1
+        // and Layer 2: a real runcrate run recorded a concrete FAIL.
+        write_audit_proof_substrate(
+            tmp.path(),
+            crate::audit_proof::InvariantStatus::Fail,
+            Some("WRROC HowToStep set diverges from proofs.jsonl"),
+        );
+
+        // Layer 2: the re-execution verdict itself is clean, but the just-
+        // resealed substrate FAIL must still be picked up and block readiness.
+        update_deposit_readiness_reexecution(
+            tmp.path(),
+            ReexecStatus::Pass,
+            Some("6 byte_identical".into()),
+            None,
+            &WallClock,
+        )
+        .unwrap();
+        let dr = read_deposit_readiness(tmp.path()).unwrap().unwrap();
+        assert_eq!(dr.substrate_validity, CheckStatus::Fail);
+        assert!(
+            !dr.deposit_ready,
+            "a substrate FAIL folded in by the Layer-2 reseal must still block deposit_ready"
+        );
+        assert!(dr.detail.as_deref().unwrap().contains("substrate"));
+        assert!(check_deposit_readiness(tmp.path(), false).is_err());
     }
 
     // -----------------------------------------------------------------------
