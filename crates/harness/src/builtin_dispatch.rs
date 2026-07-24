@@ -1439,6 +1439,179 @@ mod tests {
         );
     }
 
+    /// Plan-4 Task G integration: the composer's REAL stamped
+    /// `min_quorum_per_axis` + `interpretation_cell_ids` + `primary_stage_id`
+    /// on the LOWERED `assemble_ensemble_distribution` task (built via the
+    /// real `plan()` pipeline over the shipped `bulk_rnaseq` ensemble
+    /// roster, not hand-crafted), decoded by
+    /// `assemble_ensemble_distribution_request` and enforced by
+    /// `run_assemble_ensemble_distribution`, actually blocks a below-quorum
+    /// run with `BlockerKind::EnsembleQuorumNotMet` — proving the full
+    /// composer → lowered spec → harness-decode → harness-enforce chain
+    /// composes end to end, not just each half in isolation.
+    #[test]
+    fn real_composer_stamped_quorum_blocks_below_quorum_ensemble_run() {
+        use std::sync::Arc;
+
+        use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
+        use ecaa_workflow_core::atom_registry::AtomRegistry;
+        use ecaa_workflow_core::backend_emitters::workflow_json::{
+            EmitContext, lower_to_workflow_json,
+        };
+        use ecaa_workflow_core::composer_v4::{plan, planning_context_for_goal_with_intake};
+        use ecaa_workflow_core::ensemble_roster::EnsembleRosterProvider;
+        use ecaa_workflow_core::goal_spec::GoalSpec;
+
+        let atom_reg =
+            AtomRegistry::load_from_dir(Path::new("../../config/stage-atoms")).expect("atoms");
+        let archetype_reg =
+            ArchetypeRegistry::load_from_dir(Path::new("../../config/archetypes")).expect("arches");
+        let goal = GoalSpec {
+            edam_data: "data:0951".into(),
+            edam_format: Some("format:3475".into()),
+            modifiers: BTreeMap::new(),
+            source_prose: Some("differential expression table".into()),
+            confidence: 0.8,
+        };
+        let project_class = "bioinformatics";
+
+        let mut ctx = planning_context_for_goal_with_intake(
+            "rnaseq-ensemble-quorum-integration",
+            &goal,
+            Some("bulk_rnaseq"),
+            None,
+            &[],
+        );
+        ctx.compose_ensemble = true;
+        ctx.ensemble_rosters = Some(Arc::new(EnsembleRosterProvider::from_dir(Path::new(
+            "../../config/ensemble-rosters",
+        ))));
+
+        let res = plan(&ctx, &goal, project_class, &atom_reg, &archetype_reg);
+        let dag = &res
+            .alternatives
+            .iter()
+            .find(|a| a.source == "archetype")
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected an archetype-seeded alternative; sources={:?}",
+                    res.alternatives
+                        .iter()
+                        .map(|a| a.source.as_str())
+                        .collect::<Vec<_>>()
+                )
+            })
+            .dag;
+
+        let artifact =
+            lower_to_workflow_json(dag, &EmitContext::defaults()).expect("lower ensemble dag");
+        let ensemble_task = artifact
+            .dag
+            .tasks
+            .get(ASSEMBLE_ENSEMBLE_DISTRIBUTION)
+            .expect("real ensemble aggregator task present in the lowered DAG");
+
+        let args = assemble_ensemble_distribution_request(ensemble_task)
+            .expect("the real lowered task decodes as an assemble_ensemble_distribution builtin");
+        assert_eq!(
+            args.min_quorum_per_axis, 2,
+            "shipped bulk_rnaseq roster caps.min_quorum_per_axis"
+        );
+        assert!(args.cell_ids.len() >= 2);
+
+        // Materialize `result.json` ONLY for cells belonging to a SINGLE
+        // method (across every lens it fans into) — the method axis lands
+        // below the decoded quorum while the lens axis clears it.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let outputs = root.join("runtime").join("outputs");
+        let single_method = args
+            .cell_ids
+            .iter()
+            .find_map(|id| {
+                id.strip_prefix("biological_interpretation__m_")
+                    .and_then(|rest| rest.split_once("__lens_"))
+                    .map(|(m, _)| m.to_string())
+            })
+            .expect("at least one cell id parses to a method");
+        let readable_ids: Vec<String> = args
+            .cell_ids
+            .iter()
+            .filter(|id| id.contains(&format!("__m_{single_method}__")))
+            .cloned()
+            .collect();
+        assert!(
+            readable_ids.len() >= 2,
+            "need >=2 lenses under the one readable method to prove the lens axis clears \
+             quorum while the method axis doesn't; readable_ids={readable_ids:?}"
+        );
+        for cid in &readable_ids {
+            let dir = outputs.join(cid);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(
+                dir.join("result.json"),
+                serde_json::to_string_pretty(&serde_json::json!({ "hypothesis_supported": true }))
+                    .unwrap(),
+            )
+            .unwrap();
+        }
+
+        let dispatch = PickedDispatch {
+            task_id: TaskId::from(ASSEMBLE_ENSEMBLE_DISTRIBUTION),
+            harness_run_id: "run-1".into(),
+            epoch: 1,
+        };
+        let clock = WallClock;
+        let state = run_assemble_ensemble_distribution(root, &dispatch, &args, &clock)
+            .expect("no write failure");
+        match state {
+            TaskState::Blocked { record } => {
+                assert!(
+                    record.reason.contains("[ensemble_quorum_not_met]"),
+                    "{}",
+                    record.reason
+                );
+                let json_part = record
+                    .reason
+                    .strip_prefix("[ensemble_quorum_not_met] ")
+                    .expect("blocker reason carries the expected marker prefix");
+                let kind: BlockerKind =
+                    serde_json::from_str(json_part).expect("blocker json roundtrips");
+                match kind {
+                    BlockerKind::EnsembleQuorumNotMet {
+                        present_per_axis,
+                        required,
+                    } => {
+                        assert_eq!(required, args.min_quorum_per_axis);
+                        assert_eq!(
+                            present_per_axis.get("method").copied(),
+                            Some(1),
+                            "exactly one method is readable: {present_per_axis:?}"
+                        );
+                        assert!(
+                            present_per_axis.get("lens").copied().unwrap_or(0)
+                                >= args.min_quorum_per_axis,
+                            "the lens axis clears quorum: {present_per_axis:?}"
+                        );
+                    }
+                    other => panic!("expected EnsembleQuorumNotMet, got {other:?}"),
+                }
+            }
+            other => panic!(
+                "expected Blocked{{EnsembleQuorumNotMet}} from the real composer-stamped \
+                 min_quorum_per_axis below quorum, got {other:?}"
+            ),
+        }
+
+        assert!(
+            outputs
+                .join(ASSEMBLE_ENSEMBLE_DISTRIBUTION)
+                .join("ensemble-distribution.json")
+                .is_file(),
+            "ensemble-distribution.json is still written on a below-quorum result"
+        );
+    }
+
     /// Through the generalized dispatch predicate/runner, exercised end to
     /// end alongside the other two builtins.
     #[test]

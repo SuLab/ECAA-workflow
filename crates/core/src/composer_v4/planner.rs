@@ -4334,6 +4334,383 @@ mod tests {
         );
     }
 
+    /// Plan-4 Task G — integration test tying Tasks A/B/C/F together over
+    /// the REAL ensemble `bulk_rnaseq` DAG (same setup as
+    /// [`ensemble_aggregators_end_to_end_from_stamped_ids`]), proving the
+    /// composer-stamped ids/attrs and the runtime aggregators actually
+    /// compose rather than merely unit-testing in isolation:
+    ///
+    /// - **A** — a cell whose narrative CONTRADICTS its own method-variant
+    ///   table (verified against the package's OWN embedded, real
+    ///   `config/downstream-policy/interpretation-policy.json`, copied in
+    ///   exactly as the emitter's `copy_policies` would) is pruned from
+    ///   consensus but retained (tagged) in `cells`.
+    /// - **F** — the real ensemble aggregator node carries
+    ///   `projected_cost_usd` / `budget_ceiling_usd`.
+    /// - **C** — the real emitted `reporting` task's lowered spec carries
+    ///   the ensemble sections/tables + `ensemble_mode: true`.
+    /// - **B** — `check_reporting_invariants` RUNS RC-COUNT/RC-IDENTITY over
+    ///   the pooled `report-data.json` the real stat aggregator wrote (not a
+    ///   vacuous skip) and PASSES on that self-consistent data.
+    /// - Determinism — re-running both aggregators is byte-identical.
+    #[test]
+    fn ensemble_plan4_pruning_sections_budget_and_rc_count_compose() {
+        use std::path::Path;
+        use std::sync::Arc;
+
+        use crate::backend_emitters::workflow_json::{EmitContext, lower_to_workflow_json};
+        use crate::clock::FrozenClock;
+        use crate::composer_v4::ensemble_synthesis::{
+            ENSEMBLE_AGGREGATOR_ID, ENSEMBLE_STAT_AGGREGATOR_ID,
+        };
+        use crate::reexecution_bounds::ModalityBounds;
+        use crate::report_contract::{
+            self, ResultSchema, assemble_ensemble_distribution, assemble_statistical_distribution,
+        };
+        use crate::reporting_invariants::check_reporting_invariants;
+
+        let atom_reg =
+            AtomRegistry::load_from_dir(Path::new("../../config/stage-atoms")).expect("atoms");
+        let archetype_reg =
+            ArchetypeRegistry::load_from_dir(Path::new("../../config/archetypes")).expect("arches");
+        let goal = GoalSpec {
+            edam_data: "data:0951".into(),
+            edam_format: Some("format:3475".into()),
+            modifiers: BTreeMap::new(),
+            source_prose: Some("differential expression table".into()),
+            confidence: 0.8,
+        };
+        let project_class = "bioinformatics";
+
+        let mut ctx = planning_context_for_goal_with_intake(
+            "rnaseq-ensemble-plan4-integration",
+            &goal,
+            Some("bulk_rnaseq"),
+            None,
+            &[],
+        );
+        ctx.compose_ensemble = true;
+        ctx.ensemble_rosters = Some(Arc::new(
+            crate::ensemble_roster::EnsembleRosterProvider::from_dir(Path::new(
+                "../../config/ensemble-rosters",
+            )),
+        ));
+
+        let res = plan(&ctx, &goal, project_class, &atom_reg, &archetype_reg);
+        let dag = &res
+            .alternatives
+            .iter()
+            .find(|a| a.source == "archetype")
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected an archetype-seeded alternative; sources={:?}",
+                    res.alternatives
+                        .iter()
+                        .map(|a| a.source.as_str())
+                        .collect::<Vec<_>>()
+                )
+            })
+            .dag;
+
+        let stat_agg = dag
+            .nodes
+            .iter()
+            .find(|n| n.id == ENSEMBLE_STAT_AGGREGATOR_ID)
+            .expect("stat aggregator node present in the real emitted DAG");
+        let variant_stage_ids: Vec<String> = stat_agg
+            .attributes
+            .get("variant_stage_ids")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .expect("variant_stage_ids stamped + deserializes to Vec<String>");
+        let schema: ResultSchema = stat_agg
+            .attributes
+            .get("result_schema")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .expect("result_schema stamped + deserializes to ResultSchema");
+        let relative_tolerance = stat_agg
+            .attributes
+            .get("relative_tolerance")
+            .and_then(|v| v.as_f64())
+            .expect("relative_tolerance stamped");
+        let absolute_tolerance = stat_agg
+            .attributes
+            .get("absolute_tolerance")
+            .and_then(|v| v.as_f64())
+            .expect("absolute_tolerance stamped");
+
+        let ensemble_agg = dag
+            .nodes
+            .iter()
+            .find(|n| n.id == ENSEMBLE_AGGREGATOR_ID)
+            .expect("ensemble aggregator node present in the real emitted DAG");
+        let cell_ids: Vec<String> = ensemble_agg
+            .attributes
+            .get("interpretation_cell_ids")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .expect("interpretation_cell_ids stamped + deserializes to Vec<String>");
+        let primary_stage_id: String = ensemble_agg
+            .attributes
+            .get("primary_stage_id")
+            .and_then(|v| v.as_str())
+            .expect("primary_stage_id stamped on the ensemble aggregator")
+            .to_string();
+        assert!(variant_stage_ids.len() >= 2, "need >=2 statistical variants");
+        assert!(cell_ids.len() >= 2, "need >=2 interpretation cells");
+
+        // -- Task F: budget projection stamped on the REAL aggregator node --
+        let projected_cost_usd = ensemble_agg
+            .attributes
+            .get("projected_cost_usd")
+            .and_then(|v| v.as_f64())
+            .expect("projected_cost_usd stamped on the real ensemble aggregator node");
+        let budget_ceiling_usd = ensemble_agg
+            .attributes
+            .get("budget_ceiling_usd")
+            .and_then(|v| v.as_f64())
+            .expect("budget_ceiling_usd stamped on the real ensemble aggregator node");
+        assert!(
+            projected_cost_usd > 0.0,
+            "projected cost is a real positive sum over ensemble member tasks"
+        );
+        assert_eq!(
+            budget_ceiling_usd, 60.0,
+            "budget ceiling mirrors the shipped bulk_rnaseq roster's per_ensemble_budget_usd"
+        );
+
+        // -- Task C: the REAL emitted reporting task carries the ensemble
+        // sections/tables + ensemble_mode on its lowered spec ------------
+        let artifact =
+            lower_to_workflow_json(dag, &EmitContext::defaults()).expect("lower ensemble dag");
+        let reporting_task = artifact
+            .dag
+            .tasks
+            .get("reporting")
+            .expect("reporting task present in the lowered DAG");
+        let reporting_spec = reporting_task
+            .spec
+            .as_ref()
+            .expect("reporting task carries a spec");
+        let sections: Vec<String> = reporting_spec
+            .get("required_report_sections")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .expect("lowered reporting spec carries required_report_sections");
+        for ens in [
+            "method_robustness",
+            "interpretive_agreement",
+            "method_lens_interaction",
+            "dissenting_lenses",
+            "literature_coverage",
+        ] {
+            assert!(
+                sections.contains(&ens.to_string()),
+                "lowered reporting spec gains ensemble section {ens}: {sections:?}"
+            );
+        }
+        assert_eq!(
+            reporting_spec.get("ensemble_mode").and_then(|v| v.as_bool()),
+            Some(true),
+            "lowered reporting spec.ensemble_mode == true"
+        );
+
+        // -- materialize fixtures on disk, keyed by the STAMPED ids -------
+        let tmp = tempfile::tempdir().unwrap();
+        let package_root = tmp.path();
+        let outputs_dir = package_root.join("runtime").join("outputs");
+
+        // Embed the REAL interpretation policy exactly as the emitter's
+        // `copy_policies` would (flat copy under `policies/`) — Task A's
+        // per-cell verifier reads it via `resolve_policy_file`.
+        let policy_dir = package_root.join("policies");
+        std::fs::create_dir_all(&policy_dir).unwrap();
+        let real_policy_src = Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../config/downstream-policy/interpretation-policy.json"
+        ));
+        std::fs::copy(real_policy_src, policy_dir.join("interpretation-policy.json"))
+            .expect("copy the real interpretation policy into the package");
+
+        let entity_col = schema.entity_column.clone();
+        let effect_col = schema
+            .signed_effect_column
+            .clone()
+            .expect("DE schema declares a signed_effect_column");
+        let sig_col = schema
+            .significance
+            .as_ref()
+            .expect("DE schema declares a significance column")
+            .column
+            .clone();
+
+        // Every statistical-variant table agrees: EGFR up, MYC down, both
+        // significant — self-consistent inputs so RC-COUNT (Task B) has a
+        // real, non-tampered pooled table to recompute against.
+        for vid in &variant_stage_ids {
+            let dir = outputs_dir.join(vid);
+            std::fs::create_dir_all(&dir).unwrap();
+            let body = format!(
+                "{entity_col}\t{effect_col}\t{sig_col}\nEGFR\t2.0\t0.001\nMYC\t-3.0\t0.002\n"
+            );
+            std::fs::write(dir.join(&schema.artifact), body).unwrap();
+        }
+
+        // One cell (the lexicographically first, for determinism) gets a
+        // HALLUCINATING narrative that CONTRADICTS its own method-variant
+        // table's direction for EGFR; every other cell's narrative is
+        // consistent with the table it cites.
+        let mut sorted_cells = cell_ids.clone();
+        sorted_cells.sort();
+        let hallucinating_id = sorted_cells[0].clone();
+        for cid in &cell_ids {
+            let dir = outputs_dir.join(cid);
+            std::fs::create_dir_all(&dir).unwrap();
+            let result = serde_json::json!({ "hypothesis_supported": true, "literature": [] });
+            std::fs::write(
+                dir.join("result.json"),
+                serde_json::to_string_pretty(&result).unwrap(),
+            )
+            .unwrap();
+            let narrative = if *cid == hallucinating_id {
+                "EGFR was downregulated (log2FoldChange=-2.0, padj=0.001)."
+            } else {
+                "EGFR was upregulated (log2FoldChange=2.0, padj=0.001)."
+            };
+            std::fs::write(dir.join("report.md"), narrative).unwrap();
+        }
+
+        // -- run the real aggregators over the stamped ids -----------------
+        let clock = FrozenClock::default();
+        let bounds = ModalityBounds {
+            relative_tolerance,
+            absolute_tolerance,
+        };
+
+        let stat_dist = assemble_statistical_distribution(
+            package_root,
+            &variant_stage_ids,
+            &schema,
+            &bounds,
+            &clock,
+        )
+        .expect("stat aggregator runs over the stamped variant ids");
+        let ensemble_dist =
+            assemble_ensemble_distribution(package_root, &cell_ids, &primary_stage_id, &clock)
+                .expect("ensemble aggregator runs over the stamped cell ids");
+
+        // -- Task A: pruning ------------------------------------------------
+        assert_eq!(
+            ensemble_dist.cells.len(),
+            cell_ids.len(),
+            "every cell is retained — pruning tags, never drops"
+        );
+        let bad_cell = ensemble_dist
+            .cells
+            .iter()
+            .find(|c| c.cell_id == hallucinating_id)
+            .expect("the hallucinating cell is retained in `cells`");
+        let n_mismatch = bad_cell
+            .verification
+            .as_ref()
+            .and_then(|v| v.get("n_mismatch"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        assert!(
+            n_mismatch > 0,
+            "the hallucinating cell must carry a Mismatch verdict against its OWN embedded, \
+             real interpretation policy: verification={:?}",
+            bad_cell.verification
+        );
+        assert_eq!(
+            ensemble_dist.n_pruned, 1,
+            "exactly the hallucinating cell is pruned from consensus"
+        );
+
+        let good_cell = ensemble_dist
+            .cells
+            .iter()
+            .find(|c| c.cell_id != hallucinating_id)
+            .expect("at least one clean cell present");
+        let good_n_checked = good_cell
+            .verification
+            .as_ref()
+            .and_then(|v| v.get("n_checked"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        assert!(
+            good_n_checked > 0,
+            "a clean cell's narrative must actually be verified against the real policy: {:?}",
+            good_cell.verification
+        );
+
+        assert_eq!(
+            ensemble_dist.consensus_label,
+            format!("model agreement across {} cells — not verified truth", cell_ids.len() - 1),
+            "consensus is computed over the surviving (non-pruned) cells only"
+        );
+
+        // -- Task B: RC-COUNT/RC-IDENTITY actually RUN over the real pooled
+        // report-data.json (not a vacuous skip) and PASS ------------------
+        let workflow_json = serde_json::json!({
+            "tasks": {
+                report_contract::ensemble_assemble::STAT_DISTRIBUTION_STAGE_ID: {
+                    "spec": { "result_schema": serde_json::to_value(&schema).unwrap() }
+                }
+            }
+        });
+        std::fs::write(
+            package_root.join("WORKFLOW.json"),
+            workflow_json.to_string(),
+        )
+        .unwrap();
+
+        let rc_report = check_reporting_invariants(package_root);
+        assert!(
+            rc_report.checked.contains(&"RC-COUNT"),
+            "RC-COUNT must actually RUN over the real pooled report-data.json, not vacuously \
+             skip: {rc_report:?}"
+        );
+        assert!(
+            rc_report.checked.contains(&"RC-IDENTITY"),
+            "RC-IDENTITY must run over the pooled report-data too: {rc_report:?}"
+        );
+        assert!(
+            rc_report.passed(),
+            "the real aggregator's own self-consistent pooled report-data must pass \
+             RC-COUNT/RC-IDENTITY: {rc_report:?}"
+        );
+
+        // -- determinism: re-run both aggregators, expect byte-identical --
+        let stat_json_1 = serde_json::to_string_pretty(&stat_dist).unwrap();
+        let ensemble_json_1 = serde_json::to_string_pretty(&ensemble_dist).unwrap();
+
+        let stat_dist_2 = assemble_statistical_distribution(
+            package_root,
+            &variant_stage_ids,
+            &schema,
+            &bounds,
+            &clock,
+        )
+        .unwrap();
+        let ensemble_dist_2 =
+            assemble_ensemble_distribution(package_root, &cell_ids, &primary_stage_id, &clock)
+                .unwrap();
+
+        assert_eq!(stat_dist, stat_dist_2, "StatDistribution identical across runs");
+        assert_eq!(
+            ensemble_dist, ensemble_dist_2,
+            "EnsembleDistribution identical across runs"
+        );
+        assert_eq!(
+            serde_json::to_string_pretty(&stat_dist_2).unwrap(),
+            stat_json_1,
+            "serialized StatDistribution byte-identical across runs"
+        );
+        assert_eq!(
+            serde_json::to_string_pretty(&ensemble_dist_2).unwrap(),
+            ensemble_json_1,
+            "serialized EnsembleDistribution byte-identical across runs"
+        );
+    }
+
     #[test]
     fn empty_registry_returns_partial_dag() {
         let ctx = planning_context_for_goal("test", &simple_goal());
