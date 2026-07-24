@@ -1,0 +1,7 @@
+schema_version: "0.1"
+lenses:
+  - {id: mechanistic,   persona_ref: mechanistic.md,   model_tier: opus,   retrieval: recent}
+  - {id: systems,       persona_ref: systems.md,       model_tier: opus,   retrieval: recent}
+  - {id: translational, persona_ref: translational.md, model_tier: sonnet, retrieval: foundational}
+  - {id: skeptical,     persona_ref: skeptical.md,     model_tier: opus,   retrieval: foundational}
+  - {id: exploratory,   persona_ref: exploratory.md,   model_tier: sonnet, retrieval: recent}

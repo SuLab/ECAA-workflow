@@ -10,6 +10,32 @@ use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::path::Path;
 
+/// Embedded schema for `config/ensemble-lenses/lenses.yaml` — the global
+/// epistemic-core lens set (5 fixed reasoning-style lenses shared by every
+/// modality), distinct from the per-modality `_ensemble.schema.json`.
+const EPISTEMIC_CORE_LENSES_SCHEMA_JSON: &str =
+    include_str!("../../../config/ensemble-lenses/_lenses.schema.json");
+
+/// Schema-layout version `load_epistemic_core` accepts. Mirrors
+/// `modality_registry::CURRENT_MODALITY_SCHEMA_VERSION`'s role: a
+/// `lenses.yaml` whose `schema_version` disagrees is rejected before
+/// generic JSON-Schema validation runs, so the error names the mismatch
+/// explicitly rather than failing on an opaque `const` violation.
+pub const CURRENT_EPISTEMIC_CORE_SCHEMA_VERSION: &str = "0.1";
+
+/// On-disk shape of `config/ensemble-lenses/lenses.yaml`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EpistemicCoreFile {
+    /// Checked against [`CURRENT_EPISTEMIC_CORE_SCHEMA_VERSION`] on the raw
+    /// `serde_json::Value` before this struct is built; kept as a field
+    /// (rather than dropped) only so `deny_unknown_fields` still maps every
+    /// key the schema requires.
+    #[allow(dead_code)]
+    schema_version: String,
+    lenses: Vec<InterpretiveLens>,
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EnsembleRoster {
@@ -55,6 +81,13 @@ pub struct InterpretiveLens {
     /// Reserved for multi-family models; deferred, unused in v1.
     #[serde(default)]
     pub model: Option<String>,
+    /// The rendered persona prompt text for this lens. Absent from raw
+    /// YAML (`persona_ref` names the file instead); the ensemble
+    /// synthesis provider reads the referenced persona file and fills
+    /// this in at runtime. `#[serde(default)]` keeps `deny_unknown_fields`
+    /// happy against config that predates this field.
+    #[serde(default)]
+    pub persona_text: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -126,6 +159,79 @@ impl EnsembleRosterProvider {
     /// `<config_dir>/ensemble-rosters`).
     pub fn personas_dir(&self) -> std::path::PathBuf {
         self.root.join("personas")
+    }
+
+    /// Load the GLOBAL epistemic-core lens set from
+    /// `<dir>/lenses.yaml` (schema-guarded by `<dir>/_lenses.schema.json`),
+    /// shared by every modality — distinct from the per-modality
+    /// `interpretive_lenses` block in [`Self::from_dir`]'s rosters.
+    ///
+    /// Mirrors `ModalityRegistry::load_from_dir`'s schema-guard shape: YAML
+    /// → reshaped `serde_json::Value` → typed `schema_version` pre-check
+    /// (a clearer error than a generic `const` violation) → JSON-Schema
+    /// validate → typed deserialize. Every persona file named by
+    /// `persona_ref` is read from `<dir>/personas/` and linted via
+    /// [`lint_persona_text`] so a load-time honesty violation surfaces
+    /// before the lens set is ever consumed. Lenses are returned in
+    /// `lenses.yaml` file order (stable, deterministic).
+    pub fn load_epistemic_core(dir: &Path) -> Result<Vec<InterpretiveLens>, String> {
+        let schema = crate::schema_helpers::compile_schema_cached(
+            "ensemble_lenses",
+            EPISTEMIC_CORE_LENSES_SCHEMA_JSON,
+        )
+        .map_err(|e| format!("compiling ensemble_lenses schema: {e}"))?;
+
+        let path = dir.join("lenses.yaml");
+        let raw = std::fs::read_to_string(&path)
+            .map_err(|e| format!("reading epistemic-core lenses {}: {e}", path.display()))?;
+        let yaml_val: serde_yaml_ng::Value = serde_yaml_ng::from_str(&raw)
+            .map_err(|e| format!("parsing epistemic-core lenses YAML {}: {e}", path.display()))?;
+        let parsed: serde_json::Value = serde_json::to_value(&yaml_val)
+            .map_err(|e| format!("yaml→json reshape for {}: {e}", path.display()))?;
+
+        if let Some(found) = parsed.get("schema_version").and_then(|v| v.as_str()) {
+            if found != CURRENT_EPISTEMIC_CORE_SCHEMA_VERSION {
+                return Err(format!(
+                    "epistemic-core lenses {} schema_version_mismatch: expected {}, found {}",
+                    path.display(),
+                    CURRENT_EPISTEMIC_CORE_SCHEMA_VERSION,
+                    found,
+                ));
+            }
+        }
+
+        if let Err(errors) = schema.validate(&parsed) {
+            let msgs: Vec<String> = errors
+                .map(|e| format!("{} at {}", e, e.instance_path))
+                .collect();
+            return Err(format!(
+                "epistemic-core lenses {} failed schema validation:\n  - {}",
+                path.display(),
+                msgs.join("\n  - ")
+            ));
+        }
+
+        let file: EpistemicCoreFile = serde_json::from_value(parsed).map_err(|e| {
+            format!(
+                "deserializing epistemic-core lenses {}: {e}",
+                path.display()
+            )
+        })?;
+
+        let personas_dir = dir.join("personas");
+        for lens in &file.lenses {
+            let persona_path = personas_dir.join(&lens.persona_ref);
+            let text = std::fs::read_to_string(&persona_path).map_err(|e| {
+                format!(
+                    "reading persona file {} for lens '{}': {e}",
+                    persona_path.display(),
+                    lens.id
+                )
+            })?;
+            lint_persona_text(&lens.id, &text)?;
+        }
+
+        Ok(file.lenses)
     }
 }
 
@@ -445,6 +551,7 @@ caps:
             model_tier: "sonnet".into(),
             retrieval: "foundational".into(),
             model: None,
+            persona_text: None,
         });
         roster
     }
@@ -512,5 +619,30 @@ caps:
                 .unwrap_or_else(|_| panic!("persona file missing: {}", p.display()));
             lint_persona_text(&lens.id, &text).expect("persona is an honest lens");
         }
+    }
+
+    #[test]
+    fn loads_five_epistemic_core_lenses() {
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config/ensemble-lenses");
+        let core = EnsembleRosterProvider::load_epistemic_core(&dir).expect("core loads");
+        let ids: Vec<_> = core.iter().map(|l| l.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            [
+                "mechanistic",
+                "systems",
+                "translational",
+                "skeptical",
+                "exploratory"
+            ]
+        );
+        assert_eq!(
+            core.iter()
+                .find(|l| l.id == "skeptical")
+                .unwrap()
+                .model_tier,
+            "opus"
+        );
     }
 }

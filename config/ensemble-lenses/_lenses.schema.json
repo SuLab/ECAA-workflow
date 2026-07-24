@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://ecaa-workflow/config/ensemble-lenses/_lenses.schema.json",
+  "title": "Global epistemic-core interpretive-lens set",
+  "description": "Schema for `config/ensemble-lenses/lenses.yaml` — the 5 fixed reasoning-style interpretive lenses shared by every modality (mechanistic, systems, translational, skeptical, exploratory), loaded by `EnsembleRosterProvider::load_epistemic_core`. Distinct from the per-modality `config/ensemble-rosters/<modality>.yaml` interpretive_lenses block (per-modality subfield lenses).",
+  "type": "object",
+  "required": ["schema_version", "lenses"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "0.1",
+      "description": "Schema-layout version for this epistemic-core lens set. Bump on breaking layout changes."
+    },
+    "lenses": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "persona_ref", "model_tier", "retrieval"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Stable lens id (e.g. `mechanistic`, `skeptical`)."
+          },
+          "persona_ref": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Filename of the persona markdown file under `config/ensemble-lenses/personas/`."
+          },
+          "model_tier": {
+            "type": "string",
+            "enum": ["opus", "sonnet"],
+            "description": "Model-tier assignment for this lens's contextualization pass."
+          },
+          "retrieval": {
+            "type": "string",
+            "enum": ["recent", "foundational"],
+            "description": "Literature-retrieval bias for this lens."
+          }
+        }
+      }
+    }
+  }
+}

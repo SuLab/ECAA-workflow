@@ -1154,6 +1154,7 @@ mod tests {
             model_tier: "opus".into(),
             retrieval: "recent".into(),
             model: None,
+            persona_text: None,
         }];
 
         let err = synthesize_ensemble_fanout_validated(&mut dag, &reg, &roster, &tmp)
