@@ -46,6 +46,12 @@ pub struct EnsembleRoster {
     #[serde(default = "default_factorial")]
     pub factorial: FactorialMode,
     pub statistical_variants: Vec<StatisticalVariant>,
+    /// Per-modality interpretive lenses. `#[serde(default)]` because
+    /// rosters no longer declare this block directly — the effective
+    /// per-analysis lens list is now composed at runtime from the global
+    /// epistemic core plus deterministically-selected subfields (see
+    /// [`EnsembleRosterProvider::compose_lenses`]).
+    #[serde(default)]
     pub interpretive_lenses: Vec<InterpretiveLens>,
     pub caps: EnsembleCaps,
 }
@@ -104,6 +110,16 @@ pub struct EnsembleCaps {
 pub struct EnsembleRosterProvider {
     by_modality: BTreeMap<String, EnsembleRoster>,
     root: std::path::PathBuf,
+    /// The 5 fixed global epistemic-core lenses (shared by every
+    /// modality), loaded via [`Self::load_epistemic_core`].
+    epistemic_core: Vec<InterpretiveLens>,
+    /// `<config_dir>/ensemble-lenses/personas` — where the epistemic
+    /// core's `persona_ref` files live, read at [`Self::compose_lenses`]
+    /// time.
+    epistemic_personas_dir: std::path::PathBuf,
+    /// The curated biomedical subfield catalog the deterministic
+    /// selector picks from per-analysis.
+    subfields: crate::ensemble_subfield::SubfieldCatalog,
 }
 
 impl EnsembleRosterProvider {
@@ -116,6 +132,7 @@ impl EnsembleRosterProvider {
             return Self {
                 by_modality,
                 root: dir.to_path_buf(),
+                ..Default::default()
             };
         };
         for entry in entries.flatten() {
@@ -145,7 +162,28 @@ impl EnsembleRosterProvider {
         Self {
             by_modality,
             root: dir.to_path_buf(),
+            ..Default::default()
         }
+    }
+
+    /// Load the full provider from a `config/` directory root: the
+    /// per-modality rosters (`<config_dir>/ensemble-rosters`), the global
+    /// epistemic core (`<config_dir>/ensemble-lenses`), and the curated
+    /// subfield catalog (`<config_dir>/ensemble-subfields`). Both the
+    /// epistemic core and the subfield catalog soft-fail to empty on load
+    /// error — a config-loading defect there degrades the ensemble
+    /// composition (fewer lenses) rather than blocking the compiler,
+    /// mirroring `from_dir`'s never-panics contract.
+    pub fn from_config_dir(config_dir: &Path) -> Self {
+        let mut me = Self::from_dir(&config_dir.join("ensemble-rosters"));
+        me.epistemic_core =
+            Self::load_epistemic_core(&config_dir.join("ensemble-lenses")).unwrap_or_default();
+        me.epistemic_personas_dir = config_dir.join("ensemble-lenses").join("personas");
+        me.subfields = crate::ensemble_subfield::SubfieldCatalog::load_from_dir(
+            &config_dir.join("ensemble-subfields"),
+        )
+        .unwrap_or_default();
+        me
     }
 
     /// The roster for a modality, or `None` when unconfigured.
@@ -232,6 +270,73 @@ impl EnsembleRosterProvider {
         }
 
         Ok(file.lenses)
+    }
+
+    /// Compose the effective per-analysis lens list for `modality`: the 5
+    /// fixed epistemic-core lenses (file order) followed by the
+    /// deterministically-selected subfields ([`crate::ensemble_subfield_select::select_subfields`],
+    /// ranked by score desc then id asc), each with its persona file read
+    /// and its `{entity}`/`{entities}` placeholders substituted for
+    /// `entity` (`(singular, plural)`). Plural is substituted BEFORE
+    /// singular so `{entities}` never gets clobbered by a `{entity}`
+    /// prefix match. Every selected subfield is recorded as a
+    /// [`crate::decision_substrate::VerifierDecision::EnsembleSubfieldSelected`]
+    /// row so the choice is reconstructable without re-running the
+    /// matcher. A load or IO failure on a persona file degrades to an
+    /// empty `persona_text` (never panics) — consistent with this
+    /// module's soft-fail load contract elsewhere.
+    pub fn compose_lenses(
+        &self,
+        modality: &str,
+        goal_text: &str,
+        entity: (&str, &str),
+    ) -> Vec<InterpretiveLens> {
+        let sub = |raw: &str| raw.replace("{entities}", entity.1).replace("{entity}", entity.0);
+        let mut out: Vec<InterpretiveLens> = self
+            .epistemic_core
+            .iter()
+            .map(|l| {
+                let raw = std::fs::read_to_string(self.epistemic_personas_dir.join(&l.persona_ref))
+                    .unwrap_or_default();
+                InterpretiveLens {
+                    persona_text: Some(sub(&raw)),
+                    ..l.clone()
+                }
+            })
+            .collect();
+        for sel in crate::ensemble_subfield_select::select_subfields(
+            goal_text,
+            &self.subfields,
+            crate::ensemble_subfield_select::S_MAX,
+            crate::ensemble_subfield_select::MIN_SELECT_SCORE,
+        ) {
+            crate::decision_substrate::record(
+                crate::decision_substrate::VerifierDecision::EnsembleSubfieldSelected {
+                    id: crate::decision_substrate::stable_id(
+                        "ensemble_subfield",
+                        modality,
+                        &sel.id,
+                    ),
+                    timestamp: crate::decision_substrate::timestamp(),
+                    modality: modality.to_string(),
+                    subfield_id: sel.id.clone(),
+                    matched_keywords: sel.matched_keywords.clone(),
+                },
+            );
+            if let Some(sf) = self.subfields.by_id.get(&sel.id) {
+                let raw = std::fs::read_to_string(self.subfields.persona_path(&sf.id))
+                    .unwrap_or_default();
+                out.push(InterpretiveLens {
+                    id: sf.id.clone(),
+                    persona_ref: sf.persona_ref.clone(),
+                    model_tier: sf.model_tier.clone(),
+                    retrieval: sf.retrieval.clone(),
+                    model: None,
+                    persona_text: Some(sub(&raw)),
+                });
+            }
+        }
+        out
     }
 }
 
@@ -644,5 +749,94 @@ caps:
                 .model_tier,
             "opus"
         );
+    }
+
+    /// Process-unique counter for test session ids so parallel test
+    /// threads never collide on the same `decision_substrate` bucket key
+    /// (each session-scoped bucket is otherwise fully isolated already;
+    /// this just guarantees the key itself is unique per test run).
+    static TEST_SESSION_COUNTER: std::sync::atomic::AtomicUsize =
+        std::sync::atomic::AtomicUsize::new(0);
+
+    fn unique_test_session(prefix: &str) -> String {
+        let n = TEST_SESSION_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        format!("{prefix}-{n}")
+    }
+
+    #[test]
+    fn compose_lenses_bulk_rnaseq_immune_goal() {
+        let cfg = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../config"));
+        let provider = EnsembleRosterProvider::from_config_dir(cfg);
+        let session_id = unique_test_session("p6t6");
+        let _ = crate::decision_substrate::drain_session(&session_id);
+
+        let lenses;
+        {
+            let _scope = crate::decision_substrate::enter_session(session_id.clone());
+            lenses = provider.compose_lenses(
+                "bulk_rnaseq",
+                "role of T cell inflammation in chronic disease progression",
+                ("gene", "genes"),
+            );
+        }
+
+        assert_eq!(lenses.len(), 6, "5 core + 1 selected subfield (immunology)");
+        let core_ids: Vec<&str> = lenses[..5].iter().map(|l| l.id.as_str()).collect();
+        assert_eq!(
+            core_ids,
+            ["mechanistic", "systems", "translational", "skeptical", "exploratory"],
+            "core lenses appear first, in file order"
+        );
+        assert!(
+            lenses.iter().any(|l| l.id == "immunology"),
+            "immunology subfield must be selected for a T-cell/inflammation goal"
+        );
+        for lens in &lenses {
+            let text = lens
+                .persona_text
+                .as_ref()
+                .unwrap_or_else(|| panic!("lens {} missing persona_text", lens.id));
+            assert!(
+                text.contains("genes"),
+                "lens {} persona_text must contain substituted plural 'genes': {text}",
+                lens.id
+            );
+            assert!(
+                !text.contains("{entit"),
+                "lens {} persona_text must not retain a literal placeholder: {text}",
+                lens.id
+            );
+        }
+
+        let drained = crate::decision_substrate::drain_session(&session_id);
+        assert!(
+            drained.iter().any(|d| matches!(
+                d,
+                crate::decision_substrate::VerifierDecision::EnsembleSubfieldSelected { subfield_id, .. }
+                    if subfield_id == "immunology"
+            )),
+            "expected a recorded EnsembleSubfieldSelected row for immunology, got {drained:?}"
+        );
+    }
+
+    #[test]
+    fn compose_lenses_no_subfield_match_returns_core_only() {
+        let cfg = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../config"));
+        let provider = EnsembleRosterProvider::from_config_dir(cfg);
+        let session_id = unique_test_session("p6t6-nomatch");
+        let _ = crate::decision_substrate::drain_session(&session_id);
+
+        let lenses;
+        {
+            let _scope = crate::decision_substrate::enter_session(session_id.clone());
+            lenses = provider.compose_lenses(
+                "bulk_rnaseq",
+                "quarterly widget throughput report for the factory line",
+                ("gene", "genes"),
+            );
+        }
+
+        assert_eq!(lenses.len(), 5, "no subfield keyword match -> core only");
+        assert!(crate::decision_substrate::drain_session(&session_id).is_empty());
     }
 }
