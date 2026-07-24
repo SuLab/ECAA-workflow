@@ -853,14 +853,24 @@ mod tests {
                 read_path: "runtime/outputs/data_acquisition/counts.tsv".into(),
                 declared_producer: Some("normalisation".into()),
             },
+            BlockerKind::EnsembleQuorumNotMet {
+                present_per_axis: {
+                    let mut m = std::collections::BTreeMap::new();
+                    m.insert("method:deseq2".to_string(), 1);
+                    m.insert("lens:pathway".to_string(), 2);
+                    m
+                },
+                required: 3,
+            },
         ];
 
         assert_eq!(
             variants.len(),
-            49,
-            "expected exactly forty-nine variants \
-             (ProvenanceDivergence added for the observed-read reconciliation \
-             path, T12 — matches `BlockerKind::COUNT` compile-time gate in \
+            50,
+            "expected exactly fifty variants \
+             (EnsembleQuorumNotMet added for the multi-analyst ensemble's \
+             per-axis quorum gate, Plan 4 Task D — matches \
+             `BlockerKind::COUNT` compile-time gate in \
              `crates/core/tests/policy/blocker_variant_count.rs` and the doc \
              comment on `BlockerKind` in this file)"
         );

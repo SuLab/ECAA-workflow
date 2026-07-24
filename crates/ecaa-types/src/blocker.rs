@@ -74,7 +74,7 @@ pub enum LiteratureClaimFailureKind {
     VersionContextMissing,
 }
 
-/// Why a task or session is blocked. Closed taxonomy (49 variants;
+/// Why a task or session is blocked. Closed taxonomy (50 variants;
 /// see test `all_variants_roundtrip_serde` for the canonical count and
 /// the `BlockerKind::COUNT` compile-time gate in
 /// `crates/core/tests/blocker_variant_count.rs`).
@@ -697,6 +697,23 @@ pub enum BlockerKind {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         declared_producer: Option<String>,
+    },
+
+    /// The multi-analyst ensemble's cross-axis aggregator found that one
+    /// or more axes (method / lens) had fewer distinct readable cells
+    /// than `roster.caps.min_quorum_per_axis` after per-cell verifier
+    /// pruning (see `EnsembleDistribution`). `present_per_axis` maps
+    /// each axis key (e.g. `"method:deseq2"`, `"lens:pathway"`) to the
+    /// count of surviving readable cells observed for it; `required`
+    /// is the configured quorum floor every axis must clear. Distinct
+    /// from `MetricBelowThreshold` (a single scalar gate) because this
+    /// carries the full per-axis breakdown so the SME can see exactly
+    /// which axis under-shot. SME affordance: rerun the failed cells,
+    /// widen the analyst/method roster, or lower `min_quorum_per_axis`
+    /// and re-emit.
+    EnsembleQuorumNotMet {
+        present_per_axis: std::collections::BTreeMap<String, u32>,
+        required: u32,
     },
 }
 

@@ -111,7 +111,7 @@ impl std::error::Error for TransitionError {}
 /// an explicit arm so the wildcard cannot silently swallow a new
 /// variant that needs a tailored hint.
 ///
-/// CLAUDE.md asserts 49 variants; the `BlockerKind::COUNT` test gate
+/// CLAUDE.md asserts 50 variants; the `BlockerKind::COUNT` test gate
 /// at `crates/core/tests/policy/blocker_variant_count.rs` keeps that doc in
 /// lock-step with the enum.
 fn recovery_hint_for_blocker(kind: &BlockerKind) -> String {
@@ -299,6 +299,14 @@ fn recovery_hint_for_blocker(kind: &BlockerKind) -> String {
              directory covers. If the read is legitimate, amend the DAG to \
              add the missing declared input edge; if the declared graph is \
              stale, rerun the composer and re-emit."
+        }
+        // Ensemble cross-axis aggregator found fewer readable cells than
+        // min_quorum_per_axis on one or more axes after verifier pruning.
+        BlockerKind::EnsembleQuorumNotMet { .. } => {
+            "One or more ensemble axes (method / lens) had fewer surviving \
+             readable cells than the configured quorum. Rerun the failed \
+             cells, widen the analyst/method roster, or lower \
+             min_quorum_per_axis and re-emit."
         }
         // The enum is `#[non_exhaustive]`. Every variant currently
         // defined has an explicit arm above; this catch-all is the

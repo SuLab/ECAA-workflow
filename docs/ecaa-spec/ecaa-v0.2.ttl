@@ -218,7 +218,7 @@ ecaa:RerunOutcomeClass a owl:Class ;
 ecaa:Blocker a owl:Class ;
     rdfs:subClassOf prov:Entity ;
     rdfs:label "Blocker"@en ;
-    rdfs:comment "A typed recoverable failure state with kind from the closed 49-variant BlockerKind enum."@en .
+    rdfs:comment "A typed recoverable failure state with kind from the closed 50-variant BlockerKind enum."@en .
 
 ecaa:RecoveryAction a owl:Class ;
     rdfs:subClassOf prov:Activity ;

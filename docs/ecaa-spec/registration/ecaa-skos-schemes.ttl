@@ -14,11 +14,11 @@
 # C/Q/F/A wire JSON carries.
 #######################################################################
 
-# --- BlockerKind (F sub-graph; 49 concepts) --------------------------
+# --- BlockerKind (F sub-graph; 50 concepts) --------------------------
 vocab:blocker-kind a skos:ConceptScheme ;
     dcterms:title "ECAA BlockerKind controlled vocabulary"@en ;
     dcterms:isVersionOf <https://w3id.org/ecaa/v0.2> ;
-    owl:versionInfo "49" ;     # variant count; pinned by the agreement lint
+    owl:versionInfo "50" ;     # variant count; pinned by the agreement lint
     skos:note "Closed-but-extensible: adding a concept is a MINOR change (see v0.2 spec §Conformance & Extension)." .
 
 <https://w3id.org/ecaa/vocab/blocker-kind/data_shape_mismatch> a skos:Concept ;
@@ -265,6 +265,11 @@ vocab:blocker-kind a skos:ConceptScheme ;
     skos:inScheme vocab:blocker-kind ;
     skos:notation "provenance_divergence" ;
     skos:prefLabel "Provenance divergence"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/ensemble_quorum_not_met> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "ensemble_quorum_not_met" ;
+    skos:prefLabel "Ensemble quorum not met"@en .
 
 # --- RerunOutcome.class (Q sub-graph; 5 concepts) --------------------
 vocab:rerun-outcome a skos:ConceptScheme ;

@@ -9,7 +9,7 @@ import type { ToolErrorEnvelope } from "./ToolErrorEnvelope";
 import type { ValidationFailureCause } from "./ValidationFailureCause";
 
 /**
- * Why a task or session is blocked. Closed taxonomy (49 variants;
+ * Why a task or session is blocked. Closed taxonomy (50 variants;
  * see test `all_variants_roundtrip_serde` for the canonical count and
  * the `BlockerKind::COUNT` compile-time gate in
  * `crates/core/tests/blocker_variant_count.rs`).
@@ -40,4 +40,4 @@ observed_secs: bigint,
 /**
  * Configured ceiling (from `ECAA_CLOCK_SKEW_THRESHOLD_SECS`).
  */
-threshold_secs: bigint, } | { "kind": "wall_clock_exceeded", task_id: string, observed_secs: bigint, threshold_secs: bigint, } | { "kind": "cancelled_by_amendment", task_id: string, target_stage: string, } | { "kind": "provenance_commit_dropped", trigger: string, reason: string, } | { "kind": "external_import_failed", registry: string, id: string, reason: string, } | { "kind": "turn_budget_exceeded" } | { "kind": "provenance_divergence", task_id: string, read_path: string, declared_producer?: string, };
+threshold_secs: bigint, } | { "kind": "wall_clock_exceeded", task_id: string, observed_secs: bigint, threshold_secs: bigint, } | { "kind": "cancelled_by_amendment", task_id: string, target_stage: string, } | { "kind": "provenance_commit_dropped", trigger: string, reason: string, } | { "kind": "external_import_failed", registry: string, id: string, reason: string, } | { "kind": "turn_budget_exceeded" } | { "kind": "provenance_divergence", task_id: string, read_path: string, declared_producer?: string, } | { "kind": "ensemble_quorum_not_met", present_per_axis: { [key in string]?: number }, required: number, };

@@ -13,7 +13,7 @@ Closed types and constants downstream consumers bind to:
 
 - **A sub-graph (audit-proof):** `InvariantId`, `InvariantStatus`, `InvariantVerdict`, `AuditProofReport`.
 - **Q sub-graph (re-execution):** `ReexecutionBucket` — closed 5-class enum for `RerunOutcome.class`.
-- **F sub-graph (typed blockers):** `BlockerKind` (49 variants, `#[non_exhaustive]`) and its payload cascade — `ValidationFailureCause`, `LiteratureClaimFailureKind`, `ExcludedPath`, `SandboxRefusalRecord`, `StallSignalWire`, `StallAction`, `BlockerContext`, `BlockerEntry`.
+- **F sub-graph (typed blockers):** `BlockerKind` (50 variants, `#[non_exhaustive]`) and its payload cascade — `ValidationFailureCause`, `LiteratureClaimFailureKind`, `ExcludedPath`, `SandboxRefusalRecord`, `StallSignalWire`, `StallAction`, `BlockerContext`, `BlockerEntry`.
 - **Atom safety payloads:** `NetworkPolicy`, `SandboxRequirement` (re-exported from the `atom` module; these are payload types of `BlockerKind` variants).
 - **Tool-error envelope:** `ToolErrorEnvelope` — the on-disk shape consumed by the remediation proposer.
 - **Ablation contract:** `AblationFlag` (6 variants) + `all_flags()`. The runtime `is_active()` check is in `ecaa-workflow-core::ablation::AblationFlagExt` — kept there so this crate stays free of env-var coupling.
