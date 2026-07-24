@@ -314,6 +314,16 @@ sign of the statistic, never free text) applies unchanged here: when you
 render `direction_split` or an entity's `effect`, the words around them
 must still come from the sign you're citing, not from intuition.
 
+### Ensemble interpretation cell — stay in your assigned lens
+
+When your task spec carries an `ensemble_variant` with `axis: interpretive`, you
+are ONE analyst in a multi-analyst ensemble. Your assigned interpretive stance
+(`spec.ensemble_variant.lens`) is applied to your system prompt, and your model
+tier comes from `spec.ensemble_variant.model_tier`. Interpret STRICTLY from your
+own method-variant's result table (`spec.ensemble_variant.method_variant`), not
+the pooled distribution, and stay in your lens — do not hedge toward a consensus
+you cannot see. The ensemble aggregator, not you, reconciles the analysts.
+
 ### Ensemble mode — narrate over the aggregator distributions, not report-data.json
 
 When your task spec carries `ensemble_mode: true`, this run composed a

@@ -732,6 +732,26 @@ if [ "${ECAA_AGENT_MODEL_TIER:-1}" = "1" ] && [ -n "${ECAA_TASK_ID:-}" ]; then
       MODEL_FLAG_ARGS+=(--model claude-sonnet-4-6)
       _BUDGET="${ECAA_AGENT_BUDGET_USD_DATA_ACQ:-2.00}"
       ;;
+    biological_interpretation__m_*)
+      # Ensemble interpretation cell: route to the lens's model tier
+      # stamped on the cell spec (opus/sonnet) so per-lens model diversity
+      # is real at runtime — without this the cell falls to the analytical
+      # default (sonnet) and the tier axis is inert. Falls back to sonnet if
+      # unreadable. Applied BEFORE the ECAA_AGENT_MODEL_OVERRIDE eval pin
+      # below, so that pin still wins for same-model cross-arm comparisons.
+      CELL_TIER=""
+      if command -v jq >/dev/null 2>&1 && [ -f "$PACKAGE/WORKFLOW.json" ]; then
+        CELL_TIER="$(jq -r --arg tid "$ECAA_TASK_ID" \
+          '.tasks[$tid].spec.ensemble_variant.model_tier // empty' \
+          "$PACKAGE/WORKFLOW.json" 2>/dev/null)"
+      fi
+      if [ "$CELL_TIER" = "opus" ]; then
+        MODEL_FLAG_ARGS+=(--model claude-opus-4-8)
+      else
+        MODEL_FLAG_ARGS+=(--model claude-sonnet-4-6)
+      fi
+      _BUDGET="${ECAA_AGENT_BUDGET_USD_ANALYTICAL:-3.00}"
+      ;;
     *)
       # Pull the task kind only when needed — `kind: discovery` is a
       # legacy spelling used by a handful of archetype atoms before the
@@ -843,6 +863,25 @@ fi
 EXECUTOR_BRIEF_ARGS=()
 if [ -f "$PACKAGE/AGENT-EXECUTOR.md" ] && claude --help 2>&1 | grep -q "append-system-prompt"; then
   EXECUTOR_BRIEF_ARGS=(--append-system-prompt "@$PACKAGE/AGENT-EXECUTOR.md")
+fi
+
+# Ensemble interpretation cell: adopt the assigned lens persona as an
+# appended system prompt. The persona text is stamped entity-substituted +
+# self-contained on the cell spec (spec.ensemble_variant.persona_system_prompt)
+# by the composer, so no config dependency at runtime. Best-effort: omitted
+# when the field is absent (non-ensemble/older packages) or the CLI lacks the
+# flag. Written to a temp file so multi-line/special-char personas pass cleanly.
+PERSONA_ARGS=()
+if command -v jq >/dev/null 2>&1 && [ -f "$PACKAGE/WORKFLOW.json" ] \
+  && claude --help 2>&1 | grep -q "append-system-prompt"; then
+  PERSONA_PROMPT="$(jq -r --arg tid "$ECAA_TASK_ID" \
+    '.tasks[$tid].spec.ensemble_variant.persona_system_prompt // empty' \
+    "$PACKAGE/WORKFLOW.json" 2>/dev/null || true)"
+  if [ -n "$PERSONA_PROMPT" ]; then
+    PERSONA_FILE="$(mktemp)"
+    printf '%s\n' "$PERSONA_PROMPT" > "$PERSONA_FILE"
+    PERSONA_ARGS=(--append-system-prompt "@$PERSONA_FILE")
+  fi
 fi
 
 # Capture the agent invocation start time in RFC 3339 format so the
@@ -1541,7 +1580,7 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
     "${DOCKER_ENV_ARGS[@]}" \
     "${DOCKER_SECRET_ENV_ARGS[@]}" \
     "$CONTAINER_IMAGE" \
-    claude --dangerously-skip-permissions --output-format=json "${MODEL_FLAG_ARGS[@]}" "${BUDGET_FLAG_ARGS[@]}" "${EXECUTOR_BRIEF_ARGS[@]}" -p "$PROMPT"; then
+    claude --dangerously-skip-permissions --output-format=json "${MODEL_FLAG_ARGS[@]}" "${BUDGET_FLAG_ARGS[@]}" "${EXECUTOR_BRIEF_ARGS[@]}" "${PERSONA_ARGS[@]}" -p "$PROMPT"; then
     CLAUDE_EXIT=0
   else
     CLAUDE_EXIT=$?
@@ -1706,6 +1745,7 @@ else
     "${MODEL_FLAG_ARGS[@]}" \
     "${BUDGET_FLAG_ARGS[@]}" \
     "${EXECUTOR_BRIEF_ARGS[@]}" \
+    "${PERSONA_ARGS[@]}" \
     -p "$PROMPT"; then
     CLAUDE_EXIT=0
   else
