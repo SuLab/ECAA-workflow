@@ -316,6 +316,26 @@ pub fn parse_agent_blocker_kind_with_envelope(
         };
     }
 
+    // Ensemble-quorum marker written by the cross-axis ensemble-distribution
+    // aggregator builtin (`crates/harness/src/builtin_dispatch.rs::
+    // run_assemble_ensemble_distribution`) when the SURVIVING interpretation
+    // cells fall short of `min_quorum_per_axis` on the method or lens axis.
+    // Format `[ensemble_quorum_not_met] <serialized
+    // BlockerKind::EnsembleQuorumNotMet>`, mirroring the provenance-divergence
+    // marker so `present_per_axis` / `required` round-trip for any promoter.
+    // Falls back to an empty-map quorum blocker when the JSON is malformed so a
+    // serialization change never strands the task without a typed blocker.
+    if let Some(rest) = reason.strip_prefix("[ensemble_quorum_not_met]") {
+        let trimmed = rest.trim();
+        if let Ok(parsed) = serde_json::from_str::<BlockerKind>(trimmed) {
+            return parsed;
+        }
+        return BlockerKind::EnsembleQuorumNotMet {
+            present_per_axis: std::collections::BTreeMap::new(),
+            required: 0,
+        };
+    }
+
     // The agent writes `blocker_kind` using the PascalCase enum-variant
     // name it sees in its prompt schema (observed: "AwaitingSmeApproval"),
     // while the dispatch arms below are snake_case agent-vocab tokens.
@@ -856,8 +876,8 @@ mod tests {
             BlockerKind::EnsembleQuorumNotMet {
                 present_per_axis: {
                     let mut m = std::collections::BTreeMap::new();
-                    m.insert("method:deseq2".to_string(), 1);
-                    m.insert("lens:pathway".to_string(), 2);
+                    m.insert("method".to_string(), 1);
+                    m.insert("lens".to_string(), 2);
                     m
                 },
                 required: 3,
@@ -1619,6 +1639,35 @@ mod tests {
                 assert_eq!(task_id, "qc_preprocessing");
             }
             other => panic!("expected ProvenanceDivergence fallback, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ensemble_quorum_marker_round_trips_to_typed_blocker() {
+        let mut present = std::collections::BTreeMap::new();
+        present.insert("method".to_string(), 1u32);
+        present.insert("lens".to_string(), 3u32);
+        let original = BlockerKind::EnsembleQuorumNotMet {
+            present_per_axis: present,
+            required: 2,
+        };
+        let payload = serde_json::to_string(&original).expect("serialize");
+        let reason = format!("[ensemble_quorum_not_met] {payload}");
+        let out = parse_agent_blocker_kind("", "assemble_ensemble_distribution", &reason, None);
+        assert_eq!(out, original, "ensemble_quorum_not_met marker must round-trip");
+    }
+
+    #[test]
+    fn ensemble_quorum_marker_falls_back_on_malformed_payload() {
+        let out = parse_agent_blocker_kind(
+            "",
+            "assemble_ensemble_distribution",
+            "[ensemble_quorum_not_met] {not valid json",
+            None,
+        );
+        match out {
+            BlockerKind::EnsembleQuorumNotMet { required, .. } => assert_eq!(required, 0),
+            other => panic!("expected EnsembleQuorumNotMet fallback, got {other:?}"),
         }
     }
 }
