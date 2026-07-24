@@ -163,7 +163,17 @@ pub struct LiteratureRollup {
     pub discordant: Vec<LitFinding>,
     pub unverifiable: Vec<LitFinding>,
     pub non_replications: Vec<NonReplication>,
+    /// Entities a query WAS issued for and no prior finding was retrieved
+    /// (`no_prior_finding` matrix rows). "Novel" applies only to this
+    /// searched set.
     pub novel_count: u64,
+    /// Entities retrieval was NOT performed for (`not_assessed` rows, plus any
+    /// unrecognized/empty flag). Distinct from `novel_count`: absence of
+    /// retrieved evidence for an unsearched entity is not a novelty claim.
+    /// `#[serde(default)]` so a `report-data.json` written before this field
+    /// existed still deserializes (defaults to 0) for read-back / replay.
+    #[serde(default)]
+    pub not_assessed_count: u64,
     pub retrieved_sources: Vec<String>,
 }
 
@@ -613,8 +623,13 @@ fn json_as_f64(v: &serde_json::Value) -> Option<f64> {
 /// `concordance_flag`, so the counts are independent of which report-data
 /// entities happen to have populated. Every matrix row is bucketed by its
 /// flag (`same_direction`→concordant, `opposite_direction`→discordant,
-/// `unverifiable`→unverifiable, `no_prior_finding` or any other/empty flag
-/// →`novel_count`). `non_replications` come from `contextualize_result_json`'s
+/// `unverifiable`→unverifiable, `no_prior_finding`→`novel_count`,
+/// `not_assessed`→`not_assessed_count`). A `no_prior_finding` row means a
+/// query WAS issued for the entity and nothing was retrieved — only that
+/// searched set is "novel". Any UNRECOGNIZED or empty flag routes to
+/// `not_assessed_count` (never novel): an entity retrieval was not performed
+/// for is not a novelty claim. `non_replications` come from
+/// `contextualize_result_json`'s
 /// `excluded_nonsig`; `retrieved_sources` is the union of every matrix PMID
 /// (the `prior_pmid`/`pmid` column, whichever resolves) ∪ non-replication PMIDs
 /// ∪ `result.json`'s `cited_pmids`, sorted — so it is non-empty from the matrix
@@ -643,6 +658,7 @@ pub fn join_literature(
         unverifiable: Vec::new(),
         non_replications: Vec::new(),
         novel_count: 0,
+        not_assessed_count: 0,
         retrieved_sources: Vec::new(),
     };
 
@@ -712,6 +728,7 @@ pub fn join_literature(
     let mut discordant = Vec::new();
     let mut unverifiable = Vec::new();
     let mut novel_count = 0u64;
+    let mut not_assessed_count = 0u64;
     let mut sources: BTreeSet<String> = BTreeSet::new();
 
     for row in &matrix_rows {
@@ -728,9 +745,13 @@ pub fn join_literature(
             "same_direction" => concordant.push(finding()),
             "opposite_direction" => discordant.push(finding()),
             "unverifiable" => unverifiable.push(finding()),
-            // "no_prior_finding" (or any other/unrecognized/empty flag) counts
-            // as a novel finding in this run.
-            _ => novel_count += 1,
+            // A query WAS issued for this entity and nothing was retrieved —
+            // the only case that counts as novel.
+            "no_prior_finding" => novel_count += 1,
+            // Retrieval was not performed for this entity. Any unrecognized or
+            // empty flag routes here too — an unsearched entity is never novel.
+            "not_assessed" => not_assessed_count += 1,
+            _ => not_assessed_count += 1,
         }
     }
 
@@ -751,7 +772,11 @@ pub fn join_literature(
                 "same_direction" => LiteratureStatus::Concordant { pmid: row.pmid.clone() },
                 "opposite_direction" => LiteratureStatus::Discordant { pmid: row.pmid.clone() },
                 "unverifiable" => LiteratureStatus::Unverifiable { pmid: row.pmid.clone() },
-                _ => LiteratureStatus::Novel,
+                // Searched, nothing retrieved → the searched-set novelty tag.
+                "no_prior_finding" => LiteratureStatus::Novel,
+                // Retrieval not performed (or an unrecognized/empty flag) →
+                // never a novelty claim.
+                _ => LiteratureStatus::NotAssessed,
             },
             None => LiteratureStatus::NotAssessed,
         };
@@ -773,6 +798,7 @@ pub fn join_literature(
         unverifiable,
         non_replications,
         novel_count,
+        not_assessed_count,
         retrieved_sources: sources.into_iter().collect(),
     }
 }
@@ -1451,5 +1477,55 @@ mod tests {
             entities[0].literature,
             LiteratureStatus::Concordant { pmid: "999".to_string() }
         );
+    }
+
+    #[test]
+    fn join_literature_separates_novel_from_not_assessed() {
+        // `no_prior_finding` (a query WAS issued, nothing retrieved) counts as
+        // novel; `not_assessed` (retrieval not performed) and any
+        // unrecognized/empty flag count as not_assessed — NEVER novel. This is
+        // the searched-vs-unsearched distinction the report must preserve.
+        let tmp = tempfile::tempdir().unwrap();
+        let matrix_path = tmp.path().join("claims_evidence_matrix.csv");
+        std::fs::write(
+            &matrix_path,
+            "finding_id,entity,prior_pmid,concordance_flag,lfc,evidence_quote\n\
+             F1,GNOVEL1,,no_prior_finding,0.3,\n\
+             F2,GNOVEL2,,no_prior_finding,0.4,\n\
+             F3,GNA1,,not_assessed,0.5,\n\
+             F4,GNA2,,not_assessed,0.6,\n\
+             F5,GNA3,,not_assessed,0.7,\n\
+             F6,GUNKNOWN,,some_future_flag,0.8,\n\
+             F7,GEMPTY,,,0.9,\n",
+        )
+        .unwrap();
+        let missing_json = std::path::Path::new("/nonexistent/result.json");
+
+        let mut entities = vec![
+            entity_row("GNOVEL1"),
+            entity_row("GNA1"),
+            entity_row("GUNKNOWN"),
+            entity_row("GEMPTY"),
+        ];
+        let rollup = super::join_literature(&mut entities, &matrix_path, missing_json);
+
+        // Only the two searched-yet-empty rows are novel.
+        assert_eq!(rollup.novel_count, 2, "2 no_prior_finding rows");
+        // The three not_assessed rows + the unrecognized flag + the empty flag
+        // all land in not_assessed — none of them are counted as novel.
+        assert_eq!(
+            rollup.not_assessed_count, 5,
+            "3 not_assessed + 1 unrecognized + 1 empty flag"
+        );
+        assert!(rollup.concordant.is_empty());
+        assert!(rollup.discordant.is_empty());
+        assert!(rollup.unverifiable.is_empty());
+
+        // Per-entity: no_prior_finding → Novel; not_assessed / unrecognized /
+        // empty → NotAssessed (never Novel).
+        assert_eq!(entities[0].literature, LiteratureStatus::Novel);
+        assert_eq!(entities[1].literature, LiteratureStatus::NotAssessed);
+        assert_eq!(entities[2].literature, LiteratureStatus::NotAssessed);
+        assert_eq!(entities[3].literature, LiteratureStatus::NotAssessed);
     }
 }

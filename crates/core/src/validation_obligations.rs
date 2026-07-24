@@ -255,7 +255,8 @@ fn literature_obligations() -> Vec<ValidationObligation> {
             id: "concordance_flag_in_closed_set".into(),
             kind: "literature_integrity".into(),
             statement: "concordance_flag is in \
-                        {same_direction, opposite_direction, no_prior_finding, unverifiable}."
+                        {same_direction, opposite_direction, no_prior_finding, unverifiable, \
+                        not_assessed}."
                 .into(),
             reference: Some("claims_evidence_matrix.csv".into()),
         },

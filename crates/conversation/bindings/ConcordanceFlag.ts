@@ -3,4 +3,4 @@
 /**
  * Direction agreement between a prior published claim and a new finding.
  */
-export type ConcordanceFlag = "same_direction" | "opposite_direction" | "no_prior_finding" | "unverifiable";
+export type ConcordanceFlag = "same_direction" | "opposite_direction" | "no_prior_finding" | "unverifiable" | "not_assessed";

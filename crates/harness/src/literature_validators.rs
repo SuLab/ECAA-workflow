@@ -173,9 +173,10 @@ impl ClaimsMatrixRow {
     }
 }
 
-/// A row that does NOT assert a concordance direction: `no_prior_finding` (no
-/// prior work for the entity) or `unverifiable` (prior work found but its
-/// direction is not determinable). The evidence-backing obligations
+/// A row that does NOT assert a concordance direction: `no_prior_finding` (prior
+/// work searched, none found for the entity), `not_assessed` (retrieval not
+/// performed — entity outside the searched set), or `unverifiable` (prior work
+/// found but its direction is not determinable). The evidence-backing obligations
 /// (`pmid_resolves` / `evidence_quote_substring_match` / `redistributable_or_marked`)
 /// exist to substantiate an ASSERTED concordance (`same_direction` /
 /// `opposite_direction`), so they skip non-asserting rows — a row that makes no
@@ -184,7 +185,7 @@ impl ClaimsMatrixRow {
 fn row_makes_no_concordance_claim(row: &ClaimsMatrixRow) -> bool {
     matches!(
         row.concordance_flag.as_deref(),
-        Some("no_prior_finding") | Some("unverifiable")
+        Some("no_prior_finding") | Some("not_assessed") | Some("unverifiable")
     )
 }
 
@@ -1224,6 +1225,7 @@ pub fn run_concordance_flag_in_closed_set(
         "same_direction",
         "opposite_direction",
         "no_prior_finding",
+        "not_assessed",
         "unverifiable",
     ];
     for (i, row) in rows.iter().enumerate() {
