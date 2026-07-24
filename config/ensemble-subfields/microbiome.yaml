@@ -1,0 +1,6 @@
+schema_version: "0.1"
+id: microbiome
+persona_ref: microbiome.md
+model_tier: opus
+retrieval: recent
+select_keywords: [microbiome, microbiota, "gut microbiome", taxa, "microbial community", dysbiosis, "16s", metagenome, commensal, diversity, "microbial abundance"]

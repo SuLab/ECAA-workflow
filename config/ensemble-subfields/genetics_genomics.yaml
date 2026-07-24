@@ -1,0 +1,6 @@
+schema_version: "0.1"
+id: genetics_genomics
+persona_ref: genetics_genomics.md
+model_tier: opus
+retrieval: recent
+select_keywords: [genotype, allele, variant, mutation, "gene expression", locus, heritability, "genome-wide", polymorphism, "genetic variant", phenotype, chromosome]

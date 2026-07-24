@@ -1,0 +1,6 @@
+schema_version: "0.1"
+id: infectious_disease
+persona_ref: infectious_disease.md
+model_tier: opus
+retrieval: recent
+select_keywords: [infection, pathogen, bacterial, "host response", sepsis, antimicrobial, "antibiotic resistance", colonization, virulence, "immune evasion", outbreak]

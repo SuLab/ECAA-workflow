@@ -1,0 +1,6 @@
+schema_version: "0.1"
+id: hepatology
+persona_ref: hepatology.md
+model_tier: opus
+retrieval: recent
+select_keywords: [liver, hepatocyte, hepatic, "bile acid", steatosis, "liver fibrosis", cirrhosis, "liver injury", "kupffer cell", bilirubin, "liver regeneration"]

@@ -1,0 +1,6 @@
+schema_version: "0.1"
+id: pharmacology_tox
+persona_ref: pharmacology_tox.md
+model_tier: opus
+retrieval: recent
+select_keywords: ["dose-response", pharmacokinetic, "drug target", toxicity, "adverse effect", "off-target", exposure, lc50, ec50, xenobiotic, "drug metabolism", hepatotoxicity]

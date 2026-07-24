@@ -1,0 +1,6 @@
+schema_version: "0.1"
+id: epigenetics
+persona_ref: epigenetics.md
+model_tier: opus
+retrieval: recent
+select_keywords: [methylation, "dna methylation", histone, chromatin, "chromatin accessibility", acetylation, epigenetic, "cpg island", "histone modification", "chromatin remodeling", imprinting]

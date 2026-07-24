@@ -1,0 +1,6 @@
+schema_version: "0.1"
+id: stem_cell
+persona_ref: stem_cell.md
+model_tier: opus
+retrieval: recent
+select_keywords: ["stem cell", pluripotent, "self-renewal", progenitor, niche, reprogramming, ipsc, multipotent, "lineage commitment", regeneration, "embryonic stem cell"]

@@ -1,0 +1,6 @@
+schema_version: "0.1"
+id: hematology
+persona_ref: hematology.md
+model_tier: opus
+retrieval: recent
+select_keywords: [hematopoiesis, "blood cell", erythrocyte, leukocyte, platelet, coagulation, "bone marrow", myeloid, lymphoid, anemia, "hematopoietic stem cell"]

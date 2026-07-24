@@ -1,0 +1,6 @@
+schema_version: "0.1"
+id: developmental
+persona_ref: developmental.md
+model_tier: opus
+retrieval: recent
+select_keywords: [embryo, embryonic, morphogenesis, patterning, "cell fate", differentiation, morphogen, organogenesis, gastrulation, "germ layer", lineage, developmental]

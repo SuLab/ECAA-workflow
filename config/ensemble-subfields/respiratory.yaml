@@ -1,0 +1,6 @@
+schema_version: "0.1"
+id: respiratory
+persona_ref: respiratory.md
+model_tier: opus
+retrieval: recent
+select_keywords: [lung, pulmonary, airway, alveolar, bronchial, "gas exchange", asthma, "airway inflammation", "respiratory epithelium", copd, fibrosis]

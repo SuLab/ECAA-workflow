@@ -1,0 +1,6 @@
+schema_version: "0.1"
+id: immunology
+persona_ref: immunology.md
+model_tier: opus
+retrieval: recent
+select_keywords: [immune, immunity, inflammation, inflammatory, cytokine, "t cell", "b cell", macrophage, interferon, autoimmune, lymphocyte, innate, adaptive]

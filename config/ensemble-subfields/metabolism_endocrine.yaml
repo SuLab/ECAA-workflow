@@ -1,0 +1,6 @@
+schema_version: "0.1"
+id: metabolism_endocrine
+persona_ref: metabolism_endocrine.md
+model_tier: opus
+retrieval: recent
+select_keywords: [metabolism, metabolic, insulin, glucose, lipid, adipocyte, mitochondrial, hormone, endocrine, glycolysis, "fatty acid", diabetes, thyroid]

@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://ecaa-workflow/config/ensemble-subfields/_subfield.schema.json",
+  "title": "Biomedical subfield interpretive lens",
+  "description": "Schema for `config/ensemble-subfields/<id>.yaml` — one curated biomedical subfield lens in the 18-entry catalog loaded by `SubfieldCatalog::load_from_dir`. These are the adaptive lenses a deterministic selector picks from per-analysis, distinct from the global 5-lens epistemic core in `config/ensemble-lenses/lenses.yaml` (shared by every modality) and the per-modality `interpretive_lenses` block in `config/ensemble-rosters/<modality>.yaml`.",
+  "type": "object",
+  "required": ["schema_version", "id", "persona_ref", "model_tier", "retrieval", "select_keywords"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "0.1",
+      "description": "Schema-layout version for this subfield catalog entry. Bump on breaking layout changes."
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable subfield id (e.g. `immunology`, `oncology`). Must match the file stem."
+    },
+    "persona_ref": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Filename of the persona markdown file under `config/ensemble-subfields/personas/`."
+    },
+    "model_tier": {
+      "type": "string",
+      "enum": ["opus", "sonnet"],
+      "description": "Model-tier assignment for this lens's contextualization pass."
+    },
+    "retrieval": {
+      "type": "string",
+      "enum": ["recent", "foundational"],
+      "description": "Literature-retrieval bias for this lens."
+    },
+    "select_keywords": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Domain-vocabulary keywords a goal statement in this subfield would contain; the deterministic selector scores subfields against a goal by keyword match."
+    }
+  }
+}

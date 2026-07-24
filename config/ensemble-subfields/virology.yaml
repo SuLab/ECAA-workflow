@@ -1,0 +1,6 @@
+schema_version: "0.1"
+id: virology
+persona_ref: virology.md
+model_tier: opus
+retrieval: recent
+select_keywords: [virus, viral, virion, "viral load", replication, "host cell entry", antiviral, "viral evolution", variant, tropism, capsid, latency]

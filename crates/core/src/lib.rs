@@ -88,6 +88,7 @@ pub mod edam;
 pub mod edam_labels;
 pub mod emission_invariants;
 pub mod ensemble_roster;
+pub mod ensemble_subfield;
 /// Emitter module.
 pub mod emitter;
 pub mod expected_claim;

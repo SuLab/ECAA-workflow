@@ -1,0 +1,6 @@
+schema_version: "0.1"
+id: cardiovascular
+persona_ref: cardiovascular.md
+model_tier: opus
+retrieval: recent
+select_keywords: [cardiac, cardiomyocyte, myocardium, vascular, endothelial, atherosclerosis, hypertension, "heart failure", arrhythmia, vasculature, contractility, ischemia]

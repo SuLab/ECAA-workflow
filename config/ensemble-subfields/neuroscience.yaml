@@ -1,0 +1,6 @@
+schema_version: "0.1"
+id: neuroscience
+persona_ref: neuroscience.md
+model_tier: opus
+retrieval: recent
+select_keywords: [neuron, neuronal, synapse, synaptic, "neural circuit", glia, astrocyte, microglia, axon, dendrite, neurotransmitter, neurodegeneration, cns]

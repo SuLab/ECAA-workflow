@@ -1,0 +1,6 @@
+schema_version: "0.1"
+id: cell_biology
+persona_ref: cell_biology.md
+model_tier: opus
+retrieval: recent
+select_keywords: [organelle, cytoskeleton, "vesicular trafficking", "cell signaling", mitochondria, "endoplasmic reticulum", golgi, autophagy, "cell membrane", lysosome, "protein trafficking"]

@@ -1,0 +1,6 @@
+schema_version: "0.1"
+id: oncology
+persona_ref: oncology.md
+model_tier: opus
+retrieval: recent
+select_keywords: [tumor, tumour, cancer, oncogene, "tumor suppressor", proliferation, apoptosis, metastasis, carcinoma, malignant, "cell cycle", "tumor microenvironment", neoplasm]

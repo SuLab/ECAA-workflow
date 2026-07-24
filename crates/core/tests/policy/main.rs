@@ -13,6 +13,7 @@ mod config_parse;
 mod cost_arithmetic;
 mod de_atom_lint;
 mod default_deny_safety;
+mod ensemble_subfield_count;
 mod interpretation_policy_expected_schema;
 mod ontology_scope_loader;
 mod ontology_scope_schema;
