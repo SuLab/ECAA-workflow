@@ -361,6 +361,22 @@ pub enum VerifierDecision {
         /// Strictness band string (`"draft"` / `"production"`).
         risk_mode: String,
     },
+    /// A multi-analyst-ensemble modality subfield was selected
+    /// deterministically at compose time (Plan 6). `matched_keywords`
+    /// carries the exact keyword set that drove the selection so the
+    /// choice is reconstructable without re-running the matcher.
+    EnsembleSubfieldSelected {
+        /// Id.
+        id: String,
+        /// Timestamp.
+        timestamp: String,
+        /// Modality.
+        modality: String,
+        /// Subfield id.
+        subfield_id: String,
+        /// Matched keywords.
+        matched_keywords: Vec<String>,
+    },
 }
 
 /// V3+v4 residuals origin discriminator for a
@@ -1016,5 +1032,38 @@ mod tests {
         // Both buckets are now empty.
         assert!(drain_session(&sess_a).is_empty());
         assert!(drain_session(&sess_b).is_empty());
+    }
+
+    /// A `EnsembleSubfieldSelected` row round-trips through `record` →
+    /// `drain_session` and serializes with the tagged
+    /// `"kind":"ensemble_subfield_selected"` discriminator (Plan 6 /
+    /// multi-analyst-ensemble deterministic subfield-selection
+    /// provenance).
+    #[test]
+    fn ensemble_subfield_selected_records_and_drains() {
+        let _guard = SUBSTRATE_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+        let session_id = format!("p6t5-{}", std::ptr::addr_of!(SUBSTRATE_GUARD) as usize);
+        let _ = drain_session(&session_id);
+
+        {
+            let _scope = enter_session(session_id.clone());
+            record(VerifierDecision::EnsembleSubfieldSelected {
+                id: stable_id("ensemble_subfield", "bulk_rnaseq", "immunology"),
+                timestamp: timestamp(),
+                modality: "bulk_rnaseq".into(),
+                subfield_id: "immunology".into(),
+                matched_keywords: vec!["immune".into(), "inflammation".into()],
+            });
+        }
+
+        let drained = drain_session(&session_id);
+        assert_eq!(drained.len(), 1, "expected exactly one recorded row");
+        let json = serde_json::to_string(&drained[0]).unwrap();
+        assert!(
+            json.contains("\"kind\":\"ensemble_subfield_selected\""),
+            "got: {json}"
+        );
+        let back: VerifierDecision = serde_json::from_str(&json).unwrap();
+        assert_eq!(drained[0], back);
     }
 }
