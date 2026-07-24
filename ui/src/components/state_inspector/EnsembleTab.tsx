@@ -213,8 +213,34 @@ export function EnsembleTab({ sessionId, refreshKey }: Props): JSX.Element {
   )
 }
 
+/** Cap on rendered rows in the method-robustness table — a genome-scale
+ *  ensemble can carry 35k-60k entities, which would freeze the tab if
+ *  rendered as one `<tr>` per row. The full per-entity distribution is
+ *  always in `stat-distribution.json`; this only bounds the DOM. */
+const MAX_ROBUSTNESS_ROWS = 500
+
+/** Sort priority for `RobustnessClass` — most SME-actionable first
+ *  (methods disagreeing on direction), least last. Unknown values (a
+ *  future non-exhaustive variant) sort last via the `?? 99` fallback. */
+const ROBUSTNESS_RANK: Record<RobustnessClass, number> = {
+  discordant: 0, // methods disagree on direction — highest SME interest
+  fragile: 1,
+  concordant: 2,
+  robust: 3,
+}
+
 /** Class-count summary row + per-entity cross-method robustness table. */
 function MethodRobustnessSection({ stat }: { stat: StatDistribution }): JSX.Element {
+  // Most-divergent first (Discordant > Fragile > …), then largest |pooled
+  // effect|; capped to MAX_ROBUSTNESS_ROWS so a genome-scale ensemble
+  // doesn't render tens of thousands of rows.
+  const sortedEntities = [...stat.entities].sort((a, b) => {
+    const ra = ROBUSTNESS_RANK[a.robustness] ?? 99
+    const rb = ROBUSTNESS_RANK[b.robustness] ?? 99
+    if (ra !== rb) return ra - rb
+    return Math.abs(b.pooled_effect_median ?? 0) - Math.abs(a.pooled_effect_median ?? 0)
+  })
+  const shownEntities = sortedEntities.slice(0, MAX_ROBUSTNESS_ROWS)
   return (
     <section style={SECTION_STYLE} aria-label="Method robustness">
       <div style={SECTION_HEADING_STYLE}>Method robustness ({stat.methods.length} methods)</div>
@@ -231,38 +257,46 @@ function MethodRobustnessSection({ stat }: { stat: StatDistribution }): JSX.Elem
       {stat.entities.length === 0 ? (
         <div style={SUBHEAD_STYLE}>No entities reported by any method.</div>
       ) : (
-        <table style={TABLE_STYLE}>
-          <thead>
-            <tr>
-              <th style={TH_STYLE}>Entity</th>
-              <th style={TH_STYLE}>Per-method effect</th>
-              <th style={TH_STYLE}># significant</th>
-              <th style={TH_STYLE}>Pooled effect (median)</th>
-              <th style={TH_STYLE}>Robustness</th>
-            </tr>
-          </thead>
-          <tbody>
-            {stat.entities.map((row: EntityMethodRow) => (
-              <tr key={row.entity}>
-                <td style={TD_STYLE}>
-                  <code>{row.entity}</code>
-                </td>
-                <td style={TD_STYLE}>
-                  {Object.entries(row.per_method_effect)
-                    .map(([m, v]) => `${m}=${v?.toFixed(2) ?? '—'}`)
-                    .join(', ') || '—'}
-                </td>
-                <td style={TD_STYLE}>{row.n_methods_significant}</td>
-                <td style={TD_STYLE}>
-                  {row.pooled_effect_median !== null ? row.pooled_effect_median.toFixed(2) : '—'}
-                </td>
-                <td style={TD_STYLE}>
-                  <span style={classBadgeStyle(row.robustness)}>{row.robustness}</span>
-                </td>
+        <>
+          <table style={TABLE_STYLE}>
+            <thead>
+              <tr>
+                <th style={TH_STYLE}>Entity</th>
+                <th style={TH_STYLE}>Per-method effect</th>
+                <th style={TH_STYLE}># significant</th>
+                <th style={TH_STYLE}>Pooled effect (median)</th>
+                <th style={TH_STYLE}>Robustness</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {shownEntities.map((row: EntityMethodRow) => (
+                <tr key={row.entity}>
+                  <td style={TD_STYLE}>
+                    <code>{row.entity}</code>
+                  </td>
+                  <td style={TD_STYLE}>
+                    {Object.entries(row.per_method_effect)
+                      .map(([m, v]) => `${m}=${v?.toFixed(2) ?? '—'}`)
+                      .join(', ') || '—'}
+                  </td>
+                  <td style={TD_STYLE}>{row.n_methods_significant}</td>
+                  <td style={TD_STYLE}>
+                    {row.pooled_effect_median !== null ? row.pooled_effect_median.toFixed(2) : '—'}
+                  </td>
+                  <td style={TD_STYLE}>
+                    <span style={classBadgeStyle(row.robustness)}>{row.robustness}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {stat.entities.length > MAX_ROBUSTNESS_ROWS && (
+            <div style={SUBHEAD_STYLE}>
+              Showing {MAX_ROBUSTNESS_ROWS} of {stat.entities.length} entities (most-divergent
+              first). The full per-entity distribution is in stat-distribution.json.
+            </div>
+          )}
+        </>
       )}
     </section>
   )
