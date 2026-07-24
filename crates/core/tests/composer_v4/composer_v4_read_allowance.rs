@@ -176,6 +176,40 @@ fn final_reporting_and_its_synthesized_validator_both_carry_a_read_allowance() {
     }
 }
 
+/// `reporting` — the intermediate narrative aggregator, sibling of
+/// `final_reporting` — must ALSO declare a `read_allowance`, and its
+/// synthesized `validate_reporting` companion must inherit it. Confirmed
+/// against a real bulk_rnaseq execution: the reporting agent reads
+/// `normalisation/result.json` directly (for the `qc_preprocessing`
+/// section — normalisation declares no `result_schema`, so its numbers are
+/// absent from the aggregated `report-data.json`). Without the allowance,
+/// that read is recorded as a genuine `provenance_divergence` and blocks the
+/// `reporting` task. `final_reporting` carried the allowance but `reporting`
+/// did not — this guards that asymmetry from regressing.
+#[test]
+fn reporting_and_its_synthesized_validator_both_carry_a_read_allowance() {
+    let dag = run_v4_planner("bulk_rnaseq", &bulk_rnaseq_de_goal());
+
+    for id in ["reporting", "validate_reporting"] {
+        let node = dag
+            .nodes
+            .iter()
+            .find(|n| n.id == id)
+            .unwrap_or_else(|| panic!("{id} node missing from composed bulk_rnaseq DAG"));
+        let allowance = node
+            .attributes
+            .get("read_allowance")
+            .unwrap_or_else(|| panic!("{id} node has no read_allowance attribute"));
+        let parsed: Vec<ReadAllowance> = serde_json::from_value(allowance.clone())
+            .unwrap_or_else(|e| panic!("{id} read_allowance didn't deserialize: {e}"));
+        assert!(!parsed.is_empty(), "{id} read_allowance array is empty");
+        assert!(
+            !parsed[0].rationale.is_empty(),
+            "{id} read_allowance rationale is empty"
+        );
+    }
+}
+
 /// Regression (§G-B2 deposit gate): EVERY synthesized validator in a real
 /// composed DAG must carry a read-allowance — not only those whose validated
 /// stage happens to declare one. A validator without an allowance flags its

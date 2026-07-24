@@ -45,6 +45,30 @@ required_report_sections:
 required_tables:
   - significant_entities
   - literature_concordance
+# Declared read-allowance (not a port) — mirrors `final_reporting`. This
+# atom is a narrative aggregator reused across archetypes with different
+# upstream analytical shapes; its job is to summarize whatever the composed
+# DAG produced, so it reads upstream stage `result.json` files directly to
+# populate its sections. Confirmed against a real bulk_rnaseq execution: the
+# reporting agent reads `normalisation/result.json` off disk to write the
+# `qc_preprocessing` section, because `normalisation` declares no
+# `result_schema` and so its numbers are NOT folded into the aggregated
+# `report-data.json` the agent otherwise narrates over. Which upstream
+# stages exist is DAG-shape/archetype dependent and can't be enumerated as
+# fixed input ports without per-archetype specialization — so this is the
+# documented broad exception (a typed port is the right fix only when the
+# producer is fixed and known).
+read_allowance:
+  - scope: any_upstream_stage
+    rationale: >-
+      reporting aggregates the analysis bundle into a per-stage narrative
+      report. It reads upstream stage result.json files directly (beyond its
+      single declared `aggregated_results` producer) to populate its
+      required sections — e.g. it reads normalisation/result.json for the
+      qc_preprocessing section, whose numbers are absent from
+      report-data.json because normalisation declares no result_schema.
+      Which upstream stages exist varies per archetype, so this is declared
+      as a broad, reviewed exception rather than modeled as fixed ports.
 # Explicit rich ports.
 # Aggregates upstream stage outputs into a per-stage report bundle.
 # Output bundle is a multi-format set: PDF (format:3508) + HTML
