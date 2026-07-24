@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useCallback, useEffect, useState } from 'react'
 import { useCancelableEffect } from '../hooks/useCancelableFetch'
 import type { SessionMetrics } from '../api/chatClient'
 import {
@@ -47,12 +47,38 @@ import {
 // as the canonical path.
 export { DocumentsPane, JobsFeed, MetricsTable, mergePilotStates }
 
+interface StateInspectorPaneProps {
+  /**
+   * Controlled active tab, lifted into `App.tsx` so a sibling surface
+   * (e.g. the in-chat `EnsembleReviewTurnCard`'s "View robustness
+   * details" button) can switch this pane's tab from outside. Optional
+   * — omitted callers (every existing test + any future standalone
+   * mount) fall back to fully uncontrolled internal state, so nothing
+   * that renders `<StateInspectorPane />` bare needs to change.
+   */
+  activeTab?: Tab
+  /**
+   * Notified alongside every internal tab change — the button click,
+   * the harness-progress auto-switch-to-Jobs, the Decisions-tab
+   * jump-to-Plan, and the CommandPalette's `ecaax:switch-tab` event —
+   * so a controlling parent's mirrored state never drifts out of sync
+   * with what's actually rendered.
+   */
+  onTabChange?: (t: Tab) => void
+}
+
 /**
  * The Pane pulls its sessionId / state / harness progress / pilot /
  * stall / cross-version props from context rather than from App.tsx.
- * App is a layout shell.
+ * App is a layout shell. The active tab is the one exception: it's a
+ * controlled/uncontrolled hybrid (see `StateInspectorPaneProps`) so
+ * App.tsx can lift it for cross-pane tab-switching without forcing
+ * every other piece of session state through props too.
  */
-export default function StateInspectorPane() {
+export default function StateInspectorPane({
+  activeTab,
+  onTabChange,
+}: StateInspectorPaneProps = {}) {
   const conv = useSessionContext()
   const sse = useEventsContext()
   const sessionId = conv.sessionId
@@ -89,7 +115,22 @@ export default function StateInspectorPane() {
   const heartbeatStalls = sse.heartbeatStalls
   const progressHealth = sse.progressHealth
   const orphanReap = sse.orphanReap
-  const [tab, setTab] = useState<Tab>('plan')
+  const [internalTab, setInternalTab] = useState<Tab>('plan')
+  // `tab` is the effective render value: the controlled `activeTab`
+  // prop wins when a parent supplies it, else the pane's own state.
+  // `setTab` keeps every existing call site's behavior (auto-switch to
+  // Jobs, jump-to-Plan, the palette event, the tab-button click)
+  // working unchanged while additionally notifying a controlling
+  // parent, so lifting the tab into `App.tsx` doesn't strand those
+  // internal transitions behind a prop the parent never updates.
+  const tab = activeTab ?? internalTab
+  const setTab = useCallback(
+    (t: Tab) => {
+      setInternalTab(t)
+      onTabChange?.(t)
+    },
+    [onTabChange],
+  )
   const [metrics, setMetrics] = useState<SessionMetrics | null>(null)
   const [metricsAt, setMetricsAt] = useState<Date | null>(null)
   // Pre-fetch the typed compose outcome at pane level so
@@ -200,7 +241,7 @@ export default function StateInspectorPane() {
         'Execution started — the Progress tab now shows live updates.',
       )
     }
-  }, [harnessProgress.length, autoSwitched])
+  }, [harnessProgress.length, autoSwitched, setTab])
 
   // Listen for the CommandPalette's tab-switch event so a palette
   // Enter maps to setTab here without prop drilling. Only switch to a
@@ -215,7 +256,7 @@ export default function StateInspectorPane() {
     }
     window.addEventListener('ecaax:switch-tab', handler)
     return () => window.removeEventListener('ecaax:switch-tab', handler)
-  }, [])
+  }, [setTab])
 
   // While a SME-triggered mutation is in flight (Accept / Revise / Unblock
   // / send message), show "updating…" instead of the stale `state.state.kind`

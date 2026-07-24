@@ -11,6 +11,7 @@ import SessionTitleBar from './components/SessionTitleBar'
 import SessionTree from './components/SessionTree'
 import ShareModal from './components/ShareModal'
 import StateInspectorPane from './components/StateInspectorPane'
+import type { Tab } from './components/state_inspector'
 import UndoToast from './components/UndoToast'
 import GitSettingsPage from './components/settings/GitSettingsPage'
 import { EventsProvider, SessionProvider } from './hooks/contexts'
@@ -34,6 +35,12 @@ export default function App() {
   const isDesktop = width >= DESKTOP_BREAKPOINT
   const isTablet = width >= TABLET_BREAKPOINT && !isDesktop
   const [mobileView, setMobileView] = useState<'chat' | 'state'>('chat')
+  // Lifted so a chat-side surface (the in-chat `EnsembleReviewTurnCard`'s
+  // "View robustness details" button) can switch `StateInspectorPane`'s
+  // tab without prop-drilling through the tree. `StateInspectorPane`
+  // treats this as a controlled/uncontrolled hybrid — every other pane
+  // still renders it bare and keeps managing its own tab internally.
+  const [activeTab, setActiveTab] = useState<Tab>('plan')
   // Top-level view toggle. Gear icon in the title bar flips us to
   // Settings; the back button inside the page flips us back. Routed via
   // ?view=settings so bookmark / browser-back / share-link work. Same
@@ -58,6 +65,15 @@ export default function App() {
   }, [])
   const [shareOpen, setShareOpen] = useState(false)
   const readOnly = isReadOnly()
+
+  // Switches the state-inspector pane to the Robustness tab and, on
+  // tablet/mobile where only one pane is visible at a time, flips the
+  // toggle so that tab is actually on screen. Desktop shows both panes
+  // simultaneously so no toggle flip is needed there.
+  const handleOpenRobustnessTab = useCallback(() => {
+    setActiveTab('ensemble')
+    if (!isDesktop) setMobileView('state')
+  }, [isDesktop])
 
   // When a keyboard user activates the mobile Chat / View plan toggle,
   // focus should move into the newly-visible pane instead of staying on
@@ -418,7 +434,7 @@ export default function App() {
                   }}
                 >
                   <ErrorBoundary fallbackLabel="the chat">
-                    <ConversationPane />
+                    <ConversationPane onOpenRobustnessTab={handleOpenRobustnessTab} />
                   </ErrorBoundary>
                 </div>
                 <div
@@ -431,7 +447,7 @@ export default function App() {
                   }}
                 >
                   <ErrorBoundary fallbackLabel="the state inspector">
-                    <StateInspectorPane />
+                    <StateInspectorPane activeTab={activeTab} onTabChange={setActiveTab} />
                   </ErrorBoundary>
                 </div>
               </>
@@ -459,7 +475,7 @@ export default function App() {
                   }}
                 >
                   <ErrorBoundary fallbackLabel="the chat">
-                    <ConversationPane />
+                    <ConversationPane onOpenRobustnessTab={handleOpenRobustnessTab} />
                   </ErrorBoundary>
                 </div>
                 <div
@@ -476,7 +492,7 @@ export default function App() {
                   }}
                 >
                   <ErrorBoundary fallbackLabel="the state inspector">
-                    <StateInspectorPane />
+                    <StateInspectorPane activeTab={activeTab} onTabChange={setActiveTab} />
                   </ErrorBoundary>
                 </div>
               </div>

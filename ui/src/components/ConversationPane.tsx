@@ -24,6 +24,7 @@ import ChatComposer from './ChatComposer'
 import ChatTimeline from './ChatTimeline'
 import DispositionReviewCard from './DispositionReviewCard'
 import CompositionOutcomeBanner from './CompositionOutcomeBanner'
+import EnsembleReviewTurnCard from './EnsembleReviewTurnCard'
 import HypothesizedProposalCard from './HypothesizedProposalCard'
 import InfraErrorBanner from './InfraErrorBanner'
 import {
@@ -59,8 +60,25 @@ const ENABLE_SENSITIVITY_COMPARISON_CARD = true
 // AwaitingSmeSelection blocker as the sensitivity card, but only for
 // `discover_*` stage ids — those route to MethodOptionsCard instead.
 const ENABLE_METHOD_OPTIONS_CARD = true
+// In-chat ensemble summary card. Self-suppresses (returns null) when no
+// ensemble ran for this session, so leaving this unconditionally on
+// post-emit is cheap.
+const ENABLE_ENSEMBLE_REVIEW_CARD = true
 
-export default function ConversationPane() {
+interface ConversationPaneProps {
+  /**
+   * Switches `StateInspectorPane`'s controlled tab to `'ensemble'` (the
+   * Robustness tab) when the SME clicks the ensemble card's "View
+   * robustness details" button. Optional — tests that mount
+   * `ConversationPane` standalone omit it, which simply suppresses the
+   * ensemble card (it has nowhere useful to send the click).
+   */
+  onOpenRobustnessTab?: () => void
+}
+
+export default function ConversationPane({
+  onOpenRobustnessTab,
+}: ConversationPaneProps = {}) {
   const conv = useSessionContext()
   const sse = useEventsContext()
   // Streaming text + reset live in `<StreamingTextProvider>` instead of
@@ -792,6 +810,17 @@ export default function ConversationPane() {
           })}
         </div>
       )}
+      {ENABLE_ENSEMBLE_REVIEW_CARD &&
+        conv.sessionId &&
+        hasEmittedAtLeastOnce &&
+        onOpenRobustnessTab && (
+          <div style={{ padding: '0.5rem 0.75rem' }}>
+            <EnsembleReviewTurnCard
+              sessionId={conv.sessionId}
+              onOpenRobustnessTab={onOpenRobustnessTab}
+            />
+          </div>
+        )}
       {blockers.length > 0 && (
         <div style={{ padding: '0.5rem 0.75rem' }}>
           {blockers.map((blocked) => (
