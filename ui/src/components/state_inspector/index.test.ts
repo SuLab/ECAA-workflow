@@ -8,8 +8,8 @@ describe('TABS registry', () => {
     // fail if the constant isn't extended; the test below is the
     // runtime catch for any accidental duplicates or gaps.
     //
-    // `composition`, `verifier_decisions`, and `repairs` were added
-    // incrementally; the exhaustive list below is the current closed set.
+    // `composition`, `verifier_decisions`, `repairs`, and `ensemble` were
+    // added incrementally; the exhaustive list below is the current closed set.
     const expected: Tab[] = [
       'plan',
       'composition',
@@ -23,6 +23,7 @@ describe('TABS registry', () => {
       'decisions',
       'repairs',
       'claims',
+      'ensemble',
       'verifier_decisions',
       'history',
       'compare',
