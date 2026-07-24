@@ -325,9 +325,8 @@ fn bulk_rnaseq_reconciliation_has_no_unresolved_divergence() {
         &read_allowances,
     );
 
-    let root = metadata["@graph"]
-        .as_array()
-        .unwrap()
+    let graph = metadata["@graph"].as_array().unwrap();
+    let root = graph
         .iter()
         .find(|e| e["@id"] == "./")
         .expect("root Dataset node present");
@@ -348,7 +347,13 @@ fn bulk_rnaseq_reconciliation_has_no_unresolved_divergence() {
         6,
         "expected 6 sanctioned reads (3 per task x 2 tasks); got {allowed:#?}"
     );
-    for entry in allowed {
+    // Each root element is an `{@id}` reference (the RO-Crate/runcrate `@id`
+    // fix) resolving to a first-class @graph node carrying the fields.
+    for r in allowed {
+        let entry = graph
+            .iter()
+            .find(|e| e["@id"] == r["@id"])
+            .unwrap_or_else(|| panic!("read-allowance reference resolves to a @graph node: {r:?}"));
         let rationale = entry["rationale"].as_str().unwrap_or_default();
         assert!(
             !rationale.is_empty(),

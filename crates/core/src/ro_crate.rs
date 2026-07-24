@@ -818,7 +818,7 @@ pub fn reconcile_ro_crate_edges_with_allowances(
     use crate::provenance::{
         classify_reconciled_edges, reconcile, DivergenceRecord, EdgeDisposition, ReconVerdict,
     };
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeMap, BTreeSet};
 
     if declared_edges.is_empty() || observed_reads.is_empty() {
         return Vec::new();
@@ -836,7 +836,12 @@ pub fn reconcile_ro_crate_edges_with_allowances(
 
     let mut divergences: Vec<Value> = Vec::new();
     let mut typed_divergences: Vec<DivergenceRecord> = Vec::new();
-    let mut allowed_reads: Vec<Value> = Vec::new();
+    // Sanctioned divergent reads, minted as first-class `@graph` entities
+    // each carrying a deterministic `#read-allowance/<task>/<n>` `@id`. A
+    // strict RO-Crate / runcrate validator rejects inline value objects with
+    // no `@id`, so the root property references these nodes by `@id` rather
+    // than inlining the value objects.
+    let mut allowance_nodes: Vec<Value> = Vec::new();
     // Stamps to apply to KEPT `ParameterConnection` nodes: (from, to, status).
     let mut stamps: Vec<(String, String, &'static str)> = Vec::new();
     // `@id`s of unread one-of candidate `ParameterConnection`s to DROP from
@@ -869,6 +874,9 @@ pub fn reconcile_ro_crate_edges_with_allowances(
         let allowances = read_allowances.get(task_id);
 
         let mut authoritative: BTreeSet<(String, String)> = BTreeSet::new();
+        // Per-task 0-based index for the `#read-allowance/<task>/<n>`
+        // fragment ids; the task loop iterates a BTreeSet so it is stable.
+        let mut allowance_n: usize = 0;
         for v in &verdicts {
             match v {
                 ReconVerdict::Match { authoritative_edge } => {
@@ -879,11 +887,14 @@ pub fn reconcile_ro_crate_edges_with_allowances(
                     declared_producer,
                 } => {
                     if let Some(rationale) = covering_rationale(allowances) {
-                        allowed_reads.push(json!({
+                        allowance_nodes.push(json!({
+                            "@id": format!("#read-allowance/{task_id}/{allowance_n}"),
+                            "@type": ["ecaax:ProvenanceReadAllowance", "PropertyValue"],
                             "task_id": task_id,
                             "read_path": read_path,
                             "rationale": rationale,
                         }));
+                        allowance_n += 1;
                     } else {
                         divergences.push(json!({
                             "task_id": task_id,
@@ -918,6 +929,8 @@ pub fn reconcile_ro_crate_edges_with_allowances(
                     drop_ids.insert(node_id.clone());
                     let record_index = unused_candidates.len();
                     unused_candidates.push(json!({
+                        "@id": unused_candidate_edge_node_id(&edge.from_node, &edge.to_node),
+                        "@type": ["ecaax:UnusedCandidateEdge", "PropertyValue"],
                         "task_id": task_id,
                         "from_node": edge.from_node,
                         "from_port": edge.from_port,
@@ -986,6 +999,52 @@ pub fn reconcile_ro_crate_edges_with_allowances(
         }
     }
 
+    // Minimal port-alias map: let a reviewer resolve each declared task
+    // input port name — including composer-synthesized positional names
+    // (`companion_in_N` / `residual_in_N`) and atom-alias names — back to the
+    // producer task + port it wires to. The linkage is read straight from the
+    // declared `EdgeContract`s already in scope; no new data is plumbed, so
+    // edam facets are intentionally omitted. Keyed (task, port) in a BTreeMap
+    // so the emitted order is deterministic and any duplicate declaration
+    // collapses to the smallest-sorting producer.
+    let mut port_alias_by_port: BTreeMap<(String, String), (String, String)> = BTreeMap::new();
+    for e in declared_edges {
+        let key = (e.to_node.clone(), e.to_port.clone());
+        let producer = (e.from_node.clone(), e.from_port.clone());
+        match port_alias_by_port.get_mut(&key) {
+            Some(existing) => {
+                if producer < *existing {
+                    *existing = producer;
+                }
+            }
+            None => {
+                port_alias_by_port.insert(key, producer);
+            }
+        }
+    }
+    let port_alias_nodes: Vec<Value> = port_alias_by_port
+        .into_iter()
+        .map(|((task, port), (from_node, from_port))| {
+            json!({
+                "@id": format!("#port-alias/{task}/{port}"),
+                "@type": "ecaax:PortAlias",
+                "task": task,
+                "port": port,
+                "from_node": from_node,
+                "from_port": from_port,
+            })
+        })
+        .collect();
+
+    // Register the sanctioned-read, unused-candidate, and port-alias side
+    // channels as first-class `@graph` entities (each carrying its own `@id`)
+    // and reference them from the root Dataset by `@id`. A strict RO-Crate /
+    // runcrate validator rejects value objects that carry no `@id`, so these
+    // must be flattened nodes, not inline value objects on the root.
+    let allowance_refs = upsert_side_channel_nodes(graph, allowance_nodes);
+    let unused_refs = upsert_side_channel_nodes(graph, unused_candidates);
+    let port_alias_refs = upsert_side_channel_nodes(graph, port_alias_nodes);
+
     if let Some(root) = graph
         .iter_mut()
         .find(|e| e.get("@id").and_then(Value::as_str) == Some("./"))
@@ -997,16 +1056,22 @@ pub fn reconcile_ro_crate_edges_with_allowances(
                     Value::Array(divergences),
                 );
             }
-            if !allowed_reads.is_empty() {
+            if !allowance_refs.is_empty() {
                 obj.insert(
                     "ecaax:provenanceReadAllowance".to_string(),
-                    Value::Array(allowed_reads),
+                    Value::Array(allowance_refs),
                 );
             }
-            if !unused_candidates.is_empty() {
+            if !unused_refs.is_empty() {
                 obj.insert(
                     "ecaax:unusedCandidateEdge".to_string(),
-                    Value::Array(unused_candidates),
+                    Value::Array(unused_refs),
+                );
+            }
+            if !port_alias_refs.is_empty() {
+                obj.insert(
+                    "ecaax:portAliasMap".to_string(),
+                    Value::Array(port_alias_refs),
                 );
             }
         }
@@ -1041,6 +1106,39 @@ fn covering_rationale(allowances: Option<&Vec<crate::atom::ReadAllowance>>) -> O
 /// path address the same node.
 fn parameter_connection_node_id(from_node: &str, to_node: &str) -> String {
     format!("#parameter-connection/{from_node}__to__{to_node}")
+}
+
+/// The `@id` of the `#unused-candidate-edge/…` side-channel node for the
+/// dropped one-of edge `from_node -> to_node` (§G-B1). A deterministic
+/// per-edge fragment so the node is a first-class, `@id`-bearing `@graph`
+/// entity a strict RO-Crate / runcrate validator accepts, rather than an
+/// inline value object with no `@id`.
+fn unused_candidate_edge_node_id(from_node: &str, to_node: &str) -> String {
+    format!("#unused-candidate-edge/{from_node}__to__{to_node}")
+}
+
+/// Register each side-channel `node` (which MUST carry an `@id`) as a
+/// first-class `@graph` entity — replacing any existing node with the same
+/// `@id` so repeated reconciles stay idempotent — and return an `{"@id": …}`
+/// reference per input node, in input order. Callers reference these nodes
+/// from a root-Dataset property by `@id` instead of inlining value objects,
+/// which a strict RO-Crate / runcrate validator rejects ("no @id in {…}").
+fn upsert_side_channel_nodes(graph: &mut Vec<Value>, nodes: Vec<Value>) -> Vec<Value> {
+    let mut refs = Vec::with_capacity(nodes.len());
+    for node in nodes {
+        let Some(id) = node.get("@id").and_then(Value::as_str).map(str::to_string) else {
+            continue;
+        };
+        let existing = graph
+            .iter()
+            .position(|e| e.get("@id").and_then(Value::as_str) == Some(id.as_str()));
+        match existing {
+            Some(pos) => graph[pos] = node,
+            None => graph.push(node),
+        }
+        refs.push(json!({ "@id": id }));
+    }
+    refs
 }
 
 /// Stamp the `ParameterConnection` node for the task-level edge
@@ -4961,6 +5059,33 @@ loaded via a namespace (and not attached):
         json!({"@graph": graph})
     }
 
+    /// Resolve a root-Dataset side-channel property (an array of
+    /// `{"@id": …}` references) to the full `@graph` nodes each reference
+    /// points at, preserving order. Panics if any reference lacks an `@id`
+    /// or fails to resolve — the exact invariant the RO-Crate/runcrate `@id`
+    /// fix must uphold.
+    fn resolve_side_channel<'a>(graph: &'a [Value], root: &Value, key: &str) -> Vec<&'a Value> {
+        root[key]
+            .as_array()
+            .unwrap_or_else(|| panic!("root Dataset carries a `{key}` reference array"))
+            .iter()
+            .map(|r| {
+                let id = r["@id"]
+                    .as_str()
+                    .unwrap_or_else(|| panic!("`{key}` element is an `{{@id}}` reference: {r:?}"));
+                assert_eq!(
+                    r.as_object().map(|o| o.len()),
+                    Some(1),
+                    "`{key}` element must be a bare reference (only `@id`), got: {r:?}"
+                );
+                graph
+                    .iter()
+                    .find(|e| e["@id"] == id)
+                    .unwrap_or_else(|| panic!("`{key}` reference {id} resolves to a @graph node"))
+            })
+            .collect()
+    }
+
     /// §G-B1 — once observed reads resolve the authoritative one-of member,
     /// the STANDARD graph must show ONLY the authoritative `ParameterConnection`
     /// for the count port; the unread candidate is DROPPED (not annotated) and
@@ -5010,12 +5135,13 @@ loaded via a namespace (and not attached):
             "no standard ParameterConnection may still wire the unread normalisation edge"
         );
 
-        // The unread member survives ONLY in the ecaax side channel.
+        // The unread member survives ONLY in the ecaax side channel — now a
+        // root reference resolving to a first-class @graph node carrying the
+        // fields (so a strict validator sees a proper `@id`-bearing entity).
         let root = graph.iter().find(|e| e["@id"] == "./").unwrap();
-        let unused = root["ecaax:unusedCandidateEdge"]
-            .as_array()
-            .expect("unused-candidate side channel recorded on root Dataset");
+        let unused = resolve_side_channel(graph, root, "ecaax:unusedCandidateEdge");
         assert_eq!(unused.len(), 1);
+        assert!(unused[0]["@id"].as_str().unwrap().starts_with("#unused-candidate-edge/"));
         assert_eq!(unused[0]["from_node"], "normalisation");
         assert_eq!(unused[0]["to_node"], "differential_expression");
         assert_eq!(unused[0]["to_port"], "normalized_counts");
@@ -5119,10 +5245,11 @@ loaded via a namespace (and not attached):
             "a covered divergent read must not surface as a divergence: {:?}",
             root.get("ecaax:provenanceDivergence")
         );
-        let allowed = root["ecaax:provenanceReadAllowance"]
-            .as_array()
-            .expect("sanctioned-read array recorded on root Dataset");
+        // The sanctioned read is a root reference resolving to a first-class
+        // @graph node carrying the fields (validator-acceptable `@id`).
+        let allowed = resolve_side_channel(graph, root, "ecaax:provenanceReadAllowance");
         assert_eq!(allowed.len(), 1);
+        assert_eq!(allowed[0]["@id"], "#read-allowance/differential_expression/0");
         assert_eq!(allowed[0]["task_id"], "differential_expression");
         assert_eq!(allowed[0]["read_path"], "runtime/outputs/data_acquisition/counts.tsv");
         assert_eq!(allowed[0]["rationale"], "test: aggregates any upstream stage");
@@ -5306,9 +5433,10 @@ loaded via a namespace (and not attached):
             "the unread producer's output must be pruned from CreateAction.object"
         );
 
-        // (c) the pruned `used` entry is recorded in the ecaax side channel.
+        // (c) the pruned `used` entry is recorded in the ecaax side channel —
+        // a root reference resolving to the first-class @graph node.
         let root = graph.iter().find(|e| e["@id"] == "./").unwrap();
-        let unused = root["ecaax:unusedCandidateEdge"].as_array().unwrap();
+        let unused = resolve_side_channel(graph, root, "ecaax:unusedCandidateEdge");
         assert_eq!(unused.len(), 1);
         assert_eq!(unused[0]["from_node"], "normalisation");
         assert_eq!(
@@ -5400,5 +5528,174 @@ loaded via a namespace (and not attached):
             ],
             "an unresolved one-of must leave both `used` entries in place"
         );
+    }
+
+    // ── RO-Crate/runcrate `@id` fix — the sanctioned-read + unused-candidate
+    // side channels must be first-class `@graph` entities referenced by `@id`
+    // from the root, never inline value objects (which fail a strict
+    // validator with "no @id in {…}") ────────────────────────────────────
+
+    /// Both side channels populated in one pass: the read one-of member
+    /// resolves the group (normalisation DROPPED → `unusedCandidateEdge`),
+    /// while an allowance-covered divergent read lands under
+    /// `provenanceReadAllowance`. Every root element is a bare `{@id}`
+    /// reference; each `@id` resolves to a `@graph` node carrying the fields
+    /// and an `@type` — the invariant the "no @id" fix upholds.
+    #[test]
+    fn reconcile_side_channels_are_id_referenced_graph_entities() {
+        let edges = de_one_of_edges();
+        let mut metadata = graph_with_parameter_connections(&edges);
+        let reads = vec![
+            // Binds the RAW member authoritative → normalisation is dropped.
+            crate::provenance::ObservedRead {
+                task_id: "differential_expression".into(),
+                declared_port: Some("raw_counts".into()),
+                path: "runtime/outputs/quantification/count_matrix.tsv".into(),
+            },
+            // An extra divergent read, covered below by an allowance.
+            crate::provenance::ObservedRead {
+                task_id: "differential_expression".into(),
+                declared_port: None,
+                path: "runtime/outputs/data_acquisition/counts.tsv".into(),
+            },
+        ];
+        let mut allowances = std::collections::BTreeMap::new();
+        allowances.insert(
+            "differential_expression".to_string(),
+            vec![crate::atom::ReadAllowance {
+                scope: crate::atom::ReadAllowanceScope::AnyUpstreamStage,
+                rationale: "test: aggregates any upstream stage".into(),
+            }],
+        );
+
+        reconcile_ro_crate_edges_with_allowances(&mut metadata, &edges, &reads, &allowances);
+
+        let graph = metadata["@graph"].as_array().unwrap();
+        let root = graph.iter().find(|e| e["@id"] == "./").unwrap();
+
+        // The raw root arrays hold ONLY references — no inline fields leak.
+        for key in ["ecaax:provenanceReadAllowance", "ecaax:unusedCandidateEdge"] {
+            for elem in root[key].as_array().unwrap() {
+                assert_eq!(
+                    elem.as_object().map(|o| o.len()),
+                    Some(1),
+                    "{key} element must be a bare @id reference, got {elem:?}"
+                );
+                assert!(elem["@id"].is_string(), "{key} element must carry an @id");
+                assert!(
+                    elem.get("task_id").is_none(),
+                    "{key} reference must not inline the fields: {elem:?}"
+                );
+            }
+        }
+
+        // Each reference resolves to a @graph node carrying the fields + @type.
+        let allowed = resolve_side_channel(graph, root, "ecaax:provenanceReadAllowance");
+        assert_eq!(allowed.len(), 1);
+        let allow_types: Vec<&str> =
+            allowed[0]["@type"].as_array().unwrap().iter().filter_map(|t| t.as_str()).collect();
+        assert!(allow_types.contains(&"ecaax:ProvenanceReadAllowance"), "got {allow_types:?}");
+        assert_eq!(allowed[0]["read_path"], "runtime/outputs/data_acquisition/counts.tsv");
+        assert_eq!(allowed[0]["rationale"], "test: aggregates any upstream stage");
+
+        let unused = resolve_side_channel(graph, root, "ecaax:unusedCandidateEdge");
+        assert_eq!(unused.len(), 1);
+        let unused_types: Vec<&str> =
+            unused[0]["@type"].as_array().unwrap().iter().filter_map(|t| t.as_str()).collect();
+        assert!(unused_types.contains(&"ecaax:UnusedCandidateEdge"), "got {unused_types:?}");
+        assert_eq!(unused[0]["from_node"], "normalisation");
+        assert_eq!(unused[0]["ecaax:supersededByProducer"], "quantification");
+    }
+
+    /// Multiple sanctioned reads on ONE task get distinct
+    /// `#read-allowance/<task>/<n>` fragment ids (0-based per task), so no two
+    /// nodes collide on `@id`.
+    #[test]
+    fn reconcile_mints_distinct_read_allowance_ids_per_task() {
+        let edges = de_one_of_edges();
+        let mut metadata = graph_with_parameter_connections(&edges);
+        let reads = vec![
+            crate::provenance::ObservedRead {
+                task_id: "differential_expression".into(),
+                declared_port: None,
+                path: "runtime/outputs/data_acquisition/counts.tsv".into(),
+            },
+            crate::provenance::ObservedRead {
+                task_id: "differential_expression".into(),
+                declared_port: None,
+                path: "runtime/outputs/metadata_prep/design.tsv".into(),
+            },
+        ];
+        let mut allowances = std::collections::BTreeMap::new();
+        allowances.insert(
+            "differential_expression".to_string(),
+            vec![crate::atom::ReadAllowance {
+                scope: crate::atom::ReadAllowanceScope::AnyUpstreamStage,
+                rationale: "test: aggregates any upstream stage".into(),
+            }],
+        );
+
+        reconcile_ro_crate_edges_with_allowances(&mut metadata, &edges, &reads, &allowances);
+
+        let graph = metadata["@graph"].as_array().unwrap();
+        let root = graph.iter().find(|e| e["@id"] == "./").unwrap();
+        let ids: std::collections::BTreeSet<&str> = root["ecaax:provenanceReadAllowance"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["@id"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            ids,
+            std::collections::BTreeSet::from([
+                "#read-allowance/differential_expression/0",
+                "#read-allowance/differential_expression/1",
+            ]),
+            "per-task read-allowance ids must be distinct and 0-based"
+        );
+        // All ids resolve to distinct @graph nodes.
+        assert_eq!(resolve_side_channel(graph, root, "ecaax:provenanceReadAllowance").len(), 2);
+    }
+
+    // ── Fix 2: minimal port-alias map — every declared task input port maps
+    // to its producer task+port, including composer-synthesized positional
+    // port names (`companion_in_N` / `residual_in_N`) ─────────────────────
+
+    /// A synthesized `companion_in_N` consumer port resolves to a
+    /// `#port-alias/<task>/<port>` node naming the producer task + port, and
+    /// the root `ecaax:portAliasMap` references it by `@id`.
+    #[test]
+    fn reconcile_emits_port_alias_for_synthetic_companion_port() {
+        use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind};
+        let edges = vec![EdgeContract {
+            from_node: "survey_method_landscape".into(),
+            from_port: "method_landscape".into(),
+            to_node: "discover_markers".into(),
+            to_port: "companion_in_1".into(),
+            proof: CompatibilityProof::default(),
+            kind: EdgeKind::OrderingOnly,
+            chain_of_custody: None,
+            mutually_exclusive_group: None,
+        }];
+        let mut metadata = graph_with_parameter_connections(&edges);
+        let reads = vec![crate::provenance::ObservedRead {
+            task_id: "discover_markers".into(),
+            declared_port: Some("companion_in_1".into()),
+            path: "runtime/outputs/survey_method_landscape/method_landscape.json".into(),
+        }];
+
+        reconcile_ro_crate_edges(&mut metadata, &edges, &reads);
+
+        let graph = metadata["@graph"].as_array().unwrap();
+        let root = graph.iter().find(|e| e["@id"] == "./").unwrap();
+        let aliases = resolve_side_channel(graph, root, "ecaax:portAliasMap");
+        assert_eq!(aliases.len(), 1, "one declared edge → one port-alias node");
+        let alias = aliases[0];
+        assert_eq!(alias["@id"], "#port-alias/discover_markers/companion_in_1");
+        assert_eq!(alias["@type"], "ecaax:PortAlias");
+        assert_eq!(alias["task"], "discover_markers");
+        assert_eq!(alias["port"], "companion_in_1");
+        assert_eq!(alias["from_node"], "survey_method_landscape");
+        assert_eq!(alias["from_port"], "method_landscape");
     }
 }
