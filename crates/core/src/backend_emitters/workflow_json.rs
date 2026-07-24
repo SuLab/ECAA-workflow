@@ -1545,6 +1545,31 @@ mod tests {
             Some(2),
             "spec.min_quorum_per_axis == bulk_rnaseq roster caps; spec={ensemble_spec:?}"
         );
+
+        // Integration: a lowered interpretation cell carries its resolved,
+        // entity-substituted persona system prompt + model tier, so the
+        // runtime wrapper (agent-claude.sh) has something to inject. This is
+        // the emit→spec half of the persona/model delivery chain.
+        let cell_id = cell_ids[0].as_str().expect("cell id is a string");
+        let cell_ev = art
+            .dag
+            .tasks
+            .get(cell_id)
+            .and_then(|t| t.spec.as_ref())
+            .and_then(|s| s.get("ensemble_variant"))
+            .unwrap_or_else(|| panic!("interpretation cell {cell_id} carries ensemble_variant"));
+        let persona = cell_ev
+            .get("persona_system_prompt")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        assert!(
+            persona.contains("genes"),
+            "cell persona_system_prompt must be entity-substituted (bulk_rnaseq → 'genes'); got: {persona:?}"
+        );
+        assert!(
+            cell_ev.get("model_tier").and_then(|v| v.as_str()).is_some(),
+            "cell spec must carry model_tier for runtime routing; ev={cell_ev:?}"
+        );
     }
 
     #[test]

@@ -898,10 +898,11 @@ mod tests {
 
         let cfg = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../config"));
         let reg = AtomRegistry::load_from_dir(&cfg.join("stage-atoms")).unwrap();
-        let roster = EnsembleRosterProvider::from_dir(&cfg.join("ensemble-rosters"))
+        let mut roster = EnsembleRosterProvider::from_dir(&cfg.join("ensemble-rosters"))
             .roster_for("bulk_rnaseq")
             .cloned()
             .unwrap();
+        roster.interpretive_lenses = ensemble_test_lenses();
         assert_eq!(roster.statistical_variants.len(), 3, "K=3 fixture");
         assert_eq!(roster.interpretive_lenses.len(), 3, "M=3 fixture");
 
@@ -1073,6 +1074,27 @@ mod tests {
     /// `differential_expression` node plus a real `final_reporting`
     /// terminal, and the shipped `bulk_rnaseq` roster (cloned so callers
     /// can mutate it freely).
+    /// Three interpretive lenses with resolved persona_text — what
+    /// `compose_lenses` produces at plan time. Fixtures use this instead of
+    /// the roster's (now-removed) inline lenses so synthesis mechanics are
+    /// exercised with a stable M=3 independent of the universal-lens config.
+    fn ensemble_test_lenses() -> Vec<crate::ensemble_roster::InterpretiveLens> {
+        ["mechanistic", "systems", "translational"]
+            .iter()
+            .map(|id| crate::ensemble_roster::InterpretiveLens {
+                id: (*id).to_string(),
+                persona_ref: format!("{id}.md"),
+                model_tier: "opus".to_string(),
+                retrieval: "recent".to_string(),
+                model: None,
+                persona_text: Some(format!(
+                    "You are a {id} analyst. Anchor every claim to a result-table row \
+                     or a cited PMID. Interpret the evidence as it is."
+                )),
+            })
+            .collect()
+    }
+
     fn validated_fixture() -> (
         crate::atom_registry::AtomRegistry,
         EnsembleRoster,
@@ -1094,20 +1116,7 @@ mod tests {
         // pass — which consumes lens.persona_text — is exercised without
         // depending on the roster's soon-migrated inline lenses. M=3 keeps
         // the K×M=9 cell assertions below stable.
-        roster.interpretive_lenses = ["mechanistic", "systems", "translational"]
-            .iter()
-            .map(|id| crate::ensemble_roster::InterpretiveLens {
-                id: (*id).to_string(),
-                persona_ref: format!("{id}.md"),
-                model_tier: "opus".to_string(),
-                retrieval: "recent".to_string(),
-                model: None,
-                persona_text: Some(format!(
-                    "You are a {id} analyst. Anchor every claim to a result-table row \
-                     or a cited PMID. Interpret the evidence as it is."
-                )),
-            })
-            .collect();
+        roster.interpretive_lenses = ensemble_test_lenses();
         let de = TaskNode::from_atom(reg.get("differential_expression").unwrap());
         let dag = WorkflowDag {
             id: "t".into(),
@@ -1568,6 +1577,7 @@ mod tests {
             .cloned()
             .unwrap();
         roster.caps.per_ensemble_budget_usd = per_ensemble_budget_usd;
+        roster.interpretive_lenses = ensemble_test_lenses();
         assert_eq!(roster.statistical_variants.len(), 3, "K=3 fixture");
         assert_eq!(roster.interpretive_lenses.len(), 3, "M=3 fixture");
         assert_eq!(roster.selected_cells().len(), 9, "full K*M=9 cells fixture");

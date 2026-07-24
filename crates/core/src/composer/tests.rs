@@ -1373,10 +1373,27 @@ fn ensemble_lowering_validates_without_cycle_and_reaches_reporting() {
 
     let cfg = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../config"));
     let reg = AtomRegistry::load_from_dir(&cfg.join("stage-atoms")).unwrap();
-    let roster = EnsembleRosterProvider::from_dir(&cfg.join("ensemble-rosters"))
+    let mut roster = EnsembleRosterProvider::from_dir(&cfg.join("ensemble-rosters"))
         .roster_for("bulk_rnaseq")
         .cloned()
         .unwrap();
+    // The roster no longer declares inline lenses (the universal set is
+    // composed at plan time); populate M=3 here so the raw fanout under test
+    // produces interpretation cells.
+    roster.interpretive_lenses = ["mechanistic", "systems", "translational"]
+        .iter()
+        .map(|id| crate::ensemble_roster::InterpretiveLens {
+            id: (*id).to_string(),
+            persona_ref: format!("{id}.md"),
+            model_tier: "opus".to_string(),
+            retrieval: "recent".to_string(),
+            model: None,
+            persona_text: Some(format!(
+                "You are a {id} analyst. Anchor every claim to a result-table row \
+                 or a cited PMID. Interpret the evidence as it is."
+            )),
+        })
+        .collect();
 
     // Base DE node carrying attributes["stage_id"] exactly as the lift
     // pass stamps it — the Crit-1 precondition.

@@ -6,11 +6,13 @@ statistical_variants:
   - {id: deseq2, tool: deseq2, bootstrap_replicates: 0}
   - {id: edger,  tool: edger}
   - {id: limma,  tool: limma_voom}
-interpretive_lenses:
-  - {id: molecular_mechanism,    persona_ref: molecular_mechanism.md,    model_tier: opus,   retrieval: recent}
-  - {id: clinical_translational, persona_ref: clinical_translational.md, model_tier: sonnet, retrieval: foundational}
-  - {id: pathway_systems,        persona_ref: pathway_systems.md,        model_tier: opus,   retrieval: recent}
+# Interpretive lenses are the UNIVERSAL set now, composed per-analysis by
+# EnsembleRosterProvider::compose_lenses: the 5 epistemic-core lenses
+# (config/ensemble-lenses/) plus adaptively-selected biomedical subfields
+# (config/ensemble-subfields/). Rosters no longer declare interpretive_lenses.
 caps:
-  max_ensemble_members: 24
+  # 5 core + up to 3 selected subfields = 8 lenses; full K×M expansion is
+  # K(3) + M(8) + K*M(24) = 35 members, so the cap must clear 35.
+  max_ensemble_members: 40
   per_ensemble_budget_usd: 60
   min_quorum_per_axis: 2
