@@ -26,12 +26,18 @@ const ENSEMBLE_DIST_REL: &str =
 const STAT_DIST_REL: &str =
     "runtime/outputs/assemble_statistical_distribution/stat-distribution.json";
 
-/// Cap on bytes read into memory when slurping an ensemble sidecar. See
-/// `verification::SIDECAR_READ_CAP_BYTES` for the identical rationale —
-/// bounds worst-case allocation from a malformed or runaway artifact.
-const SIDECAR_READ_CAP_BYTES: u64 = 16 * 1024 * 1024;
+/// Ensemble aggregator artifacts (`stat-distribution.json` especially) inline
+/// one row per entity across the FULL gene roster plus the pooled significant
+/// set, so they scale with the genome and routinely exceed a small sidecar's
+/// budget (a 3-method DE ensemble over ~35k genes is ~18 MB; 6 methods over a
+/// loosely-filtered ~60k-row table approaches ~60 MB). These are the package's
+/// own deterministic, trusted artifacts (same class as `de_results.tsv`), so
+/// the cap here is only a pathological-runaway guard, not a security boundary —
+/// set generously so a legitimate genome-scale distribution is never truncated
+/// into a 500.
+const ENSEMBLE_READ_CAP_BYTES: u64 = 256 * 1024 * 1024;
 
-/// Open `path`, read at most `SIDECAR_READ_CAP_BYTES` into memory, and
+/// Open `path`, read at most `ENSEMBLE_READ_CAP_BYTES` into memory, and
 /// parse as JSON. Returns `Ok(None)` on missing file (treat as 404);
 /// `Ok(Some(v))` on successful parse; `Err(_)` on I/O or deserialisation
 /// error. Copy of `verification::read_capped_json` — kept local rather
@@ -44,7 +50,7 @@ async fn read_capped_json(path: &FsPath) -> std::io::Result<Option<serde_json::V
         Err(e) => return Err(e),
     };
     let mut buf = Vec::new();
-    file.take(SIDECAR_READ_CAP_BYTES)
+    file.take(ENSEMBLE_READ_CAP_BYTES)
         .read_to_end(&mut buf)
         .await?;
     let v = serde_json::from_slice::<serde_json::Value>(&buf)
@@ -157,7 +163,7 @@ pub(super) fn routes() -> axum::Router<ChatAppState> {
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_ensemble_distribution, resolve_stat_distribution};
+    use super::{read_capped_json, resolve_ensemble_distribution, resolve_stat_distribution};
     use crate::chat_routes::test_support::make_router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
@@ -268,5 +274,28 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let body = crate::chat_routes::test_support::body_json(resp.into_body()).await;
         assert_eq!(body, serde_json::json!({"ok": true}));
+    }
+
+    // ── Read-cap regression ─────────────────────────────────────────────
+    //
+    // Genome-scale `stat-distribution.json` files (35k+ genes across
+    // multiple methods) routinely exceed the old 16 MB sidecar cap; a
+    // truncated read fails JSON parsing and 500s the whole Robustness
+    // tab. This asserts a valid artifact comfortably past the old cap
+    // still parses under the new `ENSEMBLE_READ_CAP_BYTES`.
+    #[tokio::test]
+    async fn read_capped_json_parses_artifact_larger_than_old_16mb_cap() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("stat-distribution.json");
+        // ~20 MB of valid JSON: one big padded string field.
+        let big = "x".repeat(20 * 1024 * 1024);
+        std::fs::write(&path, serde_json::json!({ "pad": big }).to_string()).unwrap();
+        let out = read_capped_json(&path)
+            .await
+            .expect("must not error on a 20MB valid artifact");
+        assert!(
+            out.is_some(),
+            "20MB valid JSON must parse, not truncate into an Err/500"
+        );
     }
 }
