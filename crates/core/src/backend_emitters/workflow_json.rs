@@ -584,11 +584,16 @@ fn lower_task(node: &TaskNode, depends_on: Vec<TaskId>) -> Result<Task, EmitErro
     // cross-axis rollup runner's inputs — the cell ids to roll up, the base
     // stage whose method-variant tables each cell's narrative is verified
     // against, and the `roster.caps.min_quorum_per_axis` floor the runner
-    // enforces per method/lens axis before reporting `Completed`). Mirrors
-    // `report_schemas`: an allowlisted pass-through so the
-    // harness's in-process builtin dispatch can read them from
-    // `spec.<key>` without a runtime AtomRegistry/config dependency.
-    // Additive: emitted only on the two nodes the pass stamped.
+    // enforces per method/lens axis before reporting `Completed`).
+    // `projected_cost_usd` + `budget_ceiling_usd` (Plan-4 Task F) are the
+    // deterministic compile-time budget projection also stamped on
+    // `assemble_ensemble_distribution` — a warn + provenance guardrail,
+    // never a hard emission block (see `docs/known-limitations.md` for why
+    // no runtime per-task USD accumulator exists to hard-stop against
+    // actual accrued spend). Mirrors `report_schemas`: an allowlisted
+    // pass-through so the harness's in-process builtin dispatch can read
+    // them from `spec.<key>` without a runtime AtomRegistry/config
+    // dependency. Additive: emitted only on the two nodes the pass stamped.
     for key in [
         "variant_stage_ids",
         "result_schema",
@@ -597,6 +602,8 @@ fn lower_task(node: &TaskNode, depends_on: Vec<TaskId>) -> Result<Task, EmitErro
         "interpretation_cell_ids",
         "primary_stage_id",
         "min_quorum_per_axis",
+        "projected_cost_usd",
+        "budget_ceiling_usd",
     ] {
         if let Some(v) = node.attributes.get(key) {
             spec_map.insert(key.into(), v.clone());

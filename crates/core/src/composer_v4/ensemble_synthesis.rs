@@ -107,6 +107,20 @@ pub const ENSEMBLE_STAT_AGGREGATOR_ID: &str = "assemble_statistical_distribution
 /// the aggregation logic).
 pub const ENSEMBLE_AGGREGATOR_ID: &str = "assemble_ensemble_distribution";
 
+/// Documented per-task agent-budget-cap ESTIMATE for one statistical
+/// method-variant task (an analytical task, mirroring the analytical
+/// `--max-budget-usd` calibration). A rough guardrail figure, NOT precise
+/// cost accounting — see [`project_ensemble_cost_usd`].
+pub const STAT_VARIANT_EST_USD: f64 = 3.0;
+
+/// Documented per-task agent-budget-cap ESTIMATE for one contextualization
+/// variant task. See [`project_ensemble_cost_usd`].
+pub const CONTEXTUALIZE_EST_USD: f64 = 2.0;
+
+/// Documented per-task agent-budget-cap ESTIMATE for one interpretation
+/// cell task. See [`project_ensemble_cost_usd`].
+pub const INTERPRETATION_CELL_EST_USD: f64 = 2.0;
+
 /// Reporting-terminal ids the cross-axis aggregator feeds when present.
 /// Exact-id match only — mirrors `report_data_synthesis`'s constant of
 /// the same name (the two canonical terminal ids, no alias matching).
@@ -418,6 +432,29 @@ pub fn synthesize_ensemble_fanout(
         "min_quorum_per_axis".into(),
         serde_json::json!(roster.caps.min_quorum_per_axis),
     );
+    // Compile-time budget projection (guardrail: warn + provenance, NEVER a
+    // hard emission block — the four-conditions rule, CLAUDE.md). ALWAYS
+    // stamped, regardless of whether the projection exceeds the ceiling, so
+    // the projection is surfaceable even on a well-provisioned roster. A
+    // runtime hard-stop against actual accrued cost is deferred (no
+    // per-task USD accumulator exists today — see
+    // `docs/known-limitations.md`).
+    let projected_cost_usd = project_ensemble_cost_usd(roster);
+    let budget_ceiling_usd = roster.caps.per_ensemble_budget_usd;
+    cross_agg.attributes.insert(
+        "projected_cost_usd".into(),
+        serde_json::json!(projected_cost_usd),
+    );
+    cross_agg.attributes.insert(
+        "budget_ceiling_usd".into(),
+        serde_json::json!(budget_ceiling_usd),
+    );
+    if budget_ceiling_usd > 0.0 && projected_cost_usd > budget_ceiling_usd {
+        tracing::warn!(
+            "[ensemble] projected cost ${projected_cost_usd:.2} exceeds \
+             per_ensemble_budget_usd ${budget_ceiling_usd:.2}"
+        );
+    }
     new_nodes.push(cross_agg);
 
     // Wire the cross-axis aggregator onward to the reporting terminals it
@@ -722,6 +759,27 @@ fn merge_string_list(
         set.insert((*a).to_string());
     }
     serde_json::to_value(set.into_iter().collect::<Vec<String>>()).unwrap_or(serde_json::Value::Null)
+}
+
+/// Deterministic COMPILE-TIME projected ensemble cost: `K` statistical
+/// variants + `M` contextualizations + the roster's selected interpretation
+/// cells (`roster.selected_cells().len()`, factorial-mode-aware — `Full` =
+/// K*M, `Fractional` = max(K,M)), each priced at its documented per-member
+/// ESTIMATE ([`STAT_VARIANT_EST_USD`] / [`CONTEXTUALIZE_EST_USD`] /
+/// [`INTERPRETATION_CELL_EST_USD`]). The two in-process builtin aggregators
+/// (`assemble_statistical_distribution` / `assemble_ensemble_distribution`)
+/// cost $0 — they run as core-assembler builtins, not agent tasks.
+///
+/// This is a rough guardrail projection from documented per-task agent
+/// budget CAPS, not precise cost accounting: no per-task USD accumulator
+/// exists today to true this up against actual accrued spend (see
+/// `docs/known-limitations.md`). Pure function of `roster` — identical
+/// output on every call, independent of DAG state.
+pub fn project_ensemble_cost_usd(roster: &EnsembleRoster) -> f64 {
+    let k = roster.statistical_variants.len() as f64;
+    let m = roster.interpretive_lenses.len() as f64;
+    let cells = roster.selected_cells().len() as f64;
+    k * STAT_VARIANT_EST_USD + m * CONTEXTUALIZE_EST_USD + cells * INTERPRETATION_CELL_EST_USD
 }
 
 /// Re-sort nodes/edges by their canonical keys so the DAG stays
@@ -1457,6 +1515,179 @@ mod tests {
         assert!(
             !node.attributes.contains_key("ensemble_report_files"),
             "ensemble_report_files not stamped when the pass no-ops"
+        );
+    }
+
+    /// Task F fixture: a real `differential_expression` node plus real
+    /// `reporting`/`final_reporting` terminals, and the shipped
+    /// `bulk_rnaseq` roster (K=3, M=3, full factorial -> 9 cells) with
+    /// `caps.per_ensemble_budget_usd` overridden by the caller.
+    fn budget_fixture(
+        per_ensemble_budget_usd: f64,
+    ) -> (
+        crate::atom_registry::AtomRegistry,
+        EnsembleRoster,
+        crate::workflow_contracts::task_node::WorkflowDag,
+    ) {
+        use crate::atom_registry::AtomRegistry;
+        use crate::ensemble_roster::EnsembleRosterProvider;
+        use crate::workflow_contracts::task_node::{TaskNode, WorkflowDag};
+
+        let cfg = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../config"));
+        let reg = AtomRegistry::load_from_dir(&cfg.join("stage-atoms")).unwrap();
+        let mut roster = EnsembleRosterProvider::from_dir(&cfg.join("ensemble-rosters"))
+            .roster_for("bulk_rnaseq")
+            .cloned()
+            .unwrap();
+        roster.caps.per_ensemble_budget_usd = per_ensemble_budget_usd;
+        assert_eq!(roster.statistical_variants.len(), 3, "K=3 fixture");
+        assert_eq!(roster.interpretive_lenses.len(), 3, "M=3 fixture");
+        assert_eq!(roster.selected_cells().len(), 9, "full K*M=9 cells fixture");
+
+        let de = TaskNode::from_atom(reg.get("differential_expression").unwrap());
+        let dag = WorkflowDag {
+            id: "t".into(),
+            nodes: vec![
+                de,
+                TaskNode::from_atom(reg.get("reporting").unwrap()),
+                TaskNode::from_atom(reg.get("final_reporting").unwrap()),
+            ],
+            edges: vec![],
+            assumptions: Default::default(),
+            source_template: None,
+        };
+        (reg, roster, dag)
+    }
+
+    /// K=3, M=3, full factorial -> 9 cells: 3*3.0 + 3*2.0 + 9*2.0 = 33.0.
+    const BULK_RNASEQ_PROJECTED_USD: f64 = 33.0;
+
+    /// A LOW `per_ensemble_budget_usd` (5.0) against the shipped
+    /// bulk_rnaseq roster's member counts: `projected_cost_usd` /
+    /// `budget_ceiling_usd` are stamped on the cross-axis aggregator node,
+    /// `projected_cost_usd > budget_ceiling_usd`, and — critically —
+    /// emission still succeeds end-to-end (the guardrail never blocks;
+    /// see the four-conditions rule in CLAUDE.md).
+    #[test]
+    fn budget_projection_stamped_and_warns_over_ceiling() {
+        use crate::backend_emitters::workflow_json::{lower_to_workflow_json, EmitContext};
+
+        let (reg, roster, mut dag) = budget_fixture(5.0);
+        assert_eq!(
+            project_ensemble_cost_usd(&roster),
+            BULK_RNASEQ_PROJECTED_USD
+        );
+
+        synthesize_ensemble_fanout(&mut dag, &reg, &roster, &ModalityBounds::default());
+
+        let agg = dag
+            .nodes
+            .iter()
+            .find(|n| n.id == ENSEMBLE_AGGREGATOR_ID)
+            .expect("cross-axis ensemble aggregator present");
+        let projected = agg
+            .attributes
+            .get("projected_cost_usd")
+            .and_then(|v| v.as_f64())
+            .expect("projected_cost_usd stamped");
+        let ceiling = agg
+            .attributes
+            .get("budget_ceiling_usd")
+            .and_then(|v| v.as_f64())
+            .expect("budget_ceiling_usd stamped");
+        assert_eq!(projected, BULK_RNASEQ_PROJECTED_USD);
+        assert_eq!(ceiling, 5.0);
+        assert!(
+            projected > ceiling,
+            "fixture must exceed the low ceiling: {projected} vs {ceiling}"
+        );
+
+        // Emission still succeeds — the guardrail is warn + provenance
+        // only, never a hard emission block.
+        let artifact = lower_to_workflow_json(&dag, &EmitContext::defaults())
+            .expect("emission must still succeed when projected cost exceeds the ceiling");
+        let task = artifact
+            .dag
+            .tasks
+            .get(ENSEMBLE_AGGREGATOR_ID)
+            .expect("aggregator task present in the lowered DAG");
+        let spec = task.spec.as_ref().expect("aggregator task carries a spec");
+        assert_eq!(
+            spec.get("projected_cost_usd").and_then(|v| v.as_f64()),
+            Some(BULK_RNASEQ_PROJECTED_USD),
+            "lowered spec.projected_cost_usd"
+        );
+        assert_eq!(
+            spec.get("budget_ceiling_usd").and_then(|v| v.as_f64()),
+            Some(5.0),
+            "lowered spec.budget_ceiling_usd"
+        );
+    }
+
+    /// A HIGH `per_ensemble_budget_usd` (1000.0): still stamped, and
+    /// `projected_cost_usd <= budget_ceiling_usd` (no over-budget flag).
+    #[test]
+    fn budget_projection_within_ceiling_no_flag() {
+        let (reg, roster, mut dag) = budget_fixture(1000.0);
+
+        synthesize_ensemble_fanout(&mut dag, &reg, &roster, &ModalityBounds::default());
+
+        let agg = dag
+            .nodes
+            .iter()
+            .find(|n| n.id == ENSEMBLE_AGGREGATOR_ID)
+            .expect("cross-axis ensemble aggregator present");
+        let projected = agg
+            .attributes
+            .get("projected_cost_usd")
+            .and_then(|v| v.as_f64())
+            .expect("projected_cost_usd stamped");
+        let ceiling = agg
+            .attributes
+            .get("budget_ceiling_usd")
+            .and_then(|v| v.as_f64())
+            .expect("budget_ceiling_usd stamped");
+        assert_eq!(projected, BULK_RNASEQ_PROJECTED_USD);
+        assert_eq!(ceiling, 1000.0);
+        assert!(
+            projected <= ceiling,
+            "fixture must be within the high ceiling: {projected} vs {ceiling}"
+        );
+    }
+
+    /// Determinism: the projection is a pure function of the roster's
+    /// member counts, byte-stable across independent synthesis runs.
+    #[test]
+    fn budget_projection_deterministic_across_runs() {
+        let (reg_a, roster_a, mut dag_a) = budget_fixture(5.0);
+        let (reg_b, roster_b, mut dag_b) = budget_fixture(5.0);
+
+        synthesize_ensemble_fanout(&mut dag_a, &reg_a, &roster_a, &ModalityBounds::default());
+        synthesize_ensemble_fanout(&mut dag_b, &reg_b, &roster_b, &ModalityBounds::default());
+
+        let get = |dag: &crate::workflow_contracts::task_node::WorkflowDag| -> (f64, f64) {
+            let agg = dag
+                .nodes
+                .iter()
+                .find(|n| n.id == ENSEMBLE_AGGREGATOR_ID)
+                .unwrap();
+            (
+                agg.attributes
+                    .get("projected_cost_usd")
+                    .and_then(|v| v.as_f64())
+                    .unwrap(),
+                agg.attributes
+                    .get("budget_ceiling_usd")
+                    .and_then(|v| v.as_f64())
+                    .unwrap(),
+            )
+        };
+        assert_eq!(get(&dag_a), get(&dag_b), "identical across two synthesis runs");
+
+        // Also directly deterministic at the pure-function level, called twice.
+        assert_eq!(
+            project_ensemble_cost_usd(&roster_a),
+            project_ensemble_cost_usd(&roster_a)
         );
     }
 }
