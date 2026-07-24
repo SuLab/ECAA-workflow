@@ -13,6 +13,8 @@ function flagBackground(f: ConcordanceFlag): string {
       return "#a8741f";
     case "no_prior_finding":
       return "#666";
+    case "not_assessed":
+      return "#4a4a4a";
   }
 }
 
