@@ -975,6 +975,16 @@ struct NumericToken {
 /// `Mismatch` while a value wrong by dozens of orders (the CV-1 padj) is caught.
 const PVALUE_ORDERS_TOLERANCE: f64 = 1.0;
 
+/// Reporting floor below which a claimed p-value of *exactly* 0.0 is read as a
+/// display-rounded / below-reporting-precision value rather than a literal zero.
+/// Narrative result tables routinely render a tiny positive adjusted p as
+/// "padj 0.000" (fixed-decimal rounding), which parses to 0.0; the entity is in
+/// fact highly significant, so such a claim must AGREE with an observed p that is
+/// itself below this floor. A claimed 0.0 against a clearly non-significant
+/// observed p (e.g. 0.3) is NOT display rounding and stays a Mismatch. Applies
+/// to p-value columns only — no effect-size / non-p comparison is loosened.
+const PVALUE_ZERO_DISPLAY_FLOOR: f64 = 1e-3;
+
 /// Match a numeric-assertion keyword (`log2FC`/`padj`/`fdr`/`q-value`/`p-value`/
 /// `p`), the SEPARATOR run (group 2), then a value token (group 3). Longest/
 /// most-specific keywords come first so `padj` is preferred over bare `p` at the
@@ -1052,10 +1062,19 @@ fn parse_numeric_token(raw: &str) -> Option<f64> {
 }
 
 /// True when a claimed p and observed p agree within an order-of-magnitude
-/// band. Both must be positive; exact equality (incl. both-zero) always agrees.
+/// band. Exact equality (incl. both-zero) always agrees; a claimed exactly-zero
+/// p is treated as display rounding and agrees when `observed` is below
+/// `PVALUE_ZERO_DISPLAY_FLOOR`; other comparisons require both values positive.
 fn pvalue_orders_within(claimed: f64, observed: f64, max_orders: f64) -> bool {
     if claimed == observed {
         return true;
+    }
+    // A claimed p of exactly 0.0 is a display-rounded value ("padj 0.000" in a
+    // narrative table); it agrees iff the observed p is itself below the small
+    // reporting floor (the entity IS that significant), and Mismatches only when
+    // the observed p is NOT small. See `PVALUE_ZERO_DISPLAY_FLOOR`.
+    if claimed == 0.0 {
+        return observed > 0.0 && observed <= PVALUE_ZERO_DISPLAY_FLOOR;
     }
     if claimed <= 0.0 || observed <= 0.0 {
         return false;
@@ -1196,14 +1215,16 @@ fn run_numeric_gate(
 
     let tokens = scan_numeric_tokens(&claim.excerpt);
     if tokens.is_empty() {
-        // No numeric assertion → the gate is inert; record a class-only audit.
-        return (
-            base,
-            Some(VerdictAudit::class_only(
-                verdict_class_of(claim),
-                entity_opt(claim),
-            )),
-        );
+        // No numeric assertion in the narrative text → the gate is inert; record
+        // a class-only audit. When the base verifier already rejected the claim,
+        // carry its detail as the audit rationale so a Mismatch never surfaces
+        // with an empty audit (status/rationale coherence — mirrors the
+        // base-Mismatch realignment in the keep-base-verdict branch below).
+        let mut audit = VerdictAudit::class_only(verdict_class_of(claim), entity_opt(claim));
+        if let ClaimStatus::Mismatch { detail } = &base {
+            audit.rationale = Some(detail.clone());
+        }
+        return (base, Some(audit));
     }
 
     let resolved = resolve_entity_row(claim, index, cfg, cache);
@@ -2801,11 +2822,21 @@ fn verify_one(
 }
 
 /// True when `claimed` agrees with `obs` within a relative tolerance.
-/// Exact equality (incl. both-zero underflow) and the log-ratio band are
-/// both accepted; non-positive values only match on exact equality.
+/// Exact equality (incl. both-zero underflow) and the log-ratio band are both
+/// accepted; a claimed exactly-zero p is treated as display rounding and agrees
+/// when `obs` is below `PVALUE_ZERO_DISPLAY_FLOOR`; other non-positive values
+/// match only on exact equality.
 fn pvalue_within_tolerance(claimed: f64, obs: f64, rel_tol: f64) -> bool {
     if claimed == obs {
         return true;
+    }
+    // A claimed p of exactly 0.0 is a display-rounded value ("padj 0.000" in a
+    // narrative table rounds a true tiny positive p to zero); it agrees iff the
+    // observed p is itself below the small reporting floor, and Mismatches only
+    // when the observed p is clearly non-significant. See
+    // `PVALUE_ZERO_DISPLAY_FLOOR`.
+    if claimed == 0.0 {
+        return obs > 0.0 && obs <= PVALUE_ZERO_DISPLAY_FLOOR;
     }
     if claimed <= 0.0 || obs <= 0.0 {
         return false;
@@ -8320,6 +8351,121 @@ mod tests {
             "significant near-zero up-claim should verify, got {:?}",
             v.status
         );
+    }
+
+    /// A concordance/reporting table row renders a tiny-but-significant adjusted
+    /// p as "0.000" (fixed-decimal display rounding), which the extractor parses
+    /// to `pvalue = 0.0`. Because the row carries no `padj`/`log2FC` keyword, the
+    /// class-agnostic numeric gate is inert and the verdict comes entirely from
+    /// `verify_one`'s p-value comparison. A claimed 0.0 against an observed tiny
+    /// positive padj (7.04e-05) must VERIFY — it is display rounding of a truly
+    /// significant value, not a fabrication.
+    #[test]
+    fn display_rounded_zero_padj_against_tiny_observed_verifies() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        // Real DE-style row: raw pvalue + adjusted padj, both far below the
+        // reporting floor; log2FC matches the claimed effect size.
+        write_table(
+            tmp.path(),
+            "de_results.tsv",
+            "gene\tlog2FC\tpvalue\tpadj\nNFKBIA\t0.7352\t1.0e-06\t7.04e-05\n",
+        );
+        let index = TableIndex::scan(tmp.path());
+        let mut cache = std::collections::BTreeMap::new();
+        let claim = Claim {
+            entity: "NFKBIA".into(),
+            direction: Some(Direction::Up),
+            effect_size: Some(0.735),
+            // "0.000" cell → display-rounded zero.
+            pvalue: Some(0.0),
+            source_table: Some("de_results.tsv".into()),
+            // Markdown row shape: no `padj`/`log2FC` keyword, so the numeric gate
+            // scans zero tokens and the base verifier alone decides.
+            excerpt: "| NFKBIA | +0.735 | 0.000 | PMID 27371733 |".into(),
+            contract: ClaimContract::NumericTableLookup,
+            literature_evidence: None,
+            matched_pvalue_keyword: None,
+            linear_fold: None,
+            aggregate_kind: None,
+            aggregate_column: None,
+            aggregate_rowset: None,
+            aggregate_value: None,
+            collection: None,
+            term: None,
+            keyed_column: None,
+            keyed_value: None,
+        };
+        let (status, _audit) = verify_for_contract_audited(&claim, &index, &cfg, &mut cache);
+        assert!(
+            matches!(status, ClaimStatus::Verified),
+            "display-rounded padj 0.000 with tiny observed padj must verify, got {:?}",
+            status
+        );
+    }
+
+    /// The control for the display-rounding leniency: a claimed p of 0.0 against
+    /// an observed padj that is clearly NON-significant (0.3) is not display
+    /// rounding — the entity simply is not significant — so it stays a Mismatch,
+    /// and that Mismatch must carry a non-empty rationale (no empty-audit
+    /// mismatches; the gate's inert early-return still records the base detail).
+    #[test]
+    fn display_rounded_zero_padj_against_nonsignificant_observed_still_mismatches() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_table(
+            tmp.path(),
+            "de_results.tsv",
+            "gene\tlog2FC\tpadj\nNFKBIA\t0.7352\t0.3\n",
+        );
+        let index = TableIndex::scan(tmp.path());
+        let mut cache = std::collections::BTreeMap::new();
+        let claim = Claim {
+            entity: "NFKBIA".into(),
+            direction: Some(Direction::Up),
+            effect_size: Some(0.735),
+            pvalue: Some(0.0),
+            source_table: Some("de_results.tsv".into()),
+            excerpt: "| NFKBIA | +0.735 | 0.000 | PMID 27371733 |".into(),
+            contract: ClaimContract::NumericTableLookup,
+            literature_evidence: None,
+            matched_pvalue_keyword: None,
+            linear_fold: None,
+            aggregate_kind: None,
+            aggregate_column: None,
+            aggregate_rowset: None,
+            aggregate_value: None,
+            collection: None,
+            term: None,
+            keyed_column: None,
+            keyed_value: None,
+        };
+        let (status, audit) = verify_for_contract_audited(&claim, &index, &cfg, &mut cache);
+        assert!(
+            matches!(status, ClaimStatus::Mismatch { .. }),
+            "claimed 0.0 vs non-significant observed padj 0.3 must Mismatch, got {:?}",
+            status
+        );
+        let rationale = audit.and_then(|a| a.rationale);
+        assert!(
+            rationale.as_deref().is_some_and(|r| !r.is_empty()),
+            "a genuine Mismatch must carry a non-empty rationale, got {:?}",
+            rationale
+        );
+    }
+
+    #[test]
+    fn pvalue_tolerance_helpers_treat_claimed_zero_as_display_rounding() {
+        // Unit-level lock on both p-value comparators: a claimed 0.0 agrees with
+        // an observed value below the reporting floor and disagrees otherwise.
+        assert!(pvalue_within_tolerance(0.0, 7.04e-05, 0.1));
+        assert!(!pvalue_within_tolerance(0.0, 0.3, 0.1));
+        assert!(pvalue_orders_within(0.0, 7.04e-05, PVALUE_ORDERS_TOLERANCE));
+        assert!(!pvalue_orders_within(0.0, 0.3, PVALUE_ORDERS_TOLERANCE));
+        // A non-p comparison is untouched: exact-equality zero still agrees, and
+        // a claimed 0.0 never matches an observed that is not below the floor.
+        assert!(pvalue_within_tolerance(0.0, 0.0, 0.1));
+        assert!(!pvalue_within_tolerance(0.0, PVALUE_ZERO_DISPLAY_FLOOR * 10.0, 0.1));
     }
 
     #[test]
