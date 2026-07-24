@@ -3,4 +3,4 @@ id: structural_biophysics
 persona_ref: structural_biophysics.md
 model_tier: opus
 retrieval: recent
-select_keywords: [structure, conformation, "protein folding", "binding affinity", crystallography, "cryo-em", domain, "structure-function", biophysical, thermodynamic, kinetics]
+select_keywords: ["protein structure", conformation, "protein folding", "binding affinity", crystallography, "cryo-em", "protein domain", "structure-function", biophysical, thermodynamic, kinetics]

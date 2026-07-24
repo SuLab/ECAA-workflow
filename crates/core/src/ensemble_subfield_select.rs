@@ -35,7 +35,18 @@ pub fn select_subfields(
     s_max: usize,
     min_score: usize,
 ) -> Vec<SelectedSubfield> {
-    let hay = crate::classify::normalize_for_match(match_text);
+    // Word-boundary match: lowercase, every non-alphanumeric char → space, and
+    // require a space (word start) immediately before the keyword. So "variant"
+    // does NOT match inside "invariant" and "kinetics" not inside
+    // "pharmacokinetics" (the substring false-positives the adversarial audit
+    // found), while a trailing suffix is still allowed so plurals
+    // ("variant" → "variants") still match.
+    let norm = |s: &str| -> String {
+        s.chars()
+            .map(|c| if c.is_alphanumeric() { c.to_ascii_lowercase() } else { ' ' })
+            .collect::<String>()
+    };
+    let hay = format!(" {}", norm(match_text));
     let mut scored: Vec<(usize, SelectedSubfield)> = catalog
         .by_id
         .values()
@@ -43,7 +54,7 @@ pub fn select_subfields(
             let mut hits: Vec<String> = sf
                 .select_keywords
                 .iter()
-                .filter(|kw| hay.contains(&crate::classify::normalize_for_match(kw)))
+                .filter(|kw| hay.contains(&format!(" {}", norm(kw))))
                 .cloned()
                 .collect();
             hits.sort();

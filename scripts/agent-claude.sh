@@ -878,7 +878,13 @@ if command -v jq >/dev/null 2>&1 && [ -f "$PACKAGE/WORKFLOW.json" ] \
     '.tasks[$tid].spec.ensemble_variant.persona_system_prompt // empty' \
     "$PACKAGE/WORKFLOW.json" 2>/dev/null || true)"
   if [ -n "$PERSONA_PROMPT" ]; then
-    PERSONA_FILE="$(mktemp)"
+    # Write UNDER $PACKAGE (bind-mounted into the container), NOT mktemp: the
+    # docker path runs --read-only with --tmpfs /tmp and only mounts $PACKAGE +
+    # $AGENT_HOME_DIR, so a host /tmp file would be invisible in-container and
+    # @file would resolve to nothing (persona silently dropped). $PACKAGE/runtime
+    # is mounted and reachable on both the docker and host paths.
+    mkdir -p "$PACKAGE/runtime" 2>/dev/null || true
+    PERSONA_FILE="$PACKAGE/runtime/.ensemble-persona-${ECAA_TASK_ID}.md"
     printf '%s\n' "$PERSONA_PROMPT" > "$PERSONA_FILE"
     PERSONA_ARGS=(--append-system-prompt "@$PERSONA_FILE")
   fi

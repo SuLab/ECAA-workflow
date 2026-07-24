@@ -841,7 +841,7 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
     // pipeline. A non-archetype `data:9999` sentinel here strands the v4
     // planner in a PartialDag for project-class-routed modalities whose
     // archetype keys on goal_data (e.g. state-space time-series).
-    let goal = clf.goal.clone().unwrap_or_else(|| {
+    let mut goal = clf.goal.clone().unwrap_or_else(|| {
         archetypes.bare_modality_fallback_goal(&clf.modality, project_class_str)
     });
     let modalities: Vec<&str> = std::iter::once(clf.modality.as_str())
@@ -867,6 +867,15 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
     let (compose_strict, compose_ensemble) = ecaa_workflow_core::config::Config::from_env()
         .map(|c| (c.compose_strict, c.compose_ensemble))
         .unwrap_or((false, false));
+    // Ensemble subfield selection reads the goal prose (the composer sets
+    // ctx.intent.goal ← goal.source_prose), but the classifier's phrase is
+    // terse ("differential expression"). Feed the full SME intake text like the
+    // chat seam (tools/mod.rs) so subfields fire on the CLI intake seam too —
+    // gated on the ensemble flag so the non-ensemble byte-repro baseline is
+    // untouched (compose_ensemble is off by default).
+    if compose_ensemble && !intake_text.trim().is_empty() {
+        goal.source_prose = Some(intake_text.clone());
+    }
     let output_compose =
         ecaa_workflow_core::composer::compose_with_modalities_full_pref_strict(
             &goal,
