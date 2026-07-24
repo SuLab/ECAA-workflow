@@ -508,17 +508,27 @@ fn ensemble_distribution_present_and_non_empty(package_root: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// Per-axis distinct-value counts among the "readable" cells of an
-/// assembled [`EnsembleDistribution`] — i.e. every entry in `dist.cells`
-/// (a cell whose `result.json` was absent on disk never makes it into
-/// `cells` in the first place; see [`CellRollup`](ecaa_workflow_core::report_contract::CellRollup)).
-/// Verifier-pruned cells (`verification` carrying a `Mismatch`) are still
-/// counted: quorum asks whether an axis was REPRESENTED at all among the
-/// cells the aggregator could read, not whether every representative cell
-/// survived consensus voting. Returns `(n_distinct_methods, n_distinct_lenses)`.
-fn readable_axis_counts(dist: &EnsembleDistribution) -> (usize, usize) {
-    let methods: BTreeSet<&str> = dist.cells.iter().map(|c| c.method.as_str()).collect();
-    let lenses: BTreeSet<&str> = dist.cells.iter().map(|c| c.lens.as_str()).collect();
+/// Per-axis distinct-value counts among the SURVIVING (non-pruned) cells of an
+/// assembled [`EnsembleDistribution`]. A cell whose per-cell verification
+/// carried a `Mismatch` (`CellRollup::is_pruned`) is excluded — quorum asks
+/// whether an axis retains enough INDEPENDENT SURVIVING evidence after
+/// verification, per design spec §6 ("aggregate only if survivors meet quorum
+/// per method and per lens"). An all-pruned ensemble therefore yields `(0, 0)`
+/// and blocks below any positive quorum, closing the all-hallucinated hole.
+/// Returns `(n_distinct_methods, n_distinct_lenses)`.
+fn surviving_axis_counts(dist: &EnsembleDistribution) -> (usize, usize) {
+    let methods: BTreeSet<&str> = dist
+        .cells
+        .iter()
+        .filter(|c| !c.is_pruned())
+        .map(|c| c.method.as_str())
+        .collect();
+    let lenses: BTreeSet<&str> = dist
+        .cells
+        .iter()
+        .filter(|c| !c.is_pruned())
+        .map(|c| c.lens.as_str())
+        .collect();
     (methods.len(), lenses.len())
 }
 
@@ -526,7 +536,7 @@ fn readable_axis_counts(dist: &EnsembleDistribution) -> (usize, usize) {
 /// aggregator in process for a `builtin`-tagged task, mirroring
 /// [`run_assemble_report_data`]'s success/failure/postcondition contract —
 /// with one addition: after a successful assembly, the per-axis (method /
-/// lens) distinct-readable-cell counts are checked against
+/// lens) distinct SURVIVING (non-pruned) cell counts are checked against
 /// `args.min_quorum_per_axis` (`0` means "never block"). An axis short of
 /// quorum blocks the task with `BlockerKind::EnsembleQuorumNotMet` INSTEAD
 /// of completing it — `ensemble-distribution.json` is written either way
@@ -546,7 +556,7 @@ pub fn run_assemble_ensemble_distribution(
             Ok(dist) => {
                 if ensemble_distribution_present_and_non_empty(package_root) {
                     let n_cells = dist.cells.len();
-                    let (n_methods, n_lenses) = readable_axis_counts(&dist);
+                    let (n_methods, n_lenses) = surviving_axis_counts(&dist);
                     let required = args.min_quorum_per_axis;
                     let below_quorum = required > 0
                         && (n_methods < required as usize || n_lenses < required as usize);
@@ -1157,6 +1167,75 @@ mod tests {
             .unwrap();
     }
 
+    // -- pruning-through-the-runner helpers (mirror the core assembler's own
+    //    `cell_with_contradicting_narrative_is_pruned` setup so the real
+    //    `run_assemble_ensemble_distribution` reassembles pruned cells from
+    //    disk — surviving_axis_counts then excludes them) ------------------
+
+    /// Package-embedded interpretation policy with an enabled
+    /// `verifiableEntities` block so the ensemble assembler runs per-cell
+    /// verification (same shape the claim verifier's own tests use).
+    fn write_interpretation_policy(root: &Path) {
+        let dir = root.join("policies");
+        std::fs::create_dir_all(&dir).unwrap();
+        let policy = serde_json::json!({
+            "verifiableEntities": {
+                "enabled": true,
+                "entityNamePatterns": ["[A-Z][A-Z0-9]{1,}"],
+                "directionVocab": {
+                    "up": ["upregulated", "increased", "elevated"],
+                    "down": ["downregulated", "decreased", "reduced"]
+                },
+                "effectSizeColumns": ["log2FC", "logFC"],
+                "entityColumns": ["gene", "symbol"],
+                "pvalueColumns": ["padj", "pvalue"]
+            }
+        });
+        std::fs::write(
+            dir.join("interpretation-policy.json"),
+            serde_json::to_string_pretty(&policy).unwrap(),
+        )
+        .unwrap();
+    }
+
+    /// A cell's METHOD-VARIANT result table under
+    /// `runtime/outputs/<primary>__v_<method>/de_summary_s1.tsv` — the dir the
+    /// verifier resolves the cell's cited table against (NOT the cell dir).
+    fn write_method_variant_table(root: &Path, primary: &str, method: &str, body: &str) {
+        let dir = root
+            .join("runtime")
+            .join("outputs")
+            .join(format!("{primary}__v_{method}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("de_summary_s1.tsv"), body).unwrap();
+    }
+
+    /// A cell dir carrying a `result.json` support verdict plus a prose
+    /// `report.md` narrative the verifier cross-checks against the table.
+    fn write_cell_with_narrative(
+        outputs: &Path,
+        method: &str,
+        lens: &str,
+        support: bool,
+        narrative: &str,
+    ) {
+        let id = ensemble_cell_id(method, lens);
+        let dir = outputs.join(&id);
+        std::fs::create_dir_all(&dir).unwrap();
+        let body = serde_json::json!({ "hypothesis_supported": support, "literature": [] });
+        std::fs::write(dir.join("result.json"), serde_json::to_string_pretty(&body).unwrap())
+            .unwrap();
+        std::fs::write(dir.join("report.md"), narrative).unwrap();
+    }
+
+    const ENS_PRIMARY: &str = "differential_expression";
+    // ACAN is DOWN-regulated (log2FC = -1.2) in every method-variant table.
+    const ENS_DOWN_TABLE: &str = "gene\tlog2FC\tpadj\nACAN\t-1.2\t0.001\n";
+    // Narrative CONTRADICTS the table (claims UP with a positive effect).
+    const ENS_CONTRADICTING: &str = "ACAN was upregulated (log2FC=2.1, Table S1).";
+    // Narrative CONSISTENT with the table (down, matching magnitude).
+    const ENS_CONSISTENT: &str = "ACAN was downregulated (log2FC=-1.2, Table S1).";
+
     /// Build a Task carrying the `assemble_ensemble_distribution` builtin
     /// spec with the given `interpretation_cell_ids` + `primary_stage_id`.
     fn ensemble_builtin_task(state: TaskState, cell_ids: &[String]) -> Task {
@@ -1437,6 +1516,147 @@ mod tests {
                 .is_file(),
             "ensemble-distribution.json must still be written on a below-quorum result"
         );
+    }
+
+    /// All-hallucinated ensemble: every cell's narrative contradicts its
+    /// method-variant table → every cell is pruned → `surviving_axis_counts`
+    /// yields (0, 0), so quorum=2 is not met on either axis and the task
+    /// Blocks with method=0/lens=0 present, instead of Completing with
+    /// agreement=0.0 (the all-hallucinated hole this fix closes).
+    #[test]
+    fn all_pruned_ensemble_blocks_below_quorum() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let outputs = root.join("runtime").join("outputs");
+        write_interpretation_policy(root);
+        // 2 methods on 1 lens; BOTH tables say ACAN is DOWN, both narratives
+        // claim UP → both cells Mismatch → both pruned.
+        write_method_variant_table(root, ENS_PRIMARY, "deseq2", ENS_DOWN_TABLE);
+        write_method_variant_table(root, ENS_PRIMARY, "edger", ENS_DOWN_TABLE);
+        write_cell_with_narrative(&outputs, "deseq2", "molecular_mechanism", true, ENS_CONTRADICTING);
+        write_cell_with_narrative(&outputs, "edger", "molecular_mechanism", true, ENS_CONTRADICTING);
+        let ids = vec![
+            ensemble_cell_id("deseq2", "molecular_mechanism"),
+            ensemble_cell_id("edger", "molecular_mechanism"),
+        ];
+
+        let dag = single_task_dag(
+            ASSEMBLE_ENSEMBLE_DISTRIBUTION,
+            ensemble_builtin_task(
+                TaskState::Running {
+                    started_at: "2026-01-01T00:00:00Z".into(),
+                    remote: None,
+                },
+                &ids,
+            ),
+        );
+        write_workflow(root, &dag);
+
+        let dispatch = PickedDispatch {
+            task_id: TaskId::from(ASSEMBLE_ENSEMBLE_DISTRIBUTION),
+            harness_run_id: "run-1".into(),
+            epoch: 1,
+        };
+        let clock = WallClock;
+        let args = EnsembleBuiltinArgs {
+            cell_ids: ids,
+            primary_stage_id: ENS_PRIMARY.into(),
+            min_quorum_per_axis: 2,
+        };
+        let state = run_assemble_ensemble_distribution(root, &dispatch, &args, &clock)
+            .expect("no write failure");
+        let record = match &state {
+            TaskState::Blocked { record } => record,
+            other => panic!("all-pruned ensemble must Block, got {other:?}"),
+        };
+        let payload = record
+            .reason
+            .strip_prefix("[ensemble_quorum_not_met]")
+            .expect("all-pruned reason must carry the quorum marker")
+            .trim();
+        match serde_json::from_str::<BlockerKind>(payload).expect("payload round-trips") {
+            BlockerKind::EnsembleQuorumNotMet {
+                present_per_axis,
+                required,
+            } => {
+                assert_eq!(required, 2);
+                assert_eq!(present_per_axis.get("method"), Some(&0));
+                assert_eq!(present_per_axis.get("lens"), Some(&0));
+            }
+            other => panic!("expected EnsembleQuorumNotMet, got {other:?}"),
+        }
+    }
+
+    /// Partial pruning drops an axis below quorum: 2 methods × 2 lenses, but
+    /// both deseq2 cells hallucinate → pruned → only edger survives (1 method,
+    /// 2 lenses). quorum=2 → the method axis (1) is short → Blocked.
+    #[test]
+    fn partial_pruning_drops_below_quorum_blocks() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let outputs = root.join("runtime").join("outputs");
+        write_interpretation_policy(root);
+        write_method_variant_table(root, ENS_PRIMARY, "deseq2", ENS_DOWN_TABLE);
+        write_method_variant_table(root, ENS_PRIMARY, "edger", ENS_DOWN_TABLE);
+        // deseq2 hallucinates on both lenses → both pruned.
+        write_cell_with_narrative(&outputs, "deseq2", "molecular_mechanism", true, ENS_CONTRADICTING);
+        write_cell_with_narrative(&outputs, "deseq2", "pathway_context", true, ENS_CONTRADICTING);
+        // edger is consistent on both lenses → both survive.
+        write_cell_with_narrative(&outputs, "edger", "molecular_mechanism", true, ENS_CONSISTENT);
+        write_cell_with_narrative(&outputs, "edger", "pathway_context", true, ENS_CONSISTENT);
+        let ids = vec![
+            ensemble_cell_id("deseq2", "molecular_mechanism"),
+            ensemble_cell_id("deseq2", "pathway_context"),
+            ensemble_cell_id("edger", "molecular_mechanism"),
+            ensemble_cell_id("edger", "pathway_context"),
+        ];
+
+        let dag = single_task_dag(
+            ASSEMBLE_ENSEMBLE_DISTRIBUTION,
+            ensemble_builtin_task(
+                TaskState::Running {
+                    started_at: "2026-01-01T00:00:00Z".into(),
+                    remote: None,
+                },
+                &ids,
+            ),
+        );
+        write_workflow(root, &dag);
+
+        let dispatch = PickedDispatch {
+            task_id: TaskId::from(ASSEMBLE_ENSEMBLE_DISTRIBUTION),
+            harness_run_id: "run-1".into(),
+            epoch: 1,
+        };
+        let clock = WallClock;
+        let args = EnsembleBuiltinArgs {
+            cell_ids: ids,
+            primary_stage_id: ENS_PRIMARY.into(),
+            min_quorum_per_axis: 2,
+        };
+        let state = run_assemble_ensemble_distribution(root, &dispatch, &args, &clock)
+            .expect("no write failure");
+        let record = match &state {
+            TaskState::Blocked { record } => record,
+            other => panic!("partial pruning below quorum must Block, got {other:?}"),
+        };
+        let payload = record
+            .reason
+            .strip_prefix("[ensemble_quorum_not_met]")
+            .expect("reason must carry the quorum marker")
+            .trim();
+        match serde_json::from_str::<BlockerKind>(payload).expect("payload round-trips") {
+            BlockerKind::EnsembleQuorumNotMet {
+                present_per_axis,
+                required,
+            } => {
+                assert_eq!(required, 2);
+                // Only edger survives → 1 distinct method, 2 distinct lenses.
+                assert_eq!(present_per_axis.get("method"), Some(&1));
+                assert_eq!(present_per_axis.get("lens"), Some(&2));
+            }
+            other => panic!("expected EnsembleQuorumNotMet, got {other:?}"),
+        }
     }
 
     /// Plan-4 Task G integration: the composer's REAL stamped

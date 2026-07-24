@@ -10,15 +10,14 @@
 //! cross-method robustness into one of four buckets. It also emits a
 //! pooled consensus single-artifact view (`report-data.json`) that is
 //! SHAPE-COMPATIBLE with the normal (non-ensemble) `report-data.json` —
-//! it deserializes to the same [`ReportData`] type. Consumption of that
-//! pooled artifact by the reporting-invariants recompute machinery in
-//! ensemble mode is DEFERRED to a follow-up: today
-//! `reporting_invariants::read_report_data` reads only
-//! `outputs/reporting/report-data.json`, which the ensemble path never
-//! writes (`check_rc_count` re-derives `outputs/<stage_id>/<schema.artifact>`
-//! directly instead), so the pooled artifact written here and under
-//! `assemble_ensemble_distribution/` is inert for that validator until the
-//! wiring lands.
+//! it deserializes to the same [`ReportData`] type. That pooled artifact IS
+//! consumed by the reporting-invariants recompute machinery in ensemble
+//! mode: `reporting_invariants::read_report_data` /
+//! `read_report_schemas` locate the pooled `report-data.json` under
+//! `outputs/assemble_statistical_distribution/` (keyed by the stat-aggregator
+//! `spec.builtin`, prefix-robust on multi-branch DAGs), and RC-COUNT
+//! recomputes its row counts from source against the pooled artifact — the
+//! recompute-from-pooled-source deposit gate that closes the ensemble path.
 //!
 //! Pure over its on-disk inputs and never touches the wall clock (threads
 //! [`Clock`] per the emit-path determinism contract, though it is
@@ -548,6 +547,22 @@ pub struct CellRollup {
     pub verification: Option<serde_json::Value>,
 }
 
+impl CellRollup {
+    /// A cell is pruned from the ensemble consensus iff its per-cell
+    /// verification report is present AND carries at least one `Mismatch`
+    /// (`n_mismatch > 0`) — the same condition the assembler used to exclude
+    /// it from `agreement`/marginals. `verification == None` (nothing was
+    /// verifiable) is NOT pruned.
+    pub fn is_pruned(&self) -> bool {
+        self.verification
+            .as_ref()
+            .and_then(|v| v.get("n_mismatch"))
+            .and_then(|n| n.as_u64())
+            .map(|n| n > 0)
+            .unwrap_or(false)
+    }
+}
+
 /// Factorial decomposition of the support signal across the two ensemble
 /// axes plus the compounding-fragility (interaction) signal.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -921,6 +936,25 @@ mod tests {
     use super::*;
     use crate::clock::FrozenClock;
     use crate::report_contract::{Comparator, Significance};
+
+    #[test]
+    fn cell_is_pruned_iff_verification_has_mismatch() {
+        let base = CellRollup {
+            cell_id: "c".into(),
+            method: "deseq2".into(),
+            lens: "pathway".into(),
+            support: Some(true),
+            claims_json: serde_json::json!({}),
+            verification: None,
+        };
+        assert!(!base.is_pruned(), "no verification → not pruned");
+        let mut clean = base.clone();
+        clean.verification = Some(serde_json::json!({"n_mismatch": 0}));
+        assert!(!clean.is_pruned(), "n_mismatch 0 → not pruned");
+        let mut bad = base.clone();
+        bad.verification = Some(serde_json::json!({"n_mismatch": 2}));
+        assert!(bad.is_pruned(), "n_mismatch > 0 → pruned");
+    }
 
     fn de_schema() -> ResultSchema {
         ResultSchema {
