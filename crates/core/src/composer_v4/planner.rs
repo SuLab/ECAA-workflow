@@ -418,8 +418,12 @@ pub fn plan(
             if let (Some(provider), Some(modality)) =
                 (ctx.ensemble_rosters.as_ref(), ctx.intent.modality.as_deref())
             {
-                if let Some(roster) = provider.roster_for(modality) {
-                    if roster.enabled {
+                if let Some(base) = provider.roster_for(modality) {
+                    if base.enabled {
+                        let (es, ep) = provider.entity_noun_for_modality(modality);
+                        let mut roster = base.clone();
+                        roster.interpretive_lenses =
+                            provider.compose_lenses(modality, &ctx.intent.goal, (&es, &ep));
                         dag.nodes.retain(|n| n.id != "assemble_report_data");
                         dag.edges.retain(|e| {
                             e.from_node != "assemble_report_data"
@@ -428,7 +432,7 @@ pub fn plan(
                         if let Err(e) = super::ensemble_synthesis::synthesize_ensemble_fanout_validated(
                             &mut dag,
                             atom_reg,
-                            roster,
+                            &roster,
                             &provider.personas_dir(),
                         ) {
                             tracing::warn!(
@@ -601,8 +605,12 @@ pub fn plan(
                 if let (Some(provider), Some(modality)) =
                     (ctx.ensemble_rosters.as_ref(), ctx.intent.modality.as_deref())
                 {
-                    if let Some(roster) = provider.roster_for(modality) {
-                        if roster.enabled {
+                    if let Some(base) = provider.roster_for(modality) {
+                        if base.enabled {
+                            let (es, ep) = provider.entity_noun_for_modality(modality);
+                            let mut roster = base.clone();
+                            roster.interpretive_lenses =
+                                provider.compose_lenses(modality, &ctx.intent.goal, (&es, &ep));
                             dag.nodes.retain(|n| n.id != "assemble_report_data");
                             dag.edges.retain(|e| {
                                 e.from_node != "assemble_report_data"
@@ -612,7 +620,7 @@ pub fn plan(
                                 super::ensemble_synthesis::synthesize_ensemble_fanout_validated(
                                     &mut dag,
                                     atom_reg,
-                                    roster,
+                                    &roster,
                                     &provider.personas_dir(),
                                 )
                             {
@@ -3507,9 +3515,7 @@ pub fn planning_context_with_ensemble_rosters(
     mut ctx: PlanningContext,
     config_dir: &std::path::Path,
 ) -> PlanningContext {
-    let provider = crate::ensemble_roster::EnsembleRosterProvider::from_dir(
-        &config_dir.join("ensemble-rosters"),
-    );
+    let provider = crate::ensemble_roster::EnsembleRosterProvider::from_config_dir(config_dir);
     ctx.ensemble_rosters = Some(std::sync::Arc::new(provider));
     ctx
 }
@@ -3829,8 +3835,8 @@ mod tests {
         );
         ctx.compose_ensemble = true;
         ctx.ensemble_rosters = Some(Arc::new(
-            crate::ensemble_roster::EnsembleRosterProvider::from_dir(Path::new(
-                "../../config/ensemble-rosters",
+            crate::ensemble_roster::EnsembleRosterProvider::from_config_dir(Path::new(
+                "../../config",
             )),
         ));
 
@@ -3913,8 +3919,8 @@ mod tests {
         );
         ctx.compose_ensemble = true;
         ctx.ensemble_rosters = Some(Arc::new(
-            crate::ensemble_roster::EnsembleRosterProvider::from_dir(Path::new(
-                "../../config/ensemble-rosters",
+            crate::ensemble_roster::EnsembleRosterProvider::from_config_dir(Path::new(
+                "../../config",
             )),
         ));
 
@@ -3984,8 +3990,8 @@ mod tests {
         // the flag itself) to prove the flag — not roster absence — is
         // what gates the fan-out.
         ctx.ensemble_rosters = Some(Arc::new(
-            crate::ensemble_roster::EnsembleRosterProvider::from_dir(Path::new(
-                "../../config/ensemble-rosters",
+            crate::ensemble_roster::EnsembleRosterProvider::from_config_dir(Path::new(
+                "../../config",
             )),
         ));
 
@@ -4073,8 +4079,8 @@ mod tests {
         );
         ctx.compose_ensemble = true;
         ctx.ensemble_rosters = Some(Arc::new(
-            crate::ensemble_roster::EnsembleRosterProvider::from_dir(Path::new(
-                "../../config/ensemble-rosters",
+            crate::ensemble_roster::EnsembleRosterProvider::from_config_dir(Path::new(
+                "../../config",
             )),
         ));
 
@@ -4391,8 +4397,8 @@ mod tests {
         );
         ctx.compose_ensemble = true;
         ctx.ensemble_rosters = Some(Arc::new(
-            crate::ensemble_roster::EnsembleRosterProvider::from_dir(Path::new(
-                "../../config/ensemble-rosters",
+            crate::ensemble_roster::EnsembleRosterProvider::from_config_dir(Path::new(
+                "../../config",
             )),
         ));
 

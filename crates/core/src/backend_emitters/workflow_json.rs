@@ -1346,8 +1346,8 @@ mod tests {
         );
         ctx.compose_ensemble = true;
         ctx.ensemble_rosters = Some(Arc::new(
-            crate::ensemble_roster::EnsembleRosterProvider::from_dir(Path::new(
-                "../../config/ensemble-rosters",
+            crate::ensemble_roster::EnsembleRosterProvider::from_config_dir(Path::new(
+                "../../config",
             )),
         ));
 
@@ -1454,8 +1454,8 @@ mod tests {
         );
         ctx.compose_ensemble = true;
         ctx.ensemble_rosters = Some(Arc::new(
-            crate::ensemble_roster::EnsembleRosterProvider::from_dir(Path::new(
-                "../../config/ensemble-rosters",
+            crate::ensemble_roster::EnsembleRosterProvider::from_config_dir(Path::new(
+                "../../config",
             )),
         ));
 
@@ -1534,7 +1534,12 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!("spec.interpretation_cell_ids present; spec={ensemble_spec:?}")
             });
-        assert_eq!(cell_ids.len(), 9, "K*M = 9 interpretation cell ids in the lowered spec");
+        assert_eq!(
+            cell_ids.len(),
+            15,
+            "K*M = 3 methods × 5 epistemic-core lenses = 15 interpretation cell ids \
+             (goal matches no biomedical subfield, so S=0)"
+        );
         assert_eq!(
             ensemble_spec.get("min_quorum_per_axis").and_then(|v| v.as_u64()),
             Some(2),

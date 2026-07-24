@@ -336,6 +336,7 @@ pub fn synthesize_ensemble_fanout(
             serde_json::json!({
                 "axis": "contextualization",
                 "persona_ref": lens.persona_ref,
+                "persona_system_prompt": lens.persona_text,
                 "retrieval": lens.retrieval,
                 "lens": lens.id,
             }),
@@ -373,6 +374,7 @@ pub fn synthesize_ensemble_fanout(
                 "method": method.tool,
                 "method_variant": method.id,
                 "persona_ref": lens.persona_ref,
+                "persona_system_prompt": lens.persona_text,
                 "model_tier": lens.model_tier,
                 "lens": lens.id,
             }),
@@ -621,11 +623,17 @@ pub fn synthesize_ensemble_fanout_validated(
         return Ok(());
     }
 
+    // Personas are pre-resolved (read + `{entity}`-substituted) into
+    // `lens.persona_text` by `EnsembleRosterProvider::compose_lenses`, so
+    // there is no filesystem read here — validate the text is present and
+    // honesty-clean. (`persona_dir` is still used below to locate the
+    // config root for the modality re-execution bounds.)
     for lens in &roster.interpretive_lenses {
-        let path = persona_dir.join(&lens.persona_ref);
-        let text = std::fs::read_to_string(&path)
-            .map_err(|_| format!("persona file missing: {}", path.display()))?;
-        crate::ensemble_roster::lint_persona_text(&lens.id, &text)?;
+        let text = lens
+            .persona_text
+            .as_deref()
+            .ok_or_else(|| format!("ensemble lens '{}' has no resolved persona_text", lens.id))?;
+        crate::ensemble_roster::lint_persona_text(&lens.id, text)?;
     }
 
     // Resolve `roster.modality`'s re-execution bounds for the stat
@@ -1077,10 +1085,29 @@ mod tests {
 
         let cfg = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../config"));
         let reg = AtomRegistry::load_from_dir(&cfg.join("stage-atoms")).unwrap();
-        let roster = EnsembleRosterProvider::from_dir(&cfg.join("ensemble-rosters"))
+        let mut roster = EnsembleRosterProvider::from_dir(&cfg.join("ensemble-rosters"))
             .roster_for("bulk_rnaseq")
             .cloned()
             .unwrap();
+        // Populate resolved persona_text on the fixture lenses (what the
+        // provider's compose_lenses does at plan time) so the *_validated
+        // pass — which consumes lens.persona_text — is exercised without
+        // depending on the roster's soon-migrated inline lenses. M=3 keeps
+        // the K×M=9 cell assertions below stable.
+        roster.interpretive_lenses = ["mechanistic", "systems", "translational"]
+            .iter()
+            .map(|id| crate::ensemble_roster::InterpretiveLens {
+                id: (*id).to_string(),
+                persona_ref: format!("{id}.md"),
+                model_tier: "opus".to_string(),
+                retrieval: "recent".to_string(),
+                model: None,
+                persona_text: Some(format!(
+                    "You are a {id} analyst. Anchor every claim to a result-table row \
+                     or a cited PMID. Interpret the evidence as it is."
+                )),
+            })
+            .collect();
         let de = TaskNode::from_atom(reg.get("differential_expression").unwrap());
         let dag = WorkflowDag {
             id: "t".into(),

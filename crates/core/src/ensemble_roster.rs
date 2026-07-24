@@ -120,6 +120,10 @@ pub struct EnsembleRosterProvider {
     /// The curated biomedical subfield catalog the deterministic
     /// selector picks from per-analysis.
     subfields: crate::ensemble_subfield::SubfieldCatalog,
+    /// Per-modality entity noun `(singular, plural)` from the modality
+    /// manifests' `entity_noun`, for substituting `{entity}`/`{entities}`
+    /// in persona text. Missing modality → default `("entity","entities")`.
+    modality_entity_nouns: BTreeMap<String, (String, String)>,
 }
 
 impl EnsembleRosterProvider {
@@ -183,12 +187,31 @@ impl EnsembleRosterProvider {
             &config_dir.join("ensemble-subfields"),
         )
         .unwrap_or_default();
+        // Per-modality entity nouns for `{entity}` substitution. Soft-fails
+        // to empty (→ default noun) if the modality registry can't load.
+        if let Ok(reg) = crate::modality_registry::ModalityRegistry::load_from_dir(
+            &config_dir.join("modalities"),
+        ) {
+            me.modality_entity_nouns = reg
+                .iter()
+                .map(|(id, def)| (id.clone(), crate::modality_registry::entity_noun_for(def)))
+                .collect();
+        }
         me
     }
 
     /// The roster for a modality, or `None` when unconfigured.
     pub fn roster_for(&self, modality: &str) -> Option<&EnsembleRoster> {
         self.by_modality.get(modality)
+    }
+
+    /// The `(singular, plural)` entity noun for `modality` (from its
+    /// manifest's `entity_noun`), or the default `("entity","entities")`.
+    pub fn entity_noun_for_modality(&self, modality: &str) -> (String, String) {
+        self.modality_entity_nouns
+            .get(modality)
+            .cloned()
+            .unwrap_or_else(|| ("entity".to_string(), "entities".to_string()))
     }
 
     /// The persona directory the ensemble synthesis pass reads
