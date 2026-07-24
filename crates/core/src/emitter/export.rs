@@ -880,19 +880,31 @@ fn dedup_duplicate_output_tables(dst: &Path) -> Result<usize> {
     let meta = std::fs::read_to_string(dst.join("ro-crate-metadata.json")).unwrap_or_default();
     let ref_count = |rel: &str| -> usize { meta.matches(rel).count() };
 
-    // Tables the CLAIM subgraph anchors to (`claim-verification.json`'s
-    // `source_table` / `supported_by`). `prune_rocrate_dangling` cleans only the
-    // RO-Crate `@graph`, NOT this sidecar — so deleting a claim-anchored table
-    // leaves a dangling claim→evidence edge that fails `cross_graph_integrity`
-    // on re-verify (a byte-identical twin, e.g. `de_results.tsv` vs
-    // `de_results.full.tsv`, can be split across the two graphs: the RO-Crate
-    // consumes one, a claim's `source_table` names the other). Never
-    // dedup-delete a claim-anchored twin — keep both so every provenance edge
-    // stays resolvable. Matched by basename, which the sidecar records verbatim
-    // (`"source_table": "de_results.tsv"`) and any package-relative path also
-    // contains.
-    let claim_meta =
-        std::fs::read_to_string(dst.join("runtime/claim-verification.json")).unwrap_or_default();
+    // Tables the CLAIM subgraph anchors to. `prune_rocrate_dangling` cleans only
+    // the RO-Crate `@graph`, NOT these sidecars — so deleting a claim-anchored
+    // table leaves a dangling claim→evidence edge that fails
+    // `cross_graph_integrity` on re-verify. A byte-identical twin (e.g.
+    // `de_results.tsv` vs `de_results.full.tsv`) can be split across graphs:
+    // `claim-verification.json` records the verifier's `source_table` /
+    // `supported_by`, while `audit-proof-report.json` embeds the Claim verdicts'
+    // `supported_by` that `cross_graph_integrity` actually checks — and the two
+    // can name DIFFERENT twins (the audit-proof claim may anchor the
+    // earlier-written `de_results.tsv` even when the verifier canonicalised to
+    // `de_results.full.tsv`). Scan BOTH so whichever twin any claim graph names
+    // is kept. Never dedup-delete such a table — keep both so every provenance
+    // edge stays resolvable. Matched by basename, which a sidecar records
+    // verbatim (`"source_table": "de_results.tsv"`) and any package-relative
+    // path also contains; a coincidental match only keeps an extra file, which
+    // can never dangle a reference (fail-safe).
+    let claim_meta = {
+        let mut s = String::new();
+        for sidecar in ["runtime/claim-verification.json", "runtime/audit-proof-report.json"] {
+            if let Ok(t) = std::fs::read_to_string(dst.join(sidecar)) {
+                s.push_str(&t);
+            }
+        }
+        s
+    };
 
     let outputs = dst.join("runtime").join("outputs");
     if !outputs.is_dir() {
@@ -1622,10 +1634,13 @@ mod tests {
             ]}"##,
         )
         .unwrap();
-        // A claim anchors its source_table to the RO-Crate-lower-ranked twin.
+        // An audit-proof Claim verdict anchors its `supported_by` to the
+        // RO-Crate-lower-ranked twin (the himes case: the audit-proof report
+        // named `de_results.tsv` even though the RO-Crate consumed the identical
+        // `de_results.full.tsv`). `cross_graph_integrity` checks THIS reference.
         std::fs::write(
-            dst.join("runtime/claim-verification.json"),
-            r##"{"claims":[{"claim_id":"c1","source_table":"de_results.tsv"}]}"##,
+            dst.join("runtime/audit-proof-report.json"),
+            r##"{"verdicts":[{"invariant":"claim_completeness","claims":[{"claim_id":"c1","supported_by":["runtime/outputs/differential_expression/de_results.tsv"]}]}]}"##,
         )
         .unwrap();
 
