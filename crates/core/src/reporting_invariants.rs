@@ -705,18 +705,18 @@ fn check_rp9_method_label(outputs: &Path, report: &mut ReportingInvariantsReport
 /// task never appears in `WORKFLOW.json`. When it's absent, fall back to
 /// the stat-aggregator task's stamped `spec.result_schema` — a single
 /// [`ResultSchema`], not a map — and wrap it into the one-entry map shape
-/// `check_rc_count`/`check_rc_identity` expect. The aggregator task is
-/// resolved by its stable `spec.builtin` tag (`STAT_DISTRIBUTION_STAGE_ID`),
-/// NOT a literal task-id lookup: on multi-branch DAGs the task id is
-/// namespace-prefixed (`multi_branch_synthesis::prefix_branch`), so a
-/// literal-id lookup would miss it and RC-COUNT would silently no-op.
-/// `spec.builtin` is never prefixed. The returned map is keyed by the BARE
-/// const because the pooled `report-data.json`'s artifact `stage_id` is
-/// always the bare const (`build_pooled_summary` hardcodes it), so
-/// `check_rc_count`'s `schemas.get(&artifact.stage_id)` resolves.
-/// Non-ensemble packages are unaffected: they always declare
-/// `assemble_report_data`, so the first branch resolves and the fallback is
-/// never reached.
+/// `check_rc_count`/`check_rc_identity` expect. The aggregator is resolved
+/// by the bare-const task-id key FIRST (single-branch DAGs, where the stage
+/// id is not prefixed) and, failing that, by its stable `spec.builtin` tag
+/// (multi-branch DAGs, where `multi_branch_synthesis::prefix_branch`
+/// namespace-prefixes the task id so a literal-id lookup would miss it and
+/// RC-COUNT would silently no-op — `spec.builtin` is never prefixed). The
+/// returned map is keyed by the BARE const because the pooled
+/// `report-data.json`'s artifact `stage_id` is always the bare const
+/// (`build_pooled_summary` hardcodes it), so `check_rc_count`'s
+/// `schemas.get(&artifact.stage_id)` resolves. Non-ensemble packages are
+/// unaffected: they always declare `assemble_report_data`, so the first
+/// branch resolves and the fallback is never reached.
 fn read_report_schemas(package_root: &Path) -> Option<BTreeMap<String, ResultSchema>> {
     let wf = read_json(&package_root.join("WORKFLOW.json"))?;
     let tasks = wf.get("tasks")?;
@@ -727,23 +727,27 @@ fn read_report_schemas(package_root: &Path) -> Option<BTreeMap<String, ResultSch
     {
         return serde_json::from_value(schemas_val.clone()).ok();
     }
-    // The stat-aggregator task id is namespace-prefixed on multi-branch DAGs
-    // (`multi_branch_synthesis::prefix_branch`), so a literal-id lookup misses
-    // it and RC-COUNT would silently no-op. Resolve by the stable `spec.builtin`
-    // tag instead (never prefixed). The pooled report-data.json's artifact
-    // `stage_id` is always the BARE const (`build_pooled_summary` hardcodes it),
-    // so key the returned map by the const so `check_rc_count` resolves it.
+    // Resolve the stat-aggregator's stamped `result_schema`: the bare-const
+    // task-id key first (single-branch), then a `spec.builtin` scan for
+    // multi-branch DAGs whose task id is namespace-prefixed. Either way the
+    // map is keyed by the bare const to match the pooled artifact's `stage_id`.
     let schema_val = tasks
-        .as_object()?
-        .values()
-        .find(|t| {
-            t.get("spec")
-                .and_then(|s| s.get("builtin"))
-                .and_then(|b| b.as_str())
-                == Some(STAT_DISTRIBUTION_STAGE_ID)
-        })
+        .get(STAT_DISTRIBUTION_STAGE_ID)
         .and_then(|t| t.get("spec"))
-        .and_then(|s| s.get("result_schema"))?;
+        .and_then(|s| s.get("result_schema"))
+        .or_else(|| {
+            tasks.as_object().and_then(|obj| {
+                obj.values()
+                    .find(|t| {
+                        t.get("spec")
+                            .and_then(|s| s.get("builtin"))
+                            .and_then(|b| b.as_str())
+                            == Some(STAT_DISTRIBUTION_STAGE_ID)
+                    })
+                    .and_then(|t| t.get("spec"))
+                    .and_then(|s| s.get("result_schema"))
+            })
+        })?;
     let schema: ResultSchema = serde_json::from_value(schema_val.clone()).ok()?;
     let mut map = BTreeMap::new();
     map.insert(STAT_DISTRIBUTION_STAGE_ID.to_string(), schema);
