@@ -410,6 +410,14 @@ pub fn synthesize_ensemble_fanout(
         "primary_stage_id".into(),
         serde_json::Value::String(primary.clone()),
     );
+    // Per-axis quorum floor (roster.caps.min_quorum_per_axis) — the harness
+    // runner blocks with `BlockerKind::EnsembleQuorumNotMet` if either the
+    // method axis or the lens axis has fewer distinct readable cells than
+    // this after per-cell verifier pruning. `0` means "never block".
+    cross_agg.attributes.insert(
+        "min_quorum_per_axis".into(),
+        serde_json::json!(roster.caps.min_quorum_per_axis),
+    );
     new_nodes.push(cross_agg);
 
     // Wire the cross-axis aggregator onward to the reporting terminals it

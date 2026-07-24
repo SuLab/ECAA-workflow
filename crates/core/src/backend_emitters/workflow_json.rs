@@ -579,10 +579,12 @@ fn lower_task(node: &TaskNode, depends_on: Vec<TaskId>) -> Result<Task, EmitErro
     // two builtin aggregator nodes it synthesizes. `variant_stage_ids` /
     // `result_schema` / `relative_tolerance` / `absolute_tolerance` land on
     // `assemble_statistical_distribution` (the cross-method robustness
-    // runner's inputs); `interpretation_cell_ids` + `primary_stage_id` land
-    // on `assemble_ensemble_distribution` (the cross-axis rollup runner's
-    // inputs — the cell ids to roll up + the base stage whose method-variant
-    // tables each cell's narrative is verified against). Mirrors
+    // runner's inputs); `interpretation_cell_ids` + `primary_stage_id` +
+    // `min_quorum_per_axis` land on `assemble_ensemble_distribution` (the
+    // cross-axis rollup runner's inputs — the cell ids to roll up, the base
+    // stage whose method-variant tables each cell's narrative is verified
+    // against, and the `roster.caps.min_quorum_per_axis` floor the runner
+    // enforces per method/lens axis before reporting `Completed`). Mirrors
     // `report_schemas`: an allowlisted pass-through so the
     // harness's in-process builtin dispatch can read them from
     // `spec.<key>` without a runtime AtomRegistry/config dependency.
@@ -594,6 +596,7 @@ fn lower_task(node: &TaskNode, depends_on: Vec<TaskId>) -> Result<Task, EmitErro
         "absolute_tolerance",
         "interpretation_cell_ids",
         "primary_stage_id",
+        "min_quorum_per_axis",
     ] {
         if let Some(v) = node.attributes.get(key) {
             spec_map.insert(key.into(), v.clone());
@@ -1525,6 +1528,11 @@ mod tests {
                 panic!("spec.interpretation_cell_ids present; spec={ensemble_spec:?}")
             });
         assert_eq!(cell_ids.len(), 9, "K*M = 9 interpretation cell ids in the lowered spec");
+        assert_eq!(
+            ensemble_spec.get("min_quorum_per_axis").and_then(|v| v.as_u64()),
+            Some(2),
+            "spec.min_quorum_per_axis == bulk_rnaseq roster caps; spec={ensemble_spec:?}"
+        );
     }
 
     #[test]

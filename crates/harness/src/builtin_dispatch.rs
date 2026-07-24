@@ -24,18 +24,20 @@
 //! builtin task never reaches the executor, so `Executor::run_iteration`
 //! is never invoked for it.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
+use anyhow::Context;
+use ecaa_workflow_core::blocker::BlockerKind;
 use ecaa_workflow_core::clock::Clock;
-use ecaa_workflow_core::dag::{Task, TaskState};
+use ecaa_workflow_core::dag::{BlockedRecord, Task, TaskState};
 use ecaa_workflow_core::reexecution_bounds::ModalityBounds;
 use ecaa_workflow_core::report_contract::ensemble_assemble::{
     ENSEMBLE_DISTRIBUTION_STAGE_ID, STAT_DISTRIBUTION_STAGE_ID,
 };
 use ecaa_workflow_core::report_contract::{
     assemble_ensemble_distribution, assemble_report_data, assemble_statistical_distribution,
-    ResultSchema,
+    EnsembleDistribution, ResultSchema,
 };
 
 use crate::dag_patch::{state_patch_schema_version, PickedDispatch, StatePatch};
@@ -78,15 +80,19 @@ pub struct StatBuiltinArgs {
 }
 
 /// Deserialized `spec` attributes for the [`ASSEMBLE_ENSEMBLE_DISTRIBUTION`]
-/// builtin: the K×M interpretation cell ids to roll up, and the primary base
+/// builtin: the K×M interpretation cell ids to roll up, the primary base
 /// stage_id whose per-method variant tables
 /// (`runtime/outputs/<primary_stage_id>__v_<method>/`) each cell's narrative
-/// is verified against. `primary_stage_id` degrades to an empty string when
-/// absent (per-cell verification then skips — nothing to locate).
+/// is verified against, and the `roster.caps.min_quorum_per_axis` floor the
+/// runner enforces over the method/lens axes after assembling the
+/// distribution. `primary_stage_id` degrades to an empty string when absent
+/// (per-cell verification then skips — nothing to locate); `min_quorum_per_axis`
+/// degrades to `0` when absent (never blocks).
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnsembleBuiltinArgs {
     pub cell_ids: Vec<String>,
     pub primary_stage_id: String,
+    pub min_quorum_per_axis: u32,
 }
 
 /// One in-process builtin's decoded request, keyed by which core assembler
@@ -451,12 +457,15 @@ pub fn run_assemble_statistical_distribution(
 /// Decision predicate for the [`ASSEMBLE_ENSEMBLE_DISTRIBUTION`] builtin.
 /// Returns `Some(args)` when `task.spec.builtin ==
 /// "assemble_ensemble_distribution"`, deserializing
-/// `task.spec.interpretation_cell_ids` into a `Vec<String>` and
-/// `task.spec.primary_stage_id` into a `String`. A missing, null, or
+/// `task.spec.interpretation_cell_ids` into a `Vec<String>`,
+/// `task.spec.primary_stage_id` into a `String`, and
+/// `task.spec.min_quorum_per_axis` into a `u32`. A missing, null, or
 /// unparseable cell list degrades to an empty vec — the assembler then
 /// writes a cells-empty (still valid) distribution rather than failing; an
 /// absent `primary_stage_id` degrades to an empty string (per-cell
-/// verification then skips). Returns `None` for every non-matching task.
+/// verification then skips); an absent/unparseable `min_quorum_per_axis`
+/// degrades to `0` (the runner's quorum gate never blocks). Returns `None`
+/// for every non-matching task.
 pub fn assemble_ensemble_distribution_request(task: &Task) -> Option<EnsembleBuiltinArgs> {
     let spec = task.spec.as_ref()?;
     let builtin = spec.get("builtin").and_then(|v| v.as_str())?;
@@ -472,9 +481,15 @@ pub fn assemble_ensemble_distribution_request(task: &Task) -> Option<EnsembleBui
         .and_then(|v| v.as_str())
         .unwrap_or_default()
         .to_string();
+    let min_quorum_per_axis = spec
+        .get("min_quorum_per_axis")
+        .and_then(|v| v.as_u64())
+        .and_then(|v| u32::try_from(v).ok())
+        .unwrap_or(0);
     Some(EnsembleBuiltinArgs {
         cell_ids,
         primary_stage_id,
+        min_quorum_per_axis,
     })
 }
 
@@ -493,10 +508,33 @@ fn ensemble_distribution_present_and_non_empty(package_root: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Per-axis distinct-value counts among the "readable" cells of an
+/// assembled [`EnsembleDistribution`] — i.e. every entry in `dist.cells`
+/// (a cell whose `result.json` was absent on disk never makes it into
+/// `cells` in the first place; see [`CellRollup`](ecaa_workflow_core::report_contract::CellRollup)).
+/// Verifier-pruned cells (`verification` carrying a `Mismatch`) are still
+/// counted: quorum asks whether an axis was REPRESENTED at all among the
+/// cells the aggregator could read, not whether every representative cell
+/// survived consensus voting. Returns `(n_distinct_methods, n_distinct_lenses)`.
+fn readable_axis_counts(dist: &EnsembleDistribution) -> (usize, usize) {
+    let methods: BTreeSet<&str> = dist.cells.iter().map(|c| c.method.as_str()).collect();
+    let lenses: BTreeSet<&str> = dist.cells.iter().map(|c| c.lens.as_str()).collect();
+    (methods.len(), lenses.len())
+}
+
 /// Run the cross-axis (method × interpretive-lens) ensemble-distribution
 /// aggregator in process for a `builtin`-tagged task, mirroring
-/// [`run_assemble_report_data`]'s success/failure/postcondition contract
-/// exactly.
+/// [`run_assemble_report_data`]'s success/failure/postcondition contract —
+/// with one addition: after a successful assembly, the per-axis (method /
+/// lens) distinct-readable-cell counts are checked against
+/// `args.min_quorum_per_axis` (`0` means "never block"). An axis short of
+/// quorum blocks the task with `BlockerKind::EnsembleQuorumNotMet` INSTEAD
+/// of completing it — `ensemble-distribution.json` is written either way
+/// (the assembler writes it unconditionally before returning `Ok`; a
+/// below-quorum result is a flagged-for-review distribution, not a
+/// discarded one). Never aborts emission — a below-quorum ensemble
+/// surfaces as a recoverable `Blocked` task, exactly like a
+/// `ValidationFailed` gate.
 pub fn run_assemble_ensemble_distribution(
     package_root: &Path,
     dispatch: &PickedDispatch,
@@ -508,19 +546,66 @@ pub fn run_assemble_ensemble_distribution(
             Ok(dist) => {
                 if ensemble_distribution_present_and_non_empty(package_root) {
                     let n_cells = dist.cells.len();
-                    let result = serde_json::json!({
-                        "status": "completed",
-                        "builtin": ASSEMBLE_ENSEMBLE_DISTRIBUTION,
-                        "ensemble_distribution": format!(
-                            "runtime/outputs/{ASSEMBLE_ENSEMBLE_DISTRIBUTION}/ensemble-distribution.json"
-                        ),
-                        "n_cells": n_cells,
-                        "agreement": dist.agreement,
-                        "summary": format!(
-                            "assembled ensemble-distribution.json across {n_cells} interpretation cell(s)"
-                        ),
-                    });
-                    (TaskState::Completed { result: result.clone() }, result)
+                    let (n_methods, n_lenses) = readable_axis_counts(&dist);
+                    let required = args.min_quorum_per_axis;
+                    let below_quorum = required > 0
+                        && (n_methods < required as usize || n_lenses < required as usize);
+                    if below_quorum {
+                        let mut present_per_axis = BTreeMap::new();
+                        present_per_axis.insert("method".to_string(), n_methods as u32);
+                        present_per_axis.insert("lens".to_string(), n_lenses as u32);
+                        let kind = BlockerKind::EnsembleQuorumNotMet {
+                            present_per_axis: present_per_axis.clone(),
+                            required,
+                        };
+                        // `[ensemble_quorum_not_met] {json}` mirrors the
+                        // atom-safety / provenance-divergence markers: the
+                        // full typed `BlockerKind` round-trips as JSON after
+                        // the prefix for any downstream promoter, rather than
+                        // hand-parsing individual fields out of prose.
+                        let reason = format!(
+                            "[ensemble_quorum_not_met] {}",
+                            serde_json::to_string(&kind)
+                                .context("serializing EnsembleQuorumNotMet blocker")?
+                        );
+                        let result = serde_json::json!({
+                            "status": "blocked",
+                            "builtin": ASSEMBLE_ENSEMBLE_DISTRIBUTION,
+                            "ensemble_distribution": format!(
+                                "runtime/outputs/{ASSEMBLE_ENSEMBLE_DISTRIBUTION}/ensemble-distribution.json"
+                            ),
+                            "n_cells": n_cells,
+                            "present_per_axis": present_per_axis,
+                            "required": required,
+                            "summary": format!(
+                                "ensemble below quorum: method={n_methods} lens={n_lenses} \
+                                 required={required} across {n_cells} interpretation cell(s)"
+                            ),
+                        });
+                        (
+                            TaskState::Blocked {
+                                record: BlockedRecord {
+                                    reason,
+                                    attempts: vec![],
+                                },
+                            },
+                            result,
+                        )
+                    } else {
+                        let result = serde_json::json!({
+                            "status": "completed",
+                            "builtin": ASSEMBLE_ENSEMBLE_DISTRIBUTION,
+                            "ensemble_distribution": format!(
+                                "runtime/outputs/{ASSEMBLE_ENSEMBLE_DISTRIBUTION}/ensemble-distribution.json"
+                            ),
+                            "n_cells": n_cells,
+                            "agreement": dist.agreement,
+                            "summary": format!(
+                                "assembled ensemble-distribution.json across {n_cells} interpretation cell(s)"
+                            ),
+                        });
+                        (TaskState::Completed { result: result.clone() }, result)
+                    }
                 } else {
                     let reason = format!(
                         "[builtin_assemble_ensemble_distribution_failed] assembler returned Ok \
@@ -1148,6 +1233,7 @@ mod tests {
         let args = EnsembleBuiltinArgs {
             cell_ids: ids.clone(),
             primary_stage_id: "differential_expression".into(),
+            min_quorum_per_axis: 0,
         };
         let state = run_assemble_ensemble_distribution(root, &dispatch, &args, &clock)
             .expect("no write failure");
@@ -1182,6 +1268,175 @@ mod tests {
             }
             other => panic!("expected Completed after strict merge, got {other:?}"),
         }
+    }
+
+    /// `assemble_ensemble_distribution_request` decodes `spec.min_quorum_per_axis`
+    /// into `EnsembleBuiltinArgs::min_quorum_per_axis`.
+    #[test]
+    fn predicate_decodes_min_quorum_per_axis() {
+        let ids = vec![ensemble_cell_id("deseq2", "molecular_mechanism")];
+        let mut task = ensemble_builtin_task(TaskState::Ready, &ids);
+        task.spec
+            .as_mut()
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .insert("min_quorum_per_axis".to_string(), serde_json::json!(3));
+        let got = assemble_ensemble_distribution_request(&task)
+            .expect("ensemble-distribution builtin task must be detected");
+        assert_eq!(got.min_quorum_per_axis, 3);
+    }
+
+    /// Absent `spec.min_quorum_per_axis` degrades to `0` — never blocks —
+    /// matching the existing fixtures that never stamp the field.
+    #[test]
+    fn predicate_min_quorum_per_axis_defaults_to_zero_when_absent() {
+        let ids = vec![ensemble_cell_id("deseq2", "molecular_mechanism")];
+        let task = ensemble_builtin_task(TaskState::Ready, &ids);
+        let got = assemble_ensemble_distribution_request(&task)
+            .expect("ensemble-distribution builtin task must be detected");
+        assert_eq!(got.min_quorum_per_axis, 0);
+    }
+
+    /// A full 2-method × 2-lens grid clears `min_quorum_per_axis: 2` on both
+    /// axes → the task completes normally.
+    #[test]
+    fn ensemble_at_quorum_completes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let outputs = root.join("runtime").join("outputs");
+        write_cell(&outputs, "deseq2", "molecular_mechanism", true);
+        write_cell(&outputs, "deseq2", "pathway_context", true);
+        write_cell(&outputs, "edger", "molecular_mechanism", true);
+        write_cell(&outputs, "edger", "pathway_context", false);
+        let ids = vec![
+            ensemble_cell_id("deseq2", "molecular_mechanism"),
+            ensemble_cell_id("deseq2", "pathway_context"),
+            ensemble_cell_id("edger", "molecular_mechanism"),
+            ensemble_cell_id("edger", "pathway_context"),
+        ];
+
+        let dag = single_task_dag(
+            ASSEMBLE_ENSEMBLE_DISTRIBUTION,
+            ensemble_builtin_task(
+                TaskState::Running {
+                    started_at: "2026-01-01T00:00:00Z".into(),
+                    remote: None,
+                },
+                &ids,
+            ),
+        );
+        write_workflow(root, &dag);
+
+        let dispatch = PickedDispatch {
+            task_id: TaskId::from(ASSEMBLE_ENSEMBLE_DISTRIBUTION),
+            harness_run_id: "run-1".into(),
+            epoch: 1,
+        };
+        let clock = WallClock;
+        let args = EnsembleBuiltinArgs {
+            cell_ids: ids,
+            primary_stage_id: "differential_expression".into(),
+            min_quorum_per_axis: 2,
+        };
+        let state = run_assemble_ensemble_distribution(root, &dispatch, &args, &clock)
+            .expect("no write failure");
+        assert!(
+            matches!(state, TaskState::Completed { .. }),
+            "2 methods x 2 lenses clears quorum=2 on both axes, got {state:?}"
+        );
+        assert!(
+            outputs
+                .join(ASSEMBLE_ENSEMBLE_DISTRIBUTION)
+                .join("ensemble-distribution.json")
+                .is_file(),
+            "ensemble-distribution.json must exist even though quorum was checked"
+        );
+    }
+
+    /// Only one distinct lens is represented among the readable cells, but
+    /// `min_quorum_per_axis: 2` requires two on every axis — the task must
+    /// block with `BlockerKind::EnsembleQuorumNotMet`, carrying the exact
+    /// per-axis counts, instead of completing. The
+    /// `ensemble-distribution.json` artifact is still written (the
+    /// distribution exists; it is only flagged below-quorum).
+    #[test]
+    fn ensemble_below_quorum_blocks() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let outputs = root.join("runtime").join("outputs");
+        // 2 distinct methods, but only 1 distinct lens.
+        write_cell(&outputs, "deseq2", "molecular_mechanism", true);
+        write_cell(&outputs, "edger", "molecular_mechanism", true);
+        let ids = vec![
+            ensemble_cell_id("deseq2", "molecular_mechanism"),
+            ensemble_cell_id("edger", "molecular_mechanism"),
+        ];
+
+        let dag = single_task_dag(
+            ASSEMBLE_ENSEMBLE_DISTRIBUTION,
+            ensemble_builtin_task(
+                TaskState::Running {
+                    started_at: "2026-01-01T00:00:00Z".into(),
+                    remote: None,
+                },
+                &ids,
+            ),
+        );
+        write_workflow(root, &dag);
+
+        let dispatch = PickedDispatch {
+            task_id: TaskId::from(ASSEMBLE_ENSEMBLE_DISTRIBUTION),
+            harness_run_id: "run-1".into(),
+            epoch: 1,
+        };
+        let clock = WallClock;
+        let args = EnsembleBuiltinArgs {
+            cell_ids: ids,
+            primary_stage_id: "differential_expression".into(),
+            min_quorum_per_axis: 2,
+        };
+        let state = run_assemble_ensemble_distribution(root, &dispatch, &args, &clock)
+            .expect("no write failure");
+        assert!(
+            !matches!(state, TaskState::Completed { .. }),
+            "1 distinct lens must NOT clear quorum=2, got {state:?}"
+        );
+        let record = match &state {
+            TaskState::Blocked { record } => record,
+            other => panic!("expected Blocked, got {other:?}"),
+        };
+        assert!(
+            record.reason.starts_with("[ensemble_quorum_not_met]"),
+            "reason must carry the ensemble_quorum_not_met marker: {}",
+            record.reason
+        );
+        let json_payload = record
+            .reason
+            .strip_prefix("[ensemble_quorum_not_met]")
+            .unwrap()
+            .trim();
+        let kind: BlockerKind =
+            serde_json::from_str(json_payload).expect("reason payload round-trips as BlockerKind");
+        match kind {
+            BlockerKind::EnsembleQuorumNotMet {
+                present_per_axis,
+                required,
+            } => {
+                assert_eq!(required, 2);
+                assert_eq!(present_per_axis.get("method"), Some(&2));
+                assert_eq!(present_per_axis.get("lens"), Some(&1));
+            }
+            other => panic!("expected EnsembleQuorumNotMet, got {other:?}"),
+        }
+
+        assert!(
+            outputs
+                .join(ASSEMBLE_ENSEMBLE_DISTRIBUTION)
+                .join("ensemble-distribution.json")
+                .is_file(),
+            "ensemble-distribution.json must still be written on a below-quorum result"
+        );
     }
 
     /// Through the generalized dispatch predicate/runner, exercised end to
