@@ -1404,6 +1404,16 @@ fn run_numeric_gate(
         .or(uncompared)
         .unwrap_or_else(|| VerdictAudit::class_only(verdict_class_of(claim), entity_opt(claim)));
     audit.parse_coverage = parse_coverage;
+    // A recorded Mismatch must never carry an "agrees" numeric rationale. When
+    // the base verifier rejected the claim on non-numeric grounds (a hedged
+    // rank/extreme claim whose cited number happens to be correct while the RANK
+    // assertion fails), the audit we attached is the AGREEING numeric pass — its
+    // "agrees" text contradicts the Mismatch status. Realign the rationale with
+    // the base Mismatch detail so status and rationale stay coherent (mirrors the
+    // disagreement branch above).
+    if let ClaimStatus::Mismatch { detail } = &base {
+        audit.rationale = Some(detail.clone());
+    }
     (base, Some(audit))
 }
 
@@ -1829,10 +1839,16 @@ fn verify_thresholded(
 
 /// Verify a rank / top-N membership claim.
 ///
-/// Checks whether the entity appears in the top-N rows of the source table
-/// when ranked by absolute effect size descending — recomputed here rather
-/// than trusting the table's physical row order, which may be sorted by
-/// p-value, gene name, or anything else.
+/// Checks whether the entity appears in the top-N rows of the source table,
+/// recomputed here rather than trusting the table's physical row order (which
+/// may be sorted by p-value, gene name, or anything else). The ranking axis
+/// follows the superlative: a SIGNIFICANCE superlative ("one of the most
+/// significant", "among the top by padj") ranks by p-value (argmin — smallest p
+/// is the best rank), every other superlative ("one of the largest
+/// fold-changes") ranks by absolute effect size descending. Without this a
+/// hedged "one of the most significantly upregulated genes" was ranked by
+/// |log2FC| and false-Mismatched the genuinely most-significant gene when it sat
+/// outside the top-N by fold-change magnitude.
 ///
 /// Two flavours of "top-N" claim are distinguished by whether the excerpt names
 /// an explicit number:
@@ -1888,67 +1904,104 @@ fn verify_rank_top_n(
         };
     };
 
-    // The claimed entity must itself carry a numeric effect size; without one
-    // it cannot be ranked, so its top-N membership is unverifiable.
-    let Some((claimed_eff_col, claimed_eff)) =
-        matched_numeric_column(&claimed_row.values, &cfg.effect_size_columns)
-    else {
+    // Significance-ranked vs magnitude-ranked membership. Mirror
+    // `verify_extreme_value`'s `over_pvalue`: an explicit significance
+    // superlative ("one of the most significant", "among the top by padj") — or
+    // a bare p-value-column token with no competing signed-effect direction cue
+    // — ranks membership by p-value (argmin, smallest p = best rank) rather than
+    // by |effect size|. A HEDGED "one of the most significantly upregulated
+    // genes" thus tests SIGNIFICANCE rank, so the most-significant gene verifies
+    // even when it sits outside the top-N by fold-change magnitude. Every other
+    // superlative ("one of the largest fold-changes") keeps the |effect size|
+    // ranking.
+    let excerpt = &claim.excerpt;
+    let has_effect_direction_cue =
+        EXTREME_DOWN_RE.is_match(excerpt) || EXTREME_UP_RE.is_match(excerpt);
+    let over_pvalue = EXTREME_PVAL_EXPLICIT_RE.is_match(excerpt)
+        || (EXTREME_PVAL_COL_RE.is_match(excerpt) && !has_effect_direction_cue);
+    let rank_columns: &[String] = if over_pvalue {
+        &cfg.pvalue_columns
+    } else {
+        &cfg.effect_size_columns
+    };
+
+    // The claimed entity must itself carry a finite value in the ranking column
+    // (effect size, or p-value when significance-ranked); without one it cannot
+    // be ranked, so its top-N membership is unverifiable.
+    if lookup_numeric(&claimed_row.values, rank_columns)
+        .filter(|v| v.is_finite())
+        .is_none()
+    {
         return ClaimStatus::Unverifiable {
             reason: format!(
-                "entity `{}` has no numeric effect size in `{}` — cannot rank",
+                "entity `{}` has no numeric {} in `{}` — cannot rank",
                 claim.entity,
+                if over_pvalue {
+                    "significance value"
+                } else {
+                    "effect size"
+                },
                 table_label(&path)
             ),
         };
-    };
+    }
 
     // VF-6 — a ranked claim that ALSO asserts a direction ("the top-3 most
-    // UP-regulated genes include X") must have X's own sign agree. Ranking is
-    // by |effect size|, so a large-NEGATIVE gene can legitimately sit in the
-    // top-N by magnitude while flatly contradicting an "upregulated" claim;
-    // that signed-vs-magnitude confusion is a fabrication, not a pass. Only
-    // fires when the sign positively contradicts (obs nonzero, opposite sign),
-    // so a faithful "top-N upregulated" naming a positive gene still Verifies.
+    // UP-regulated genes include X") must have X's own sign agree: a
+    // large-NEGATIVE gene can legitimately sit in the top-N by |effect size|
+    // while flatly contradicting an "upregulated" claim; that signed-vs-magnitude
+    // confusion is a fabrication, not a pass. Direction has no meaning on a
+    // p-value column, so this always reads the SIGNED effect column and is simply
+    // skipped when the entity carries no effect size (a significance-ranked claim
+    // can still verify its membership). Only fires when the sign positively
+    // contradicts (obs nonzero, opposite sign), so a faithful "top-N upregulated"
+    // naming a positive gene still Verifies.
     if let Some(direction) = claim.direction {
-        // VF-19: derive the sign on the matched column's scale (ratio columns
-        // pivot at 1.0) so a rank claim on an HR/OR table is not misread.
-        let observed_direction =
-            observed_effect_direction(claimed_eff, effect_column_scale(claimed_eff_col));
-        if observed_direction.is_some() && observed_direction != Some(direction) {
-            return ClaimStatus::Mismatch {
-                detail: format!(
-                    "rank claim direction: narrative says {:?} but `{}` has effect size {:+.4} in `{}`",
-                    direction,
-                    claim.entity,
-                    claimed_eff,
-                    table_label(&path)
-                ),
-            };
+        if let Some((claimed_eff_col, claimed_eff)) =
+            matched_numeric_column(&claimed_row.values, &cfg.effect_size_columns)
+        {
+            // VF-19: derive the sign on the matched column's scale (ratio columns
+            // pivot at 1.0) so a rank claim on an HR/OR table is not misread.
+            let observed_direction =
+                observed_effect_direction(claimed_eff, effect_column_scale(claimed_eff_col));
+            if observed_direction.is_some() && observed_direction != Some(direction) {
+                return ClaimStatus::Mismatch {
+                    detail: format!(
+                        "rank claim direction: narrative says {:?} but `{}` has effect size {:+.4} in `{}`",
+                        direction,
+                        claim.entity,
+                        claimed_eff,
+                        table_label(&path)
+                    ),
+                };
+            }
         }
     }
 
-    // Rank by |effect size| descending, recomputed from the configured
-    // effect-size columns. Rows that lack a numeric effect size are dropped
-    // (they cannot be ranked) rather than silently kept in row order. The
-    // tie-break on entity name keeps the ordering stable + deterministic.
+    // Rank the table rows and take the best N. The sort below is descending by
+    // key, so a magnitude ranking uses |effect size| (largest first) and a
+    // significance ranking uses the NEGATED p-value (smallest p = strongest
+    // significance sorts first). Rows lacking a finite value in the ranking
+    // column are dropped (NaN/±inf from "NA"/blank cells cannot be ranked and
+    // would poison the sort comparator); the entity-name tie-break keeps the
+    // ordering stable + deterministic.
     let mut ranked: Vec<(&str, f64)> = cached
         .rows
         .iter()
         .filter_map(|r| {
-            lookup_numeric(&r.values, &cfg.effect_size_columns)
-                // Drop non-finite effect sizes (NaN/±inf from "NA"/blank cells):
-                // they cannot be ranked and would poison the sort comparator.
-                .filter(|eff| eff.is_finite())
-                .map(|eff| (r.entity.as_str(), eff.abs()))
+            lookup_numeric(&r.values, rank_columns)
+                .filter(|v| v.is_finite())
+                .map(|v| (r.entity.as_str(), if over_pvalue { -v } else { v.abs() }))
         })
         .collect();
 
-    // If no row in the table carries an effect size, there is nothing to rank.
+    // If no row in the table carries a rankable value, there is nothing to rank.
     if ranked.is_empty() {
         return ClaimStatus::Unverifiable {
             reason: format!(
-                "table `{}` has no configured effect-size column — cannot rank",
-                table_label(&path)
+                "table `{}` has no configured {} column — cannot rank",
+                table_label(&path),
+                if over_pvalue { "p-value" } else { "effect-size" },
             ),
         };
     }
@@ -1958,7 +2011,8 @@ fn verify_rank_top_n(
     // SOFT claim (no number) uses a generous threshold that scales with the
     // ranked-row count: `max(DEFAULT_SOFT_FLOOR, ceil(SOFT_TOP_PERCENTILE × n))`.
     // `n_ranked_rows` is exactly the set being ranked here (rows with a usable
-    // numeric effect size), so the percentile tracks the real table size.
+    // numeric value in the ranking column), so the percentile tracks the real
+    // table size.
     let n_ranked_rows = ranked.len();
     let n = match explicit_n {
         Some(explicit) => explicit,
@@ -1982,10 +2036,15 @@ fn verify_rank_top_n(
     } else {
         ClaimStatus::Mismatch {
             detail: format!(
-                "entity `{}` is not in the top-{} rows of `{}` ranked by |effect size|",
+                "entity `{}` is not in the top-{} rows of `{}` ranked by {}",
                 claim.entity,
                 n,
-                table_label(&path)
+                table_label(&path),
+                if over_pvalue {
+                    "significance (smallest p)"
+                } else {
+                    "|effect size|"
+                },
             ),
         }
     }
@@ -3880,6 +3939,7 @@ fn verify_literature_grounded_at(
         "opposite_direction",
         "unverifiable",
         "no_prior_finding",
+        "not_assessed",
     ];
 
     // Every narrative-cited PMID must appear in the matrix's supporting set.
@@ -6048,6 +6108,116 @@ mod tests {
             matches!(report2.verdicts[0].status, ClaimStatus::Mismatch { .. }),
             "a gene OUTSIDE the top-N named as `one of the top` must still Mismatch, got {:?}",
             report2.verdicts[0].status
+        );
+    }
+
+    // A HEDGED significance superlative ("one of the most significantly
+    // upregulated genes") ranks membership by SIGNIFICANCE (padj), not by
+    // |effect size|. CRISPLD2 here is the single most-significant gene (smallest
+    // padj) yet sits OUTSIDE the top-N by |log2FC| — twelve genes carry a larger
+    // fold-change. Before significance-aware ranking it false-Mismatched; it now
+    // Verifies. The magnitude twin ("one of the most upregulated genes", no
+    // "significantly") still Mismatches, proving the significance wording — not a
+    // looser cutoff — is what flips the verdict.
+    #[test]
+    fn rank_top_n_significance_superlative_ranks_by_padj() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        // CRISPLD2: modest +log2FC but the smallest padj (rank 1 by significance).
+        let mut body = String::from("gene\tlog2FC\tpadj\nCRISPLD2\t2.6\t1e-80\n");
+        // Twelve genes with a LARGER |log2FC| than CRISPLD2 but far weaker
+        // significance, so CRISPLD2 is rank 13 by |log2FC| (outside the default
+        // top-10) while remaining rank 1 by padj.
+        for i in 0..12 {
+            body.push_str(&format!("BIG{i}\t{}\t0.01\n", 3.0 + i as f64 * 0.1));
+        }
+        write_table(tmp.path(), "de_s1.tsv", &body);
+
+        let sig = extract_claims(
+            "CRISPLD2 is one of the most significantly upregulated genes (Table S1).",
+            &cfg,
+        );
+        let sig_report = verify_claims(&sig, tmp.path(), &cfg);
+        let crispld2 = sig_report
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "CRISPLD2")
+            .expect("CRISPLD2 claim extracted");
+        assert_eq!(
+            crispld2.claim.contract,
+            ClaimContract::RankTopN,
+            "a hedged `one of the most significantly …` must route to RankTopN"
+        );
+        assert!(
+            matches!(crispld2.status, ClaimStatus::Verified),
+            "the most-significant gene named `one of the most significantly upregulated` must Verify under significance ranking, got {:?}",
+            crispld2.status
+        );
+
+        // Magnitude twin: drop "significantly" → ranked by |effect size|, where
+        // CRISPLD2 is rank 13 and OUTSIDE the top-N → still a Mismatch.
+        let mag = extract_claims(
+            "CRISPLD2 is one of the most upregulated genes (Table S1).",
+            &cfg,
+        );
+        let mag_report = verify_claims(&mag, tmp.path(), &cfg);
+        let crispld2_mag = mag_report
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "CRISPLD2")
+            .expect("CRISPLD2 claim extracted");
+        assert!(
+            matches!(crispld2_mag.status, ClaimStatus::Mismatch { .. }),
+            "without a significance cue the same gene ranks by |effect size| and stays a Mismatch, got {:?}",
+            crispld2_mag.status
+        );
+    }
+
+    // A genuine RankTopN Mismatch must record a rationale that reflects the
+    // RANKING failure, never the "agrees" numeric rationale of the pass audit.
+    // FILLER0's cited log2FC is correct (the numeric gate agrees) but it is far
+    // outside the top-N by |effect size|, so the base verdict is a Mismatch. The
+    // run_numeric_gate fall-through previously attached the agreeing numeric
+    // audit verbatim, leaving a recorded Mismatch whose rationale read "agrees";
+    // the audit rationale must now carry the base Mismatch detail.
+    #[test]
+    fn rank_top_n_mismatch_rationale_is_not_agrees() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        // Twelve high-|log2FC| genes fill the top-N; FILLER0's |0.5| is far below.
+        let mut body = String::from("gene\tlog2FC\tpadj\n");
+        for i in 0..12 {
+            body.push_str(&format!("BIG{i}\t{}\t0.01\n", 3.0 + i as f64 * 0.1));
+        }
+        body.push_str("FILLER0\t0.5\t0.5\n");
+        write_table(tmp.path(), "de_s1.tsv", &body);
+
+        // The cited log2FC (0.5) MATCHES the table, so the numeric gate produces
+        // an "agrees" pass audit — exactly the situation that surfaced the bug.
+        let claims = extract_claims(
+            "FILLER0 shows one of the largest fold-changes (log2FC = 0.5, Table S1).",
+            &cfg,
+        );
+        let report = verify_claims(&claims, tmp.path(), &cfg);
+        let filler = report
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "FILLER0")
+            .expect("FILLER0 claim extracted");
+        assert_eq!(filler.claim.contract, ClaimContract::RankTopN);
+        assert!(
+            matches!(filler.status, ClaimStatus::Mismatch { .. }),
+            "a gene outside the top-N by |effect size| must Mismatch, got {:?}",
+            filler.status
+        );
+        let rationale = filler
+            .audit
+            .as_ref()
+            .and_then(|a| a.rationale.as_deref())
+            .expect("a Mismatch carries an audit rationale");
+        assert!(
+            rationale.contains("ranked by") && !rationale.contains("agrees"),
+            "a recorded Mismatch must carry the ranking-failure rationale, not an `agrees` numeric rationale, got {rationale:?}"
         );
     }
 
