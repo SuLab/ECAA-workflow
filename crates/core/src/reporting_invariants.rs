@@ -703,14 +703,20 @@ fn check_rp9_method_label(outputs: &Path, report: &mut ReportingInvariantsReport
 /// **Ensemble fallback:** in ensemble mode the composer drops
 /// `assemble_report_data` entirely (see `ensemble_synthesis.rs`), so that
 /// task never appears in `WORKFLOW.json`. When it's absent, fall back to
-/// the stat-aggregator task (`STAT_DISTRIBUTION_STAGE_ID`)'s stamped
-/// `spec.result_schema` — a single [`ResultSchema`], not a map — and wrap
-/// it into the one-entry map shape `check_rc_count`/`check_rc_identity`
-/// expect, keyed by the SAME id (the pooled artifact's `stage_id` in
-/// `report-data.json` is the aggregator's own task id — see
-/// `build_pooled_summary`). Non-ensemble packages are unaffected: they
-/// always declare `assemble_report_data`, so the first branch resolves and
-/// the fallback is never reached.
+/// the stat-aggregator task's stamped `spec.result_schema` — a single
+/// [`ResultSchema`], not a map — and wrap it into the one-entry map shape
+/// `check_rc_count`/`check_rc_identity` expect. The aggregator task is
+/// resolved by its stable `spec.builtin` tag (`STAT_DISTRIBUTION_STAGE_ID`),
+/// NOT a literal task-id lookup: on multi-branch DAGs the task id is
+/// namespace-prefixed (`multi_branch_synthesis::prefix_branch`), so a
+/// literal-id lookup would miss it and RC-COUNT would silently no-op.
+/// `spec.builtin` is never prefixed. The returned map is keyed by the BARE
+/// const because the pooled `report-data.json`'s artifact `stage_id` is
+/// always the bare const (`build_pooled_summary` hardcodes it), so
+/// `check_rc_count`'s `schemas.get(&artifact.stage_id)` resolves.
+/// Non-ensemble packages are unaffected: they always declare
+/// `assemble_report_data`, so the first branch resolves and the fallback is
+/// never reached.
 fn read_report_schemas(package_root: &Path) -> Option<BTreeMap<String, ResultSchema>> {
     let wf = read_json(&package_root.join("WORKFLOW.json"))?;
     let tasks = wf.get("tasks")?;
@@ -721,10 +727,23 @@ fn read_report_schemas(package_root: &Path) -> Option<BTreeMap<String, ResultSch
     {
         return serde_json::from_value(schemas_val.clone()).ok();
     }
+    // The stat-aggregator task id is namespace-prefixed on multi-branch DAGs
+    // (`multi_branch_synthesis::prefix_branch`), so a literal-id lookup misses
+    // it and RC-COUNT would silently no-op. Resolve by the stable `spec.builtin`
+    // tag instead (never prefixed). The pooled report-data.json's artifact
+    // `stage_id` is always the BARE const (`build_pooled_summary` hardcodes it),
+    // so key the returned map by the const so `check_rc_count` resolves it.
     let schema_val = tasks
-        .get(STAT_DISTRIBUTION_STAGE_ID)?
-        .get("spec")?
-        .get("result_schema")?;
+        .as_object()?
+        .values()
+        .find(|t| {
+            t.get("spec")
+                .and_then(|s| s.get("builtin"))
+                .and_then(|b| b.as_str())
+                == Some(STAT_DISTRIBUTION_STAGE_ID)
+        })
+        .and_then(|t| t.get("spec"))
+        .and_then(|s| s.get("result_schema"))?;
     let schema: ResultSchema = serde_json::from_value(schema_val.clone()).ok()?;
     let mut map = BTreeMap::new();
     map.insert(STAT_DISTRIBUTION_STAGE_ID.to_string(), schema);
@@ -2077,10 +2096,16 @@ mod tests {
     /// and what the ensemble composer emits: no `assemble_report_data` task
     /// at all.
     fn write_ensemble_workflow_json(root: &Path, result_schema: serde_json::Value) {
+        // The real emitter (`builtin_aggregator`) stamps `spec.builtin` on the
+        // aggregator task; `read_report_schemas` resolves it by that tag, so
+        // the fixture stamps it too. Single-branch: task id == the bare const.
         let wf = serde_json::json!({
             "tasks": {
                 STAT_DISTRIBUTION_STAGE_ID: {
-                    "spec": { "result_schema": result_schema }
+                    "spec": {
+                        "builtin": STAT_DISTRIBUTION_STAGE_ID,
+                        "result_schema": result_schema
+                    }
                 }
             }
         });
@@ -2217,6 +2242,39 @@ mod tests {
             report.passed(),
             "the non-ensemble RC-COUNT/RC-IDENTITY path must behave exactly as before the \
              ensemble fallback was added: {report:?}"
+        );
+    }
+
+    /// On a multi-branch DAG the stat-aggregator task id is namespace-prefixed
+    /// (`multi_branch_synthesis::prefix_branch`), so a literal-id lookup by the
+    /// bare const misses it. `read_report_schemas` must still resolve the
+    /// schema by scanning `spec.builtin` (never prefixed) and key the returned
+    /// map by the BARE const so `check_rc_count` resolves the pooled artifact.
+    #[test]
+    fn read_report_schemas_resolves_prefixed_stat_aggregator_by_builtin() {
+        let tmp = TempDir::new().unwrap();
+        // Task id is the multi-branch-prefixed form; only `spec.builtin` stays
+        // bare (the const), exactly like a real bulk_rnaseq-branched emit.
+        let prefixed_id = format!("bulk_rnaseq_{STAT_DISTRIBUTION_STAGE_ID}");
+        let wf = serde_json::json!({
+            "tasks": {
+                prefixed_id.clone(): {
+                    "spec": {
+                        "builtin": STAT_DISTRIBUTION_STAGE_ID,
+                        "stage_id": prefixed_id,
+                        "result_schema": signed_de_schema_json()
+                    }
+                }
+            }
+        });
+        std::fs::write(tmp.path().join("WORKFLOW.json"), wf.to_string()).unwrap();
+
+        let map = read_report_schemas(tmp.path())
+            .expect("must resolve the prefixed stat-aggregator by spec.builtin, not literal id");
+        assert!(
+            map.contains_key(STAT_DISTRIBUTION_STAGE_ID),
+            "returned map must be keyed by the BARE const (the pooled artifact's stage_id): {:?}",
+            map.keys().collect::<Vec<_>>()
         );
     }
 }
