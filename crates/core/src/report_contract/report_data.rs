@@ -15,6 +15,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
+use ts_rs::TS;
+
 use super::{Comparator, ResultSchema, Significance};
 
 /// Data-driven column-name synonym lists loaded from the emitted package's
@@ -167,7 +169,8 @@ pub struct LiteratureRollup {
     pub retrieved_sources: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, TS)]
+#[ts(export)]
 pub struct LitFinding {
     pub entity: String,
     pub pmid: String,

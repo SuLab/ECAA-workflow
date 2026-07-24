@@ -38,6 +38,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use ts_rs::TS;
 
 use crate::claim_extractor::ExtractorConfig;
 use crate::claim_verifier::ClaimVerificationReport;
@@ -63,7 +64,8 @@ pub const STAT_DISTRIBUTION_STAGE_ID: &str = "assemble_statistical_distribution"
 /// `#[non_exhaustive]`: wire-facing enum crossing the
 /// `stat-distribution.json` boundary; new classes may be added without a
 /// SemVer-breaking match on downstream consumers.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, TS)]
+#[ts(export)]
 #[non_exhaustive]
 #[serde(rename_all = "snake_case")]
 pub enum RobustnessClass {
@@ -86,7 +88,8 @@ pub enum RobustnessClass {
 
 /// Per-entity cross-method rollup. `per_method_*` maps are keyed by the
 /// short method name (the tail of the variant stage-id after `__v_`).
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, TS)]
+#[ts(export)]
 pub struct EntityMethodRow {
     pub entity: String,
     /// Signed effect per method (only methods whose artifact carried a
@@ -110,7 +113,8 @@ pub struct EntityMethodRow {
 /// per-entity robustness rollup, the class-count histogram, and a pooled
 /// consensus single-artifact view shaped exactly like a `ReportData`
 /// artifact.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, TS)]
+#[ts(export)]
 pub struct StatDistribution {
     /// Short method names of the variants whose artifact was actually
     /// present on disk (sorted; absent variants are skipped).
@@ -123,6 +127,7 @@ pub struct StatDistribution {
     pub n_discordant: u64,
     /// Consensus single-result view (per-entity median effect; significant
     /// set = entities significant in a strict majority of present methods).
+    #[ts(skip)]
     pub pooled: ResultArtifactSummary,
 }
 
@@ -523,7 +528,8 @@ const SUPPORT_KEYS: [&str; 2] = ["hypothesis_supported", "support"];
 /// result table (see [`assemble_ensemble_distribution`]); it is `None` when
 /// there was nothing to verify (no embedded interpretation policy, no
 /// narrative, or the method-variant table dir was absent).
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, TS)]
+#[ts(export)]
 pub struct CellRollup {
     pub cell_id: String,
     /// Statistical-method axis parsed from the cell id (empty when the id
@@ -537,6 +543,7 @@ pub struct CellRollup {
     pub support: Option<bool>,
     /// The raw parsed result.json value, retained verbatim for per-cell
     /// claim verification.
+    #[ts(skip)]
     pub claims_json: serde_json::Value,
     /// Serialized per-cell [`ClaimVerificationReport`](crate::claim_verifier::ClaimVerificationReport):
     /// `Some` when the cell's narrative was checked for consistency with its
@@ -544,6 +551,7 @@ pub struct CellRollup {
     /// report with `n_mismatch > 0` (`has_mismatch()`) tags the cell as
     /// pruned — it is RETAINED here with its verdict but excluded from the
     /// ensemble consensus/marginals.
+    #[ts(type = "unknown | null")]
     pub verification: Option<serde_json::Value>,
 }
 
@@ -565,7 +573,8 @@ impl CellRollup {
 
 /// Factorial decomposition of the support signal across the two ensemble
 /// axes plus the compounding-fragility (interaction) signal.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, TS)]
+#[ts(export)]
 pub struct FactorialAttribution {
     /// Per-method support rate (mean of support as 0/1 over that method's
     /// support-bearing cells). Methods with no support-bearing cell are
@@ -583,7 +592,8 @@ pub struct FactorialAttribution {
 /// the ensemble-wide agreement fraction, the factorial attribution, the
 /// deduplicated literature union across the cells, its coverage, and the
 /// fixed consensus label.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, TS)]
+#[ts(export)]
 pub struct EnsembleDistribution {
     /// One rollup per cell whose result.json was present on disk (sorted by
     /// cell id; absent cells are skipped).
