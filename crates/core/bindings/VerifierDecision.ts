@@ -376,4 +376,24 @@ declared: boolean,
 /**
  * Strictness band string (`"draft"` / `"production"`).
  */
-risk_mode: string, };
+risk_mode: string, } | { "kind": "ensemble_subfield_selected", 
+/**
+ * Id.
+ */
+id: string, 
+/**
+ * Timestamp.
+ */
+timestamp: string, 
+/**
+ * Modality.
+ */
+modality: string, 
+/**
+ * Subfield id.
+ */
+subfield_id: string, 
+/**
+ * Matched keywords.
+ */
+matched_keywords: Array<string>, };
