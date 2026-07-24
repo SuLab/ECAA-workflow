@@ -314,6 +314,73 @@ sign of the statistic, never free text) applies unchanged here: when you
 render `direction_split` or an entity's `effect`, the words around them
 must still come from the sign you're citing, not from intuition.
 
+### Ensemble mode — narrate over the aggregator distributions, not report-data.json
+
+When your task spec carries `ensemble_mode: true`, this run composed a
+multi-analyst ensemble: K statistical-method variants and M interpretive
+lenses, cross-checked against each other rather than run once. In this mode
+`runtime/outputs/reporting/report-data.json` does NOT exist — the composer
+drops the single-artifact assembler in favor of two aggregators, listed
+verbatim at `spec.ensemble_report_files`:
+
+- `runtime/outputs/assemble_statistical_distribution/stat-distribution.json`
+  — per-entity cross-method rollup: each entity's per-method effect and
+  significance, a sign-agreement fraction, the pooled effect range/median,
+  and a `robustness` class (`Robust` / `Concordant` / `Fragile` /
+  `Discordant`).
+- `runtime/outputs/assemble_ensemble_distribution/ensemble-distribution.json`
+  — per-cell (method × lens) rollup: each cell's hypothesis-support verdict
+  and, when it was checked, its `verification` report; the ensemble-wide
+  `agreement` fraction; the factorial `attribution` (per-method and
+  per-lens support rates, plus `interaction_hotspots` — cells whose verdict
+  disagrees with BOTH marginals); the deduplicated `literature_union` and
+  its `coverage`; and the fixed `consensus_label`.
+
+Your `required_report_sections` (`method_robustness`,
+`interpretive_agreement`, `method_lens_interaction`, `dissenting_lenses`,
+`literature_coverage`) and `required_tables` (`method_robustness`,
+`lens_agreement`, `interaction_hotspots`, `literature_union`) are unioned
+onto the base sections/tables from the "Report completeness contract"
+above — cover both sets, sourcing every ensemble-only one from these two
+files, never from memory or recomputation:
+
+- **`method_robustness`** (section + table): one row per entity from
+  `stat-distribution.json`'s rollup — its robustness class, per-method
+  effect/significance, and pooled median. Cite the class exactly as
+  classified; do not soften `Discordant`/`Fragile` into "mostly agree".
+- **`interpretive_agreement` / `lens_agreement`**: the ensemble-wide
+  `agreement` fraction plus `attribution.by_method` / `attribution.by_lens`
+  support rates from `ensemble-distribution.json` — state which methods or
+  lenses pull support down, don't just report the aggregate.
+- **`method_lens_interaction` / `interaction_hotspots`**: the cell ids in
+  `attribution.interaction_hotspots` — findings that only one method×lens
+  combination disagrees on, distinct from a marginal (all-methods or
+  all-lenses) disagreement.
+- **`dissenting_lenses`**: any cell excluded from consensus because its
+  `verification` carried a mismatch (retained in `cells` but tagged, not
+  silently dropped) — restate that this check catches a narrative
+  inconsistent with its own method-variant numbers, never biological
+  truth, and that only a `Mismatch` (not a `Suspicious` flag) excludes a
+  cell from the vote.
+- **`literature_coverage`**: the `literature_union` table and its
+  `coverage` (unique PMID count) from `ensemble-distribution.json`.
+
+Stamp these three standing caveats verbatim wherever the ensemble result is
+characterized — they are not optional hedging, they are the correctness
+boundary of a multi-analyst rollup:
+
+- the per-entity effect range across methods reflects **cross-method
+  dispersion, not a confidence interval** — it says how much the methods
+  disagreed, not a probabilistic bound on the true effect;
+- the `consensus_label` string exactly as written in
+  `ensemble-distribution.json` — **"model agreement across N cells — not
+  verified truth"** — every model in the ensemble can share the same
+  blind spot;
+- **robustness is conditional on the pinned upstream pipeline** — the same
+  reference, annotation, and preprocessing every variant ran against;
+  cross-method agreement says nothing about what a different pipeline
+  upstream of the fan-out would have shown.
+
 ### Data acquisition — required input stage
 
 When `task-spec.json` carries `required_input_stage`, it names the EDAM data

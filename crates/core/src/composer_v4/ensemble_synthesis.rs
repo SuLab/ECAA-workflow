@@ -117,6 +117,37 @@ const REPORTING_TERMINAL_IDS: [&str; 2] = ["reporting", "final_reporting"];
 /// base-node removal, and the stale-companion removal cannot drift.
 const CONTEXTUALIZE_BASE_ID: &str = "contextualize_findings_with_literature";
 
+/// Ensemble-only report-section ids APPENDED to every reporting terminal's
+/// `required_report_sections` (union with the atom-declared base sections —
+/// see [`merge_string_list`]). Read by `RC-SECTIONS`
+/// (`reporting_invariants::check_rc_sections`) and by the reporting agent
+/// (`scripts/agent-prompts/task-execution.md`).
+const ENSEMBLE_REPORT_SECTIONS: [&str; 5] = [
+    "method_robustness",
+    "interpretive_agreement",
+    "method_lens_interaction",
+    "dissenting_lenses",
+    "literature_coverage",
+];
+
+/// Ensemble-only supplementary-table ids APPENDED to every reporting
+/// terminal's `required_tables`. See [`ENSEMBLE_REPORT_SECTIONS`].
+const ENSEMBLE_REPORT_TABLES: [&str; 4] = [
+    "method_robustness",
+    "lens_agreement",
+    "interaction_hotspots",
+    "literature_union",
+];
+
+/// The package-relative paths the reporting agent reads instead of the
+/// (in ensemble mode, absent) `reporting/report-data.json` — the two
+/// aggregator artifacts this pass wires to the reporting terminals.
+/// Stamped verbatim onto `attributes["ensemble_report_files"]`.
+const ENSEMBLE_REPORT_FILES: [&str; 2] = [
+    "assemble_ensemble_distribution/ensemble-distribution.json",
+    "assemble_statistical_distribution/stat-distribution.json",
+];
+
 /// Fan the schema-bearing statistical node(s) out over the roster's
 /// method variants, and inject the statistical-distribution aggregator
 /// stub. No-op when: no schema-bearing node exists, or the pass has
@@ -396,6 +427,41 @@ pub fn synthesize_ensemble_fanout(
         }
     }
 
+    // Stamp ensemble-mode report obligations onto every reporting terminal
+    // present. `required_report_sections`/`required_tables` were already
+    // stamped onto `node.attributes` from the atom's declared lists back
+    // at initial DAG lift time (`TaskNode::from_atom`,
+    // `workflow_contracts::from_atom.rs`) — long before this post-pass
+    // runs — so this is a UNION, never a first write: the base sections
+    // (e.g. `primary_results`, `qc_preprocessing`) survive alongside the
+    // 5 ensemble-only sections. `ensemble_mode` + `ensemble_report_files`
+    // tell the reporting agent to narrate over the two aggregator
+    // artifacts instead of the (in ensemble mode, absent)
+    // `reporting/report-data.json` — see
+    // `scripts/agent-prompts/task-execution.md`.
+    for node in dag.nodes.iter_mut() {
+        if !REPORTING_TERMINAL_IDS.contains(&node.id.as_str()) {
+            continue;
+        }
+        let sections = merge_string_list(
+            node.attributes.get("required_report_sections"),
+            &ENSEMBLE_REPORT_SECTIONS,
+        );
+        node.attributes
+            .insert("required_report_sections".into(), sections);
+        let tables = merge_string_list(
+            node.attributes.get("required_tables"),
+            &ENSEMBLE_REPORT_TABLES,
+        );
+        node.attributes.insert("required_tables".into(), tables);
+        node.attributes
+            .insert("ensemble_mode".into(), serde_json::Value::Bool(true));
+        node.attributes.insert(
+            "ensemble_report_files".into(),
+            serde_json::to_value(ENSEMBLE_REPORT_FILES).unwrap_or(serde_json::Value::Null),
+        );
+    }
+
     // Base nodes the ensemble expansion supersedes: the primary
     // statistical target (fanned into K method variants) and — when
     // present — the base contextualize node (fanned into M lens
@@ -623,6 +689,31 @@ fn variant_node(
     n.attributes
         .insert("stage_id".into(), serde_json::Value::String(node_id.into()));
     n
+}
+
+/// Unions `additions` into whatever string array already lives at
+/// `existing` (typically a `node.attributes` lookup), deduplicates, and
+/// returns the result SORTED — deterministic regardless of the existing
+/// array's on-disk order or `additions`' declaration order. A non-array or
+/// absent `existing` degrades to just `additions` (still sorted + deduped)
+/// rather than erroring, so a reporting terminal with no atom-declared
+/// sections still gets the ensemble-only ones.
+fn merge_string_list(
+    existing: Option<&serde_json::Value>,
+    additions: &[&str],
+) -> serde_json::Value {
+    let mut set: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    if let Some(serde_json::Value::Array(arr)) = existing {
+        for v in arr {
+            if let Some(s) = v.as_str() {
+                set.insert(s.to_string());
+            }
+        }
+    }
+    for a in additions {
+        set.insert((*a).to_string());
+    }
+    serde_json::to_value(set.into_iter().collect::<Vec<String>>()).unwrap_or(serde_json::Value::Null)
 }
 
 /// Re-sort nodes/edges by their canonical keys so the DAG stays
@@ -1109,5 +1200,255 @@ mod tests {
         let mut sorted = cell_ids.clone();
         sorted.sort();
         assert_eq!(cell_ids, sorted, "interpretation_cell_ids is sorted");
+    }
+
+    /// Task C — `reporting`/`final_reporting` are built via `TaskNode::from_atom`
+    /// (as they are at real DAG-lift time, well before this post-pass runs),
+    /// so they already carry the atom-declared base `required_report_sections`/
+    /// `required_tables` on `attributes`. After synthesis over the shipped
+    /// `bulk_rnaseq` roster, both terminals' sections/tables are the UNION of
+    /// the base list and the 5/4 ensemble-only ids (no dup), plus
+    /// `ensemble_mode: true` and the stamped `ensemble_report_files`.
+    #[test]
+    fn ensemble_reporting_terminals_get_ensemble_sections() {
+        use crate::atom_registry::AtomRegistry;
+        use crate::ensemble_roster::EnsembleRosterProvider;
+        use crate::workflow_contracts::task_node::{TaskNode, WorkflowDag};
+
+        let cfg = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../config"));
+        let reg = AtomRegistry::load_from_dir(&cfg.join("stage-atoms")).unwrap();
+        let roster = EnsembleRosterProvider::from_dir(&cfg.join("ensemble-rosters"))
+            .roster_for("bulk_rnaseq")
+            .cloned()
+            .unwrap();
+
+        let reporting_atom = reg.get("reporting").expect("reporting atom present");
+        let final_reporting_atom = reg
+            .get("final_reporting")
+            .expect("final_reporting atom present");
+        assert!(
+            !reporting_atom.required_report_sections.is_empty(),
+            "precondition: reporting atom declares base sections"
+        );
+
+        let de = TaskNode::from_atom(reg.get("differential_expression").unwrap());
+        let mut dag = WorkflowDag {
+            id: "t".into(),
+            nodes: vec![
+                de,
+                TaskNode::from_atom(reporting_atom),
+                TaskNode::from_atom(final_reporting_atom),
+            ],
+            edges: vec![],
+            assumptions: Default::default(),
+            source_template: None,
+        };
+
+        synthesize_ensemble_fanout(&mut dag, &reg, &roster, &ModalityBounds::default());
+
+        for (terminal, base_atom) in [
+            ("reporting", reporting_atom),
+            ("final_reporting", final_reporting_atom),
+        ] {
+            let node = dag
+                .nodes
+                .iter()
+                .find(|n| n.id == terminal)
+                .unwrap_or_else(|| panic!("{terminal} node present"));
+
+            let sections: Vec<String> = node
+                .attributes
+                .get("required_report_sections")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_else(|| panic!("{terminal} required_report_sections present"));
+            for base in &base_atom.required_report_sections {
+                assert!(
+                    sections.contains(base),
+                    "{terminal} keeps base section {base}: {sections:?}"
+                );
+            }
+            for ens in ENSEMBLE_REPORT_SECTIONS {
+                assert!(
+                    sections.contains(&ens.to_string()),
+                    "{terminal} gains ensemble section {ens}: {sections:?}"
+                );
+            }
+            let unique: std::collections::BTreeSet<&String> = sections.iter().collect();
+            assert_eq!(
+                unique.len(),
+                sections.len(),
+                "{terminal} required_report_sections has no dup: {sections:?}"
+            );
+
+            let tables: Vec<String> = node
+                .attributes
+                .get("required_tables")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_else(|| panic!("{terminal} required_tables present"));
+            for base in &base_atom.required_tables {
+                assert!(
+                    tables.contains(base),
+                    "{terminal} keeps base table {base}: {tables:?}"
+                );
+            }
+            for ens in ENSEMBLE_REPORT_TABLES {
+                assert!(
+                    tables.contains(&ens.to_string()),
+                    "{terminal} gains ensemble table {ens}: {tables:?}"
+                );
+            }
+            let unique_tables: std::collections::BTreeSet<&String> = tables.iter().collect();
+            assert_eq!(
+                unique_tables.len(),
+                tables.len(),
+                "{terminal} required_tables has no dup: {tables:?}"
+            );
+
+            assert_eq!(
+                node.attributes.get("ensemble_mode").and_then(|v| v.as_bool()),
+                Some(true),
+                "{terminal} ensemble_mode stamped"
+            );
+            let files: Vec<String> = node
+                .attributes
+                .get("ensemble_report_files")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_else(|| panic!("{terminal} ensemble_report_files present"));
+            assert_eq!(
+                files,
+                vec![
+                    "assemble_ensemble_distribution/ensemble-distribution.json".to_string(),
+                    "assemble_statistical_distribution/stat-distribution.json".to_string(),
+                ],
+                "{terminal} ensemble_report_files"
+            );
+        }
+    }
+
+    /// Task C lowered-spec check: the emitted `reporting` task's
+    /// `spec.required_report_sections` includes the ensemble sections and
+    /// `spec.ensemble_mode == true` — proves the chain: synthesis-time
+    /// attribute stamp -> `workflow_json.rs` emit-time allowlist -> the
+    /// lowered task's `spec`.
+    #[test]
+    fn lowered_reporting_task_spec_carries_ensemble_sections_and_mode() {
+        use crate::atom_registry::AtomRegistry;
+        use crate::backend_emitters::workflow_json::{lower_to_workflow_json, EmitContext};
+        use crate::ensemble_roster::EnsembleRosterProvider;
+        use crate::workflow_contracts::task_node::{TaskNode, WorkflowDag};
+
+        let cfg = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../config"));
+        let reg = AtomRegistry::load_from_dir(&cfg.join("stage-atoms")).unwrap();
+        let roster = EnsembleRosterProvider::from_dir(&cfg.join("ensemble-rosters"))
+            .roster_for("bulk_rnaseq")
+            .cloned()
+            .unwrap();
+
+        let de = TaskNode::from_atom(reg.get("differential_expression").unwrap());
+        let mut dag = WorkflowDag {
+            id: "t".into(),
+            nodes: vec![
+                de,
+                TaskNode::from_atom(reg.get("reporting").unwrap()),
+                TaskNode::from_atom(reg.get("final_reporting").unwrap()),
+            ],
+            edges: vec![],
+            assumptions: Default::default(),
+            source_template: None,
+        };
+
+        synthesize_ensemble_fanout(&mut dag, &reg, &roster, &ModalityBounds::default());
+
+        let artifact = lower_to_workflow_json(&dag, &EmitContext::defaults())
+            .expect("lowering the ensemble dag must succeed");
+        let task = artifact
+            .dag
+            .tasks
+            .get("reporting")
+            .expect("reporting task must be present in the lowered DAG");
+        let spec = task
+            .spec
+            .as_ref()
+            .expect("reporting task must carry a spec");
+
+        let sections: Vec<String> = spec
+            .get("required_report_sections")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .expect("lowered spec carries required_report_sections");
+        for ens in ENSEMBLE_REPORT_SECTIONS {
+            assert!(
+                sections.contains(&ens.to_string()),
+                "lowered reporting spec gains ensemble section {ens}: {sections:?}"
+            );
+        }
+        assert_eq!(
+            spec.get("ensemble_mode").and_then(|v| v.as_bool()),
+            Some(true),
+            "lowered reporting spec.ensemble_mode == true"
+        );
+        let files: Vec<String> = spec
+            .get("ensemble_report_files")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .expect("lowered spec carries ensemble_report_files");
+        assert_eq!(files.len(), 2, "both aggregator files listed");
+    }
+
+    /// Non-ensemble control: a DAG with no schema-bearing analytical node
+    /// (`synthesize_ensemble_fanout`'s `targets` selector finds nothing, so
+    /// the whole pass no-ops) leaves the `reporting` node's sections/tables
+    /// exactly as `TaskNode::from_atom` stamped them — no ensemble
+    /// sections, no `ensemble_mode`.
+    #[test]
+    fn non_ensemble_reporting_node_unchanged() {
+        use crate::atom_registry::AtomRegistry;
+        use crate::ensemble_roster::EnsembleRosterProvider;
+        use crate::workflow_contracts::task_node::{TaskNode, WorkflowDag};
+
+        let cfg = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../config"));
+        let reg = AtomRegistry::load_from_dir(&cfg.join("stage-atoms")).unwrap();
+        let roster = EnsembleRosterProvider::from_dir(&cfg.join("ensemble-rosters"))
+            .roster_for("bulk_rnaseq")
+            .cloned()
+            .unwrap();
+        let reporting_atom = reg.get("reporting").expect("reporting atom present");
+
+        let mut dag = WorkflowDag {
+            id: "t".into(),
+            nodes: vec![TaskNode::from_atom(reporting_atom)],
+            edges: vec![],
+            assumptions: Default::default(),
+            source_template: None,
+        };
+
+        synthesize_ensemble_fanout(&mut dag, &reg, &roster, &ModalityBounds::default());
+
+        let node = dag
+            .nodes
+            .iter()
+            .find(|n| n.id == "reporting")
+            .expect("reporting node present");
+        let sections: Vec<String> = node
+            .attributes
+            .get("required_report_sections")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .expect("required_report_sections present");
+        assert_eq!(
+            sections, reporting_atom.required_report_sections,
+            "sections unchanged when the ensemble pass no-ops"
+        );
+        for ens in ENSEMBLE_REPORT_SECTIONS {
+            assert!(
+                !sections.contains(&ens.to_string()),
+                "no ensemble section leaks in without a schema-bearing target: {sections:?}"
+            );
+        }
+        assert!(
+            !node.attributes.contains_key("ensemble_mode"),
+            "ensemble_mode not stamped when the pass no-ops"
+        );
+        assert!(
+            !node.attributes.contains_key("ensemble_report_files"),
+            "ensemble_report_files not stamped when the pass no-ops"
+        );
     }
 }

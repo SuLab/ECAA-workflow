@@ -532,6 +532,23 @@ fn lower_task(node: &TaskNode, depends_on: Vec<TaskId>) -> Result<Task, EmitErro
     if let Some(rt) = node.attributes.get("required_tables") {
         spec_map.insert("required_tables".into(), rt.clone());
     }
+    // Ensemble-mode narration signal: `composer_v4::ensemble_synthesis`
+    // stamps `ensemble_mode: true` + `ensemble_report_files` onto every
+    // reporting terminal it wires the cross-axis aggregator into (in
+    // addition to unioning the ensemble sections/tables above into
+    // `required_report_sections`/`required_tables`). Mirrors those two
+    // fields: an allowlisted pass-through so the reporting agent's prompt
+    // contract (scripts/agent-prompts/task-execution.md) can detect
+    // ensemble mode from `spec.ensemble_mode` and know which aggregator
+    // artifacts to narrate over from `spec.ensemble_report_files` instead
+    // of the (in ensemble mode, absent) `reporting/report-data.json`.
+    // Additive: emitted only on the terminals the ensemble pass stamped.
+    if let Some(em) = node.attributes.get("ensemble_mode") {
+        spec_map.insert("ensemble_mode".into(), em.clone());
+    }
+    if let Some(erf) = node.attributes.get("ensemble_report_files") {
+        spec_map.insert("ensemble_report_files".into(), erf.clone());
+    }
     // Word-budget exemption for interpretation/reporting narratives — see
     // `AtomDefinition::interpretation_exempt_from_word_budget`. Only
     // stamped on `node.attributes` (and therefore present here) when
