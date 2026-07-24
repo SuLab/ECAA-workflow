@@ -71,6 +71,7 @@ pub fn router(app: ChatAppState) -> Router {
         .merge(execution::routes())
         .merge(tasks::routes())
         .merge(verification::routes())
+        .merge(ensemble::routes())
         .merge(reproducibility::routes())
         .merge(dashboard::routes())
         .merge(summary::routes())
@@ -154,6 +155,7 @@ pub const ALL_ROUTES: &[&[(&str, &str)]] = &[
     execution::ROUTES,
     tasks::ROUTES,
     verification::ROUTES,
+    ensemble::ROUTES,
     reproducibility::ROUTES,
     dashboard::ROUTES,
     summary::ROUTES,
@@ -222,6 +224,7 @@ mod config;
 mod dashboard;
 mod decision_substrate;
 pub(crate) mod dispositions;
+mod ensemble;
 mod eval_ungate;
 mod event_sink;
 mod events;
@@ -340,6 +343,7 @@ pub use wire_types::{
 
 pub use branches::{branch_session_endpoint, list_recent_sessions, list_sessions_by_parent};
 pub use dashboard::dashboard_index;
+pub use ensemble::{get_ensemble_distribution, get_stat_distribution};
 pub use events::{events_stream, post_progress};
 pub use execution::{
     get_dag, get_execution, post_kill_execution, post_pause_execution, post_resume_execution,
