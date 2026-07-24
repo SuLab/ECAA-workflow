@@ -508,6 +508,89 @@ fn fullest_per_task_lock(src: &Path) -> Option<PathBuf> {
     best.map(|(_, p)| p)
 }
 
+/// When `rel` is a per-task sealed script (`runtime/outputs/<task_id>/scripts/…`),
+/// returns that task's id. `scripts` must be the exact fourth path component
+/// (immediately under the task dir) so an unrelated `scripts` directory
+/// elsewhere in the tree is never matched.
+fn task_scripts_dir_task_id(rel: &Path) -> Option<&str> {
+    let comps: Vec<&str> = rel
+        .components()
+        .filter_map(|c| match c {
+            std::path::Component::Normal(s) => s.to_str(),
+            _ => None,
+        })
+        .collect();
+    if comps.len() >= 4 && comps[0] == "runtime" && comps[1] == "outputs" && comps[3] == "scripts" {
+        Some(comps[2])
+    } else {
+        None
+    }
+}
+
+/// Read a task's recorded `pkg_root` (the absolute package-root prefix the
+/// agent's scripts embedded at emit/execution time) from
+/// `<task_dir>/determinism-env.json`. Best-effort: a missing file, unparseable
+/// JSON, or absent/empty field all yield an empty string, which
+/// [`relocate_script_pkg_root`] treats as "nothing to rewrite" — the same
+/// fallback `crate::replay::read_recorded_env` uses for this field.
+fn read_recorded_pkg_root(task_dir: &Path) -> String {
+    let Ok(raw) = std::fs::read_to_string(task_dir.join("determinism-env.json")) else {
+        return String::new();
+    };
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return String::new();
+    };
+    val.get("pkg_root")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_owned()
+}
+
+/// True when `body` contains a Python `import os` statement that binds the
+/// bare name `os` (so `os.environ.get(...)` resolves) — a plain `import os`,
+/// optionally followed by a comma-separated import, a `;`, or a trailing
+/// comment. An aliased import (`import os as o`) does NOT match, since the
+/// bare `os` name would not exist; the caller falls back to the
+/// self-contained `__import__("os")` form in that case.
+fn python_bare_os_available(body: &str) -> bool {
+    body.lines().any(|l| {
+        let t = l.trim();
+        t == "import os" || t.starts_with("import os,") || t.starts_with("import os;") || t.starts_with("import os #")
+    })
+}
+
+/// Rewrite a sealed per-task script so it is relocation-safe: a hardcoded
+/// `PKG_ROOT` assignment recorded at `pkg_root` (the exact literal the task's
+/// `determinism-env.json` captured) is rewritten to read the `PKG_ROOT`
+/// env var replay already injects (`crate::replay::script_runner`), falling
+/// back to the original literal as the `unset` default so a same-host,
+/// no-relocation run behaves exactly as before. A literal, deterministic
+/// string replacement — only the exact recorded assignment line(s) are
+/// touched; a script with neither the R nor the Python form (or an empty
+/// `pkg_root`) is returned byte-identical.
+fn relocate_script_pkg_root(body: &str, pkg_root: &str) -> String {
+    if pkg_root.is_empty() {
+        return body.to_string();
+    }
+    let r_from = format!("PKG_ROOT <- \"{pkg_root}\"");
+    if body.contains(&r_from) {
+        let r_to = format!("PKG_ROOT <- Sys.getenv(\"PKG_ROOT\", unset = \"{pkg_root}\")");
+        return body.replace(&r_from, &r_to);
+    }
+    // Python: `PKG_ROOT = "<abs>"` or `PKG_ROOT="<abs>"` (both spacings).
+    for py_from in [format!("PKG_ROOT = \"{pkg_root}\""), format!("PKG_ROOT=\"{pkg_root}\"")] {
+        if body.contains(&py_from) {
+            let getter = if python_bare_os_available(body) {
+                format!("os.environ.get(\"PKG_ROOT\", \"{pkg_root}\")")
+            } else {
+                format!("__import__(\"os\").environ.get(\"PKG_ROOT\", \"{pkg_root}\")")
+            };
+            return body.replace(&py_from, &format!("PKG_ROOT = {getter}"));
+        }
+    }
+    body.to_string()
+}
+
 /// [`export_depositable_package`] with an explicit [`DepositProfile`]. `Full`
 /// reproduces the historical behavior; the lean profiles additionally apply
 /// [`profile_extra_drop`] in the copy loop and skip the execution-lineage write.
@@ -532,6 +615,12 @@ pub fn export_depositable_package_with_profile(
     } else {
         collect_provenance_referenced_paths(src)
     };
+
+    // Recorded `pkg_root` per task, populated lazily as the loop below
+    // encounters that task's `scripts/` files. Read from `src` (not `dst`) so
+    // the lookup never depends on the walk's visitation order within a task
+    // directory (`determinism-env.json` need not already be copied).
+    let mut pkg_roots: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
 
     // Walk source; copy only kept (A+B) files, preserving layout. `.git/` is
     // pruned at the directory level so the walk never descends into VCS
@@ -578,6 +667,30 @@ pub fn export_depositable_package_with_profile(
             symlink_verbatim(&target, &dest_path).with_context(|| {
                 format!("recreating symlink {} -> {}", dest_path.display(), target.display())
             })?;
+        } else if let Some(task_id) = task_scripts_dir_task_id(rel) {
+            // A sealed per-task script: rewrite its recorded absolute
+            // `PKG_ROOT` assignment into a self-locating form (see
+            // `relocate_script_pkg_root`) rather than copying it verbatim, so
+            // the deposit is relocation-safe. Non-UTF8 content (never
+            // expected for a generated R/Python/shell script, but a
+            // stray binary would be silently corrupted by a lossy rewrite)
+            // falls back to a verbatim copy.
+            match std::fs::read_to_string(abs) {
+                Ok(text) => {
+                    let pkg_root = pkg_roots.entry(task_id.to_string()).or_insert_with(|| {
+                        read_recorded_pkg_root(&src.join("runtime/outputs").join(task_id))
+                    });
+                    let rewritten = relocate_script_pkg_root(&text, pkg_root.as_str());
+                    std::fs::write(&dest_path, rewritten).with_context(|| {
+                        format!("writing relocation-safe script {}", dest_path.display())
+                    })?;
+                }
+                Err(_) => {
+                    std::fs::copy(abs, &dest_path).with_context(|| {
+                        format!("copying {} -> {}", abs.display(), dest_path.display())
+                    })?;
+                }
+            }
         } else {
             std::fs::copy(abs, &dest_path).with_context(|| {
                 format!("copying {} -> {}", abs.display(), dest_path.display())
@@ -650,6 +763,16 @@ pub fn export_depositable_package_with_profile(
         .map_err(anyhow::Error::from)
         .context("re-registering produced output tables over export")?;
     prune_rocrate_dangling(dst).context("pruning dangling RO-Crate @ids")?;
+
+    // The prune above scrubs only the RO-Crate `@graph`; a kept per-task
+    // `runtime/outputs/<task>/reads.jsonl` manifest (the agent's raw observed-
+    // read record, see `crates/harness/src/observed_reads.rs`) is a separate
+    // sidecar it never touches, so a row citing a now-dropped file (most
+    // visibly a Tier-E `intermediates/` table) would otherwise still claim it
+    // present. Mark such rows honestly before the reseal folds the rewritten
+    // manifests into the fresh BagIt checksum.
+    mark_dangling_reads_manifest_rows(dst)
+        .context("marking dropped reads referenced by per-task reads.jsonl manifests")?;
 
     // Re-seal BagIt over the kept, `@graph`-reconciled set (rebuilds manifest +
     // tagmanifest); the post-seal RO-Crate recheck now sees a graph whose every
@@ -1083,6 +1206,85 @@ fn prune_rocrate_dangling(dst: &Path) -> Result<usize> {
             .with_context(|| format!("writing pruned {}", descriptor.display()))?;
     }
     Ok(removed)
+}
+
+/// Mark rows in every kept per-task `runtime/outputs/<task>/reads.jsonl`
+/// manifest (the agent's raw observed-read record, appended as it opens
+/// declared input files — see `crates/harness/src/observed_reads.rs`) whose
+/// `path` no longer resolves to a file under `dst` once tier/profile drops
+/// have run. Uses the same existence predicate as [`prune_rocrate_dangling`]
+/// (`!dst.join(rel).exists()`).
+///
+/// A dangling row is never deleted — that would erase the provenance fact
+/// that the read occurred — but is annotated `"available": false` and
+/// `"dropped_at_export": true`, honestly declaring the payload absent while
+/// preserving the read record itself. Only rows that actually dangle are
+/// rewritten; a malformed line, a non-object row, or a row with no `path`
+/// field is left byte-for-byte untouched, and a file with nothing to mark is
+/// not rewritten at all. Object key order on a rewritten row is always
+/// alphabetical (no `preserve_order` feature on `serde_json` in this
+/// workspace), so the rewrite is stable across runs. Per-task validation
+/// record files (`validation*.json` / `result.json`) are deliberately left
+/// untouched: unlike the manifest's fixed `path`/`declared_port` shape, their
+/// only well-known path-like field is `StructuredClaim.evidence` (in
+/// `result.json`'s `claims[]`), which is resolved package-wide by bare
+/// basename and carries `::pointer` self-reference semantics the
+/// claim-verifier itself already interprets — rewriting it here without
+/// reproducing that resolution risks turning a correct citation into a false
+/// "dropped" mark. Returns the number of rows marked.
+fn mark_dangling_reads_manifest_rows(dst: &Path) -> Result<usize> {
+    use serde_json::Value;
+
+    let outputs = dst.join("runtime").join("outputs");
+    if !outputs.is_dir() {
+        return Ok(0);
+    }
+    let Ok(entries) = std::fs::read_dir(&outputs) else {
+        return Ok(0);
+    };
+    let mut task_dirs: Vec<PathBuf> = entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
+    task_dirs.sort();
+
+    let mut marked = 0usize;
+    for task_dir in task_dirs {
+        let manifest = task_dir.join("reads.jsonl");
+        let Ok(body) = std::fs::read_to_string(&manifest) else {
+            continue;
+        };
+        let mut changed = false;
+        let mut rewritten_lines: Vec<String> = Vec::with_capacity(body.lines().count());
+        for line in body.lines() {
+            let Ok(mut row) = serde_json::from_str::<Value>(line) else {
+                rewritten_lines.push(line.to_string());
+                continue;
+            };
+            let Some(obj) = row.as_object_mut() else {
+                rewritten_lines.push(line.to_string());
+                continue;
+            };
+            let dangling = obj
+                .get("path")
+                .and_then(Value::as_str)
+                .is_some_and(|rel| !dst.join(rel).exists());
+            if !dangling {
+                rewritten_lines.push(line.to_string());
+                continue;
+            }
+            obj.insert("available".to_string(), Value::Bool(false));
+            obj.insert("dropped_at_export".to_string(), Value::Bool(true));
+            changed = true;
+            marked += 1;
+            rewritten_lines.push(serde_json::to_string(&row).unwrap_or_else(|_| line.to_string()));
+        }
+        if changed {
+            let mut out = rewritten_lines.join("\n");
+            if body.ends_with('\n') {
+                out.push('\n');
+            }
+            std::fs::write(&manifest, out).with_context(|| format!("rewriting {}", manifest.display()))?;
+        }
+    }
+    Ok(marked)
 }
 
 /// Write every file under `src_dir` into the zip writer `out` at its
@@ -2018,6 +2220,242 @@ mod tests {
             read_entry(&mut archive, "sub/b.txt"),
             b"beta contents",
             "sub/b.txt bytes must round-trip"
+        );
+    }
+
+    // --- Dangling per-task reads.jsonl reconciliation ---------------------
+
+    /// Regression: a kept per-task `reads.jsonl` manifest citing a Tier-E
+    /// `intermediates/` table (dropped at copy) must not be left claiming the
+    /// dropped file present. The dangling row is marked `available: false` /
+    /// `dropped_at_export: true`, never deleted; a row whose file survives the
+    /// export is left completely untouched.
+    #[test]
+    fn export_marks_dangling_reads_manifest_row_when_intermediates_dropped() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let src = tmp.path().join("src");
+        let dst = tmp.path().join("dst");
+        std::fs::create_dir_all(&src).unwrap();
+        let write = |rel: &str, body: &str| {
+            let p = src.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, body).unwrap();
+        };
+        write("runtime/outputs/normalisation/kept_table.tsv", "gene\tsf\nA\t1.0\n");
+        write(
+            "runtime/outputs/normalisation/intermediates/size_factors.tsv",
+            "gene\tsf\nA\t1.0\n",
+        );
+        // Cites both: the kept table (survives export) and the Tier-E
+        // intermediates table (dropped at copy, never reaches `dst`).
+        write(
+            "runtime/outputs/normalisation/reads.jsonl",
+            "{\"path\":\"runtime/outputs/normalisation/kept_table.tsv\",\"declared_port\":\"counts\"}\n\
+             {\"path\":\"runtime/outputs/normalisation/intermediates/size_factors.tsv\",\"declared_port\":\"size_factors\"}\n",
+        );
+        write(
+            "bagit.txt",
+            "BagIt-Version: 1.0\nTag-File-Character-Encoding: UTF-8\n",
+        );
+        let graph = serde_json::json!({
+            "@context": "https://w3id.org/ro/crate/1.1/context",
+            "@graph": [
+                {"@id":"ro-crate-metadata.json","@type":"CreativeWork","about":{"@id":"./"}},
+                {"@id":"./","@type":"Dataset","hasPart":[
+                    {"@id":"runtime/outputs/normalisation/kept_table.tsv"}
+                ]}
+            ]
+        });
+        std::fs::write(
+            src.join("ro-crate-metadata.json"),
+            serde_json::to_vec_pretty(&graph).unwrap(),
+        )
+        .unwrap();
+
+        export_depositable_package(&src, &dst).expect("export must succeed");
+
+        assert!(
+            !dst.join("runtime/outputs/normalisation/intermediates/size_factors.tsv").exists(),
+            "tier-E intermediates table must genuinely be dropped"
+        );
+
+        let manifest = std::fs::read_to_string(
+            dst.join("runtime/outputs/normalisation/reads.jsonl"),
+        )
+        .expect("kept reads.jsonl must survive export");
+        let rows: Vec<serde_json::Value> = manifest
+            .lines()
+            .map(|l| serde_json::from_str(l).expect("row is valid JSON"))
+            .collect();
+        assert_eq!(rows.len(), 2, "both rows survive (marked, never deleted): {rows:?}");
+
+        let kept_row = rows
+            .iter()
+            .find(|r| r["path"] == "runtime/outputs/normalisation/kept_table.tsv")
+            .expect("kept-table row present");
+        assert!(
+            kept_row.get("available").is_none(),
+            "a read whose file survives export must be left untouched: {kept_row}"
+        );
+
+        let dropped_row = rows
+            .iter()
+            .find(|r| {
+                r["path"] == "runtime/outputs/normalisation/intermediates/size_factors.tsv"
+            })
+            .expect("dropped-table row present");
+        assert_eq!(
+            dropped_row["available"],
+            serde_json::json!(false),
+            "dropped read must be marked unavailable: {dropped_row}"
+        );
+        assert_eq!(dropped_row["dropped_at_export"], serde_json::json!(true));
+        assert_eq!(
+            dropped_row["declared_port"],
+            serde_json::json!("size_factors"),
+            "sibling fields must survive the rewrite: {dropped_row}"
+        );
+
+        // No row anywhere may cite a non-existent file without the marker.
+        for row in &rows {
+            let Some(p) = row["path"].as_str() else { continue };
+            if !dst.join(p).exists() {
+                assert_eq!(
+                    row["available"],
+                    serde_json::json!(false),
+                    "dangling row missing the honesty marker: {row}"
+                );
+            }
+        }
+    }
+
+    // --- Sealed-script `PKG_ROOT` relocation-safety ------------------------
+
+    #[test]
+    fn task_scripts_dir_task_id_matches_only_the_conventional_layout() {
+        assert_eq!(
+            task_scripts_dir_task_id(Path::new("runtime/outputs/normalisation/scripts/01.R")),
+            Some("normalisation")
+        );
+        assert_eq!(
+            task_scripts_dir_task_id(Path::new("runtime/outputs/normalisation/env.lock")),
+            None,
+            "a non-scripts sibling file must not match"
+        );
+        assert_eq!(
+            task_scripts_dir_task_id(Path::new("lib/scripts/helper.py")),
+            None,
+            "a scripts dir outside runtime/outputs/<task>/ must not match"
+        );
+    }
+
+    #[test]
+    fn relocate_script_pkg_root_rewrites_r_and_python_forms() {
+        let root = "/home/a/.ecaa-workflow/packages/x-bulk_rnaseq-2026-07-01";
+
+        // R form: `PKG_ROOT <- "<abs>"` -> `Sys.getenv(...)`, unset fallback
+        // keeps the original literal so a same-host run is unaffected.
+        let r = format!("PKG_ROOT <- \"{root}\"\nlibrary(DESeq2)\n");
+        let out = relocate_script_pkg_root(&r, root);
+        assert!(
+            out.contains(&format!("Sys.getenv(\"PKG_ROOT\", unset = \"{root}\")")),
+            "got:\n{out}"
+        );
+        assert!(out.contains("library(DESeq2)"), "the rest of the script is untouched:\n{out}");
+
+        // Python form, no `import os` present -> self-contained `__import__`
+        // fallback avoids needing a new import.
+        let py = format!("PKG_ROOT = \"{root}\"\nimport pandas as pd\n");
+        let out = relocate_script_pkg_root(&py, root);
+        assert!(
+            out.contains(&format!(
+                "PKG_ROOT = __import__(\"os\").environ.get(\"PKG_ROOT\", \"{root}\")"
+            )),
+            "got:\n{out}"
+        );
+
+        // Python form (no spaces around `=`), `import os` already present ->
+        // bare `os.environ.get`.
+        let py2 = format!("import os\nPKG_ROOT=\"{root}\"\n");
+        let out2 = relocate_script_pkg_root(&py2, root);
+        assert!(
+            out2.contains(&format!("PKG_ROOT = os.environ.get(\"PKG_ROOT\", \"{root}\")")),
+            "got:\n{out2}"
+        );
+
+        // No matching assignment -> byte-identical passthrough.
+        let untouched = "print('hello')\n";
+        assert_eq!(relocate_script_pkg_root(untouched, root), untouched);
+
+        // Empty recorded `pkg_root` -> byte-identical passthrough even when a
+        // literal assignment is present (nothing recorded to rewrite against).
+        assert_eq!(relocate_script_pkg_root(&r, ""), r);
+    }
+
+    /// End-to-end: a sealed R script with a hardcoded `PKG_ROOT` assignment
+    /// matching the task's recorded `determinism-env.json["pkg_root"]` is
+    /// rewritten at export to read the `PKG_ROOT` env var (with the original
+    /// absolute path preserved as the `unset` fallback), rather than copied
+    /// verbatim.
+    #[test]
+    fn export_relocates_hardcoded_pkg_root_in_sealed_r_script() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let src = tmp.path().join("src");
+        let dst = tmp.path().join("dst");
+        std::fs::create_dir_all(&src).unwrap();
+        let write = |rel: &str, body: &str| {
+            let p = src.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, body).unwrap();
+        };
+        let abs_root = "/home/a/.ecaa-workflow/packages/deadbeef-bulk_rnaseq-2026-07-01";
+        write(
+            "runtime/outputs/normalisation/scripts/01_normalise.R",
+            &format!("PKG_ROOT <- \"{abs_root}\"\nlibrary(DESeq2)\n"),
+        );
+        write(
+            "runtime/outputs/normalisation/determinism-env.json",
+            &format!(r#"{{"pkg_root":"{abs_root}"}}"#),
+        );
+        write("runtime/outputs/normalisation/result.tsv", "gene\tv\nA\t1\n");
+        write(
+            "bagit.txt",
+            "BagIt-Version: 1.0\nTag-File-Character-Encoding: UTF-8\n",
+        );
+        let graph = serde_json::json!({
+            "@context": "https://w3id.org/ro/crate/1.1/context",
+            "@graph": [
+                {"@id":"ro-crate-metadata.json","@type":"CreativeWork","about":{"@id":"./"}},
+                {"@id":"./","@type":"Dataset","hasPart":[]}
+            ]
+        });
+        std::fs::write(
+            src.join("ro-crate-metadata.json"),
+            serde_json::to_vec_pretty(&graph).unwrap(),
+        )
+        .unwrap();
+
+        export_depositable_package(&src, &dst).expect("export must succeed");
+
+        let sealed = std::fs::read_to_string(
+            dst.join("runtime/outputs/normalisation/scripts/01_normalise.R"),
+        )
+        .expect("sealed script must survive export (Tier B)");
+        assert!(
+            sealed.contains("Sys.getenv(\"PKG_ROOT\""),
+            "sealed script must read PKG_ROOT via Sys.getenv, got:\n{sealed}"
+        );
+        assert!(
+            sealed.contains(abs_root),
+            "the original literal must survive as the unset fallback:\n{sealed}"
+        );
+        assert!(
+            !sealed.contains(&format!("PKG_ROOT <- \"{abs_root}\"")),
+            "the raw hardcoded assignment must no longer appear verbatim:\n{sealed}"
+        );
+        assert!(
+            sealed.contains("library(DESeq2)"),
+            "the rest of the script must be untouched:\n{sealed}"
         );
     }
 }
