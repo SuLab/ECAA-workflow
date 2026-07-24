@@ -880,6 +880,20 @@ fn dedup_duplicate_output_tables(dst: &Path) -> Result<usize> {
     let meta = std::fs::read_to_string(dst.join("ro-crate-metadata.json")).unwrap_or_default();
     let ref_count = |rel: &str| -> usize { meta.matches(rel).count() };
 
+    // Tables the CLAIM subgraph anchors to (`claim-verification.json`'s
+    // `source_table` / `supported_by`). `prune_rocrate_dangling` cleans only the
+    // RO-Crate `@graph`, NOT this sidecar — so deleting a claim-anchored table
+    // leaves a dangling claim→evidence edge that fails `cross_graph_integrity`
+    // on re-verify (a byte-identical twin, e.g. `de_results.tsv` vs
+    // `de_results.full.tsv`, can be split across the two graphs: the RO-Crate
+    // consumes one, a claim's `source_table` names the other). Never
+    // dedup-delete a claim-anchored twin — keep both so every provenance edge
+    // stays resolvable. Matched by basename, which the sidecar records verbatim
+    // (`"source_table": "de_results.tsv"`) and any package-relative path also
+    // contains.
+    let claim_meta =
+        std::fs::read_to_string(dst.join("runtime/claim-verification.json")).unwrap_or_default();
+
     let outputs = dst.join("runtime").join("outputs");
     if !outputs.is_dir() {
         return Ok(0);
@@ -938,7 +952,20 @@ fn dedup_duplicate_output_tables(dst: &Path) -> Result<usize> {
             };
             let keep = keep.clone();
             for p in &files {
-                if p != &keep && std::fs::remove_file(p).is_ok() {
+                if p == &keep {
+                    continue;
+                }
+                // Keep a claim-anchored twin (see `claim_meta` above): deleting
+                // it would dangle a claim→evidence edge the RO-Crate prune can't
+                // reach.
+                let bn = p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                if !bn.is_empty() && claim_meta.contains(&bn) {
+                    continue;
+                }
+                if std::fs::remove_file(p).is_ok() {
                     deleted += 1;
                 }
             }
@@ -1561,6 +1588,57 @@ mod tests {
             "no de_table File or #action node may survive: {ids:?}"
         );
         assert!(ids.iter().any(|i| i.contains("de_results.tsv")), "de_results kept");
+    }
+
+    #[test]
+    fn dedup_keeps_a_claim_anchored_duplicate_table() {
+        // Regression (2026-07-23 himes re-verify): the re-executable export dedup
+        // dropped `de_results.tsv` — byte-identical to `de_results.full.tsv`,
+        // which the RO-Crate consumes downstream and so out-scored it — even
+        // though a claim in `claim-verification.json` anchored its `source_table`
+        // to `de_results.tsv`. `prune_rocrate_dangling` cleaned the dropped
+        // table's `@graph` node but NOT the claim sidecar, so the claim→evidence
+        // edge dangled and `cross_graph_integrity` FAILED on re-verify. The dedup
+        // must keep a claim-anchored twin.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dst = tmp.path();
+        let de = dst.join("runtime/outputs/differential_expression");
+        std::fs::create_dir_all(&de).expect("mkdir");
+        let data = "ENSG1\t1.0\t0.01\nENSG2\t-2.0\t0.40\n";
+        // Byte-identical data twins. `de_results.full.tsv` is consumed downstream
+        // (an extra RO-Crate mention) → it out-scores `de_results.tsv` and is the
+        // dedup's `keep`. `de_results.tsv` is the claim-anchored, RO-Crate-lower
+        // twin the old code deleted.
+        std::fs::write(de.join("de_results.tsv"), format!("gene_id\tlog2fc\tpadj\n{data}"))
+            .unwrap();
+        std::fs::write(de.join("de_results.full.tsv"), format!("gene\tlog2fc\tpadj\n{data}"))
+            .unwrap();
+        std::fs::write(
+            dst.join("ro-crate-metadata.json"),
+            r##"{"@graph":[
+              {"@id":"runtime/outputs/differential_expression/de_results.tsv","@type":"File"},
+              {"@id":"runtime/outputs/differential_expression/de_results.full.tsv","@type":"File"},
+              {"@id":"#consume","object":{"@id":"runtime/outputs/differential_expression/de_results.full.tsv"}}
+            ]}"##,
+        )
+        .unwrap();
+        // A claim anchors its source_table to the RO-Crate-lower-ranked twin.
+        std::fs::write(
+            dst.join("runtime/claim-verification.json"),
+            r##"{"claims":[{"claim_id":"c1","source_table":"de_results.tsv"}]}"##,
+        )
+        .unwrap();
+
+        let n = dedup_duplicate_output_tables(dst).expect("dedup ok");
+        assert_eq!(n, 0, "a claim-anchored twin must be kept, not deleted");
+        assert!(
+            de.join("de_results.tsv").exists(),
+            "claim-anchored twin must survive dedup"
+        );
+        assert!(
+            de.join("de_results.full.tsv").exists(),
+            "the RO-Crate-consumed twin is kept"
+        );
     }
 
     #[test]
