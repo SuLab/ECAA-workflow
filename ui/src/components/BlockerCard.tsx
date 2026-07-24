@@ -251,6 +251,8 @@ function titleFor(kind: BlockerKind | null | undefined, isDiscovery: boolean): s
       return 'Executor agent hit turn budget'
     case 'provenance_divergence':
       return `Provenance divergence — ${kind.task_id} read a file outside its declared inputs`
+    case 'ensemble_quorum_not_met':
+      return 'Ensemble below quorum'
   }
   // Exhaustiveness: a new BlockerKind variant in core must extend this
   // switch; `tsc --noEmit` fails if `kind` is not narrowed to `never`.
@@ -478,6 +480,16 @@ function timeExceededSummary(kind: BlockerKind): string {
   return 'The scheduler killed this task for exceeding its wallclock cap. Rerun with a longer time limit.'
 }
 
+function ensembleQuorumSummary(kind: Extract<BlockerKind, { kind: 'ensemble_quorum_not_met' }>): string {
+  const axes = Object.entries(kind.present_per_axis)
+    .map(([axis, n]) => `${axis}=${n ?? 0}`)
+    .join(', ')
+  return (
+    `Too few surviving analyst cells to aggregate: ${axes} (need ${kind.required} per axis). ` +
+    `The distribution was still written — open the Robustness tab to see which cells ran and which were pruned.`
+  )
+}
+
 function buttonLabelFor(
   kind: BlockerKind | null | undefined,
   isDiscovery: boolean,
@@ -589,6 +601,8 @@ function buttonLabelFor(
       return 'Investigate'
     case 'provenance_divergence':
       return 'Review provenance'
+    case 'ensemble_quorum_not_met':
+      return busy ? 'Working…' : 'Review robustness'
   }
   // Exhaustiveness: adding a new BlockerKind variant forces an explicit
   // button-label decision here; `tsc --noEmit` fails otherwise.
@@ -1122,7 +1136,9 @@ export default function BlockerCard({
                                     ? networkPolicyMismatchSummary(blockerKind)
                                     : blockerKind?.kind === 'provisioning_denied'
                                       ? provisioningDeniedSummary(blockerKind)
-                                      : sanitizeForSme(reason)}
+                                      : blockerKind?.kind === 'ensemble_quorum_not_met'
+                                        ? ensembleQuorumSummary(blockerKind)
+                                        : sanitizeForSme(reason)}
             <ExplainButton text={reason} context="blocker reason" />
           </p>
           <p
