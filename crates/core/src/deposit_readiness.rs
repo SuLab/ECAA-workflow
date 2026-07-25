@@ -517,9 +517,27 @@ pub fn scan_provenance_divergence(package_root: &Path) -> ProvenanceDivergenceSu
                 {
                     if let Some(arr) = root.get(RO_CRATE_DIVERGENCE_KEY).and_then(|v| v.as_array()) {
                         for d in arr {
-                            let task_id = d.get("task_id").and_then(|v| v.as_str()).unwrap_or("?");
+                            // Newer crates reference each divergence by `@id` (a
+                            // flattened `@graph` node — RO-Crate/runcrate rejects
+                            // an inline value object with no `@id`); older crates
+                            // inlined the object. Resolve a bare `@id` reference
+                            // to its flattened node so task_id/read_path are read
+                            // from whichever carries them; fall back to `d` for
+                            // the legacy inline shape.
+                            let node = match (
+                                d.get("read_path").is_some(),
+                                d.get("@id").and_then(|v| v.as_str()),
+                            ) {
+                                (false, Some(id)) => graph
+                                    .iter()
+                                    .find(|e| e.get("@id").and_then(|v| v.as_str()) == Some(id))
+                                    .unwrap_or(d),
+                                _ => d,
+                            };
+                            let task_id =
+                                node.get("task_id").and_then(|v| v.as_str()).unwrap_or("?");
                             let read_path =
-                                d.get("read_path").and_then(|v| v.as_str()).unwrap_or("?");
+                                node.get("read_path").and_then(|v| v.as_str()).unwrap_or("?");
                             found.push(format!("{task_id}: undeclared read {read_path}"));
                         }
                     }
@@ -734,14 +752,57 @@ fn find_host_paths(content: &str) -> Vec<(usize, usize, String)> {
     spans
 }
 
+/// The absolute package-root prefixes this deposit's recorded artifacts embed —
+/// read from every task's `determinism-env.json` `pkg_root` field (the
+/// authoritative record of where the package lived at execution time). A host
+/// path AT or UNDER one of these is a SELF-REFERENCE: it points into the
+/// deposit's own tree, which relocates WITH the package on deposit, so it is
+/// NOT external-machine pinning the way a conda prefix, a mount, or a resolved
+/// `.so` path is. Returned sorted+deduped; empty when no `determinism-env.json`
+/// records a `pkg_root`, in which case the scan degrades to reporting every
+/// host path (an honest over-report, never a miss).
+fn recorded_self_reference_roots(package_root: &Path) -> Vec<String> {
+    let mut roots: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    if let Ok(entries) = std::fs::read_dir(package_root.join("runtime/outputs")) {
+        for e in entries.filter_map(|e| e.ok()) {
+            let Ok(raw) = std::fs::read_to_string(e.path().join("determinism-env.json")) else {
+                continue;
+            };
+            let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) else {
+                continue;
+            };
+            if let Some(root) = val.get("pkg_root").and_then(|v| v.as_str()) {
+                let root = root.trim_end_matches('/');
+                if !root.is_empty() && HOST_PATH_ROOTS.iter().any(|r| root.starts_with(r)) {
+                    roots.insert(root.to_string());
+                }
+            }
+        }
+    }
+    roots.into_iter().collect()
+}
+
+/// Whether `path` is a self-reference into one of the deposit's own recorded
+/// roots (the exact root itself or a child under it).
+fn is_self_reference(path: &str, self_roots: &[String]) -> bool {
+    self_roots
+        .iter()
+        .any(|root| path == root || path.starts_with(&format!("{root}/")))
+}
+
 /// DR-8 portability scan over a sealed deposit (or an emitted package root).
 ///
 /// Walks every TEXT artifact (skipping binary blobs by extension, files over
 /// [`PORTABILITY_MAX_FILE_BYTES`], and the manifest-excluded
 /// `DEPOSIT-READINESS.json` itself) and collects two residual signals:
 ///
-/// 1. **Absolute host paths** (`/home/…`, `/Users/…`, `/root/…`) — anything
-///    that pins the deposit to one operator's machine layout.
+/// 1. **External absolute host paths** (`/home/…`, `/Users/…`, `/root/…`) —
+///    anything that pins the deposit to one operator's machine layout.
+///    Self-references to the deposit's OWN recorded root
+///    ([`recorded_self_reference_roots`]) are EXCLUDED: they point into the
+///    package's own tree, which relocates with the deposit, so they are not
+///    external-machine pinning (the bulk of a real deposit's raw host-path
+///    hits — `agent-code.json`, `error.json`, `decisions.jsonl` — are these).
 /// 2. **Bare session id** — the raw (hyphenated) session UUID the deposit's
 ///    `workflow_id` encodes, found ANYWHERE other than inside an
 ///    already-reported host path. The declared identity itself
@@ -766,6 +827,7 @@ fn find_host_paths(content: &str) -> Vec<(usize, usize, String)> {
 pub fn scan_portability(package_root: &Path) -> PortabilitySummary {
     let declared = declared_session_uuid(package_root);
     let sid = declared.as_ref().map(|(hyphenated, _)| hyphenated.as_str());
+    let self_roots = recorded_self_reference_roots(package_root);
 
     let mut host_paths: Vec<String> = Vec::new();
     let mut session_id_leaks: Vec<String> = Vec::new();
@@ -812,6 +874,14 @@ pub fn scan_portability(package_root: &Path) -> PortabilitySummary {
 
             let spans = find_host_paths(&content);
             for (_, _, p) in &spans {
+                // A self-reference into the deposit's OWN recorded root relocates
+                // with the package (see `recorded_self_reference_roots`); only
+                // EXTERNAL host paths are genuine portability residuals. `spans`
+                // is left intact so the session-id leak check below still treats
+                // an excluded path's bytes as a covered host-path span.
+                if is_self_reference(p, &self_roots) {
+                    continue;
+                }
                 host_paths.push(format!("{rel}: {p}"));
             }
 
@@ -2115,6 +2185,52 @@ mod tests {
             !s.session_id_leaks.iter().any(|l| l.starts_with("WORKFLOW.json:")),
             "the declared workflow_id identity must be exempt; got {:?}",
             s.session_id_leaks
+        );
+    }
+
+    /// A host path pointing into the deposit's OWN recorded root (read from
+    /// `determinism-env.json::pkg_root`) is a self-reference that relocates with
+    /// the package — it must NOT be reported as a portability residual, while a
+    /// genuine EXTERNAL host path (a conda-prefix `.so`) still surfaces. This is
+    /// the himes-deposit regression: 96 of 102 raw host-path hits were the
+    /// package's own emit root embedded in `agent-code.json` / `error.json`.
+    #[test]
+    fn scan_portability_excludes_self_reference_keeps_external() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write_workflow_id(root);
+        let own_root = "/home/a/.ecaa-workflow/packages/mypkg";
+        let de_dir = root.join("runtime/outputs/differential_expression");
+        fs::create_dir_all(&de_dir).unwrap();
+        fs::write(
+            de_dir.join("determinism-env.json"),
+            format!("{{\"pkg_root\":\"{own_root}\"}}"),
+        )
+        .unwrap();
+        // Recorded agent code embeds BOTH a self-reference into the package's
+        // own root (relocatable) AND an external conda-prefix `.so` (a genuine,
+        // load-bearing external dependency that must stay flagged).
+        fs::write(
+            de_dir.join("agent-code.json"),
+            format!(
+                "{{\"out\":\"{own_root}/runtime/outputs/differential_expression/view_data/volcano_data.tsv\",\
+                  \"blas\":\"/home/a/miniconda3/envs/bioc/lib/libopenblas.so\"}}"
+            ),
+        )
+        .unwrap();
+
+        let s = scan_portability(root);
+        assert!(
+            !s.host_paths.iter().any(|h| h.contains(own_root)),
+            "self-references into the package's own recorded root must be excluded; got {:?}",
+            s.host_paths
+        );
+        assert!(
+            s.host_paths
+                .iter()
+                .any(|h| h.contains("/home/a/miniconda3/envs/bioc/lib/libopenblas.so")),
+            "an external conda-prefix path must still be flagged; got {:?}",
+            s.host_paths
         );
     }
 

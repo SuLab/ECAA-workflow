@@ -877,6 +877,8 @@ pub fn reconcile_ro_crate_edges_with_allowances(
         // Per-task 0-based index for the `#read-allowance/<task>/<n>`
         // fragment ids; the task loop iterates a BTreeSet so it is stable.
         let mut allowance_n: usize = 0;
+        // Same, for the `#provenance-divergence/<task>/<n>` fragment ids.
+        let mut divergence_n: usize = 0;
         for v in &verdicts {
             match v {
                 ReconVerdict::Match { authoritative_edge } => {
@@ -897,10 +899,13 @@ pub fn reconcile_ro_crate_edges_with_allowances(
                         allowance_n += 1;
                     } else {
                         divergences.push(json!({
+                            "@id": format!("#provenance-divergence/{task_id}/{divergence_n}"),
+                            "@type": ["ecaax:ProvenanceDivergence", "PropertyValue"],
                             "task_id": task_id,
                             "read_path": read_path,
                             "declared_producer": declared_producer,
                         }));
+                        divergence_n += 1;
                         typed_divergences.push(DivergenceRecord {
                             task_id: task_id.to_string(),
                             read_path: read_path.clone(),
@@ -1044,16 +1049,24 @@ pub fn reconcile_ro_crate_edges_with_allowances(
     let allowance_refs = upsert_side_channel_nodes(graph, allowance_nodes);
     let unused_refs = upsert_side_channel_nodes(graph, unused_candidates);
     let port_alias_refs = upsert_side_channel_nodes(graph, port_alias_nodes);
+    // A genuine (allowance-uncovered) divergence is a side-channel node too: a
+    // strict RO-Crate/runcrate validator rejects an inline value object with no
+    // `@id`, so flatten each divergence into `@graph` (it already carries a
+    // deterministic `#provenance-divergence/<task>/<n>` `@id`) and reference it
+    // from the root by `@id`, exactly as the allowance/unused/port-alias
+    // channels do. (Previously the divergences were inlined on the root, which
+    // failed WRROC parseability → substrate_validity.)
+    let divergence_refs = upsert_side_channel_nodes(graph, divergences);
 
     if let Some(root) = graph
         .iter_mut()
         .find(|e| e.get("@id").and_then(Value::as_str) == Some("./"))
     {
         if let Some(obj) = root.as_object_mut() {
-            if !divergences.is_empty() {
+            if !divergence_refs.is_empty() {
                 obj.insert(
                     "ecaax:provenanceDivergence".to_string(),
-                    Value::Array(divergences),
+                    Value::Array(divergence_refs),
                 );
             }
             if !allowance_refs.is_empty() {
@@ -5190,7 +5203,27 @@ loaded via a namespace (and not attached):
         let divergences = root["ecaax:provenanceDivergence"].as_array()
             .expect("divergence array recorded on root Dataset");
         assert_eq!(divergences.len(), 1);
-        assert_eq!(divergences[0]["read_path"], "runtime/outputs/data_acquisition/counts.tsv");
+        // The root references the divergence by `@id` (a flattened `@graph`
+        // node), NOT an inline value object — a strict runcrate/WRROC validator
+        // rejects an inline object with no `@id` (the substrate_validity bug).
+        let div_id = divergences[0]["@id"].as_str().expect("divergence referenced by @id");
+        assert_eq!(div_id, "#provenance-divergence/differential_expression/0");
+        assert!(
+            divergences[0].get("read_path").is_none(),
+            "divergence must be referenced by @id on the root, not inlined"
+        );
+        let div_node = graph
+            .iter()
+            .find(|e| e["@id"] == div_id)
+            .expect("divergence node flattened into @graph with its own @id");
+        assert_eq!(div_node["read_path"], "runtime/outputs/data_acquisition/counts.tsv");
+        assert!(
+            div_node["@type"]
+                .as_array()
+                .map(|a| a.iter().any(|t| t == "ecaax:ProvenanceDivergence"))
+                .unwrap_or(false),
+            "flattened divergence node must be typed ecaax:ProvenanceDivergence"
+        );
 
         // §G-B1 — an UNRESOLVED group (the read matched neither producer)
         // must keep BOTH members as candidates; we never fabricate a
