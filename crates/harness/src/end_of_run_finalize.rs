@@ -538,11 +538,11 @@ pub fn finalize_completed_package(package_root: &Path, config_dir: &Path) {
         }
     }
 
-    // Guarantee the complete significant-entities table is present in the
-    // terminal report before sealing — the reporting agent transcribes it
-    // unreliably. Deterministic + idempotent (rendered from report-data.json);
-    // returns whether a report file changed so the re-seal below covers it.
-    let report_tables_written = ensure_full_significant_tables(package_root);
+    // NOTE: the complete significant-entities table injection
+    // (`ensure_full_significant_tables`) is NOT called here — it runs in the
+    // run-loop exit block on BOTH the standalone and session/web-UI paths
+    // (this function is standalone-only), as the last content step after the
+    // repair pass so nothing strips the injected block.
 
     // Design §5.2 C5 — fold what the run ACTUALLY read back into the emitted
     // RO-Crate's observed-provenance graph. This is the post-exec re-reconcile
@@ -567,7 +567,7 @@ pub fn finalize_completed_package(package_root: &Path, config_dir: &Path) {
     // Single re-seal covering BOTH mutations (ro-crate-metadata.json from the
     // reconcile AND WORKFLOW.json from the divergence block) — both are
     // hashed into the payload manifest on reseal.
-    if reconcile_wrote || blocked_a_task || report_tables_written {
+    if reconcile_wrote || blocked_a_task {
         if let Err(e) = ecaa_workflow_core::emitter::regenerate_bagit_manifest(
             package_root,
             &ecaa_workflow_core::clock::WallClock,
@@ -592,13 +592,32 @@ pub fn ensure_full_significant_tables(package_root: &Path) -> bool {
         ReportData, inject_full_tables, significant_entities_section,
     };
     let outputs = package_root.join("runtime").join("outputs");
-    let Ok(raw) = std::fs::read_to_string(outputs.join("reporting").join("report-data.json")) else {
-        return false;
+    let rd_path = outputs.join("reporting").join("report-data.json");
+    let raw = match std::fs::read_to_string(&rd_path) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::info!(
+                target: "harness-finalize", error = %e,
+                "full-table inject skipped: report-data.json unreadable"
+            );
+            return false;
+        }
     };
-    let Ok(report_data) = serde_json::from_str::<ReportData>(&raw) else {
-        return false;
+    let report_data = match serde_json::from_str::<ReportData>(&raw) {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::warn!(
+                target: "harness-finalize", error = %e,
+                "full-table inject skipped: report-data.json did not deserialize"
+            );
+            return false;
+        }
     };
     let Some(block) = significant_entities_section(&report_data) else {
+        tracing::info!(
+            target: "harness-finalize",
+            "full-table inject skipped: no inlinable significant set"
+        );
         return false;
     };
     let mut modified = false;
@@ -610,8 +629,15 @@ pub fn ensure_full_significant_tables(package_root: &Path) -> bool {
         let updated = inject_full_tables(&text, &block);
         if updated != text {
             let tmp = path.with_extension("md.tmp");
-            if std::fs::write(&tmp, &updated).is_ok() && std::fs::rename(&tmp, &path).is_ok() {
-                modified = true;
+            match std::fs::write(&tmp, &updated).and_then(|_| std::fs::rename(&tmp, &path)) {
+                Ok(()) => {
+                    modified = true;
+                    tracing::info!(target: "harness-finalize", report = %rel, "full-table injected");
+                }
+                Err(e) => tracing::warn!(
+                    target: "harness-finalize", report = %rel, error = %e,
+                    "full-table inject write failed"
+                ),
             }
         }
     }

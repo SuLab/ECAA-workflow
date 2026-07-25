@@ -4660,6 +4660,26 @@ fn run_loop(
                 );
             }
 
+            // Inject the deterministic complete significant-entities table into
+            // the terminal report(s) as the LAST content step — on BOTH run
+            // paths (finalize_completed_package above is standalone-only, so a
+            // session/web-UI run would otherwise never get it), after the repair
+            // pass so nothing strips the injected block. report.md /
+            // final_report.md are manifested files, so re-seal on a change.
+            // Best-effort + idempotent.
+            if ecaa_workflow_harness::end_of_run_finalize::ensure_full_significant_tables(path) {
+                if let Err(e) = ecaa_workflow_core::emitter::regenerate_bagit_manifest(
+                    path,
+                    &ecaa_workflow_core::clock::WallClock,
+                ) {
+                    tracing::warn!(
+                        target: "harness",
+                        error = %e,
+                        "BagIt re-seal after full-table injection failed (continuing)"
+                    );
+                }
+            }
+
             if let Some(ref pc) = progress {
                 pc.execution_finished();
             }
