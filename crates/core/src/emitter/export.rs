@@ -156,6 +156,21 @@ pub(crate) fn classify(rel: &Path) -> DepositTier {
     DepositTier::A
 }
 
+/// Per-task output SUBDIRECTORIES the export drops as regenerable bloat:
+/// `view_data/` (Tier C — the UI-render JSON projection) and `intermediates/`
+/// + `cache/` (Tier E). A recorded compute script may write into one of these
+/// WITHOUT `dir.create` (e.g. `write.table(v, "view_data/volcano_data.tsv")`,
+/// `saveRDS(dds, "intermediates/dds.rds")`), relying on the directory the
+/// harness scaffolded at record time. Because the export drops them,
+/// [`crate::replay::script_runner`]'s `mirror_subdirs` cannot recreate them
+/// from the (filtered) deposit — so the replay recreates this exact set before
+/// running a stage, or the write halts the task and it is spuriously classified
+/// Failed. Kept in lock-step with [`classify`] by a drift test in
+/// `replay::script_runner` (every name here MUST be dropped by the tier gate,
+/// else recreating it would be redundant/misleading).
+pub(crate) const REGENERABLE_TASK_OUTPUT_SUBDIRS: &[&str] =
+    &["intermediates", "view_data", "cache"];
+
 /// Outcome of an [`export_depositable_package`] run.
 pub struct ExportReport {
     /// Number of source files copied into the export (tier A + B).

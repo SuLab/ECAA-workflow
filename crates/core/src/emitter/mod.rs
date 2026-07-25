@@ -152,6 +152,14 @@ pub use export::{
     export_depositable_package, export_depositable_package_with_profile, zip_dir, DepositProfile,
     ExportReport,
 };
+// Crate-internal: the set of per-task output subdirs the deposit export drops,
+// consumed by `replay::script_runner` to scaffold export-dropped subdirs before
+// a re-run.
+pub(crate) use export::REGENERABLE_TASK_OUTPUT_SUBDIRS;
+// The deposit tier gate itself is re-exported only for `script_runner`'s
+// drift test (non-test builds never reach through this alias).
+#[cfg(test)]
+pub(crate) use export::{classify, is_kept};
 use policies::{
     emit_compute_profile_policy, emit_container_spec, emit_gpu_capability_policy,
     emit_intake_facts, emit_memory_discipline_policy, emit_per_atom_runtime_prereqs,

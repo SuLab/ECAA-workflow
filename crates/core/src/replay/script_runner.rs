@@ -289,13 +289,18 @@ fn run_task(
     // behaves as it did on the recorded run. Best-effort; idempotent.
     mirror_subdirs(&pkg.join("runtime/outputs").join(&task.task_id), &scratch_task_dir);
 
-    // The deposit export drops `intermediates/` (Tier E — regenerable bloat),
-    // so mirror_subdirs above cannot recreate it from the package. But agent
-    // scripts commonly write into `intermediates/` (e.g. `saveRDS(dds,
-    // "intermediates/dds.rds")`) without `dir.create`, relying on the dir that
-    // existed at record time. Recreate it so those writes succeed on replay
-    // and the task is not spuriously classified Failed.
-    let _ = std::fs::create_dir_all(scratch_task_dir.join("intermediates"));
+    // The deposit export drops the regenerable per-task output subdirs
+    // (`view_data/` Tier C; `intermediates/` + `cache/` Tier E), so
+    // `mirror_subdirs` above cannot recreate them from a deposit. Agent scripts
+    // commonly write into these WITHOUT `dir.create` (e.g. `saveRDS(dds,
+    // "intermediates/dds.rds")`, `write.table(v, "view_data/volcano_data.tsv")`),
+    // relying on the dir that existed at record time. Recreate the exact set the
+    // export drops so those writes succeed on replay and the task is not
+    // spuriously classified Failed. The set is authored in `emitter::export`
+    // (the drop authority) and pinned in lock-step by a drift test below.
+    for subdir in crate::emitter::REGENERABLE_TASK_OUTPUT_SUBDIRS {
+        let _ = std::fs::create_dir_all(scratch_task_dir.join(subdir));
+    }
 
     let mut task_ok = true;
     let mut task_stderr = String::new();
@@ -580,6 +585,81 @@ mod tests {
             "staged script should contain scratch root; got:\n{}",
             staged_content
         );
+    }
+
+    /// A recorded script that writes into `view_data/` WITHOUT `dir.create`
+    /// must succeed on replay even though the export dropped that Tier-C subdir
+    /// (so it is absent from the deposit `mirror_subdirs` copies from) — the
+    /// regenerable-subdir recreation scaffolds it. Reproduces the himes
+    /// `write.table -> view_data/volcano_data.tsv (No such file)` replay halt.
+    #[test]
+    fn recreates_export_dropped_view_data_subdir_for_script_writes() {
+        let pkg_tmp = tempdir().unwrap();
+        let scratch_tmp = tempdir().unwrap();
+        let pkg = pkg_tmp.path();
+        let scratch = scratch_tmp.path();
+
+        let scripts_dir = pkg.join("runtime/outputs/differential_expression/scripts");
+        std::fs::create_dir_all(&scripts_dir).unwrap();
+        std::fs::write(
+            pkg.join("runtime/outputs/differential_expression/de_results.tsv"),
+            "gene\tpadj\n",
+        )
+        .unwrap();
+        // NOTE: no `view_data/` dir in the package — it is Tier-C-dropped on
+        // export. The script writes into it WITHOUT `mkdir`, exactly like the
+        // recorded himes DESeq2 `write.table(..., "view_data/volcano_data.tsv")`.
+        std::fs::write(
+            scripts_dir.join("01.sh"),
+            "#!/usr/bin/env bash\nset -e\n\
+             echo -n rows > \"$PKG_ROOT/runtime/outputs/differential_expression/view_data/volcano_data.tsv\"\n",
+        )
+        .unwrap();
+
+        let task = ComputeTask {
+            task_id: "differential_expression".to_string(),
+            scripts_dir: scripts_dir.clone(),
+            result_tables: vec!["de_results.tsv".to_string()],
+        };
+        let outcomes = stage_and_run(
+            pkg,
+            scratch,
+            &[task],
+            &[],
+            &shell_env(),
+            "/orig/root",
+            &BTreeMap::new(),
+        )
+        .unwrap();
+        assert!(
+            outcomes[0].ok,
+            "script writing into export-dropped view_data/ must succeed via recreation; stderr: {}",
+            outcomes[0].stderr
+        );
+        assert!(
+            scratch
+                .join("runtime/outputs/differential_expression/view_data/volcano_data.tsv")
+                .exists(),
+            "volcano_data.tsv should have been written into the recreated view_data/"
+        );
+    }
+
+    /// Drift guard: every subdir the replay recreates MUST be one the export
+    /// tier gate actually drops. If a name here became kept, `mirror_subdirs`
+    /// would already recreate it from the deposit and this recreation would be
+    /// dead/misleading — flag it at test time.
+    #[test]
+    fn regenerable_subdirs_are_all_export_dropped() {
+        use crate::emitter::{classify, is_kept, REGENERABLE_TASK_OUTPUT_SUBDIRS};
+        for subdir in REGENERABLE_TASK_OUTPUT_SUBDIRS {
+            let rel = std::path::PathBuf::from(format!(
+                "runtime/outputs/differential_expression/{subdir}/x.tsv"
+            ));
+            assert!(
+                !is_kept(classify(&rel)),
+                "{subdir} must be dropped by the export tier gate (else recreating it on replay is redundant)"
+            );
+        }
     }
 
     #[test]
