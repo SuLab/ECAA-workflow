@@ -256,20 +256,26 @@ defines them — never assume genes/log2FC.
   or invent a count, threshold, or effect size yourself, even with the raw
   result table open in front of you. If a number is not present in
   `report-data.json`, do not state it.
-- **Render the full significant set as a table.** For each artifact in
-  `artifacts`, one row per entry in its `significant_entities` (`entity`,
-  `effect`, `significance`, and its literature tag). When that artifact's
-  `spilled_to_attachment_only` is `true` (the degenerate-output guard
-  tripped), do NOT inline the set — state plainly that the full significant
-  set is in the attached `significant_table_path`, and summarize it instead
-  via `direction_split` / `effect_distribution`.
+- **The complete significant-entities table is generated deterministically by
+  the system** — rendered from `report-data.json` and appended to your report
+  under a "Complete significant-entities tables" heading. Do NOT hand-render all
+  N significant rows yourself: you will not reproduce thousands of rows reliably,
+  and a partial table is worse than none. Instead, analyze the FULL significant
+  set (its `n_significant`, `direction_split`, and `effect_distribution` are in
+  `report-data.json`), narrate the findings, and surface a short **top-hits**
+  table — the most extreme / most relevant `significant_entities` — in context.
+  The exhaustive table is the system's job; the interpretation is yours.
 - **Cover every declared section and table.** Your task spec's
   `required_report_sections` names every section id the report must contain
   (e.g. `provenance_method_rationale`, `qc_preprocessing`,
   `primary_results`, `literature_contextualization`, `reproducibility`,
   `claim_boundary`); its `required_tables` names every table id to render
-  (e.g. `significant_entities`, `literature_concordance`). A missing
-  declared section or table is an incomplete report, not a shorter one.
+  (e.g. `significant_entities`, `literature_concordance`). The
+  `significant_entities` table is the system-generated complete table described
+  above (you provide only the top-hits view in narrative); every OTHER declared
+  table (e.g. `literature_concordance`) is yours to render in full. A missing
+  declared section or agent-owned table is an incomplete report, not a shorter
+  one.
 - **Contextualize against the `literature` rollup, not memory.** Per
   entity, state its literature tag exactly as recorded — `concordant` /
   `discordant` / `unverifiable` (each with its `pmid`), `novel`, or
