@@ -165,6 +165,28 @@ pub fn synthesize_discover_companions(
 
         let mut discover_node =
             TaskNode::synthesize_discover(&discover_id, &axis, &options, &node.id);
+        // Discover (method-selection) stages survey the analysis landscape: the
+        // agent reads sibling stages' recorded decisions/results for method
+        // coherence (e.g. `discover_normalisation` reading
+        // `discover_differential_expression/decision.json` to align the
+        // normalization method with the chosen DE method). That cross-stage read
+        // set is DAG-shape/archetype dependent — not statically enumerable as
+        // fixed input ports — so sanction it with a broad `read_allowance`
+        // (mirrors `report_data_synthesis` and the `final_reporting` atom),
+        // keeping observed-provenance reconciliation from flagging a legitimate
+        // coordination read as an undeclared divergence.
+        discover_node.attributes.insert(
+            "read_allowance".into(),
+            serde_json::to_value(vec![crate::atom::ReadAllowance {
+                scope: crate::atom::ReadAllowanceScope::AnyUpstreamStage,
+                rationale: "discover_* method-selection stages survey the analysis landscape, \
+                            reading sibling stages' recorded decisions/results for method \
+                            coherence; that cross-stage read set is DAG-shape dependent, not a \
+                            fixed input port."
+                    .into(),
+            }])
+            .unwrap_or(serde_json::Value::Null),
+        );
         // Stamp the atom-id back-reference so `lower_to_workflow_json`
         // can populate `Task.source_atom_id` for per-task image
         // selection, safety enforcement, and plot-affordance lookup.
@@ -1413,5 +1435,40 @@ mod tests {
                 task.spec
             );
         }
+    }
+
+    #[test]
+    fn synthesized_discover_stamps_read_allowance_for_landscape_survey() {
+        // discover_* method-selection stages survey sibling stages' recorded
+        // decisions/results for method coherence; that cross-stage read set is
+        // DAG-shape dependent, so each carries a broad `read_allowance`. Without
+        // it, observed-provenance reconciliation flags those legitimate reads as
+        // undeclared divergences — the himes `discover_normalisation` regression
+        // (it read `discover_differential_expression/decision.json`).
+        let reg = real_registry();
+        let mut dag = dag_with(vec![TaskNode::skeleton("alignment", "test")]);
+        synthesize_discover_companions(
+            &mut dag,
+            &reg,
+            &crate::preferred_methods::PreferredMethods::new(),
+            None,
+        );
+        let disc = dag
+            .nodes
+            .iter()
+            .find(|n| n.id == "discover_alignment")
+            .expect("discover_alignment synthesized");
+        let allowances: Vec<crate::atom::ReadAllowance> = serde_json::from_value(
+            disc.attributes
+                .get("read_allowance")
+                .cloned()
+                .expect("discover companion must stamp a read_allowance"),
+        )
+        .expect("read_allowance attribute deserializes to Vec<ReadAllowance>");
+        assert_eq!(allowances.len(), 1);
+        assert_eq!(
+            allowances[0].scope,
+            crate::atom::ReadAllowanceScope::AnyUpstreamStage
+        );
     }
 }
