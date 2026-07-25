@@ -538,6 +538,12 @@ pub fn finalize_completed_package(package_root: &Path, config_dir: &Path) {
         }
     }
 
+    // Guarantee the complete significant-entities table is present in the
+    // terminal report before sealing — the reporting agent transcribes it
+    // unreliably. Deterministic + idempotent (rendered from report-data.json);
+    // returns whether a report file changed so the re-seal below covers it.
+    let report_tables_written = ensure_full_significant_tables(package_root);
+
     // Design §5.2 C5 — fold what the run ACTUALLY read back into the emitted
     // RO-Crate's observed-provenance graph. This is the post-exec re-reconcile
     // the conversation emit path cannot do (it runs the same reconcile only at
@@ -561,7 +567,7 @@ pub fn finalize_completed_package(package_root: &Path, config_dir: &Path) {
     // Single re-seal covering BOTH mutations (ro-crate-metadata.json from the
     // reconcile AND WORKFLOW.json from the divergence block) — both are
     // hashed into the payload manifest on reseal.
-    if reconcile_wrote || blocked_a_task {
+    if reconcile_wrote || blocked_a_task || report_tables_written {
         if let Err(e) = ecaa_workflow_core::emitter::regenerate_bagit_manifest(
             package_root,
             &ecaa_workflow_core::clock::WallClock,
@@ -573,6 +579,43 @@ pub fn finalize_completed_package(package_root: &Path, config_dir: &Path) {
             );
         }
     }
+}
+
+/// Inject the deterministic complete significant-entities table (rendered from
+/// `report-data.json`) into the terminal report(s), so the exhaustive table is
+/// guaranteed present regardless of what the reporting agent hand-rendered.
+/// Returns `true` iff a report file was modified (so the caller re-seals the
+/// BagIt manifest). Idempotent and best-effort: a missing/unparseable
+/// `report-data.json`, or nothing inlinable to render, is a silent no-op.
+pub fn ensure_full_significant_tables(package_root: &Path) -> bool {
+    use ecaa_workflow_core::report_contract::{
+        ReportData, inject_full_tables, significant_entities_section,
+    };
+    let outputs = package_root.join("runtime").join("outputs");
+    let Ok(raw) = std::fs::read_to_string(outputs.join("reporting").join("report-data.json")) else {
+        return false;
+    };
+    let Ok(report_data) = serde_json::from_str::<ReportData>(&raw) else {
+        return false;
+    };
+    let Some(block) = significant_entities_section(&report_data) else {
+        return false;
+    };
+    let mut modified = false;
+    for rel in ["final_reporting/final_report.md", "reporting/report.md"] {
+        let path = outputs.join(rel);
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let updated = inject_full_tables(&text, &block);
+        if updated != text {
+            let tmp = path.with_extension("md.tmp");
+            if std::fs::write(&tmp, &updated).is_ok() && std::fs::rename(&tmp, &path).is_ok() {
+                modified = true;
+            }
+        }
+    }
+    modified
 }
 
 /// Marker prefix the STANDALONE finalize path writes into a re-blocked
@@ -1886,5 +1929,75 @@ mod tests {
             std::path::PathBuf::from("/some/explicit/config")
         );
         std::env::remove_var("ECAA_CONFIG_DIR");
+    }
+
+    // -----------------------------------------------------------------------
+    // ensure_full_significant_tables — deterministic complete-table injection
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn ensure_full_tables_makes_a_truncated_report_pass_rc_table() {
+        use ecaa_workflow_core::reporting_invariants::check_reporting_invariants;
+        let tmp = tempfile::TempDir::new().unwrap();
+        let outputs = tmp.path().join("runtime").join("outputs");
+        std::fs::create_dir_all(outputs.join("reporting")).unwrap();
+        std::fs::create_dir_all(outputs.join("final_reporting")).unwrap();
+
+        // report-data.json: 3 significant entities, not spilled.
+        let rd = serde_json::json!({
+            "artifacts": [{
+                "stage_id": "differential_expression", "artifact": "de_results.tsv",
+                "n_total": 100, "n_significant": 3, "direction_split": null,
+                "effect_distribution": null,
+                "significant_entities": [
+                    {"entity":"ENSG_A","effect":1.0,"significance":0.001,"literature":{"status":"novel"}},
+                    {"entity":"ENSG_B","effect":-2.0,"significance":0.0004,"literature":{"status":"novel"}},
+                    {"entity":"ENSG_C","effect":0.5,"significance":0.02,"literature":{"status":"novel"}}
+                ],
+                "significant_table_path":"runtime/outputs/differential_expression/de_results.significant.tsv",
+                "full_table_path":"runtime/outputs/differential_expression/de_results.full.tsv",
+                "spilled_to_attachment_only": false
+            }],
+            "literature": null
+        });
+        std::fs::write(outputs.join("reporting/report-data.json"), rd.to_string()).unwrap();
+        // Terminal report renders only ONE of the three (the agent-truncation bug).
+        std::fs::write(
+            outputs.join("final_reporting/final_report.md"),
+            "# Final\n## Primary Results\n| ENSG_A |\n",
+        )
+        .unwrap();
+
+        // Precondition: RC-TABLE fails on the truncated report.
+        let before = check_reporting_invariants(tmp.path());
+        assert!(
+            before
+                .required_failures()
+                .iter()
+                .any(|f| f.contains("RC-TABLE")),
+            "precondition: truncated report must fail RC-TABLE: {before:?}"
+        );
+
+        let modified = ensure_full_significant_tables(tmp.path());
+        assert!(modified, "the truncated report must have been rewritten");
+
+        // After: every entity present → RC-TABLE passes.
+        let after = check_reporting_invariants(tmp.path());
+        assert!(
+            !after
+                .required_failures()
+                .iter()
+                .any(|f| f.contains("RC-TABLE")),
+            "after ensure_full_significant_tables the terminal report must satisfy RC-TABLE: {after:?}"
+        );
+        let text =
+            std::fs::read_to_string(outputs.join("final_reporting/final_report.md")).unwrap();
+        for e in ["ENSG_A", "ENSG_B", "ENSG_C"] {
+            assert!(text.contains(e), "entity {e} must be in the rewritten report");
+        }
+
+        // Idempotent: a second pass makes no change.
+        let again = ensure_full_significant_tables(tmp.path());
+        assert!(!again, "re-running on an already-injected report is a no-op");
     }
 }
