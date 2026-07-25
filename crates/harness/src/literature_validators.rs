@@ -1794,7 +1794,15 @@ fn is_unresolved_gene_symbol(s: &str) -> bool {
     t.is_empty()
         || matches!(
             t.to_ascii_lowercase().as_str(),
+            // NA-family sentinels (org.Hs.eg.db / pandas) …
             "na" | "n/a" | "nan" | "null" | "none" | "-" | "." | "?"
+            // … and word-form "no symbol resolved" placeholders that other
+            // annotation steps write (none is a real HGNC symbol). Without
+            // these, every `UNRESOLVED` locus collapses to the first
+            // `UNRESOLVED → Ensembl` binding and false-flags as a cross-gene
+            // wrong-binding (the himes 242-`UNRESOLVED`-vs-ENSG00000002079
+            // domain-validation failure).
+            | "unresolved" | "unmapped" | "unknown" | "unassigned"
         )
 }
 
@@ -2745,6 +2753,23 @@ mod tests {
 
     fn write(p: &Path, s: &str) {
         fs::write(p, s).unwrap();
+    }
+
+    #[test]
+    fn unresolved_word_markers_are_recognized_as_unresolved_symbols() {
+        // NA-family sentinels (existing coverage).
+        for s in ["NA", "n/a", "NaN", "null", "None", "-", ".", "?", "", "  "] {
+            assert!(is_unresolved_gene_symbol(s), "{s:?} must read as unresolved");
+        }
+        // Word-form "no symbol resolved" placeholders — the class that regressed
+        // himes (`UNRESOLVED` → false cross-gene wrong-binding). Case-insensitive.
+        for s in ["UNRESOLVED", "unresolved", "Unmapped", "UNKNOWN", "unassigned"] {
+            assert!(is_unresolved_gene_symbol(s), "{s:?} must read as unresolved");
+        }
+        // Real gene symbols are NOT treated as unresolved.
+        for s in ["CRISPLD2", "TP53", "MYH16", "DUSP1"] {
+            assert!(!is_unresolved_gene_symbol(s), "{s:?} is a real symbol");
+        }
     }
 
     #[test]

@@ -161,3 +161,38 @@ fn unresolved_na_symbols_are_skipped_not_false_flagged() {
     );
     assert!(summary.required_failures.is_empty());
 }
+
+/// The word-form `UNRESOLVED` marker (what this pipeline's symbol-resolution
+/// step writes, vs `NA`) is the SAME unresolved class and must also be skipped.
+/// Reproduces the himes 65bd1197 failure: 242 `UNRESOLVED` loci all mismatched
+/// the first `UNRESOLVED → ENSG00000002079` binding in the truth map.
+#[test]
+fn unresolved_word_marker_symbols_are_skipped_not_false_flagged() {
+    let dir = TempDir::new().unwrap();
+    scaffold(
+        dir.path(),
+        "symbol\tgene_id\tstat\n\
+         UNRESOLVED\tENSG00000002079\t3.0\n\
+         UNRESOLVED\tENSG00000006114\t-2.0\n\
+         UNRESOLVED\tENSG00000056661\t-1.0\n\
+         CRISPLD2\tENSG00000103196\t16.7\n",
+        "finding_id,gene_symbol\n\
+         ENSG00000006114,UNRESOLVED\n\
+         ENSG00000056661,UNRESOLVED\n\
+         ENSG00000103196,CRISPLD2\n",
+    );
+
+    assert!(
+        matches!(
+            gene_symbol_ensembl_consistent(dir.path()),
+            ValidatorOutcome::Passed
+        ),
+        "UNRESOLVED-symbol rows must be skipped, not flagged as wrong-bindings"
+    );
+    let summary = scan_domain_validation(dir.path());
+    assert!(
+        summary.passed(),
+        "UNRESOLVED-symbol rows must not fail the domain rollup: {summary:?}"
+    );
+    assert!(summary.required_failures.is_empty());
+}
