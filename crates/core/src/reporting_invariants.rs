@@ -933,13 +933,33 @@ fn heading_level(line: &str) -> Option<usize> {
 /// natural heading like `## Provenance & Method-Selection Rationale` satisfy
 /// `provenance_method_rationale` (intervening words / punctuation are fine),
 /// which the old consecutive-words regex false-blocked.
+/// UNIVERSAL (domain-agnostic) spelled-out forms of an abbreviated section-id
+/// token, so a natural report heading that EXPANDS the abbreviation still
+/// satisfies the requirement. A token matches a heading if the heading contains
+/// the token itself OR any form returned here. Deliberately tiny and universal
+/// — NOT a per-modality heading vocabulary: `qc` is the one cross-domain
+/// abbreviation ECAA's section ids use for a term reports spell out (a
+/// `qc_preprocessing` section titled "Quality Control and Preprocessing").
+fn section_word_aliases(word: &str) -> &'static [&'static str] {
+    match word {
+        "qc" => &["quality control", "quality-control"],
+        _ => &[],
+    }
+}
+
 fn heading_matches_section(line: &str, words: &[String]) -> bool {
     let trimmed = line.trim_start();
     if !trimmed.starts_with('#') {
         return false;
     }
     let lc = trimmed.to_lowercase();
-    words.iter().all(|w| lc.contains(w.as_str()))
+    // Each id-word must be present, either verbatim or via a universal
+    // spelled-out alias. Keeping the "ALL words present" requirement preserves
+    // the strictness that stops an unrelated heading from anchoring a section;
+    // aliases only bridge abbreviation ↔ expansion, never widen the match.
+    words
+        .iter()
+        .all(|w| lc.contains(w.as_str()) || section_word_aliases(w).iter().any(|a| lc.contains(a)))
 }
 
 /// Whether required section `id` is present as a matching markdown HEADING in
@@ -1988,6 +2008,27 @@ mod tests {
                 "qc_preprocessing"
             ),
             Some(true)
+        );
+    }
+
+    #[test]
+    fn rc_sections_matches_spelled_out_qc_abbreviation() {
+        // The reporting agent commonly titles the section "Quality Control and
+        // Preprocessing" (spelling out QC) rather than "QC Preprocessing". The
+        // `qc` id-token must match its universal spelled-out alias so a complete
+        // report is not false-flagged as missing the `qc_preprocessing` section
+        // (the himes deposit regression).
+        assert_eq!(
+            section_has_content(
+                "## Quality Control and Preprocessing\n\n### Count Matrix\n\n63k genes.\n",
+                "qc_preprocessing"
+            ),
+            Some(true)
+        );
+        // A heading that mentions neither "qc" nor "quality control" still fails.
+        assert_eq!(
+            section_has_content("## Preprocessing Notes\n\ntrimming.\n", "qc_preprocessing"),
+            None
         );
     }
 
