@@ -12,8 +12,12 @@ pub mod report_data;
 pub mod result_schema;
 
 pub mod assemble;
+pub mod full_table;
 
 pub use assemble::{CONTEXTUALIZE_STAGE_ID, assemble_report_data};
+pub use full_table::{
+    FULL_TABLE_END, FULL_TABLE_START, inject_full_tables, significant_entities_section,
+};
 pub use report_data::{
     ArtifactStats, DirectionSplit, DistBin, EntityRow, GroupCount, LitFinding, LiteratureRollup,
     LiteratureStatus, NonReplication, PolicyColumnSynonyms, ReportData, ResultArtifactSummary,
