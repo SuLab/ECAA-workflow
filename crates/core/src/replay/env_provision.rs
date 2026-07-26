@@ -321,6 +321,14 @@ fn build_install_command(image: &str, lock: &Path, env_target: &Path) -> Vec<Str
     args.push(target_s);
     args.push("--file".to_string());
     args.push(lock_s);
+    // Name the environment format explicitly. conda 26.x removed format
+    // auto-detection for a `--file` install (`EnvironmentSpecPluginNotDetected:
+    // Unable to detect the environment format … add --env-spec`); env.explicit.lock
+    // is always the `explicit` format (`@EXPLICIT` + pinned URL+md5 package
+    // lines), so name it. `--environment-specifier` is the non-deprecated spelling
+    // (the shorter `--env-spec` alias is pending deprecation).
+    args.push("--environment-specifier".to_string());
+    args.push("explicit".to_string());
     args
 }
 
@@ -1202,6 +1210,11 @@ mod tests {
         assert!(
             joined.contains(&format!("conda create -y -p {} --file {}", target.display(), lock.display())),
             "must be a pinned conda create from the lock; got: {joined}"
+        );
+        assert!(
+            argv.windows(2)
+                .any(|w| w[0] == "--environment-specifier" && w[1] == "explicit"),
+            "must name the explicit env format (conda 26.x dropped --file auto-detection); got: {joined}"
         );
         // Network is NOT disabled for the install step (it must fetch packages).
         assert!(!joined.contains("--network none"), "install step must reach registries; got: {joined}");
