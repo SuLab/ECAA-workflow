@@ -548,6 +548,17 @@ function headline(decision: DecisionType): string {
       return decision.removed
         ? `removed validation bound ${decision.bound_id} on ${decision.stage_class}`
         : `set validation bound ${decision.bound_id} on ${decision.stage_class}`
+    case 'data_source_deviation': {
+      // Read the availability of the REQUESTED source out loud: a forced
+      // fallback and a discretionary swap are different provenance events,
+      // and the SME needs to see which one happened.
+      const d = decision.deviation
+      const version = d.used_version ? ` v${d.used_version}` : ''
+      const availability = d.requested_available
+        ? 'was reachable'
+        : 'was NOT reachable'
+      return `substituted the data source on ${decision.task_id}: requested ${d.requested} (${availability}) → used ${d.used}${version} [${d.used_kind}]`
+    }
   }
   // Exhaustiveness: tsc fails when a new DecisionType variant is added
   // upstream and lands in ui/src/types/DecisionType.ts via `make types`.
