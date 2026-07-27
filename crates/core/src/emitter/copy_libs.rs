@@ -68,6 +68,49 @@ pub(super) fn copy_r_plotting_library(package_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Copy the shared literature-contextualization library at
+/// `lib/literature/` into `runtime/literature/` inside the emitted
+/// package, so the contextualization atom can invoke
+/// `python3 -m runtime.literature` instead of an agent hand-writing
+/// per-run evidence constants. Mirrors [`copy_plotting_library`];
+/// soft-skips when the source tree isn't present.
+pub(super) fn copy_literature_library(package_dir: &Path) -> Result<()> {
+    let Some(src) = locate_literature_library_src() else {
+        return Ok(());
+    };
+    let dest_parent = package_dir.join("runtime");
+    std::fs::create_dir_all(&dest_parent).context("creating runtime dir")?;
+    let dest = dest_parent.join("literature");
+    if dest.exists() {
+        std::fs::remove_dir_all(&dest)
+            .with_context(|| format!("removing stale literature dir at {}", dest.display()))?;
+    }
+    copy_dir_recursive(&src, &dest)
+        .with_context(|| format!("copying {} to {}", src.display(), dest.display()))?;
+    Ok(())
+}
+
+/// Locate `lib/literature/` by honoring `ECAA_LITERATURE_LIB` first, then
+/// walking up from CWD until a `lib/literature/contextualize.py` is found.
+pub(super) fn locate_literature_library_src() -> Option<std::path::PathBuf> {
+    if let Ok(override_path) = std::env::var("ECAA_LITERATURE_LIB") {
+        let p = std::path::PathBuf::from(override_path);
+        if p.join("contextualize.py").exists() {
+            return Some(p);
+        }
+    }
+    let cwd = std::env::current_dir().ok()?;
+    let mut cursor: Option<&Path> = Some(cwd.as_path());
+    while let Some(dir) = cursor {
+        let candidate = dir.join("lib").join("literature");
+        if candidate.join("contextualize.py").exists() {
+            return Some(candidate);
+        }
+        cursor = dir.parent();
+    }
+    None
+}
+
 pub(super) fn locate_r_plotting_library_src() -> Option<std::path::PathBuf> {
     if let Ok(override_path) = std::env::var("ECAA_PLOTTING_R_LIB") {
         let p = std::path::PathBuf::from(override_path);

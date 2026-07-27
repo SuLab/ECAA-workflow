@@ -15,16 +15,21 @@
 //! produce the same finalized package a session-backed run produces
 //! incrementally.
 
-use crate::claim_extractor::{extract_claims, extract_markdown_table_claims, ExtractorConfig};
+use crate::claim_contract::ClaimContract;
+use crate::claim_extractor::{
+    claim_dedupe_key, extract_claims, extract_markdown_table_claims, resolve_result_table_columns,
+    Claim, Direction, ExtractorConfig,
+};
 use crate::claim_verifier::{
-    demote_claims_from_deviations, verify_claims_with_discovery, verify_narrative_counts,
-    verify_structured_claims,
-    ClaimVerificationReport, StructuredClaim,
+    demote_claims_from_deviations, verdict_class_of, verify_claims_with_discovery,
+    verify_narrative_counts, verify_structured_claims, ClaimStatus, ClaimStrength, ClaimVerdict,
+    ClaimVerificationReport, StructuredClaim, VerdictAudit, VerdictClass, CLAIM_VERIFIER_VERSION,
 };
 use crate::clock::WallClock;
 use crate::coverage::CoverageResult;
 use crate::decision_log::DecisionRecord;
 use crate::project_class::ProjectClass;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// Result of running verification for a single task.
@@ -65,6 +70,533 @@ impl VerifyOutcome {
     }
 }
 
+/// The narrative-derived claim set of ONE task: prose claims plus
+/// markdown-table row claims, in document order. One source of truth so the
+/// cross-task ledger prepass and the verification pass extract IDENTICALLY —
+/// a drift between the two would silently un-dedupe or drop claims.
+fn narrative_claims_from_text(narrative: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
+    let mut claims = extract_claims(narrative, cfg);
+    claims.extend(extract_markdown_table_claims(narrative, cfg));
+    claims
+}
+
+/// Read a task's narrative artifact, when it wrote one.
+fn read_task_narrative(package_root: &Path, task_id: &str) -> Option<String> {
+    let path = find_narrative_artifact(package_root, task_id)?;
+    std::fs::read_to_string(path).ok()
+}
+
+/// Which task OWNS each distinct narrative assertion in a package, and which
+/// other tasks repeat it.
+///
+/// A `final_reporting` narrative typically restates the `reporting` narrative
+/// (in production: 4,089 identical claim texts, 0 unique to either), so
+/// verifying both yields two verdicts per assertion — inflating `n_checked`
+/// with no added signal and double-counting every row of a copied table. The
+/// ledger assigns each `(normalized_text, contract)` key to the FIRST task that
+/// asserts it (deterministic task order) and records the full asserter list, so
+/// downstream verification emits ONE verdict per assertion while still stating
+/// which tasks made it.
+///
+/// Dedupe is strictly ACROSS tasks: within a single task every claim is kept,
+/// so several entities extracted from one sentence, and a sentence repeated in
+/// two places of the same report, remain independently verifiable.
+#[derive(Debug, Default)]
+pub struct CrossTaskClaimLedger {
+    entries: BTreeMap<(String, &'static str), LedgerEntry>,
+}
+
+#[derive(Debug)]
+struct LedgerEntry {
+    owner: String,
+    asserters: Vec<String>,
+}
+
+impl CrossTaskClaimLedger {
+    /// Build the ledger by extracting every listed task's narrative claims in
+    /// the given order. `task_ids` must be in a deterministic order (the
+    /// caller's `WORKFLOW.json` key order) — ownership is first-seen-wins, so
+    /// the order decides which task's verdict survives.
+    pub fn build(package_root: &Path, task_ids: &[String], cfg: &ExtractorConfig) -> Self {
+        let mut ledger = Self::default();
+        for task_id in task_ids {
+            let Some(narrative) = read_task_narrative(package_root, task_id) else {
+                continue;
+            };
+            for claim in narrative_claims_from_text(&narrative, cfg) {
+                let key = claim_dedupe_key(&claim);
+                let entry = ledger.entries.entry(key).or_insert_with(|| LedgerEntry {
+                    owner: task_id.clone(),
+                    asserters: Vec::new(),
+                });
+                if entry.asserters.last().map(String::as_str) != Some(task_id.as_str()) {
+                    entry.asserters.push(task_id.clone());
+                }
+            }
+        }
+        ledger
+    }
+
+    /// `true` when `task_id` is the owner of this claim's assertion (or the
+    /// assertion is unknown to the ledger, which keeps the claim rather than
+    /// silently dropping it).
+    pub fn owns(&self, task_id: &str, claim: &Claim) -> bool {
+        match self.entries.get(&claim_dedupe_key(claim)) {
+            Some(entry) => entry.owner == task_id,
+            None => true,
+        }
+    }
+
+    /// The OTHER tasks that asserted this claim verbatim, in first-seen order.
+    pub fn co_asserters(&self, task_id: &str, claim: &Claim) -> Vec<String> {
+        self.entries
+            .get(&claim_dedupe_key(claim))
+            .map(|entry| {
+                entry
+                    .asserters
+                    .iter()
+                    .filter(|t| t.as_str() != task_id)
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Number of distinct assertions recorded.
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// `true` when no assertion was recorded.
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+}
+
+/// Record on a verdict that the SAME assertion was made verbatim by other
+/// tasks, so collapsing the duplicates to one verdict stays auditable. Appends
+/// to the audit rationale (creating a class-only audit when the verifier
+/// produced none) rather than adding a field to the wire-facing verdict type.
+fn note_shared_assertion(verdict: &mut ClaimVerdict, others: &[String]) {
+    if others.is_empty() {
+        return;
+    }
+    let note = format!("also asserted verbatim by task(s): {}", others.join(", "));
+    if verdict.audit.is_none() {
+        let entity = verdict.claim.entity.trim().to_string();
+        let class = verdict_class_of(&verdict.claim);
+        verdict.audit = Some(VerdictAudit {
+            class,
+            source_table: None,
+            entity_column: None,
+            entity_value: (!entity.is_empty()).then_some(entity),
+            measurement_column: None,
+            claimed_value: None,
+            observed_value: None,
+            comparison_operator: None,
+            absolute_tolerance: None,
+            relative_tolerance: None,
+            unit_conversion: None,
+            verifier_version: CLAIM_VERIFIER_VERSION.to_string(),
+            rationale: None,
+            parse_coverage: 1.0,
+        });
+    }
+    let Some(audit) = verdict.audit.as_mut() else {
+        return;
+    };
+    audit.rationale = Some(match audit.rationale.take() {
+        Some(existing) if !existing.is_empty() => format!("{existing}; {note}"),
+        _ => note,
+    });
+}
+
+/// Absolute-tolerance FLOOR for the `report-data.json` → source-artifact
+/// transcription check. Both sides parse the same decimal text, so agreement is
+/// equality up to float round-trip; the floor plus
+/// [`REPORT_DATA_TRANSCRIPTION_RELATIVE`] only absorbs a re-render at lower
+/// precision, never an order-of-magnitude error.
+const REPORT_DATA_TRANSCRIPTION_TOLERANCE: f64 = 1e-12;
+/// Relative component of the transcription tolerance, so a legitimately tiny
+/// significance value is not compared against an absolute floor that swamps it.
+const REPORT_DATA_TRANSCRIPTION_RELATIVE: f64 = 1e-9;
+
+/// One cell-level comparison inside a report-data-derived verdict.
+struct CellCheck {
+    column: String,
+    claimed: f64,
+    observed: Option<f64>,
+    tolerance: f64,
+}
+
+impl CellCheck {
+    fn agrees(&self) -> Option<bool> {
+        self.observed
+            .map(|obs| (self.claimed - obs).abs() <= self.tolerance)
+    }
+}
+
+/// Render a number for a human-readable trace excerpt: scientific for tiny
+/// magnitudes (a significance value's full decimal expansion is unreadable),
+/// plain otherwise. Locale-independent and byte-stable.
+fn fmt_trace_number(v: f64) -> String {
+    if v != 0.0 && v.abs() < 1e-4 {
+        format!("{v:e}")
+    } else {
+        format!("{v}")
+    }
+}
+
+/// The CANONICAL claim set over a package's significant entities, derived
+/// straight from `report-data.json` and checked cell-by-cell against the
+/// agent's ORIGINAL result artifact.
+///
+/// Why this exists: the terminal reports carry a marker-delimited block that is
+/// RENDERED from `report-data.json`, so mining its rows as claims and checking
+/// them against that same data is circular (the extractor now skips the block —
+/// see `claim_extractor::strip_system_generated_blocks`). The non-circular
+/// check is the one made here: `report-data.json` asserts a value; the source
+/// artifact the assembler read is the evidence. Each verdict therefore carries
+/// a full cell-level trace — `source_table`, `entity_column`,
+/// `measurement_column`, `claimed_value`, `observed_value`,
+/// `comparison_operator`, `absolute_tolerance`.
+///
+/// Emitted by exactly ONE task per package: the task whose runtime directory
+/// holds `report-data.json` (the assembler's output). Every other task returns
+/// an empty vec, so the canonical set is never duplicated across the reporting
+/// and final-reporting stages.
+///
+/// Modality-agnostic: the entity / effect / significance columns are resolved
+/// by [`resolve_result_table_columns`] from the artifact's own headers plus the
+/// policy's configured columns — no domain column name appears here.
+///
+/// Abstain-first: when NONE of an artifact's significant entities resolve to a
+/// row, the artifact is skipped entirely (the assembler keyed on a different
+/// identifier form — an id-shape difference, not a fabrication), and an
+/// individual unresolved entity is `Unverifiable`, never `Mismatch`.
+fn report_data_cell_verdicts(
+    package_root: &Path,
+    task_id: &str,
+    cfg: &ExtractorConfig,
+) -> Vec<ClaimVerdict> {
+    let Some(dir) = resolve_task_runtime_dir_local(package_root, task_id) else {
+        return Vec::new();
+    };
+    let rd_path = dir.join("report-data.json");
+    if !rd_path.is_file() {
+        return Vec::new();
+    }
+    let Ok(raw) = std::fs::read_to_string(&rd_path) else {
+        return Vec::new();
+    };
+    let report_data: crate::report_contract::ReportData = match serde_json::from_str(&raw) {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::warn!(
+                target: "ecaa::finalize",
+                error = %e,
+                task_id,
+                "report-data.json did not deserialize — canonical claim set skipped"
+            );
+            return Vec::new();
+        }
+    };
+
+    let mut out: Vec<ClaimVerdict> = Vec::new();
+    for artifact in &report_data.artifacts {
+        if artifact.spilled_to_attachment_only || artifact.significant_entities.is_empty() {
+            continue;
+        }
+        let table_rel = format!(
+            "runtime/outputs/{}/{}",
+            artifact.stage_id, artifact.artifact
+        );
+        let Some(table) = SourceArtifactIndex::load(&package_root.join(&table_rel), cfg) else {
+            continue;
+        };
+        // Abstain wholesale when the assembler's entity ids do not live in the
+        // column we resolved: emitting one Mismatch per entity there would be a
+        // mass false positive over an identifier-form difference.
+        let any_resolved = artifact
+            .significant_entities
+            .iter()
+            .any(|row| table.get(&row.entity).is_some());
+        if !any_resolved {
+            tracing::warn!(
+                target: "ecaa::finalize",
+                stage_id = %artifact.stage_id,
+                table = %table_rel,
+                entity_column = %table.entity_column,
+                "no report-data entity resolves in the source artifact — canonical claim set \
+                 skipped for this artifact"
+            );
+            continue;
+        }
+
+        for entity_row in &artifact.significant_entities {
+            out.push(report_data_verdict(
+                &artifact.stage_id,
+                &table_rel,
+                &table,
+                entity_row,
+                cfg,
+            ));
+        }
+    }
+    out
+}
+
+/// A source result artifact indexed by entity for cell lookup, with the
+/// column roles resolved from its own headers.
+struct SourceArtifactIndex {
+    entity_column: String,
+    effect_column: Option<String>,
+    significance_column: Option<String>,
+    /// normalized entity -> (effect cell, significance cell). First row wins on
+    /// a duplicate key, matching the verifier's by-entity lookup semantics.
+    rows: BTreeMap<String, (Option<f64>, Option<f64>)>,
+}
+
+impl SourceArtifactIndex {
+    fn normalize(entity: &str) -> String {
+        entity.trim().to_lowercase()
+    }
+
+    fn get(&self, entity: &str) -> Option<&(Option<f64>, Option<f64>)> {
+        self.rows.get(&Self::normalize(entity))
+    }
+
+    /// Load `path`, resolving its entity / effect / significance columns.
+    /// `None` when the file is unreadable or exposes no recognizable entity
+    /// column (i.e. it is not a result table).
+    fn load(path: &Path, cfg: &ExtractorConfig) -> Option<Self> {
+        let raw = std::fs::read(path).ok()?;
+        let delimiter = crate::report_contract::assemble::delimiter_for(path);
+        let mut reader = csv::ReaderBuilder::new()
+            .delimiter(delimiter)
+            .has_headers(true)
+            .flexible(true)
+            .from_reader(&raw[..]);
+        let headers: Vec<String> = reader.headers().ok()?.iter().map(str::to_string).collect();
+        let cols = resolve_result_table_columns(&headers, cfg)?;
+        let entity_idx = headers.iter().position(|h| *h == cols.entity)?;
+        let effect_idx = cols
+            .effect
+            .as_ref()
+            .and_then(|name| headers.iter().position(|h| h == name));
+        let significance_idx = cols
+            .significance
+            .as_ref()
+            .and_then(|name| headers.iter().position(|h| h == name));
+
+        let mut rows: BTreeMap<String, (Option<f64>, Option<f64>)> = BTreeMap::new();
+        for record in reader.records().flatten() {
+            let key = Self::normalize(record.get(entity_idx).unwrap_or_default());
+            if key.is_empty() {
+                continue;
+            }
+            let cell = |i: Option<usize>| {
+                i.and_then(|i| record.get(i))
+                    .map(str::trim)
+                    .and_then(|c| c.parse::<f64>().ok())
+                    .filter(|v| v.is_finite())
+            };
+            rows.entry(key)
+                .or_insert_with(|| (cell(effect_idx), cell(significance_idx)));
+        }
+        Some(Self {
+            entity_column: cols.entity,
+            effect_column: cols.effect,
+            significance_column: cols.significance,
+            rows,
+        })
+    }
+}
+
+/// Build the verdict for ONE report-data significant entity, with its
+/// cell-level trace.
+fn report_data_verdict(
+    stage_id: &str,
+    table_rel: &str,
+    table: &SourceArtifactIndex,
+    entity_row: &crate::report_contract::EntityRow,
+    cfg: &ExtractorConfig,
+) -> ClaimVerdict {
+    let observed = table.get(&entity_row.entity);
+    let mut checks: Vec<CellCheck> = Vec::new();
+    if let (Some(column), Some(claimed)) = (table.effect_column.clone(), entity_row.effect) {
+        checks.push(CellCheck {
+            column,
+            claimed,
+            observed: observed.and_then(|(e, _)| *e),
+            // The effect column's tolerance is the policy's, so a report that
+            // legitimately re-renders at the policy's precision still agrees.
+            tolerance: cfg.log2fc_tolerance,
+        });
+    }
+    if let (Some(column), Some(claimed)) =
+        (table.significance_column.clone(), entity_row.significance)
+    {
+        checks.push(CellCheck {
+            column,
+            claimed,
+            observed: observed.and_then(|(_, s)| *s),
+            tolerance: REPORT_DATA_TRANSCRIPTION_TOLERANCE
+                .max(claimed.abs() * REPORT_DATA_TRANSCRIPTION_RELATIVE),
+        });
+    }
+
+    let mut excerpt = format!(
+        "report-data.json asserts {} for stage {stage_id}",
+        entity_row.entity
+    );
+    for check in &checks {
+        excerpt.push_str(&format!(
+            ": {} = {}",
+            check.column,
+            fmt_trace_number(check.claimed)
+        ));
+    }
+    excerpt.push_str(&format!(" ({table_rel})"));
+
+    let claim = Claim {
+        entity: entity_row.entity.clone(),
+        direction: entity_row.effect.map(|e| {
+            if e >= 0.0 {
+                Direction::Up
+            } else {
+                Direction::Down
+            }
+        }),
+        effect_size: entity_row.effect,
+        pvalue: entity_row.significance,
+        source_table: Some(table_rel.to_string()),
+        excerpt,
+        contract: ClaimContract::NumericTableLookup,
+        literature_evidence: None,
+        matched_pvalue_keyword: None,
+        linear_fold: None,
+        aggregate_kind: None,
+        aggregate_column: None,
+        aggregate_rowset: None,
+        aggregate_value: None,
+        collection: None,
+        term: None,
+        keyed_column: None,
+        keyed_value: None,
+    };
+
+    // Report the comparison that DECIDES the verdict: the first disagreeing
+    // cell when there is one, else the first compared cell, else the first
+    // (uncompared) cell.
+    let decisive = checks
+        .iter()
+        .find(|c| c.agrees() == Some(false))
+        .or_else(|| checks.iter().find(|c| c.agrees() == Some(true)))
+        .or_else(|| checks.first());
+
+    let (status, rationale) = if observed.is_none() {
+        (
+            ClaimStatus::Unverifiable {
+                reason: format!(
+                    "entity `{}` not found in `{}` (column `{}`)",
+                    entity_row.entity, table_rel, table.entity_column
+                ),
+            },
+            format!(
+                "report-data entity `{}` did not resolve to a row of `{table_rel}` — abstaining \
+                 rather than flagging an identifier-form difference",
+                entity_row.entity
+            ),
+        )
+    } else if let Some(bad) = checks.iter().find(|c| c.agrees() == Some(false)) {
+        (
+            ClaimStatus::Mismatch {
+                detail: format!(
+                    "report-data.json states {} = {} for `{}` but `{table_rel}` holds {}",
+                    bad.column,
+                    fmt_trace_number(bad.claimed),
+                    entity_row.entity,
+                    bad.observed.map(fmt_trace_number).unwrap_or_default(),
+                ),
+            },
+            format!(
+                "transcription: report-data {} = {} disagrees with the source cell {} (absolute, \
+                 tolerance {})",
+                bad.column,
+                fmt_trace_number(bad.claimed),
+                bad.observed.map(fmt_trace_number).unwrap_or_default(),
+                fmt_trace_number(bad.tolerance),
+            ),
+        )
+    } else if let Some(good) = checks.iter().find(|c| c.agrees() == Some(true)) {
+        (
+            ClaimStatus::Verified,
+            format!(
+                "transcription: report-data {} = {} agrees with the source cell {} (absolute, \
+                 tolerance {})",
+                good.column,
+                fmt_trace_number(good.claimed),
+                good.observed.map(fmt_trace_number).unwrap_or_default(),
+                fmt_trace_number(good.tolerance),
+            ),
+        )
+    } else if checks.is_empty() {
+        // No numeric slot recorded for this entity: the assertion that remains
+        // is PRESENCE in the source artifact, and the row was found.
+        (
+            ClaimStatus::Verified,
+            format!(
+                "entity presence: `{}` is a row of `{table_rel}` (column `{}`); report-data \
+                 records no numeric value for it",
+                entity_row.entity, table.entity_column
+            ),
+        )
+    } else {
+        (
+            ClaimStatus::Unverifiable {
+                reason: format!(
+                    "no comparable cell for `{}` in `{table_rel}`",
+                    entity_row.entity
+                ),
+            },
+            format!(
+                "the source row for `{}` carries no parseable value in the compared column",
+                entity_row.entity
+            ),
+        )
+    };
+
+    let class = if checks.is_empty() {
+        VerdictClass::EntityPresence
+    } else {
+        VerdictClass::NumericTable
+    };
+    let audit = VerdictAudit {
+        class,
+        source_table: Some(table_rel.to_string()),
+        entity_column: Some(table.entity_column.clone()),
+        entity_value: Some(entity_row.entity.clone()),
+        measurement_column: decisive.map(|c| c.column.clone()),
+        claimed_value: decisive.map(|c| c.claimed),
+        observed_value: decisive.and_then(|c| c.observed),
+        comparison_operator: decisive.map(|_| "absolute".to_string()),
+        absolute_tolerance: decisive.map(|c| c.tolerance),
+        relative_tolerance: None,
+        unit_conversion: None,
+        verifier_version: CLAIM_VERIFIER_VERSION.to_string(),
+        rationale: Some(rationale),
+        parse_coverage: 1.0,
+    };
+
+    ClaimVerdict {
+        claim,
+        status,
+        strength: ClaimStrength::Exploratory,
+        audit: Some(audit),
+    }
+}
+
 /// Class-aware + confirmatory-aware task verifier. Picks the
 /// `interpretation-policy.<class>.json` overlay,
 /// runs the verifier, and then demotes claims whose supporting stage
@@ -82,6 +614,34 @@ pub fn verify_task_with_context(
     project_class: ProjectClass,
     decisions: &[DecisionRecord],
     is_confirmatory: bool,
+) -> VerifyOutcome {
+    verify_task_with_context_deduped(
+        package_root,
+        task_id,
+        config_dir,
+        project_class,
+        decisions,
+        is_confirmatory,
+        None,
+    )
+}
+
+/// [`verify_task_with_context`] with cross-task claim dedupe.
+///
+/// `ledger` (built once per package by [`CrossTaskClaimLedger::build`]) narrows
+/// this task's narrative claim set to the assertions it OWNS, so an assertion
+/// repeated verbatim by a later task yields ONE verdict instead of two; the
+/// surviving verdict records the other asserting tasks in its audit rationale.
+/// `None` reproduces the single-task behaviour exactly (the server's
+/// incremental per-task hook has no package-wide view).
+pub fn verify_task_with_context_deduped(
+    package_root: &Path,
+    task_id: &str,
+    config_dir: &Path,
+    project_class: ProjectClass,
+    decisions: &[DecisionRecord],
+    is_confirmatory: bool,
+    ledger: Option<&CrossTaskClaimLedger>,
 ) -> VerifyOutcome {
     let policy = match load_interpretation_policy(config_dir) {
         PolicyLoad::Loaded(value) => value,
@@ -121,9 +681,21 @@ pub fn verify_task_with_context(
                 resolve_task_runtime_dir_local(package_root, task_id)
                     .unwrap_or_else(|| package_root.join("runtime").join(task_id))
             };
-            let mut claims = extract_claims(&narrative, &cfg);
-            claims.extend(extract_markdown_table_claims(&narrative, &cfg));
-            for v in verify_claims_with_discovery(&claims, &effective_root, package_root, &cfg) {
+            let mut claims = narrative_claims_from_text(&narrative, &cfg);
+            // Cross-task dedupe: keep only the assertions this task OWNS, so a
+            // narrative copied verbatim into a later task does not double every
+            // verdict (see [`CrossTaskClaimLedger`]).
+            if let Some(l) = ledger {
+                claims.retain(|c| l.owns(task_id, c));
+            }
+            for mut v in verify_claims_with_discovery(&claims, &effective_root, package_root, &cfg)
+            {
+                if let Some(l) = ledger {
+                    // Resolve co-asserters before the mutable borrow: the
+                    // lookup reads `v.claim`, so it cannot overlap `&mut v`.
+                    let co_asserters = l.co_asserters(task_id, &v.claim);
+                    note_shared_assertion(&mut v, &co_asserters);
+                }
                 report.push(v);
             }
             // VF-16: aggregate count sentences ("2209 genes upregulated at
@@ -151,6 +723,15 @@ pub fn verify_task_with_context(
     //     so an up/down split error slips through. Recompute from
     //     `de_results.tsv` and fold in a real Mismatch on any disagreement.
     for v in crate::claim_verifier::verify_structured_counts(package_root, &cfg) {
+        report.push(v);
+    }
+
+    // 2c. The CANONICAL significant-entity claim set, derived straight from
+    //     `report-data.json` and traced cell-by-cell against the agent's
+    //     original result artifact. Emitted by exactly one task per package
+    //     (the one that owns `report-data.json`), replacing the circular
+    //     row-mining of the marker-delimited block the reports carry.
+    for v in report_data_cell_verdicts(package_root, task_id, &cfg) {
         report.push(v);
     }
 
@@ -265,13 +846,40 @@ pub fn finalize_task(
     is_confirmatory: bool,
     secret: Option<&[u8; 32]>,
 ) -> anyhow::Result<TaskFinalizeOutcome> {
-    let outcome = verify_task_with_context(
+    finalize_task_deduped(
         root,
         task_id,
         config_dir,
         project_class,
         decisions,
         is_confirmatory,
+        secret,
+        None,
+    )
+}
+
+/// [`finalize_task`] with the package-wide [`CrossTaskClaimLedger`] threaded
+/// into verification, so an assertion repeated verbatim by several tasks is
+/// verified once. `None` reproduces [`finalize_task`] exactly.
+#[allow(clippy::too_many_arguments)]
+pub fn finalize_task_deduped(
+    root: &Path,
+    task_id: &str,
+    config_dir: &Path,
+    project_class: ProjectClass,
+    decisions: &[DecisionRecord],
+    is_confirmatory: bool,
+    secret: Option<&[u8; 32]>,
+    ledger: Option<&CrossTaskClaimLedger>,
+) -> anyhow::Result<TaskFinalizeOutcome> {
+    let outcome = verify_task_with_context_deduped(
+        root,
+        task_id,
+        config_dir,
+        project_class,
+        decisions,
+        is_confirmatory,
+        ledger,
     );
 
     let mut coverage = None;
@@ -425,10 +1033,31 @@ pub struct PackageFinalizeSummary {
     pub coverage_gaps: Vec<String>,
 }
 
+/// Build the package-wide claim-ownership ledger, or `None` when the
+/// interpretation policy is disabled/unloadable (in which case nothing is
+/// verified anyway and the finalize loop behaves exactly as before).
+fn build_cross_task_ledger(
+    root: &Path,
+    config_dir: &Path,
+    project_class: ProjectClass,
+    completed: &[String],
+) -> Option<CrossTaskClaimLedger> {
+    let PolicyLoad::Loaded(policy) = load_interpretation_policy(config_dir) else {
+        return None;
+    };
+    let cfg = ExtractorConfig::from_policy_for_class(&policy, config_dir, project_class).ok()?;
+    Some(CrossTaskClaimLedger::build(root, completed, &cfg))
+}
+
 /// Finalize every completed task in an emitted package. Reads completed task
 /// ids from `WORKFLOW.json`. Intended to be called once at harness
 /// end-of-run (standalone path) so a no-session run produces the same
 /// finalized package the server produces incrementally.
+///
+/// Cross-task claim dedupe applies here (and only here): a package-wide
+/// [`CrossTaskClaimLedger`] prepass assigns each distinct narrative assertion
+/// to one owning task, so a `final_reporting` report that restates the
+/// `reporting` report contributes no duplicate verdicts.
 pub fn finalize_package(
     root: &Path,
     config_dir: &Path,
@@ -447,15 +1076,25 @@ pub fn finalize_package(
         // `tasks` is a JSON object keyed by task_id; serde_json preserves a
         // BTree-ordered map internally only with the `preserve_order` feature
         // off, so iteration is deterministic by key here.
-        for (task_id, t) in tasks {
-            let status = t
-                .get("state")
-                .and_then(|s| s.get("status").or(Some(s)))
-                .and_then(|s| s.as_str());
-            if status != Some("completed") {
-                continue;
-            }
-            let res = finalize_task(
+        let completed: Vec<String> = tasks
+            .iter()
+            .filter(|(_, t)| {
+                t.get("state")
+                    .and_then(|s| s.get("status").or(Some(s)))
+                    .and_then(|s| s.as_str())
+                    == Some("completed")
+            })
+            .map(|(task_id, _)| task_id.clone())
+            .collect();
+
+        // Package-wide claim ownership prepass: a `final_reporting` narrative
+        // that restates the `reporting` narrative must yield ONE verdict per
+        // assertion, not two. Built over the same deterministic task order the
+        // finalize loop uses, so ownership is reproducible.
+        let ledger = build_cross_task_ledger(root, config_dir, project_class, &completed);
+
+        for task_id in &completed {
+            let res = finalize_task_deduped(
                 root,
                 task_id,
                 config_dir,
@@ -463,6 +1102,7 @@ pub fn finalize_package(
                 decisions,
                 is_confirmatory,
                 secret,
+                ledger.as_ref(),
             )?;
             summary.tasks_finalized += 1;
             if let Some(cov) = res.coverage {
@@ -967,6 +1607,263 @@ mod tests {
         )
         .unwrap();
         assert!(synthesize_stage_count_claim(tmp.path(), "qc_preprocessing").is_none());
+    }
+
+    /// Minimal enabled policy for the claim-extraction helpers under test.
+    fn test_cfg() -> ExtractorConfig {
+        let policy = serde_json::json!({
+            "verifiableEntities": {
+                "enabled": true,
+                "entityNamePatterns": ["[A-Z][A-Z0-9]{1,}"],
+                "directionVocab": {
+                    "up": ["upregulated"],
+                    "down": ["downregulated"]
+                },
+                "effectSizeColumns": ["log2FC"],
+                "entityColumns": ["gene"],
+                "pvalueColumns": ["padj"]
+            }
+        });
+        ExtractorConfig::from_policy(&policy).expect("test policy loads")
+    }
+
+    /// A `final_reporting` narrative that restates the `reporting` narrative
+    /// verbatim must yield ONE verdict, owned by the first task, with the other
+    /// asserting task recorded rather than dropped silently.
+    #[test]
+    fn identical_claim_in_two_tasks_is_deduped_once() {
+        let cfg = test_cfg();
+        let tmp = tempdir().unwrap();
+        let root = tmp.path();
+        let narrative = "ACAN was upregulated (log2FC=2.1, Table S1).\n";
+        for task in ["reporting", "final_reporting"] {
+            let dir = root.join("runtime/outputs").join(task);
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(dir.join("report.md"), narrative).unwrap();
+        }
+
+        // Deterministic task order = the WORKFLOW.json key order.
+        let tasks = vec!["final_reporting".to_string(), "reporting".to_string()];
+        let ledger = CrossTaskClaimLedger::build(root, &tasks, &cfg);
+        assert_eq!(
+            ledger.len(),
+            1,
+            "the two tasks assert exactly one distinct claim between them"
+        );
+
+        let claims = narrative_claims_from_text(narrative, &cfg);
+        let claim = claims
+            .iter()
+            .find(|c| c.entity == "ACAN")
+            .expect("ACAN claim extracted");
+        assert!(ledger.owns("final_reporting", claim), "first task owns it");
+        assert!(
+            !ledger.owns("reporting", claim),
+            "the repeating task must not re-verify the same assertion"
+        );
+        assert_eq!(
+            ledger.co_asserters("final_reporting", claim),
+            vec!["reporting".to_string()],
+        );
+
+        // The surviving verdict records who else asserted it.
+        let mut verdict = ClaimVerdict {
+            claim: claim.clone(),
+            status: ClaimStatus::Verified,
+            strength: ClaimStrength::Exploratory,
+            audit: None,
+        };
+        note_shared_assertion(&mut verdict, &ledger.co_asserters("final_reporting", claim));
+        let rationale = verdict
+            .audit
+            .as_ref()
+            .and_then(|a| a.rationale.clone())
+            .expect("audit rationale records the co-asserter");
+        assert!(
+            rationale.contains("reporting"),
+            "co-asserting task must be named: {rationale}"
+        );
+
+        // A claim the ledger never saw is kept (never silently dropped).
+        let unseen = Claim {
+            excerpt: "COL2A1 was downregulated (log2FC=-1.0, Table S1).".into(),
+            ..claim.clone()
+        };
+        assert!(ledger.owns("reporting", &unseen));
+    }
+
+    /// The canonical claim set is derived from `report-data.json` and checked
+    /// against the agent's ORIGINAL result artifact, so every verdict carries a
+    /// full cell-level trace. It is emitted by exactly one task per package.
+    #[test]
+    fn report_data_derived_claims_carry_cell_level_trace() {
+        use crate::report_contract::{
+            EntityRow, LiteratureStatus, ReportData, ResultArtifactSummary,
+        };
+
+        let cfg = test_cfg();
+        let tmp = tempdir().unwrap();
+        let root = tmp.path();
+
+        let de_dir = root.join("runtime/outputs/differential_expression");
+        fs::create_dir_all(&de_dir).unwrap();
+        fs::write(
+            de_dir.join("de_results.tsv"),
+            "gene\tlog2FC\tpadj\n\
+             ACAN\t2.1\t0.001\n\
+             COL2A1\t-1.5\t7.056e-132\n\
+             MYOD1\t0.5\t0.04\n",
+        )
+        .unwrap();
+
+        let entity = |name: &str, effect: f64, sig: f64| EntityRow {
+            entity: name.into(),
+            effect: Some(effect),
+            significance: Some(sig),
+            literature: LiteratureStatus::Novel,
+        };
+        let report_data = ReportData {
+            artifacts: vec![ResultArtifactSummary {
+                stage_id: "differential_expression".into(),
+                artifact: "de_results.tsv".into(),
+                n_total: 3,
+                n_significant: Some(3),
+                direction_split: None,
+                effect_distribution: None,
+                grouped_significant: None,
+                significant_entities: vec![
+                    entity("ACAN", 2.1, 0.001),
+                    entity("COL2A1", -1.5, 7.056e-132),
+                    // Disagrees with the table cell (0.5) beyond tolerance.
+                    entity("MYOD1", 9.9, 0.04),
+                ],
+                significant_table_path:
+                    "runtime/outputs/differential_expression/de_results.significant.tsv".into(),
+                full_table_path: "runtime/outputs/differential_expression/de_results.full.tsv"
+                    .into(),
+                spilled_to_attachment_only: false,
+            }],
+            literature: None,
+        };
+        let reporting = root.join("runtime/outputs/reporting");
+        fs::create_dir_all(&reporting).unwrap();
+        fs::write(
+            reporting.join("report-data.json"),
+            serde_json::to_string_pretty(&report_data).unwrap(),
+        )
+        .unwrap();
+
+        let verdicts = report_data_cell_verdicts(root, "reporting", &cfg);
+        assert_eq!(
+            verdicts.len(),
+            3,
+            "one canonical claim per significant entity"
+        );
+
+        let acan = verdicts
+            .iter()
+            .find(|v| v.claim.entity == "ACAN")
+            .expect("ACAN verdict");
+        assert!(matches!(acan.status, ClaimStatus::Verified));
+        let audit = acan.audit.as_ref().expect("cell-level trace");
+        assert_eq!(
+            audit.source_table.as_deref(),
+            Some("runtime/outputs/differential_expression/de_results.tsv"),
+            "the trace cites the agent's ORIGINAL artifact, not the rendered block"
+        );
+        assert_eq!(audit.entity_column.as_deref(), Some("gene"));
+        assert_eq!(audit.measurement_column.as_deref(), Some("log2FC"));
+        assert_eq!(audit.claimed_value, Some(2.1));
+        assert_eq!(audit.observed_value, Some(2.1));
+        assert_eq!(audit.comparison_operator.as_deref(), Some("absolute"));
+        assert!(audit.absolute_tolerance.is_some());
+        assert!(audit.rationale.is_some());
+
+        let myod1 = verdicts
+            .iter()
+            .find(|v| v.claim.entity == "MYOD1")
+            .expect("MYOD1 verdict");
+        assert!(
+            matches!(myod1.status, ClaimStatus::Mismatch { .. }),
+            "a report-data value disagreeing with its source cell is a Mismatch, got {:?}",
+            myod1.status
+        );
+        let myod1_audit = myod1.audit.as_ref().unwrap();
+        assert_eq!(myod1_audit.claimed_value, Some(9.9));
+        assert_eq!(myod1_audit.observed_value, Some(0.5));
+
+        // Every verdict carries the full tuple.
+        for v in &verdicts {
+            let a = v.audit.as_ref().expect("audit present");
+            assert!(a.source_table.is_some());
+            assert!(a.measurement_column.is_some());
+            assert!(a.claimed_value.is_some());
+            assert!(a.comparison_operator.is_some());
+            assert!(a.absolute_tolerance.is_some());
+        }
+
+        // Emitted by exactly ONE task: a sibling reporting task that does not
+        // own `report-data.json` contributes nothing.
+        let final_dir = root.join("runtime/outputs/final_reporting");
+        fs::create_dir_all(&final_dir).unwrap();
+        fs::write(final_dir.join("final_report.md"), "# Final\n").unwrap();
+        assert!(report_data_cell_verdicts(root, "final_reporting", &cfg).is_empty());
+    }
+
+    /// Abstain-first: when the assembler keyed on an identifier form absent
+    /// from the resolved entity column, the artifact is skipped wholesale
+    /// rather than emitting one Mismatch per entity.
+    #[test]
+    fn report_data_claims_abstain_when_no_entity_resolves() {
+        use crate::report_contract::{
+            EntityRow, LiteratureStatus, ReportData, ResultArtifactSummary,
+        };
+
+        let cfg = test_cfg();
+        let tmp = tempdir().unwrap();
+        let root = tmp.path();
+        let de_dir = root.join("runtime/outputs/differential_expression");
+        fs::create_dir_all(&de_dir).unwrap();
+        fs::write(
+            de_dir.join("de_results.tsv"),
+            "gene\tlog2FC\tpadj\nENSG00000000001\t2.1\t0.001\n",
+        )
+        .unwrap();
+
+        let report_data = ReportData {
+            artifacts: vec![ResultArtifactSummary {
+                stage_id: "differential_expression".into(),
+                artifact: "de_results.tsv".into(),
+                n_total: 1,
+                n_significant: Some(1),
+                direction_split: None,
+                effect_distribution: None,
+                grouped_significant: None,
+                significant_entities: vec![EntityRow {
+                    // Symbol form; the artifact is keyed on Ensembl ids.
+                    entity: "ACAN".into(),
+                    effect: Some(2.1),
+                    significance: Some(0.001),
+                    literature: LiteratureStatus::Novel,
+                }],
+                significant_table_path: "runtime/outputs/differential_expression/s.tsv".into(),
+                full_table_path: "runtime/outputs/differential_expression/f.tsv".into(),
+                spilled_to_attachment_only: false,
+            }],
+            literature: None,
+        };
+        let reporting = root.join("runtime/outputs/reporting");
+        fs::create_dir_all(&reporting).unwrap();
+        fs::write(
+            reporting.join("report-data.json"),
+            serde_json::to_string(&report_data).unwrap(),
+        )
+        .unwrap();
+
+        assert!(
+            report_data_cell_verdicts(root, "reporting", &cfg).is_empty(),
+            "an identifier-form difference must abstain, never mass-Mismatch"
+        );
     }
 
     // Throwaway local-validation harness: run the real verifier against a

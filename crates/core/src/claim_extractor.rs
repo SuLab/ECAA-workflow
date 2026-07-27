@@ -42,6 +42,182 @@ use std::sync::LazyLock;
 use ts_rs::TS;
 
 use crate::claim_contract::ClaimContract;
+use crate::report_contract::full_table::{FULL_TABLE_END, FULL_TABLE_START};
+
+/// Blank out every marker-delimited SYSTEM-GENERATED block in `text`.
+///
+/// The block delimited by [`FULL_TABLE_START`] / [`FULL_TABLE_END`] is rendered
+/// deterministically FROM `report-data.json` by
+/// [`crate::report_contract::significant_entities_section`] and injected into
+/// the terminal report(s) by the harness. Mining claims out of it and then
+/// "verifying" each row against the same source data is CIRCULAR: the assertion
+/// and the evidence are the same bytes, so every row verifies by construction
+/// and the verified-claim count inflates by one entry per significant entity
+/// per report that carries the block — with no narrative-to-evidence signal.
+/// The canonical, NON-circular check over that data is emitted once per package
+/// straight from `report-data.json` (see `finalize::report_data_cell_verdicts`),
+/// carrying a full cell-level trace against the agent's ORIGINAL result
+/// artifact.
+///
+/// Each stripped line is replaced by an empty line so line counts — and hence
+/// any offset the caller derived from the untouched text — stay stable. Text
+/// OUTSIDE the markers (agent-authored prose and agent-authored tables) is
+/// returned byte-for-byte unchanged. An UNTERMINATED opening marker blanks
+/// everything after it: a truncated system block is still system-generated, and
+/// mining its tail would reintroduce the circularity.
+pub fn strip_system_generated_blocks(text: &str) -> String {
+    if !text.contains(FULL_TABLE_START) {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut inside = false;
+    for line in text.lines() {
+        if inside {
+            if line.contains(FULL_TABLE_END) {
+                inside = false;
+            }
+            out.push('\n');
+            continue;
+        }
+        if line.contains(FULL_TABLE_START) {
+            // A single line carrying BOTH markers opens and closes in place.
+            inside = !line.contains(FULL_TABLE_END);
+            out.push('\n');
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+
+/// `true` when `line` is a markdown ATX heading (`#` … `######` followed by
+/// whitespace).
+///
+/// A heading is a document-structure label, not an assertion the analysis makes
+/// about its own data: `### PMID 26825339 (same_direction for DUSP1)` is a
+/// section title whose PMID token would otherwise route the whole heading to
+/// [`ClaimContract::LiteratureGrounded`] and manufacture a literature-quotation
+/// verdict out of a table of contents. Headings are therefore skipped as claim
+/// candidates entirely.
+pub fn is_markdown_heading(line: &str) -> bool {
+    let t = line.trim_start();
+    let hashes = t.bytes().take_while(|b| *b == b'#').count();
+    (1..=6).contains(&hashes) && t[hashes..].chars().next().is_some_and(char::is_whitespace)
+}
+
+/// `true` when `sentence` contains at least one FREESTANDING numeric token —
+/// a number that is not glued to an identifier.
+///
+/// A digit run whose left neighbour is alphanumeric (`DUSP1`, `log2FC`,
+/// `PBMC10k`) or is a `-`/`_` that is itself preceded by an alphanumeric
+/// (`MKP-1`, `IL-6`) is part of an ENTITY NAME, not a measurement. Only a run
+/// that starts a token — `2.5`, `20M`, `1e-100`, `4,030` — is a numeric target
+/// the verifier can look up in a table cell.
+///
+/// Modality-agnostic: it inspects token boundaries only, never a column name or
+/// a domain vocabulary.
+pub fn has_numeric_target(sentence: &str) -> bool {
+    for m in NUMBER_RUN_RE.find_iter(sentence) {
+        let mut before = sentence[..m.start()].chars().rev();
+        match before.next() {
+            // Token starts the sentence.
+            None => return true,
+            // Glued to an identifier: `DUSP1`, `log2FC`, `PBMC10k`.
+            Some(c) if c.is_alphanumeric() || c == '_' => continue,
+            // Hyphenated identifier suffix: `MKP-1`, `IL-6`. A leading MINUS
+            // sign (`-4.2`) has no alphanumeric before it and stays a number.
+            Some('-') => {
+                let glued = before
+                    .next()
+                    .is_some_and(|p| p.is_alphanumeric() || p == '_');
+                if !glued {
+                    return true;
+                }
+            }
+            Some(_) => return true,
+        }
+    }
+    false
+}
+
+/// Whitespace-collapsed, case-folded form of a claim's source text. The
+/// cross-task dedupe key: two tasks that copy the same sentence (or the same
+/// table row) verbatim differ only in incidental whitespace, so the key must
+/// ignore it.
+pub fn normalize_claim_text(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for word in text.split_whitespace() {
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(&word.to_lowercase());
+    }
+    out
+}
+
+/// Stable string key for a [`ClaimContract`]. [`ClaimContract`] derives neither
+/// `Ord` nor `Hash`, so a map keyed by contract needs an explicit projection;
+/// the match is exhaustive, so a new variant is a compile error rather than a
+/// silent collapse into an existing bucket.
+fn contract_key(contract: ClaimContract) -> &'static str {
+    match contract {
+        ClaimContract::NumericTableLookup => "numeric_table_lookup",
+        ClaimContract::ThresholdedDeOrEnrichment => "thresholded_de_or_enrichment",
+        ClaimContract::RankTopN => "rank_top_n",
+        ClaimContract::GroupComparison => "group_comparison",
+        ClaimContract::Categorical => "categorical",
+        ClaimContract::TimeSeriesSummary => "time_series_summary",
+        ClaimContract::LiteratureGrounded => "literature_grounded",
+        ClaimContract::ExtremeValue => "extreme_value",
+        ClaimContract::KeyedTableCell => "keyed_table_cell",
+        ClaimContract::QuantileOfColumn => "quantile_of_column",
+    }
+}
+
+/// The `(normalized_text, contract)` identity of a claim, used to recognize the
+/// SAME assertion made by two different tasks (a `final_reporting` narrative
+/// that copies the `reporting` narrative verbatim). Deliberately entity-free:
+/// several entities extracted from one sentence share a key, so the key
+/// identifies the ASSERTION, and dedupe is applied only ACROSS tasks (never
+/// within one), which keeps every entity of a multi-entity sentence.
+pub fn claim_dedupe_key(claim: &Claim) -> (String, &'static str) {
+    (
+        normalize_claim_text(&claim.excerpt),
+        contract_key(claim.contract),
+    )
+}
+
+/// Header names of a result table's entity / effect-size / significance
+/// columns, resolved by the SAME role mapping the markdown and delimited-table
+/// extractors use ([`table_column_roles`]). Returned as NAMES (not indices) so
+/// a caller that reads rows through a column-keyed map can address the cells.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResultTableColumns {
+    /// Header of the column the row's entity is read from.
+    pub entity: String,
+    /// Header of the effect-size column, when the table has one.
+    pub effect: Option<String>,
+    /// Header of the significance / p-value column, when the table has one.
+    pub significance: Option<String>,
+}
+
+/// Resolve `headers` to entity / effect-size / significance column NAMES, or
+/// `None` when the table exposes no recognizable entity column (the same
+/// "not a result table" verdict [`table_column_roles`] returns). Modality-
+/// agnostic: role names come from the shared variant lists plus the policy's
+/// configured columns.
+pub fn resolve_result_table_columns(
+    headers: &[String],
+    cfg: &ExtractorConfig,
+) -> Option<ResultTableColumns> {
+    let roles = table_column_roles(headers, cfg)?;
+    Some(ResultTableColumns {
+        entity: headers[roles.entity_idx].clone(),
+        effect: roles.effect_idx.and_then(|i| headers.get(i).cloned()),
+        significance: roles.pvalue_idx.and_then(|i| headers.get(i).cloned()),
+    })
+}
 
 /// Resolve a downstream-policy file by name under `config_dir`, returning the
 /// FIRST existing of:
@@ -138,6 +314,13 @@ static TIME_SERIES_RE: LazyLock<Regex> = LazyLock::new(|| {
     )
     .expect("static regex")
 });
+
+/// Maximal digit run (thousands separators and decimal points included) used by
+/// [`has_numeric_target`] to find candidate numeric tokens. The token's LEFT
+/// boundary decides whether it is a measurement or part of an identifier, so
+/// the pattern itself is deliberately boundary-free.
+static NUMBER_RUN_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\d+(?:[.,]\d+)*").expect("static regex"));
 
 /// Static regex for `classify_contract`'s literature-grounding PMID
 /// detector. Matches a `PMID 12345678` / `PMID: 12345678` / `pmid12345678`
@@ -687,9 +870,11 @@ fn read_string_list(v: &Value, key: &str) -> Result<Vec<String>> {
 
 /// Classify a sentence into a [`ClaimContract`] by heuristic keyword scan.
 ///
-/// The rules are applied in priority order — the first match wins. The
-/// default when no keyword fires is `NumericTableLookup` (direct table
-/// cell lookup), which is the broadest and lowest-specificity class.
+/// The rules are applied in priority order — the first match wins. When no
+/// keyword fires the sentence is split on whether it asserts a NUMBER at all:
+/// `NumericTableLookup` (direct table-cell lookup) is chosen only when a
+/// freestanding numeric token is actually present, otherwise the non-numeric
+/// `Categorical` (entity-presence) class applies.
 ///
 /// Priority:
 /// 1. `ThresholdedDeOrEnrichment` — FDR / padj / p< threshold patterns.
@@ -699,7 +884,8 @@ fn read_string_list(v: &Value, key: &str) -> Result<Vec<String>> {
 /// 4. `GroupComparison` — directional group comparisons ("vs", "higher than", "lower than").
 /// 5. `Categorical` — cluster / label / category assignments.
 /// 6. `TimeSeriesSummary` — day / week / month / enrolled / timepoint patterns.
-/// 7. `NumericTableLookup` — fallback.
+/// 7. `NumericTableLookup` — fallback WITH a freestanding number.
+/// 8. `Categorical` — fallback WITHOUT one.
 pub fn classify_contract(sentence: &str) -> ClaimContract {
     let lower = sentence.to_lowercase();
 
@@ -903,6 +1089,17 @@ pub fn classify_contract(sentence: &str) -> ClaimContract {
         return ClaimContract::TimeSeriesSummary;
     }
 
+    // A sentence with NO freestanding numeric token asserts no table CELL, so
+    // routing it to `NumericTableLookup` hands the numeric comparator nothing
+    // to compare and mislabels the verdict class as `numeric_table`
+    // ("DUSP1 is explicitly named (MKP-1, DUSP1)" — every digit there belongs to
+    // an identifier). Fall back to the existing non-numeric class instead; its
+    // verifier resolves the named entity against the result tables and the
+    // verdict is reported as `entity_presence`.
+    if !has_numeric_target(sentence) {
+        return ClaimContract::Categorical;
+    }
+
     ClaimContract::NumericTableLookup
 }
 
@@ -967,10 +1164,19 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
     let regex_cache = ExtractorRegexCache::build(cfg);
     let mut out: Vec<Claim> = Vec::new();
 
-    for restored in split_sentences(text) {
+    // Marker-delimited SYSTEM-GENERATED blocks are rendered from
+    // `report-data.json`, so anything mined out of them would be checked
+    // against its own source — see [`strip_system_generated_blocks`].
+    let text = strip_system_generated_blocks(text);
+
+    for restored in split_sentences(&text) {
         let sentence = restored.as_str();
         let trimmed = sentence.trim();
         if trimmed.is_empty() {
+            continue;
+        }
+        // A markdown heading is a section label, not an assertion.
+        if is_markdown_heading(trimmed) {
             continue;
         }
         // Skip markdown table rows (`| FBgn… | -4.6 | 1e-159 |`) and
@@ -1281,7 +1487,11 @@ fn detect_keyed_table_cell(sentence: &str) -> Option<KeyedCellMeta> {
 /// to resolve against the file the agent actually wrote.
 pub fn extract_markdown_table_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
     let regex_cache = ExtractorRegexCache::build(cfg);
-    let text = canonicalize_scientific(text);
+    // Strip BEFORE canonicalizing so the marker comments are matched verbatim.
+    // The system-generated block is a rendering OF `report-data.json`; mining
+    // its rows and verifying them against that same data is circular — see
+    // [`strip_system_generated_blocks`].
+    let text = canonicalize_scientific(&strip_system_generated_blocks(text));
     let lines: Vec<&str> = text.lines().collect();
     let mut out: Vec<Claim> = Vec::new();
 
@@ -2948,6 +3158,190 @@ mod tests {
                 .iter()
                 .all(|c| c.contract == ClaimContract::LiteratureGrounded),
             "a blockquote prior-lit quote must be LiteratureGrounded: {shown:?}"
+        );
+    }
+
+    /// The marker-delimited block is rendered FROM `report-data.json`, so
+    /// extracting claims out of it and checking them against that same data is
+    /// circular — it must contribute ZERO claims. Agent-authored prose and
+    /// agent-authored tables OUTSIDE the markers are untouched.
+    #[test]
+    fn system_generated_block_is_not_claim_extracted() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let text = format!(
+            "Agent narrative: ACAN was upregulated (log2FC=2.1, Table S1).\n\
+             \n\
+             | gene | log2FC | padj |\n\
+             | --- | --- | --- |\n\
+             | COL2A1 | -1.2 | 0.001 |\n\
+             \n\
+             {FULL_TABLE_START}\n\
+             ## Complete significant-entities tables\n\
+             \n\
+             _Generated deterministically from report-data.json._\n\
+             \n\
+             | Entity | Effect | Significance | Literature |\n\
+             | --- | --- | --- | --- |\n\
+             | SYSGEN1 | 4.5750 | 7.056e-132 | not_assessed |\n\
+             | SYSGEN2 | -3.6926 | 5.122e-81 | not_assessed |\n\
+             {FULL_TABLE_END}\n"
+        );
+
+        let prose = extract_claims(&text, &cfg);
+        let rows = extract_markdown_table_claims(&text, &cfg);
+        let all: Vec<&Claim> = prose.iter().chain(rows.iter()).collect();
+        let entities: Vec<&str> = all.iter().map(|c| c.entity.as_str()).collect();
+
+        assert!(
+            !entities.contains(&"SYSGEN1") && !entities.contains(&"SYSGEN2"),
+            "no claim may originate inside the system-generated block: {entities:?}"
+        );
+        assert!(
+            all.iter().all(|c| !c.excerpt.contains("SYSGEN")),
+            "no excerpt may quote a system-generated row: {entities:?}"
+        );
+        assert!(
+            entities.contains(&"ACAN"),
+            "agent-authored prose outside the markers still extracts: {entities:?}"
+        );
+        assert!(
+            rows.iter().any(|c| c.entity == "COL2A1"),
+            "an agent-authored markdown table outside the markers still extracts: {entities:?}"
+        );
+    }
+
+    /// Prose with no FREESTANDING number asserts no table cell: every digit in
+    /// "DUSP1 …(MKP-1, DUSP1)" belongs to an identifier, so the claim must not
+    /// be routed to the numeric-lookup contract.
+    #[test]
+    fn prose_without_numeric_token_is_not_numeric_table() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let sentence = "DUSP1 is explicitly named (MKP-1, DUSP1)";
+        assert!(
+            !has_numeric_target(sentence),
+            "digits glued to identifiers are not numeric targets"
+        );
+        assert_eq!(
+            classify_contract(sentence),
+            ClaimContract::Categorical,
+            "a no-number prose assertion must not classify as numeric_table"
+        );
+        let claims = extract_claims(sentence, &cfg);
+        let dusp1 = claims
+            .iter()
+            .find(|c| c.entity == "DUSP1")
+            .expect("DUSP1 claim extracted");
+        assert_eq!(dusp1.contract, ClaimContract::Categorical);
+        assert_eq!(dusp1.effect_size, None);
+        assert_eq!(dusp1.pvalue, None);
+
+        // Control: the same shape WITH a freestanding number stays numeric.
+        assert!(has_numeric_target(
+            "ACAN was upregulated (log2FC=2.1, Table S1)"
+        ));
+        assert_eq!(
+            classify_contract("ACAN was upregulated (log2FC=2.1, Table S1)"),
+            ClaimContract::NumericTableLookup,
+        );
+        // A magnitude suffix / exponent is still a freestanding number.
+        assert!(has_numeric_target("Mapped reads: 20M usable fragments"));
+        assert!(has_numeric_target("Top motif: E < 1e-100"));
+    }
+
+    /// A markdown heading is a section label, never an assertion — in
+    /// particular a `### PMID …` heading must not manufacture a
+    /// literature-quotation claim.
+    #[test]
+    fn markdown_heading_is_not_a_claim() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        assert!(is_markdown_heading(
+            "### PMID 26825339 (same_direction for DUSP1)"
+        ));
+        assert!(is_markdown_heading("# Report"));
+        assert!(!is_markdown_heading("#NotAHeading"));
+        assert!(!is_markdown_heading("ACAN #1 by log2FC"));
+
+        let text = "### PMID 26825339 (same_direction for DUSP1)\n\
+                    \n\
+                    ACAN was upregulated (log2FC=2.1, Table S1).\n";
+        let claims = extract_claims(text, &cfg);
+        assert!(
+            claims.iter().all(|c| !c.excerpt.starts_with('#')),
+            "no claim may originate from a heading: {:?}",
+            claims.iter().map(|c| &c.excerpt).collect::<Vec<_>>()
+        );
+        assert!(
+            claims.iter().any(|c| c.entity == "ACAN"),
+            "the body sentence after the heading still extracts"
+        );
+    }
+
+    #[test]
+    fn dedupe_key_is_whitespace_and_case_insensitive_but_contract_aware() {
+        let mk = |excerpt: &str, contract: ClaimContract| Claim {
+            entity: "ACAN".into(),
+            direction: None,
+            effect_size: None,
+            pvalue: None,
+            source_table: None,
+            excerpt: excerpt.into(),
+            contract,
+            literature_evidence: None,
+            matched_pvalue_keyword: None,
+            linear_fold: None,
+            aggregate_kind: None,
+            aggregate_column: None,
+            aggregate_rowset: None,
+            aggregate_value: None,
+            collection: None,
+            term: None,
+            keyed_column: None,
+            keyed_value: None,
+        };
+        let a = mk(
+            "| ACAN |  -1.2 | 0.001 |",
+            ClaimContract::NumericTableLookup,
+        );
+        let b = mk(
+            "| acan | -1.2 |  0.001 |",
+            ClaimContract::NumericTableLookup,
+        );
+        assert_eq!(claim_dedupe_key(&a), claim_dedupe_key(&b));
+        let c = mk("| ACAN |  -1.2 | 0.001 |", ClaimContract::Categorical);
+        assert_ne!(claim_dedupe_key(&a), claim_dedupe_key(&c));
+    }
+
+    #[test]
+    fn resolve_result_table_columns_names_the_roles() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let headers: Vec<String> = ["gene_id", "log2FoldChange", "padj", "baseMean"]
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect();
+        let cols = resolve_result_table_columns(&headers, &cfg).expect("roles resolve");
+        // Names are returned VERBATIM (not the cleaned form) so a caller can
+        // address the cell in a column-keyed row map.
+        assert_eq!(cols.entity, "gene_id");
+        assert_eq!(cols.effect.as_deref(), Some("log2FoldChange"));
+        assert_eq!(cols.significance.as_deref(), Some("padj"));
+        // A table with no recognizable entity column is not a result table.
+        assert!(
+            resolve_result_table_columns(&["axis".to_string(), "score".to_string()], &cfg)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn strip_system_generated_blocks_preserves_line_count_and_outside_text() {
+        let text = format!("a\n{FULL_TABLE_START}\nx\ny\n{FULL_TABLE_END}\nb\n");
+        let out = strip_system_generated_blocks(&text);
+        assert_eq!(out.lines().count(), text.lines().count());
+        assert!(out.starts_with("a\n") && out.trim_end().ends_with('b'));
+        assert!(!out.contains('x') && !out.contains('y'));
+        // No marker present → byte-identical passthrough.
+        assert_eq!(
+            strip_system_generated_blocks("plain\ntext\n"),
+            "plain\ntext\n"
         );
     }
 }

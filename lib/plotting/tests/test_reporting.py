@@ -1,6 +1,9 @@
 """Tests for the reporting-stage figures, incl. the pathway_overlap_bar
 NES/direction channel (RP-6: an enriched (NES>0) and a depleted
-(NES<0) pathway used to render as visually identical bars)."""
+(NES<0) pathway used to render as visually identical bars) and the
+overlap-magnitude basis (a deposited run supplied twenty entries at
+`count: 1`, so every bar had the same height and the axis measured
+nothing)."""
 
 from __future__ import annotations
 
@@ -53,8 +56,9 @@ def test_overlap_legacy_count_only_has_no_direction(tmp_path: Path) -> None:
         tmp_path,
         manifest={"pathway_overlap": [{"label": "immune", "count": 12}]},
     )
-    entries = stage._overlap(ctx)
+    entries, basis = stage._overlap(ctx)
     assert entries == [{"label": "immune", "count": 12.0, "direction": None}]
+    assert basis == "reported_count"
 
 
 def test_overlap_parses_mixed_sign_nes(tmp_path: Path) -> None:
@@ -65,9 +69,94 @@ def test_overlap_parses_mixed_sign_nes(tmp_path: Path) -> None:
         ]
     }
     ctx = make_context(tmp_path, manifest=manifest)
-    by_label = {e["label"]: e for e in stage._overlap(ctx)}
+    entries, _basis = stage._overlap(ctx)
+    by_label = {e["label"]: e for e in entries}
     assert by_label["enriched_set"]["direction"] == pytest.approx(2.4)
     assert by_label["depleted_set"]["direction"] == pytest.approx(-2.21)
+
+
+# --- overlap magnitude basis ---------------------------------------------
+
+
+def test_overlap_intersects_members_with_significant_set(tmp_path: Path) -> None:
+    """The real overlap measure: |members ∩ significant set|, not a row
+    marker. A pipe-separated leading edge (fgsea's TSV shape) and a list
+    both parse."""
+    manifest = {
+        "pathway_overlap": [
+            {"label": "A", "leadingEdge": "G1|G2|G3|G4", "nes": 2.0},
+            {"label": "B", "leading_edge": ["G3", "G9", "G10"], "nes": -1.7},
+        ],
+        "significant_genes": ["G1", "G2", "G3", "G9"],
+    }
+    entries, basis = stage._overlap(make_context(tmp_path, manifest=manifest))
+    assert basis == "leading_edge_intersect_significant"
+    assert {e["label"]: e["count"] for e in entries} == {"A": 3.0, "B": 2.0}
+
+
+def test_overlap_falls_back_to_member_set_size(tmp_path: Path) -> None:
+    """Member sets but no significant set to intersect against: the bar is
+    the member-set size, and the basis says so."""
+    manifest = {
+        "pathway_overlap": [
+            {"label": "A", "members": "G1|G2|G3"},
+            {"label": "B", "members": ["G4"]},
+        ]
+    }
+    entries, basis = stage._overlap(make_context(tmp_path, manifest=manifest))
+    assert basis == "member_set_size"
+    assert {e["label"]: e["count"] for e in entries} == {"A": 3.0, "B": 1.0}
+
+
+def test_overlap_basis_is_uniform_when_members_are_partial(tmp_path: Path) -> None:
+    """One entry without a member set forces the whole figure onto the
+    reported-count basis — mixing bases would put incomparable units on a
+    shared axis."""
+    manifest = {
+        "pathway_overlap": [
+            {"label": "A", "members": ["G1", "G2"], "n_overlap": 9},
+            {"label": "B", "n_overlap": 4},
+        ]
+    }
+    entries, basis = stage._overlap(make_context(tmp_path, manifest=manifest))
+    assert basis == "reported_count"
+    assert {e["label"]: e["count"] for e in entries} == {"A": 9.0, "B": 4.0}
+
+
+def test_degenerate_detects_constant_magnitudes() -> None:
+    assert stage._degenerate([1.0, 1.0, 1.0])
+    assert not stage._degenerate([1.0, 2.0])
+    # A single bar has nothing to be degenerate against.
+    assert not stage._degenerate([1.0])
+    assert not stage._degenerate([])
+
+
+def test_pathway_overlap_bar_drops_constant_count_input(tmp_path: Path) -> None:
+    """The deposited defect: twenty entries all at `count: 1`. The bar
+    height measures nothing, so the figure is skipped (FileNotFoundError
+    is the channel `core.generate()` records as a skip) rather than
+    shipped as a chart of identical bars."""
+    manifest = {
+        "pathway_overlap": [
+            {"label": f"TERM_{i}", "count": 1, "nes": 1.5 if i % 2 else -1.5}
+            for i in range(20)
+        ]
+    }
+    ctx = make_context(tmp_path, manifest=manifest)
+    with pytest.raises(FileNotFoundError, match="degenerate"):
+        stage.pathway_overlap_bar(ctx, tmp_path / "pathway_overlap_bar.png")
+    assert not (tmp_path / "pathway_overlap_bar.png").exists()
+
+
+def test_pathway_overlap_bar_axis_names_the_resolved_basis(tmp_path: Path) -> None:
+    """Three different measures must never share an unqualified 'count'
+    axis — the label is part of the honesty contract."""
+    assert set(stage.BASIS_AXIS_LABEL) == {
+        "leading_edge_intersect_significant",
+        "member_set_size",
+        "reported_count",
+    }
+    assert len(set(stage.BASIS_AXIS_LABEL.values())) == 3
 
 
 # --- pathway_overlap_bar --------------------------------------------------

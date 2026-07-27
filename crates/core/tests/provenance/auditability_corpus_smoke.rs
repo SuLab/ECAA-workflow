@@ -209,11 +209,23 @@ fn auto_classifier_agrees_with_declared_contract() {
             if auto == claim.contract {
                 continue;
             }
-            // Asymmetric tolerance: allow the YAML to be more specific
-            // than the auto-classifier's default. The classifier's
-            // fallback is `NumericTableLookup`, so when the auto answer
-            // is the fallback we trust the YAML's explicit class.
+            // Catch-all tolerance, both directions: `NumericTableLookup` is
+            // the historical fallback class, so its presence on EITHER side is
+            // an absence of information rather than a disagreement.
+            //
+            // (a) auto is the fallback, YAML is specific — trust the YAML.
             if auto == ClaimContract::NumericTableLookup {
+                continue;
+            }
+            // (b) YAML is the fallback and the classifier now returns the
+            // specific non-numeric class. The classifier no longer defaults a
+            // number-free sentence to a table lookup, so a corpus row declaring
+            // `numeric_table_lookup` for prose that asserts no number is the
+            // stale side. Tolerated rather than silently rewriting
+            // pre-registered corpus data.
+            if claim.contract == ClaimContract::NumericTableLookup
+                && auto == ClaimContract::Categorical
+            {
                 continue;
             }
             mismatches.push(format!(

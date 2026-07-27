@@ -1870,5 +1870,74 @@ def test_dashboard_grid_invalid_layout_raises(tmp_path):
                        layout=(0, 2))
 
 
+# --- bar() direction channel ------------------------------------------------
+
+
+def _hex_rgb(hex_color):
+    hex_color = hex_color.lstrip("#")
+    return tuple(int(hex_color[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _image_has(png_path, rgb, tol=12):
+    from PIL import Image
+
+    img = np.asarray(Image.open(png_path).convert("RGB")).astype(int)
+    return bool(np.any(np.all(np.abs(img - np.array(rgb)) <= tol, axis=-1)))
+
+
+def test_direction_fill_colors_maps_sign_to_theme_pair():
+    from lib.plotting.core import _direction_fill_colors
+
+    palette = THEME.get("palette", {})
+    colors = _direction_fill_colors([2.5, -1.2, None, 0.0, float("nan")])
+    assert colors == [
+        palette["sig_up"],
+        palette["sig_down"],
+        palette["non_sig"],
+        palette["non_sig"],
+        palette["non_sig"],
+    ]
+
+
+def test_bar_without_directions_keeps_categorical_palette(tmp_path):
+    """The direction channel is purely additive: `directions=None` must
+    leave every pre-existing caller on the categorical-palette path."""
+    out = bar(names=["a", "b", "c"], values=[3.0, 2.0, 1.0],
+              title="t", ylabel="y", out=tmp_path / "plain.png")
+    assert out.exists()
+    expected = _bar_fill_palette(3)
+    assert _image_has(out, _hex_rgb(expected[0]))
+
+
+def test_bar_with_directions_uses_diverging_fills(tmp_path):
+    out = bar(names=["up", "down"], values=[2.0, -1.5],
+              title="t", ylabel="signed effect",
+              out=tmp_path / "signed.png",
+              directions=[2.0, -1.5])
+    assert out.exists()
+    palette = THEME.get("palette", {})
+    assert _image_has(out, _hex_rgb(palette["sig_up"]))
+    assert _image_has(out, _hex_rgb(palette["sig_down"]))
+
+
+def test_bar_all_positive_directions_omits_negative_color(tmp_path):
+    out = bar(names=["a", "b"], values=[2.0, 1.0],
+              title="t", ylabel="y", out=tmp_path / "pos.png",
+              directions=[2.0, 1.0])
+    palette = THEME.get("palette", {})
+    assert not _image_has(out, _hex_rgb(palette["sig_down"]))
+
+
+def test_bar_ignores_length_mismatched_directions(tmp_path):
+    """A half-populated direction channel must not take down a figure
+    whose bar values are themselves fine."""
+    out = bar(names=["a", "b", "c"], values=[1.0, 2.0, 3.0],
+              title="t", ylabel="y", out=tmp_path / "mismatch.png",
+              directions=[1.0])
+    assert out.exists() and out.stat().st_size > 0
+    expected = _bar_fill_palette(3)
+    assert _image_has(out, _hex_rgb(expected[0]))
+
+
 if __name__ == "__main__":  # pragma: no cover
     pytest.main([__file__, "-v"])

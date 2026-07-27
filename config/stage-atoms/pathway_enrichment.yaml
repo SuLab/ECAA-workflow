@@ -70,6 +70,12 @@ inputs:
       iri: "format:3475"
       label: "Tabular text"
     statistical_state: "de_tested"
+    # Atom-static: the ranking statistic this stage reads is the signed
+    # effect size of a differential test, which the producing atoms
+    # (`differential_expression`, `translation_efficiency_de`) declare on
+    # their own output as the same value. A producer that declares no
+    # units leaves the check honestly unknown rather than failing it.
+    units: "log2 fold change"
     privacy_class: internal
   # Gene-set collection (GMT) the pathway databases above are tested
   # against (KEGG / Reactome / GO / MSigDB hallmark). OPTIONAL: the default

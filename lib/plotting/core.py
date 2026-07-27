@@ -27,6 +27,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.patches import Patch
 
 def _read_shared_version() -> str:
     """F20 — single source of truth for the plotting library version. Both
@@ -1113,6 +1114,46 @@ def _bar_fill_palette(n: int) -> List[str]:
     return palette
 
 
+#: Default legend labels for the `bar(directions=...)` sign channel, in
+#: (positive, negative, unknown) order. Deliberately effect-neutral wording —
+#: a caller with domain-specific vocabulary (enriched/depleted, up/down,
+#: gain/loss) passes its own triple via `direction_labels`.
+DIRECTION_LEGEND_LABELS: Tuple[str, str, str] = (
+    "Positive effect",
+    "Negative effect",
+    "No direction reported",
+)
+
+
+def _direction_fill_colors(directions: Sequence[Optional[float]]) -> List[str]:
+    """Map a per-bar signed-effect sequence to fill colors.
+
+    Sign only is significant: a strictly positive value takes the theme's
+    `sig_up` color, a strictly negative value `sig_down`, and `None` / `0` /
+    a non-finite value the neutral `non_sig` grey. This is the same up/down
+    convention `volcano`, `ma_plot`, and the reporting overlap bar use, so a
+    positive-effect and a negative-effect bar are never visually identical.
+    """
+    palette = THEME.get("palette", {})
+    sig_up = palette.get("sig_up", "#D55E00")
+    sig_down = palette.get("sig_down", "#0072B2")
+    non_sig = palette.get("non_sig", "#999999")
+    colors: List[str] = []
+    for d in directions:
+        try:
+            v = float(d)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            colors.append(non_sig)
+            continue
+        if not np.isfinite(v) or v == 0.0:
+            colors.append(non_sig)
+        elif v > 0.0:
+            colors.append(sig_up)
+        else:
+            colors.append(sig_down)
+    return colors
+
+
 def bar(
     names: List[str],
     values: List[float],
@@ -1127,8 +1168,10 @@ def bar(
     annotate_counts: Optional[bool] = None,
     horizontal: Optional[bool] = None,
     error_label: str = "95% CI",
+    directions: Optional[Sequence[Optional[float]]] = None,
+    direction_labels: Tuple[str, str, str] = DIRECTION_LEGEND_LABELS,
 ) -> Path:
-    """Bar chart with optional 95% CI error bars.
+    """Bar chart with optional 95% CI error bars and an optional sign channel.
 
     Phase B contract:
     - When `ci_lo` + `ci_hi` are both provided, draw asymmetric error
@@ -1137,6 +1180,20 @@ def bar(
       (override with `horizontal=False`).
     - Annotate raw counts above each bar when n_bars ≤ 20 (or set
       `annotate_counts` explicitly).
+
+    Direction channel (optional, purely additive):
+    - `directions` is a per-bar signed value whose SIGN encodes the
+      effect direction (e.g. NES, log2FC, or a bare ±1). When supplied
+      and length-matched to `names`, fills come from the theme's
+      diverging `sig_up`/`sig_down`/`non_sig` triple instead of the
+      position-indexed categorical palette, and a legend naming only the
+      classes actually present is drawn. `direction_labels` overrides the
+      legend wording as `(positive, negative, unknown)`.
+    - `directions=None` (the default) leaves every existing caller on the
+      pre-existing categorical-palette path, byte-for-byte unchanged.
+    - A length mismatch is ignored rather than raising: an
+      inconsistently-populated direction channel must not take down a
+      figure whose bar values are themselves fine.
     """
     n = len(names)
     if horizontal is None:
@@ -1144,7 +1201,12 @@ def bar(
     if annotate_counts is None:
         annotate_counts = n <= 20
     fig, ax = plt.subplots(figsize=figsize)
-    palette = _bar_fill_palette(n)
+    use_directions = directions is not None and len(directions) == n and n > 0
+    palette = (
+        _direction_fill_colors(directions)  # type: ignore[arg-type]
+        if use_directions
+        else _bar_fill_palette(n)
+    )
     positions = np.arange(n)
 
     err = None
@@ -1180,6 +1242,33 @@ def bar(
             for i, v in enumerate(values):
                 ax.text(i, v, f"{v:g}", ha="center", va="bottom")
     ax.set_title(title)
+    if use_directions:
+        theme_palette = THEME.get("palette", {})
+        sig_up = theme_palette.get("sig_up", "#D55E00")
+        sig_down = theme_palette.get("sig_down", "#0072B2")
+        non_sig = theme_palette.get("non_sig", "#999999")
+        classes = _direction_fill_colors(directions)  # type: ignore[arg-type]
+        handles = []
+        # Only the classes actually present get a legend entry, so an
+        # all-positive figure never advertises a color it does not draw.
+        if sig_up in classes:
+            handles.append(Patch(facecolor=sig_up, label=direction_labels[0]))
+        if sig_down in classes:
+            handles.append(Patch(facecolor=sig_down, label=direction_labels[1]))
+        if non_sig in classes:
+            handles.append(Patch(facecolor=non_sig, label=direction_labels[2]))
+        if handles:
+            ax.legend(
+                handles=handles,
+                loc="best",
+                fontsize=THEME.get("fonts", {}).get("legend_pt", 7),
+            )
+        # A signed value axis needs an explicit zero reference so the
+        # crossover between the two sign classes is readable.
+        finite = [float(v) for v in values if np.isfinite(v)]
+        if finite and min(finite) < 0.0 < max(finite):
+            zero_line = ax.axvline if horizontal else ax.axhline
+            zero_line(0.0, color="#444444", linewidth=0.6)
     if err is not None:
         # Tiny in-axes label so the reader knows what the bars represent
         # without forcing a legend on a 1-series figure.
