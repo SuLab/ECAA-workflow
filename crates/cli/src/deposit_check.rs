@@ -27,9 +27,41 @@ pub(crate) struct DepositCheckArgs {
     /// re-execution is allowed but surfaced as a warning.
     #[arg(long)]
     strict: bool,
+    /// Re-run the offline-checkable assertions the SEALED package makes about
+    /// itself — every file-presence claim in each `validation_report.json` /
+    /// `result.json` / `manifest.json`, the reporting invariants, and the
+    /// harness contract obligations — against the bytes actually on disk, and
+    /// write `runtime/post-seal-validation.json`. Catches validators that
+    /// passed pre-export against files a later prune/rename removed.
+    #[arg(long)]
+    revalidate: bool,
 }
 
 pub(crate) fn run(args: DepositCheckArgs) -> Result<()> {
+    // Re-validate against the sealed bytes BEFORE the readiness gate: a
+    // presence claim naming a file the export removed makes the package's own
+    // validation record untrustworthy, so it must be able to refuse under
+    // `--strict` regardless of what the recorded attestation says.
+    if args.revalidate {
+        let report = ecaa_workflow_core::deposit_readiness::run_post_seal_revalidation(
+            &args.package,
+            args.strict,
+            &ecaa_workflow_core::clock::WallClock,
+        )?;
+        println!(
+            "  revalidate: {} presence claim(s) checked, {} missing, passed={}",
+            report.claims_checked,
+            report.missing_claims.len(),
+            report.passed
+        );
+        for missing in report.missing_claims.iter().take(10) {
+            println!(
+                "    - {} claims {} present; absent from the sealed package ({})",
+                missing.task_id, missing.claimed_path, missing.source
+            );
+        }
+    }
+
     let dr = check_deposit_readiness(&args.package, args.strict)
         .with_context(|| format!("deposit-check refused {}", args.package.display()))?;
 

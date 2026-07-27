@@ -43,6 +43,37 @@ use serde_json::Value;
 /// Root prefix under which produced analytical artifacts live.
 const OUTPUTS_ROOT: &str = "runtime/outputs/";
 
+/// Path components whose whole subtree is execution machinery, not a
+/// claim-bearing scientific result. `scripts/` holds the agent's generated
+/// analysis code; `evidence/` holds the literature-atom snapshot store
+/// (`evidence/manifest.json` + content-addressed `evidence/snapshots/<sha256>`).
+/// Both are REQUIRED for re-execution and provenance and stay in the RO-Crate —
+/// they are simply not the kind of object a narrative claim cites as evidence.
+const ADMINISTRATIVE_DIRS: [&str; 2] = ["scripts", "evidence"];
+
+/// Fixed basenames the harness / agent / emitter write next to every task's
+/// real results: environment locks, the task spec slice, agent telemetry and
+/// logs, the read-provenance manifest, and per-directory file manifests.
+/// Sorted for reviewability; membership is by exact basename match.
+const ADMINISTRATIVE_BASENAMES: [&str; 11] = [
+    ".container-state.json",
+    "agent-claude.log",
+    "agent-code.json",
+    "agent-usage.json",
+    "determinism-env.json",
+    "env.explicit.lock",
+    "env.lock",
+    "manifest.json",
+    "progress.log",
+    "reads.jsonl",
+    "task-spec.json",
+];
+
+/// Basename prefix covering the agent's DAG state-transition patches
+/// (`state.patch.json`, `state.patch.applied.json`, …) — harness bookkeeping,
+/// never a result.
+const STATE_PATCH_PREFIX: &str = "state.patch";
+
 /// One analytical output, derived from the real-output source.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnalyticalOutput {
@@ -52,6 +83,11 @@ pub struct AnalyticalOutput {
     pub path: String,
     /// The spec V node kind this output maps to (`Figure`/`Table`/`File`).
     pub kind: OutputKind,
+    /// Whether this output can carry a narrative claim, or is execution
+    /// machinery that only ever appears in the crate for re-executability.
+    /// Derived from [`is_claim_eligible`]; see [`OutputRole`] for why this is a
+    /// SEPARATE axis from [`OutputKind`].
+    pub role: OutputRole,
     /// The producing task id, when derivable from a `runtime/outputs/<task>/…`
     /// path. Used to draw the V `computed_from` edge to the E step.
     pub producer_task: Option<String>,
@@ -66,6 +102,68 @@ pub enum OutputKind {
     Table,
     /// Any other produced file → V `File`.
     File,
+}
+
+/// Whether an output is the sort of object a narrative claim can cite.
+///
+/// This is a SECOND, orthogonal axis to [`OutputKind`]. `OutputKind` is the
+/// spec's closed V node-type set (§5.4) — every produced file is a
+/// `Figure`/`Table`/`File` there, machinery included, and the V projection must
+/// keep emitting a node for each so the crate stays a faithful description of
+/// what the run produced. The role axis answers the different question
+/// Invariant 3 asks: *should this object have been referenced as evidence?*
+///
+/// Generated `scripts/`, `env.lock`, `task-spec.json`, agent telemetry and the
+/// literature `evidence/` snapshot store are all real, required artifacts that
+/// no claim will ever cite. Counting them in the evidence-coverage denominator
+/// makes a healthy package read as ~99% uncovered and drowns the genuine gaps.
+/// They are CLASSIFIED here rather than dropped from
+/// [`analytical_outputs`] so the count stays visible and the V projection /
+/// Invariant 5 keep ranging over the identical output set they always have.
+///
+/// Exempt from the workspace `#[non_exhaustive]` default (as is its sibling
+/// [`OutputKind`]): this is an internal analysis discriminant, not a wire type —
+/// it crosses no `ts-rs` / RO-Crate / HTTP boundary, and the partition is closed
+/// by construction (an output either can carry a claim or cannot), so exhaustive
+/// matching is the property callers want.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputRole {
+    /// A scientific result: a table, a figure, a narrative report, a
+    /// stage `result.json`. Belongs in the Invariant-3 denominator.
+    ClaimEligible,
+    /// Execution / provenance machinery. Excluded from the Invariant-3
+    /// denominator, counted separately.
+    Administrative,
+}
+
+/// True when `path` names a claim-bearing scientific result — the outputs
+/// Invariant 3 (`evidence_coverage`) is entitled to demand a claim reference
+/// (or an explicit `output_unused` assumption) for.
+///
+/// False for the execution machinery every task emits alongside its results:
+/// anything under a `scripts/` or `evidence/` component, the fixed
+/// [`ADMINISTRATIVE_BASENAMES`], and the `state.patch*` bookkeeping files.
+/// Result tables (`*.tsv`/`*.csv`/`*.parquet`), figures, narrative reports
+/// (`*.md`) and the per-stage `result.json` stay eligible.
+pub fn is_claim_eligible(path: &str) -> bool {
+    let path = strip_fragment(path);
+    if path.is_empty() {
+        return false;
+    }
+    let basename = path.rsplit('/').next().unwrap_or(path);
+    if ADMINISTRATIVE_BASENAMES.contains(&basename) || basename.starts_with(STATE_PATCH_PREFIX) {
+        return false;
+    }
+    !path.split('/').any(|c| ADMINISTRATIVE_DIRS.contains(&c))
+}
+
+/// The [`OutputRole`] of `path`.
+fn role_for_path(path: &str) -> OutputRole {
+    if is_claim_eligible(path) {
+        OutputRole::ClaimEligible
+    } else {
+        OutputRole::Administrative
+    }
 }
 
 /// True when `@type` (a string or array) names `ImageObject`/`schema:Image`.
@@ -150,6 +248,12 @@ fn strip_fragment(s: &str) -> &str {
 /// `computed_from`/`produces` proofs rows (excluding `workflow:*` dependency
 /// edges). Deterministically ordered by path; de-duplicated by path (an entity
 /// also named in proofs is counted once, RO-Crate kind winning).
+///
+/// Every derived output — machinery included — is returned, each tagged with
+/// its [`OutputRole`]. Consumers that range over *claim-bearing* results only
+/// (Invariant 3) filter on `role`; consumers that must mirror the crate's full
+/// output set (the V sub-graph projection, Invariant 5's V id table) keep
+/// consuming the whole list unchanged.
 pub fn analytical_outputs(output_entities: &[Value], proofs: &[Value]) -> Vec<AnalyticalOutput> {
     use std::collections::BTreeMap;
     let mut by_path: BTreeMap<String, AnalyticalOutput> = BTreeMap::new();
@@ -173,10 +277,12 @@ pub fn analytical_outputs(output_entities: &[Value], proofs: &[Value]) -> Vec<An
             continue;
         }
         let kind = kind_for_path(&path, is_image);
+        let role = role_for_path(&path);
         let producer_task = producer_task_from_path(&path);
         by_path.entry(path.clone()).or_insert(AnalyticalOutput {
             path,
             kind,
+            role,
             producer_task,
         });
     }
@@ -200,10 +306,12 @@ pub fn analytical_outputs(output_entities: &[Value], proofs: &[Value]) -> Vec<An
             continue;
         }
         let kind = kind_for_path(&path, false);
+        let role = role_for_path(&path);
         let producer_task = producer_task_from_path(&path);
         by_path.entry(path.clone()).or_insert(AnalyticalOutput {
             path,
             kind,
+            role,
             producer_task,
         });
     }
@@ -309,5 +417,115 @@ mod tests {
         );
         assert_eq!(outs[0].path, "runtime/outputs/a/fig.png");
         assert_eq!(outs[1].path, "runtime/outputs/b/fig.png");
+    }
+
+    /// The claim-eligibility predicate must exclude generated code, captured
+    /// environments and per-task bookkeeping — the objects that inflated a
+    /// real deposit's evidence-coverage denominator to 295 with 293 "uncovered"
+    /// — while keeping every scientific result eligible.
+    #[test]
+    fn claim_eligible_excludes_code_env_and_admin() {
+        // (path, expected eligibility)
+        let cases: [(&str, bool); 26] = [
+            // Generated analysis code: excluded by the `scripts/` component,
+            // whatever the language.
+            ("runtime/outputs/de/scripts/01_deseq2_de.R", false),
+            ("runtime/outputs/de/scripts/01_qc.py", false),
+            ("runtime/outputs/de/scripts/nested/helper.py", false),
+            // Literature-atom evidence store: manifest + content-addressed
+            // snapshots (no extension at all).
+            ("runtime/outputs/lit/evidence/manifest.json", false),
+            (
+                "runtime/outputs/lit/evidence/snapshots/224344518fb48cbadfc2d7e011b3bf91ec8",
+                false,
+            ),
+            // Captured environments.
+            ("runtime/outputs/de/env.lock", false),
+            ("runtime/outputs/de/env.explicit.lock", false),
+            ("runtime/outputs/de/determinism-env.json", false),
+            // Task / agent bookkeeping.
+            ("runtime/outputs/de/task-spec.json", false),
+            ("runtime/outputs/de/agent-code.json", false),
+            ("runtime/outputs/de/agent-usage.json", false),
+            ("runtime/outputs/de/agent-claude.log", false),
+            ("runtime/outputs/de/progress.log", false),
+            ("runtime/outputs/de/reads.jsonl", false),
+            ("runtime/outputs/de/manifest.json", false),
+            ("runtime/outputs/de/figures/manifest.json", false),
+            ("runtime/outputs/de/.container-state.json", false),
+            ("runtime/outputs/de/state.patch.json", false),
+            ("runtime/outputs/de/state.patch.applied.json", false),
+            // Scientific results stay eligible.
+            ("runtime/outputs/de/de_results.tsv", true),
+            ("runtime/outputs/de/figures/x.png", true),
+            ("runtime/outputs/de/report.md", true),
+            ("runtime/outputs/de/result.json", true),
+            ("runtime/outputs/de/tables/counts.csv", true),
+            // A `#fragment` must not change the answer either way.
+            ("runtime/outputs/de/de_results.tsv#row-3", true),
+            ("runtime/outputs/de/env.lock#frag", false),
+        ];
+        for (path, expected) in cases {
+            assert_eq!(
+                is_claim_eligible(path),
+                expected,
+                "is_claim_eligible({path:?}) must be {expected}"
+            );
+        }
+    }
+
+    /// Excluded objects must be CLASSIFIED (returned with
+    /// `OutputRole::Administrative`), never silently dropped: the V sub-graph
+    /// projection and Invariant 5 still range over the full output set, and the
+    /// administrative count has to remain reportable.
+    #[test]
+    fn administrative_outputs_are_classified_not_dropped() {
+        let outs = analytical_outputs(
+            &[
+                json!({"@id":"runtime/outputs/de/scripts/01_de.R","@type":["File","Dataset"]}),
+                json!({"@id":"runtime/outputs/de/env.lock","@type":["File","Dataset"]}),
+                json!({"@id":"runtime/outputs/de/de_results.tsv","@type":["File","Dataset"]}),
+                json!({"@id":"runtime/outputs/de/figures/volcano.png","@type":["ImageObject"]}),
+            ],
+            &[],
+        );
+        assert_eq!(outs.len(), 4, "no output may be dropped: {outs:?}");
+        let admin: Vec<&str> = outs
+            .iter()
+            .filter(|o| o.role == OutputRole::Administrative)
+            .map(|o| o.path.as_str())
+            .collect();
+        assert_eq!(
+            admin,
+            vec![
+                "runtime/outputs/de/env.lock",
+                "runtime/outputs/de/scripts/01_de.R"
+            ],
+            "machinery must be tagged Administrative"
+        );
+        let eligible: Vec<&str> = outs
+            .iter()
+            .filter(|o| o.role == OutputRole::ClaimEligible)
+            .map(|o| o.path.as_str())
+            .collect();
+        assert_eq!(
+            eligible,
+            vec![
+                "runtime/outputs/de/de_results.tsv",
+                "runtime/outputs/de/figures/volcano.png"
+            ],
+            "results must stay ClaimEligible"
+        );
+        // The role axis is orthogonal to the spec V node-type: an administrative
+        // object still carries its §5.4 kind so the V projection is unchanged.
+        let env_lock = outs
+            .iter()
+            .find(|o| o.path.ends_with("env.lock"))
+            .expect("env.lock must be present");
+        assert_eq!(
+            env_lock.kind,
+            OutputKind::File,
+            "administrative objects keep their spec V node-type"
+        );
     }
 }

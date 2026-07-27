@@ -26,6 +26,19 @@
 //!       from `reexecution.json` with no acknowledging F.Blocker, and
 //!   (b) an unacknowledged compile-time `prove`/`failed` port-unification row
 //!       from `verifier-decisions.jsonl`.
+//!
+//! A third shape is NOT a `Fail` but must never read as a `Pass`: a
+//! re-execution in which nothing was comparable. `unavailable` rows carry no
+//! equivalence information at all (the comparator could not find the artifact on
+//! one side), and they require no acknowledgement — so a run whose rows are ALL
+//! `unavailable` has zero divergences and would otherwise land on the same
+//! `Pass`, with the same `n_inspected: 0, n_violations: 0`, as a flawless
+//! replay. A real deposit hit exactly that: 3 `byte_identical` +
+//! 1 `semantic_equivalent` + 23 `unavailable` reported a bare `pass` with no
+//! numbers attached. The verdict therefore requires at least one artifact to
+//! have actually been put through the comparator, and [`RerunTally`] is
+//! reported in the detail so "everything reproduced" and "almost nothing was
+//! comparable" are never the same string.
 
 use crate::audit_proof::loader::LoadedPackage;
 use crate::audit_proof::{InvariantId, InvariantStatus, InvariantVerdict};
@@ -38,6 +51,71 @@ use std::collections::BTreeSet;
 /// the closed 5-class enum in spec §5.6. (`byte_identical`,
 /// `semantic_equivalent` and `unavailable` are non-divergent and need no ack.)
 const DIVERGED_CLASSES: [&str; 2] = ["failed", "acknowledged_non_determinism"];
+
+/// `Q.RerunOutcome.class` values certifying the artifact was compared against
+/// the parent AND reproduced. This — not the row count — is what makes a `Pass`
+/// mean "the analysis reproduced".
+const REPRODUCED_CLASSES: [&str; 2] = ["byte_identical", "semantic_equivalent"];
+
+/// The `Q.RerunOutcome.class` the comparator assigns when it could not compare
+/// an artifact at all (absent on one side). Carries no equivalence information.
+const UNAVAILABLE_CLASS: &str = "unavailable";
+
+/// Census of the `reexecution.json::per_artifact[]` rows by outcome class.
+///
+/// `n_compared` and the verdict's `n_inspected` answer DIFFERENT questions:
+/// `n_inspected` counts divergences that needed acknowledgement, `n_compared`
+/// counts artifacts that were actually reproduced. Reporting only the former
+/// makes a `0` ambiguous between "nothing diverged" and "nothing was compared".
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RerunTally {
+    /// Rows the comparator compared and found equivalent
+    /// (`byte_identical` + `semantic_equivalent`).
+    pub n_compared: usize,
+    /// Rows that diverged and therefore require acknowledgement
+    /// (`failed` + `acknowledged_non_determinism`).
+    pub n_diverged: usize,
+    /// Rows the comparator could not compare (`unavailable`).
+    pub n_unavailable: usize,
+    /// Rows carrying no `bucket`/`class`, or one outside the closed 5-class
+    /// enum. Not evidence of anything; counted so they cannot be mistaken for
+    /// a comparison that happened.
+    pub n_unclassified: usize,
+}
+
+impl RerunTally {
+    /// Total `per_artifact[]` rows the tally ranged over.
+    pub fn n_rows(&self) -> usize {
+        self.n_compared + self.n_diverged + self.n_unavailable + self.n_unclassified
+    }
+
+    /// True when at least one artifact actually went through the comparator —
+    /// either reproducing or diverging. False means the re-execution produced
+    /// no equivalence evidence whatsoever, however many rows it wrote.
+    pub fn any_comparison(&self) -> bool {
+        self.n_compared > 0 || self.n_diverged > 0
+    }
+}
+
+/// Census the `per_artifact[]` rows by outcome class. `bucket` is the canonical
+/// `ReexecutionBucket` field; `class` is accepted as a forward-compatible alias
+/// for hand-authored rows (the same aliasing the ack scan below uses).
+pub fn tally_rerun_outcomes(outcomes: &[Value]) -> RerunTally {
+    let mut t = RerunTally::default();
+    for o in outcomes {
+        let class = o
+            .get("bucket")
+            .and_then(Value::as_str)
+            .or_else(|| o.get("class").and_then(Value::as_str));
+        match class {
+            Some(c) if REPRODUCED_CLASSES.contains(&c) => t.n_compared += 1,
+            Some(c) if DIVERGED_CLASSES.contains(&c) => t.n_diverged += 1,
+            Some(c) if c == UNAVAILABLE_CLASS => t.n_unavailable += 1,
+            _ => t.n_unclassified += 1,
+        }
+    }
+    t
+}
 
 /// Extract the `per_artifact[]` rows from the loaded `reexecution.json`
 /// document. Returns an empty slice-equivalent when the file is absent or
@@ -154,6 +232,20 @@ pub fn check_equivalence_failure(pkg: &LoadedPackage) -> InvariantVerdict {
         .collect();
     let n_inspected = needs_ack.len();
     let n_violations = violators.len();
+    // Census of the Q rows, independent of the acknowledgement scan: it counts
+    // what the COMPARATOR did, while `needs_ack`/`violators` count what still
+    // needs a human declaration (and additionally fold in compile-time
+    // prove-failures, which are not re-execution rows at all).
+    let tally = tally_rerun_outcomes(outcomes);
+    let census = format!(
+        "{} of {} artifact(s) reproduced ({} unavailable, {} acknowledged divergence(s), \
+         {} unclassified)",
+        tally.n_compared,
+        tally.n_rows(),
+        tally.n_unavailable,
+        tally.n_diverged,
+        tally.n_unclassified
+    );
     let (status, detail) = if n_violations > 0 {
         (
             InvariantStatus::Fail,
@@ -163,15 +255,28 @@ pub fn check_equivalence_failure(pkg: &LoadedPackage) -> InvariantVerdict {
                 violators.join(", ")
             )),
         )
-    } else if rerun_performed {
-        // Re-execution ran and every diverged outcome is acknowledged.
-        (InvariantStatus::Pass, None)
-    } else {
+    } else if !rerun_performed {
         // No re-execution performed: equivalence cannot be confirmed (spec §4).
         (
             InvariantStatus::Unverified,
             Some("no re-execution performed (Q absent)".to_string()),
         )
+    } else if !tally.any_comparison() {
+        // Rows exist, but not one artifact was actually compared — every row is
+        // `unavailable` (or carries no recognizable class). There is no
+        // divergence to acknowledge and equally no equivalence to certify, so
+        // the honest verdict is Unverified. Coercing this to `Pass` would make a
+        // re-execution that compared NOTHING indistinguishable from one in which
+        // everything reproduced.
+        (
+            InvariantStatus::Unverified,
+            Some(format!("re-execution compared no artifact: {census}")),
+        )
+    } else {
+        // Re-execution ran, at least one artifact was compared, and every
+        // diverged outcome is acknowledged. The census rides along so the Pass
+        // states HOW MUCH reproduced rather than asserting a bare "pass".
+        (InvariantStatus::Pass, Some(census))
     };
     InvariantVerdict {
         id: InvariantId::EquivalenceFailure,
@@ -179,5 +284,188 @@ pub fn check_equivalence_failure(pkg: &LoadedPackage) -> InvariantVerdict {
         detail,
         n_inspected,
         n_violations,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// Wrap `per_artifact` rows in the real `reexecution.json` document shape.
+    fn reexecution_doc(per_artifact: Vec<Value>) -> Value {
+        json!({
+            "schema_version": "0.1",
+            "bucket_counts": {},
+            "per_artifact": per_artifact,
+        })
+    }
+
+    fn row(path: &str, bucket: &str) -> Value {
+        json!({"artifact_path": path, "bucket": bucket})
+    }
+
+    fn pkg_with_rows(per_artifact: Vec<Value>) -> LoadedPackage {
+        LoadedPackage {
+            reexecution: Some(reexecution_doc(per_artifact)),
+            ..Default::default()
+        }
+    }
+
+    /// A re-execution in which NOTHING was comparable must not read as a clean
+    /// reproduction. `unavailable` rows need no acknowledgement, so the
+    /// divergence count is 0 and the pre-fix code took the `Pass` branch purely
+    /// because `per_artifact` was non-empty.
+    #[test]
+    fn all_unavailable_is_unverified_not_pass() {
+        let pkg = pkg_with_rows(vec![
+            row("runtime/outputs/de/de_results.tsv", "unavailable"),
+            row("runtime/outputs/de/normalized_counts.tsv", "unavailable"),
+            row("runtime/outputs/de/figures/volcano.png", "unavailable"),
+        ]);
+        let tally = tally_rerun_outcomes(&[
+            row("a", "unavailable"),
+            row("b", "unavailable"),
+            row("c", "unavailable"),
+        ]);
+        assert_eq!(tally.n_compared, 0, "nothing was reproduced");
+        assert_eq!(tally.n_unavailable, 3, "all three rows were incomparable");
+        assert!(
+            !tally.any_comparison(),
+            "no artifact reached the comparator"
+        );
+
+        let v = check_equivalence_failure(&pkg);
+        assert_eq!(
+            v.status,
+            InvariantStatus::Unverified,
+            "0-of-3 comparable must be Unverified, not Pass: {:?}",
+            v.detail
+        );
+        assert_eq!(v.n_violations, 0, "an unavailable row is not a divergence");
+        let detail = v.detail.expect("Unverified must explain itself");
+        assert!(
+            detail.contains("0 of 3 artifact(s) reproduced"),
+            "the census must make the emptiness legible: {detail}"
+        );
+    }
+
+    /// The real-deposit shape: a minority of artifacts reproduced, the rest
+    /// unavailable, nothing diverged. That IS a Pass — but the report must carry
+    /// the compared count so it cannot be read as "everything reproduced".
+    #[test]
+    fn some_reproduced_none_diverged_is_pass() {
+        let mut rows: Vec<Value> = (0..4)
+            .map(|i| row(&format!("runtime/outputs/de/t{i}.tsv"), "byte_identical"))
+            .collect();
+        rows.extend((0..17).map(|i| row(&format!("runtime/outputs/de/u{i}.tsv"), "unavailable")));
+        let tally = tally_rerun_outcomes(&rows);
+        assert_eq!(tally.n_compared, 4, "four artifacts reproduced");
+        assert_eq!(tally.n_unavailable, 17, "seventeen were incomparable");
+        assert_eq!(tally.n_rows(), 21, "census must cover every row");
+
+        let v = check_equivalence_failure(&pkg_with_rows(rows));
+        assert_eq!(
+            v.status,
+            InvariantStatus::Pass,
+            "a genuine reproduction is still a Pass: {:?}",
+            v.detail
+        );
+        assert_eq!(
+            v.n_inspected, 0,
+            "n_inspected counts divergences needing acknowledgement, of which there are none"
+        );
+        assert_eq!(v.n_violations, 0, "nothing unacknowledged");
+        let detail = v.detail.expect("a Pass must report how much reproduced");
+        assert!(
+            detail.contains("4 of 21 artifact(s) reproduced"),
+            "compared count must be distinguishable from the divergence count: {detail}"
+        );
+    }
+
+    /// Regression: the census must not soften a genuine unacknowledged
+    /// divergence. `Fail` outranks every other branch.
+    #[test]
+    fn diverged_unacknowledged_still_fails() {
+        let pkg = pkg_with_rows(vec![
+            row("runtime/outputs/de/de_results.tsv", "failed"),
+            row("runtime/outputs/de/counts.tsv", "byte_identical"),
+            row("runtime/outputs/de/qc.tsv", "unavailable"),
+        ]);
+        let v = check_equivalence_failure(&pkg);
+        assert_eq!(
+            v.status,
+            InvariantStatus::Fail,
+            "an unacknowledged divergence must still Fail: {:?}",
+            v.detail
+        );
+        assert_eq!(v.n_inspected, 1, "one divergence required acknowledgement");
+        assert_eq!(v.n_violations, 1, "and it had none");
+    }
+
+    /// An `unavailable`-only run whose rows are ALSO all unacknowledged-free
+    /// still Fails when the compile-time port-unification trace carries an
+    /// unacknowledged `prove`/`failed` row: `Fail` is evaluated before the
+    /// no-comparison check.
+    #[test]
+    fn prove_failure_outranks_no_comparison() {
+        let pkg = LoadedPackage {
+            reexecution: Some(reexecution_doc(vec![row("a.tsv", "unavailable")])),
+            verifier_decisions: vec![json!({"event":"prove","outcome":"failed","edge_id":"e-1"})],
+            ..Default::default()
+        };
+        let v = check_equivalence_failure(&pkg);
+        assert_eq!(
+            v.status,
+            InvariantStatus::Fail,
+            "an unacknowledged prove-failure outranks the no-comparison branch"
+        );
+    }
+
+    /// An acknowledged divergence IS a comparison the comparator performed, so
+    /// a run of nothing but acknowledged divergences stays a `Pass` — the
+    /// no-comparison branch keys on "no artifact reached the comparator", not
+    /// on "nothing reproduced byte-for-byte".
+    #[test]
+    fn acknowledged_divergence_alone_is_still_a_comparison() {
+        let pkg = LoadedPackage {
+            reexecution: Some(reexecution_doc(vec![row(
+                "runtime/outputs/de/de_results.tsv",
+                "acknowledged_non_determinism",
+            )])),
+            assumptions: vec![
+                json!({"kind":"policy_exception","edge_id":"runtime/outputs/de/de_results.tsv"}),
+            ],
+            ..Default::default()
+        };
+        let v = check_equivalence_failure(&pkg);
+        assert_eq!(
+            v.status,
+            InvariantStatus::Pass,
+            "an acknowledged divergence is evidence the comparator ran: {:?}",
+            v.detail
+        );
+    }
+
+    /// A row with an unrecognized (or missing) bucket is not evidence of a
+    /// comparison; a document made only of those is Unverified.
+    #[test]
+    fn unclassified_rows_are_not_a_comparison() {
+        let pkg = pkg_with_rows(vec![
+            json!({"artifact_path": "a.tsv"}),
+            row("b.tsv", "not_a_real_bucket"),
+        ]);
+        let v = check_equivalence_failure(&pkg);
+        assert_eq!(
+            v.status,
+            InvariantStatus::Unverified,
+            "unrecognized buckets certify nothing: {:?}",
+            v.detail
+        );
+        let detail = v.detail.expect("Unverified must explain itself");
+        assert!(
+            detail.contains("2 unclassified"),
+            "unclassified rows must be counted, not ignored: {detail}"
+        );
     }
 }

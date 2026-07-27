@@ -21,10 +21,16 @@
 //!
 //! Layer 1 also rolls up per-task domain-correctness validation
 //! (`domain_validation`, via [`scan_domain_validation`] — RCA I-10): a
-//! `validate_*` companion task's own `result.json` may self-report
-//! `validation_passed: false`, which is a SEPARATE axis from computational
-//! completion (whether the stage ran and produced output at all). The
-//! headline `deposit_ready` bool folds `ro_crate` + `bagit` +
+//! `validate_*` companion task's own `result.json` may self-report a failing
+//! verdict, which is a SEPARATE axis from computational completion (whether
+//! the stage ran and produced output at all). The rollup reads three
+//! independent evidence surfaces — each `validate_*` task's `result.json`
+//! verdict (in whichever of the observed spellings the agent wrote; see
+//! [`task_validation_verdict`]), the package's contract-obligation records in
+//! `runtime/validation-reports.jsonl` (see [`scan_contract_obligations`]), and
+//! the source-owned reporting-correctness checklist — and reports
+//! `CheckStatus::Unverified`, never `Pass`, when NONE of them had anything to
+//! inspect. The headline `deposit_ready` bool folds `ro_crate` + `bagit` +
 //! `domain_validation` + `provenance_divergence` + `substrate_validity` +
 //! `reexecution` so a run can be computationally complete while
 //! `deposit_ready` reads `false`.
@@ -84,6 +90,16 @@ pub const DEPOSIT_READINESS_FILE: &str = "DEPOSIT-READINESS.json";
 /// `CheckStatus`-typed field existed (e.g. `domain_validation`, RCA I-10)
 /// deserializes as "nothing recorded, nothing failed" rather than erroring —
 /// absence never fabricates a failure.
+///
+/// `Unverified` is the honest third outcome for an axis that INSPECTED
+/// NOTHING: it must never be reported as `Pass` (that is the vacuous-gate
+/// bug — a check that examined zero evidence claiming a clean bill of
+/// health), and it must never be reported as `Fail` (nothing was found
+/// wrong). It is surfaced in the attestation and, like
+/// `ReexecStatus::NotVerified` outside the `re-executable` profile, does not
+/// block `deposit_ready`. Currently produced only by the `domain_validation`
+/// axis; `ro_crate` / `bagit` / `provenance_divergence` / `substrate_validity`
+/// are always able to reach a concrete verdict.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -91,6 +107,9 @@ pub enum CheckStatus {
     #[default]
     Pass,
     Fail,
+    /// The axis ran but had no evidence to inspect — neither a pass nor a
+    /// failure. Non-blocking, but never silently rendered as `Pass`.
+    Unverified,
 }
 
 /// Re-execution verdict recorded in the attestation. `NotVerified` = the check
@@ -155,8 +174,10 @@ pub struct DepositReadiness {
     /// BagIt manifest checksum-integrity outcome.
     pub bagit: CheckStatus,
     /// Per-task domain-correctness validation rollup (RCA I-10): `Fail` when
-    /// any `validate_*` task's own `result.json` recorded
-    /// `validation_passed: false`. See [`scan_domain_validation`]. Separate
+    /// any `validate_*` task's own `result.json` recorded a failing verdict or
+    /// the package recorded a `failed:`/`errored:` contract obligation;
+    /// `Unverified` when NOTHING was inspected (non-blocking, but never
+    /// silently reported as `Pass`). See [`scan_domain_validation`]. Separate
     /// from `ro_crate`/`bagit` (structural integrity) and from computational
     /// completion (whether tasks ran at all) — this is the domain-science
     /// signal. `#[serde(default)]` for attestations predating this field.
@@ -212,7 +233,7 @@ pub struct DepositReadiness {
 
 /// Fold the deposit-readiness component signals into the headline
 /// `deposit_ready` bool (RCA I-10, DR-1). Mirrors the non-strict branch of
-/// [`check_deposit_readiness`] and, like it, is now PROFILE-AWARE: a hard
+/// [`check_deposit_readiness`] and, like it, is PROFILE-AWARE: a hard
 /// `Fail` on any of the three `CheckStatus` axes — or a `Fail` re-execution
 /// — always blocks; and for the `re-executable` profile a `NotVerified`
 /// re-execution ALSO blocks (a deposit whose entire contract is replayability
@@ -220,6 +241,12 @@ pub struct DepositReadiness {
 /// outcome — always passes; and `NotVerified` stays admitted for profiles
 /// that do not claim re-executability (`full`/`minimal`), where it is a
 /// `--strict`-only concern owned by the CLI gate.
+///
+/// `domain_validation: Unverified` (the axis inspected nothing) is
+/// NON-blocking, matching how a `NotVerified` re-execution is admitted for a
+/// profile that does not claim the property: absence of evidence is recorded
+/// honestly rather than converted into a failure. `ro_crate` and `bagit`
+/// never produce `Unverified`, so their `== Pass` test is unchanged.
 pub fn compute_deposit_ready(
     profile: &str,
     ro_crate: CheckStatus,
@@ -232,7 +259,7 @@ pub fn compute_deposit_ready(
             && reexecution == ReexecStatus::NotVerified);
     ro_crate == CheckStatus::Pass
         && bagit == CheckStatus::Pass
-        && domain_validation == CheckStatus::Pass
+        && domain_validation != CheckStatus::Fail
         && !reexec_blocks
 }
 
@@ -327,17 +354,24 @@ pub fn assert_ro_crate_hashes_match_payload(package_root: &Path) -> Result<()> {
 /// attestation.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DomainValidationSummary {
-    /// `validate_*` task ids that recorded a self-report (a `validation_passed`
-    /// key was present), in sorted order.
+    /// Task ids that recorded a RECOGNIZED verdict, in scan order:
+    /// `validate_*` tasks whose `result.json` yielded a verdict via
+    /// [`task_validation_verdict`], then the synthetic
+    /// [`CONTRACT_OBLIGATIONS_TASK_ID`] when the package carries contract
+    /// obligation records, then the synthetic `reporting_invariants` id when
+    /// that checklist ran. EMPTY means the axis inspected nothing — see
+    /// [`DomainValidationSummary::status`].
     pub checked_tasks: Vec<String>,
-    /// The subset of `checked_tasks` whose self-report was
-    /// `validation_passed: false`, in sorted order.
+    /// The subset of [`Self::checked_tasks`] whose recorded verdict was a
+    /// failure, in scan order.
     pub failed_tasks: Vec<String>,
     /// `"<task_id>: <assertion_id>"` for every entry in a failed task's
     /// `required_failures` array, in scan order. Also carries the
     /// source-owned reporting-correctness validator's REQUIRED failures
     /// (RP-2/RP-4/RP-5) under the synthetic `reporting_invariants` task id
-    /// (see [`crate::reporting_invariants`]).
+    /// (see [`crate::reporting_invariants`]) and the contract-obligation
+    /// failures under the synthetic [`CONTRACT_OBLIGATIONS_TASK_ID`] (see
+    /// [`scan_contract_obligations`]).
     pub required_failures: Vec<String>,
     /// Advisory (non-blocking) reporting-correctness warnings
     /// (RP-1/RP-3/RP-9). Surfaced for operator visibility but never folded
@@ -351,53 +385,289 @@ pub struct DomainValidationSummary {
 impl DomainValidationSummary {
     /// `true` iff no `validate_*` task self-reported a domain-correctness
     /// failure. Vacuously `true` when no task recorded a self-report at all
-    /// — absence of a check is not itself a failure.
+    /// — absence of a check is not itself a failure. Use [`Self::status`]
+    /// when the caller needs to distinguish "nothing failed" from "nothing
+    /// was inspected".
     pub fn passed(&self) -> bool {
         self.failed_tasks.is_empty()
     }
+
+    /// The three-way attestation axis for this rollup.
+    ///
+    /// * `Fail` — at least one recorded verdict was a failure.
+    /// * `Unverified` — NOTHING was inspected: no `validate_*` task recorded
+    ///   a verdict [`task_validation_verdict`] recognizes, the package
+    ///   carries no contract-obligation records, and the
+    ///   reporting-correctness checklist found none of its inputs. Reporting
+    ///   this as `Pass` is the vacuous-gate bug this axis exists to avoid.
+    /// * `Pass` — at least one check ran and none failed.
+    pub fn status(&self) -> CheckStatus {
+        if !self.failed_tasks.is_empty() {
+            CheckStatus::Fail
+        } else if self.checked_tasks.is_empty() {
+            CheckStatus::Unverified
+        } else {
+            CheckStatus::Pass
+        }
+    }
+}
+
+/// Synthetic task id the contract-obligation rollup
+/// ([`scan_contract_obligations`]) is surfaced under, so a failing obligation
+/// is attributable in [`DomainValidationSummary::failed_tasks`] without
+/// colliding with a real `validate_*` task id.
+pub const CONTRACT_OBLIGATIONS_TASK_ID: &str = "contract_obligations";
+
+/// Package-relative path of the ECAA E-subgraph execution-validation sidecar
+/// the harness appends one record to per checked obligation.
+const VALIDATION_REPORTS_SIDECAR: &str = "validation-reports.jsonl";
+
+/// Keys whose BOOLEAN value is a task's domain-correctness verdict, in
+/// precedence order. `validation_passed` is the canonical spelling the
+/// deposit rollup was originally written against.
+const VERDICT_BOOL_KEYS: [&str; 3] = ["validation_passed", "overall_pass", "all_pass"];
+
+/// Keys whose STRING value is a task's domain-correctness verdict, in
+/// precedence order.
+///
+/// Agent-authored `validate_*` `result.json` files do NOT converge on one
+/// spelling: a survey of the on-disk package corpus found `validation_result`,
+/// `overall`, `overall_validation_status`, `validation_status`,
+/// `validation_outcome` and the boolean `overall_pass` / `all_pass` all in
+/// use, with `validation_passed` a MINORITY spelling. Reading only
+/// `validation_passed` made the whole axis vacuous on real packages, so every
+/// observed spelling is accepted. The first four entries are the contract
+/// order; `validation_outcome` is the empirically-observed tail.
+const VERDICT_STRING_KEYS: [&str; 5] = [
+    "validation_result",
+    "overall",
+    "overall_validation_status",
+    "validation_status",
+    "validation_outcome",
+];
+
+/// Keys carrying an array of named required-check failures on a failing
+/// self-report, in precedence order.
+const REQUIRED_FAILURE_KEYS: [&str; 3] = ["required_failures", "failed_checks", "failures"];
+
+/// Map a verdict STRING onto a pass/fail bool. Case-insensitive; `None` for a
+/// value that is not a recognized verdict token (so a key like `overall`
+/// carrying unrelated prose falls through to the next candidate key rather
+/// than fabricating a verdict).
+fn verdict_from_str(raw: &str) -> Option<bool> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "pass" | "passed" => Some(true),
+        "fail" | "failed" | "error" | "errored" => Some(false),
+        _ => None,
+    }
+}
+
+/// Extract a `validate_*` task's self-reported domain-correctness verdict
+/// from its parsed `result.json`.
+///
+/// Returns `Some(true)` / `Some(false)` for a recognized verdict and `None`
+/// when the document carries no recognized verdict key at all — the latter is
+/// a task that must be SKIPPED (most `validate_*` companions are pure
+/// artifact-presence checks and record no domain verdict), never a failure.
+/// A recognized key whose value is not a recognized verdict token is also
+/// skipped, so unrelated prose under a generic key (`"outcome": "ok"`) cannot
+/// fabricate a verdict.
+pub fn task_validation_verdict(v: &serde_json::Value) -> Option<bool> {
+    for key in VERDICT_BOOL_KEYS {
+        if let Some(b) = v.get(key).and_then(|x| x.as_bool()) {
+            return Some(b);
+        }
+    }
+    for key in VERDICT_STRING_KEYS {
+        if let Some(verdict) = v
+            .get(key)
+            .and_then(|x| x.as_str())
+            .and_then(verdict_from_str)
+        {
+            return Some(verdict);
+        }
+    }
+    None
+}
+
+/// Read + de-duplicate the contract-obligation records in
+/// `runtime/validation-reports.jsonl`.
+///
+/// An obligation declared on more than one of a task's required artifacts is
+/// recorded once per artifact, so the same `(task_id, obligation_id, outcome)`
+/// triple can repeat — the same de-duplication
+/// `emitter::audit_report` applies. A missing/unreadable sidecar yields an
+/// empty `Vec`; unparseable lines are skipped individually.
+fn contract_obligation_rows(package_root: &Path) -> Vec<serde_json::Value> {
+    let path = package_root
+        .join("runtime")
+        .join(VALIDATION_REPORTS_SIDECAR);
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+    let mut seen: std::collections::BTreeSet<(String, String, String)> =
+        std::collections::BTreeSet::new();
+    let mut rows = Vec::new();
+    for line in raw.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        let field = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let key = (field("task_id"), field("obligation_id"), field("outcome"));
+        if seen.insert(key) {
+            rows.push(v);
+        }
+    }
+    rows
+}
+
+/// `"<task_id>.<obligation_id> (<outcome>)"` when this obligation record is a
+/// REQUIRED failure, else `None`.
+///
+/// `outcome` has four serialized forms: `passed`, `failed:…`, `errored:…` and
+/// `unimplemented:…`. Only `failed:` (the obligation ran and the assertion did
+/// not hold) and `errored:` (the obligation could not reach a verdict over
+/// the package's own artifacts) are required failures. `unimplemented:` names
+/// a catalog obligation with no checker yet — a gap in the validator suite,
+/// not a defect in this package's science — so it never blocks.
+fn obligation_required_failure(v: &serde_json::Value) -> Option<String> {
+    let outcome = v.get("outcome").and_then(|x| x.as_str())?.trim();
+    let lower = outcome.to_ascii_lowercase();
+    let is_failure = lower.starts_with("failed:")
+        || lower.starts_with("errored:")
+        || lower == "failed"
+        || lower == "errored";
+    if !is_failure {
+        return None;
+    }
+    let task = v
+        .get("task_id")
+        .and_then(|x| x.as_str())
+        .unwrap_or("<unknown task>");
+    let obligation = v
+        .get("obligation_id")
+        .and_then(|x| x.as_str())
+        .unwrap_or("<unknown obligation>");
+    Some(format!("{task}.{obligation} ({outcome})"))
+}
+
+/// Roll the package's contract-obligation records
+/// (`runtime/validation-reports.jsonl`) up into the REQUIRED failures they
+/// declare, sorted + de-duplicated.
+///
+/// These are the harness-run `policies/validation-contract.json` obligations —
+/// a per-artifact evidence surface that the deposit rollup previously never
+/// read at all, so an obligation the package itself recorded as `failed:` /
+/// `errored:` could not block the deposit boundary. Returns an empty `Vec`
+/// for a package with no sidecar, no records, or only passing / not-yet-
+/// implemented obligations.
+pub fn scan_contract_obligations(package_root: &Path) -> Vec<String> {
+    let mut out: Vec<String> = contract_obligation_rows(package_root)
+        .iter()
+        .filter_map(obligation_required_failure)
+        .collect();
+    out.sort();
+    out.dedup();
+    out
 }
 
 /// Scan every `validate_*` task's `runtime/outputs/<task_id>/result.json`
-/// under `package_root` for a self-reported `validation_passed` boolean and
-/// roll the per-task verdicts into one [`DomainValidationSummary`] (RCA
-/// I-10). A `result.json` that is missing, unparseable, or carries no
-/// `validation_passed` key is silently skipped — not every `validate_*`
-/// companion emits a domain-correctness self-report (most are pure
-/// artifact-presence checks), and absence must never read as a failure.
-/// Deterministic: task directories are visited in sorted order.
+/// under `package_root` for a self-reported domain-correctness verdict (via
+/// [`task_validation_verdict`], which accepts every spelling the agent-authored
+/// reports actually use), fold in the package's contract-obligation records
+/// (`runtime/validation-reports.jsonl`, via [`scan_contract_obligations`]) and
+/// the source-owned reporting-correctness checklist, and roll the whole lot
+/// into one [`DomainValidationSummary`] (RCA I-10).
+///
+/// A `result.json` that is missing, unparseable, or carries no recognized
+/// verdict key is silently skipped — not every `validate_*` companion emits a
+/// domain-correctness self-report (most are pure artifact-presence checks),
+/// and absence must never read as a failure. When NOTHING at all was
+/// inspected, [`DomainValidationSummary::status`] reports `Unverified` rather
+/// than `Pass`.
+///
+/// Deterministic: task directories are visited in sorted order and the
+/// obligation rollup is sorted + de-duplicated.
 pub fn scan_domain_validation(package_root: &Path) -> DomainValidationSummary {
     let mut summary = DomainValidationSummary::default();
     let outputs_dir = package_root.join("runtime").join("outputs");
-    let Ok(entries) = std::fs::read_dir(&outputs_dir) else {
-        return summary;
-    };
-    let mut task_ids: Vec<String> = entries
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_dir())
-        .filter_map(|e| e.file_name().into_string().ok())
-        .filter(|name| name.starts_with("validate_"))
-        .collect();
-    task_ids.sort();
-    for task_id in task_ids {
-        let result_path = outputs_dir.join(&task_id).join("result.json");
-        let Ok(raw) = std::fs::read_to_string(&result_path) else {
-            continue;
-        };
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else {
-            continue;
-        };
-        let Some(passed) = v.get("validation_passed").and_then(|x| x.as_bool()) else {
-            continue;
-        };
-        summary.checked_tasks.push(task_id.clone());
-        if !passed {
-            summary.failed_tasks.push(task_id.clone());
-            if let Some(arr) = v.get("required_failures").and_then(|x| x.as_array()) {
-                for f in arr {
-                    if let Some(s) = f.as_str() {
+    if let Ok(entries) = std::fs::read_dir(&outputs_dir) {
+        let mut task_ids: Vec<String> = entries
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_dir())
+            .filter_map(|e| e.file_name().into_string().ok())
+            .filter(|name| name.starts_with("validate_"))
+            .collect();
+        task_ids.sort();
+        for task_id in task_ids {
+            let result_path = outputs_dir.join(&task_id).join("result.json");
+            let Ok(raw) = std::fs::read_to_string(&result_path) else {
+                continue;
+            };
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else {
+                continue;
+            };
+            let Some(passed) = task_validation_verdict(&v) else {
+                continue;
+            };
+            summary.checked_tasks.push(task_id.clone());
+            if !passed {
+                summary.failed_tasks.push(task_id.clone());
+                let named: Vec<String> = REQUIRED_FAILURE_KEYS
+                    .iter()
+                    .find_map(|k| v.get(*k).and_then(|x| x.as_array()))
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|f| f.as_str())
+                            .map(|s| s.to_string())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if named.is_empty() {
+                    // A failing self-report that names no assertion still has
+                    // to reach the attestation detail — otherwise the axis
+                    // reads `Fail` with no explanation of what failed.
+                    summary
+                        .required_failures
+                        .push(format!("{task_id}: recorded a failing validation verdict"));
+                } else {
+                    for s in named {
                         summary.required_failures.push(format!("{task_id}: {s}"));
                     }
                 }
+            }
+        }
+    }
+
+    // Fold in the package's own contract-obligation records: the harness
+    // appends one `{task_id, obligation_id, outcome}` per checked obligation
+    // to `runtime/validation-reports.jsonl`, and a `failed:` / `errored:`
+    // outcome there is a domain-correctness failure the deposit boundary must
+    // see. Records exist ⇒ something WAS inspected, so their presence also
+    // lifts the rollup out of `Unverified` even when every obligation passed.
+    let obligation_rows = contract_obligation_rows(package_root);
+    if !obligation_rows.is_empty() {
+        summary
+            .checked_tasks
+            .push(CONTRACT_OBLIGATIONS_TASK_ID.to_string());
+        let mut fails: Vec<String> = obligation_rows
+            .iter()
+            .filter_map(obligation_required_failure)
+            .collect();
+        fails.sort();
+        fails.dedup();
+        if !fails.is_empty() {
+            summary
+                .failed_tasks
+                .push(CONTRACT_OBLIGATIONS_TASK_ID.to_string());
+            for f in fails {
+                summary
+                    .required_failures
+                    .push(format!("{CONTRACT_OBLIGATIONS_TASK_ID}: {f}"));
             }
         }
     }
@@ -1009,16 +1279,20 @@ pub fn write_deposit_readiness(
     clock: &dyn Clock,
 ) -> Result<()> {
     let domain = scan_domain_validation(dst);
-    let domain_validation = if domain.passed() {
-        CheckStatus::Pass
-    } else {
-        CheckStatus::Fail
-    };
+    let domain_validation = domain.status();
     let domain_detail = (!domain.required_failures.is_empty()).then(|| {
         format!(
             "domain-validation failure(s): {}",
             domain.required_failures.join(", ")
         )
+    });
+    // An axis that inspected nothing is recorded honestly (and visibly) as
+    // UNVERIFIED rather than silently rendered as a clean pass.
+    let domain_unverified_detail = (domain_validation == CheckStatus::Unverified).then(|| {
+        "domain-validation UNVERIFIED: no validate_* task recorded a recognized verdict, \
+         the package carries no contract-obligation records, and no reporting-correctness \
+         invariant found its inputs — nothing was inspected on this axis"
+            .to_string()
     });
 
     // §G-B2 backstop — a genuine observed-read divergence recorded in the
@@ -1084,6 +1358,7 @@ pub fn write_deposit_readiness(
     let detail = [
         tier1.detail.clone(),
         domain_detail,
+        domain_unverified_detail,
         divergence_detail,
         substrate_detail,
         reporting_warnings_detail,
@@ -1249,7 +1524,10 @@ pub fn check_deposit_readiness(pkg: &Path, strict: bool) -> Result<DepositReadin
             dr.detail.as_deref().map(|d| format!(" — {d}")).unwrap_or_default()
         );
     }
-    if dr.domain_validation != CheckStatus::Pass {
+    // `Unverified` (the axis inspected nothing) is surfaced in the
+    // attestation but does not block: absence of evidence is recorded
+    // honestly, not converted into a failure. Only a concrete `Fail` blocks.
+    if dr.domain_validation == CheckStatus::Fail {
         bail!(
             "deposit gate: per-task domain-correctness validation did not pass ({:?}){} — \
              a required validate_* check failed even though the run may be computationally \
@@ -1306,6 +1584,378 @@ pub fn check_deposit_readiness(pkg: &Path, strict: bool) -> Result<DepositReadin
         _ => {}
     }
     Ok(dr)
+}
+
+// ---------------------------------------------------------------------------
+// Post-seal revalidation
+// ---------------------------------------------------------------------------
+//
+// The deposit-readiness attestation is a verdict recorded AT EXPORT TIME.
+// Everything downstream of that — the deposit gate, a reviewer, an archive —
+// re-reads the verdict, never the evidence. Post-seal revalidation closes that
+// gap for the subset of assertions that are checkable OFFLINE against the
+// sealed tree alone: the file-presence claims the package's own per-task
+// reports make about themselves.
+//
+// A validator script that recorded `artifact_presence.X: PASS
+// (runtime/outputs/<task>/X.tsv)` and a deposit whose sealed tree does not
+// contain that file are inconsistent regardless of whether the checksums of
+// the files that ARE present all match — BagIt integrity cannot catch it,
+// because a file absent from both the tree and the manifest is invisible to a
+// manifest walk. This is the check that catches it.
+
+/// Package-relative path of the post-seal revalidation report.
+pub const POST_SEAL_VALIDATION_FILE: &str = "runtime/post-seal-validation.json";
+
+/// Per-task report files whose contents are scanned for file-presence claims.
+const PRESENCE_CLAIM_SOURCES: [&str; 3] =
+    ["validation_report.json", "result.json", "manifest.json"];
+
+/// The package-root-anchored prefix a presence claim uses to name a file in
+/// the package's own tree. Any token containing this — including an absolute
+/// host path recorded by an agent that ran inside the package dir — is
+/// re-anchored at the package root from this segment onward.
+const PACKAGE_ANCHOR: &str = "runtime/";
+
+/// A single file-presence assertion recovered from a package's own reports.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PresenceClaim {
+    /// Task whose report made the claim.
+    pub task_id: String,
+    /// Report file the claim was recovered from (one of
+    /// [`PRESENCE_CLAIM_SOURCES`]).
+    pub source: String,
+    /// Package-relative path the report claims is present.
+    pub claimed_path: String,
+}
+
+/// The post-seal revalidation report, written to
+/// [`POST_SEAL_VALIDATION_FILE`].
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PostSealValidation {
+    /// Report schema version.
+    pub schema_version: String,
+    /// How many distinct file-presence claims were recovered and re-checked.
+    pub claims_checked: usize,
+    /// The subset of the recovered claims naming a path that is NOT in the
+    /// sealed tree, sorted. Non-empty ⇒ the package asserts the presence of a
+    /// file it does not contain.
+    pub missing_claims: Vec<PresenceClaim>,
+    /// REQUIRED failures from the source-owned reporting-correctness
+    /// checklist, re-run against the sealed tree.
+    pub reporting_required_failures: Vec<String>,
+    /// Advisory (never-blocking) reporting-correctness warnings.
+    pub reporting_warnings: Vec<String>,
+    /// REQUIRED contract-obligation failures recorded in the sealed tree's
+    /// `runtime/validation-reports.jsonl` (see [`scan_contract_obligations`]).
+    pub contract_obligation_failures: Vec<String>,
+    /// `true` iff nothing above found a problem.
+    pub passed: bool,
+    /// RFC-3339 wall-clock instant the revalidation ran.
+    pub checked_at: String,
+}
+
+impl PostSealValidation {
+    /// `true` iff every recovered presence claim resolves in the sealed tree.
+    /// The `--strict` refusal condition, kept separate from [`Self::passed`]
+    /// so a reporting-invariant or contract-obligation finding is surfaced
+    /// without being converted into a presence failure.
+    pub fn presence_claims_hold(&self) -> bool {
+        self.missing_claims.is_empty()
+    }
+}
+
+/// `true` when `p`'s final segment looks like a filename with an extension.
+///
+/// The presence-claim extractor only accepts tokens that pass this test.
+/// Requiring an extension is what keeps prose out of the claim set: a
+/// description string like `"scripts directory contains at least one script"`
+/// tokenizes into words, none of which survives here. Directory-presence
+/// claims are consequently NOT re-checked — a deliberate under-approximation,
+/// because `--strict` refuses the deposit on a missing claim and a false
+/// positive there is worse than a missed check.
+fn looks_like_filename(p: &str) -> bool {
+    let last = p.rsplit('/').next().unwrap_or("");
+    match last.rsplit_once('.') {
+        Some((stem, ext)) => {
+            !stem.is_empty()
+                && (1..=8).contains(&ext.len())
+                && ext.chars().all(|c| c.is_ascii_alphanumeric())
+        }
+        None => false,
+    }
+}
+
+/// `true` for a JSON key whose value is a path rather than prose.
+///
+/// Only consulted for TASK-RELATIVE tokens (a bare `sub/dir/file.tsv` with no
+/// package anchor); package-anchored tokens are accepted under any key,
+/// including free-form `detail` strings, because `runtime/…` inside a
+/// package's own report is unambiguous.
+fn key_names_a_path(key: Option<&str>) -> bool {
+    let Some(k) = key else {
+        return false;
+    };
+    let k = k.to_ascii_lowercase();
+    matches!(
+        k.as_str(),
+        "path" | "file" | "filename" | "artifact" | "artifacts" | "output" | "outputs"
+    ) || k.ends_with("_path")
+        || k.ends_with("_paths")
+        || k.ends_with("_file")
+        || k.ends_with("_files")
+}
+
+/// Candidate package-relative paths a single token could be naming, most
+/// specific first. A claim is SATISFIED when any candidate exists, so an
+/// ambiguous relative token cannot be reported missing on the strength of one
+/// guess. Empty ⇒ the token is not a presence claim.
+fn claim_candidates(task_id: &str, key: Option<&str>, token: &str) -> Vec<String> {
+    if token.is_empty() || token.contains("..") || token.contains('*') || token.contains('?') {
+        return Vec::new();
+    }
+    // Package-anchored: re-anchor from the LAST `runtime/` so an absolute host
+    // path recorded by the agent (`/home/…/<pkg>/runtime/outputs/…`) collapses
+    // to the package-relative form.
+    if let Some(idx) = token.rfind(PACKAGE_ANCHOR) {
+        let rel = &token[idx..];
+        return if looks_like_filename(rel) {
+            vec![rel.to_string()]
+        } else {
+            Vec::new()
+        };
+    }
+    // A non-anchored ABSOLUTE path names something outside the package (a host
+    // tool, a reference bundle). Never a claim about the sealed tree.
+    if token.starts_with('/') || token.starts_with('~') {
+        return Vec::new();
+    }
+    if !key_names_a_path(key) {
+        return Vec::new();
+    }
+    let rel = token.trim_start_matches("./");
+    if !rel.contains('/') || !looks_like_filename(rel) {
+        return Vec::new();
+    }
+    // Resolve against the claiming task's own output dir first, then against
+    // the package root — agent reports use both conventions.
+    vec![format!("runtime/outputs/{task_id}/{rel}"), rel.to_string()]
+}
+
+/// Split a report string into path-shaped tokens.
+///
+/// Report strings are as often prose-with-a-path (`"path: /…/x.tsv, exists:
+/// True"`) as they are a bare path, so the string is tokenized on whitespace
+/// and the punctuation that brackets a path in prose, then each token is
+/// tested independently.
+fn path_tokens(s: &str) -> Vec<&str> {
+    s.split(|c: char| {
+        c.is_whitespace()
+            || matches!(
+                c,
+                ',' | ';' | '(' | ')' | '[' | ']' | '{' | '}' | '"' | '\'' | '`' | '<' | '>' | '|'
+            )
+    })
+    .map(|t| t.trim_end_matches(|c: char| matches!(c, '.' | ':' | '!' | '?')))
+    .filter(|t| !t.is_empty())
+    .collect()
+}
+
+/// `true` when this string RECORDS A FAILURE rather than asserting presence.
+/// A check the package itself recorded as failing is not claiming the file is
+/// there, so re-checking it would double-report a known finding as a fresh
+/// presence violation.
+fn records_a_failure(s: &str) -> bool {
+    let lower = s.to_ascii_lowercase();
+    lower.starts_with("fail")
+        || lower.starts_with("error")
+        || lower.starts_with("missing")
+        || lower.contains("exists: false")
+        || lower.contains("exists=false")
+        || lower.contains("does not exist")
+        || lower.contains("not found")
+}
+
+/// Walk a parsed report document, collecting every file-presence claim as its
+/// candidate-path list (see [`claim_candidates`]). A `BTreeSet` both
+/// de-duplicates repeated claims and fixes the iteration order, so the report
+/// is deterministic.
+fn collect_presence_claims(
+    task_id: &str,
+    key: Option<&str>,
+    v: &serde_json::Value,
+    out: &mut std::collections::BTreeSet<Vec<String>>,
+) {
+    match v {
+        serde_json::Value::Object(map) => {
+            // A check object that recorded a negative outcome is not claiming
+            // presence — skip its whole subtree, paths and all.
+            for negative in ["passed", "present", "exists", "ok"] {
+                if map.get(negative).and_then(serde_json::Value::as_bool) == Some(false) {
+                    return;
+                }
+            }
+            for (k, child) in map {
+                collect_presence_claims(task_id, Some(k.as_str()), child, out);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                collect_presence_claims(task_id, key, item, out);
+            }
+        }
+        serde_json::Value::String(s) => {
+            if records_a_failure(s) {
+                return;
+            }
+            for token in path_tokens(s) {
+                let candidates = claim_candidates(task_id, key, token);
+                if !candidates.is_empty() {
+                    out.insert(candidates);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Re-run every OFFLINE-CHECKABLE assertion the sealed package makes about
+/// itself, without re-executing anything.
+///
+/// Three evidence surfaces, all read from `package_root` as it sits on disk:
+///
+/// 1. **File-presence claims.** Every `runtime/outputs/<task>/` report in
+///    [`PRESENCE_CLAIM_SOURCES`] is walked for tokens naming a file in the
+///    package tree; each is re-resolved against the sealed tree. This is the
+///    class BagIt integrity structurally cannot cover — a manifest walk only
+///    sees files that exist.
+/// 2. **Reporting-correctness invariants**
+///    ([`crate::reporting_invariants::check_reporting_invariants`]),
+///    recomputed from the package's own outputs.
+/// 3. **Contract obligations** ([`scan_contract_obligations`]).
+///
+/// Pure scan — writes nothing. Deterministic: claims are de-duplicated and
+/// sorted; only `checked_at` comes from `clock`.
+pub fn revalidate_post_seal(package_root: &Path, clock: &dyn Clock) -> PostSealValidation {
+    let outputs_dir = package_root.join("runtime").join("outputs");
+    let mut task_ids: Vec<String> = std::fs::read_dir(&outputs_dir)
+        .map(|entries| {
+            entries
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().is_dir())
+                .filter_map(|e| e.file_name().into_string().ok())
+                .collect()
+        })
+        .unwrap_or_else(|_| Vec::new());
+    task_ids.sort();
+
+    let mut claims_checked = 0usize;
+    let mut missing_claims: Vec<PresenceClaim> = Vec::new();
+    for task_id in &task_ids {
+        for source in PRESENCE_CLAIM_SOURCES {
+            let report_path = outputs_dir.join(task_id).join(source);
+            let Ok(raw) = std::fs::read_to_string(&report_path) else {
+                continue;
+            };
+            let Ok(doc) = serde_json::from_str::<serde_json::Value>(&raw) else {
+                continue;
+            };
+            let mut claims: std::collections::BTreeSet<Vec<String>> =
+                std::collections::BTreeSet::new();
+            collect_presence_claims(task_id, None, &doc, &mut claims);
+            for candidates in claims {
+                claims_checked += 1;
+                // A claim holds when ANY of its candidate resolutions exists —
+                // an ambiguous relative token must never be reported missing
+                // on the strength of one guess.
+                if candidates.iter().any(|rel| package_root.join(rel).exists()) {
+                    continue;
+                }
+                missing_claims.push(PresenceClaim {
+                    task_id: task_id.clone(),
+                    source: source.to_string(),
+                    // Non-empty by construction: `claim_candidates` returns an
+                    // empty vec for a non-claim, and those are never inserted.
+                    claimed_path: candidates
+                        .first()
+                        .cloned()
+                        .unwrap_or_else(|| "<unresolvable claim>".to_string()),
+                });
+            }
+        }
+    }
+    missing_claims.sort_by(|a, b| {
+        (&a.task_id, &a.source, &a.claimed_path).cmp(&(&b.task_id, &b.source, &b.claimed_path))
+    });
+
+    let ri = crate::reporting_invariants::check_reporting_invariants(package_root);
+    let reporting_required_failures = ri.required_failures();
+    let reporting_warnings = ri.warnings();
+    let contract_obligation_failures = scan_contract_obligations(package_root);
+
+    let passed = missing_claims.is_empty()
+        && reporting_required_failures.is_empty()
+        && contract_obligation_failures.is_empty();
+
+    PostSealValidation {
+        schema_version: "0.1".to_string(),
+        claims_checked,
+        missing_claims,
+        reporting_required_failures,
+        reporting_warnings,
+        contract_obligation_failures,
+        passed,
+        checked_at: clock.now_rfc3339(),
+    }
+}
+
+/// Run [`revalidate_post_seal`], write the report to
+/// [`POST_SEAL_VALIDATION_FILE`], and — under `strict` — refuse the package
+/// when any presence claim names a file absent from the sealed tree.
+///
+/// The report is a MUTABLE META FILE, the same class as
+/// `DEPOSIT-READINESS.json`: it carries a wall-clock `checked_at` and a
+/// verdict computed after the seal, so it is not a hashed `@graph` payload
+/// entity. Writing it does not invalidate the BagIt manifest (a manifest walk
+/// verifies the files it lists; an unlisted file is not a mismatch).
+///
+/// Non-presence findings (reporting invariants, contract obligations) are
+/// recorded in the report and reflected in [`PostSealValidation::passed`] but
+/// do NOT drive the `strict` refusal — those axes already have their own
+/// enforcement point in the deposit gate, and duplicating it here would
+/// refuse the same package twice for one finding.
+pub fn run_post_seal_revalidation(
+    package_root: &Path,
+    strict: bool,
+    clock: &dyn Clock,
+) -> Result<PostSealValidation> {
+    let report = revalidate_post_seal(package_root, clock);
+    let path = package_root.join(POST_SEAL_VALIDATION_FILE);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating {}", parent.display()))?;
+    }
+    let body =
+        serde_json::to_vec_pretty(&report).context("serializing post-seal-validation.json")?;
+    std::fs::write(&path, body).with_context(|| format!("writing {}", path.display()))?;
+
+    if strict && !report.presence_claims_hold() {
+        let detail = report
+            .missing_claims
+            .iter()
+            .take(10)
+            .map(|c| format!("{} ({}) → {}", c.task_id, c.source, c.claimed_path))
+            .collect::<Vec<_>>()
+            .join("; ");
+        bail!(
+            "post-seal revalidation: {} of {} file-presence claim(s) name a file absent from \
+             the sealed tree — the package asserts artifacts it does not contain (see {}): {detail}",
+            report.missing_claims.len(),
+            report.claims_checked,
+            POST_SEAL_VALIDATION_FILE,
+        );
+    }
+    Ok(report)
 }
 
 #[cfg(test)]
@@ -1610,7 +2260,210 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let summary = scan_domain_validation(tmp.path());
         assert!(summary.checked_tasks.is_empty());
+        // Nothing FAILED …
         assert!(summary.passed());
+        // … but nothing was inspected either, so the attestation axis must not
+        // read as a clean pass.
+        assert_eq!(summary.status(), CheckStatus::Unverified);
+    }
+
+    /// Agent-authored `validate_*` reports do not converge on the
+    /// `validation_passed` spelling: the on-disk corpus uses
+    /// `validation_result` / `overall_validation_status` / `validation_status`
+    /// / `overall` / `validation_outcome` / `overall_pass` / `all_pass`.
+    /// Reading only `validation_passed` made the rollup skip every real task.
+    #[test]
+    fn domain_validation_reads_validation_result_spelling() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write_validate_result(
+            root,
+            "validate_primary_analysis",
+            serde_json::json!({"validation_result": "FAIL", "required_failures": ["contract.assertion_a"]}),
+        );
+        write_validate_result(
+            root,
+            "validate_secondary_analysis",
+            serde_json::json!({"overall_validation_status": "fail"}),
+        );
+        write_validate_result(
+            root,
+            "validate_tertiary_analysis",
+            serde_json::json!({"overall_pass": false}),
+        );
+
+        let summary = scan_domain_validation(root);
+        assert_eq!(
+            summary.failed_tasks,
+            vec![
+                "validate_primary_analysis",
+                "validate_secondary_analysis",
+                "validate_tertiary_analysis"
+            ],
+            "every observed verdict spelling must be read: {summary:?}"
+        );
+        assert_eq!(summary.status(), CheckStatus::Fail);
+        assert!(summary
+            .required_failures
+            .iter()
+            .any(|f| f == "validate_primary_analysis: contract.assertion_a"));
+        // A failing self-report that names no assertion still reaches the
+        // detail, so a `Fail` axis is never unexplained.
+        assert!(summary
+            .required_failures
+            .iter()
+            .any(|f| f.starts_with("validate_secondary_analysis: ")));
+    }
+
+    /// The mirror case: a PASS in a non-`validation_passed` spelling has to
+    /// count as an inspected, passing check — otherwise the axis stays
+    /// vacuous on a package whose validators all succeeded.
+    #[test]
+    fn domain_validation_counts_pass_spelling() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write_validate_result(
+            root,
+            "validate_primary_analysis",
+            serde_json::json!({"validation_result": "PASS"}),
+        );
+        write_validate_result(
+            root,
+            "validate_secondary_analysis",
+            serde_json::json!({"validation_status": "pass"}),
+        );
+        write_validate_result(
+            root,
+            "validate_tertiary_analysis",
+            serde_json::json!({"all_pass": true}),
+        );
+        // An unrecognized value under a recognized key must fall through as
+        // "no verdict recorded" rather than fabricating one.
+        write_validate_result(
+            root,
+            "validate_quaternary_analysis",
+            serde_json::json!({"overall": "n/a"}),
+        );
+
+        let summary = scan_domain_validation(root);
+        assert_eq!(
+            summary.checked_tasks,
+            vec![
+                "validate_primary_analysis",
+                "validate_secondary_analysis",
+                "validate_tertiary_analysis"
+            ]
+        );
+        assert!(summary.failed_tasks.is_empty());
+        assert_eq!(summary.status(), CheckStatus::Pass);
+    }
+
+    fn write_validation_reports(root: &Path, lines: &[serde_json::Value]) {
+        let dir = root.join("runtime");
+        fs::create_dir_all(&dir).unwrap();
+        let body = lines
+            .iter()
+            .map(|v| v.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        fs::write(dir.join("validation-reports.jsonl"), body).unwrap();
+    }
+
+    /// `runtime/validation-reports.jsonl` is the package's own record of the
+    /// contract obligations the harness ran. A `failed:` / `errored:` outcome
+    /// there is a domain-correctness failure the deposit rollup never read.
+    #[test]
+    fn domain_validation_folds_contract_obligation_failures() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write_validation_reports(
+            root,
+            &[
+                serde_json::json!({"task_id":"t1","obligation_id":"ob_ok","outcome":"passed"}),
+                serde_json::json!({"task_id":"t2","obligation_id":"ob_bad","outcome":"failed:threshold not met"}),
+                // Duplicate row (an obligation declared on two required
+                // artifacts) must be folded once.
+                serde_json::json!({"task_id":"t2","obligation_id":"ob_bad","outcome":"failed:threshold not met"}),
+                serde_json::json!({"task_id":"t3","obligation_id":"ob_err","outcome":"errored:input table absent"}),
+                // A catalog obligation with no checker yet is a validator-suite
+                // gap, not a defect in this package — it must not block.
+                serde_json::json!({"task_id":"t4","obligation_id":"ob_todo","outcome":"unimplemented:foo_check"}),
+            ],
+        );
+
+        let failures = scan_contract_obligations(root);
+        assert_eq!(
+            failures,
+            vec![
+                "t2.ob_bad (failed:threshold not met)",
+                "t3.ob_err (errored:input table absent)"
+            ]
+        );
+
+        let summary = scan_domain_validation(root);
+        assert_eq!(summary.failed_tasks, vec![CONTRACT_OBLIGATIONS_TASK_ID]);
+        assert_eq!(summary.status(), CheckStatus::Fail);
+        assert!(summary
+            .required_failures
+            .iter()
+            .all(|f| f.starts_with("contract_obligations: ")));
+
+        // An all-passing obligation set is not a failure, but it IS evidence
+        // that something was inspected.
+        let clean = tempfile::tempdir().unwrap();
+        write_validation_reports(
+            clean.path(),
+            &[serde_json::json!({"task_id":"t1","obligation_id":"ob_ok","outcome":"passed"})],
+        );
+        let clean_summary = scan_domain_validation(clean.path());
+        assert_eq!(clean_summary.status(), CheckStatus::Pass);
+        assert_eq!(
+            clean_summary.checked_tasks,
+            vec![CONTRACT_OBLIGATIONS_TASK_ID]
+        );
+    }
+
+    /// The core of the vacuity bug: a scan that inspected NOTHING must be
+    /// attested as `Unverified`, never as `Pass`. `Unverified` stays
+    /// non-blocking (absence of evidence is not evidence of a defect) but is
+    /// surfaced in the attestation detail.
+    #[test]
+    fn vacuous_scan_is_not_a_pass() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        assert_eq!(
+            scan_domain_validation(root).status(),
+            CheckStatus::Unverified
+        );
+
+        write_deposit_readiness(
+            root,
+            "full",
+            &tier1(CheckStatus::Pass, CheckStatus::Pass, None),
+            ReexecStatus::Pass,
+            None,
+            None,
+            &WallClock,
+        )
+        .unwrap();
+        let dr = read_deposit_readiness(root).unwrap().unwrap();
+        assert_eq!(
+            dr.domain_validation,
+            CheckStatus::Unverified,
+            "an axis that inspected nothing must not attest a pass: {dr:?}"
+        );
+        assert!(
+            dr.deposit_ready,
+            "Unverified is surfaced, not blocking: {dr:?}"
+        );
+        assert!(
+            dr.detail
+                .as_deref()
+                .unwrap_or_default()
+                .contains("UNVERIFIED"),
+            "the attestation must surface the vacuity: {dr:?}"
+        );
+        assert!(check_deposit_readiness(root, false).is_ok());
     }
 
     /// RCA I-10: a package whose RO-Crate/BagIt self-validation both pass
@@ -1664,6 +2517,16 @@ mod tests {
     #[test]
     fn clean_package_with_no_domain_reports_is_deposit_ready() {
         let tmp = tempfile::tempdir().unwrap();
+        // A single passing obligation record is enough evidence for the axis
+        // to reach a concrete verdict; without any, it would (correctly) read
+        // `Unverified` — see `vacuous_scan_is_not_a_pass`.
+        let runtime = tmp.path().join("runtime");
+        fs::create_dir_all(&runtime).unwrap();
+        fs::write(
+            runtime.join("validation-reports.jsonl"),
+            r#"{"task_id":"t1","obligation_id":"ob_ok","outcome":"passed"}"#,
+        )
+        .unwrap();
         write_deposit_readiness(
             tmp.path(),
             "full",
