@@ -792,6 +792,11 @@ pub fn reinject_audit_proof_verdicts(
 /// instead recorded as sanctioned, with their rationale, under
 /// `ecaax:provenanceReadAllowance` on the root Dataset, so the
 /// exception stays visible without being flagged as a violation.
+///
+/// Finally, every retrospective `CreateAction.object` (PROV `used`) is
+/// restated as the union of the task's declared inputs and its observed
+/// reads, each entry marked observed / declared-only / allowance-covered
+/// — see [`rebuild_create_action_objects`].
 pub fn reconcile_ro_crate_edges(
     metadata: &mut Value,
     declared_edges: &[crate::workflow_contracts::edge::EdgeContract],
@@ -860,6 +865,20 @@ pub fn reconcile_ro_crate_edges_with_allowances(
     // we ALSO prune that `used` entry so a generic runcrate/WRROC consumer
     // never reads the unread producer as an authoritative data flow (§G-B1).
     let mut object_prunes: Vec<(String, String, usize)> = Vec::new();
+    // Per-task observed-read paths, and the subset of them a declared
+    // `read_allowance` sanctions. Both feed the `CreateAction.object` (PROV
+    // `used`) rebuild at the END of this pass, which restates every action's
+    // `used` list as the union of what the task ACTUALLY read and what the
+    // declared graph says it consumes, each entry marked with its provenance
+    // status (see [`rebuild_create_action_objects`]).
+    let mut observed_by_task: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for r in observed_reads {
+        observed_by_task
+            .entry(r.task_id.clone())
+            .or_default()
+            .insert(r.path.clone());
+    }
+    let mut allowance_covered: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
 
     for task_id in task_ids {
         let edges_for_task: Vec<&crate::workflow_contracts::edge::EdgeContract> = declared_edges
@@ -897,6 +916,13 @@ pub fn reconcile_ro_crate_edges_with_allowances(
                             "rationale": rationale,
                         }));
                         allowance_n += 1;
+                        // Remember the sanctioned path so the `used` rebuild
+                        // can mark this entry `allowanceCovered` rather than a
+                        // plain observed read.
+                        allowance_covered
+                            .entry(task_id.to_string())
+                            .or_default()
+                            .insert(read_path.clone());
                     } else {
                         divergences.push(json!({
                             "@id": format!("#provenance-divergence/{task_id}/{divergence_n}"),
@@ -1090,6 +1116,13 @@ pub fn reconcile_ro_crate_edges_with_allowances(
         }
     }
 
+    // Restate every retrospective `CreateAction.object` (PROV `used`) from the
+    // reconciled evidence. Runs LAST so it sees the post-drop graph — a one-of
+    // candidate this pass pruned can never be re-introduced — and so the
+    // per-entry provenance nodes it appends keep a stable tail position across
+    // repeated reconciles (the side-channel upserts above replace in place).
+    rebuild_create_action_objects(graph, &observed_by_task, &allowance_covered);
+
     typed_divergences
 }
 
@@ -1234,6 +1267,314 @@ fn prune_unread_producer_from_create_action_objects(
     pruned.sort();
     pruned.dedup();
     pruned
+}
+
+/// `@id` prefix of the per-entry `CreateAction.object` provenance nodes
+/// [`rebuild_create_action_objects`] mints. Doubles as the purge key that keeps
+/// the rebuild exactly idempotent.
+const OBJECT_PROVENANCE_ID_PREFIX: &str = "#object-provenance/";
+
+/// Provenance-status marker for a `used` entry the consuming task WAS observed
+/// to read (`runtime/outputs/<task>/reads.jsonl` → `ObservedRead`).
+const OBJECT_STATUS_OBSERVED: &str = "ecaax:observed";
+
+/// Marker for a `used` entry the DECLARED graph asserts but no observed read
+/// confirms. Honest about the asymmetry rather than passing a compile-time
+/// belief off as a recorded data flow.
+const OBJECT_STATUS_DECLARED_ONLY: &str = "ecaax:declaredOnly";
+
+/// Marker for an observed read the declared graph does NOT back, sanctioned by
+/// the consuming task's declared `read_allowance` (see
+/// [`crate::atom::ReadAllowance`] and `ecaax:provenanceReadAllowance`).
+const OBJECT_STATUS_ALLOWANCE_COVERED: &str = "ecaax:allowanceCovered";
+
+/// The `@id` of the side-channel node recording one `CreateAction.object`
+/// entry's provenance status. Keyed on (consuming task, entry) — every action
+/// of a task shares that task's `used` list, so the node is minted once per
+/// task rather than once per produced output.
+///
+/// A step reference (`#step-<producer>`) carries a leading `#`, which may not
+/// nest inside a fragment identifier, so it is stripped; produced-output ids
+/// are package-relative paths and pass through unchanged.
+fn object_provenance_node_id(task: &str, object_id: &str) -> String {
+    let slug = object_id.strip_prefix('#').unwrap_or(object_id);
+    format!("{OBJECT_PROVENANCE_ID_PREFIX}{task}/{slug}")
+}
+
+/// The task a retrospective `CreateAction` belongs to: the `<task>` segment of
+/// its `result` `@id` under `runtime/outputs/<task>/…` (the id scheme
+/// [`register_produced_output_tables`] mints). `None` for every other action —
+/// the run-level `#workflow-run` (whose `result` is an ARRAY, not an object),
+/// the compile-time SME actions, and the amendment `UpdateAction` — so none of
+/// them is ever mistaken for a stage's production activity.
+fn create_action_result_task(node: &Value) -> Option<String> {
+    if !is_create_action_entity(node) {
+        return None;
+    }
+    let result = node
+        .get("result")
+        .and_then(|r| r.get("@id"))
+        .and_then(Value::as_str)?;
+    let (task, file) = result.strip_prefix("runtime/outputs/")?.split_once('/')?;
+    (!task.is_empty() && !file.is_empty()).then(|| task.to_string())
+}
+
+/// True when a `used` entry already references `producer` — either by the bare
+/// `#step-<producer>` step or by one of its `runtime/outputs/<producer>/…`
+/// files. Mirrors `prune_unread_producer_from_create_action_objects`'s
+/// `refers_to_producer`: the two must agree on what "this entry is that
+/// producer's data flow" means.
+fn entry_refers_to_producer(entry: &str, producer: &str) -> bool {
+    entry.strip_prefix("#step-") == Some(producer)
+        || entry.starts_with(&format!("runtime/outputs/{producer}/"))
+}
+
+/// Registered produced-output `@id`s per producer task, read off the graph's
+/// retrospective `CreateAction`s. This is the set of REAL entities a consumer's
+/// `used` edge may name for that producer; a producer ABSENT here registered no
+/// file at all, and only then may the abstract `#step-<producer>` reference
+/// stand in for it. Every returned entry is non-empty by construction.
+fn registered_producer_outputs(
+    graph: &[Value],
+) -> std::collections::BTreeMap<String, std::collections::BTreeSet<String>> {
+    let mut out: std::collections::BTreeMap<String, std::collections::BTreeSet<String>> =
+        std::collections::BTreeMap::new();
+    for node in graph {
+        let Some(task) = create_action_result_task(node) else {
+            continue;
+        };
+        let Some(result) = node
+            .get("result")
+            .and_then(|r| r.get("@id"))
+            .and_then(Value::as_str)
+        else {
+            continue;
+        };
+        out.entry(task).or_default().insert(result.to_string());
+    }
+    out
+}
+
+/// Append `id` to `used` unless it is already present (order-preserving
+/// dedupe — the emitted `used` order must stay stable, so this is a `Vec`
+/// rather than a set).
+fn push_unique_used(used: &mut Vec<String>, id: &str) {
+    if !used.iter().any(|e| e == id) {
+        used.push(id.to_string());
+    }
+}
+
+/// The `used` (`CreateAction.object`) entries each consuming task's actions
+/// carry TODAY, first-seen order preserved and de-duplicated across a task's
+/// several per-output actions (they all share the task's input list). A task
+/// whose action carries no `object` still gets an entry, so the rebuild can
+/// populate it from observed reads alone.
+fn existing_used_by_task(graph: &[Value]) -> std::collections::BTreeMap<String, Vec<String>> {
+    let mut out: std::collections::BTreeMap<String, Vec<String>> =
+        std::collections::BTreeMap::new();
+    for node in graph {
+        let Some(task) = create_action_result_task(node) else {
+            continue;
+        };
+        let entry = out.entry(task).or_default();
+        let Some(objects) = node.get("object").and_then(Value::as_array) else {
+            continue;
+        };
+        for o in objects {
+            if let Some(id) = o.get("@id").and_then(Value::as_str) {
+                push_unique_used(entry, id);
+            }
+        }
+    }
+    out
+}
+
+/// The reconciled `used` list for ONE consuming task: the union of the declared
+/// inputs and the observed reads, in a deterministic order.
+///
+/// Three passes, each order-preserving so the emitted array is stable:
+/// 1. the entries the action already names, with an abstract
+///    `#step-<producer>` fallback COLLAPSED to that producer's real registered
+///    files — the fallback is honest only while the producer registered nothing;
+/// 2. declared producers (off the RECONCILED `ParameterConnection`s) the action
+///    does not reference yet, resolved the same way; a bare step reference is
+///    added only when it really exists in the graph, so `used` never dangles;
+/// 3. observed reads that resolve to a registered entity. A read of an
+///    unregistered path is deliberately NOT invented into `used` — it stays
+///    visible through `ecaax:provenanceDivergence` / `ecaax:provenanceReadAllowance`
+///    instead of minting a dangling reference.
+fn union_used_entries(
+    existing: &[String],
+    declared_steps: Option<&std::collections::BTreeSet<String>>,
+    observed: Option<&std::collections::BTreeSet<String>>,
+    producer_outputs: &std::collections::BTreeMap<String, std::collections::BTreeSet<String>>,
+    entity_ids: &std::collections::BTreeSet<String>,
+) -> Vec<String> {
+    let mut used: Vec<String> = Vec::new();
+
+    for id in existing {
+        if let Some(producer) = id.strip_prefix("#step-") {
+            if let Some(files) = producer_outputs.get(producer).filter(|f| !f.is_empty()) {
+                for f in files {
+                    push_unique_used(&mut used, f);
+                }
+                continue;
+            }
+        }
+        push_unique_used(&mut used, id);
+    }
+
+    for step in declared_steps.into_iter().flatten() {
+        let producer = step.strip_prefix("#step-").unwrap_or(step);
+        if used.iter().any(|u| entry_refers_to_producer(u, producer)) {
+            continue;
+        }
+        match producer_outputs.get(producer).filter(|f| !f.is_empty()) {
+            Some(files) => {
+                for f in files {
+                    push_unique_used(&mut used, f);
+                }
+            }
+            None => {
+                if entity_ids.contains(step) {
+                    push_unique_used(&mut used, step);
+                }
+            }
+        }
+    }
+
+    for path in observed.into_iter().flatten() {
+        if entity_ids.contains(path) {
+            push_unique_used(&mut used, path);
+        }
+    }
+
+    used
+}
+
+/// Restate every retrospective `CreateAction.object` (PROV `used`) as the UNION
+/// of the task's DECLARED inputs and its OBSERVED reads, marking each entry with
+/// its provenance status.
+///
+/// Without this the `used` array is a projection of the DECLARED graph alone —
+/// `collect_task_inputs` mapped each inbound `ParameterConnection` to the
+/// producer's registered output files, or to an abstract `#step-<source>` when
+/// the producer had registered none — so a file the stage genuinely read never
+/// appeared, while a declared-but-unread input appeared indistinguishably from
+/// a real data flow. Comparing a run's `reads.jsonl` against its actions then
+/// reconciles for no task.
+///
+/// The rebuild fixes both directions without ever inventing an entity:
+/// * an observed read is added ONLY when it resolves to an `@id` already in the
+///   `@graph` (never a fabricated File node, never a dangling reference);
+/// * a declared input is kept, but marked [`OBJECT_STATUS_DECLARED_ONLY`] so a
+///   reviewer can see no read corroborates it;
+/// * the abstract `#step-<source>` reference survives ONLY for a producer that
+///   registered no file at all.
+///
+/// The status itself rides a side-channel node per entry
+/// (`#object-provenance/<task>/<entry>`, referenced from the action's
+/// `ecaax:objectProvenance`) rather than being inlined onto the `object` entry:
+/// RO-Crate requires `object` elements to stay bare `{"@id": …}` references, so
+/// annotating them in place would break the flattened reference shape a strict
+/// runcrate/WRROC consumer expects.
+///
+/// Deterministic (`BTreeMap`/`BTreeSet` keyed, order-preserving unions) and
+/// idempotent: the previous pass's provenance nodes are purged before the fresh
+/// set is appended, so a repeated reconcile converges on the same graph content
+/// AND the same node order.
+fn rebuild_create_action_objects(
+    graph: &mut Vec<Value>,
+    observed_by_task: &std::collections::BTreeMap<String, std::collections::BTreeSet<String>>,
+    allowance_covered: &std::collections::BTreeMap<String, std::collections::BTreeSet<String>>,
+) {
+    graph.retain(|node| {
+        !node
+            .get("@id")
+            .and_then(Value::as_str)
+            .map(|id| id.starts_with(OBJECT_PROVENANCE_ID_PREFIX))
+            .unwrap_or(false)
+    });
+
+    let entity_ids: std::collections::BTreeSet<String> = graph
+        .iter()
+        .filter_map(|e| e.get("@id").and_then(Value::as_str).map(String::from))
+        .collect();
+    let producer_outputs = registered_producer_outputs(graph);
+    // Declared producers read off the RECONCILED graph: the unread one-of
+    // members' `ParameterConnection`s are already dropped, so a candidate this
+    // pass pruned is never resurrected here.
+    let declared_steps = collect_task_inputs(graph);
+    let existing = existing_used_by_task(graph);
+
+    // task -> [(used @id, provenance status)], in emitted order.
+    let mut rebuilt: std::collections::BTreeMap<String, Vec<(String, &'static str)>> =
+        std::collections::BTreeMap::new();
+    for (task, existing_used) in &existing {
+        let observed = observed_by_task.get(task);
+        let covered = allowance_covered.get(task);
+        let marked = union_used_entries(
+            existing_used,
+            declared_steps.get(task),
+            observed,
+            &producer_outputs,
+            &entity_ids,
+        )
+        .into_iter()
+        .map(|id| {
+            let status = if covered.is_some_and(|c| c.contains(&id)) {
+                OBJECT_STATUS_ALLOWANCE_COVERED
+            } else if observed.is_some_and(|o| o.contains(&id)) {
+                OBJECT_STATUS_OBSERVED
+            } else {
+                OBJECT_STATUS_DECLARED_ONLY
+            };
+            (id, status)
+        })
+        .collect();
+        rebuilt.insert(task.clone(), marked);
+    }
+
+    for node in graph.iter_mut() {
+        let Some(task) = create_action_result_task(node) else {
+            continue;
+        };
+        let Some(entries) = rebuilt.get(&task) else {
+            continue;
+        };
+        let Some(obj) = node.as_object_mut() else {
+            continue;
+        };
+        obj.insert(
+            "object".to_string(),
+            Value::Array(entries.iter().map(|(id, _)| json!({"@id": id})).collect()),
+        );
+        if entries.is_empty() {
+            obj.remove("ecaax:objectProvenance");
+        } else {
+            obj.insert(
+                "ecaax:objectProvenance".to_string(),
+                Value::Array(
+                    entries
+                        .iter()
+                        .map(|(id, _)| json!({"@id": object_provenance_node_id(&task, id)}))
+                        .collect(),
+                ),
+            );
+        }
+    }
+
+    for (task, entries) in &rebuilt {
+        for (id, status) in entries {
+            graph.push(json!({
+                "@id": object_provenance_node_id(task, id),
+                "@type": ["ecaax:ObjectProvenance", "PropertyValue"],
+                "task_id": task,
+                "object": {"@id": id},
+                "ecaax:provenanceStatus": status,
+            }));
+        }
+    }
 }
 
 pub fn inject_audit_proof_verdict_nodes(metadata: &mut Value, report: &Value) -> Result<()> {
@@ -5730,5 +6071,368 @@ loaded via a namespace (and not attached):
         assert_eq!(alias["port"], "companion_in_1");
         assert_eq!(alias["from_node"], "survey_method_landscape");
         assert_eq!(alias["from_port"], "method_landscape");
+    }
+
+    // ── `CreateAction.object` (PROV `used`) rebuilt from OBSERVED reads ∪
+    // DECLARED inputs, every entry marked with its provenance status ──────
+
+    fn declared_edge(
+        from_node: &str,
+        from_port: &str,
+        to_node: &str,
+        to_port: &str,
+    ) -> crate::workflow_contracts::edge::EdgeContract {
+        use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind};
+        EdgeContract {
+            from_node: from_node.into(),
+            from_port: from_port.into(),
+            to_node: to_node.into(),
+            to_port: to_port.into(),
+            proof: CompatibilityProof::default(),
+            kind: EdgeKind::TypedDataFlow,
+            chain_of_custody: None,
+            mutually_exclusive_group: None,
+        }
+    }
+
+    /// A registered produced-output File entity, as
+    /// `register_produced_output_tables` leaves it.
+    fn registered_output_file(rel: &str) -> Value {
+        json!({
+            "@id": rel,
+            "@type": ["File", "Dataset"],
+            "name": rel,
+            "encodingFormat": "text/tab-separated-values",
+        })
+    }
+
+    /// A stage's retrospective production `CreateAction` over `rel`, seeded with
+    /// the `used` array the DECLARED-graph registrar would have written.
+    fn production_action(task: &str, rel: &str, used: &[&str]) -> Value {
+        json!({
+            "@id": format!("#action/{rel}"),
+            "@type": ["CreateAction", "prov:Activity"],
+            "name": format!("Production of {rel} by stage '{task}'."),
+            "instrument": {"@id": format!("#step-{task}")},
+            "result": {"@id": rel},
+            "object": used.iter().map(|id| json!({"@id": id})).collect::<Vec<_>>(),
+        })
+    }
+
+    /// The `used` (`CreateAction.object`) `@id`s of the action producing `rel`.
+    fn used_ids(metadata: &Value, rel: &str) -> Vec<String> {
+        metadata["@graph"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["@id"] == format!("#action/{rel}"))
+            .unwrap_or_else(|| panic!("CreateAction for {rel} present"))["object"]
+            .as_array()
+            .expect("CreateAction.object is an array")
+            .iter()
+            .map(|o| {
+                assert_eq!(
+                    o.as_object().map(|m| m.len()),
+                    Some(1),
+                    "a `used` element must stay a bare {{@id}} reference, got {o:?}"
+                );
+                o["@id"]
+                    .as_str()
+                    .expect("used element carries @id")
+                    .to_string()
+            })
+            .collect()
+    }
+
+    /// The `ecaax:provenanceStatus` recorded for `object_id` on `task`'s `used`
+    /// list, resolved through the action's `ecaax:objectProvenance` references
+    /// (which MUST be bare `@id` refs to real `@graph` nodes).
+    fn used_status(metadata: &Value, rel: &str, object_id: &str) -> String {
+        let graph = metadata["@graph"].as_array().unwrap();
+        let action = graph
+            .iter()
+            .find(|e| e["@id"] == format!("#action/{rel}"))
+            .unwrap_or_else(|| panic!("CreateAction for {rel} present"));
+        let refs = action["ecaax:objectProvenance"]
+            .as_array()
+            .expect("action carries an objectProvenance reference array");
+        for r in refs {
+            assert_eq!(
+                r.as_object().map(|m| m.len()),
+                Some(1),
+                "objectProvenance element must be a bare {{@id}} reference, got {r:?}"
+            );
+            let node = graph
+                .iter()
+                .find(|e| e["@id"] == r["@id"])
+                .unwrap_or_else(|| panic!("objectProvenance ref {r:?} resolves to a @graph node"));
+            if node["object"]["@id"] == object_id {
+                return node["ecaax:provenanceStatus"]
+                    .as_str()
+                    .expect("provenance node carries a status")
+                    .to_string();
+            }
+        }
+        panic!("no objectProvenance node marks `used` entry {object_id}");
+    }
+
+    /// A task that READ a file its declared producer never registered as a
+    /// production output (it is not in the producer's `task_outputs`) must still
+    /// see that file in its `CreateAction.object` — marked observed — because
+    /// the read is recorded evidence and the file is a registered `@graph`
+    /// entity. Before the rebuild `object` mirrored the declared graph only, so
+    /// the read was invisible.
+    #[test]
+    fn create_action_object_includes_observed_reads() {
+        let edges = vec![declared_edge(
+            "quantification",
+            "count_matrix",
+            "differential_expression",
+            "raw_counts",
+        )];
+        let mut metadata = graph_with_parameter_connections(&edges);
+        let de_out = "runtime/outputs/differential_expression/de_results.tsv";
+        let counts = "runtime/outputs/quantification/count_matrix.tsv";
+        // A registered sibling artifact of the SAME producer that is NOT the
+        // result of any CreateAction — i.e. absent from `task_outputs`.
+        let index = "runtime/outputs/quantification/matrices_index.tsv";
+        {
+            let graph = metadata["@graph"].as_array_mut().unwrap();
+            graph.push(registered_output_file(counts));
+            graph.push(registered_output_file(index));
+            graph.push(production_action("quantification", counts, &[]));
+            graph.push(production_action(
+                "differential_expression",
+                de_out,
+                &[counts],
+            ));
+        }
+        let reads = vec![crate::provenance::ObservedRead {
+            task_id: "differential_expression".into(),
+            declared_port: Some("raw_counts".into()),
+            path: index.into(),
+        }];
+
+        reconcile_ro_crate_edges(&mut metadata, &edges, &reads);
+
+        let used = used_ids(&metadata, de_out);
+        assert!(
+            used.iter().any(|u| u == index),
+            "the observed read must appear in CreateAction.object; got {used:?}"
+        );
+        assert_eq!(
+            used_status(&metadata, de_out, index),
+            "ecaax:observed",
+            "an entry backed by a recorded read is marked observed"
+        );
+    }
+
+    /// A declared input no read corroborates stays in `used` (we never drop a
+    /// declared data flow on silence) but is marked `declaredOnly`, so a
+    /// reviewer can tell a compile-time belief from recorded evidence.
+    #[test]
+    fn declared_but_unread_input_is_marked_declared_only() {
+        let edges = vec![
+            declared_edge(
+                "quantification",
+                "count_matrix",
+                "differential_expression",
+                "raw_counts",
+            ),
+            declared_edge(
+                "metadata_prep",
+                "design",
+                "differential_expression",
+                "design",
+            ),
+        ];
+        let mut metadata = graph_with_parameter_connections(&edges);
+        let de_out = "runtime/outputs/differential_expression/de_results.tsv";
+        let counts = "runtime/outputs/quantification/count_matrix.tsv";
+        let design = "runtime/outputs/metadata_prep/design.tsv";
+        {
+            let graph = metadata["@graph"].as_array_mut().unwrap();
+            graph.push(registered_output_file(counts));
+            graph.push(registered_output_file(design));
+            graph.push(production_action("quantification", counts, &[]));
+            graph.push(production_action("metadata_prep", design, &[]));
+            graph.push(production_action(
+                "differential_expression",
+                de_out,
+                &[counts, design],
+            ));
+        }
+        // Only the counts input was actually read.
+        let reads = vec![crate::provenance::ObservedRead {
+            task_id: "differential_expression".into(),
+            declared_port: Some("raw_counts".into()),
+            path: counts.into(),
+        }];
+
+        reconcile_ro_crate_edges(&mut metadata, &edges, &reads);
+
+        let used = used_ids(&metadata, de_out);
+        assert!(
+            used.iter().any(|u| u == design),
+            "a declared-but-unread input is kept, never silently dropped; got {used:?}"
+        );
+        assert_eq!(used_status(&metadata, de_out, design), "ecaax:declaredOnly");
+        assert_eq!(used_status(&metadata, de_out, counts), "ecaax:observed");
+    }
+
+    /// The end-state the deposit audit demands: for a simple task, `used` and
+    /// `reads.jsonl` agree EXACTLY — no read omitted from the action, no action
+    /// entry absent from the reads.
+    #[test]
+    fn object_and_reads_reconcile_exactly_for_a_simple_task() {
+        let edges = vec![declared_edge(
+            "quantification",
+            "count_matrix",
+            "differential_expression",
+            "raw_counts",
+        )];
+        let mut metadata = graph_with_parameter_connections(&edges);
+        let de_out = "runtime/outputs/differential_expression/de_results.tsv";
+        let counts = "runtime/outputs/quantification/count_matrix.tsv";
+        {
+            let graph = metadata["@graph"].as_array_mut().unwrap();
+            graph.push(registered_output_file(counts));
+            graph.push(production_action("quantification", counts, &[]));
+            // The registrar wrote the ABSTRACT step fallback even though the
+            // producer did register a file — the stale shape the rebuild
+            // collapses.
+            graph.push(production_action(
+                "differential_expression",
+                de_out,
+                &["#step-quantification"],
+            ));
+        }
+        let reads = vec![crate::provenance::ObservedRead {
+            task_id: "differential_expression".into(),
+            declared_port: Some("raw_counts".into()),
+            path: counts.into(),
+        }];
+
+        reconcile_ro_crate_edges(&mut metadata, &edges, &reads);
+
+        let used = used_ids(&metadata, de_out);
+        let read_paths: Vec<String> = reads.iter().map(|r| r.path.clone()).collect();
+        assert_eq!(
+            used, read_paths,
+            "`used` must reconcile 1:1 with the observed reads — no omissions, no extras"
+        );
+        assert!(
+            !used.iter().any(|u| u.starts_with("#step-")),
+            "the abstract step fallback must not survive a producer that registered a file: {used:?}"
+        );
+        assert_eq!(used_status(&metadata, de_out, counts), "ecaax:observed");
+    }
+
+    /// A divergent read the consuming task's declared `read_allowance` sanctions
+    /// is marked `allowanceCovered` on the `used` entry — distinguishable from
+    /// both an ordinary observed read and an uncorroborated declared input.
+    #[test]
+    fn allowance_covered_read_is_marked_on_the_used_entry() {
+        let edges = vec![declared_edge(
+            "quantification",
+            "count_matrix",
+            "final_reporting",
+            "counts",
+        )];
+        let mut metadata = graph_with_parameter_connections(&edges);
+        let report = "runtime/outputs/final_reporting/summary.tsv";
+        let counts = "runtime/outputs/quantification/count_matrix.tsv";
+        // Read by final_reporting but produced by a stage it declares no edge
+        // to — divergent, and sanctioned by the allowance below.
+        let literature = "runtime/outputs/review_prior_work/evidence.tsv";
+        {
+            let graph = metadata["@graph"].as_array_mut().unwrap();
+            graph.push(registered_output_file(counts));
+            graph.push(registered_output_file(literature));
+            graph.push(production_action("quantification", counts, &[]));
+            graph.push(production_action("review_prior_work", literature, &[]));
+            graph.push(production_action("final_reporting", report, &[counts]));
+        }
+        let reads = vec![
+            crate::provenance::ObservedRead {
+                task_id: "final_reporting".into(),
+                declared_port: Some("counts".into()),
+                path: counts.into(),
+            },
+            crate::provenance::ObservedRead {
+                task_id: "final_reporting".into(),
+                declared_port: None,
+                path: literature.into(),
+            },
+        ];
+        let mut allowances = std::collections::BTreeMap::new();
+        allowances.insert(
+            "final_reporting".to_string(),
+            vec![crate::atom::ReadAllowance {
+                scope: crate::atom::ReadAllowanceScope::AnyUpstreamStage,
+                rationale: "dashboard aggregation".into(),
+            }],
+        );
+
+        reconcile_ro_crate_edges_with_allowances(&mut metadata, &edges, &reads, &allowances);
+
+        let used = used_ids(&metadata, report);
+        assert!(used.iter().any(|u| u == literature), "got {used:?}");
+        assert_eq!(
+            used_status(&metadata, report, literature),
+            "ecaax:allowanceCovered"
+        );
+        assert_eq!(used_status(&metadata, report, counts), "ecaax:observed");
+    }
+
+    /// The rebuild is exactly idempotent: a second reconcile over the same
+    /// inputs leaves the same `used` list and mints no duplicate provenance
+    /// node.
+    #[test]
+    fn used_rebuild_is_idempotent() {
+        let edges = vec![declared_edge(
+            "quantification",
+            "count_matrix",
+            "differential_expression",
+            "raw_counts",
+        )];
+        let mut metadata = graph_with_parameter_connections(&edges);
+        let de_out = "runtime/outputs/differential_expression/de_results.tsv";
+        let counts = "runtime/outputs/quantification/count_matrix.tsv";
+        {
+            let graph = metadata["@graph"].as_array_mut().unwrap();
+            graph.push(registered_output_file(counts));
+            graph.push(production_action("quantification", counts, &[]));
+            graph.push(production_action(
+                "differential_expression",
+                de_out,
+                &[counts],
+            ));
+        }
+        let reads = vec![crate::provenance::ObservedRead {
+            task_id: "differential_expression".into(),
+            declared_port: Some("raw_counts".into()),
+            path: counts.into(),
+        }];
+
+        reconcile_ro_crate_edges(&mut metadata, &edges, &reads);
+        let first = metadata.clone();
+        reconcile_ro_crate_edges(&mut metadata, &edges, &reads);
+
+        assert_eq!(
+            metadata, first,
+            "a repeated reconcile must converge on the identical graph"
+        );
+        let node_id = format!("#object-provenance/differential_expression/{counts}");
+        assert_eq!(
+            metadata["@graph"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|e| e["@id"] == node_id)
+                .count(),
+            1,
+            "exactly one provenance node per (task, used entry)"
+        );
     }
 }

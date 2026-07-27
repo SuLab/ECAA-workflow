@@ -14,6 +14,7 @@ mod composer_v4_discover_companion;
 mod composer_v4_dispatch_intent;
 mod composer_v4_forward_search;
 mod composer_v4_generic_omics;
+mod composer_v4_input_stage_prune;
 mod composer_v4_meet_in_middle;
 mod composer_v4_modality_goal_mismatch;
 mod composer_v4_no_cycles;

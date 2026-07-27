@@ -18,7 +18,7 @@ use crate::workflow_contracts::data_product::DataProductContract;
 use crate::workflow_contracts::edge::EdgeContract;
 use crate::workflow_contracts::semantic_type::SemanticType;
 use crate::workflow_contracts::task_node::{TaskNode, WorkflowDag};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Staging anchors that ingest SME-supplied data. Never pruned; the rewire
 /// target for a supplied product.
@@ -75,6 +75,142 @@ fn node_produces(n: &TaskNode, iri: &str) -> bool {
     n.outputs
         .iter()
         .any(|o| port_supplies_iri(&o.semantic_type, iri))
+}
+
+/// Tag prefix marking a `CompatibilityProof.warnings` row that records a
+/// producer-port rename applied by the rewire below.
+///
+/// `EdgeContract` carries no dedicated alias field, and the emitted
+/// `ecaax:PortAlias` entities (`crate::ro_crate`) copy `from_port` verbatim,
+/// so the pre-rewire name would be lost the moment the rewire makes the edge
+/// resolvable. The proof's non-blocking `warnings` channel is the existing
+/// per-edge annotation surface for structural composer rewrites (see
+/// `multi_branch_synthesis`, which tags its ordering joins the same way), so
+/// the alias rides there as a parseable `key=value` row rather than growing
+/// the wire-facing `EdgeContract` schema.
+pub const PORT_ALIAS_TAG: &str = "input_stage_prune_port_alias";
+
+/// One producer-port rename recorded on a rewired edge: which pruned producer
+/// the edge used to name, the port name it carried before the rewire, and the
+/// staging anchor's own port the rewire resolved it onto.
+///
+/// Both names are retained so a reviewer reading the emitted package can join
+/// the anchor's canonical port back to the atom contract the edge originally
+/// referenced (`quantification.count_matrix` /
+/// `qc_preprocessing.filtered_count_matrix` → `data_acquisition.raw_count_matrix`).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PortAlias {
+    /// Id of the pruned producer task whose output port the edge named.
+    pub pruned_producer: String,
+    /// The pre-rewire `from_port` — a port the anchor does not declare.
+    pub original_port: String,
+    /// The anchor's own output port the rewire resolved the edge onto.
+    pub canonical_port: String,
+}
+
+impl PortAlias {
+    /// Render as the single `warnings` row carried on the rewired edge.
+    pub fn encode(&self) -> String {
+        format!(
+            "{PORT_ALIAS_TAG}: pruned_producer={} original_port={} canonical_port={}",
+            self.pruned_producer, self.original_port, self.canonical_port
+        )
+    }
+
+    /// Inverse of [`PortAlias::encode`]. `None` for any row that is not a
+    /// port-alias record or that is missing a field, so unrelated proof
+    /// warnings pass through untouched.
+    pub fn decode(row: &str) -> Option<Self> {
+        let rest = row.strip_prefix(PORT_ALIAS_TAG)?.strip_prefix(':')?;
+        let mut pruned_producer: Option<String> = None;
+        let mut original_port: Option<String> = None;
+        let mut canonical_port: Option<String> = None;
+        for field in rest.split_whitespace() {
+            let (key, value) = field.split_once('=')?;
+            match key {
+                "pruned_producer" => pruned_producer = Some(value.to_string()),
+                "original_port" => original_port = Some(value.to_string()),
+                "canonical_port" => canonical_port = Some(value.to_string()),
+                _ => return None,
+            }
+        }
+        Some(Self {
+            pruned_producer: pruned_producer?,
+            original_port: original_port?,
+            canonical_port: canonical_port?,
+        })
+    }
+}
+
+/// Every port-alias record retained on `edge`; empty for an edge this pass
+/// never rewired. The order mirrors the order the aliases were recorded.
+pub fn port_aliases(edge: &EdgeContract) -> Vec<PortAlias> {
+    edge.proof
+        .warnings
+        .iter()
+        .filter_map(|w| PortAlias::decode(w))
+        .collect()
+}
+
+/// Resolve the staging anchor's OWN output port for an edge being rewired off
+/// the pruned producer.
+///
+/// Moving `from_node` alone is not enough: the edge still names the
+/// PRODUCER's port. When the port-copy above was suppressed — the anchor
+/// already produces the supplied IRI under a different name
+/// (`data_acquisition.raw_count_matrix` for `data:3917`) — the rewired edge is
+/// left pointing at a port its new producer does not declare, which nothing
+/// downstream can resolve.
+///
+/// Resolution order, first match wins:
+/// 1. the anchor already declares a port with that exact name (authored, or
+///    just pushed by the port-copy) — nothing to rewrite;
+/// 2. an anchor port whose semantic type is identical to the producer port's;
+/// 3. an anchor port supplying the pruned product type `iri` — exact
+///    ontology-term match preferred over local-extension subsumption.
+///
+/// Returns `None` — leaving `from_port` untouched — when the name is not a
+/// declared output of the producer at all. Those are the composer's synthetic
+/// ordering-edge sentinels (`report` / `literature` / `_excluded_rewire` /
+/// `splice` / the empty string), which are workflow-ordering relations rather
+/// than port-typed data flows and must not be coerced onto a data port. Step 3
+/// is likewise skipped for a producer port that does not supply `iri`, so an
+/// unrelated side output is never aliased to the supplied product.
+///
+/// Ties break on the anchor's declaration order — the YAML order the registry
+/// loads — so the choice is deterministic.
+fn resolve_anchor_port(
+    anchor: &TaskNode,
+    producer: &TaskNode,
+    original_port: &str,
+    iri: &str,
+) -> Option<String> {
+    if anchor.outputs.iter().any(|o| o.name == original_port) {
+        return Some(original_port.to_string());
+    }
+    let producer_port = producer.outputs.iter().find(|o| o.name == original_port)?;
+    let producer_type = producer_port.semantic_type.stable_id();
+    if let Some(same_type) = anchor
+        .outputs
+        .iter()
+        .find(|o| o.semantic_type.stable_id() == producer_type)
+    {
+        return Some(same_type.name.clone());
+    }
+    if !port_supplies_iri(&producer_port.semantic_type, iri) {
+        return None;
+    }
+    anchor
+        .outputs
+        .iter()
+        .find(|o| matches!(&o.semantic_type, SemanticType::OntologyTerm { iri: i, .. } if i == iri))
+        .or_else(|| {
+            anchor
+                .outputs
+                .iter()
+                .find(|o| port_supplies_iri(&o.semantic_type, iri))
+        })
+        .map(|o| o.name.clone())
 }
 
 /// Transitive ancestors of `target` (every node with a forward path to it).
@@ -177,11 +313,58 @@ pub fn prune_supplied_upstream(
             }
         }
 
-        // Rewire Q's consumers onto the anchor.
+        // Rewire Q's consumers onto the anchor. Reassigning `from_node` alone
+        // is not enough: the edge still names Q's OWN output port, which the
+        // anchor generally does not declare once the port-copy above was
+        // suppressed (`data_acquisition` already produces `data:3917` as
+        // `raw_count_matrix`, so a rewired edge kept `quantification`'s
+        // `count_matrix` / `qc_preprocessing`'s `filtered_count_matrix` and
+        // resolved against nothing downstream). Resolve the anchor's own
+        // canonical port per distinct producer-port name, then retain the
+        // pre-rewire name as a `PortAlias` on the edge's proof so reviewer
+        // traceability back to the pruned atom contract survives.
+        //
+        // Keyed in a `BTreeMap` so the resolution is computed once per port
+        // name in a deterministic order, and resolved BEFORE the mutable edge
+        // pass because both endpoints are read off `dag.nodes`.
+        let renames: BTreeMap<String, String> = match (
+            dag.nodes.iter().find(|n| n.id == q),
+            dag.nodes.iter().find(|n| n.id == anchor),
+        ) {
+            (Some(q_node), Some(anchor_node)) => dag
+                .edges
+                .iter()
+                .filter(|e| e.from_node == q)
+                .map(|e| e.from_port.clone())
+                .collect::<BTreeSet<String>>()
+                .into_iter()
+                .filter_map(|original| {
+                    let canonical = resolve_anchor_port(anchor_node, q_node, &original, iri)?;
+                    (canonical != original).then_some((original, canonical))
+                })
+                .collect(),
+            _ => BTreeMap::new(),
+        };
         for e in dag.edges.iter_mut() {
-            if e.from_node == q {
-                e.from_node = anchor.clone();
+            if e.from_node != q {
+                continue;
             }
+            let canonical = renames.get(&e.from_port).cloned();
+            if let Some(canonical) = canonical {
+                let row = PortAlias {
+                    pruned_producer: q.clone(),
+                    original_port: e.from_port.clone(),
+                    canonical_port: canonical.clone(),
+                }
+                .encode();
+                // Idempotent: the pass runs twice (seed lift + primary
+                // finalize), and a re-resolved edge must not stack duplicates.
+                if !e.proof.warnings.contains(&row) {
+                    e.proof.warnings.push(row);
+                }
+                e.from_port = canonical;
+            }
+            e.from_node = anchor.clone();
         }
 
         // Remove the prune set + any `discover_*`/`validate_*` companions for
@@ -250,6 +433,33 @@ mod tests {
             chain_of_custody: None,
             mutually_exclusive_group: None,
         }
+    }
+    /// An edge naming a REAL producer output port, as the archetype-lift path
+    /// builds them (`planner::pick_best_port_pair` binds the producer's own
+    /// port name). The bare `edge()` helper above uses a `"out"` placeholder
+    /// no fixture node declares.
+    fn edge_ports(from: &str, from_port: &str, to: &str, to_port: &str) -> EdgeContract {
+        EdgeContract {
+            from_port: from_port.into(),
+            to_port: to_port.into(),
+            ..edge(from, to)
+        }
+    }
+    /// The real `data_acquisition` output shape
+    /// (`config/stage-atoms/data_acquisition.yaml`): a manifest, an OPTIONAL
+    /// raw count matrix typed `data:3917`, and raw reads. The middle port is
+    /// what makes the port-copy in `prune_supplied_upstream` a no-op on the
+    /// counts-first path.
+    fn data_acquisition_node() -> TaskNode {
+        node(
+            "data_acquisition",
+            vec![],
+            vec![
+                out("cohort_manifest", "data:2531"),
+                out("raw_count_matrix", COUNTS),
+                out("raw_reads", FASTQ),
+            ],
+        )
     }
 
     const FASTQ: &str = "data:2044";
@@ -803,6 +1013,290 @@ mod tests {
         assert!(
             node_produces(da, PROTEIN_ABUNDANCE),
             "data_acquisition must expose the supplied protein-abundance type"
+        );
+    }
+
+    /// The counts-first shape that produced an unresolvable `from_port` in a
+    /// real deposit: the anchor ALREADY produces `data:3917` under its own
+    /// name (`raw_count_matrix`), so the port-copy is suppressed — and the
+    /// rewired edge used to keep `quantification`'s `count_matrix`, a port
+    /// `data_acquisition` does not declare. The rewire must resolve the
+    /// anchor's canonical port instead, and retain the original name.
+    #[test]
+    fn rewire_resolves_from_port_to_anchor_canonical_port_when_copy_is_suppressed() {
+        let mut dag = WorkflowDag {
+            id: "t".into(),
+            nodes: vec![
+                data_acquisition_node(),
+                node(
+                    "alignment",
+                    vec![inp("reads", FASTQ)],
+                    vec![out("bam", BAM)],
+                ),
+                node(
+                    "quantification",
+                    vec![inp("bam", BAM)],
+                    vec![out("count_matrix", COUNTS)],
+                ),
+                node(
+                    "differential_expression",
+                    vec![inp("counts", COUNTS)],
+                    vec![out("de", DE)],
+                ),
+            ],
+            edges: vec![
+                edge_ports("data_acquisition", "raw_reads", "alignment", "reads"),
+                edge_ports("alignment", "bam", "quantification", "bam"),
+                edge_ports(
+                    "quantification",
+                    "count_matrix",
+                    "differential_expression",
+                    "counts",
+                ),
+            ],
+            ..Default::default()
+        };
+        // Pre-condition: the anchor already supplies the counts type, so the
+        // port-copy branch is a no-op and only the rename can fix the edge.
+        let da_before = dag
+            .nodes
+            .iter()
+            .find(|n| n.id == "data_acquisition")
+            .expect("anchor present");
+        assert!(
+            node_produces(da_before, COUNTS),
+            "fixture must reproduce the anchor-already-produces-counts case"
+        );
+
+        prune_supplied_upstream(&mut dag, &[DataProductContract::gene_count_matrix()]);
+
+        let rewired = dag
+            .edges
+            .iter()
+            .find(|e| e.from_node == "data_acquisition" && e.to_node == "differential_expression")
+            .expect("differential_expression must be rewired onto data_acquisition");
+        assert_eq!(
+            rewired.from_port, "raw_count_matrix",
+            "rewired edge must name the anchor's OWN counts port, not the pruned \
+             producer's `count_matrix`; got {rewired:?}"
+        );
+
+        let declared: BTreeSet<&str> = dag
+            .nodes
+            .iter()
+            .find(|n| n.id == "data_acquisition")
+            .expect("anchor survives")
+            .outputs
+            .iter()
+            .map(|o| o.name.as_str())
+            .collect();
+        let anchored = dag
+            .edges
+            .iter()
+            .filter(|e| e.from_node == "data_acquisition");
+        for e in anchored {
+            assert!(
+                declared.contains(e.from_port.as_str()),
+                "edge {e:?} names a from_port data_acquisition does not declare; declared={declared:?}"
+            );
+        }
+
+        let aliases = port_aliases(rewired);
+        assert_eq!(
+            aliases,
+            vec![PortAlias {
+                pruned_producer: "quantification".into(),
+                original_port: "count_matrix".into(),
+                canonical_port: "raw_count_matrix".into(),
+            }],
+            "the rewire must retain BOTH the original and the resolved port"
+        );
+    }
+
+    /// When the anchor does NOT already produce the supplied type, the
+    /// port-copy pushes the producer's port verbatim — so the name already
+    /// resolves and no rename (and no alias) is recorded. Guards the
+    /// long-standing copy path from picking up spurious alias rows.
+    #[test]
+    fn rewire_leaves_from_port_alone_when_the_port_copy_supplies_it() {
+        let mut dag = WorkflowDag {
+            id: "t".into(),
+            nodes: vec![
+                node("data_acquisition", vec![], vec![out("staged", "data:2531")]),
+                node(
+                    "quantification",
+                    vec![inp("bam", BAM)],
+                    vec![out("count_matrix", COUNTS)],
+                ),
+                node(
+                    "differential_expression",
+                    vec![inp("counts", COUNTS)],
+                    vec![out("de", DE)],
+                ),
+            ],
+            edges: vec![
+                edge_ports("data_acquisition", "staged", "quantification", "bam"),
+                edge_ports(
+                    "quantification",
+                    "count_matrix",
+                    "differential_expression",
+                    "counts",
+                ),
+            ],
+            ..Default::default()
+        };
+        prune_supplied_upstream(&mut dag, &[DataProductContract::gene_count_matrix()]);
+
+        let rewired = dag
+            .edges
+            .iter()
+            .find(|e| e.from_node == "data_acquisition" && e.to_node == "differential_expression")
+            .expect("differential_expression must be rewired onto data_acquisition");
+        assert_eq!(
+            rewired.from_port, "count_matrix",
+            "the copied port already carries this name — no rename is warranted"
+        );
+        assert!(
+            port_aliases(rewired).is_empty(),
+            "no alias may be recorded when the port name is unchanged: {:?}",
+            rewired.proof.warnings
+        );
+    }
+
+    /// A synthesized ordering-edge sentinel (`report`, wired by
+    /// `report_data_synthesis`) is not a declared producer port, so the rewire
+    /// must leave it alone rather than coerce it onto the anchor's data port.
+    /// The pass runs twice (seed lift + primary finalize) and by the second
+    /// run these structural edges exist.
+    #[test]
+    fn rewire_does_not_coerce_synthetic_ordering_ports_onto_a_data_port() {
+        let mut dag = WorkflowDag {
+            id: "t".into(),
+            nodes: vec![
+                data_acquisition_node(),
+                node(
+                    "quantification",
+                    vec![inp("bam", BAM)],
+                    vec![out("count_matrix", COUNTS)],
+                ),
+                node(
+                    "assemble_report_data",
+                    vec![inp("analysis_result", "data:2048")],
+                    vec![out("report_data", "data:2048")],
+                ),
+            ],
+            edges: vec![
+                edge_ports("data_acquisition", "raw_reads", "quantification", "bam"),
+                edge_ports(
+                    "quantification",
+                    "report",
+                    "assemble_report_data",
+                    "analysis_result",
+                ),
+            ],
+            ..Default::default()
+        };
+        prune_supplied_upstream(&mut dag, &[DataProductContract::gene_count_matrix()]);
+
+        let structural = dag
+            .edges
+            .iter()
+            .find(|e| e.to_node == "assemble_report_data")
+            .expect("the ordering edge survives the rewire");
+        assert_eq!(
+            structural.from_node, "data_acquisition",
+            "the ordering edge is still rewired onto the anchor"
+        );
+        assert_eq!(
+            structural.from_port, "report",
+            "a synthetic ordering sentinel must not be renamed to a data port"
+        );
+        assert!(
+            port_aliases(structural).is_empty(),
+            "no alias for an untouched sentinel port: {:?}",
+            structural.proof.warnings
+        );
+    }
+
+    /// Running the pass twice (the real planner does: once at archetype-seed
+    /// lift, once in `finalize_primary_dag`) must not stack duplicate alias
+    /// rows or re-rename an already-canonical port.
+    #[test]
+    fn repeated_passes_are_idempotent_on_the_alias_record() {
+        let mut dag = WorkflowDag {
+            id: "t".into(),
+            nodes: vec![
+                data_acquisition_node(),
+                node(
+                    "quantification",
+                    vec![inp("bam", BAM)],
+                    vec![out("count_matrix", COUNTS)],
+                ),
+                node(
+                    "differential_expression",
+                    vec![inp("counts", COUNTS)],
+                    vec![out("de", DE)],
+                ),
+            ],
+            edges: vec![
+                edge_ports("data_acquisition", "raw_reads", "quantification", "bam"),
+                edge_ports(
+                    "quantification",
+                    "count_matrix",
+                    "differential_expression",
+                    "counts",
+                ),
+            ],
+            ..Default::default()
+        };
+        prune_supplied_upstream(&mut dag, &[DataProductContract::gene_count_matrix()]);
+        prune_supplied_upstream(&mut dag, &[DataProductContract::gene_count_matrix()]);
+
+        let rewired = dag
+            .edges
+            .iter()
+            .find(|e| e.to_node == "differential_expression")
+            .expect("rewired edge survives both passes");
+        assert_eq!(
+            rewired.from_port, "raw_count_matrix",
+            "second pass must not re-rename an already-canonical port"
+        );
+        assert_eq!(
+            port_aliases(rewired).len(),
+            1,
+            "alias rows must not stack across passes: {:?}",
+            rewired.proof.warnings
+        );
+    }
+
+    /// `PortAlias` is carried as a `key=value` proof-warning row; the encoding
+    /// must round-trip and must ignore unrelated warnings.
+    #[test]
+    fn port_alias_round_trips_through_the_proof_warning_row() {
+        let alias = PortAlias {
+            pruned_producer: "qc_preprocessing".into(),
+            original_port: "filtered_count_matrix".into(),
+            canonical_port: "raw_count_matrix".into(),
+        };
+        let row = alias.encode();
+        assert!(
+            row.starts_with(PORT_ALIAS_TAG),
+            "encoded row must be tagged: {row}"
+        );
+        assert_eq!(
+            PortAlias::decode(&row),
+            Some(alias),
+            "decode must invert encode"
+        );
+        assert_eq!(
+            PortAlias::decode("genome build differs"),
+            None,
+            "an unrelated proof warning must not decode as an alias"
+        );
+        assert_eq!(
+            PortAlias::decode(&format!("{PORT_ALIAS_TAG}: original_port=a")),
+            None,
+            "a row missing fields must not decode"
         );
     }
 }
