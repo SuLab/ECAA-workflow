@@ -7,7 +7,7 @@
 
 .PHONY: help build build-release install bootstrap test test-runner test-doc \
         test-fast test-core test-conversation test-harness test-server test-cli \
-        test-ui conformance test-substrate-utility roc-gate lint-ui clippy fmt check types e2e e2e-playwright deposit-check bench \
+        test-ui relocation-test conformance test-substrate-utility roc-gate lint-ui clippy fmt check types e2e e2e-playwright deposit-check bench \
         verify-reproducibility \
         bio-min dev-server dev-ui clean doctor lint deny install-hooks \
         image up down logs release-image release-sbom release-sign release-checksums release-publish release \
@@ -115,6 +115,9 @@ test-cli: ## Unit + integration for crates/cli
 
 test-ui: ## Vitest + axe a11y for ui/
 	cd ui && npm run test
+
+relocation-test: ## Deposit relocation replay: export a fixture, MOVE it, assert no host paths in runtime/outputs/*/scripts/* + offline verify still passes
+	cargo test -p ecaa-workflow-cli --test relocation_replay
 
 conformance: ## ECAA conformance suite (block-on-fail; ECAA_CONFORMANCE_MODE=1 + ECAA_VALIDATION_BLOCK_ON_FAIL=1)
 	ECAA_CONFORMANCE_MODE=1 ECAA_VALIDATION_BLOCK_ON_FAIL=1 cargo test -p ecaa-workflow-conformance

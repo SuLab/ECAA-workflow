@@ -249,6 +249,50 @@ pub(crate) fn verify_manifest(dir: &std::path::Path) -> Result<bool> {
     Ok(true)
 }
 
+/// Package-relative directory holding the verification sidecars.
+const VERIFICATION_REPORTS_DIR: &str = "runtime/verification-reports";
+
+/// Basename of the HMAC-signed verdict sink inside
+/// [`VERIFICATION_REPORTS_DIR`]. Kept in lockstep with
+/// [`crate::claim_sink::SIGNED_SINK_REL`] by
+/// `signed_sink_path_constants_agree`.
+const SIGNED_SINK_BASENAME: &str = "claim-verification.signed.json";
+
+/// Whether `rel` is a PER-TASK verification sidecar
+/// (`runtime/verification-reports/<task_id>.json`): a runtime-only artifact
+/// the conversation emit pipeline writes AFTER `emit_package` returns, read
+/// back only by the `GET /task/:task_id/result` handler. Those are the files
+/// the byte-reproducibility baseline legitimately keeps off the payload
+/// manifest.
+///
+/// This is a per-FILE predicate, not the directory prefix it replaced,
+/// because the same directory also holds `claim-verification.signed.json`
+/// ([`crate::claim_sink::SIGNED_SINK_REL`]) — the HMAC-signed,
+/// agent-unforgeable verdict sink that the audit-proof loader treats as its
+/// TRUST surface and that every recorded claim verdict in a deposit rests
+/// on. A blanket prefix skip left that accountability file with zero
+/// integrity coverage in the very manifest a depositor hands to a reviewer.
+/// It is written host-side post-execution (never at emit — see
+/// `crate::claim_sink::persist_signed_verdicts`, called from
+/// `crate::finalize` immediately before a reseal), so manifesting it cannot
+/// perturb the pre-run emit byte-reproducibility baseline while giving the
+/// deposit the coverage it always should have had.
+fn is_per_task_verification_sidecar(rel: &std::path::Path) -> bool {
+    let Ok(under) = rel.strip_prefix(VERIFICATION_REPORTS_DIR) else {
+        return false;
+    };
+    // Direct children only: a nested path is not the per-task sidecar shape.
+    let mut comps = under.components();
+    let Some(std::path::Component::Normal(name)) = comps.next() else {
+        return false;
+    };
+    if comps.next().is_some() {
+        return false;
+    }
+    let name = name.to_string_lossy();
+    name.ends_with(".json") && name != SIGNED_SINK_BASENAME
+}
+
 /// Recursively collect every file under `current` (relative to `root`),
 /// excluding the manifest itself and, depending on `mode`, paths under
 /// `runtime/outputs/` (agent-written artifacts; excluded at emit because
@@ -329,7 +373,10 @@ fn walk_for_manifest(
         // are runtime-only artifacts consumed by the
         // `GET /task/:task_id/result` handler. Excluded from the
         // byte-reproducibility baseline alongside the audit logs.
-        if rel.starts_with("runtime/verification-reports") {
+        //
+        // A PER-FILE predicate, deliberately NOT a directory prefix — see
+        // `is_per_task_verification_sidecar`.
+        if is_per_task_verification_sidecar(&rel) {
             continue;
         }
         // Runtime audit/ECAA sidecars kept OFF the payload manifest.
@@ -486,6 +533,77 @@ mod tests {
         };
         let actual = stream_sha512_hex(&path).unwrap();
         assert_eq!(actual, expected);
+    }
+
+    /// Drift guard: the local dir + basename constants must stay in lockstep
+    /// with the single source of truth in `claim_sink`.
+    #[test]
+    fn signed_sink_path_constants_agree() {
+        assert_eq!(
+            crate::claim_sink::SIGNED_SINK_REL,
+            format!("{VERIFICATION_REPORTS_DIR}/{SIGNED_SINK_BASENAME}"),
+            "bagit's verification-reports constants drifted from claim_sink::SIGNED_SINK_REL"
+        );
+    }
+
+    /// P0-5 — the HMAC-signed verdict sink is the deposit's accountability
+    /// anchor: it MUST be covered by the payload manifest. The blanket
+    /// `runtime/verification-reports/` prefix skip left it (a multi-MB signed
+    /// file) with zero integrity coverage. The per-task sidecars alongside it
+    /// stay excluded.
+    #[test]
+    fn signed_claim_verification_is_manifested() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let reports = root.join(VERIFICATION_REPORTS_DIR);
+        std::fs::create_dir_all(&reports).unwrap();
+        std::fs::write(
+            reports.join(SIGNED_SINK_BASENAME),
+            b"{\"task_id\":\"de\",\"mac\":\"deadbeef\"}\n",
+        )
+        .unwrap();
+        // A per-task sidecar written by the conversation emit pipeline.
+        std::fs::write(reports.join("differential_expression.json"), b"{}").unwrap();
+        std::fs::write(root.join("root.txt"), b"x").unwrap();
+        let clk = crate::clock::FrozenClock::default();
+
+        for mode in [SealMode::Emit, SealMode::Reseal] {
+            write_bagit_manifest_with_mode(root, &clk, mode).unwrap();
+            let m = std::fs::read_to_string(root.join("manifest-sha512.txt")).unwrap();
+            assert!(
+                m.contains(crate::claim_sink::SIGNED_SINK_REL),
+                "{mode:?}: the signed claim-verification sink must be manifested, got:\n{m}"
+            );
+            assert!(
+                !m.contains("differential_expression.json"),
+                "{mode:?}: per-task verification sidecars must stay excluded, got:\n{m}"
+            );
+        }
+    }
+
+    /// The predicate itself: only DIRECT `<task_id>.json` children of the
+    /// reports dir are per-task sidecars.
+    #[test]
+    fn per_task_verification_sidecar_predicate_is_narrow() {
+        let p = std::path::Path::new;
+        assert!(
+            is_per_task_verification_sidecar(p(
+                "runtime/verification-reports/differential_expression.json"
+            )),
+            "a direct <task_id>.json child is a per-task sidecar"
+        );
+        assert!(
+            !is_per_task_verification_sidecar(p(crate::claim_sink::SIGNED_SINK_REL)),
+            "the signed sink is not a per-task sidecar"
+        );
+        assert!(
+            !is_per_task_verification_sidecar(p("runtime/verification-reports/nested/x.json")),
+            "a nested path is not the per-task sidecar shape"
+        );
+        assert!(
+            !is_per_task_verification_sidecar(p("runtime/claim-verification.json")),
+            "a file outside the reports dir is never a per-task sidecar"
+        );
     }
 
     #[test]

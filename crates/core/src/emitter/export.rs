@@ -546,8 +546,8 @@ fn task_scripts_dir_task_id(rel: &Path) -> Option<&str> {
 /// agent's scripts embedded at emit/execution time) from
 /// `<task_dir>/determinism-env.json`. Best-effort: a missing file, unparseable
 /// JSON, or absent/empty field all yield an empty string, which
-/// [`relocate_script_pkg_root`] treats as "nothing to rewrite" — the same
-/// fallback `crate::replay::read_recorded_env` uses for this field.
+/// [`build_reloc_roots`] drops as "nothing to rewrite" — the same fallback
+/// `crate::replay::read_recorded_env` uses for this field.
 fn read_recorded_pkg_root(task_dir: &Path) -> String {
     let Ok(raw) = std::fs::read_to_string(task_dir.join("determinism-env.json")) else {
         return String::new();
@@ -561,49 +561,504 @@ fn read_recorded_pkg_root(task_dir: &Path) -> String {
         .to_owned()
 }
 
-/// True when `body` contains a Python `import os` statement that binds the
-/// bare name `os` (so `os.environ.get(...)` resolves) — a plain `import os`,
-/// optionally followed by a comma-separated import, a `;`, or a trailing
-/// comment. An aliased import (`import os as o`) does NOT match, since the
-/// bare `os` name would not exist; the caller falls back to the
-/// self-contained `__import__("os")` form in that case.
-fn python_bare_os_available(body: &str) -> bool {
-    body.lines().any(|l| {
-        let t = l.trim();
-        t == "import os" || t.starts_with("import os,") || t.starts_with("import os;") || t.starts_with("import os #")
-    })
+/// One absolute host root the export relocates out of the deposit.
+///
+/// A deposit is only portable if NO recorded artifact pins it to the
+/// compiling operator's machine layout. Two classes of root do that: the
+/// package root itself (baked into every generated script's path arithmetic)
+/// and each SME-registered EXTERNAL input root (`runtime/inputs.json ::
+/// root_path`). Both are represented uniformly here so the script rewrite and
+/// the documentation tokenizer share one substitution table.
+#[derive(Debug, Clone)]
+struct RelocRoot {
+    /// The absolute host path as it literally appears in the recorded bytes.
+    path: String,
+    /// Environment variable a relocated consumer consults FIRST
+    /// (`PKG_ROOT`, `ECAA_INPUT_0`, …). `PKG_ROOT` is the variable
+    /// [`crate::replay::script_runner`] already injects.
+    env_var: String,
+    /// Local variable stem the generated prologue binds (`PKG_ROOT`,
+    /// `INPUT_0`); prefixed per language so it cannot collide with a name the
+    /// agent's script already uses.
+    stem: String,
+    /// Deposit-relative fallback for the `unset` case. `None` = the deposit
+    /// root itself (resolved by walking up from the script's own location);
+    /// `Some(rel)` = a path under the deposit root (the staged input dir).
+    fallback_rel: Option<String>,
 }
 
-/// Rewrite a sealed per-task script so it is relocation-safe: a hardcoded
-/// `PKG_ROOT` assignment recorded at `pkg_root` (the exact literal the task's
-/// `determinism-env.json` captured) is rewritten to read the `PKG_ROOT`
-/// env var replay already injects (`crate::replay::script_runner`), falling
-/// back to the original literal as the `unset` default so a same-host,
-/// no-relocation run behaves exactly as before. A literal, deterministic
-/// string replacement — only the exact recorded assignment line(s) are
-/// touched; a script with neither the R nor the Python form (or an empty
-/// `pkg_root`) is returned byte-identical.
-fn relocate_script_pkg_root(body: &str, pkg_root: &str) -> String {
-    if pkg_root.is_empty() {
-        return body.to_string();
+impl RelocRoot {
+    /// The documentation token (`${PKG_ROOT}` / `${ECAA_INPUT_0}`) a
+    /// non-executable accountability file carries in place of the host path.
+    fn token(&self) -> String {
+        format!("${{{}}}", self.env_var)
     }
-    let r_from = format!("PKG_ROOT <- \"{pkg_root}\"");
-    if body.contains(&r_from) {
-        let r_to = format!("PKG_ROOT <- Sys.getenv(\"PKG_ROOT\", unset = \"{pkg_root}\")");
-        return body.replace(&r_from, &r_to);
+}
+
+/// Languages the script rewrite can emit a self-locating prologue for.
+/// Anything else is rewritten with documentation tokens only (inert in a
+/// `.log`/`.md` transcript, and honest in any case).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ScriptLang {
+    R,
+    Python,
+    Shell,
+    Other,
+}
+
+fn script_language(rel: &Path) -> ScriptLang {
+    match rel
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("r") => ScriptLang::R,
+        Some("py") => ScriptLang::Python,
+        Some("sh" | "bash") => ScriptLang::Shell,
+        _ => ScriptLang::Other,
     }
-    // Python: `PKG_ROOT = "<abs>"` or `PKG_ROOT="<abs>"` (both spacings).
-    for py_from in [format!("PKG_ROOT = \"{pkg_root}\""), format!("PKG_ROOT=\"{pkg_root}\"")] {
-        if body.contains(&py_from) {
-            let getter = if python_bare_os_available(body) {
-                format!("os.environ.get(\"PKG_ROOT\", \"{pkg_root}\")")
-            } else {
-                format!("__import__(\"os\").environ.get(\"PKG_ROOT\", \"{pkg_root}\")")
-            };
-            return body.replace(&py_from, &format!("PKG_ROOT = {getter}"));
+}
+
+/// Language-local variable name bound by the relocation prologue.
+fn reloc_var(lang: ScriptLang, stem: &str) -> String {
+    match lang {
+        // A leading dot keeps the binding out of `ls()` and cannot collide
+        // with a generated script's own upper-case globals.
+        ScriptLang::R => format!(".ECAA_{stem}"),
+        ScriptLang::Python => format!("_ECAA_{stem}"),
+        ScriptLang::Shell => format!("ECAA_{stem}"),
+        ScriptLang::Other => format!("ECAA_{stem}"),
+    }
+}
+
+/// Read the SME-registered external input roots from `runtime/inputs.json`
+/// (schema: `[{ input_id, label, kind, root_path, files, … }]`).
+///
+/// Returns `(root_path, label)` pairs, de-duplicated and sorted by
+/// `root_path` so the `ECAA_INPUT_<n>` index assignment is deterministic and
+/// independent of the array order the server happened to write. Best-effort:
+/// a missing or unparseable file yields an empty list.
+fn read_registered_input_roots(src: &Path) -> Vec<(String, String)> {
+    let Ok(raw) = std::fs::read_to_string(src.join("runtime/inputs.json")) else {
+        return Vec::new();
+    };
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return Vec::new();
+    };
+    let Some(arr) = val.as_array() else {
+        return Vec::new();
+    };
+    let mut out: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+    for item in arr {
+        let Some(root) = item.get("root_path").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        if !is_relocatable_root(root) {
+            continue;
+        }
+        let label = item
+            .get("label")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or("input")
+            .to_string();
+        out.entry(root.to_string()).or_insert(label);
+    }
+    out.into_iter().collect()
+}
+
+/// Guard against substituting a root so short/generic that the rewrite would
+/// corrupt unrelated text: a relocatable root is absolute and has at least
+/// two non-empty path components (`/home/a` is the shortest accepted form).
+fn is_relocatable_root(root: &str) -> bool {
+    root.starts_with('/')
+        && root.trim_end_matches('/').split('/').filter(|s| !s.is_empty()).count() >= 2
+}
+
+/// The source tree's own absolute path, canonicalized when possible. This is
+/// the package root the accountability documents actually spell out (the
+/// per-task `determinism-env.json :: pkg_root` can differ — e.g. a container
+/// mount point — so both are relocated).
+fn canonical_root_string(src: &Path) -> String {
+    std::fs::canonicalize(src)
+        .unwrap_or_else(|_| src.to_path_buf())
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+/// Every distinct absolute package-root spelling recorded anywhere in `src`:
+/// each task's `determinism-env.json :: pkg_root` plus the source tree's own
+/// canonical path. Sorted + de-duplicated for a deterministic substitution
+/// table.
+fn all_recorded_pkg_roots(src: &Path) -> Vec<String> {
+    let mut roots: std::collections::BTreeSet<String> =
+        std::collections::BTreeSet::from([canonical_root_string(src)]);
+    if let Ok(entries) = std::fs::read_dir(src.join("runtime/outputs")) {
+        let mut dirs: Vec<PathBuf> = entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
+        dirs.sort();
+        for d in dirs {
+            let recorded = read_recorded_pkg_root(&d);
+            if !recorded.is_empty() {
+                roots.insert(recorded);
+            }
         }
     }
-    body.to_string()
+    roots.into_iter().collect()
+}
+
+/// Whether a dropped package-relative path is the KIND of artifact a recorded
+/// per-task sidecar plausibly cites as evidence: a data table, figure, report,
+/// or structured record inside the stage-output / input / evidence surface.
+///
+/// Deliberately narrow. Operational telemetry at the `runtime/` root
+/// (`LOG.jsonl`, `dispatches.jsonl`, harness health …), caches, R libraries,
+/// compiled Python, and per-run logs are dropped in bulk and are never
+/// evidence — annotating a narrative that happens to name one would be noise,
+/// and admitting them would make the reconciliation scan quadratic in a very
+/// large dropped set for no gain.
+fn is_referenceable_artifact(rel: &str) -> bool {
+    const CITED_EXTS: &[&str] = &[
+        ".tsv", ".csv", ".parquet", ".json", ".jsonl", ".png", ".pdf", ".svg", ".md", ".html",
+        ".txt", ".rds", ".h5ad", ".gz",
+    ];
+    const CITED_ROOTS: &[&str] = &["runtime/outputs/", "inputs/", "evidence/", "figures/"];
+    let lower = rel.to_ascii_lowercase();
+    if !CITED_ROOTS.iter().any(|r| lower.starts_with(r)) {
+        return false;
+    }
+    if lower.contains("/cache/")
+        || lower.contains("__pycache__")
+        || lower.contains("/r-libs/")
+        || lower.ends_with(".log")
+        || lower.ends_with(".pyc")
+    {
+        return false;
+    }
+    CITED_EXTS.iter().any(|e| lower.ends_with(e))
+}
+
+/// Assemble the substitution table for one export: the package root(s) plus
+/// every registered input root, sorted LONGEST-FIRST so a root nested inside
+/// another (`<pkg>/inputs/x` under `<pkg>`) is rewritten against its own,
+/// more specific entry rather than being swallowed by the outer one.
+///
+/// `pkg_roots` are the absolute package-root spellings actually baked into
+/// the recorded artifacts: each task's `determinism-env.json :: pkg_root` and
+/// the source tree's own canonical path. All of them map to `PKG_ROOT`.
+fn build_reloc_roots(pkg_roots: &[String], input_roots: &[(String, String)]) -> Vec<RelocRoot> {
+    let mut out: Vec<RelocRoot> = Vec::new();
+    let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for root in pkg_roots {
+        let root = root.trim_end_matches('/');
+        if !is_relocatable_root(root) || !seen.insert(root.to_string()) {
+            continue;
+        }
+        out.push(RelocRoot {
+            path: root.to_string(),
+            env_var: "PKG_ROOT".to_string(),
+            stem: "PKG_ROOT".to_string(),
+            fallback_rel: None,
+        });
+    }
+    for (idx, (root, label)) in input_roots.iter().enumerate() {
+        let root = root.trim_end_matches('/');
+        if !is_relocatable_root(root) || !seen.insert(root.to_string()) {
+            continue;
+        }
+        out.push(RelocRoot {
+            path: root.to_string(),
+            env_var: format!("ECAA_INPUT_{idx}"),
+            stem: format!("INPUT_{idx}"),
+            // The deposit stages registered inputs under `inputs/<label>/`;
+            // that is the honest in-deposit fallback when the operator has
+            // not pointed `ECAA_INPUT_<n>` at the external data.
+            fallback_rel: Some(format!("inputs/{label}")),
+        });
+    }
+    // Longest first: a prefix relationship between two roots must resolve to
+    // the most specific match. Ties break lexicographically for determinism.
+    out.sort_by(|a, b| {
+        b.path
+            .len()
+            .cmp(&a.path.len())
+            .then_with(|| a.path.cmp(&b.path))
+    });
+    out
+}
+
+/// The `..` walk-up chain from a script's own directory to the deposit root,
+/// derived from the script's package-relative path
+/// (`runtime/outputs/<task>/scripts/x.R` → four levels).
+fn walk_up_components(rel: &Path) -> usize {
+    rel.components()
+        .filter(|c| matches!(c, std::path::Component::Normal(_)))
+        .count()
+        .saturating_sub(1)
+}
+
+/// Emit the self-locating prologue that binds every root the script needs.
+///
+/// The contract this encodes: **no absolute host path survives**. Each root
+/// resolves to its environment variable when set (the replay injects
+/// `PKG_ROOT`), and otherwise to a path computed from the SCRIPT'S OWN
+/// location by walking up `depth` directories. The previous relocation kept
+/// the recorded absolute path as the `unset` default, which meant a deposit
+/// unpacked anywhere else silently pointed back at the compiling operator's
+/// machine.
+fn relocation_prologue(lang: ScriptLang, depth: usize, roots: &[RelocRoot]) -> String {
+    let mut s = String::new();
+    let depth = depth.max(1);
+    let up_r = std::iter::repeat("\"..\"").take(depth).collect::<Vec<_>>().join(", ");
+    let up_posix = std::iter::repeat("..").take(depth).collect::<Vec<_>>().join("/");
+    match lang {
+        ScriptLang::R => {
+            s.push_str("# --- ECAA relocation prologue (added by `ecaa-workflow export`) ---\n");
+            s.push_str("# Roots resolve from the environment, else from THIS script's own\n");
+            s.push_str("# location. No absolute host path is baked in.\n");
+            s.push_str(".ECAA_SELF_DIR <- local({\n");
+            s.push_str("  .a <- commandArgs(trailingOnly = FALSE)\n");
+            s.push_str("  .m <- grep(\"^--file=\", .a, value = TRUE)\n");
+            s.push_str("  if (length(.m) > 0) dirname(normalizePath(sub(\"^--file=\", \"\", .m[[1]]), mustWork = FALSE)) else normalizePath(getwd(), mustWork = FALSE)\n");
+            s.push_str("})\n");
+            for r in roots {
+                let var = reloc_var(lang, &r.stem);
+                s.push_str(&format!(
+                    "{var} <- Sys.getenv(\"{}\", unset = \"\")\n",
+                    r.env_var
+                ));
+                let fallback = match &r.fallback_rel {
+                    None => format!("normalizePath(file.path(.ECAA_SELF_DIR, {up_r}), mustWork = FALSE)"),
+                    Some(rel) => format!(
+                        "file.path(normalizePath(file.path(.ECAA_SELF_DIR, {up_r}), mustWork = FALSE), \"{rel}\")"
+                    ),
+                };
+                s.push_str(&format!("if (!nzchar({var})) {var} <- {fallback}\n"));
+            }
+            s.push_str("# --- end ECAA relocation prologue ---\n");
+        }
+        ScriptLang::Python => {
+            s.push_str("# --- ECAA relocation prologue (added by `ecaa-workflow export`) ---\n");
+            s.push_str("# Roots resolve from the environment, else from THIS script's own\n");
+            s.push_str("# location. No absolute host path is baked in.\n");
+            s.push_str("import os as _ecaa_os\n");
+            s.push_str(&format!(
+                "_ECAA_SELF_DIR = _ecaa_os.path.dirname(_ecaa_os.path.abspath(__file__))\n_ECAA_DEPOSIT_ROOT = _ecaa_os.path.abspath(_ecaa_os.path.join(_ECAA_SELF_DIR, \"{up_posix}\"))\n"
+            ));
+            for r in roots {
+                let var = reloc_var(lang, &r.stem);
+                let fallback = match &r.fallback_rel {
+                    None => "_ECAA_DEPOSIT_ROOT".to_string(),
+                    Some(rel) => format!("_ecaa_os.path.join(_ECAA_DEPOSIT_ROOT, \"{rel}\")"),
+                };
+                s.push_str(&format!(
+                    "{var} = _ecaa_os.environ.get(\"{}\") or {fallback}\n",
+                    r.env_var
+                ));
+            }
+            s.push_str("# --- end ECAA relocation prologue ---\n");
+        }
+        ScriptLang::Shell => {
+            s.push_str("# --- ECAA relocation prologue (added by `ecaa-workflow export`) ---\n");
+            s.push_str("_ECAA_SELF_DIR=\"$(cd \"$(dirname \"${BASH_SOURCE[0]:-$0}\")\" && pwd)\"\n");
+            s.push_str(&format!(
+                "_ECAA_DEPOSIT_ROOT=\"$(cd \"$_ECAA_SELF_DIR/{up_posix}\" && pwd)\"\n"
+            ));
+            for r in roots {
+                let var = reloc_var(lang, &r.stem);
+                let fallback = match &r.fallback_rel {
+                    None => "$_ECAA_DEPOSIT_ROOT".to_string(),
+                    Some(rel) => format!("$_ECAA_DEPOSIT_ROOT/{rel}"),
+                };
+                s.push_str(&format!("{var}=\"${{{}:-{fallback}}}\"\n", r.env_var));
+            }
+            s.push_str("# --- end ECAA relocation prologue ---\n");
+        }
+        ScriptLang::Other => {}
+    }
+    s
+}
+
+/// Characters that continue a filesystem/identifier token. Used for the
+/// word-boundary check that stops `x.tsv` from matching inside `full_x.tsv`.
+fn is_path_token_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_' || c == '-' || c == '.'
+}
+
+/// Rewrite a sealed per-task script so it carries NO absolute host path.
+///
+/// Every occurrence of every root in `roots` is replaced, regardless of the
+/// surrounding variable name — the previous implementation matched only the
+/// two exact literals `PKG_ROOT <- "<abs>"` / `PKG_ROOT = "<abs>"`, so the
+/// majority of real agent-authored scripts (which name the variable `PKG`,
+/// `pkg_root`, or inline the path outright) were copied byte-identical with
+/// the operator's machine layout intact.
+///
+/// Two substitution shapes, chosen per occurrence:
+///
+/// 1. **String-literal splice** — when the root opens a single-line quoted
+///    literal (`"<root>/rest"`), the whole literal becomes a join against the
+///    prologue-bound variable (`file.path(.ECAA_PKG_ROOT, "rest")` /
+///    `_ecaa_os.path.join(_ECAA_PKG_ROOT, "rest")`). A Python string prefix
+///    (`f`/`r`/`b`/`u`) is preserved so interpolation still works.
+/// 2. **Token substitution** — everywhere else (comments, transcripts,
+///    triple-quoted blocks, non-code files under `scripts/`) the root becomes
+///    the documentation token `${PKG_ROOT}` / `${ECAA_INPUT_<n>}`, which is
+///    inert in a comment and expands correctly in a shell.
+///
+/// A final sweep guarantees the postcondition: the returned body contains
+/// zero occurrences of any input root. A script mentioning no root is
+/// returned byte-identical.
+fn relocate_script_paths(body: &str, rel: &Path, roots: &[RelocRoot]) -> String {
+    let active: Vec<&RelocRoot> = roots.iter().filter(|r| body.contains(&r.path)).collect();
+    if active.is_empty() {
+        return body.to_string();
+    }
+    let lang = script_language(rel);
+    let mut out = splice_root_occurrences(body, lang, &active);
+    // Postcondition sweep: anything the literal splice could not reach (an
+    // exotic quoting shape, a multi-line literal) still loses the host path.
+    for r in &active {
+        if out.contains(&r.path) {
+            out = out.replace(&r.path, &r.token());
+        }
+    }
+    if matches!(lang, ScriptLang::Other) {
+        return out;
+    }
+    // Only bind the roots the body actually referenced — a prologue naming an
+    // unused root is noise a reviewer has to discount.
+    let bound: Vec<RelocRoot> = active.iter().copied().cloned().collect();
+    insert_prologue(&out, lang, &relocation_prologue(lang, walk_up_components(rel), &bound))
+}
+
+/// Splice each root occurrence into a variable reference (see
+/// [`relocate_script_paths`]). Scans left-to-right so overlapping candidates
+/// resolve deterministically; `roots` MUST already be longest-first.
+fn splice_root_occurrences(body: &str, lang: ScriptLang, roots: &[&RelocRoot]) -> String {
+    let bytes = body.as_bytes();
+    let mut out = String::with_capacity(body.len() + 256);
+    // `i` only ever advances by a whole char, by an ASCII root length, or
+    // past an ASCII quote — so it is always a char boundary.
+    let mut i = 0usize;
+    'outer: while i < body.len() {
+        for r in roots {
+            if !body[i..].starts_with(&r.path) {
+                continue;
+            }
+            let var = reloc_var(lang, &r.stem);
+            // Is this occurrence the head of a single-line quoted literal?
+            // The quote must ALSO be the last char already emitted: a
+            // preceding splice may have consumed it, in which case there is
+            // nothing to truncate and the token form is correct.
+            let quote = (i > 0)
+                .then(|| bytes[i - 1] as char)
+                .filter(|c| (*c == '"' || *c == '\'') && out.ends_with(*c));
+            let triple = quote.is_some_and(|q| i >= 3 && bytes[i - 2] == q as u8 && bytes[i - 3] == q as u8);
+            // `Other` has no prologue to bind a variable, so it never splices
+            // — every occurrence becomes the documentation token.
+            let splices = !matches!(lang, ScriptLang::Other);
+            let end_of_literal = quote.filter(|_| !triple && splices).and_then(|q| {
+                let rest = &body[i + r.path.len()..];
+                let nl = rest.find('\n').unwrap_or(rest.len());
+                rest[..nl].find(q).map(|off| i + r.path.len() + off)
+            });
+            if let Some(close) = end_of_literal {
+                let q = quote.expect("end_of_literal implies a quote");
+                let inner = &body[i + r.path.len()..close];
+                let inner = inner.strip_prefix('/').unwrap_or(inner);
+                // Drop the opening quote (and any Python string prefix) that
+                // was already pushed, then emit the join expression.
+                let prefix = python_string_prefix(&out, lang);
+                out.truncate(out.len() - 1 - prefix.len());
+                out.push_str(&splice_expression(lang, &var, &prefix, q, inner));
+                i = close + 1;
+                continue 'outer;
+            }
+            // Not a spliceable literal → documentation token. In a shell the
+            // token is also the correct executable form.
+            out.push_str(&match lang {
+                ScriptLang::Shell => format!("${{{var}}}"),
+                _ => r.token(),
+            });
+            i += r.path.len();
+            continue 'outer;
+        }
+        let ch = body[i..].chars().next().expect("char boundary");
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
+/// The Python string-literal prefix (`f`, `rb`, …) immediately preceding the
+/// opening quote already pushed onto `out`, or `""`. Preserving it keeps
+/// f-string interpolation working across the splice.
+fn python_string_prefix(out: &str, lang: ScriptLang) -> String {
+    if !matches!(lang, ScriptLang::Python) || out.len() < 2 {
+        return String::new();
+    }
+    // `out` ends with the opening quote; look at up to two chars before it.
+    let before: Vec<char> = out[..out.len() - 1].chars().rev().take(2).collect();
+    let is_prefix = |c: char| matches!(c, 'f' | 'F' | 'r' | 'R' | 'b' | 'B' | 'u' | 'U');
+    let mut taken: Vec<char> = Vec::new();
+    for c in before {
+        if is_prefix(c) && taken.len() < 2 {
+            taken.push(c);
+        } else {
+            // Only a genuine literal prefix — not the tail of an identifier.
+            if is_path_token_char(c) {
+                return String::new();
+            }
+            break;
+        }
+    }
+    taken.reverse();
+    taken.into_iter().collect()
+}
+
+/// The language expression that joins prologue variable `var` to the
+/// remainder `inner` of a spliced literal.
+fn splice_expression(lang: ScriptLang, var: &str, prefix: &str, q: char, inner: &str) -> String {
+    if inner.is_empty() {
+        return match lang {
+            ScriptLang::Shell => format!("{q}${{{var}}}{q}"),
+            _ => var.to_string(),
+        };
+    }
+    match lang {
+        ScriptLang::R => format!("file.path({var}, {q}{inner}{q})"),
+        ScriptLang::Python => {
+            format!("_ecaa_os.path.join({var}, {prefix}{q}{inner}{q})")
+        }
+        ScriptLang::Shell => format!("{q}${{{var}}}/{inner}{q}"),
+        ScriptLang::Other => format!("${{{var}}}/{inner}"),
+    }
+}
+
+/// Insert `prologue` after the shebang (and, for Python, after any
+/// `from __future__` imports, which MUST stay first).
+fn insert_prologue(body: &str, lang: ScriptLang, prologue: &str) -> String {
+    if prologue.is_empty() {
+        return body.to_string();
+    }
+    let mut insert_at = 0usize;
+    let mut offset = 0usize;
+    for (idx, line) in body.split_inclusive('\n').enumerate() {
+        let trimmed = line.trim_start();
+        let keep = (idx == 0 && trimmed.starts_with("#!"))
+            || (matches!(lang, ScriptLang::Python) && trimmed.starts_with("from __future__ "));
+        if !keep {
+            break;
+        }
+        offset += line.len();
+        insert_at = offset;
+    }
+    let mut out = String::with_capacity(body.len() + prologue.len());
+    out.push_str(&body[..insert_at]);
+    out.push_str(prologue);
+    out.push_str(&body[insert_at..]);
+    out
 }
 
 /// [`export_depositable_package`] with an explicit [`DepositProfile`]. `Full`
@@ -637,6 +1092,18 @@ pub fn export_depositable_package_with_profile(
     // directory (`determinism-env.json` need not already be copied).
     let mut pkg_roots: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
 
+    // SME-registered EXTERNAL input roots (`runtime/inputs.json`). Read once —
+    // they are package-scoped, not per-task, and every script + accountability
+    // file that names one must lose the host path too.
+    let input_roots = read_registered_input_roots(src);
+    let src_root = canonical_root_string(src);
+
+    // Every file the tier / profile gate drops, so `reconcile_dropped_file_
+    // references` can tell "this reference lost its payload" from "this
+    // reference is fine". Bounded to referenceable data artifacts (see
+    // `is_referenceable_artifact`) — the cache/log bulk is never cited.
+    let mut removed: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+
     // Walk source; copy only kept (A+B) files, preserving layout. `.git/` is
     // pruned at the directory level so the walk never descends into VCS
     // internals.
@@ -666,6 +1133,10 @@ pub fn export_depositable_package_with_profile(
         let keep = is_kept(classify(rel)) && !profile_extra_drop(profile, rel, &protected);
         if !keep {
             dropped += 1;
+            let rel_str = rel.to_string_lossy().replace('\\', "/");
+            if is_referenceable_artifact(&rel_str) {
+                removed.insert(rel_str);
+            }
             continue;
         }
         let dest_path = dst.join(rel);
@@ -683,19 +1154,24 @@ pub fn export_depositable_package_with_profile(
                 format!("recreating symlink {} -> {}", dest_path.display(), target.display())
             })?;
         } else if let Some(task_id) = task_scripts_dir_task_id(rel) {
-            // A sealed per-task script: rewrite its recorded absolute
-            // `PKG_ROOT` assignment into a self-locating form (see
-            // `relocate_script_pkg_root`) rather than copying it verbatim, so
-            // the deposit is relocation-safe. Non-UTF8 content (never
-            // expected for a generated R/Python/shell script, but a
-            // stray binary would be silently corrupted by a lossy rewrite)
-            // falls back to a verbatim copy.
+            // A sealed per-task script: rewrite EVERY absolute host root it
+            // names into a self-locating form (see `relocate_script_paths`)
+            // rather than copying it verbatim, so the deposit is
+            // relocation-safe regardless of what the agent called its
+            // package-root variable. Non-UTF8 content (never expected for a
+            // generated R/Python/shell script, but a stray binary would be
+            // silently corrupted by a lossy rewrite) falls back to a verbatim
+            // copy.
             match std::fs::read_to_string(abs) {
                 Ok(text) => {
-                    let pkg_root = pkg_roots.entry(task_id.to_string()).or_insert_with(|| {
-                        read_recorded_pkg_root(&src.join("runtime/outputs").join(task_id))
-                    });
-                    let rewritten = relocate_script_pkg_root(&text, pkg_root.as_str());
+                    let pkg_root = pkg_roots
+                        .entry(task_id.to_string())
+                        .or_insert_with(|| {
+                            read_recorded_pkg_root(&src.join("runtime/outputs").join(task_id))
+                        })
+                        .clone();
+                    let roots = build_reloc_roots(&[pkg_root, src_root.clone()], &input_roots);
+                    let rewritten = relocate_script_paths(&text, rel, &roots);
                     std::fs::write(&dest_path, rewritten).with_context(|| {
                         format!("writing relocation-safe script {}", dest_path.display())
                     })?;
@@ -720,10 +1196,21 @@ pub fn export_depositable_package_with_profile(
     // reseal + RO-Crate prune below, so the manifest and `@graph` reflect the
     // deduplicated set; the prune then drops each deleted table's `@graph` File
     // entity and its `#action/<path>` CreateAction. Counted out of `kept`.
-    let deduped = dedup_duplicate_output_tables(dst)
+    let renames = dedup_duplicate_output_tables(dst)
         .context("de-duplicating output tables over export")?;
+    let deduped = renames.len();
     kept = kept.saturating_sub(deduped);
     dropped += deduped;
+
+    // Publish the dropped→kept twin map so a consumer (and every downstream
+    // reconciliation below) can resolve a citation of a de-duplicated name
+    // without guessing. Written unconditionally — an empty map is the honest
+    // statement "this export renamed nothing".
+    let rename_map_existed = dst.join(EXPORT_RENAME_MAP_REL).is_file();
+    write_export_rename_map(dst, &renames).context("writing runtime/export-rename-map.json")?;
+    if !rename_map_existed {
+        kept += 1;
+    }
 
     // GAP-5 completion: for re-execution-bearing profiles, ensure a canonical
     // package-level `runtime/env.explicit.lock` exists so the replay's
@@ -764,6 +1251,18 @@ pub fn export_depositable_package_with_profile(
         kept = kept.saturating_sub(pruned);
         dropped += pruned;
     }
+
+    // Every surface the export invalidated is now reconciled, not just the
+    // two it historically fixed up (`@graph` + `reads.jsonl`). Per-task
+    // `result.json` / `manifest.json` / `validation_report.json` and the
+    // package `determinism-shim.json` are copied verbatim and would otherwise
+    // keep asserting a removed file present — a validator row reading
+    // `file_present:de_results.tsv PASS "exists, 2697337 bytes"` about a file
+    // that is not in the archive is a false truth-claim in the deposit's own
+    // accountability record. Runs after ALL drops (tier, profile,
+    // content-empty, dedup) and before the reseal folds the rewrites in.
+    reconcile_dropped_file_references(dst, &renames, &removed)
+        .context("reconciling references to files the export dropped")?;
 
     // Re-finalize the RO-Crate over the export, then prune dangling `@id`s that
     // reference dropped files (dedup-deleted duplicates AND tier/profile-dropped
@@ -841,6 +1340,18 @@ pub fn export_depositable_package_with_profile(
     super::readability::augment_readme(dst)
         .context("augmenting README.md over the deposit")?;
 
+    // Host-path tokenization over the accountability documents. The scripts
+    // were relocated at copy time, but `CONTEXT.md` / `PROMPT.md` /
+    // `README.md` / `AUDIT-REPORT.md` / `ro-crate-metadata.json` were copied
+    // (or regenerated) verbatim and still spelled out the compiling
+    // operator's machine layout. Runs AFTER the readability regeneration
+    // above (else the regenerated bytes would re-introduce the paths) and
+    // BEFORE `register_deposit_entities`, so the legend sidecar it writes is
+    // itself declared in the `@graph` (no dark payload).
+    let doc_roots = build_reloc_roots(&all_recorded_pkg_roots(src), &input_roots);
+    tokenize_accountability_files(dst, &doc_roots)
+        .context("tokenizing host paths in the deposit's accountability documents")?;
+
     // Zero dark payload: register every kept file not yet in the RO-Crate
     // `@graph` as a `File` entity in the root `hasPart`, so the deposit declares
     // all of its payload (matching the discipline of the most detailed real-world
@@ -850,17 +1361,41 @@ pub fn export_depositable_package_with_profile(
     let registered = super::readability::register_deposit_entities(dst)
         .context("registering deposit payload into the RO-Crate @graph")?;
 
+    // DR-11 restoration: `prune_rocrate_dangling` above unavoidably drops the
+    // emit-time `DEPOSIT-READINESS.json` CreativeWork (and the root
+    // `mentions` edge to it), because the attestation is written at the very
+    // END of this function and so is genuinely absent from disk at prune
+    // time. Left alone, every real deposit shipped an attestation with ZERO
+    // references in its own provenance graph while `emitter::bagit` documented
+    // the file as "instead represented as an RO-Crate `@graph` entity".
+    // Re-declare it here, after the last graph rewrite and before the final
+    // reseal. It stays OFF the payload manifest (mutable meta) and carries no
+    // content hash, so the post-seal hash recheck is unaffected.
+    let dr11 = ensure_deposit_readiness_entity(dst)
+        .context("re-declaring DEPOSIT-READINESS.json in the deposit RO-Crate @graph")?;
+
     // Adding `File` nodes for on-disk files does not change the audit-proof
     // invariants (they concern Claim / decision / proof / equivalence nodes, not
     // file completeness), but re-record over the now-final graph so the recorded
     // verdicts match a downloader's fresh `replay` exactly, then regenerate the
     // audit report so its `evaluated_at` matches the final report.
-    if registered > 0 {
+    if registered > 0 || dr11 {
         super::ecaa::write_audit_proof_report(dst)
             .context("re-recording audit-proof after @graph registration")?;
         super::audit_report::write_audit_report(dst)
             .context("regenerating AUDIT-REPORT.md after @graph registration")?;
     }
+
+    // Second tokenization pass. The `write_audit_report` regeneration above
+    // rewrites `AUDIT-REPORT.md` from the audit sidecars, which can re-emit a
+    // host path the first pass had already removed. Running the (idempotent)
+    // pass again here guarantees the postcondition; the first pass still runs
+    // BEFORE `register_deposit_entities` so the `contentSize` it records is
+    // computed over tokenized bytes in the common case. Runs before the final
+    // reseal, whose `register_content_integrity` refreshes every recorded
+    // content hash over the rewritten payload.
+    tokenize_accountability_files(dst, &doc_roots)
+        .context("re-tokenizing host paths after the audit-report regeneration")?;
 
     crate::emitter::regenerate_bagit_manifest(dst, &clock)
         .context("re-sealing BagIt manifest after readability transforms")?;
@@ -934,18 +1469,6 @@ fn write_execution_lineage(src: &Path, dst: &Path) {
     let _ = std::fs::write(runtime_dir.join("execution-lineage.txt"), output);
 }
 
-/// Drop byte-data-duplicate output tables. A per-task agent sometimes writes the
-/// same result table under two names (e.g. `de_results.tsv` + `de_table.tsv`)
-/// whose DATA rows are byte-identical and differ only in the header line. For
-/// each `runtime/outputs/<task>/` directory, `.tsv`/`.csv` files with an
-/// identical data-row digest form a duplicate set; the copy referenced by the
-/// most `@graph` mentions is kept (the lexicographically-smallest relative path
-/// breaks ties), and the rest are deleted from disk. The caller's subsequent
-/// [`prune_rocrate_dangling`] then drops each deleted file's now-dangling
-/// `@graph` File entity, its `#action/<path>` CreateAction, and references to
-/// it. Tables that differ in their data (e.g. by rounding) are NOT duplicates
-/// and are left untouched. Returns the number of files deleted. Best-effort:
-/// an unreadable directory or descriptor yields no deletions for that scope.
 /// Remove per-task `runtime/outputs/<task>/` sidecars that carry NO information,
 /// content-aware so populated files survive:
 ///   * `agent-code.json` whose `executed_code` AND `response_text` are both
@@ -1006,7 +1529,96 @@ fn prune_content_empty_outputs(dst: &Path) -> Result<usize> {
     Ok(removed)
 }
 
-fn dedup_duplicate_output_tables(dst: &Path) -> Result<usize> {
+/// Package-relative path of the dropped→kept twin map this export publishes.
+const EXPORT_RENAME_MAP_REL: &str = "runtime/export-rename-map.json";
+
+/// Package-relative path of the host-path token legend this export publishes.
+const EXPORT_RELOCATION_LEGEND_REL: &str = "runtime/export-relocation.json";
+
+/// Per-task artifact basenames the PRODUCING ATOM declared it would write,
+/// read from the deposit's own `WORKFLOW.json`
+/// (`tasks.<id>.spec.expected_artifacts[]` — the atom's
+/// `expected_artifacts:` YAML block, threaded through the builder — plus
+/// `tasks.<id>.required_artifacts[].path`, the harness's silent-completion
+/// checklist).
+///
+/// This is the canonical-name oracle the dedup uses: when two byte-identical
+/// twins exist, the one the atom NAMED is the one every other surface in the
+/// package (validators, claim citations, downstream stage inputs, the SME's
+/// expectations) refers to. Best-effort — a missing or unparseable
+/// `WORKFLOW.json` yields an empty map and the dedup falls back to the
+/// reference count + shortest-basename heuristic.
+fn declared_task_artifact_basenames(
+    dst: &Path,
+) -> std::collections::BTreeMap<String, std::collections::BTreeSet<String>> {
+    use serde_json::Value;
+    let mut out: std::collections::BTreeMap<String, std::collections::BTreeSet<String>> =
+        std::collections::BTreeMap::new();
+    let Ok(bytes) = std::fs::read(dst.join("WORKFLOW.json")) else {
+        return out;
+    };
+    let Ok(doc) = serde_json::from_slice::<Value>(&bytes) else {
+        return out;
+    };
+    let Some(tasks) = doc.get("tasks").and_then(Value::as_object) else {
+        return out;
+    };
+    let basename_of = |s: &str| -> Option<String> {
+        s.rsplit('/').next().filter(|b| !b.is_empty()).map(str::to_string)
+    };
+    for (task_id, task) in tasks {
+        let entry = out.entry(task_id.clone()).or_default();
+        if let Some(arr) = task
+            .get("spec")
+            .and_then(|s| s.get("expected_artifacts"))
+            .and_then(Value::as_array)
+        {
+            for v in arr.iter().filter_map(Value::as_str) {
+                entry.extend(basename_of(v));
+            }
+        }
+        if let Some(arr) = task.get("required_artifacts").and_then(Value::as_array) {
+            for v in arr.iter().filter_map(|r| r.get("path").and_then(Value::as_str)) {
+                entry.extend(basename_of(v));
+            }
+        }
+    }
+    out
+}
+
+/// Drop byte-data-duplicate output tables and report the dropped→kept map.
+///
+/// A per-task agent sometimes writes the same result table under two names
+/// (`de_results.tsv` + `de_results.full.tsv`) whose DATA rows are
+/// byte-identical and differ only in the header line. For each
+/// `runtime/outputs/<task>/` directory, `.tsv`/`.csv` files with an identical
+/// data-row digest form a duplicate set; one twin is kept and the rest are
+/// deleted from disk.
+///
+/// **Which twin survives**, in priority order:
+///
+/// 1. the basename the producing atom DECLARED
+///    ([`declared_task_artifact_basenames`]). This is the fix for a real
+///    deposit that shipped `de_results.full.tsv` and deleted `de_results.tsv`:
+///    the `.full.` spelling out-scored the declared name 8021 `@graph`
+///    mentions to 15 purely because the claim-evidence registration cites the
+///    table once per verified claim, so the popularity heuristic inverted the
+///    package's own naming contract and broke every validator row, manifest
+///    `table_path`, and downstream handoff that named the declared artifact;
+/// 2. the `@graph` reference count (the historical heuristic — still the right
+///    signal when the atom declared nothing);
+/// 3. the SHORTEST basename, as a canonical-name proxy (`de_results.tsv` over
+///    `de_results.full.tsv`);
+/// 4. the lexicographically-smallest relative path, for determinism.
+///
+/// A twin any claim graph anchors to is NEVER deleted (see `claim_meta`).
+/// The caller's subsequent [`prune_rocrate_dangling`] drops each deleted
+/// file's now-dangling `@graph` File entity, its `#action/<path>`
+/// CreateAction, and references to it; [`reconcile_dropped_file_references`]
+/// rewrites the non-`@graph` surfaces. Tables that differ in their data (e.g.
+/// by rounding) are NOT duplicates and are left untouched. Best-effort: an
+/// unreadable directory or descriptor yields no deletions for that scope.
+fn dedup_duplicate_output_tables(dst: &Path) -> Result<std::collections::BTreeMap<String, String>> {
     // BTreeMap (not HashMap) per the emit-path determinism invariant
     // (`check-no-hashmap-in-emitter`): a stable digest→files grouping order.
     use std::collections::BTreeMap;
@@ -1044,19 +1656,32 @@ fn dedup_duplicate_output_tables(dst: &Path) -> Result<usize> {
         s
     };
 
+    // The atom-declared canonical basenames per task — the naming contract the
+    // rest of the package is written against (see
+    // `declared_task_artifact_basenames`).
+    let declared = declared_task_artifact_basenames(dst);
+
     let outputs = dst.join("runtime").join("outputs");
+    let mut renames: std::collections::BTreeMap<String, String> =
+        std::collections::BTreeMap::new();
     if !outputs.is_dir() {
-        return Ok(0);
+        return Ok(renames);
     }
     let Ok(task_dirs) = std::fs::read_dir(&outputs) else {
-        return Ok(0);
+        return Ok(renames);
     };
-    let mut deleted = 0usize;
-    for task in task_dirs.flatten() {
-        let task = task.path();
+    // Sorted so the walk (and therefore any partial-failure state) is stable.
+    let mut task_dirs: Vec<PathBuf> = task_dirs.flatten().map(|e| e.path()).collect();
+    task_dirs.sort();
+    for task in task_dirs {
         if !task.is_dir() {
             continue;
         }
+        let task_id = task
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let declared_here = declared.get(&task_id);
         // Group same-directory result tables by the digest of their DATA rows
         // (everything after the first/header line): identical digest ⇒ identical
         // data ⇒ a true duplicate regardless of the header column name.
@@ -1088,19 +1713,33 @@ fn dedup_duplicate_output_tables(dst: &Path) -> Result<usize> {
                 .to_string_lossy()
                 .replace('\\', "/")
         };
+        let basename_of = |p: &Path| -> String {
+            p.file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        };
         for (_digest, files) in groups {
             if files.len() < 2 {
                 continue;
             }
-            // Keep the most-referenced copy; lexicographically-smallest relative
-            // path breaks ties (deterministic). Delete the rest.
+            // Preference order (see the fn doc): atom-declared basename first,
+            // then the pre-existing `@graph` reference count, then the
+            // lexicographically-smallest path. Deliberately NO
+            // shortest-basename term: basename length is not evidence of
+            // canonicality (`de_table.tsv` is shorter than the declared
+            // `de_results.tsv`), and ranking on it silently re-picks the
+            // survivor for undeclared twins that the reference count and
+            // lexicographic order already settle deterministically.
             let Some(keep) = files.iter().max_by_key(|p| {
                 let rel = rel_of(p);
-                (ref_count(&rel), std::cmp::Reverse(rel))
+                let bn = basename_of(p);
+                let is_declared = declared_here.is_some_and(|d| d.contains(&bn));
+                (is_declared, ref_count(&rel), std::cmp::Reverse(rel))
             }) else {
                 continue;
             };
             let keep = keep.clone();
+            let keep_rel = rel_of(&keep);
             for p in &files {
                 if p == &keep {
                     continue;
@@ -1108,20 +1747,591 @@ fn dedup_duplicate_output_tables(dst: &Path) -> Result<usize> {
                 // Keep a claim-anchored twin (see `claim_meta` above): deleting
                 // it would dangle a claim→evidence edge the RO-Crate prune can't
                 // reach.
-                let bn = p
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_default();
+                let bn = basename_of(p);
                 if !bn.is_empty() && claim_meta.contains(&bn) {
                     continue;
                 }
                 if std::fs::remove_file(p).is_ok() {
-                    deleted += 1;
+                    renames.insert(rel_of(p), keep_rel.clone());
                 }
             }
         }
     }
-    Ok(deleted)
+    Ok(renames)
+}
+
+/// Write the dropped→kept twin map produced by
+/// [`dedup_duplicate_output_tables`] to [`EXPORT_RENAME_MAP_REL`].
+///
+/// A deposit that silently deletes one of two identically-named-data tables
+/// leaves every external citation of the dropped name unresolvable. The map
+/// makes the substitution a declared, machine-readable fact instead of an
+/// undocumented rewrite. `BTreeMap` keys keep the bytes deterministic.
+fn write_export_rename_map(
+    dst: &Path,
+    renames: &std::collections::BTreeMap<String, String>,
+) -> Result<()> {
+    let path = dst.join(EXPORT_RENAME_MAP_REL);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating {}", parent.display()))?;
+    }
+    let doc = serde_json::json!({
+        "schema_version": "1",
+        "note": "Byte-data-duplicate output tables the export de-duplicated. Each key is a package-relative path that is NOT in this deposit; its value is the surviving twin carrying identical data rows.",
+        "renamed": renames,
+    });
+    let body = serde_json::to_vec_pretty(&doc).context("serializing export-rename-map.json")?;
+    std::fs::write(&path, body).with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
+}
+
+/// Whether the occurrence of `tok` at byte `idx` in `text` is a WHOLE path
+/// token rather than a fragment of a longer name — the check that stops
+/// `x.tsv` from matching inside `full_x.tsv` (and `de_results.tsv` from
+/// matching inside `de_results.tsv.gz`).
+fn is_path_token_boundary(text: &str, idx: usize, tok: &str) -> bool {
+    // Symmetric on both sides, and `.` counts as a continuation: a trailing
+    // dot means a longer name (`…tsv.gz`, `…tsv.bak`). The cost is that a
+    // filename ending a prose sentence is left alone — the safe direction,
+    // since a false rewrite silently renames a DIFFERENT file.
+    let before_ok = text[..idx].chars().next_back().is_none_or(|c| !is_path_token_char(c));
+    let after_ok = text[idx + tok.len()..]
+        .chars()
+        .next()
+        .is_none_or(|c| !is_path_token_char(c));
+    before_ok && after_ok
+}
+
+/// Whether `text` cites `tok` as a whole path token.
+fn contains_path_token(text: &str, tok: &str) -> bool {
+    if tok.is_empty() {
+        return false;
+    }
+    text.match_indices(tok)
+        .any(|(idx, _)| is_path_token_boundary(text, idx, tok))
+}
+
+/// Replace `from` with `to` in `text`, but only at PATH-TOKEN boundaries (see
+/// [`is_path_token_boundary`]). Returns the rewritten text and whether
+/// anything changed.
+fn replace_path_token(text: &str, from: &str, to: &str) -> (String, bool) {
+    if from.is_empty() || !text.contains(from) {
+        return (text.to_string(), false);
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut cursor = 0usize;
+    let mut changed = false;
+    while let Some(off) = text[cursor..].find(from) {
+        let idx = cursor + off;
+        out.push_str(&text[cursor..idx]);
+        if is_path_token_boundary(text, idx, from) {
+            out.push_str(to);
+            changed = true;
+        } else {
+            out.push_str(from);
+        }
+        cursor = idx + from.len();
+    }
+    out.push_str(&text[cursor..]);
+    (out, changed)
+}
+
+/// Sidecars the export copies verbatim that assert things about files it may
+/// have just removed. `reads.jsonl` is handled separately by
+/// [`mark_dangling_reads_manifest_rows`].
+const PER_TASK_RECONCILED_SIDECARS: &[&str] =
+    &["result.json", "manifest.json", "validation_report.json"];
+
+/// Reconcile every recorded surface the export invalidated, beyond the
+/// RO-Crate `@graph` ([`prune_rocrate_dangling`]) and the observed-reads
+/// manifests ([`mark_dangling_reads_manifest_rows`]).
+///
+/// The per-task `result.json` / `manifest.json` / `validation_report.json`
+/// and the package-level `runtime/determinism-shim.json` are copied byte-for-
+/// byte and keep asserting the pre-export file set — a real deposit shipped a
+/// validation report reading `file_present:de_results.tsv PASS "exists,
+/// 2697337 bytes"` for a table the export had deleted. Two repairs:
+///
+/// * **Renamed twin** (`renames`, from the dedup): every citation of the
+///   dropped path — and of its bare basename, since these sidecars record
+///   `"table_path": "de_results.tsv"` — is rewritten to the surviving twin.
+///   The data is byte-identical, so the assertion stays TRUE, it just names
+///   the file that is actually in the archive.
+/// * **Genuinely removed** (`removed`, the tier/profile drops with no twin —
+///   `view_data/*`, `intermediates/*`): the citation is preserved (erasing it
+///   would erase the provenance fact) but annotated `"available": false` /
+///   `"dropped_at_export": true`, the same honesty marker
+///   [`mark_dangling_reads_manifest_rows`] uses, so a bare truth-claim becomes
+///   a qualified one. Objects that directly name a removed file get the flags
+///   inline; a citation that is a bare string inside an array is recorded in
+///   the file's top-level `export_reconciliation.unavailable` block, because
+///   changing a string element into an object would break every reader of
+///   `result.json :: artifacts[]`.
+///
+/// Returns the number of files rewritten. Best-effort per file: unreadable or
+/// non-JSON content is left untouched.
+fn reconcile_dropped_file_references(
+    dst: &Path,
+    renames: &std::collections::BTreeMap<String, String>,
+    removed: &std::collections::BTreeSet<String>,
+) -> Result<usize> {
+    if renames.is_empty() && removed.is_empty() {
+        return Ok(0);
+    }
+    let mut targets: Vec<PathBuf> = Vec::new();
+    let outputs = dst.join("runtime").join("outputs");
+    if let Ok(entries) = std::fs::read_dir(&outputs) {
+        let mut dirs: Vec<PathBuf> = entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
+        dirs.sort();
+        for d in dirs {
+            for name in PER_TASK_RECONCILED_SIDECARS {
+                let p = d.join(name);
+                if p.is_file() {
+                    targets.push(p);
+                }
+            }
+        }
+    }
+    let shim = dst.join("runtime/determinism-shim.json");
+    if shim.is_file() {
+        targets.push(shim);
+    }
+
+    let mut rewritten = 0usize;
+    for target in targets {
+        if reconcile_one_reference_file(dst, &target, renames, removed)? {
+            rewritten += 1;
+        }
+    }
+    Ok(rewritten)
+}
+
+/// Apply [`reconcile_dropped_file_references`]'s two repairs to one JSON file.
+/// Returns whether the file was rewritten.
+fn reconcile_one_reference_file(
+    dst: &Path,
+    target: &Path,
+    renames: &std::collections::BTreeMap<String, String>,
+    removed: &std::collections::BTreeSet<String>,
+) -> Result<bool> {
+    use serde_json::Value;
+    let Ok(raw) = std::fs::read_to_string(target) else {
+        return Ok(false);
+    };
+    if serde_json::from_str::<Value>(&raw).is_err() {
+        return Ok(false);
+    }
+
+    // --- Repair 1: rewrite dropped-twin citations (textual, so it reaches
+    // the inside of composed strings like `file_present:<name>`). Full paths
+    // first, then bare basenames; both at path-token boundaries.
+    let mut text = raw.clone();
+    let mut applied: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+    let basename_of =
+        |s: &str| -> String { s.rsplit('/').next().unwrap_or(s).to_string() };
+    for (dropped, keep) in renames {
+        for (from, to) in [
+            (dropped.clone(), keep.clone()),
+            (basename_of(dropped), basename_of(keep)),
+        ] {
+            if from == to {
+                continue;
+            }
+            let (next, changed) = replace_path_token(&text, &from, &to);
+            text = next;
+            if changed {
+                applied.insert(from, to);
+            }
+        }
+    }
+
+    let mut doc: Value = match serde_json::from_str(&text) {
+        Ok(v) => v,
+        // A boundary-safe substitution cannot break JSON, but never ship a
+        // corrupted sidecar on a surprise: fall back to the original bytes.
+        Err(_) => serde_json::from_str(&raw).context("re-parsing reconciled sidecar")?,
+    };
+
+    // --- Repair 2: mark citations of genuinely removed files.
+    // Scope the (potentially large) removed set to this file's own task dir
+    // plus package-level paths, and pre-compute the shapes a sidecar cites:
+    // the package-relative path, the task-relative path, and the basename.
+    let task_dir_rel = target
+        .parent()
+        .and_then(|p| p.strip_prefix(dst).ok())
+        .map(|p| p.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_default();
+    let task_prefix = format!("{task_dir_rel}/");
+    let mut citations: Vec<(String, Vec<String>)> = Vec::new();
+    for rel in removed {
+        let mut forms = vec![rel.clone()];
+        if let Some(sub) = rel.strip_prefix(task_prefix.as_str()) {
+            forms.push(sub.to_string());
+            forms.push(basename_of(sub));
+        } else if !rel.starts_with("runtime/outputs/") {
+            forms.push(basename_of(rel));
+        } else {
+            // Another task's output: only the full path is an unambiguous
+            // citation of it from here.
+        }
+        forms.sort();
+        forms.dedup();
+        citations.push((rel.clone(), forms));
+    }
+    let mut unavailable: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    mark_unavailable_references(&mut doc, &citations, 0, &mut unavailable);
+
+    if applied.is_empty() && unavailable.is_empty() {
+        return Ok(false);
+    }
+    if let Some(obj) = doc.as_object_mut() {
+        let mut block = serde_json::Map::new();
+        block.insert(
+            "note".to_string(),
+            Value::String(
+                "Written by `ecaa-workflow export`. `renamed` citations were rewritten to the surviving byte-identical twin; `unavailable` files are not in this deposit."
+                    .to_string(),
+            ),
+        );
+        if !applied.is_empty() {
+            block.insert(
+                "renamed".to_string(),
+                serde_json::to_value(&applied).unwrap_or(Value::Null),
+            );
+        }
+        if !unavailable.is_empty() {
+            block.insert(
+                "unavailable".to_string(),
+                Value::Array(
+                    unavailable
+                        .iter()
+                        .map(|p| {
+                            serde_json::json!({
+                                "path": p,
+                                "available": false,
+                                "dropped_at_export": true,
+                            })
+                        })
+                        .collect(),
+                ),
+            );
+        }
+        obj.insert("export_reconciliation".to_string(), Value::Object(block));
+    }
+
+    let body = serde_json::to_vec_pretty(&doc)
+        .with_context(|| format!("serializing reconciled {}", target.display()))?;
+    std::fs::write(target, body)
+        .with_context(|| format!("writing reconciled {}", target.display()))?;
+    Ok(true)
+}
+
+/// Walk `doc`; any NESTED object with a string field citing one of the
+/// `citations` (package-relative path, task-relative path, or basename) gains
+/// the `available: false` / `dropped_at_export: true` honesty markers — the
+/// same pair [`mark_dangling_reads_manifest_rows`] writes. Every hit is also
+/// collected into `found` so a citation that is a bare array element (no
+/// object to annotate) still reaches the file-level block.
+///
+/// `depth == 0` (the document root) is never marked: a narrative field
+/// mentioning a dropped file must not make the whole record read as
+/// unavailable.
+fn mark_unavailable_references(
+    doc: &mut serde_json::Value,
+    citations: &[(String, Vec<String>)],
+    depth: usize,
+    found: &mut std::collections::BTreeSet<String>,
+) {
+    use serde_json::Value;
+    let cited = |s: &str| -> Vec<String> {
+        citations
+            .iter()
+            .filter(|(_, forms)| forms.iter().any(|f| contains_path_token(s, f)))
+            .map(|(rel, _)| rel.clone())
+            .collect()
+    };
+    match doc {
+        Value::String(s) => {
+            found.extend(cited(s));
+        }
+        Value::Array(items) => {
+            for it in items.iter_mut() {
+                mark_unavailable_references(it, citations, depth + 1, found);
+            }
+        }
+        Value::Object(obj) => {
+            let mut hit = false;
+            let keys: Vec<String> = obj.keys().cloned().collect();
+            for k in &keys {
+                match obj.get_mut(k) {
+                    Some(Value::String(s)) => {
+                        let hits = cited(s);
+                        if !hits.is_empty() {
+                            hit = true;
+                            found.extend(hits);
+                        }
+                    }
+                    Some(child) => mark_unavailable_references(child, citations, depth + 1, found),
+                    None => {}
+                }
+            }
+            if hit && depth > 0 {
+                obj.insert("available".to_string(), Value::Bool(false));
+                obj.insert("dropped_at_export".to_string(), Value::Bool(true));
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Deposit-root accountability files that are prose/metadata rather than
+/// executable code, and so are tokenized rather than rewritten into
+/// expressions. Every `*.md` at the deposit root is included implicitly.
+const TOKENIZED_ROOT_FILES: &[&str] = &["ro-crate-metadata.json", "ro-crate-preview.html"];
+
+/// Marker opening the legend appended to a tokenized Markdown file. Presence
+/// makes the append idempotent across a re-export.
+const RELOCATION_LEGEND_MARKER: &str = "<!-- ecaa:relocation-legend -->";
+
+/// Strip the host paths out of the deposit's accountability DOCUMENTS.
+///
+/// [`relocate_script_paths`] covers the executable surface, but the files a
+/// reviewer actually opens first — `README.md`, `CONTEXT.md`, `PROMPT.md`,
+/// `AUDIT-REPORT.md`, `ro-crate-metadata.json` — were copied (or regenerated)
+/// verbatim and still spelled out the compiling operator's home directory and
+/// the SME's external data root. Neither is meaningful to a downloader and
+/// both are exactly what a portability scan flags.
+///
+/// Each root becomes its token (`${PKG_ROOT}`, `${ECAA_INPUT_0}`), which reads
+/// naturally in prose and is inert in JSON. A Markdown file that changed gains
+/// a short legend so the tokens are self-explanatory without the host path;
+/// the same legend is published machine-readably at
+/// [`EXPORT_RELOCATION_LEGEND_REL`] for the JSON/HTML files, which cannot
+/// carry prose. Returns the number of files rewritten.
+///
+/// Deliberately NOT in scope: per-task `agent-code.json` and the
+/// conversation/decision JSONL logs. Those are verbatim transcripts of what an
+/// agent or an SME actually said — rewriting them would falsify a record
+/// rather than relocate a path. Their residual host paths remain a documented,
+/// warn-only portability finding (`deposit_readiness::scan_portability`).
+fn tokenize_accountability_files(dst: &Path, roots: &[RelocRoot]) -> Result<usize> {
+    if roots.is_empty() {
+        return Ok(0);
+    }
+    let mut targets: Vec<PathBuf> = TOKENIZED_ROOT_FILES
+        .iter()
+        .map(|n| dst.join(n))
+        .filter(|p| p.is_file())
+        .collect();
+    if let Ok(entries) = std::fs::read_dir(dst) {
+        let mut md: Vec<PathBuf> = entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| {
+                p.is_file()
+                    && p.extension()
+                        .and_then(|e| e.to_str())
+                        .is_some_and(|e| e.eq_ignore_ascii_case("md"))
+            })
+            .collect();
+        md.sort();
+        targets.extend(md);
+    }
+    targets.sort();
+    targets.dedup();
+
+    // Written UNCONDITIONALLY whenever a substitution table exists — the
+    // scripts are relocated on every export, so the tokens are always live,
+    // and an unconditional write keeps the sidecar registered in the `@graph`
+    // by `register_deposit_entities` (which runs after the first pass). A
+    // conditional write could materialize the file only on the SECOND pass,
+    // after registration, leaving it as dark payload.
+    let all: Vec<&RelocRoot> = roots.iter().collect();
+    write_relocation_legend(dst, &all)?;
+
+    let mut rewritten = 0usize;
+    for target in targets {
+        let Ok(body) = std::fs::read_to_string(&target) else {
+            continue;
+        };
+        let mut out = body;
+        let mut hit: Vec<&RelocRoot> = Vec::new();
+        // `roots` is longest-first, so a nested root wins over its parent.
+        for r in roots {
+            if out.contains(&r.path) {
+                out = out.replace(&r.path, &r.token());
+                hit.push(r);
+            }
+        }
+        if hit.is_empty() {
+            continue;
+        }
+        let is_md = target
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("md"));
+        if is_md && !out.contains(RELOCATION_LEGEND_MARKER) {
+            out.push_str(&markdown_relocation_legend(&hit));
+        }
+        std::fs::write(&target, out)
+            .with_context(|| format!("writing tokenized {}", target.display()))?;
+        rewritten += 1;
+    }
+    Ok(rewritten)
+}
+
+/// One [`RelocRoot`] per distinct `env_var`, sorted by it. Several absolute
+/// host spellings (the recorded `determinism-env.json :: pkg_root` and the
+/// source tree's own canonical path) legitimately map to the SAME token, and a
+/// legend must list that token once.
+fn unique_by_env_var<'a>(roots: &[&'a RelocRoot]) -> Vec<&'a RelocRoot> {
+    let mut sorted: Vec<&RelocRoot> = roots.to_vec();
+    sorted.sort_by(|a, b| a.env_var.cmp(&b.env_var));
+    sorted.dedup_by(|a, b| a.env_var == b.env_var);
+    sorted
+}
+
+/// The prose legend appended to a tokenized Markdown accountability file.
+fn markdown_relocation_legend(roots: &[&RelocRoot]) -> String {
+    let mut s = String::from("\n");
+    s.push_str(RELOCATION_LEGEND_MARKER);
+    s.push_str("\n\n## Path tokens\n\n");
+    s.push_str(
+        "Absolute host paths were replaced at deposit time so this package reads (and runs) from wherever it is unpacked:\n\n",
+    );
+    // One row per TOKEN (several host spellings can map to `PKG_ROOT`), in a
+    // deterministic order regardless of encounter order.
+    for r in unique_by_env_var(roots) {
+        let meaning = match &r.fallback_rel {
+            None => "the root of this deposit (the directory holding `ro-crate-metadata.json`)".to_string(),
+            Some(rel) => format!(
+                "a data root registered outside the deposit; the in-deposit staging copy is `{rel}/`"
+            ),
+        };
+        s.push_str(&format!(
+            "- `{}` — {meaning}. Override with the `{}` environment variable.\n",
+            r.token(),
+            r.env_var
+        ));
+    }
+    s
+}
+
+/// Publish the token legend machine-readably for the tokenized JSON/HTML
+/// accountability files, which cannot carry the Markdown legend inline. Names
+/// no host path — that is the whole point of the tokenization.
+fn write_relocation_legend(dst: &Path, roots: &[&RelocRoot]) -> Result<()> {
+    let tokens: Vec<serde_json::Value> = unique_by_env_var(roots)
+        .into_iter()
+        .map(|r| {
+            serde_json::json!({
+                "token": r.token(),
+                "env_var": r.env_var,
+                "resolves_to": match &r.fallback_rel {
+                    None => "deposit root".to_string(),
+                    Some(rel) => format!("external data root; in-deposit staging copy at {rel}/"),
+                },
+            })
+        })
+        .collect();
+    let doc = serde_json::json!({
+        "schema_version": "1",
+        "note": "Absolute host paths in this deposit's scripts and accountability documents were replaced by these tokens so the package is relocatable. Each resolves from its environment variable when set, else relative to the deposit root.",
+        "tokens": tokens,
+    });
+    let path = dst.join(EXPORT_RELOCATION_LEGEND_REL);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating {}", parent.display()))?;
+    }
+    let body = serde_json::to_vec_pretty(&doc).context("serializing export-relocation.json")?;
+    std::fs::write(&path, body).with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
+}
+
+/// Re-declare `DEPOSIT-READINESS.json` as a `CreativeWork` in the deposit's
+/// RO-Crate `@graph`, linked from the root Dataset via `mentions`.
+///
+/// The emitter declares this entity at emit time (`crate::ro_crate`, DR-11),
+/// but the export's [`prune_rocrate_dangling`] necessarily removes it: the
+/// attestation is written at the very END of
+/// [`export_depositable_package_with_profile`] and so is genuinely absent from
+/// disk when the prune runs. The net effect in every shipped deposit was an
+/// attestation with ZERO references in its own provenance graph — while
+/// `emitter::bagit` documents the manifest exclusion as safe precisely BECAUSE
+/// the file "is surfaced instead as an RO-Crate `@graph` CreativeWork".
+///
+/// `mentions` (not `hasPart`) is the honest edge: the file is a mutable meta
+/// artifact off the sealed payload manifest. The node carries no `sha512`, so
+/// the post-seal content-hash recheck is unaffected. Idempotent — returns
+/// whether the graph changed.
+fn ensure_deposit_readiness_entity(dst: &Path) -> Result<bool> {
+    use serde_json::Value;
+    let id = crate::deposit_readiness::DEPOSIT_READINESS_FILE;
+    let descriptor = dst.join("ro-crate-metadata.json");
+    let Ok(bytes) = std::fs::read(&descriptor) else {
+        return Ok(false);
+    };
+    let Ok(mut doc) = serde_json::from_slice::<Value>(&bytes) else {
+        return Ok(false);
+    };
+    let Some(graph) = doc.get_mut("@graph").and_then(Value::as_array_mut) else {
+        return Ok(false);
+    };
+
+    let mut changed = false;
+    if !graph
+        .iter()
+        .any(|e| e.get("@id").and_then(Value::as_str) == Some(id))
+    {
+        graph.push(serde_json::json!({
+            "@id": id,
+            "@type": "CreativeWork",
+            "name": "Deposit-readiness attestation",
+            "description": "Self-validation verdict written by `ecaa-workflow export`: RO-Crate re-verify + BagIt checksum integrity (Layer 1) and, for the re-executable profile, re-execution equivalence (Layer 2). Mutable meta file — excluded from the payload manifest by design.",
+            "encodingFormat": "application/json"
+        }));
+        changed = true;
+    }
+    // Link it from the root Dataset. `mentions` is created when absent.
+    for entry in graph.iter_mut() {
+        if entry.get("@id").and_then(Value::as_str) != Some("./") {
+            continue;
+        }
+        let Some(obj) = entry.as_object_mut() else {
+            continue;
+        };
+        let already = obj
+            .get("mentions")
+            .and_then(Value::as_array)
+            .is_some_and(|a| {
+                a.iter()
+                    .any(|m| m.get("@id").and_then(Value::as_str) == Some(id))
+            });
+        if already {
+            break;
+        }
+        match obj.get_mut("mentions").and_then(Value::as_array_mut) {
+            Some(arr) => arr.push(serde_json::json!({ "@id": id })),
+            None => {
+                obj.insert(
+                    "mentions".to_string(),
+                    serde_json::json!([{ "@id": id }]),
+                );
+            }
+        }
+        changed = true;
+        break;
+    }
+
+    if changed {
+        let serialized = serde_json::to_vec_pretty(&doc)
+            .context("re-serializing ro-crate-metadata.json with the DR-11 entity")?;
+        std::fs::write(&descriptor, serialized)
+            .with_context(|| format!("writing {}", descriptor.display()))?;
+    }
+    Ok(changed)
 }
 
 /// Drop `@graph` entries from `dst/ro-crate-metadata.json` whose `@id` is a
@@ -1793,7 +3003,12 @@ mod tests {
         .unwrap();
 
         let n = dedup_duplicate_output_tables(dst).expect("dedup ok");
-        assert_eq!(n, 1, "exactly the unconsumed duplicate must be deleted");
+        assert_eq!(n.len(), 1, "exactly the unconsumed duplicate must be deleted");
+        assert_eq!(
+            n.get("runtime/outputs/differential_expression/de_table.tsv").map(String::as_str),
+            Some("runtime/outputs/differential_expression/de_results.tsv"),
+            "the dropped→kept twin map must record the substitution: {n:?}"
+        );
         assert!(de.join("de_results.tsv").exists(), "consumed twin must be kept");
         assert!(!de.join("de_table.tsv").exists(), "unconsumed duplicate must be deleted");
         assert!(de.join("vst.tsv").exists(), "a distinct table must be untouched");
@@ -1862,7 +3077,7 @@ mod tests {
         .unwrap();
 
         let n = dedup_duplicate_output_tables(dst).expect("dedup ok");
-        assert_eq!(n, 0, "a claim-anchored twin must be kept, not deleted");
+        assert!(n.is_empty(), "a claim-anchored twin must be kept, not deleted: {n:?}");
         assert!(
             de.join("de_results.tsv").exists(),
             "claim-anchored twin must survive dedup"
@@ -2364,54 +3579,188 @@ mod tests {
         );
     }
 
-    #[test]
-    fn relocate_script_pkg_root_rewrites_r_and_python_forms() {
-        let root = "/home/a/.ecaa-workflow/packages/x-bulk_rnaseq-2026-07-01";
-
-        // R form: `PKG_ROOT <- "<abs>"` -> `Sys.getenv(...)`, unset fallback
-        // keeps the original literal so a same-host run is unaffected.
-        let r = format!("PKG_ROOT <- \"{root}\"\nlibrary(DESeq2)\n");
-        let out = relocate_script_pkg_root(&r, root);
-        assert!(
-            out.contains(&format!("Sys.getenv(\"PKG_ROOT\", unset = \"{root}\")")),
-            "got:\n{out}"
-        );
-        assert!(out.contains("library(DESeq2)"), "the rest of the script is untouched:\n{out}");
-
-        // Python form, no `import os` present -> self-contained `__import__`
-        // fallback avoids needing a new import.
-        let py = format!("PKG_ROOT = \"{root}\"\nimport pandas as pd\n");
-        let out = relocate_script_pkg_root(&py, root);
-        assert!(
-            out.contains(&format!(
-                "PKG_ROOT = __import__(\"os\").environ.get(\"PKG_ROOT\", \"{root}\")"
-            )),
-            "got:\n{out}"
-        );
-
-        // Python form (no spaces around `=`), `import os` already present ->
-        // bare `os.environ.get`.
-        let py2 = format!("import os\nPKG_ROOT=\"{root}\"\n");
-        let out2 = relocate_script_pkg_root(&py2, root);
-        assert!(
-            out2.contains(&format!("PKG_ROOT = os.environ.get(\"PKG_ROOT\", \"{root}\")")),
-            "got:\n{out2}"
-        );
-
-        // No matching assignment -> byte-identical passthrough.
-        let untouched = "print('hello')\n";
-        assert_eq!(relocate_script_pkg_root(untouched, root), untouched);
-
-        // Empty recorded `pkg_root` -> byte-identical passthrough even when a
-        // literal assignment is present (nothing recorded to rewrite against).
-        assert_eq!(relocate_script_pkg_root(&r, ""), r);
+    /// Test helper: the package-root-only substitution table.
+    fn pkg_roots_only(root: &str) -> Vec<RelocRoot> {
+        build_reloc_roots(&[root.to_string()], &[])
     }
 
-    /// End-to-end: a sealed R script with a hardcoded `PKG_ROOT` assignment
-    /// matching the task's recorded `determinism-env.json["pkg_root"]` is
-    /// rewritten at export to read the `PKG_ROOT` env var (with the original
-    /// absolute path preserved as the `unset` fallback), rather than copied
-    /// verbatim.
+    /// P3-1 — the rewrite is PATH-driven, not variable-name-driven. Measured
+    /// on a real deposit, 15 of 20 sealed scripts named the package root
+    /// something other than `PKG_ROOT` (`PKG`, `pkg_root`, or a bare inline
+    /// path) and the old literal matcher copied every one of them verbatim.
+    #[test]
+    fn relocation_rewrites_any_variable_name() {
+        let root = "/home/a/.ecaa-workflow/packages/x-bulk_rnaseq-2026-07-01";
+        let roots = pkg_roots_only(root);
+        let r_rel = Path::new("runtime/outputs/de/scripts/01.R");
+        let py_rel = Path::new("runtime/outputs/de/scripts/01.py");
+
+        // R, variable named `PKG` (not `PKG_ROOT`).
+        let out = relocate_script_paths(&format!("PKG <- \"{root}\"\nlibrary(DESeq2)\n"), r_rel, &roots);
+        assert!(!out.contains(root), "host root must be gone:\n{out}");
+        assert!(out.contains("PKG <- .ECAA_PKG_ROOT"), "got:\n{out}");
+        assert!(out.contains("library(DESeq2)"), "the body must survive:\n{out}");
+
+        // R, lower-case variable AND an inline path with a suffix.
+        let out = relocate_script_paths(
+            &format!("pkg_root <- \"{root}\"\nx <- read.csv(\"{root}/runtime/outputs/de/c.tsv\")\n"),
+            r_rel,
+            &roots,
+        );
+        assert!(!out.contains(root), "host root must be gone:\n{out}");
+        assert!(
+            out.contains("file.path(.ECAA_PKG_ROOT, \"runtime/outputs/de/c.tsv\")"),
+            "an inline path with no variable at all must still relocate:\n{out}"
+        );
+
+        // Python, single quotes + an f-string prefix that must be preserved.
+        let out = relocate_script_paths(
+            &format!("PKG = '{root}'\np = f\"{root}/runtime/{{name}}.tsv\"\n"),
+            py_rel,
+            &roots,
+        );
+        assert!(!out.contains(root), "host root must be gone:\n{out}");
+        assert!(out.contains("PKG = _ECAA_PKG_ROOT"), "got:\n{out}");
+        assert!(
+            out.contains("_ecaa_os.path.join(_ECAA_PKG_ROOT, f\"runtime/{name}.tsv\")"),
+            "the f-string prefix must be preserved across the splice:\n{out}"
+        );
+
+        // A script naming no root is byte-identical.
+        let untouched = "print('hello')\n";
+        assert_eq!(
+            relocate_script_paths(untouched, py_rel, &roots),
+            untouched,
+            "a script naming no root must be returned byte-identical"
+        );
+        // An empty recorded root yields no substitution table at all.
+        assert!(pkg_roots_only("").is_empty(), "an empty root is not relocatable");
+    }
+
+    /// P3-1 — the `unset` default must NOT be the absolute host path. The
+    /// previous rewrite kept it, so a deposit unpacked anywhere else silently
+    /// pointed back at the compiling operator's machine.
+    #[test]
+    fn relocation_has_no_absolute_fallback() {
+        let root = "/home/a/.ecaa-workflow/packages/x-bulk_rnaseq-2026-07-01";
+        let roots = pkg_roots_only(root);
+
+        for (rel, self_locator, walk_up) in [
+            ("runtime/outputs/de/scripts/01.R", "commandArgs", "\"..\", \"..\", \"..\", \"..\""),
+            ("runtime/outputs/de/scripts/01.py", "__file__", "../../../.."),
+            ("runtime/outputs/de/scripts/01.sh", "BASH_SOURCE", "../../../.."),
+        ] {
+            let body = format!("#!/usr/bin/env x\nPKG_ROOT = \"{root}\"\n");
+            let out = relocate_script_paths(&body, Path::new(rel), &roots);
+            assert!(
+                !out.contains(root),
+                "{rel}: ZERO occurrences of the original root may remain:\n{out}"
+            );
+            assert!(
+                out.contains(self_locator),
+                "{rel}: the fallback must resolve from the script's own location:\n{out}"
+            );
+            assert!(
+                out.contains(walk_up),
+                "{rel}: the walk-up chain must match the script's depth:\n{out}"
+            );
+            assert!(
+                out.starts_with("#!/usr/bin/env x\n"),
+                "{rel}: the shebang must stay first:\n{out}"
+            );
+        }
+    }
+
+    /// P3-1 — the SME-registered EXTERNAL input root (~102 occurrences in a
+    /// real deposit) was never a relocation target at all.
+    #[test]
+    fn input_roots_are_relocated_too() {
+        let pkg = "/home/a/.ecaa-workflow/packages/x-bulk_rnaseq-2026-07-01";
+        let input = "/home/a/.ecaa-workflow/himes-inputs";
+        let roots = build_reloc_roots(
+            &[pkg.to_string()],
+            &[(input.to_string(), "himes-inputs".to_string())],
+        );
+        let body = format!(
+            "#!/usr/bin/env python3\nSRC = \"{input}/counts.tsv\"\nOUT = \"{pkg}/runtime/outputs/de\"\n"
+        );
+        let out = relocate_script_paths(&body, Path::new("runtime/outputs/de/scripts/01.py"), &roots);
+        assert!(!out.contains(input), "the external input root must be gone:\n{out}");
+        assert!(!out.contains(pkg), "the package root must be gone:\n{out}");
+        assert!(
+            out.contains("_ECAA_INPUT_0 = _ecaa_os.environ.get(\"ECAA_INPUT_0\")"),
+            "the input root must resolve through its own env var:\n{out}"
+        );
+        assert!(
+            out.contains("_ecaa_os.path.join(_ECAA_INPUT_0, \"counts.tsv\")"),
+            "the input-relative path must be joined against the input root:\n{out}"
+        );
+        assert!(
+            out.contains("inputs/himes-inputs"),
+            "the in-deposit staging copy is the honest unset fallback:\n{out}"
+        );
+    }
+
+    /// P3-1 — `CONTEXT.md` / `PROMPT.md` / `README.md` / `ro-crate-metadata.json`
+    /// were never rewritten, so a deposit's first-read documents advertised the
+    /// compiling operator's home directory.
+    #[test]
+    fn docs_and_metadata_are_tokenized() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dst = tmp.path();
+        let pkg = "/home/a/.ecaa-workflow/packages/x-bulk_rnaseq-2026-07-01";
+        let input = "/home/a/.ecaa-workflow/himes-inputs";
+        std::fs::write(
+            dst.join("CONTEXT.md"),
+            format!("# Context\n\nInputs live at {input}/counts.tsv inside {pkg}.\n"),
+        )
+        .unwrap();
+        std::fs::write(
+            dst.join("ro-crate-metadata.json"),
+            format!(r#"{{"@graph":[{{"@id":"./","description":"staged from {input}"}}]}}"#),
+        )
+        .unwrap();
+        let roots = build_reloc_roots(
+            &[pkg.to_string()],
+            &[(input.to_string(), "himes-inputs".to_string())],
+        );
+
+        let n = tokenize_accountability_files(dst, &roots).expect("tokenize ok");
+        assert_eq!(n, 2, "both the markdown and the descriptor must be rewritten");
+
+        let md = std::fs::read_to_string(dst.join("CONTEXT.md")).unwrap();
+        assert!(!md.contains(pkg) && !md.contains(input), "no host path may remain:\n{md}");
+        assert!(md.contains("${ECAA_INPUT_0}/counts.tsv"), "got:\n{md}");
+        assert!(md.contains("${PKG_ROOT}"), "got:\n{md}");
+        assert!(
+            md.contains(RELOCATION_LEGEND_MARKER) && md.contains("## Path tokens"),
+            "a legend must make the tokens self-explanatory:\n{md}"
+        );
+
+        let meta = std::fs::read_to_string(dst.join("ro-crate-metadata.json")).unwrap();
+        assert!(!meta.contains(input), "no host path may remain:\n{meta}");
+        assert!(meta.contains("${ECAA_INPUT_0}"), "got:\n{meta}");
+        serde_json::from_str::<serde_json::Value>(&meta).expect("descriptor must stay valid JSON");
+
+        // JSON/HTML can't carry the prose legend, so it is published as a
+        // machine-readable sidecar naming no host path.
+        let legend =
+            std::fs::read_to_string(dst.join(EXPORT_RELOCATION_LEGEND_REL)).expect("legend sidecar");
+        assert!(!legend.contains("/home/a"), "the legend must name no host path:\n{legend}");
+        assert!(legend.contains("${PKG_ROOT}") && legend.contains("${ECAA_INPUT_0}"), "got:\n{legend}");
+
+        // Idempotent: a second pass finds nothing to rewrite.
+        assert_eq!(
+            tokenize_accountability_files(dst, &roots).expect("tokenize ok"),
+            0,
+            "tokenization must be idempotent"
+        );
+    }
+
+    /// End-to-end: a sealed R script whose recorded
+    /// `determinism-env.json["pkg_root"]` is baked in as a NON-`PKG_ROOT`
+    /// variable is rewritten at export into a self-locating form carrying no
+    /// absolute host path.
     #[test]
     fn export_relocates_hardcoded_pkg_root_in_sealed_r_script() {
         let tmp = tempfile::tempdir().expect("tempdir");
@@ -2426,7 +3775,7 @@ mod tests {
         let abs_root = "/home/a/.ecaa-workflow/packages/deadbeef-bulk_rnaseq-2026-07-01";
         write(
             "runtime/outputs/normalisation/scripts/01_normalise.R",
-            &format!("PKG_ROOT <- \"{abs_root}\"\nlibrary(DESeq2)\n"),
+            &format!("PKG <- \"{abs_root}\"\nlibrary(DESeq2)\n"),
         );
         write(
             "runtime/outputs/normalisation/determinism-env.json",
@@ -2461,16 +3810,267 @@ mod tests {
             "sealed script must read PKG_ROOT via Sys.getenv, got:\n{sealed}"
         );
         assert!(
-            sealed.contains(abs_root),
-            "the original literal must survive as the unset fallback:\n{sealed}"
+            !sealed.contains(abs_root),
+            "no absolute host path may survive the export:\n{sealed}"
         );
         assert!(
-            !sealed.contains(&format!("PKG_ROOT <- \"{abs_root}\"")),
-            "the raw hardcoded assignment must no longer appear verbatim:\n{sealed}"
+            sealed.contains("PKG <- .ECAA_PKG_ROOT"),
+            "the assignment must bind the relocated root regardless of its name:\n{sealed}"
         );
         assert!(
             sealed.contains("library(DESeq2)"),
             "the rest of the script must be untouched:\n{sealed}"
         );
+    }
+
+    // --- P2-3: export reconciles every surface it invalidates ---------------
+
+    /// P2-3(a) — a real deposit deleted `de_results.tsv` (15 `@graph`
+    /// mentions) and kept `de_results.full.tsv` (8021, because the
+    /// claim-evidence registration cites the table once per verified claim).
+    /// The atom DECLARED `de_results.tsv`, and that declaration — not the
+    /// popularity contest — is the package's naming contract.
+    #[test]
+    fn dedup_keeps_the_atom_declared_basename() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dst = tmp.path();
+        let de = dst.join("runtime/outputs/differential_expression");
+        std::fs::create_dir_all(&de).expect("mkdir");
+        let data = "ENSG1\t1.0\t0.01\nENSG2\t-2.0\t0.40\n";
+        std::fs::write(de.join("de_results.tsv"), format!("gene\tlog2fc\tpadj\n{data}")).unwrap();
+        std::fs::write(de.join("de_results.full.tsv"), format!("gene_id\tlog2fc\tpadj\n{data}"))
+            .unwrap();
+        // The `.full.` twin massively out-references the declared name.
+        let mut meta = String::from(r#"{"@graph":[{"@id":"x","refs":["#);
+        for _ in 0..40 {
+            meta.push_str(r#""runtime/outputs/differential_expression/de_results.full.tsv","#);
+        }
+        meta.push_str(r#""runtime/outputs/differential_expression/de_results.tsv"]}]}"#);
+        std::fs::write(dst.join("ro-crate-metadata.json"), meta).unwrap();
+        // …but the atom declared the canonical name.
+        std::fs::write(
+            dst.join("WORKFLOW.json"),
+            r#"{"tasks":{"differential_expression":{
+                 "spec":{"expected_artifacts":["de_results.tsv","de_summary.json"]},
+                 "required_artifacts":[{"path":"de_results.tsv"}]}}}"#,
+        )
+        .unwrap();
+
+        let renames = dedup_duplicate_output_tables(dst).expect("dedup ok");
+        assert!(
+            de.join("de_results.tsv").is_file(),
+            "the atom-declared basename must survive"
+        );
+        assert!(
+            !de.join("de_results.full.tsv").exists(),
+            "the undeclared twin is the one that goes"
+        );
+        assert_eq!(
+            renames
+                .get("runtime/outputs/differential_expression/de_results.full.tsv")
+                .map(String::as_str),
+            Some("runtime/outputs/differential_expression/de_results.tsv"),
+            "the substitution must be published: {renames:?}"
+        );
+    }
+
+    /// P2-3(c) — per-task `result.json` / `manifest.json` /
+    /// `validation_report.json` are copied verbatim, so a dedup-dropped twin
+    /// left them citing a file that is not in the archive.
+    #[test]
+    fn dropped_twin_references_are_rewritten() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dst = tmp.path();
+        let de = dst.join("runtime/outputs/differential_expression");
+        std::fs::create_dir_all(&de).expect("mkdir");
+        std::fs::write(de.join("de_results.tsv"), "gene\tpadj\nA\t0.01\n").unwrap();
+        std::fs::write(
+            de.join("manifest.json"),
+            r#"{"comparisons":[{"table_path":"de_results.full.tsv"}],
+                "downstream_handoff":{"de_results":"runtime/outputs/differential_expression/de_results.full.tsv"}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            de.join("validation_report.json"),
+            r#"{"checks":[{"name":"file_present:de_results.full.tsv","status":"PASS","detail":"exists, 2697337 bytes"},
+                          {"name":"file_present:de_results.full.tsv.gz","status":"PASS","detail":"unrelated longer name"}]}"#,
+        )
+        .unwrap();
+
+        let renames = std::collections::BTreeMap::from([(
+            "runtime/outputs/differential_expression/de_results.full.tsv".to_string(),
+            "runtime/outputs/differential_expression/de_results.tsv".to_string(),
+        )]);
+        let n = reconcile_dropped_file_references(dst, &renames, &Default::default())
+            .expect("reconcile ok");
+        assert_eq!(n, 2, "both sidecars citing the dropped twin must be rewritten");
+
+        let man = std::fs::read_to_string(de.join("manifest.json")).unwrap();
+        let man_doc: serde_json::Value = serde_json::from_str(&man).expect("manifest stays JSON");
+        // The rewrite must be DECLARED, and the declaration necessarily names
+        // the dropped path — so "no dropped citation remains" is a claim about
+        // the PAYLOAD, not about the audit block. Assert the two separately:
+        // every payload field now cites the surviving twin, while
+        // `export_reconciliation.rewritten` records what was changed.
+        let payload = {
+            let mut p = man_doc.clone();
+            p.as_object_mut()
+                .expect("manifest is an object")
+                .remove("export_reconciliation");
+            serde_json::to_string_pretty(&p).unwrap()
+        };
+        assert!(
+            !payload.contains("de_results.full.tsv"),
+            "no dropped citation may remain in the payload:\n{payload}"
+        );
+        assert!(man.contains("\"table_path\": \"de_results.tsv\""), "got:\n{man}");
+        assert!(
+            man_doc
+                .pointer("/export_reconciliation/renamed")
+                .and_then(|r| r.as_object())
+                .is_some_and(|r| r.values().any(|v| v == "de_results.tsv")),
+            "the rewrite must be declared, naming the dropped path it replaced:\n{man}"
+        );
+
+        let vr = std::fs::read_to_string(de.join("validation_report.json")).unwrap();
+        assert!(
+            vr.contains("file_present:de_results.tsv\""),
+            "the validator row must name the file that IS present:\n{vr}"
+        );
+        assert!(
+            vr.contains("de_results.full.tsv.gz"),
+            "a longer name that merely CONTAINS the dropped one must not be rewritten:\n{vr}"
+        );
+    }
+
+    /// P2-3(c) — a tier-dropped file with no twin (`view_data/*`) cannot be
+    /// rewritten, so its citation becomes a QUALIFIED claim instead of a bare
+    /// truth-claim.
+    #[test]
+    fn removed_file_references_are_marked_unavailable() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dst = tmp.path();
+        let de = dst.join("runtime/outputs/differential_expression");
+        std::fs::create_dir_all(&de).expect("mkdir");
+        std::fs::write(
+            de.join("result.json"),
+            r#"{"task_id":"differential_expression",
+                "artifacts":["de_results.tsv","view_data/volcano_data.json"],
+                "checks":[{"name":"file_present:view_data/volcano_data.json","status":"PASS"}]}"#,
+        )
+        .unwrap();
+
+        let removed = std::collections::BTreeSet::from([
+            "runtime/outputs/differential_expression/view_data/volcano_data.json".to_string(),
+        ]);
+        let n = reconcile_dropped_file_references(dst, &Default::default(), &removed)
+            .expect("reconcile ok");
+        assert_eq!(n, 1, "the one per-task sidecar citing the removed file must be rewritten");
+
+        let doc: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(de.join("result.json")).unwrap()).unwrap();
+        let check = &doc["checks"][0];
+        assert_eq!(check["available"], serde_json::json!(false), "got: {check}");
+        assert_eq!(check["dropped_at_export"], serde_json::json!(true), "got: {check}");
+        // The bare array element has no object to annotate, so the file-level
+        // block carries it.
+        let block = &doc["export_reconciliation"]["unavailable"];
+        assert_eq!(
+            block[0]["path"],
+            serde_json::json!("runtime/outputs/differential_expression/view_data/volcano_data.json"),
+            "got: {block}"
+        );
+        assert_eq!(block[0]["available"], serde_json::json!(false), "got: {block}");
+        // The root record itself is NOT marked unavailable.
+        assert!(
+            doc.get("available").is_none(),
+            "the document root must not read as unavailable: {doc}"
+        );
+        // A still-present artifact is untouched.
+        assert_eq!(
+            doc["artifacts"][0],
+            serde_json::json!("de_results.tsv"),
+            "a still-present artifact must be untouched: {doc}"
+        );
+    }
+
+    /// P0-5 — `emitter::bagit` documents the `DEPOSIT-READINESS.json` manifest
+    /// exclusion as safe BECAUSE the file is "surfaced instead as an RO-Crate
+    /// `@graph` CreativeWork". The export's dangling-`@id` prune removed that
+    /// entity (the attestation is written last, so it is genuinely absent at
+    /// prune time), leaving every real deposit's attestation with zero graph
+    /// references.
+    #[test]
+    fn deposit_readiness_is_represented_in_ro_crate() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let src = tmp.path().join("src");
+        let dst = tmp.path().join("dst");
+        build_fixture_package(&src);
+        // The emitter's DR-11 entity + `mentions` edge, as emitted upstream.
+        std::fs::write(
+            src.join("ro-crate-metadata.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "@context": "https://w3id.org/ro/crate/1.1/context",
+                "@graph": [
+                    {"@id":"ro-crate-metadata.json","@type":"CreativeWork","about":{"@id":"./"}},
+                    {"@id":"./","@type":"Dataset","hasPart":[],
+                     "mentions":[{"@id":"DEPOSIT-READINESS.json"}]},
+                    {"@id":"DEPOSIT-READINESS.json","@type":"CreativeWork",
+                     "name":"Deposit-readiness attestation"}
+                ]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        export_depositable_package(&src, &dst).expect("export must succeed");
+
+        let id = crate::deposit_readiness::DEPOSIT_READINESS_FILE;
+        assert!(dst.join(id).is_file(), "the attestation must be on disk");
+        let doc: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(dst.join("ro-crate-metadata.json")).unwrap())
+                .unwrap();
+        let graph = doc["@graph"].as_array().expect("@graph");
+        let node = graph
+            .iter()
+            .find(|e| e["@id"] == serde_json::json!(id))
+            .unwrap_or_else(|| panic!("no @graph entity for {id}"));
+        assert_eq!(node["@type"], serde_json::json!("CreativeWork"), "got: {node}");
+        assert!(
+            node["description"].as_str().is_some_and(|d| !d.is_empty()),
+            "the entity must describe what the attestation is: {node}"
+        );
+        let root = graph
+            .iter()
+            .find(|e| e["@id"] == serde_json::json!("./"))
+            .expect("root Dataset");
+        assert!(
+            root["mentions"]
+                .as_array()
+                .is_some_and(|m| m.iter().any(|x| x["@id"] == serde_json::json!(id))),
+            "the root Dataset must link the attestation via `mentions`: {root}"
+        );
+        // …and it stays OFF the payload manifest (mutable meta file).
+        let manifest = std::fs::read_to_string(dst.join("manifest-sha512.txt")).unwrap();
+        assert!(
+            !manifest.contains(id),
+            "the attestation must remain manifest-excluded:\n{manifest}"
+        );
+    }
+
+    /// P2-3(b) — the dropped→kept map is a declared deposit artifact, not an
+    /// undocumented rewrite.
+    #[test]
+    fn export_publishes_the_rename_map() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let src = tmp.path().join("src");
+        let dst = tmp.path().join("dst");
+        build_fixture_package(&src);
+        export_depositable_package(&src, &dst).expect("export must succeed");
+        let map: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(dst.join(EXPORT_RENAME_MAP_REL)).expect("rename map must be written"),
+        )
+        .expect("rename map must be valid JSON");
+        assert_eq!(map["renamed"], serde_json::json!({}), "got: {map}");
     }
 }
