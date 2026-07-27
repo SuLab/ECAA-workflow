@@ -171,6 +171,11 @@ inputs:
       iri: "format:3475"
       label: "Tabular text"
     statistical_state: "raw_counts"
+    # Atom-static: the raw member of the `counts` one-of is the integer
+    # count substrate a count-GLM fits, so its scale is fixed by the
+    # contract, not by the run.
+    units: "read counts"
+    normalization_state: "raw"
     cardinality: { kind: optional }
     privacy_class: internal
   - name: normalized_counts
@@ -183,6 +188,10 @@ inputs:
       iri: "format:3475"
       label: "Tabular text"
     statistical_state: "normalized"
+    # Atom-static: the normalized member of the one-of. `units:` stays
+    # unset for the same reason as on `normalisation`'s output — the
+    # normalized scale is a runtime method choice.
+    normalization_state: "normalized"
     cardinality: { kind: optional }
     privacy_class: internal
   - name: experimental_design

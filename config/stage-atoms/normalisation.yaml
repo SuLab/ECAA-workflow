@@ -82,6 +82,10 @@ inputs:
       iri: "format:3475"
       label: "Tabular text"
     statistical_state: "raw_counts"
+    # Atom-static: this port is the pre-normalization substrate by
+    # definition — the stage's whole job is to change these two facets.
+    units: "read counts"
+    normalization_state: "raw"
     privacy_class: internal
 outputs:
   - name: normalized_counts
@@ -95,4 +99,8 @@ outputs:
       label: "Tabular text"
     statistical_state: "normalized"
     normalization_state: "normalized"
+    # `units:` is deliberately absent. The normalized scale (CPM / TPM /
+    # VST / rlog) follows from the method the agent selects at runtime,
+    # so no value is statically true here; declaring one would either
+    # state something false or prescribe a method. It stays unknown.
     privacy_class: internal

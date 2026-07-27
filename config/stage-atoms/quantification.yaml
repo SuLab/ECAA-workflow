@@ -58,6 +58,11 @@ inputs:
     physical_format:
       iri: "format:2572"
       label: "BAM"
+    # BAM POS is 1-based inclusive per the SAM spec — a property of the
+    # format, so it holds for every producer of this port. Declared on
+    # both sides of the alignment→quantification edge so the proof
+    # records an agreement rather than an unknown.
+    coordinate_system: "1-based-inclusive"
     privacy_class: internal
 outputs:
   - name: count_matrix
@@ -70,4 +75,12 @@ outputs:
       iri: "format:3475"
       label: "Tabular text"
     statistical_state: "raw_counts"
+    # Atom-static facets: a quantification stage emits integer per-feature
+    # read counts before any library-size or composition correction, in
+    # every modality that uses this atom. Not run-scoped — organism /
+    # genome build / annotation version are propagated onto this port at
+    # composition time (compatibility::facet_propagation), never declared
+    # here.
+    units: "read counts"
+    normalization_state: "raw"
     privacy_class: internal

@@ -33,7 +33,7 @@ inputs:
       iri: "format:3475"
       label: "Tabular text"
     modality: "spatial_transcriptomics"
-    statistical_state: "normalised"
+    statistical_state: "normalized"
     privacy_class: internal
 outputs:
   - name: method_choice

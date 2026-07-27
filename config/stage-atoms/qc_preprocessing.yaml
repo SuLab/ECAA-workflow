@@ -42,6 +42,10 @@ inputs:
       iri: "format:3475"
       label: "Tabular text"
     statistical_state: "raw_counts"
+    # Atom-static: QC filtering drops features and samples, it does not
+    # rescale values, so both sides of this stage carry raw read counts.
+    units: "read counts"
+    normalization_state: "raw"
     privacy_class: internal
 outputs:
   - name: filtered_count_matrix
@@ -56,4 +60,6 @@ outputs:
       iri: "format:3590"
       label: "HDF5"
     statistical_state: "raw_counts"
+    units: "read counts"
+    normalization_state: "raw"
     privacy_class: internal

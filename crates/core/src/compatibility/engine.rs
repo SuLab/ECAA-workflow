@@ -528,11 +528,51 @@ impl DeterministicCompatibilityEngine {
             .map(|(name, p, c)| {
                 (
                     (*name).to_string(),
-                    unify_facet(name, *p, *c, |_, _| None, |_, _| None),
+                    unify_facet(
+                        name,
+                        *p,
+                        *c,
+                        |pv, cv| facet_subtype_rationale(name, pv, cv),
+                        |_, _| None,
+                    ),
                 )
             })
             .collect()
     }
+}
+
+/// Declared specialization relations between facet values.
+///
+/// A producer value that is a *narrower* case of what the consumer
+/// accepts unifies as `Subtype` rather than `Incompatible`. Kept as an
+/// explicit table, not an inferred hierarchy: each entry is a domain
+/// claim that has to be true of the data, and an unlisted pair of
+/// differing values stays incompatible.
+///
+/// Entries:
+///
+/// - `normalization_state: batch_corrected ⊑ normalized` — batch
+///   correction is applied downstream of normalization, so a
+///   batch-corrected matrix satisfies a consumer that asks for a
+///   normalized one. Without this, declaring `normalization_state:
+///   normalized` on `differential_expression`'s normalized input would
+///   refuse a legitimate `batch_correction` substrate.
+///
+/// Direction matters and is not symmetric: the reverse (a plain
+/// normalized matrix feeding a port that requires batch correction) is
+/// NOT a subtype and stays incompatible.
+const FACET_SUBTYPES: &[(&str, &str, &str)] =
+    &[("normalization_state", "batch_corrected", "normalized")];
+
+pub(crate) fn facet_subtype_rationale(
+    facet: &str,
+    producer: &str,
+    consumer: &str,
+) -> Option<String> {
+    FACET_SUBTYPES
+        .iter()
+        .find(|(f, sub, sup)| *f == facet && *sub == producer && *sup == consumer)
+        .map(|(f, sub, sup)| format!("{f}: '{sub}' is a specialization of '{sup}'"))
 }
 
 impl CompatibilityEngine for DeterministicCompatibilityEngine {
@@ -1106,22 +1146,40 @@ impl DeterministicCompatibilityEngine {
             }
             match outcome {
                 FacetUnification::Exact => {
-                    // PR-5 — Exact matches are normally noise, but the
-                    // load-bearing `statistical_state` facet (the bound member
-                    // of the `counts` mutually-exclusive group, e.g. the DE
-                    // `raw_counts → raw_counts` edge) MUST be surfaced so the
-                    // proof records WHICH one-of alternative was actually
-                    // bound. Record it with its real values; keep the other
-                    // exactly-matching facets out to avoid proof noise.
-                    if name.as_str() == "statistical_state" {
-                        builder.add_facet(
-                            name,
-                            *producer_value,
-                            *consumer_value,
-                            outcome.match_kind(),
-                            Some("exact statistical-state match on bound port".to_string()),
-                        );
-                    }
+                    // An Exact facet is the only positive evidence the proof
+                    // carries that the two contracts agreed on that facet.
+                    // An unsurfaced one is indistinguishable from an
+                    // undeclared one to any reader of
+                    // `runtime/proofs.jsonl`, which is exactly the ambiguity
+                    // `facet_coverage` has to resolve. Surface every Exact
+                    // match with its real values.
+                    //
+                    // `statistical_state` keeps its own rationale because it
+                    // additionally records WHICH member of a one-of input
+                    // group was bound (the DE `raw_counts → raw_counts` vs
+                    // `normalized → normalized` edge).
+                    //
+                    // Note the two situations `unify_facet` folds into Exact:
+                    // both sides declared and agreed, and producer declared
+                    // while the consumer left the facet unconstrained. The
+                    // recorded consumer value distinguishes them — it is
+                    // empty in the second case — and `facet_coverage` counts
+                    // them in separate buckets so an unconstrained consumer
+                    // is never read as agreement.
+                    let rationale = if name.as_str() == "statistical_state" {
+                        "exact statistical-state match on bound port".to_string()
+                    } else if consumer_value.is_some() {
+                        format!("{name}: producer and consumer declared the same value")
+                    } else {
+                        format!("{name}: producer declared it; consumer does not constrain it")
+                    };
+                    builder.add_facet(
+                        name,
+                        *producer_value,
+                        *consumer_value,
+                        outcome.match_kind(),
+                        Some(rationale),
+                    );
                 }
                 FacetUnification::Subtype { rationale } => {
                     builder.add_facet(
@@ -1749,10 +1807,11 @@ mod tests {
         }
     }
 
-    /// PR-5 — the load-bearing `statistical_state` facet (the bound member of
-    /// the DE `counts` one-of group) MUST be surfaced in the proof with its
-    /// real producer/consumer values even when it is an Exact match, while
-    /// other exactly-matching facets stay out of the proof as noise.
+    /// The load-bearing `statistical_state` facet (the bound member of the DE
+    /// `counts` one-of group) MUST be surfaced in the proof with its real
+    /// producer/consumer values even when it is an Exact match. Every other
+    /// Exact facet is surfaced too: an unsurfaced agreement is
+    /// indistinguishable from an undeclared facet to a reader of the proof.
     #[test]
     fn statistical_state_exact_match_is_surfaced_with_values() {
         use crate::workflow_contracts::edge::FacetMatchKind;
@@ -1778,15 +1837,61 @@ mod tests {
                 );
                 assert_eq!(fm.producer, "raw_counts", "producer value must be surfaced");
                 assert_eq!(fm.consumer, "raw_counts", "consumer value must be surfaced");
-                // A non-load-bearing exact facet (modality) stays out (noise).
-                assert!(
-                    !proof.facet_matches.iter().any(|f| f.facet == "modality"),
-                    "non-load-bearing exact facets must not be surfaced: {:?}",
+                // Every other Exact facet is surfaced with its values too.
+                let modality = proof
+                    .facet_matches
+                    .iter()
+                    .find(|f| f.facet == "modality")
+                    .expect("an exactly-matching biological facet must be surfaced");
+                assert!(matches!(modality.kind, FacetMatchKind::Exact));
+                assert_eq!(modality.producer, "bulk_rnaseq");
+                assert_eq!(modality.consumer, "bulk_rnaseq");
+                // Every facet is now accounted for: the eight the engine
+                // unifies appear exactly once each.
+                assert_eq!(
+                    proof.facet_matches.len(),
+                    8,
+                    "every unified facet must appear once: {:?}",
                     proof.facet_matches
                 );
             }
             other => panic!("expected Compatible, got {other:?}"),
         }
+    }
+
+    /// `batch_corrected` is a specialization of `normalized`, so a
+    /// batch-corrected matrix satisfies a consumer asking for a normalized
+    /// one. The reverse is not a subtype.
+    #[test]
+    fn declared_facet_subtype_is_not_a_mismatch() {
+        use crate::workflow_contracts::edge::FacetMatchKind;
+        let engine = DeterministicCompatibilityEngine::new();
+        let mut producer = p("data:3917");
+        producer.normalization_state = Some("batch_corrected".into());
+        let mut consumer = p("data:3917");
+        consumer.normalization_state = Some("normalized".into());
+        match engine.prove(&producer, &consumer, &PlanningContext::default()) {
+            CompatibilityResult::Compatible(proof) => {
+                let fm = proof
+                    .facet_matches
+                    .iter()
+                    .find(|f| f.facet == "normalization_state")
+                    .expect("normalization_state must be surfaced");
+                assert!(matches!(fm.kind, FacetMatchKind::Subtype), "{:?}", fm.kind);
+            }
+            other => panic!("expected Compatible, got {other:?}"),
+        }
+
+        // Reverse direction: a plain normalized matrix does NOT satisfy a
+        // port that requires batch correction.
+        let mut producer = p("data:3917");
+        producer.normalization_state = Some("normalized".into());
+        let mut consumer = p("data:3917");
+        consumer.normalization_state = Some("batch_corrected".into());
+        assert!(matches!(
+            engine.prove(&producer, &consumer, &PlanningContext::default()),
+            CompatibilityResult::Incompatible(_)
+        ));
     }
 
     #[test]
