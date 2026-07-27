@@ -13,10 +13,21 @@ pub mod result_schema;
 
 pub mod assemble;
 pub mod full_table;
+pub mod pathway_ranking;
+pub mod provenance_section;
 
 pub use assemble::{CONTEXTUALIZE_STAGE_ID, assemble_report_data};
 pub use full_table::{
     FULL_TABLE_END, FULL_TABLE_START, inject_full_tables, significant_entities_section,
+};
+pub use pathway_ranking::{
+    PathwayRanking, RankedTerm, RankingColumns, SignClass, SignificanceOrder, rank_artifact,
+    rank_terms, resolve_ranking_columns,
+};
+pub use provenance_section::{
+    DATA_PROVENANCE_END, DATA_PROVENANCE_START, DataProvenance, DataProvenanceRecord,
+    SmeRegisteredInput, SourceKind, collect_data_provenance, inject_provenance_section,
+    render_provenance_section, strip_provenance_section,
 };
 pub use report_data::{
     ArtifactStats, DirectionSplit, DistBin, EntityRow, GroupCount, LitFinding, LiteratureRollup,

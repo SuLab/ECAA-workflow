@@ -67,10 +67,30 @@
 //!     obligation, so a summarized report can't silently ship an incomplete
 //!     significant set that RC-COUNT (JSON-only) and RC-SECTIONS (headings)
 //!     both miss.
+//!   * **RP-PROV** every bibliographic / data-source assertion the narrative
+//!     makes (journal, DOI, PMID, accession, "supplied by the SME" /
+//!     local-copy phrasing) must be consistent with the package's OWN
+//!     acquisition record — `per_accession_summary.json` plus
+//!     `runtime/inputs.json`. A deposited report asserted an SME-supplied
+//!     local copy that was never registered (no `runtime/inputs.json`; the
+//!     stage actually read a Bioconductor data package) and cited it to the
+//!     wrong journal, while the package's own record carried the correct
+//!     journal, DOI and PMID. The system-owned provenance block
+//!     ([`crate::report_contract::provenance_section`]) is excluded from the
+//!     scan — it is the reference, not an assertion under test.
+//!   * **RP-QC** an unqualified QC-negative assertion ("no outlier samples
+//!     were identified") requires a RETAINED outlier / PCA / sample-distance
+//!     artifact in the package. The deposited report asserted the absence of
+//!     outliers while the package contained no sample-level QC artifact of
+//!     any kind — the only sample statistic was a size-factor range.
 //! * **Warn-only** — free-text prose invariants, so a brittle regex can
 //!   never block a scientifically-correct deposit:
 //!   * **RP-1** effect-abundance direction word (derived structurally from
-//!     the sign of `top_effect_abundance_ratio`).
+//!     the sign of `top_effect_abundance_ratio`), plus the prose that
+//!     DESCRIBES that statistic: it is a ratio of the MEDIAN abundance of the
+//!     top-K features over the median of the whole tested set, so narrating
+//!     it as a "mean"/"average" or attributing it to N *samples* (rather than
+//!     to features) misstates what was computed.
 //!   * **RP-3** FDR-family qualification (gene-level vs pathway-level).
 //!   * **RP-9** method label (fixed-effects negative-binomial GLM, not a
 //!     "linear mixed model").
@@ -89,6 +109,9 @@ use std::path::Path;
 use regex::Regex;
 use serde_json::Value;
 
+use crate::report_contract::provenance_section::{
+    DataProvenance, DataProvenanceRecord, collect_data_provenance, strip_provenance_section,
+};
 use crate::report_contract::{
     ReportData, ResultSchema, load_policy_column_synonyms, summarize_artifact,
 };
@@ -170,12 +193,14 @@ pub fn check_reporting_invariants(package_root: &Path) -> ReportingInvariantsRep
     let mut report = ReportingInvariantsReport::default();
     let outputs = package_root.join("runtime").join("outputs");
 
-    check_rp1_effect_direction(&outputs, &mut report);
+    check_rp1_effect_direction(package_root, &outputs, &mut report);
     check_rp2_gene_sets_tested(&outputs, &mut report);
     check_rp3_fdr_family(&outputs, &mut report);
     check_rp4_mapping_reconciliation(&outputs, &mut report);
     check_rp5_figure_caption_shape(&outputs, &mut report);
     check_rp9_method_label(&outputs, &mut report);
+    check_rp_prov_data_source(package_root, &outputs, &mut report);
+    check_rp_qc_negative_claim(&outputs, &mut report);
     check_rc_count(package_root, &outputs, &mut report);
     check_rc_identity(&outputs, &mut report);
     check_rc_sections(package_root, &outputs, &mut report);
@@ -211,6 +236,43 @@ fn read_reports(outputs: &Path) -> Option<String> {
         }
     }
     (!combined.is_empty()).then_some(combined)
+}
+
+/// The AGENT-authored report prose: [`read_reports`] with the system-owned
+/// data-provenance block removed. A narrative scanner must never read the
+/// block the system itself injected as an assertion under test — it is the
+/// reference the assertions are checked against.
+fn read_agent_report_prose(outputs: &Path) -> Option<String> {
+    read_reports(outputs).map(|text| strip_provenance_section(&text))
+}
+
+/// A byte-bounded slice of `text` around `byte_at`, snapped outward to char
+/// boundaries so a multi-byte character can never split the window.
+fn byte_window(text: &str, byte_at: usize, before: usize, after: usize) -> &str {
+    let mut start = byte_at.saturating_sub(before);
+    while start > 0 && !text.is_char_boundary(start) {
+        start -= 1;
+    }
+    let mut end = byte_at.saturating_add(after).min(text.len());
+    while end < text.len() && !text.is_char_boundary(end) {
+        end += 1;
+    }
+    &text[start..end]
+}
+
+/// Byte offsets of every occurrence of `needle` in `haystack`.
+fn find_all(haystack: &str, needle: &str) -> Vec<usize> {
+    let mut out = Vec::new();
+    if needle.is_empty() {
+        return out;
+    }
+    let mut from = 0;
+    while let Some(rel) = haystack[from..].find(needle) {
+        let at = from + rel;
+        out.push(at);
+        from = at + needle.len();
+    }
+    out
 }
 
 /// Parse an integer that may carry `,` thousands separators (`"5,179"`).
@@ -529,51 +591,169 @@ fn check_rp5_figure_caption_shape(outputs: &Path, report: &mut ReportingInvarian
 // RP-1 (Warn) — effect-abundance direction word vs computed ratio sign
 // ---------------------------------------------------------------------------
 
+/// The authoritative definition of `top_effect_abundance_ratio`, kept verbatim
+/// in one place so the finding text and the agent prompt cannot drift apart.
+/// It is the MEDIAN abundance of the top-K-by-|effect| features over the
+/// MEDIAN abundance of the whole tested set — a median-over-FEATURES ratio,
+/// not a mean and not a per-sample statistic.
+pub const EFFECT_ABUNDANCE_RATIO_DEFINITION: &str =
+    "the median abundance of the top-K-by-|effect| features divided by the median abundance of \
+     the whole tested set (a median/median ratio over FEATURES)";
+
 /// Warn-only, but derived structurally from the SIGN of the computed
 /// `top_effect_abundance_ratio` rather than from a free-text regex over the
 /// prose: a ratio < 1 means the top effects sit BELOW background, so
 /// narrative that calls them "above" is inverted (the deposited report did
 /// exactly this at ratio 0.558). Left warn-only per §G-C1 so a prose
 /// mismatch cannot block an otherwise-correct deposit.
-fn check_rp1_effect_direction(outputs: &Path, report: &mut ReportingInvariantsReport) {
+///
+/// The same check also guards how the statistic is DESCRIBED, in the stage
+/// narrative and in the emitted report: the deposited report called it an
+/// "average normalized count ratio" / a "mean baseMean" and attributed it to
+/// "the 15 samples" — reusing the top-K FEATURE count as a sample count in a
+/// run with 8 samples. Both are misstatements of a median/median ratio over
+/// features, so a `mean`/`average` word or an `across N samples` attribution
+/// adjacent to the statistic warns.
+fn check_rp1_effect_direction(
+    package_root: &Path,
+    outputs: &Path,
+    report: &mut ReportingInvariantsReport,
+) {
     let Some(de) = read_json(&outputs.join("differential_expression").join("result.json")) else {
         return;
     };
     let Some(ratio) = de.get("top_effect_abundance_ratio").and_then(Value::as_f64) else {
         return;
     };
-    let Some(narrative) = de.get("narrative_text").and_then(Value::as_str) else {
-        return;
-    };
     report.checked.push("RP-1");
 
-    let lower = narrative.to_lowercase();
-    let says_above = ["above", "higher", "greater", "exceed"]
-        .iter()
-        .any(|w| lower.contains(w));
-    let says_below = ["below", "lower", "less than", "beneath"]
-        .iter()
-        .any(|w| lower.contains(w));
-    let finding = if ratio < 1.0 && says_above && !says_below {
-        Some(format!(
-            "narrative describes the top-effect abundance as ABOVE background, but \
-             top_effect_abundance_ratio = {ratio:.4} (< 1) means the top effects sit BELOW \
-             the whole-set median abundance"
-        ))
-    } else if ratio > 1.0 && says_below && !says_above {
-        Some(format!(
-            "narrative describes the top-effect abundance as BELOW background, but \
-             top_effect_abundance_ratio = {ratio:.4} (> 1) means the top effects sit ABOVE \
-             the whole-set median abundance"
-        ))
-    } else {
-        None
+    if let Some(narrative) = de.get("narrative_text").and_then(Value::as_str) {
+        let lower = narrative.to_lowercase();
+        let says_above = ["above", "higher", "greater", "exceed"]
+            .iter()
+            .any(|w| lower.contains(w));
+        let says_below = ["below", "lower", "less than", "beneath"]
+            .iter()
+            .any(|w| lower.contains(w));
+        let finding = if ratio < 1.0 && says_above && !says_below {
+            Some(format!(
+                "narrative describes the top-effect abundance as ABOVE background, but \
+                 top_effect_abundance_ratio = {ratio:.4} (< 1) means the top effects sit BELOW \
+                 the whole-set median abundance"
+            ))
+        } else if ratio > 1.0 && says_below && !says_above {
+            Some(format!(
+                "narrative describes the top-effect abundance as BELOW background, but \
+                 top_effect_abundance_ratio = {ratio:.4} (> 1) means the top effects sit ABOVE \
+                 the whole-set median abundance"
+            ))
+        } else {
+            None
+        };
+        if let Some(detail) = finding {
+            report.findings.push(ReportingFinding {
+                invariant: "RP-1",
+                severity: Severity::Warn,
+                detail,
+            });
+        }
+    }
+
+    check_effect_ratio_prose(package_root, outputs, ratio, report);
+}
+
+/// Byte offsets in `text_lc` at which the top-effect abundance ratio is being
+/// cited: the field name, the phrase "abundance ratio", or the value rendered
+/// to 3 or 4 decimals (how a report prints it).
+fn effect_ratio_anchors(text_lc: &str, ratio: f64) -> Vec<usize> {
+    let mut anchors = Vec::new();
+    for needle in ["top_effect_abundance_ratio", "abundance ratio"] {
+        anchors.extend(find_all(text_lc, needle));
+    }
+    for rendered in [format!("{ratio:.3}"), format!("{ratio:.4}")] {
+        anchors.extend(find_all(text_lc, &rendered));
+    }
+    anchors.sort_unstable();
+    anchors.dedup();
+    anchors
+}
+
+/// How far either side of a ratio citation counts as "adjacent" prose.
+const EFFECT_RATIO_WINDOW_BYTES: usize = 400;
+
+/// Warn when the prose adjacent to a `top_effect_abundance_ratio` citation
+/// describes it as a mean/average, or attributes it to a number of SAMPLES.
+/// Modality-neutral: it never asserts what the features are, only that the
+/// statistic is a median-over-features ratio.
+fn check_effect_ratio_prose(
+    package_root: &Path,
+    outputs: &Path,
+    ratio: f64,
+    report: &mut ReportingInvariantsReport,
+) {
+    let Some(prose) = read_agent_report_prose(outputs) else {
+        return;
     };
-    if let Some(detail) = finding {
+    let text_lc = prose.to_lowercase();
+    let anchors = effect_ratio_anchors(&text_lc, ratio);
+    if anchors.is_empty() {
+        return;
+    }
+    let mean_re = Regex::new(r"\b(?:mean|means|average|averaged|averages)\b")
+        .expect("static RP-1 mean-word regex compiles");
+    let samples_re = Regex::new(r"\b(?:across|among|over|within|of)\s+(?:the\s+)?(\d[\d,]*)\s+samples?\b")
+        .expect("static RP-1 sample-attribution regex compiles");
+
+    let mut mean_word: Option<String> = None;
+    let mut sample_claim: Option<String> = None;
+    for anchor in anchors {
+        let win = byte_window(&text_lc, anchor, EFFECT_RATIO_WINDOW_BYTES, EFFECT_RATIO_WINDOW_BYTES);
+        if mean_word.is_none() {
+            if let Some(m) = mean_re.find(win) {
+                mean_word = Some(m.as_str().to_string());
+            }
+        }
+        if sample_claim.is_none() {
+            if let Some(c) = samples_re.captures(win) {
+                sample_claim = Some(c[1].to_string());
+            }
+        }
+        if mean_word.is_some() && sample_claim.is_some() {
+            break;
+        }
+    }
+
+    if let Some(word) = mean_word {
         report.findings.push(ReportingFinding {
             invariant: "RP-1",
             severity: Severity::Warn,
-            detail,
+            detail: format!(
+                "report describes top_effect_abundance_ratio ({ratio:.4}) with \"{word}\", but \
+                 the statistic is {EFFECT_ABUNDANCE_RATIO_DEFINITION} — copy that definition \
+                 rather than paraphrasing it as a mean/average"
+            ),
+        });
+    }
+    if let Some(claimed) = sample_claim {
+        let recorded = collect_data_provenance(package_root)
+            .records
+            .iter()
+            .find_map(|r| r.n_samples);
+        let recorded_note = match recorded {
+            Some(n) => format!(
+                "; the package records {n} sample(s), and the claimed {claimed} is not a sample \
+                 count at all"
+            ),
+            None => String::new(),
+        };
+        report.findings.push(ReportingFinding {
+            invariant: "RP-1",
+            severity: Severity::Warn,
+            detail: format!(
+                "report attributes top_effect_abundance_ratio ({ratio:.4}) to \"{claimed} \
+                 samples\", but the statistic is {EFFECT_ABUNDANCE_RATIO_DEFINITION} — it is \
+                 computed over features, not samples{recorded_note}"
+            ),
         });
     }
 }
@@ -683,6 +863,553 @@ fn check_rp9_method_label(outputs: &Path, report: &mut ReportingInvariantsReport
                 .to_string(),
         });
     }
+}
+
+// ---------------------------------------------------------------------------
+// RP-PROV (Required) — narrative provenance vs the package's own record
+// ---------------------------------------------------------------------------
+
+/// Phrases asserting the analysed data was handed over by the SME / user
+/// rather than fetched by the run. Matched on lowercased prose.
+const SME_SUPPLIED_PHRASES: &[&str] = &[
+    "supplied by the sme",
+    "provided by the sme",
+    "sme-supplied",
+    "sme supplied",
+    "supplied by the user",
+    "provided by the user",
+    "user-supplied",
+    "from a local copy",
+    "local copy of",
+    "locally supplied",
+];
+
+/// Nouns that mark an SME-supply phrase as being about DATA rather than about
+/// a method, threshold, or design choice the SME also "supplied".
+const PROV_DATA_NOUNS: &[&str] = &[
+    "data",
+    "dataset",
+    "matrix",
+    "matrices",
+    "count",
+    "counts",
+    "input",
+    "file",
+    "sample sheet",
+    "table",
+    "reads",
+    "manifest",
+];
+
+/// Cues that mark an SME-supply phrase as a DISAVOWAL ("the SME path was not
+/// supplied", "no local copy was available") rather than an assertion.
+const PROV_NEGATION_CUES: &[&str] = &[
+    "not ",
+    "n't ",
+    "no ",
+    "rather than",
+    "instead of",
+    "absent",
+    "never ",
+    "without",
+    "unavailable",
+];
+
+/// Cues that mark a LINE as asserting where this run's data came from. Used to
+/// keep the accession-contradiction check off literature-context prose, which
+/// legitimately names other accessions.
+const PROV_SOURCE_CUES: &[&str] = &[
+    "data source",
+    "dataset",
+    "accession",
+    "downloaded",
+    "download",
+    "retrieved",
+    "obtained",
+    "fetched",
+    "input path",
+    "acquisition",
+];
+
+/// Journal-name tokens carrying no discriminating power for an initialism.
+const JOURNAL_STOPWORDS: &[&str] = &["of", "the", "and", "for", "in", "on", "a", "an"];
+
+fn norm_alnum(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+fn journal_tokens(s: &str) -> Vec<String> {
+    s.split(|c: char| !c.is_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .map(str::to_lowercase)
+        .collect()
+}
+
+fn journal_initialism(tokens: &[String]) -> String {
+    tokens
+        .iter()
+        .filter(|t| !JOURNAL_STOPWORDS.contains(&t.as_str()))
+        .filter_map(|t| t.chars().next())
+        .collect()
+}
+
+/// Whether a journal name claimed in prose is a legitimate rendering of the
+/// journal the package recorded. Deliberately generous — an abbreviation
+/// ("Nat Genet" for "Nature Genetics") and an initialism ("NEJM" for "New
+/// England Journal of Medicine") both pass — so only a genuinely different
+/// journal can trip the REQUIRED gate.
+fn journal_matches(claimed: &str, recorded: &str) -> bool {
+    let (ct, rt) = (journal_tokens(claimed), journal_tokens(recorded));
+    if ct.is_empty() || rt.is_empty() {
+        return true;
+    }
+    if norm_alnum(claimed) == norm_alnum(recorded) {
+        return true;
+    }
+    if ct.len() == rt.len()
+        && ct
+            .iter()
+            .zip(rt.iter())
+            .all(|(c, r)| r.starts_with(c.as_str()) || c.starts_with(r.as_str()))
+    {
+        return true;
+    }
+    norm_alnum(claimed) == journal_initialism(&rt) || norm_alnum(recorded) == journal_initialism(&ct)
+}
+
+/// The recorded first author's surname, lowercased, for anchoring a citation
+/// match. `"Himes BE"` → `"himes"`.
+fn first_author_surname(record: &DataProvenanceRecord) -> Option<String> {
+    let raw = record.first_author.as_ref()?;
+    let token = raw.split_whitespace().next()?;
+    let norm = norm_alnum(token);
+    (norm.len() >= 3).then_some(norm)
+}
+
+/// Split an accession id into `(alphabetic prefix, numeric suffix)`.
+fn accession_parts(token: &str) -> Option<(String, String)> {
+    let upper = token.to_uppercase();
+    let split = upper.find(|c: char| c.is_ascii_digit())?;
+    let (prefix, digits) = upper.split_at(split);
+    let prefix = prefix.trim_end_matches(['-', '_']).to_string();
+    if prefix.len() < 2 || digits.len() < 3 || !digits.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    Some((prefix, digits.to_string()))
+}
+
+/// True when the SME-supply phrase at `at` is negated or is not about data.
+fn sme_phrase_is_inert(text_lc: &str, at: usize) -> bool {
+    let before = byte_window(text_lc, at, 40, 0);
+    if PROV_NEGATION_CUES.iter().any(|cue| before.contains(cue)) {
+        return true;
+    }
+    let context = byte_window(text_lc, at, 160, 160);
+    !PROV_DATA_NOUNS.iter().any(|n| context.contains(n))
+}
+
+/// RP-PROV: every bibliographic / data-source assertion in the emitted report
+/// must be consistent with the package's own acquisition record.
+///
+/// Four contradictions are gated, each naming BOTH sides:
+///
+/// 1. **Journal.** A `<first-author> et al., <Journal> <Year>` citation whose
+///    author surname and year match the package's recorded publication, but
+///    whose journal is a different journal.
+/// 2. **DOI / PMID.** A DOI or PMID stated on the SAME LINE as a recorded
+///    accession that differs from the DOI / PMID recorded for it.
+/// 3. **False local-copy claim.** "supplied by the SME" / "from a local copy"
+///    phrasing about the data when `runtime/inputs.json` registers no local
+///    input at all.
+/// 4. **Accession.** A same-family, different-id accession (`GSE52779` where
+///    the package records `GSE52778`) on a line asserting the data source.
+///
+/// Skipped entirely when the package records no accession metadata to compare
+/// against — an absent input is never a failure. The system-owned provenance
+/// block is stripped before scanning, so the section this check backstops can
+/// never fault itself.
+fn check_rp_prov_data_source(
+    package_root: &Path,
+    outputs: &Path,
+    report: &mut ReportingInvariantsReport,
+) {
+    let Some(prose) = read_agent_report_prose(outputs) else {
+        return;
+    };
+    let prov = collect_data_provenance(package_root);
+    if prov.records.is_empty() {
+        return;
+    }
+    report.checked.push("RP-PROV");
+
+    let text_lc = prose.to_lowercase();
+    let mut contradictions: Vec<String> = Vec::new();
+
+    check_prov_citation(&text_lc, &prov, &mut contradictions);
+    check_prov_identifiers(&text_lc, &prov, &mut contradictions);
+    check_prov_local_copy_claim(&text_lc, &prov, &mut contradictions);
+    check_prov_accession(&prose, &prov, &mut contradictions);
+
+    if !contradictions.is_empty() {
+        report.findings.push(ReportingFinding {
+            invariant: "RP-PROV",
+            severity: Severity::Required,
+            detail: format!(
+                "the report asserts data provenance that contradicts the package's own \
+                 acquisition record — {}",
+                contradictions.join("; ")
+            ),
+        });
+    }
+}
+
+fn check_prov_citation(text_lc: &str, prov: &DataProvenance, out: &mut Vec<String>) {
+    let cite = Regex::new(
+        r"([a-z][a-z'\-]{1,30})\s+et\s+al\.?,?\s+([a-z][a-z .&'\-]{1,40}?)[,\s]+((?:19|20)\d{2})",
+    )
+    .expect("static RP-PROV citation regex compiles");
+    for record in &prov.records {
+        let (Some(surname), Some(journal)) = (first_author_surname(record), record.journal.as_ref())
+        else {
+            continue;
+        };
+        for caps in cite.captures_iter(text_lc) {
+            if norm_alnum(&caps[1]) != surname {
+                continue;
+            }
+            // A different year is a different paper by the same author, not a
+            // misattribution of THIS dataset's publication.
+            if let Some(year) = &record.year {
+                if year.trim() != &caps[3] {
+                    continue;
+                }
+            }
+            let claimed = caps[2].trim().trim_end_matches([',', '.', ';']).trim();
+            if claimed.is_empty() || journal_matches(claimed, journal) {
+                continue;
+            }
+            out.push(format!(
+                "report cites the study as \"{} et al., {claimed} {}\", but the package's \
+                 {} record states journal \"{journal}\"",
+                &caps[1],
+                &caps[3],
+                record
+                    .accession
+                    .clone()
+                    .unwrap_or_else(|| record.stage_id.clone()),
+            ));
+            break;
+        }
+    }
+}
+
+fn check_prov_identifiers(text_lc: &str, prov: &DataProvenance, out: &mut Vec<String>) {
+    let doi_re =
+        Regex::new(r#"10\.\d{4,9}/[^\s)\]\}",;]+"#).expect("static RP-PROV doi regex compiles");
+    let pmid_re =
+        Regex::new(r"pmid[^0-9a-z]{0,6}(\d{6,9})").expect("static RP-PROV pmid regex compiles");
+    for record in &prov.records {
+        let Some(accession) = record.accession.as_ref() else {
+            continue;
+        };
+        let accession_lc = accession.to_lowercase();
+        for line in text_lc.lines() {
+            if !line.contains(&accession_lc) {
+                continue;
+            }
+            if let Some(recorded) = record.doi.as_ref() {
+                let recorded_lc = recorded.to_lowercase();
+                for m in doi_re.find_iter(line) {
+                    let claimed = m.as_str().trim_end_matches(['.', ',', ')']);
+                    if claimed != recorded_lc {
+                        out.push(format!(
+                            "report states DOI \"{claimed}\" alongside accession {accession}, \
+                             but the package records DOI \"{recorded}\""
+                        ));
+                        break;
+                    }
+                }
+            }
+            if let Some(recorded) = record.pmid.as_ref() {
+                if let Some(caps) = pmid_re.captures(line) {
+                    if &caps[1] != recorded.trim() {
+                        out.push(format!(
+                            "report states PMID {} alongside accession {accession}, but the \
+                             package records PMID {recorded}",
+                            &caps[1]
+                        ));
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn check_prov_local_copy_claim(text_lc: &str, prov: &DataProvenance, out: &mut Vec<String>) {
+    if prov.has_sme_registered_inputs() {
+        return;
+    }
+    for phrase in SME_SUPPLIED_PHRASES {
+        let Some(at) = find_all(text_lc, phrase).into_iter().find(|at| {
+            !sme_phrase_is_inert(text_lc, *at)
+        }) else {
+            continue;
+        };
+        let actual = prov
+            .records
+            .iter()
+            .map(|r| match (&r.source_package, &r.accession) {
+                (Some(pkg), _) => format!("{} read from software package `{pkg}`", r.stage_id),
+                (None, Some(acc)) => format!("{} fetched accession {acc}", r.stage_id),
+                (None, None) => r.stage_id.clone(),
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let registration_state = if prov.inputs_json_present {
+            "runtime/inputs.json registers no input"
+        } else {
+            "runtime/inputs.json is absent"
+        };
+        let excerpt = byte_window(text_lc, at, 60, 120).trim().to_string();
+        out.push(format!(
+            "report claims the data was \"{phrase}\" (…{excerpt}…), but {registration_state}, so \
+             no SME local input was ever registered; the package records instead: {actual}"
+        ));
+        return;
+    }
+}
+
+fn check_prov_accession(prose: &str, prov: &DataProvenance, out: &mut Vec<String>) {
+    let recorded: BTreeMap<String, String> = prov
+        .records
+        .iter()
+        .filter_map(|r| r.accession.as_ref())
+        .filter_map(|a| accession_parts(a).map(|(prefix, _)| (prefix, a.clone())))
+        .collect();
+    if recorded.is_empty() {
+        return;
+    }
+    let acc_re =
+        Regex::new(r"\b([A-Za-z]{2,6})[-_]?(\d{3,12})\b").expect("static RP-PROV accession regex compiles");
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    for line in prose.lines() {
+        let line_lc = line.to_lowercase();
+        if !PROV_SOURCE_CUES.iter().any(|cue| line_lc.contains(cue)) {
+            continue;
+        }
+        for caps in acc_re.captures_iter(line) {
+            let Some((prefix, digits)) = accession_parts(&caps[0]) else {
+                continue;
+            };
+            let Some(recorded_id) = recorded.get(&prefix) else {
+                continue;
+            };
+            let Some((_, recorded_digits)) = accession_parts(recorded_id) else {
+                continue;
+            };
+            if digits == recorded_digits {
+                continue;
+            }
+            let claimed = format!("{prefix}{digits}");
+            if seen.insert(claimed.clone()) {
+                out.push(format!(
+                    "report names accession {claimed} in a data-source statement, but the \
+                     package records {recorded_id} for that repository"
+                ));
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// RP-QC (Required) — an unqualified QC-negative claim needs a retained artifact
+// ---------------------------------------------------------------------------
+
+/// How deep under `runtime/outputs/` the sample-QC artifact scan descends, and
+/// how many directory entries it will visit — bounds so the scan is cheap and
+/// terminates on a pathological tree.
+const QC_SCAN_MAX_DEPTH: usize = 5;
+const QC_SCAN_MAX_ENTRIES: usize = 20_000;
+/// Largest JSON the scan will parse looking for an outlier-shaped key.
+const QC_JSON_MAX_BYTES: u64 = 4 * 1024 * 1024;
+
+/// Filename markers of a retained sample-level QC artifact. Compared against
+/// the filename with every non-alphanumeric character removed, so
+/// `sample-distances.tsv`, `sample_distance_matrix.png`, and
+/// `sampleDistances.pdf` all match.
+const QC_ARTIFACT_MARKERS: &[&str] = &[
+    "outlier",
+    "sampledistance",
+    "sampledist",
+    "samplecorrelation",
+    "cooksdistance",
+    "cooksd",
+    "distancematrix",
+    "sampleclustering",
+    "hierarchicalclustering",
+    "samplepca",
+    "pcaplot",
+    "pcascores",
+    "pcaloadings",
+    "mdsplot",
+];
+
+/// True when `file_name` names a retained outlier / PCA / sample-distance
+/// artifact. Modality-agnostic: it recognizes the artifact CLASS, never a
+/// domain-specific entity.
+fn is_sample_qc_artifact(file_name: &str) -> bool {
+    let lower = file_name.to_lowercase();
+    let squashed: String = lower.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+    if QC_ARTIFACT_MARKERS.iter().any(|m| squashed.contains(m)) {
+        return true;
+    }
+    // `pca` / `mds` are too short for a substring test (they occur inside
+    // unrelated words), so require them as a whole filename token.
+    lower
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .any(|t| matches!(t, "pca" | "mds"))
+}
+
+/// The first object key containing "outlier" anywhere in a JSON document — a
+/// recorded outlier verdict counts as a retained artifact even when no file is
+/// named for it.
+fn find_outlier_key(v: &Value) -> Option<String> {
+    match v {
+        Value::Object(map) => {
+            for (k, val) in map {
+                if k.to_lowercase().contains("outlier") {
+                    return Some(k.clone());
+                }
+                if let Some(hit) = find_outlier_key(val) {
+                    return Some(hit);
+                }
+            }
+            None
+        }
+        Value::Array(items) => items.iter().find_map(find_outlier_key),
+        _ => None,
+    }
+}
+
+fn json_outlier_key(path: &Path) -> Option<String> {
+    let meta = std::fs::metadata(path).ok()?;
+    if meta.len() > QC_JSON_MAX_BYTES {
+        return None;
+    }
+    find_outlier_key(&read_json(path)?)
+}
+
+/// Depth-first, name-sorted scan for a retained sample-QC artifact. Returns
+/// the package-relative path of the first hit. Deterministic: entries are
+/// visited in sorted order, files before subdirectories.
+fn scan_for_qc_artifact(
+    root: &Path,
+    dir: &Path,
+    depth: usize,
+    budget: &mut usize,
+) -> Option<String> {
+    if depth > QC_SCAN_MAX_DEPTH || *budget == 0 {
+        return None;
+    }
+    let mut names: Vec<std::ffi::OsString> = std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .map(|e| e.file_name())
+        .collect();
+    names.sort();
+    let mut subdirs: Vec<std::path::PathBuf> = Vec::new();
+    for name in names {
+        if *budget == 0 {
+            break;
+        }
+        *budget -= 1;
+        let path = dir.join(&name);
+        if path.is_dir() {
+            subdirs.push(path);
+            continue;
+        }
+        let file_name = name.to_string_lossy().to_string();
+        let rel = || {
+            path.strip_prefix(root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .to_string()
+        };
+        if is_sample_qc_artifact(&file_name) {
+            return Some(rel());
+        }
+        if file_name.to_lowercase().ends_with(".json") {
+            if let Some(key) = json_outlier_key(&path) {
+                return Some(format!("{} (key `{key}`)", rel()));
+            }
+        }
+    }
+    for sub in subdirs {
+        if let Some(hit) = scan_for_qc_artifact(root, &sub, depth + 1, budget) {
+            return Some(hit);
+        }
+    }
+    None
+}
+
+/// RP-QC: an unqualified QC-NEGATIVE assertion — "no outlier samples were
+/// identified", "the cohort was outlier-free" — is a claim about a computation
+/// that must have left an artifact behind. The deposited report asserted it
+/// while the package contained no outlier / PCA / sample-distance artifact of
+/// any kind: nothing in the deposit could corroborate or refute the sentence,
+/// and no downstream check noticed, because every other invariant recomputes
+/// numbers rather than reading claims about absent computations.
+///
+/// Required, because an unsupported QC-negative assertion is the kind of claim
+/// a reader most reasonably relies on. It is satisfied by ANY retained
+/// sample-level QC artifact (a PCA / MDS plot or score table, a
+/// sample-distance or sample-correlation matrix, a Cook's-distance output, or
+/// any JSON recording an outlier-shaped key) — the check never demands a
+/// particular tool or figure id, so a modality with a different QC idiom
+/// satisfies it by retaining its own artifact.
+fn check_rp_qc_negative_claim(outputs: &Path, report: &mut ReportingInvariantsReport) {
+    let Some(prose) = read_agent_report_prose(outputs) else {
+        return;
+    };
+    report.checked.push("RP-QC");
+
+    let patterns = [
+        r"\bno\s+outlier\s+samples?\s+(?:were|was)\s+\w+",
+        r"\bno\s+(?:sample\s+)?outliers?\s+(?:were|was)\s+(?:identified|detected|found|observed|flagged|apparent|present|evident|seen)\b",
+        r"\bno\s+(?:sample\s+)?outliers?\s*[.;]",
+        r"\bno\s+samples?\s+(?:were\s+)?(?:flagged|identified|detected|excluded|removed)\s+as\s+(?:an\s+)?outliers?\b",
+        r"\boutlier[-\s]free\b",
+    ];
+    let text_lc = prose.to_lowercase();
+    let mut claim: Option<String> = None;
+    for pattern in patterns {
+        let re = Regex::new(pattern).expect("static RP-QC regex compiles");
+        if let Some(m) = re.find(&text_lc) {
+            claim = Some(m.as_str().trim().to_string());
+            break;
+        }
+    }
+    let Some(claim) = claim else {
+        return;
+    };
+    let mut budget = QC_SCAN_MAX_ENTRIES;
+    if scan_for_qc_artifact(outputs, outputs, 0, &mut budget).is_some() {
+        return;
+    }
+    report.findings.push(ReportingFinding {
+        invariant: "RP-QC",
+        severity: Severity::Required,
+        detail: format!(
+            "report asserts \"{claim}\", but the package retains no sample-level QC artifact \
+             supporting it — no outlier table/verdict, PCA or MDS output, sample-distance or \
+             sample-correlation matrix, or Cook's-distance output is present under \
+             runtime/outputs/. Either retain the artifact the conclusion was drawn from or \
+             drop the claim"
+        ),
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -1138,6 +1865,35 @@ mod tests {
         let path = outputs.join(rel);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, body).unwrap();
+    }
+
+    /// Write a path relative to the PACKAGE ROOT (rather than to
+    /// `runtime/outputs`) — needed for `runtime/inputs.json`.
+    fn write_root(root: &Path, rel: &str, body: &str) {
+        let path = root.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, body).unwrap();
+    }
+
+    /// The accession record the himes deposit actually shipped: the study was
+    /// published in PLOS ONE, and the bytes came from a Bioconductor data
+    /// package rather than from a repository download or an SME local copy.
+    fn himes_accession_summary() -> String {
+        serde_json::json!({
+            "accession": "GSE52778",
+            "study_title": "RNA-Seq Transcriptome Profiling Identifies CRISPLD2",
+            "publication": {
+                "pmid": "24926665",
+                "doi": "10.1371/journal.pone.0099625",
+                "journal": "PLOS ONE",
+                "year": 2014,
+                "first_author": "Himes BE"
+            },
+            "source_package": "airway (Bioconductor)",
+            "package_version": "1.30.0",
+            "n_samples": 8
+        })
+        .to_string()
     }
 
     /// A `pathway_results.tsv` with the given per-collection row counts.
@@ -2292,6 +3048,327 @@ mod tests {
                 .any(|f| f.contains("RC-TABLE")),
             "RC-TABLE must fault the truncated terminal report despite the complete \
              intermediate: {report:?}"
+        );
+    }
+
+    // -- RP-PROV ----------------------------------------------------------
+
+    #[test]
+    fn rp_prov_flags_journal_contradiction() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "data_acquisition/per_accession_summary.json",
+            &himes_accession_summary(),
+        );
+        write(
+            &outputs,
+            "final_reporting/final_report.md",
+            "## Provenance\n\nGene-level counts for GSE52778 (Himes et al., NEJM 2014) were \
+             analysed.\n",
+        );
+        let report = check_reporting_invariants(tmp.path());
+        assert!(
+            report.checked.contains(&"RP-PROV"),
+            "RP-PROV must run when the package records accession metadata: {report:?}"
+        );
+        assert!(
+            !report.passed(),
+            "a journal contradicting the package's own record must block: {report:?}"
+        );
+        let failures = report.required_failures().join(" | ").to_lowercase();
+        assert!(
+            failures.contains("rp-prov") && failures.contains("nejm") && failures.contains("plos one"),
+            "RP-PROV must name BOTH the claimed (NEJM) and recorded (PLOS ONE) journal: {failures}"
+        );
+    }
+
+    #[test]
+    fn rp_prov_flags_false_local_copy_claim() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        // No runtime/inputs.json — nothing was ever registered by the SME.
+        write(
+            &outputs,
+            "data_acquisition/per_accession_summary.json",
+            &himes_accession_summary(),
+        );
+        write(
+            &outputs,
+            "final_reporting/final_report.md",
+            "### Data source\n\nGene-level count matrix and sample sheet supplied by the SME \
+             from a local copy of GSE52778. Input path: `/home/a/.ecaa-workflow/himes-inputs` \
+             (counts.tsv + samples.csv).\n",
+        );
+        let report = check_reporting_invariants(tmp.path());
+        assert!(report.checked.contains(&"RP-PROV"));
+        assert!(
+            !report.passed(),
+            "asserting an SME local copy that was never registered must block: {report:?}"
+        );
+        let failures = report.required_failures().join(" | ");
+        assert!(
+            failures.contains("RP-PROV")
+                && failures.contains("runtime/inputs.json is absent")
+                && failures.contains("airway (Bioconductor)"),
+            "RP-PROV must name BOTH the false claim and the real recorded source: {failures}"
+        );
+    }
+
+    #[test]
+    fn rp_prov_passes_when_the_narrative_matches_the_package_record() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "data_acquisition/per_accession_summary.json",
+            &himes_accession_summary(),
+        );
+        write(
+            &outputs,
+            "final_reporting/final_report.md",
+            "### Data source\n\nCounts for GSE52778 (Himes et al., PLOS ONE 2014; \
+             doi 10.1371/journal.pone.0099625; PMID 24926665) were read from the airway \
+             Bioconductor data package.\n",
+        );
+        let report = check_reporting_invariants(tmp.path());
+        assert!(report.checked.contains(&"RP-PROV"));
+        assert!(
+            report.required_failures().iter().all(|f| !f.contains("RP-PROV")),
+            "a faithful provenance narrative must pass: {report:?}"
+        );
+    }
+
+    #[test]
+    fn rp_prov_accepts_an_abbreviated_journal_and_a_registered_local_input() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "data_import/per_accession_summary.json",
+            &serde_json::json!({
+                "accession": "LOCAL-7",
+                "publication": {
+                    "journal": "Nature Genetics", "year": 2019, "first_author": "Doe J"
+                }
+            })
+            .to_string(),
+        );
+        write_root(
+            tmp.path(),
+            "runtime/inputs.json",
+            &serde_json::json!([{
+                "input_id": "sme-1", "label": "cohort", "kind": "local_path",
+                "root_path": "/data/cohort", "files": [{ "relpath": "a.tsv" }]
+            }])
+            .to_string(),
+        );
+        write(
+            &outputs,
+            "final_reporting/final_report.md",
+            "Data supplied by the SME from a local copy (Doe et al., Nat Genet 2019).\n",
+        );
+        let report = check_reporting_invariants(tmp.path());
+        assert!(
+            report.required_failures().iter().all(|f| !f.contains("RP-PROV")),
+            "an abbreviated journal and a REGISTERED local input must not block: {report:?}"
+        );
+    }
+
+    #[test]
+    fn rp_prov_is_skipped_without_accession_metadata() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "final_reporting/final_report.md",
+            "Counts supplied by the SME from a local copy of GSE1 (Doe et al., NEJM 2014).\n",
+        );
+        let report = check_reporting_invariants(tmp.path());
+        assert!(
+            !report.checked.contains(&"RP-PROV"),
+            "no accession metadata to compare against → skip, never fail: {report:?}"
+        );
+        assert!(report.passed());
+    }
+
+    #[test]
+    fn rp_prov_does_not_fault_the_system_generated_provenance_block() {
+        use crate::report_contract::provenance_section::provenance_section;
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "data_acquisition/per_accession_summary.json",
+            &himes_accession_summary(),
+        );
+        write(
+            &outputs,
+            "data_acquisition/result.json",
+            &serde_json::json!({
+                "provenance_note": "The SME-specified local copy was absent; data supplied by \
+                                    the SME could not be read, so the airway package was used."
+            })
+            .to_string(),
+        );
+        let block = provenance_section(tmp.path()).expect("section renders");
+        write(
+            &outputs,
+            "final_reporting/final_report.md",
+            &format!("# Final report\n\nNarrative.\n\n{block}"),
+        );
+        let report = check_reporting_invariants(tmp.path());
+        assert!(
+            report.required_failures().iter().all(|f| !f.contains("RP-PROV")),
+            "the system's own block is the reference, never an assertion under test: {report:?}"
+        );
+    }
+
+    // -- RP-QC ------------------------------------------------------------
+
+    #[test]
+    fn rp_qc_flags_unsupported_no_outlier_claim() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "differential_expression/result.json",
+            &serde_json::json!({ "contrast": "treated_vs_control" }).to_string(),
+        );
+        write(
+            &outputs,
+            "final_reporting/final_report.md",
+            "### QC\n\nSize factors ranged from 0.89 to 1.14. No outlier samples were \
+             identified. All eight samples were retained for analysis.\n",
+        );
+        let report = check_reporting_invariants(tmp.path());
+        assert!(report.checked.contains(&"RP-QC"));
+        assert!(
+            !report.passed(),
+            "a QC-negative claim with no retained artifact must block: {report:?}"
+        );
+        let failures = report.required_failures().join(" | ");
+        assert!(
+            failures.contains("RP-QC") && failures.contains("no outlier samples were identified"),
+            "RP-QC must quote the unsupported claim: {failures}"
+        );
+    }
+
+    #[test]
+    fn rp_qc_passes_when_outlier_artifact_present() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "final_reporting/final_report.md",
+            "### QC\n\nNo outlier samples were identified; see the sample PCA.\n",
+        );
+        write(&outputs, "normalization/figures/sample_pca.png", "PNG");
+        let report = check_reporting_invariants(tmp.path());
+        assert!(report.checked.contains(&"RP-QC"));
+        assert!(
+            report.required_failures().iter().all(|f| !f.contains("RP-QC")),
+            "a retained sample-PCA artifact corroborates the claim: {report:?}"
+        );
+
+        // A recorded outlier VERDICT (no file named for it) satisfies it too.
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "final_reporting/final_report.md",
+            "The cohort was outlier-free.\n",
+        );
+        write(
+            &outputs,
+            "quality_control/result.json",
+            &serde_json::json!({ "outlier_samples": [] }).to_string(),
+        );
+        let report = check_reporting_invariants(tmp.path());
+        assert!(
+            report.required_failures().iter().all(|f| !f.contains("RP-QC")),
+            "a recorded outlier verdict corroborates the claim: {report:?}"
+        );
+    }
+
+    #[test]
+    fn rp_qc_does_not_fire_without_a_qc_negative_claim() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "final_reporting/final_report.md",
+            "We did not test for sample outliers, so no outlier removal was attempted.\n",
+        );
+        let report = check_reporting_invariants(tmp.path());
+        assert!(
+            report.required_failures().iter().all(|f| !f.contains("RP-QC")),
+            "an honest 'we did not test' caveat is not a QC-negative assertion: {report:?}"
+        );
+    }
+
+    // -- RP-1 effect-abundance-ratio prose --------------------------------
+
+    #[test]
+    fn rp1_mean_and_sample_attribution_of_the_ratio_warn() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "data_acquisition/per_accession_summary.json",
+            &himes_accession_summary(),
+        );
+        write(
+            &outputs,
+            "differential_expression/result.json",
+            &serde_json::json!({ "top_effect_abundance_ratio": 0.558, "top_effect_k": 15 })
+                .to_string(),
+        );
+        write(
+            &outputs,
+            "final_reporting/final_report.md",
+            "The top 15 genes by effect size had an average normalized count ratio of 0.558 \
+             relative to the median (i.e., their mean baseMean sits at ~55.8% of the dataset \
+             median), indicating these extreme effects arise in genes with relatively lower \
+             average abundance across the 15 samples.\n",
+        );
+        let report = check_reporting_invariants(tmp.path());
+        let warnings = report.warnings().join(" | ");
+        assert!(
+            warnings.contains("RP-1") && warnings.contains("average"),
+            "a mean/average paraphrase of a median/median ratio must warn: {warnings}"
+        );
+        assert!(
+            warnings.contains("15 samples") && warnings.contains("8 sample"),
+            "the sample attribution must warn and name the recorded sample count: {warnings}"
+        );
+        assert!(
+            report.required_failures().iter().all(|f| !f.contains("RP-1")),
+            "RP-1 stays warn-only and must never block: {report:?}"
+        );
+    }
+
+    #[test]
+    fn rp1_faithful_ratio_prose_does_not_warn() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "differential_expression/result.json",
+            &serde_json::json!({ "top_effect_abundance_ratio": 0.558 }).to_string(),
+        );
+        write(
+            &outputs,
+            "final_reporting/final_report.md",
+            "The median abundance of the top-15 features by |effect| is 0.558x the median \
+             abundance of the whole tested set, so these extreme effects sit below the \
+             background level.\n",
+        );
+        let report = check_reporting_invariants(tmp.path());
+        assert!(
+            report.warnings().iter().all(|w| !w.contains("RP-1")),
+            "prose that states the median/median definition faithfully must not warn: {report:?}"
         );
     }
 }

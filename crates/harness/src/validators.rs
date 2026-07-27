@@ -646,6 +646,408 @@ fn read_json(path: &Path) -> Result<serde_json::Value, ValidatorOutcome> {
     })
 }
 
+// ── source-deviation provenance obligation ─────────────────────────
+//
+// A task's agent can be forced to read a DIFFERENT data source than
+// intake requested (the SME's local directory is absent, an accession
+// is embargoed, a mirror is down). That substitution happens at
+// EXECUTION time, after emission, so no intake-side tool can capture
+// it — and the agent is forbidden from writing
+// `runtime/decisions.jsonl`. The contract is therefore split in two:
+//
+//   1. the agent RECORDS the substitution in its own
+//      `result.json::source_deviation` block (the RECORD-WHAT-YOU-DID
+//      clause on ingestion atoms);
+//   2. the HARNESS promotes that block into one typed
+//      `DecisionType::DataSourceDeviation` record.
+//
+// This obligation is the enforcement half: a declared deviation with no
+// matching decision record — or one whose named source contradicts the
+// package's own `per_accession_summary.json` — is a REQUIRED failure.
+// Keyed on the data (the `source_deviation` block), never on an atom id,
+// so it holds for ANY ingestion atom in any modality.
+
+/// Stable obligation id for the source-deviation provenance check.
+/// Harness-local (no entry in core's starter registry); the harness
+/// unions it into a completed task's obligation bundle whenever that
+/// task's `result.json` declares a `source_deviation` block, and an atom
+/// may additionally opt in by naming it in its `validators:` list.
+pub const SOURCE_DEVIATION_OBLIGATION: &str = "source_deviation_recorded";
+
+/// Keys whose value names a DATA SOURCE, matched case-insensitively at
+/// any depth of `per_accession_summary.json`. Deliberately excludes
+/// `accession` / `study` / `pmid`: a summary legitimately records the
+/// accession the data CORRESPONDS to even when the bytes came from a
+/// redistribution of it, so treating an accession as a source claim
+/// would false-flag every honest substitution.
+const SOURCE_DESIGNATING_KEYS: &[&str] = &[
+    "source",
+    "sources",
+    "source_package",
+    "source_name",
+    "source_root",
+    "source_uri",
+    "source_url",
+    "data_source",
+    "data_sources",
+    "origin",
+    "provenance",
+    "provenance_note",
+    "repository",
+    "retrieved_from",
+];
+
+/// Tokens too generic to identify a source. A `used` string whose
+/// tokens are ALL generic (e.g. "local counts directory") carries no
+/// discriminating signal, so the contradiction cross-check skips it
+/// rather than guessing.
+const GENERIC_SOURCE_TOKENS: &[&str] = &[
+    "the", "and", "for", "from", "via", "with", "was", "were", "data", "dataset", "datasets",
+    "file", "files", "path", "local", "raw", "count", "counts", "matrix", "source", "sources",
+    "study", "package", "version", "object", "repo", "input", "inputs", "output", "outputs",
+    "folder", "archive", "table", "tables", "home", "user", "tmp", "var", "opt",
+];
+
+/// Parse the `source_deviation` block out of a task's `result.json`.
+///
+/// Accepts the block at the result-root (`source_deviation`, the
+/// RECORD-WHAT-YOU-DID convention every other atom key follows) or
+/// nested under `attributes` (`attributes.source_deviation`), so an
+/// agent that mirrors the atom's `attributes:` layout is not silently
+/// ignored. Returns `None` when there is no result.json, no block, or
+/// the block is not a JSON object — "nothing declared", which is the
+/// overwhelmingly common case and must stay free.
+pub fn read_source_deviation(
+    artifact_path: &Path,
+) -> Option<ecaa_workflow_core::decision_log::SourceDeviation> {
+    let value = read_json(&artifact_path.join("result.json")).ok()?;
+    let block = value.get("source_deviation").or_else(|| {
+        value
+            .get("attributes")
+            .and_then(|a| a.get("source_deviation"))
+    })?;
+    if !block.is_object() {
+        return None;
+    }
+    // Every field is `#[serde(default)]`, so any JSON object parses;
+    // a half-filled block surfaces as empty required fields below
+    // rather than as a silent parse failure.
+    serde_json::from_value(block.clone()).ok()
+}
+
+/// Walk up from a task's artifact dir to the package root by locating
+/// the `runtime/outputs` boundary. Pure path arithmetic — no filesystem
+/// reads — so it behaves identically under a tempdir fixture and a real
+/// package. Falls back to the dir's great-grandparent when the layout
+/// is non-canonical.
+fn package_root_from_artifact_path(artifact_path: &Path) -> std::path::PathBuf {
+    let mut anc = Some(artifact_path);
+    while let Some(dir) = anc {
+        let is_outputs = dir.file_name().map(|f| f == "outputs").unwrap_or(false)
+            && dir
+                .parent()
+                .and_then(|p| p.file_name())
+                .map(|f| f == "runtime")
+                .unwrap_or(false);
+        if is_outputs {
+            if let Some(pkg) = dir.parent().and_then(|p| p.parent()) {
+                return pkg.to_path_buf();
+            }
+        }
+        anc = dir.parent();
+    }
+    artifact_path
+        .parent()
+        .and_then(|p| p.parent())
+        .and_then(|p| p.parent())
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf()
+}
+
+/// The `DataSourceDeviation` payload already recorded for `task_id` in
+/// `<package_root>/runtime/decisions.jsonl`, if any. Malformed lines are
+/// skipped (the log is append-only and may carry rows written by an
+/// older schema); this is a presence probe, not a log validator.
+pub fn recorded_source_deviation(
+    package_root: &Path,
+    task_id: &str,
+) -> Option<ecaa_workflow_core::decision_log::SourceDeviation> {
+    use ecaa_workflow_core::decision_log::{DecisionRecord, DecisionType};
+    let raw = std::fs::read_to_string(package_root.join("runtime").join("decisions.jsonl")).ok()?;
+    for line in raw.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(rec) = serde_json::from_str::<DecisionRecord>(line) else {
+            continue;
+        };
+        if let DecisionType::DataSourceDeviation {
+            task_id: recorded_task,
+            deviation,
+        } = rec.decision
+        {
+            if recorded_task.as_str() == task_id {
+                return Some(deviation);
+            }
+        }
+    }
+    None
+}
+
+/// Lowercase alphanumeric tokens of `s` that could identify a source
+/// (length ≥ 3, not in [`GENERIC_SOURCE_TOKENS`]).
+fn distinctive_tokens(s: &str) -> std::collections::BTreeSet<String> {
+    s.to_ascii_lowercase()
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|t| t.len() >= 3 && !GENERIC_SOURCE_TOKENS.contains(t))
+        .map(|t| t.to_string())
+        .collect()
+}
+
+/// Collect every string value that sits under a
+/// [`SOURCE_DESIGNATING_KEYS`] key, at any depth of `value`. Arrays are
+/// traversed; a source key holding an array of strings contributes each
+/// element.
+fn collect_source_claims(value: &serde_json::Value, under_source_key: bool, out: &mut Vec<String>) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (k, v) in map {
+                let key_is_source =
+                    SOURCE_DESIGNATING_KEYS.contains(&k.to_ascii_lowercase().as_str());
+                collect_source_claims(v, key_is_source, out);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr {
+                collect_source_claims(v, under_source_key, out);
+            }
+        }
+        serde_json::Value::String(s) if under_source_key => {
+            if !s.trim().is_empty() {
+                out.push(s.clone());
+            }
+        }
+        _ => {}
+    }
+}
+
+/// `source_deviation_recorded` — the REQUIRED provenance obligation.
+///
+/// Fails when a task's `result.json` declares a `source_deviation` and
+/// either
+///   (a) `runtime/decisions.jsonl` carries no `DataSourceDeviation`
+///       record for the task (the substitution never reached the typed
+///       audit trail), or
+///   (b) the recorded decision names a different substitute than
+///       result.json does (the two halves of the contract disagree), or
+///   (c) the substitute contradicts the package's own
+///       `per_accession_summary.json` — the summary makes at least one
+///       source claim and NONE of them shares a distinctive token with
+///       the source result.json says was used.
+///
+/// Passes when no deviation is declared (the common case). Soft-skips
+/// (`Errored`) only when result.json itself is missing or unparseable —
+/// that is the generic missing-artifact guard's job, not this one's.
+pub fn source_deviation_recorded(artifact_path: &Path) -> ValidatorOutcome {
+    let result_path = artifact_path.join("result.json");
+    if let Err(e) = read_json(&result_path) {
+        return e;
+    }
+    let Some(declared) = read_source_deviation(artifact_path) else {
+        // No substitution claimed — nothing to reconcile.
+        return ValidatorOutcome::Passed;
+    };
+
+    let task_id = artifact_path
+        .file_name()
+        .and_then(|f| f.to_str())
+        .unwrap_or_default()
+        .to_string();
+
+    // A declared deviation that does not say what was used is
+    // unauditable — treat it as the failure it is rather than letting
+    // the empty string match everything downstream.
+    if declared.used.trim().is_empty() || declared.requested.trim().is_empty() {
+        return ValidatorOutcome::Failed {
+            message: format!(
+                "task {task_id} declares result.json::source_deviation but leaves \
+                 requested/used empty (requested={:?}, used={:?}) — an unauditable \
+                 substitution record",
+                declared.requested, declared.used
+            ),
+        };
+    }
+
+    // (a)/(b) — the typed decision record must exist and agree.
+    let package_root = package_root_from_artifact_path(artifact_path);
+    match recorded_source_deviation(&package_root, &task_id) {
+        None => {
+            return ValidatorOutcome::Failed {
+                message: format!(
+                    "task {task_id} substituted its data source (requested={:?}, used={:?}) \
+                     but runtime/decisions.jsonl carries no data_source_deviation record — \
+                     the substitution exists only in agent free text",
+                    declared.requested, declared.used
+                ),
+            };
+        }
+        Some(recorded) if recorded.used.trim() != declared.used.trim() => {
+            return ValidatorOutcome::Failed {
+                message: format!(
+                    "task {task_id} source-deviation mismatch: decisions.jsonl records \
+                     used={:?} but result.json records used={:?}",
+                    recorded.used, declared.used
+                ),
+            };
+        }
+        Some(_) => {}
+    }
+
+    // (c) — cross-check against the package's own per-accession summary.
+    let summary_path = artifact_path.join("per_accession_summary.json");
+    if let Ok(summary) = read_json(&summary_path) {
+        let mut claims: Vec<String> = Vec::new();
+        collect_source_claims(&summary, false, &mut claims);
+        let used_tokens = distinctive_tokens(&declared.used);
+        // No distinctive token in `used` (e.g. "local counts directory")
+        // means the cross-check has nothing to key on — skip rather than
+        // guess. Likewise when the summary makes no source claim at all.
+        if !claims.is_empty() && !used_tokens.is_empty() {
+            let corroborated = claims
+                .iter()
+                .any(|c| !distinctive_tokens(c).is_disjoint(&used_tokens));
+            if !corroborated {
+                claims.sort();
+                return ValidatorOutcome::Failed {
+                    message: format!(
+                        "task {task_id} records used={:?} in result.json::source_deviation, \
+                         but per_accession_summary.json names only {:?} as its source — the \
+                         package contradicts its own deviation record",
+                        declared.used,
+                        claims.iter().take(3).collect::<Vec<_>>()
+                    ),
+                };
+            }
+        }
+    }
+
+    ValidatorOutcome::Passed
+}
+
+/// Promote a completed task's `result.json::source_deviation` block into
+/// one typed `DecisionType::DataSourceDeviation` row in
+/// `<package_root>/runtime/decisions.jsonl`, and return what the task
+/// declared (`None` when it declared nothing).
+///
+/// The HARNESS calls this, never the agent: agents are forbidden from
+/// touching `runtime/decisions.jsonl`
+/// (`scripts/agent-prompts/task-execution.md`), and the substitution
+/// happens at execution time — post-emission — so no intake-side tool
+/// can capture it either.
+///
+/// Lives beside [`source_deviation_recorded`] rather than in the harness
+/// binary deliberately: the writer and the obligation that enforces it
+/// must agree on the record shape AND on the dedup predicate
+/// ([`recorded_source_deviation`]). Splitting them across a bin and a
+/// lib guarantees they drift. This is the one write in this module;
+/// every `ValidatorRunner` here stays side-effect-free.
+///
+/// Idempotent by construction — the on-disk log is probed first, so the
+/// harness re-entering its completion loop on every pass (and a
+/// standalone re-run over a finished package) both leave exactly one row
+/// per (task, substitution). Best-effort: an append failure is logged
+/// and the declared block is still returned, so the obligation below
+/// turns the missing record into a blocking failure instead of the
+/// harness silently swallowing it.
+pub fn promote_source_deviation(
+    package_root: &Path,
+    task_id: &str,
+    session_id: &str,
+    clock: &dyn ecaa_workflow_core::clock::Clock,
+) -> Option<ecaa_workflow_core::decision_log::SourceDeviation> {
+    use ecaa_workflow_core::decision_log::{
+        DecisionActor, DecisionAuthority, DecisionRecord, DecisionType,
+    };
+
+    let artifact_path = package_root.join("runtime").join("outputs").join(task_id);
+    let deviation = read_source_deviation(&artifact_path)?;
+
+    if recorded_source_deviation(package_root, task_id).is_some() {
+        return Some(deviation);
+    }
+
+    let mut record = DecisionRecord::new(
+        session_id,
+        DecisionType::DataSourceDeviation {
+            task_id: task_id.into(),
+            deviation: deviation.clone(),
+        },
+        DecisionActor::Harness,
+        Some(format!(
+            "harness-promoted source substitution: requested={:?} (available={}) used={:?} — {}",
+            deviation.requested, deviation.requested_available, deviation.used, deviation.reason
+        )),
+    );
+    // Harness actor → SchemaValidated: the record is derived
+    // deterministically from the task's own artifact, not inferred by an
+    // LLM (mirrors `scheduler::promote_auto_advance_decisions`).
+    record.authority = DecisionAuthority::SchemaValidated;
+    // C6 — timestamp from the injected clock, never `SystemTime::now()`,
+    // so a FrozenClock run stays reproducible.
+    record.timestamp = clock.now();
+
+    if let Err(e) = append_decision_record(package_root, &record) {
+        tracing::warn!(
+            target: "harness-provenance",
+            task_id,
+            error = format!("{e}"),
+            "failed to append the source-deviation decision record"
+        );
+    }
+    Some(deviation)
+}
+
+/// Append one `DecisionRecord` to `<package_root>/runtime/decisions.jsonl`.
+///
+/// Mirrors the append + fdatasync discipline of the private
+/// `scheduler::append_decision` (itself a mirror of
+/// `conversation::session::decision_helpers::record_decision_with_ip`).
+fn append_decision_record(
+    package_root: &Path,
+    record: &ecaa_workflow_core::decision_log::DecisionRecord,
+) -> std::io::Result<()> {
+    use std::io::Write as _;
+    let path = package_root.join("runtime").join("decisions.jsonl");
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let line =
+        serde_json::to_string(record).expect("DecisionRecord always serializes to valid JSON");
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)?;
+    writeln!(f, "{line}")?;
+    // fdatasync: the record must survive a kernel crash between the
+    // write and a later read of `runtime/decisions.jsonl`.
+    f.sync_data()?;
+    Ok(())
+}
+
+/// Registry adapter for [`source_deviation_recorded`].
+pub struct SourceDeviationRecordedRunner;
+
+impl ValidatorRunner for SourceDeviationRecordedRunner {
+    fn obligation_id(&self) -> &'static str {
+        SOURCE_DEVIATION_OBLIGATION
+    }
+
+    fn run(&self, artifact_path: &Path) -> ValidatorOutcome {
+        source_deviation_recorded(artifact_path)
+    }
+}
+
 /// Aggregate report shape — one entry per task's validator run.
 /// Serialized to `runtime/validation-reports.jsonl` and consulted by
 /// the harness post-task wiring (`evaluate_validation`).
@@ -759,6 +1161,11 @@ pub fn default_runners() -> Vec<Box<dyn ValidatorRunner>> {
         // `default_runners_cover_starter_obligations`.
         Box::new(VariantAfSpectrumPlausibleRunner),
         Box::new(VariantFilteredCountConsistencyRunner),
+        // Provenance obligation. Harness-local like the variant pair
+        // above; unioned into a task's bundle by the harness whenever
+        // that task's result.json declares a source_deviation block, so
+        // it holds for every ingestion atom without per-atom wiring.
+        Box::new(SourceDeviationRecordedRunner),
     ];
     runners.extend(crate::literature_validators::literature_runners());
     runners
@@ -773,6 +1180,14 @@ pub fn default_runners() -> Vec<Box<dyn ValidatorRunner>> {
 /// them from this list so the drift check re-tightens.
 const HARNESS_LOCAL_VARIANT_OBLIGATIONS: &[&str] =
     &["variant_af_spectrum_plausible", "variant_filtered_count_consistency"];
+
+/// Harness-local provenance obligation ids with no entry in core's
+/// starter registry. Unlike the variant pair above these are not
+/// contract-driven: the harness unions them into a task's bundle from
+/// the SHAPE of the task's own result.json, so they never need an atom
+/// to name them. Exempted from the starter-coverage drift check for the
+/// same reason.
+const HARNESS_LOCAL_PROVENANCE_OBLIGATIONS: &[&str] = &[SOURCE_DEVIATION_OBLIGATION];
 
 #[cfg(test)]
 mod tests {
@@ -999,6 +1414,10 @@ mod tests {
             // not in core's starter registry (companions to the
             // goal-driven variant assertion arms).
             .filter(|id| !HARNESS_LOCAL_VARIANT_OBLIGATIONS.contains(id))
+            // Harness-local provenance obligations are data-driven: the
+            // harness unions them in from the result.json shape, so they
+            // have no atom-declared entry to mirror into core.
+            .filter(|id| !HARNESS_LOCAL_PROVENANCE_OBLIGATIONS.contains(id))
             .collect();
         assert!(
             drifted.is_empty(),

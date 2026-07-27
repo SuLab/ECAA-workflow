@@ -490,16 +490,20 @@ async fn emit_steps(
         .await
         .context("appending SME intake methods")?;
 
-    // Surface SME-supplied data inputs to the agent. Two artifacts:
+    // Surface SME-supplied data inputs to the agent. Three artifacts:
     // 1. `runtime/inputs.json` — machine-readable manifest for the
     // data_acquisition stage's discovery layer to consume
     // directly when it picks a method.
     // 2. A `## SME-supplied data inputs` section appended to
     // CONTEXT.md — narrative context for the agent's free-text
     // reasoning (per-input label, kind, file count, total bytes).
-    // Both are no-ops when `session.inputs` is empty, so packages
-    // without registered inputs stay byte-identical to the baseline.
-    write_user_inputs_artifacts(session, output_dir)
+    // 3. A `## SME-named data inputs NOT found at emit` section plus
+    // `runtime/inputs-unavailable.json` for every prose-named path
+    // that could not be reconciled into a registration.
+    // (1) + (2) stay no-ops when the session registered nothing AND
+    // named nothing in prose, so packages without inputs remain
+    // byte-identical to the baseline.
+    write_user_inputs_artifacts(session, output_dir, clock)
         .await
         .context("writing SME data-input artifacts")?;
 
@@ -947,8 +951,476 @@ async fn write_report_json<T: serde::Serialize>(out: &std::path::Path, report: &
 ///
 /// Both are no-ops when `session.inputs` is empty, keeping byte-
 /// reproducibility for sessions without registered inputs.
-async fn write_user_inputs_artifacts(session: &Session, output_dir: &Path) -> Result<()> {
-    sync_user_inputs_to_package(&session.inputs, output_dir).await
+///
+/// Before either artifact is written, every prose-named path still
+/// sitting in `session.pending_input_hints` is reconciled — see
+/// [`reconcile_prose_input_hints`]. A hint that resolves to a real
+/// directory becomes a registration (so it reaches `runtime/inputs.json`
+/// and therefore the harness bind-mount); a hint that does not becomes a
+/// visible "named but not present" note. Neither outcome is silent.
+async fn write_user_inputs_artifacts(
+    session: &mut Session,
+    output_dir: &Path,
+    clock: &dyn ecaa_workflow_core::clock::Clock,
+) -> Result<()> {
+    let unavailable = reconcile_prose_input_hints(session, clock);
+    sync_user_inputs_to_package(&session.inputs, output_dir).await?;
+    // Written AFTER the registered-inputs sync: that writer truncates
+    // CONTEXT.md at its own `## SME-supplied data inputs` marker, so a
+    // note appended before it would be silently eaten on the next call.
+    write_unavailable_inputs_note(&unavailable, output_dir).await
+}
+
+/// One prose-named data location that could NOT be turned into a
+/// registered input at emit time.
+///
+/// The SME named the path in intake prose, so `intake_path_hints`
+/// surfaced it as a `Session::pending_input_hints` entry, but at emit
+/// the path was gone (or present and un-inventoriable). Recording it is
+/// the difference between an executor agent silently swapping in a
+/// public dataset and the package stating, on its face, that the
+/// SME-named data was not there.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct UnavailableProseInput {
+    /// Verbatim token the SME typed in intake prose.
+    raw_mention: String,
+    /// Canonical directory the hint resolved to when it was extracted.
+    canonical_root: String,
+    /// Specific file inside `canonical_root` the SME named, when the
+    /// prose pointed at a file rather than at the directory.
+    file_relpath: Option<String>,
+    /// Why the path could not be registered.
+    reason: String,
+}
+
+/// Default `ECAA_INPUT_ROOTS` when unset. Mirrors
+/// `tools::intake::DEFAULT_INPUT_ROOTS_FOR_HINTS` and the server's
+/// `chat_routes::inputs::list::DEFAULT_INPUT_ROOTS` — keep the three in
+/// sync (the two conversation-side copies exist because the private
+/// intake helper is not reachable from this module).
+const DEFAULT_INPUT_ROOTS_FOR_RECONCILE: &str = "/home/${USER}/data";
+
+/// Allowlisted roots a reconciled hint must still resolve under.
+///
+/// Re-read at emit rather than trusted from the intake-time validation
+/// baked into the hint: `pending_input_hints` round-trips through the
+/// on-disk session JSON, so a hand-edited or migrated session must not
+/// be able to smuggle an out-of-jail path onto `session.inputs`. This is
+/// the same allowlist `register_input_path` enforces (RC-17 posture:
+/// the jail is the last line, not the only line).
+fn reconcile_input_roots(owner_user: &str) -> Vec<std::path::PathBuf> {
+    let raw = std::env::var("ECAA_INPUT_ROOTS")
+        .unwrap_or_else(|_| DEFAULT_INPUT_ROOTS_FOR_RECONCILE.to_string());
+    raw.split(':')
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| s.replace("${USER}", owner_user))
+        .map(std::path::PathBuf::from)
+        .map(|p| p.canonicalize().unwrap_or(p))
+        .collect()
+}
+
+/// Walk `root` and build the per-file inventory `runtime/inputs.json`
+/// carries. Same shape + caps as the REST `register_input_path`
+/// manifest builder.
+///
+/// Deterministic by construction: entries are keyed by relpath in a
+/// `BTreeMap`, so the emitted manifest does not inherit the
+/// filesystem's directory-iteration order.
+fn build_reconciled_manifest(
+    root: &std::path::Path,
+) -> Result<Vec<crate::session::state::UserInputFile>, String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+    const MAX_TOTAL_BYTES: u64 = 32 * 1024 * 1024 * 1024;
+    const MAX_FILES: usize = 50_000;
+
+    let mut files: std::collections::BTreeMap<String, crate::session::state::UserInputFile> =
+        std::collections::BTreeMap::new();
+    let mut total_bytes: u64 = 0;
+    for entry in walkdir::WalkDir::new(root).follow_links(false) {
+        let entry = entry.map_err(|e| format!("walking {}: {e}", root.display()))?;
+        let path = entry.path();
+        // Skip dotfiles (but never the root itself, which may live under
+        // a dot-directory like `~/.ecaa-workflow/<dir>`).
+        if path != root
+            && path
+                .file_name()
+                .and_then(|n: &std::ffi::OsStr| n.to_str())
+                .map(|n: &str| n.starts_with('.'))
+                .unwrap_or(false)
+        {
+            continue;
+        }
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let meta = entry
+            .metadata()
+            .map_err(|e| format!("stat {}: {e}", path.display()))?;
+        let size = meta.len();
+        if size > MAX_FILE_BYTES {
+            return Err(format!(
+                "file {} is {size} bytes, over the 4GiB per-file cap",
+                path.display()
+            ));
+        }
+        total_bytes = total_bytes.saturating_add(size);
+        if total_bytes > MAX_TOTAL_BYTES {
+            return Err("registration would exceed the 32GiB total cap".to_string());
+        }
+        if files.len() >= MAX_FILES {
+            return Err(format!(
+                "registration would include more than {MAX_FILES} files"
+            ));
+        }
+        let relpath = path
+            .strip_prefix(root)
+            .map_err(|e| format!("strip_prefix {}: {e}", path.display()))?
+            .to_string_lossy()
+            .into_owned();
+        let mut hasher = Sha256::new();
+        let mut f =
+            std::fs::File::open(path).map_err(|e| format!("open {}: {e}", path.display()))?;
+        let mut buf = [0u8; 8192];
+        loop {
+            let n = f
+                .read(&mut buf)
+                .map_err(|e| format!("read {}: {e}", path.display()))?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buf[..n]);
+        }
+        files.insert(
+            relpath.clone(),
+            crate::session::state::UserInputFile {
+                relpath,
+                size_bytes: size,
+                sha256: hex::encode(hasher.finalize()),
+            },
+        );
+    }
+    Ok(files.into_values().collect())
+}
+
+/// Stable 16-hex-char id for an auto-registered input, derived from the
+/// canonical root. Deterministic (no `Uuid::new_v4`) so re-emitting the
+/// same session produces a byte-identical `runtime/inputs.json`.
+fn deterministic_input_id(canonical_root: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(canonical_root.as_bytes());
+    hex::encode(hasher.finalize())[..16].to_string()
+}
+
+/// Emit-time reconciliation of prose-named input paths.
+///
+/// An SME who writes "the counts are in /home/me/data/cohort" and then
+/// says "just go ahead" never triggers `register_input_path`, so
+/// `session.inputs` stays empty, `sync_user_inputs_to_package` no-ops,
+/// `runtime/inputs.json` is never written, and `agent-claude.sh` — which
+/// builds its container bind-mounts *only* from that file — mounts
+/// nothing. The named directory is then genuinely ENOENT inside the
+/// agent container and the acquisition stage quietly substitutes a
+/// public dataset. This function closes that gap: at emit, every
+/// surviving hint is either promoted to a real registration or recorded
+/// as unavailable, and both outcomes leave a `DecisionRecord`.
+///
+/// Returns the hints that could NOT be registered so the caller can
+/// surface them in `CONTEXT.md`. Hints that ARE registered are removed;
+/// hints that are not stay pending so the SME can still fix the path and
+/// register through the Inputs tab.
+///
+/// No-op when nothing is pending — sessions that registered their inputs
+/// normally (or named no paths at all) are unaffected.
+fn reconcile_prose_input_hints(
+    session: &mut Session,
+    clock: &dyn ecaa_workflow_core::clock::Clock,
+) -> Vec<UnavailableProseInput> {
+    if session.pending_input_hints.is_empty() {
+        return Vec::new();
+    }
+    let roots = reconcile_input_roots(&session.owner_user);
+    let owner_user = session.owner_user.clone();
+    let now = clock.now();
+    // Name the ingestion node on the assumption record only when the
+    // composed DAG actually has one — `affects_nodes` is a reference
+    // field in the ECAA cross-graph-integrity invariant.
+    let ingestion_nodes: Vec<String> = session
+        .current_dag()
+        .map(|dag| {
+            ["data_acquisition", "data_import"]
+                .into_iter()
+                .filter(|id| dag.tasks.contains_key(*id))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let already_registered: std::collections::BTreeSet<String> =
+        session.inputs.iter().map(|i| i.root_path.clone()).collect();
+
+    let mut unavailable: Vec<UnavailableProseInput> = Vec::new();
+    let mut registered: Vec<crate::session::state::UserInput> = Vec::new();
+    let mut retained: Vec<crate::intake_path_hints::InputPathHint> = Vec::new();
+
+    for hint in std::mem::take(&mut session.pending_input_hints) {
+        // Already registered through the UI / tool path: the hint is
+        // stale, drop it. Existing registrations are untouched.
+        if already_registered.contains(&hint.canonical_root) {
+            continue;
+        }
+        let root = std::path::PathBuf::from(&hint.canonical_root);
+        let inside_jail = roots.iter().any(|allowed| {
+            let allowed = allowed.canonicalize().unwrap_or_else(|_| allowed.clone());
+            root.starts_with(&allowed)
+        });
+        if !inside_jail {
+            // Out of jail: never register it and never echo the path
+            // into the package. Leave the hint pending so the SME's own
+            // (jailed) registration path can still handle it.
+            tracing::warn!(
+                session_id = %session.id,
+                "reconcile_prose_input_hints: hint root is outside ECAA_INPUT_ROOTS; not registering"
+            );
+            retained.push(hint);
+            continue;
+        }
+        let reason = if !root.exists() {
+            Some("not present on disk at emit".to_string())
+        } else if !root.is_dir() {
+            Some("present at emit but not a directory".to_string())
+        } else {
+            match build_reconciled_manifest(&root) {
+                Ok(files) => {
+                    let input_id = deterministic_input_id(&hint.canonical_root);
+                    registered.push(crate::session::state::UserInput {
+                        input_id,
+                        label: root
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| hint.canonical_root.clone()),
+                        kind: crate::session::state::UserInputKind::LocalPath,
+                        root_path: hint.canonical_root.clone(),
+                        files,
+                        registered_at: now,
+                        registered_by: owner_user.clone(),
+                    });
+                    None
+                }
+                Err(err) => Some(format!(
+                    "present at emit but could not be inventoried: {err}"
+                )),
+            }
+        };
+        if let Some(reason) = reason {
+            unavailable.push(UnavailableProseInput {
+                raw_mention: hint.raw_mention.clone(),
+                canonical_root: hint.canonical_root.clone(),
+                file_relpath: hint.file_relpath.clone(),
+                reason,
+            });
+            // Keep the hint pending: the SME can still restore the path
+            // and register it, and a later re-emit will pick it up.
+            retained.push(hint);
+        }
+    }
+    session.pending_input_hints = retained;
+
+    // Decisions are recorded after the walk so the loop can hold the
+    // `&mut session.pending_input_hints` borrow (same shape as
+    // `apply_checkpoint_mode_auto_advances`).
+    //
+    // `AssumptionRecorded` is the closest fit in the closed
+    // `DecisionType` taxonomy: both outcomes are compiler-made
+    // inferences about what data the run will actually read, carrying a
+    // risk class and an affected-node set. A dedicated
+    // `InputPathReconciled` variant would be more precise.
+    // `DataSourceDeviation` is the execution-time counterpart: the
+    // harness appends it when an agent actually substitutes a source.
+    //
+    // Ids are content-derived, so an unresolved hint that survives into
+    // a second emit must not append a duplicate row.
+    let existing_assumption_ids: std::collections::BTreeSet<String> = session
+        .decisions
+        .iter()
+        .filter_map(|r| match &r.decision {
+            ecaa_workflow_core::decision_log::DecisionType::AssumptionRecorded { id, .. } => {
+                Some(id.clone())
+            }
+            _ => None,
+        })
+        .collect();
+
+    for input in &registered {
+        let id = format!("a_input_path_{}", input.input_id);
+        if existing_assumption_ids.contains(&id) {
+            continue;
+        }
+        session.record_decision(
+            ecaa_workflow_core::decision_log::DecisionType::AssumptionRecorded {
+                id,
+                statement: format!(
+                    "The SME named `{root}` as a data location in intake prose but never \
+                     registered it. The path was present at emit, so it was auto-registered \
+                     as a `local_path` input ({n} file(s)) and written to \
+                     `runtime/inputs.json`; the harness binds it into the ingestion \
+                     container from there.",
+                    root = input.root_path,
+                    n = input.files.len(),
+                ),
+                source: "sme_accepted".to_string(),
+                affects_nodes: ingestion_nodes.clone(),
+                risk: "low".to_string(),
+            },
+            ecaa_workflow_core::decision_log::DecisionActor::Sme,
+            Some(
+                "auto-registered at emit from an intake-prose path hint; no explicit \
+                 SME registration click"
+                    .to_string(),
+            ),
+        );
+    }
+    for entry in &unavailable {
+        let id = format!(
+            "a_input_path_missing_{}",
+            deterministic_input_id(&entry.canonical_root)
+        );
+        if existing_assumption_ids.contains(&id) {
+            continue;
+        }
+        session.record_decision(
+            ecaa_workflow_core::decision_log::DecisionType::AssumptionRecorded {
+                id,
+                statement: format!(
+                    "The SME named `{mention}` (resolved root `{root}`) as a data location \
+                     in intake prose. It was {reason}, so no input was registered and \
+                     `runtime/inputs.json` does not list it. Stages needing this data will \
+                     fall back to public sources; any such substitution is a deviation and \
+                     must be stated in the report.",
+                    mention = entry.raw_mention,
+                    root = entry.canonical_root,
+                    reason = entry.reason,
+                ),
+                source: "sme_accepted".to_string(),
+                affects_nodes: ingestion_nodes.clone(),
+                risk: "high".to_string(),
+            },
+            ecaa_workflow_core::decision_log::DecisionActor::Sme,
+            Some(
+                "SME-named input path was unavailable at emit; recorded so a downstream \
+                 substitution cannot be a surprise"
+                    .to_string(),
+            ),
+        );
+    }
+
+    if !registered.is_empty() {
+        tracing::info!(
+            session_id = %session.id,
+            n = registered.len(),
+            "reconcile_prose_input_hints: auto-registered prose-named input path(s) at emit"
+        );
+        session.inputs.extend(registered);
+    }
+    if !unavailable.is_empty() {
+        tracing::warn!(
+            session_id = %session.id,
+            n = unavailable.len(),
+            "reconcile_prose_input_hints: SME-named input path(s) unavailable at emit"
+        );
+    }
+    unavailable
+}
+
+/// Marker for the CONTEXT.md block written by
+/// [`write_unavailable_inputs_note`]. Distinct from the
+/// `## SME-supplied data inputs` marker `sync_user_inputs_to_package`
+/// truncates at, so the two blocks never eat each other.
+const UNAVAILABLE_INPUTS_MARKER: &str = "\n## SME-named data inputs NOT found at emit";
+
+/// Record every prose-named path that could not be registered, in both
+/// the agent-facing narrative (`CONTEXT.md`) and a machine-readable
+/// sidecar (`runtime/inputs-unavailable.json`) the reporting stage can
+/// read back.
+///
+/// Strict no-op on an empty list, so packages without unresolved hints
+/// stay byte-identical to the baseline.
+async fn write_unavailable_inputs_note(
+    unavailable: &[UnavailableProseInput],
+    output_dir: &Path,
+) -> Result<()> {
+    if unavailable.is_empty() {
+        return Ok(());
+    }
+    let runtime_dir = output_dir.join("runtime");
+    tokio::fs::create_dir_all(&runtime_dir)
+        .await
+        .with_context(|| format!("creating {}", runtime_dir.display()))?;
+    let sidecar = runtime_dir.join("inputs-unavailable.json");
+    let body =
+        serde_json::to_vec_pretty(unavailable).context("serializing inputs-unavailable.json")?;
+    tokio::fs::write(&sidecar, &body)
+        .await
+        .with_context(|| format!("writing {}", sidecar.display()))?;
+
+    let context_path = output_dir.join("CONTEXT.md");
+    if !context_path.exists() {
+        return Ok(());
+    }
+    let mut narrative = String::new();
+    narrative.push_str(UNAVAILABLE_INPUTS_MARKER);
+    narrative.push_str(
+        "\n\nThe SME named the following data location(s) in the project description, but \
+         they were NOT usable on this machine when the package was compiled. No input was \
+         registered for them: `runtime/inputs.json` does not list them and the harness \
+         mounts nothing for them, so they will be ENOENT inside the task container.\n\n",
+    );
+    for entry in unavailable {
+        narrative.push_str(&format!(
+            "- SME wrote `{mention}` (resolved root `{root}`{file}) — {reason}\n",
+            mention = entry.raw_mention,
+            root = entry.canonical_root,
+            file = entry
+                .file_relpath
+                .as_deref()
+                .map(|f| format!(", file `{f}`"))
+                .unwrap_or_default(),
+            reason = entry.reason,
+        ));
+    }
+    narrative.push_str(
+        "\nConsequences you MUST honour:\n\n\
+         1. Do NOT quietly substitute a stand-in dataset. If a stage cannot proceed without \
+         this data and no public source was named by the SME, block the task with a concrete \
+         `missing_input` reason instead of completing it against different data.\n\
+         2. If the workflow legitimately falls back to another source (an accession named in \
+         the project description, a mirror, or a packaged example dataset), that fallback is \
+         a DEVIATION from what the SME asked for and MUST be declared: write the \
+         `source_deviation` block at the top level of your `result.json` (`requested` = the \
+         path listed above, `requested_available: false`, plus `used` / `used_kind` / \
+         `used_version` / `reason` / `checksums`). The harness promotes that block into the \
+         typed audit trail; do not write `runtime/decisions.jsonl` yourself.\n\
+         3. State the substitution in the stage narrative too, so it reaches the final \
+         report's methods/limitations text — \"the SME-named local dataset <path> was not \
+         available at compile time; <source> was used instead\".\n\
+         4. The same list is machine-readable at `runtime/inputs-unavailable.json`.\n\n",
+    );
+
+    let mut existing = tokio::fs::read_to_string(&context_path)
+        .await
+        .with_context(|| format!("reading {}", context_path.display()))?;
+    // Idempotent: strip any prior block before re-appending.
+    if let Some(idx) = existing.find(UNAVAILABLE_INPUTS_MARKER) {
+        existing.truncate(idx);
+    }
+    existing.push_str(&narrative);
+    tokio::fs::write(&context_path, existing.as_bytes())
+        .await
+        .with_context(|| format!("writing {}", context_path.display()))?;
+    Ok(())
 }
 
 /// Write `runtime/inputs.json` + refresh the `## SME-supplied data inputs`

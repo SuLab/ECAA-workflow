@@ -6,6 +6,34 @@ description: |
   ENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,
   per-accession provenance summary, and an index pointing at the materialized
   artifacts. Downstream atoms consume the manifest, not the raw bytes directly.
+
+  RECORD-WHAT-YOU-DID (audit, not instruction): if the source you actually read
+  DIFFERS in any way from the source that was requested — the requested path or
+  accession was absent, unreachable, embargoed, or served a different data form,
+  and you fell back to a redistribution, a mirror, a bundled package, a
+  different accession, or locally generated data — write a `source_deviation`
+  object at the top level of result.json. This does NOT authorise a
+  substitution and does NOT tell you which source to prefer; it says that if you
+  substitute, you must state it. Record:
+    - requested: the source that was asked for, verbatim (path, accession, URL,
+      package name — whatever intake named).
+    - requested_available: true/false — was the requested source reachable at
+      the time you ran? false = the substitution was forced; true = you swapped
+      a source that WAS available.
+    - used: the source you actually read.
+    - used_kind: its class — one of package / accession / local_path / url /
+      mirror / synthetic, or another short label if none of those fits.
+    - used_version: the version, release, revision, or accession that pins
+      `used` (omit only when the substitute carries no version handle).
+    - reason: why you substituted, in one or two sentences.
+    - checksums: an object mapping each materialized input file (path relative
+      to your task output dir) to its sha256, so a reviewer can confirm which
+      bytes were analysed.
+  Whatever you name in `used` MUST agree with the source your
+  per_accession_summary.json describes — the harness cross-checks the two and
+  blocks the task if they contradict. Do NOT write runtime/decisions.jsonl: the
+  harness reads this block and appends the typed decision record itself. If you
+  read exactly the requested source, OMIT the key entirely.
 edam_operation: "operation:2422"
 edam_data: "data:2531"
 edam_format: "format:3915"

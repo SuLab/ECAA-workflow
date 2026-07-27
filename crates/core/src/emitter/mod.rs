@@ -147,7 +147,7 @@ use amendment::{
     read_parent_link,
 };
 use bagit::write_bagit_manifest;
-use copy_libs::{copy_plotting_library, copy_r_plotting_library};
+use copy_libs::{copy_literature_library, copy_plotting_library, copy_r_plotting_library};
 pub use export::{
     export_depositable_package, export_depositable_package_with_profile, zip_dir, DepositProfile,
     ExportReport,
@@ -776,6 +776,7 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
     }
     copy_plotting_library(dir).context("copying plotting library")?;
     copy_r_plotting_library(dir).context("copying R plotting library")?;
+    copy_literature_library(dir).context("copying literature library")?;
     copy_af_spectrum_measurement_script(dir).context("copying AF-spectrum measurement script")?;
     copy_de_effect_size_measurement_script(dir)
         .context("copying DE effect-size measurement script")?;
@@ -1494,7 +1495,8 @@ When the SME has registered local data (file present at `runtime/inputs.json`, a
 1. **At the start of `discover_data_acquisition`**, check `runtime/inputs.json`. The schema is `[{{ input_id, label, kind: \"local_path\" | \"uploaded_files\", root_path, files: [{{relpath, size_bytes, sha256}}], registered_at, registered_by }}, ...]`.\n\
 2. **If the array is non-empty**, your candidate pool MUST include `sme_supplied_local_path` (when any input has `kind: \"local_path\"`) and/or `sme_supplied_uploaded_files` (for `kind: \"uploaded_files\"`). Score these candidates with a strong spec-preference boost (`+0.40` on `spec_match`) so they outrank generic GEO/SRA fetchers. Auto-pick when the boost yields a clear winner; only block for SME approval when there's a genuine ambiguity (e.g. mixed local + cited-but-unsupplied accessions).\n\
 3. **The `data_acquisition` task itself** (the compute task that follows discovery) reads `runtime/inputs.json` and copies / symlinks the SME files into the canonical layout `runtime/outputs/data_acquisition/data/<source_label>/<filename>`. Compute and verify each file's sha256 against the manifest; flag mismatches as a blocker (data drift between registration and execution).\n\
-4. **Empty `runtime/inputs.json`** (or the file absent entirely) means the SME relies on public accessions captured in CONTEXT.md prose — the existing public-repo dispatcher path applies unchanged.\n\
+4. **Empty `runtime/inputs.json`** (or the file absent entirely) means the SME relies on public accessions captured in CONTEXT.md prose — the existing public-repo dispatcher path applies unchanged. BUT check rule 5 first: an empty manifest does NOT license a silent substitution.\n\
+5. **Check `runtime/inputs-unavailable.json`** (and the `## SME-named data inputs NOT found at emit` section of CONTEXT.md) BEFORE concluding the SME had no local data. When that file is present, the SME DID name a data location in prose and it was NOT usable at compile time — the path is not mounted and will be ENOENT inside your container. Do not treat that as \"no local data supplied\". Either block the task with a concrete `missing_input` reason, or — if the SME also named a public source, or the archetype ships an example dataset — proceed against that source and DECLARE the swap: write the `source_deviation` block at the top level of `result.json` (`requested` = the unavailable path, `requested_available: false`, plus `used` / `used_kind` / `used_version` / `reason` / `checksums`) and state it in the stage narrative so the final report carries it. A silent swap from SME-named local data to a public dataset is a reporting failure, not a convenience.\n\
 \n\
 This rule is independent of the env_capability and spec_preferred_methods rules above and runs FIRST: an SME-registered input always takes precedence over any other ranking signal.\n\
 \n\

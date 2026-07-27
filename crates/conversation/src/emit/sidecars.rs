@@ -113,40 +113,185 @@ pub(super) async fn write_determinism_shim(
     tokio::fs::create_dir_all(&runtime).await?;
     let path = runtime.join("determinism-shim.json");
 
-    let mut payload = ecaa_workflow_core::determinism_shim::serialize_active_settings();
+    let payload = ecaa_workflow_core::determinism_shim::serialize_active_settings();
 
-    // Project each composed atom's declared non-determinism into per-artifact
-    // acknowledgments (`non_deterministic_artifacts`). The re-execution
-    // comparator and the audit-proof `equivalence_failure` invariant BOTH read
-    // this list: an out-of-band divergence on a declared column is
-    // `acknowledged_non_determinism`, while any UNdeclared divergence FAILS — so
-    // a package self-declares exactly which artifact/column jitter is expected
-    // (e.g. adaptive-shrinkage LFC), rather than a blanket no-seed mask. Atom
-    // declarations name a bare output basename; expand to the task's full
-    // `runtime/outputs/<task_id>/<file>` path. Registry-load failure is
-    // non-fatal (warn + no acks), preserving the "always emits" contract.
+    // Project each composed atom's STATIC `non_determinism` declaration into the
+    // `declared_non_determinism` block — NOT into `non_deterministic_artifacts`.
+    //
+    // The distinction is the honesty contract. `non_deterministic_artifacts` is
+    // the authoritative MASK that the re-execution comparator
+    // (`core::reexecution::classify_reexecution`) and the audit-proof
+    // `equivalence_failure` invariant both read through `determinism_shim::ack_for`:
+    // a divergence covered by an entry there is downgraded to
+    // `acknowledged_non_determinism` instead of failing. Emit runs BEFORE any task
+    // executes, so at this point nothing is known about what the agent will
+    // actually do — projecting the atom's static declaration straight into the mask
+    // asserts "this artifact IS non-deterministic" on no evidence, and silently
+    // exempts the artifact from equivalence checking even when the executed script
+    // never used the declared mechanism. So the projection lands in a sibling block
+    // that is explicitly a DECLARATION pending run confirmation, and the mask stays
+    // empty until a post-run reconciliation confirms each declaration against the
+    // stage's recorded run evidence.
+    //
+    // Atom declarations name a bare output basename; expand to the task's full
+    // `runtime/outputs/<task_id>/<file>` path. Registry-load failure is non-fatal
+    // (warn + no declarations), preserving the "always emits" contract.
     let atoms_dir = config_dir.join("stage-atoms");
-    match ecaa_workflow_core::atom_registry::AtomRegistry::load_from_dir(&atoms_dir) {
-        Ok(registry) => {
-            let acks = project_non_det_acks(session, &registry);
-            if !acks.is_empty() {
-                payload.set_non_deterministic_artifacts(acks);
-            }
+    let declared = match ecaa_workflow_core::atom_registry::AtomRegistry::load_from_dir(&atoms_dir)
+    {
+        Ok(registry) => DeclaredNonDeterminism::projected(project_non_det_acks(session, &registry)),
+        Err(e) => {
+            tracing::warn!(
+                "write_determinism_shim: AtomRegistry load from {} failed: {} \
+                 (continuing emit with no non-determinism declarations)",
+                atoms_dir.display(),
+                e
+            );
+            DeclaredNonDeterminism::projected(Vec::new())
         }
-        Err(e) => tracing::warn!(
-            "write_determinism_shim: AtomRegistry load from {} failed: {} \
-             (continuing emit with no non-determinism acknowledgments)",
-            atoms_dir.display(),
-            e
-        ),
-    }
+    };
 
-    let body = serde_json::to_vec_pretty(&payload).context("serializing determinism-shim.json")?;
+    let body = serde_json::to_vec_pretty(&attach_declared_non_determinism(&payload, declared)?)
+        .context("serializing determinism-shim.json")?;
 
     tokio::fs::write(&path, body)
         .await
         .with_context(|| format!("writing {}", path.display()))?;
     Ok(())
+}
+
+/// Reconciliation status of the whole `declared_non_determinism` block.
+///
+/// `DeclaredPendingRunConfirmation` is the only value this crate writes: emit
+/// happens before execution, so every declaration is unconfirmed. The finalize
+/// path flips the block to `Reconciled` once it has checked each declaration
+/// against run evidence (see [`DeclaredAckStatus`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum DeclaredBlockStatus {
+    /// No task has run yet; nothing here has been confirmed.
+    DeclaredPendingRunConfirmation,
+}
+
+/// Per-declaration reconciliation status.
+///
+/// Emit writes `Declared`. A post-run reconciliation rewrites each entry to
+/// `Confirmed` (the run really did use the declared mechanism — the declaration
+/// is then also promoted into `non_deterministic_artifacts`, earning the mask)
+/// or `Refuted` (the run did not — the declaration stays here as a record of a
+/// static claim the execution contradicted, and NO mask is granted).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum DeclaredAckStatus {
+    /// Projected from the atom's static YAML; no run evidence consulted.
+    Declared,
+}
+
+/// One atom-declared non-determinism source, carried with the provenance a
+/// post-run reconciliation needs to confirm or drop it.
+///
+/// Field order is the serialization order; every field is derived from the atom
+/// registry + DAG, so the block is byte-stable across emits.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+struct DeclaredAck {
+    /// The task whose output dir the declaration was expanded against. This is
+    /// also where the reconciler finds the run evidence.
+    task_id: String,
+    /// Package-relative artifact path the declaration applies to.
+    artifact: String,
+    /// Columns the declaration scopes to; absent = whole artifact.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    columns: Option<Vec<String>>,
+    /// Declared class of non-determinism.
+    kind: ecaa_workflow_core::determinism_shim::NonDetKind,
+    /// Human-readable justification from the atom YAML (never parsed).
+    reason: String,
+    /// Always `Declared` at emit.
+    status: DeclaredAckStatus,
+    /// The package-relative file a reconciler must read to decide whether the
+    /// run actually exhibited `kind`. Recorded explicitly so the contract is
+    /// legible in the deposit rather than implied by finalize-side code.
+    confirmation_evidence: String,
+}
+
+/// The `declared_non_determinism` block appended to `determinism-shim.json`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+struct DeclaredNonDeterminism {
+    status: DeclaredBlockStatus,
+    /// What the reader must not conclude from this block. Static prose, so the
+    /// sidecar stays byte-stable.
+    note: &'static str,
+    declarations: Vec<DeclaredAck>,
+}
+
+impl DeclaredNonDeterminism {
+    /// Wrap emit-time projected acks as unconfirmed declarations, sorted +
+    /// deduplicated so the block is byte-stable regardless of atom visit order
+    /// (mirrors `DeterminismShimSidecar::set_non_deterministic_artifacts`).
+    fn projected(mut acks: Vec<ecaa_workflow_core::determinism_shim::NonDetAck>) -> Self {
+        acks.sort();
+        acks.dedup();
+        let declarations = acks
+            .into_iter()
+            .map(|a| {
+                let task_id = task_id_of(&a.artifact);
+                DeclaredAck {
+                    confirmation_evidence: format!("runtime/outputs/{task_id}/result.json"),
+                    task_id,
+                    artifact: a.artifact,
+                    columns: a.columns,
+                    kind: a.kind,
+                    reason: a.reason,
+                    status: DeclaredAckStatus::Declared,
+                }
+            })
+            .collect();
+        Self {
+            status: DeclaredBlockStatus::DeclaredPendingRunConfirmation,
+            note: "Projected from static atom declarations at emit, BEFORE any task ran. \
+                   These are claims about what a stage MIGHT do, not observations. They grant \
+                   no equivalence-check exemption: only entries a post-run reconciliation \
+                   confirms against the stage's recorded run evidence are promoted into \
+                   `non_deterministic_artifacts`, which is the mask the re-execution \
+                   comparator and the audit-proof equivalence-failure invariant read.",
+            declarations,
+        }
+    }
+}
+
+/// Recover the task id from a projected artifact path
+/// (`runtime/outputs/<task_id>/<file>`). Falls back to the whole path when the
+/// shape does not match, so a hand-authored declaration never panics.
+fn task_id_of(artifact: &str) -> String {
+    artifact
+        .strip_prefix("runtime/outputs/")
+        .and_then(|rest| rest.split('/').next())
+        .unwrap_or(artifact)
+        .to_string()
+}
+
+/// Serialize the core shim payload and attach the `declared_non_determinism`
+/// block.
+///
+/// The block lives OUTSIDE [`DeterminismShimSidecar`] on purpose: that struct's
+/// `non_deterministic_artifacts` is the load-bearing mask, and a declaration is
+/// not a mask. Consumers that deserialize the file back into the core struct
+/// ignore the extra key (no `deny_unknown_fields`), so this is additive.
+/// Key order is `serde_json::Map`'s (BTreeMap) ordering — byte-stable.
+fn attach_declared_non_determinism(
+    payload: &ecaa_workflow_core::determinism_shim::DeterminismShimSidecar,
+    declared: DeclaredNonDeterminism,
+) -> Result<serde_json::Value> {
+    let mut value =
+        serde_json::to_value(payload).context("serializing determinism-shim.json payload")?;
+    let obj = value
+        .as_object_mut()
+        .context("determinism-shim.json payload is not a JSON object")?;
+    obj.insert(
+        "declared_non_determinism".to_string(),
+        serde_json::to_value(declared).context("serializing declared_non_determinism block")?,
+    );
+    Ok(value)
 }
 
 /// Expand every composed atom's declared `non_determinism` into shim
@@ -194,7 +339,7 @@ fn acks_for_task_ids(
 
 #[cfg(test)]
 mod nondet_projection_tests {
-    use super::acks_for_task_ids;
+    use super::{acks_for_task_ids, attach_declared_non_determinism, DeclaredNonDeterminism};
 
     fn registry() -> ecaa_workflow_core::atom_registry::AtomRegistry {
         let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -232,6 +377,59 @@ mod nondet_projection_tests {
     fn unknown_task_id_yields_no_acks() {
         let reg = registry();
         assert!(acks_for_task_ids(&["not_a_real_atom_xyz"], &reg).is_empty());
+    }
+
+    /// Emit happens BEFORE execution, so an atom's static `non_determinism`
+    /// declaration is a claim about what a stage might do — never an observation.
+    /// It must therefore land in `declared_non_determinism` marked `declared`,
+    /// and must NOT populate `non_deterministic_artifacts`: that array is the
+    /// mask `determinism_shim::ack_for` grants the re-execution comparator and
+    /// the audit-proof equivalence-failure invariant, so writing it at emit
+    /// exempts an artifact from equivalence checking on zero evidence.
+    #[test]
+    fn projected_ack_is_marked_declared_not_confirmed() {
+        let reg = registry();
+        let acks = acks_for_task_ids(&["differential_expression"], &reg);
+        assert!(
+            !acks.is_empty(),
+            "fixture precondition: the DE atom declares non-determinism"
+        );
+
+        let shim = ecaa_workflow_core::determinism_shim::serialize_active_settings();
+        let value = attach_declared_non_determinism(&shim, DeclaredNonDeterminism::projected(acks))
+            .expect("attach declared block");
+
+        // The comparator mask stays empty: nothing has run, nothing is earned.
+        let mask = value.get("non_deterministic_artifacts");
+        assert!(
+            mask.is_none()
+                || mask
+                    .and_then(|m| m.as_array())
+                    .is_some_and(|a| a.is_empty()),
+            "emit must not assert non-determinism into the comparator mask; got {mask:?}"
+        );
+
+        let block = value
+            .get("declared_non_determinism")
+            .expect("declared_non_determinism block present");
+        assert_eq!(
+            block["status"], "declared_pending_run_confirmation",
+            "the block must announce that nothing here is confirmed"
+        );
+
+        let de = block["declarations"]
+            .as_array()
+            .expect("declarations array")
+            .iter()
+            .find(|d| d["artifact"] == "runtime/outputs/differential_expression/de_results.tsv")
+            .expect("DE declaration projected to its full package-relative path");
+        assert_eq!(de["status"], "declared");
+        assert_eq!(de["task_id"], "differential_expression");
+        // The reconciler is told, in the deposit itself, what to read.
+        assert_eq!(
+            de["confirmation_evidence"],
+            "runtime/outputs/differential_expression/result.json"
+        );
     }
 }
 
@@ -294,7 +492,17 @@ pub async fn write_security_policy(
 /// env.lock snapshots exist — folds the real installed versions in so the
 /// deposited `dependency-lock.json` is non-empty and reflects what ACTUALLY ran
 /// (wiring the otherwise-caller-less `RequestedLock::fold_resolved`). Always
-/// written (empty columns when no language packages declared and nothing ran).
+/// written.
+///
+/// The columns alone are ambiguous: atoms declare no package prereqs, so a fresh
+/// emit produces `{"r":[],"python":[],"conda":[]}` — which reads as "this package
+/// has no dependencies" when the truth is "nothing has been captured yet", and
+/// the per-task `runtime/outputs/<task>/env.explicit.lock` snapshots the agents
+/// write are full conda locks. `capture_status` disambiguates the two, so an
+/// empty lock can never be mistaken for a dependency-free package. It is derived
+/// from the folded lock (see [`capture_status_of`]) rather than from the caller,
+/// so a finalize-time backfill that re-runs the fold flips the status by
+/// construction.
 pub async fn write_dependency_lock(
     prereqs: &ecaa_workflow_core::runtime_prereqs::RuntimePrereqs,
     output_dir: &Path,
@@ -304,11 +512,124 @@ pub async fn write_dependency_lock(
     let path = runtime.join("dependency-lock.json");
     let mut lock = ecaa_workflow_core::dependency_lock::RequestedLock::from_prereqs(prereqs);
     lock.fold_from_package_outputs(output_dir);
-    let body = serde_json::to_vec_pretty(&lock).context("serializing dependency-lock.json")?;
+    let body = serde_json::to_vec_pretty(&attach_capture_status(&lock)?)
+        .context("serializing dependency-lock.json")?;
     tokio::fs::write(&path, body)
         .await
         .with_context(|| format!("writing {}", path.display()))?;
     Ok(())
+}
+
+/// How much of the package-level lock is real.
+///
+/// Distinguishes the three states that bare empty columns conflate. Pure +
+/// unit-testable.
+///
+/// - `captured_from_run` — at least one entry carries a `resolved` exact
+///   version folded out of a per-task `env.lock` / `env.explicit.lock`. This is
+///   what ACTUALLY ran.
+/// - `requested_only_not_captured` — the composer requested packages but no run
+///   evidence has been folded in yet.
+/// - `not_captured` — nothing requested and nothing captured. NOT a claim that
+///   the package has no dependencies.
+fn capture_status_of(lock: &ecaa_workflow_core::dependency_lock::RequestedLock) -> &'static str {
+    let columns = [&lock.r, &lock.python, &lock.conda];
+    if columns
+        .iter()
+        .any(|c| c.iter().any(|e| e.resolved.is_some()))
+    {
+        "captured_from_run"
+    } else if columns.iter().any(|c| !c.is_empty()) {
+        "requested_only_not_captured"
+    } else {
+        "not_captured"
+    }
+}
+
+/// Serialize the lock and stamp `capture_status` + a reader-facing note.
+///
+/// `RequestedLock` is core-owned and its column shape is the stable contract, so
+/// the status is attached additively — the `r` / `python` / `conda` arrays and
+/// `schema_version` are untouched. Key order is `serde_json::Map`'s (BTreeMap)
+/// ordering, so the file stays byte-reproducible across emits (unlike
+/// `determinism-shim.json`, `dependency-lock.json` is NOT on the byte-diff
+/// exclusion allowlist).
+fn attach_capture_status(
+    lock: &ecaa_workflow_core::dependency_lock::RequestedLock,
+) -> Result<serde_json::Value> {
+    let status = capture_status_of(lock);
+    let mut value = serde_json::to_value(lock).context("serializing dependency-lock payload")?;
+    let obj = value
+        .as_object_mut()
+        .context("dependency-lock payload is not a JSON object")?;
+    obj.insert(
+        "capture_status".to_string(),
+        serde_json::Value::String(status.to_string()),
+    );
+    if status != "captured_from_run" {
+        obj.insert(
+            "capture_note".to_string(),
+            serde_json::Value::String(
+                "Empty or resolved-free columns mean NOT-YET-CAPTURED, not \
+                 'this package has no dependencies'. The versions that actually ran are \
+                 recorded per task in runtime/outputs/<task_id>/env.explicit.lock (and \
+                 env.lock); a finalize-time backfill unions those into these columns and \
+                 flips capture_status to captured_from_run."
+                    .to_string(),
+            ),
+        );
+    }
+    Ok(value)
+}
+
+#[cfg(test)]
+mod dependency_lock_tests {
+    use super::{attach_capture_status, capture_status_of};
+    use ecaa_workflow_core::dependency_lock::RequestedLock;
+    use ecaa_workflow_core::runtime_prereqs::RuntimePrereqs;
+
+    /// Atoms declare no package prereqs, so the requested side is empty at emit
+    /// while the agents' per-task `env.explicit.lock` files are full conda locks.
+    /// A bare `{"r":[],"python":[],"conda":[]}` therefore asserts something false
+    /// — that the package has no dependencies. The emitted lock must say
+    /// `not_captured` instead, and point the reader at where the real versions
+    /// live.
+    #[test]
+    fn empty_prereqs_do_not_emit_a_false_empty_lock() {
+        let lock = RequestedLock::from_prereqs(&RuntimePrereqs::new());
+        assert_eq!(capture_status_of(&lock), "not_captured");
+
+        let value = attach_capture_status(&lock).expect("attach capture status");
+        assert_eq!(value["capture_status"], "not_captured");
+        assert!(
+            value["capture_note"]
+                .as_str()
+                .is_some_and(|n| n.contains("env.explicit.lock")),
+            "an empty lock must name where the captured versions actually live"
+        );
+        // The core-owned column shape is untouched.
+        assert_eq!(value["schema_version"], "1");
+        assert!(value["python"].as_array().is_some_and(|a| a.is_empty()));
+    }
+
+    /// A requested-but-unresolved package is distinct from nothing-captured, and
+    /// both are distinct from a lock folded out of real run evidence.
+    #[test]
+    fn capture_status_separates_requested_from_captured() {
+        let mut p = RuntimePrereqs::new();
+        p.language_packages.python = ["scanpy>=1.10".into()].into();
+        let mut lock = RequestedLock::from_prereqs(&p);
+        assert_eq!(capture_status_of(&lock), "requested_only_not_captured");
+
+        lock.fold_resolved("python", "scanpy", "1.10.4");
+        assert_eq!(capture_status_of(&lock), "captured_from_run");
+        let value = attach_capture_status(&lock).expect("attach capture status");
+        assert_eq!(value["capture_status"], "captured_from_run");
+        assert!(
+            value.get("capture_note").is_none(),
+            "a captured lock needs no disambiguating note"
+        );
+    }
 }
 
 /// D4 — write `runtime/model-policy.json`.

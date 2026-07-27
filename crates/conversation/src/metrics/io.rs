@@ -10,6 +10,52 @@
 use super::session_metrics::SessionMetrics;
 use crate::session::SessionId;
 
+/// Value recorded in the cost-ledger row's `clock` field when a genuine
+/// run epoch was available and `emitted_at` carries it.
+pub const CLOCK_RUN_EPOCH: &str = "run_epoch";
+
+/// Value recorded in the cost-ledger row's `clock` field when no genuine
+/// run epoch was available; `emitted_at` is then `null`.
+pub const CLOCK_UNSET: &str = "unset";
+
+/// Resolve the honest `(emitted_at, clock)` pair for a cost-ledger row.
+///
+/// `run_epoch_clock` (and therefore every emit-path timestamp) falls back
+/// to the [`RUN_EPOCH_BASE`][base] FLOOR — exactly `2026-01-01T00:00:00Z` —
+/// when `SOURCE_DATE_EPOCH` is unset, unparseable, or outside the genuine
+/// run window. That floor is a deterministic sentinel, not a time: writing
+/// it into `emitted_at` claims a January emit date for a run that happened
+/// whenever it happened, which is a provenance statement the package cannot
+/// back.
+///
+/// So this splits the two cases the clock deliberately collapses:
+///
+/// * a genuine in-window `SOURCE_DATE_EPOCH` → `emitted_at` = that instant,
+///   `clock` = [`CLOCK_RUN_EPOCH`];
+/// * no genuine run epoch → `emitted_at` = `null`, `clock` = [`CLOCK_UNSET`].
+///
+/// The clock itself is untouched: the in-window predicate mirrors
+/// [`run_epoch_clock_from`][from], and the timestamp (when present) still
+/// comes from that clock, so the row stays a pure function of
+/// `SOURCE_DATE_EPOCH` and the ledger remains byte-reproducible.
+///
+/// [base]: ecaa_workflow_core::clock::RUN_EPOCH_BASE
+/// [from]: ecaa_workflow_core::clock::run_epoch_clock_from
+fn resolve_emitted_at(source_date_epoch: Option<&str>) -> (serde_json::Value, &'static str) {
+    use ecaa_workflow_core::clock::{
+        run_epoch_clock_from, Clock as _, RUN_EPOCH_BASE, RUN_WINDOW_END,
+    };
+    let genuine = source_date_epoch
+        .and_then(|s| s.trim().parse::<i64>().ok())
+        .is_some_and(|s| (RUN_EPOCH_BASE..RUN_WINDOW_END).contains(&s));
+    if genuine {
+        let at = run_epoch_clock_from(source_date_epoch).now_rfc3339();
+        (serde_json::Value::String(at), CLOCK_RUN_EPOCH)
+    } else {
+        (serde_json::Value::Null, CLOCK_UNSET)
+    }
+}
+
 /// Append a single
 /// cost-ledger row to `<pkg>/runtime/cost-ledger.jsonl`.
 ///
@@ -28,11 +74,14 @@ use crate::session::SessionId;
 /// `agent_cost_metered` label it so a reviewer never reads the zero as
 /// "the agent cost nothing".
 ///
-/// **Determinism:** `emitted_at` uses the run-epoch clock (matching
-/// `dateCreated` / `Bagging-Date`), NOT the wall clock, so re-emitting /
-/// re-exporting the same package does not churn the ledger row (and the
-/// deposit `export` reseal that folds this file into the manifest stays
-/// byte-reproducible).
+/// **Determinism + timestamp honesty:** `emitted_at` uses the run-epoch
+/// clock (matching `dateCreated` / `Bagging-Date`), NOT the wall clock, so
+/// re-emitting / re-exporting the same package does not churn the ledger row
+/// (and the deposit `export` reseal that folds this file into the manifest
+/// stays byte-reproducible). When no genuine run epoch was available the
+/// clock returns its `2026-01-01T00:00:00Z` sentinel FLOOR; the row records
+/// that as `emitted_at: null` + `clock: "unset"` rather than as a misleading
+/// January date. See [`resolve_emitted_at`].
 ///
 /// One row per emit. Amendments and re-emits append rather than
 /// overwriting so the ledger doubles as a per-session cost history.
@@ -42,7 +91,6 @@ pub fn write_cost_ledger_row(
     session_id: SessionId,
     metrics: &SessionMetrics,
 ) -> std::io::Result<()> {
-    use ecaa_workflow_core::clock::Clock as _;
     use std::io::Write;
     let total = metrics.chat_cost_usd
         + metrics.agent_cost_usd
@@ -55,9 +103,14 @@ pub fn write_cost_ledger_row(
         _ => "subscription",
     };
     let agent_cost_metered = agent_billing_mode == "api";
+    // Bound the env read so the `&str` outlives the borrow handed to
+    // `resolve_emitted_at`.
+    let source_date_epoch = std::env::var("SOURCE_DATE_EPOCH").ok();
+    let (emitted_at, clock) = resolve_emitted_at(source_date_epoch.as_deref());
     let row = serde_json::json!({
         "session_id": session_id.to_string(),
-        "emitted_at": ecaa_workflow_core::clock::run_epoch_clock().now_rfc3339(),
+        "emitted_at": emitted_at,
+        "clock": clock,
         "chat_cost_usd": metrics.chat_cost_usd,
         "agent_cost_usd": metrics.agent_cost_usd,
         "scorer_cost_usd": metrics.scorer_cost_usd,
@@ -148,4 +201,67 @@ pub fn write_session_metrics_row(
         .open(&path)?;
     writeln!(f, "{}", row)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod emitted_at_tests {
+    use super::{resolve_emitted_at, CLOCK_RUN_EPOCH, CLOCK_UNSET};
+    use ecaa_workflow_core::clock::{RUN_EPOCH_BASE, RUN_WINDOW_END};
+
+    /// A genuine in-window run epoch is recorded as a real RFC-3339 instant
+    /// and labeled `run_epoch`.
+    #[test]
+    fn genuine_run_epoch_is_recorded_as_a_timestamp() {
+        // 2026-07-25T00:00:00Z — inside `[RUN_EPOCH_BASE, RUN_WINDOW_END)`.
+        let epoch = 1_784_937_600i64;
+        assert!((RUN_EPOCH_BASE..RUN_WINDOW_END).contains(&epoch));
+
+        let (at, clock) = resolve_emitted_at(Some(&epoch.to_string()));
+        assert_eq!(clock, CLOCK_RUN_EPOCH);
+        let s = at.as_str().expect("emitted_at must be a string");
+        assert!(s.starts_with("2026-07-25T"), "unexpected instant: {s}");
+        assert!(
+            !s.starts_with("2026-01-01T00:00:00"),
+            "a genuine epoch must not collapse onto the sentinel floor: {s}"
+        );
+    }
+
+    /// Every "no genuine run epoch" input — unset, blank, unparseable, below
+    /// the floor, at/after the window end — records `null` + `unset` rather
+    /// than the clock's `2026-01-01T00:00:00Z` sentinel.
+    #[test]
+    fn absent_or_out_of_window_run_epoch_is_recorded_as_null() {
+        let below = (RUN_EPOCH_BASE - 1).to_string();
+        let after = RUN_WINDOW_END.to_string();
+        let cases: Vec<Option<&str>> = vec![
+            None,
+            Some(""),
+            Some("   "),
+            Some("not-an-integer"),
+            Some(below.as_str()),
+            Some(after.as_str()),
+        ];
+        for case in cases {
+            let (at, clock) = resolve_emitted_at(case);
+            assert_eq!(clock, CLOCK_UNSET, "clock marker for {case:?}");
+            assert!(
+                at.is_null(),
+                "emitted_at for {case:?} must be null, got {at}"
+            );
+        }
+    }
+
+    /// The floor value spelled out EXPLICITLY is still a real, in-window run
+    /// epoch — only its use as a fallback is a sentinel. Recording it honestly
+    /// means an explicit `SOURCE_DATE_EPOCH=<floor>` is not suppressed.
+    #[test]
+    fn explicit_floor_epoch_is_still_a_real_timestamp() {
+        let (at, clock) = resolve_emitted_at(Some(&RUN_EPOCH_BASE.to_string()));
+        assert_eq!(clock, CLOCK_RUN_EPOCH);
+        assert_eq!(
+            at.as_str(),
+            Some("2026-01-01T00:00:00+00:00"),
+            "an explicitly-set floor epoch is a claim the operator made"
+        );
+    }
 }

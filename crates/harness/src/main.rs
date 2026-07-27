@@ -4201,6 +4201,28 @@ fn run_loop(
                         continue;
                     }
                 }
+                // (b.6) Source-deviation provenance promotion. When the
+                // task's agent had to read a DIFFERENT data source than
+                // intake requested (an absent SME path, an embargoed
+                // accession, a dead mirror) it records the substitution
+                // in `result.json::source_deviation` — it may NOT write
+                // `runtime/decisions.jsonl`. Promote that block into one
+                // typed `DataSourceDeviation` decision here so the
+                // substitution lands in the audit trail rather than only
+                // in agent free text. Modality-agnostic: keyed on the
+                // block's presence, never on an atom id, so it covers
+                // every ingestion atom. Idempotent (the on-disk log is
+                // probed first), so re-entering this loop each pass adds
+                // nothing. Runs BEFORE guard (c) so the obligation below
+                // can see the record it just wrote.
+                let task_artifact_path = path.join("runtime/outputs").join(tid.as_str());
+                let declared_deviation =
+                    ecaa_workflow_harness::validators::promote_source_deviation(
+                        path,
+                        tid.as_str(),
+                        args.session_id.as_deref().unwrap_or(harness_run_id),
+                        clock,
+                    );
                 // (c) run the validator bundle on
                 // the completed task and append per-row results to
                 // `runtime/validation-reports.jsonl`. Pulled from the
@@ -4217,17 +4239,32 @@ fn run_loop(
                 // it emitted a byte-identical duplicate validation row per extra
                 // artifact carrying the same obligation id.
                 let mut seen_obligations = std::collections::HashSet::new();
-                let obligations: Vec<String> = task
+                let mut obligations: Vec<String> = task
                     .required_artifacts
                     .iter()
                     .flat_map(|a| a.validation_obligations.iter().cloned())
                     .filter(|id| seen_obligations.insert(id.clone()))
                     .collect();
+                // REQUIRED provenance obligation, unioned in from the
+                // SHAPE of the task's own result.json rather than from an
+                // atom declaration: a task that claims a source
+                // substitution must carry the matching typed decision
+                // record and must not contradict its own
+                // per_accession_summary.json. Data-driven so it holds for
+                // EVERY ingestion atom in every modality without per-atom
+                // wiring; a task that declares no deviation pays nothing.
+                if declared_deviation.is_some() {
+                    let id =
+                        ecaa_workflow_harness::validators::SOURCE_DEVIATION_OBLIGATION.to_string();
+                    if seen_obligations.insert(id.clone()) {
+                        obligations.push(id);
+                    }
+                }
                 if !obligations.is_empty() {
                     // Validators inspect artifacts under
                     // runtime/outputs/<task_id>/ so the artifact path
                     // matches `verify_required_artifacts` above.
-                    let artifact_path = path.join("runtime/outputs").join(tid.as_str());
+                    let artifact_path = task_artifact_path.clone();
                     let runners = ecaa_workflow_harness::validators::default_runners();
                     let summary = ecaa_workflow_harness::validators::evaluate_validation(
                         tid.as_str(),
@@ -4660,14 +4697,54 @@ fn run_loop(
                 );
             }
 
-            // Inject the deterministic complete significant-entities table into
-            // the terminal report(s) as the LAST content step — on BOTH run
-            // paths (finalize_completed_package above is standalone-only, so a
-            // session/web-UI run would otherwise never get it), after the repair
-            // pass so nothing strips the injected block. report.md /
+            // Confirm-or-refute the emit-time-declared non-determinism acks
+            // against what the run ACTUALLY did. Until this runs the mask is
+            // empty, so a genuinely non-deterministic artifact would fail
+            // equivalence rather than be exempted — fail-closed by design.
+            // `determinism-shim.json` is manifest-excluded, so no re-seal.
+            match ecaa_workflow_core::determinism_shim::reconcile_declared_non_determinism(path) {
+                Ok(n) if n > 0 => tracing::info!(
+                    target: "harness", confirmed = n,
+                    "reconciled declared non-determinism against run evidence"
+                ),
+                Ok(_) => {}
+                Err(e) => tracing::warn!(
+                    target: "harness", error = %e,
+                    "non-determinism reconcile failed (continuing)"
+                ),
+            }
+
+            // Backfill the package-level dependency lock from the per-task
+            // captured locks. Unlike the shim, `dependency-lock.json` IS a
+            // hashed payload entity, so a change requires a re-seal.
+            match ecaa_workflow_core::dependency_lock::backfill_package_lock(path) {
+                Ok(true) => {
+                    if let Err(e) = ecaa_workflow_core::emitter::regenerate_bagit_manifest(
+                        path,
+                        &ecaa_workflow_core::clock::WallClock,
+                    ) {
+                        tracing::warn!(
+                            target: "harness", error = %e,
+                            "BagIt re-seal after dependency-lock backfill failed (continuing)"
+                        );
+                    }
+                }
+                Ok(false) => {}
+                Err(e) => tracing::warn!(
+                    target: "harness", error = %e,
+                    "dependency-lock backfill failed (continuing)"
+                ),
+            }
+
+            // Inject the deterministic system-owned report sections — the
+            // complete significant-entities table AND the data-provenance
+            // block — as the LAST content step, on BOTH run paths
+            // (finalize_completed_package above is standalone-only, so a
+            // session/web-UI run would otherwise never get them), after the
+            // repair pass so nothing strips the injected blocks. report.md /
             // final_report.md are manifested files, so re-seal on a change.
             // Best-effort + idempotent.
-            if ecaa_workflow_harness::end_of_run_finalize::ensure_full_significant_tables(path) {
+            if ecaa_workflow_harness::end_of_run_finalize::ensure_system_report_sections(path) {
                 if let Err(e) = ecaa_workflow_core::emitter::regenerate_bagit_manifest(
                     path,
                     &ecaa_workflow_core::clock::WallClock,
@@ -4675,7 +4752,7 @@ fn run_loop(
                     tracing::warn!(
                         target: "harness",
                         error = %e,
-                        "BagIt re-seal after full-table injection failed (continuing)"
+                        "BagIt re-seal after system report-section injection failed (continuing)"
                     );
                 }
             }

@@ -18,6 +18,7 @@
 use crate::ids::{AtomId, StageId, TaskId};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use ts_rs::TS;
 
 use crate::workflow_contracts::chain_of_custody::ChainOfCustody;
@@ -91,6 +92,71 @@ impl Default for DecisionAuthority {
     fn default() -> Self {
         DecisionAuthority::Conversational
     }
+}
+
+/// A run-time substitution of the data source a task actually read for
+/// the one intake requested.
+///
+/// This type is BOTH the payload of [`DecisionType::DataSourceDeviation`]
+/// and the on-disk contract for the `source_deviation` object an
+/// executing agent writes into its task's `result.json` (the
+/// RECORD-WHAT-YOU-DID clause carried by ingestion atoms). One
+/// definition keeps the agent-facing key shape and the audit-trail
+/// shape from drifting apart.
+///
+/// Deliberately modality-agnostic: `used_kind` is a free string
+/// (`package`, `accession`, `local_path`, `url`, `synthetic`, …) rather
+/// than an enum, so any ingestion atom — sequencing, proteomics,
+/// imaging, tabular, survey — can name its own substrate class without
+/// a core change.
+///
+/// Not `#[non_exhaustive]`: the harness constructs this struct with
+/// literal syntax from another crate, which `#[non_exhaustive]` forbids.
+/// The SemVer surface downstream consumers `match` on is the
+/// [`DecisionType`] variant that carries it, not this payload.
+#[derive(
+    Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema,
+)]
+#[ts(export)]
+pub struct SourceDeviation {
+    /// The source intake asked for, verbatim — a local path, an
+    /// accession, a URL, a package name.
+    ///
+    /// `#[serde(default)]` (like every other field) so ANY JSON object
+    /// an agent writes under `result.json::source_deviation` parses
+    /// into this type. A malformed / half-filled block must reach the
+    /// harness obligation as an empty-field FAILURE, not vanish behind
+    /// a deserialization error that reads as "no deviation declared".
+    #[serde(default)]
+    pub requested: String,
+    /// Whether the requested source was reachable at execution time.
+    /// `false` = the substitution was forced (the requested source was
+    /// absent / unreachable). `true` = the agent swapped a source that
+    /// WAS available, which is the stronger deviation.
+    #[serde(default)]
+    pub requested_available: bool,
+    /// The source actually read. See `requested` for why this is
+    /// `#[serde(default)]` rather than mandatory.
+    #[serde(default)]
+    pub used: String,
+    /// Class of the source actually read (`package`, `accession`,
+    /// `local_path`, `url`, `synthetic`, …). Free string on purpose —
+    /// see the modality-agnostic note above.
+    #[serde(default)]
+    pub used_kind: String,
+    /// Version / accession / revision pinning `used`. `None` when the
+    /// substitute carries no version handle.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub used_version: Option<String>,
+    /// The agent's justification for the substitution.
+    #[serde(default)]
+    pub reason: String,
+    /// Content digests of the materialized inputs, keyed by artifact
+    /// path or file name. `BTreeMap` so the serialized order is
+    /// deterministic.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub checksums: BTreeMap<String, String>,
 }
 
 /// Closed taxonomy of decisions worth auditing. Internally-tagged so the
@@ -708,6 +774,27 @@ pub enum DecisionType {
         /// `true` when this decision removed the bound rather than adding it.
         removed: bool,
     },
+    /// A task's executing agent read a DIFFERENT data source than the
+    /// one intake requested, and the harness promoted that substitution
+    /// into the typed audit trail.
+    ///
+    /// Appended by the HARNESS at task completion from the task's
+    /// `runtime/outputs/<task_id>/result.json::source_deviation` block —
+    /// never by the agent, which is forbidden from writing
+    /// `runtime/decisions.jsonl`. The deviation happens post-emission,
+    /// at execution time, so no intake-side tool can capture it: without
+    /// this variant a substituted input exists only in agent free text
+    /// (`runtime/LOG.jsonl`, `result.json::provenance_note`,
+    /// `per_accession_summary.json::provenance`) and no typed consumer —
+    /// the Decisions tab, audit-proof, a deposit reviewer — can see that
+    /// the analysed data is not the requested data.
+    DataSourceDeviation {
+        /// The task whose execution substituted the source.
+        task_id: TaskId,
+        /// The substitution, verbatim from the task's
+        /// `result.json::source_deviation`.
+        deviation: SourceDeviation,
+    },
 }
 
 /// One audit-trail entry. Append-only; the emitter writes these into
@@ -1027,6 +1114,21 @@ mod tests {
                 bound_id: "sme_de_padj".into(),
                 removed: false,
             },
+            DecisionType::DataSourceDeviation {
+                task_id: "data_acquisition".into(),
+                deviation: SourceDeviation {
+                    requested: "/data/sme-inputs/counts".into(),
+                    requested_available: false,
+                    used: "Bioconductor airway package".into(),
+                    used_kind: "package".into(),
+                    used_version: Some("1.30.0".into()),
+                    reason: "the SME-specified local path was absent at execution time".into(),
+                    checksums: BTreeMap::from([(
+                        "data/counts.tsv".to_string(),
+                        "407b9f8dfe619580".to_string(),
+                    )]),
+                },
+            },
         ];
         assert_eq!(
             cases.len(),
@@ -1116,6 +1218,45 @@ mod tests {
         );
         let back: DecisionRecord = serde_json::from_str(&json).expect("round-trips");
         assert_eq!(record, back);
+    }
+
+    /// `SourceDeviation` doubles as the on-disk contract for the
+    /// `source_deviation` block an agent writes into `result.json`. An
+    /// agent that fills in only the two mandatory keys must still parse
+    /// — the `#[serde(default)]`s are the load-bearing invariant.
+    #[test]
+    fn minimal_agent_written_source_deviation_block_parses() {
+        let raw = r#"{"requested":"/data/sme-inputs","used":"airway"}"#;
+        let dev: SourceDeviation = serde_json::from_str(raw).expect("minimal block parses");
+        assert_eq!(dev.requested, "/data/sme-inputs");
+        assert_eq!(dev.used, "airway");
+        assert!(!dev.requested_available);
+        assert!(dev.used_version.is_none());
+        assert!(dev.checksums.is_empty());
+    }
+
+    /// The deviation variant keeps the internally-tagged `kind` at the
+    /// top level with the payload under `deviation`, so a reader can
+    /// route on `kind` without knowing the payload shape.
+    #[test]
+    fn data_source_deviation_serde_shape() {
+        let d = DecisionType::DataSourceDeviation {
+            task_id: "data_acquisition".into(),
+            deviation: SourceDeviation {
+                requested: "/data/sme-inputs".into(),
+                used: "airway".into(),
+                used_kind: "package".into(),
+                ..Default::default()
+            },
+        };
+        let v: serde_json::Value = serde_json::to_value(d).unwrap();
+        assert_eq!(v["kind"], "data_source_deviation");
+        assert_eq!(v["task_id"], "data_acquisition");
+        assert_eq!(v["deviation"]["used"], "airway");
+        assert_eq!(v["deviation"]["used_kind"], "package");
+        // Empty optionals stay off the wire.
+        assert!(v["deviation"].get("used_version").is_none());
+        assert!(v["deviation"].get("checksums").is_none());
     }
 
     /// The internally-tagged JSON shape is flat.

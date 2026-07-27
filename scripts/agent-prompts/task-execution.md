@@ -228,6 +228,50 @@ real runs and are cheap to avoid:
   gene identifier exactly as it appears in the results table (resolve to a
   symbol only via the run's pinned annotation, per the Identifiers section).
 
+- **The data-provenance section is SYSTEM-GENERATED — do not assert where the
+  data came from.** A "Data provenance" block delimited by
+  `<!-- ECAA:data-provenance START -->` / `<!-- ECAA:data-provenance END -->`
+  is rendered deterministically from the package's own acquisition metadata
+  (`runtime/outputs/<stage>/per_accession_summary.json`, that stage's cohort
+  manifest and `result.json` deviation note, and `runtime/inputs.json`) and
+  appended to your report. Never hand-write that block, and never state the
+  data source, the input path, the originating repository/software package,
+  the journal, DOI, PMID, or "supplied by the SME"/"local copy" phrasing in
+  your own prose — write "see the Data provenance section" instead. Real runs
+  have shipped a report claiming an SME-supplied local copy that was never
+  registered (`runtime/inputs.json` did not exist; the stage actually read a
+  software data package) and citing the study to the wrong journal, while the
+  package's own record carried the correct source, journal, DOI and PMID. A
+  source-level validator compares every bibliographic and data-source
+  assertion in the report against that record and BLOCKS the deposit on a
+  contradiction. If the acquisition stage recorded a substitution (the
+  requested source was unavailable and something else was used), that
+  substitution is already in the generated block — do not restate, soften, or
+  contradict it.
+- **Never assert a QC conclusion you did not compute and retain an artifact
+  for.** Do not write "no outlier samples were identified", "the cohort was
+  outlier-free", "no samples were flagged", or any equivalent QC-negative
+  statement unless this run actually performed that check AND left the
+  evidence in the package — an outlier table or recorded outlier verdict, a
+  PCA/MDS plot or score table, a sample-distance or sample-correlation matrix,
+  a Cook's-distance output. A range of size factors, library sizes, or any
+  other single summary statistic is NOT an outlier assessment. If you did not
+  run the check, say so plainly ("no sample-outlier assessment was performed")
+  rather than reporting its absence of findings; a source-level validator
+  blocks the deposit on an unsupported QC-negative claim.
+- **Copy a statistic's definition verbatim; never paraphrase it.** When you
+  cite `top_effect_abundance_ratio`, state it as what it is: the MEDIAN
+  abundance of the top-K-by-|effect| features divided by the MEDIAN abundance
+  of the whole tested set — a median/median ratio computed over FEATURES. Do
+  not call it a "mean", an "average", an "average normalized count ratio", or
+  a "mean baseMean", and do not attribute it to samples ("across the N
+  samples"): it says nothing about samples, and the top-K count K is not a
+  sample count. Reusing the top-K variable in a sentence about samples has
+  shipped in a real run (a report wrote "across the 15 samples" for an
+  8-sample study, where 15 was K). The same discipline applies to every other
+  derived statistic you cite — restate the definition the producing stage
+  recorded, don't re-describe it from intuition.
+
 These are the same pitfalls a source-level validator checks for in
 `validate_reporting`/`validate_final_reporting` when one is present for
 this run; getting them right at generation time avoids a re-dispatch

@@ -1112,8 +1112,19 @@ fn write_cost_ledger_row_appends_jsonl() {
     // total_cost_usd == sum of the 4 buckets, not metrics.total_cost_usd
     // (which is the chat-side snapshot field).
     assert!((row1["total_cost_usd"].as_f64().unwrap() - 1.76).abs() < 1e-9);
-    // Deterministic run-epoch timestamp (still an ISO-8601 string).
-    assert!(row1["emitted_at"].as_str().unwrap().contains('T'));
+    // Emission clock, recorded honestly. With `SOURCE_DATE_EPOCH` unset (the
+    // normal test-process state) the run-epoch clock returns its deterministic
+    // FLOOR, which is not a real wall-clock reading — so the row records
+    // `emitted_at: null` + `clock: "unset"` rather than a misleading
+    // timestamp. With a genuine in-window epoch it records the RFC-3339 value.
+    match row1["clock"].as_str() {
+        Some("run_epoch") => assert!(row1["emitted_at"].as_str().unwrap().contains('T')),
+        Some("unset") => assert!(
+            row1["emitted_at"].is_null(),
+            "an unresolved clock must not emit a timestamp: {row1}"
+        ),
+        other => panic!("unexpected clock marker {other:?} in {row1}"),
+    }
     // Metered-vs-unmetered labeling: the agent bucket carries a billing mode
     // and a metered flag so a $0.00 agent cost is never read as "free".
     assert!(row1["agent_billing_mode"].is_string());

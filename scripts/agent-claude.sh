@@ -36,6 +36,66 @@ fi
 
 PACKAGE="$(realpath "$1")"
 
+# ── Figure/artifact provenance identity ──────────────────────────────
+# `runtime/plotting/core.py::_provenance_text` stamps ECAA_PACKAGE_ID +
+# ECAA_GIT_SHA into EVERY figure footer. When either is unset the footer
+# degrades to `unknown · <stage> · plotting vX · git@unknown` — a
+# provenance line the deposit cannot back, and one that silently ships
+# into the PDF/PNG figures a reviewer reads.
+#
+# Both keys are already in the `_agent-blas-bootstrap.sh` forward
+# allowlist, so the ONLY thing needed to carry them across the container
+# boundary is for them to be non-empty in THIS shell: the bootstrap skips
+# unset/empty keys, and `docker run` inherits nothing from the parent.
+# The harness stamps them onto the per-task envelope, but agent-claude.sh
+# is also invoked outside a harness dispatch (scripts/agent.sh, the eval
+# harnesses, a manual single-task re-run), and a harness build that
+# predates the stamp leaves both empty. Resolving them here makes the
+# footer independent of who invoked the agent.
+#
+# Resolution order (first non-empty wins; all host-side and offline):
+#   ECAA_GIT_SHA    → already set (harness envelope / operator override)
+#                   → ECAA_SOURCE_COMMIT — the source commit baked into
+#                     the binaries by crates/core/build.rs and threaded
+#                     as a build arg by scripts/build-server-image.sh;
+#                     this is the most honest answer to "which code
+#                     produced this figure"
+#                   → ECAA_WORKSPACE_SHA (matches the harness's own
+#                     fallback order)
+#                   → git HEAD of the tree holding THIS script
+#                   → git HEAD of the package's own provenance repo
+#   ECAA_PACKAGE_ID → already set → WORKFLOW.json::workflow_id
+#                   → the package directory name
+#
+# Verify after a run:
+#   pdftotext <pkg>/runtime/outputs/<task>/figures/<f>.pdf - | tail -1
+# must NOT contain `git@unknown` (and must not start with `unknown ·`).
+__ecaa_git_head() {
+  # `git -C <dir> rev-parse HEAD`, silenced. Empty on any failure: no
+  # git binary, not a checkout, no commits yet, or the dubious-ownership
+  # refusal a container hits on a bind-mounted host repo.
+  local __dir="$1"
+  [ -d "$__dir" ] || return 0
+  git -C "$__dir" rev-parse HEAD 2>/dev/null || true
+}
+
+if [ -z "${ECAA_GIT_SHA:-}" ]; then
+  ECAA_GIT_SHA="${ECAA_SOURCE_COMMIT:-}"
+  [ -n "$ECAA_GIT_SHA" ] || ECAA_GIT_SHA="${ECAA_WORKSPACE_SHA:-}"
+  [ -n "$ECAA_GIT_SHA" ] || ECAA_GIT_SHA="$(__ecaa_git_head "$SCRIPT_DIR")"
+  [ -n "$ECAA_GIT_SHA" ] || ECAA_GIT_SHA="$(__ecaa_git_head "$PACKAGE")"
+fi
+[ -n "$ECAA_GIT_SHA" ] && export ECAA_GIT_SHA
+
+if [ -z "${ECAA_PACKAGE_ID:-}" ]; then
+  ECAA_PACKAGE_ID=""
+  if command -v jq >/dev/null 2>&1 && [ -f "$PACKAGE/WORKFLOW.json" ]; then
+    ECAA_PACKAGE_ID="$(jq -r '.workflow_id // empty' "$PACKAGE/WORKFLOW.json" 2>/dev/null || true)"
+  fi
+  [ -n "$ECAA_PACKAGE_ID" ] || ECAA_PACKAGE_ID="$(basename "$PACKAGE")"
+fi
+[ -n "$ECAA_PACKAGE_ID" ] && export ECAA_PACKAGE_ID
+
 # Agent debug tracing: ECAA_AGENT_DEBUG=1 redirects all
 # stderr to runtime/outputs/<task_id>/agent-trace.log AND turns on
 # bash xtrace, so a silent `set -e` exit between BLAS bootstrap and

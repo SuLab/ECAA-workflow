@@ -644,6 +644,69 @@ pub fn ensure_full_significant_tables(package_root: &Path) -> bool {
     modified
 }
 
+/// Inject the deterministic data-provenance section (rendered from the
+/// package's own acquisition metadata — `per_accession_summary.json`, the
+/// cohort manifest, the stage's recorded source deviation, and
+/// `runtime/inputs.json`) into the terminal report(s), so the authoritative
+/// statement of where the data came from is system-owned rather than
+/// agent-authored. A real deposit shipped a report asserting an SME-supplied
+/// local copy that was never registered, cited to the wrong journal, while the
+/// package's own record carried the correct source, journal, DOI and PMID.
+///
+/// Returns `true` iff a report file was modified (so the caller re-seals the
+/// BagIt manifest). Idempotent and best-effort: a package with no recorded
+/// acquisition provenance is a silent no-op, and a write failure is logged,
+/// never fatal. Mirrors [`ensure_full_significant_tables`] exactly, including
+/// the `.tmp` + atomic-rename write.
+pub fn ensure_data_provenance_section(package_root: &Path) -> bool {
+    use ecaa_workflow_core::report_contract::provenance_section::{
+        inject_provenance_section, provenance_section,
+    };
+    let Some(block) = provenance_section(package_root) else {
+        tracing::info!(
+            target: "harness-finalize",
+            "provenance inject skipped: package records no acquisition provenance"
+        );
+        return false;
+    };
+    let outputs = package_root.join("runtime").join("outputs");
+    let mut modified = false;
+    for rel in ["final_reporting/final_report.md", "reporting/report.md"] {
+        let path = outputs.join(rel);
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let updated = inject_provenance_section(&text, &block);
+        if updated != text {
+            let tmp = path.with_extension("md.tmp");
+            match std::fs::write(&tmp, &updated).and_then(|_| std::fs::rename(&tmp, &path)) {
+                Ok(()) => {
+                    modified = true;
+                    tracing::info!(target: "harness-finalize", report = %rel, "provenance section injected");
+                }
+                Err(e) => tracing::warn!(
+                    target: "harness-finalize", report = %rel, error = %e,
+                    "provenance inject write failed"
+                ),
+            }
+        }
+    }
+    modified
+}
+
+/// Run every system-owned report-section injection as one step, in a fixed
+/// order, returning `true` iff any report file changed. This is the single
+/// entry point the run-loop exit path calls on BOTH run paths (standalone and
+/// session/web-UI) so a new system-owned section never needs a second call
+/// site — and so the caller re-seals the BagIt manifest exactly once.
+/// Idempotent and best-effort; each injection is independent.
+pub fn ensure_system_report_sections(package_root: &Path) -> bool {
+    // Evaluated eagerly (not short-circuited) — both injections must run.
+    let tables = ensure_full_significant_tables(package_root);
+    let provenance = ensure_data_provenance_section(package_root);
+    tables || provenance
+}
+
 /// Marker prefix the STANDALONE finalize path writes into a re-blocked
 /// task's [`ecaa_workflow_core::dag::BlockedRecord`] reason on a genuine
 /// observed-read divergence. Carries the JSON-serialized
@@ -2025,5 +2088,77 @@ mod tests {
         // Idempotent: a second pass makes no change.
         let again = ensure_full_significant_tables(tmp.path());
         assert!(!again, "re-running on an already-injected report is a no-op");
+    }
+
+    // -----------------------------------------------------------------------
+    // ensure_data_provenance_section — system-owned data-source statement
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn ensure_data_provenance_section_injects_the_packages_own_record() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let outputs = tmp.path().join("runtime").join("outputs");
+        std::fs::create_dir_all(outputs.join("data_acquisition")).unwrap();
+        std::fs::create_dir_all(outputs.join("final_reporting")).unwrap();
+        std::fs::write(
+            outputs.join("data_acquisition/per_accession_summary.json"),
+            serde_json::json!({
+                "accession": "GSE52778",
+                "publication": {
+                    "journal": "PLOS ONE", "year": 2014,
+                    "doi": "10.1371/journal.pone.0099625", "pmid": "24926665"
+                },
+                "source_package": "airway (Bioconductor)",
+                "package_version": "1.30.0",
+                "n_samples": 8
+            })
+            .to_string(),
+        )
+        .unwrap();
+        std::fs::write(
+            outputs.join("final_reporting/final_report.md"),
+            "# Final\n\nGene-level counts supplied by the SME from a local copy.\n",
+        )
+        .unwrap();
+
+        assert!(
+            ensure_data_provenance_section(tmp.path()),
+            "the report must have been rewritten with the provenance block"
+        );
+        let text =
+            std::fs::read_to_string(outputs.join("final_reporting/final_report.md")).unwrap();
+        assert!(
+            text.contains("PLOS ONE (2014)")
+                && text.contains("airway (Bioconductor) v1.30.0")
+                && text.contains("`runtime/inputs.json` is absent"),
+            "the injected block states the package's own recorded source: {text}"
+        );
+        assert!(
+            text.starts_with("# Final"),
+            "the agent's narrative is preserved: {text}"
+        );
+
+        // Idempotent: a second pass makes no change.
+        assert!(
+            !ensure_data_provenance_section(tmp.path()),
+            "re-running on an already-injected report is a no-op"
+        );
+        assert_eq!(
+            std::fs::read_to_string(outputs.join("final_reporting/final_report.md")).unwrap(),
+            text
+        );
+    }
+
+    #[test]
+    fn ensure_data_provenance_section_is_a_noop_without_recorded_provenance() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let outputs = tmp.path().join("runtime").join("outputs");
+        std::fs::create_dir_all(outputs.join("final_reporting")).unwrap();
+        std::fs::write(outputs.join("final_reporting/final_report.md"), "# Final\n").unwrap();
+        assert!(!ensure_data_provenance_section(tmp.path()));
+        assert_eq!(
+            std::fs::read_to_string(outputs.join("final_reporting/final_report.md")).unwrap(),
+            "# Final\n"
+        );
     }
 }

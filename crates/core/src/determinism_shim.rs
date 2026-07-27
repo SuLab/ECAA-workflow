@@ -33,6 +33,7 @@
 use crate::ablation::{AblationFlag, AblationFlagExt};
 use serde::{Deserialize, Serialize};
 use std::env;
+use std::path::Path;
 
 /// Top-level payload for `runtime/determinism-shim.json`.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
@@ -336,6 +337,530 @@ pub fn merge_container_env(host: &mut DeterminismShimSidecar, container_keys: &[
     host.env_capture.captured_env_vars = set.into_iter().collect();
 }
 
+/// Package-relative path of the shim sidecar.
+const SHIM_REL_PATH: &str = "runtime/determinism-shim.json";
+
+/// Key of the emit-time declaration block that sits ALONGSIDE — never inside —
+/// the load-bearing [`DeterminismShimSidecar::non_deterministic_artifacts`]
+/// mask. Written by `conversation::emit::sidecars::write_determinism_shim`.
+const DECLARED_BLOCK_KEY: &str = "declared_non_determinism";
+
+/// One empirical-Bayes / adaptive-shrinkage engine, paired with the call sites
+/// that prove it was USED rather than merely installed.
+struct ShrinkageEngine {
+    /// Upstream package identity, as [`normalized_package_name`] renders a
+    /// recorded `language_packages_installed[].name`. Matching post-normalization
+    /// means a conda feedstock (`bioconductor-apeglm`) or a channel-qualified
+    /// spec (`bioconda::apeglm`) hits the same entry.
+    package: &'static str,
+    /// Entry points whose CALL-SHAPED occurrence in the stage's retained
+    /// scripts is direct evidence the engine ran. Data-driven per engine, not a
+    /// hardcoded R idiom: a future engine in another language declares its own
+    /// tokens here (e.g. a Python estimator's `fit_shrinkage`) and the scanner
+    /// needs no change.
+    entry_points: &'static [&'static str],
+}
+
+/// Engines that can satisfy an [`NonDetKind::AdaptiveShrinkage`] declaration.
+///
+/// `lfcShrink` is the shared DESeq2 front door for both engines (selected via
+/// its `type=` argument); the bare estimator names cover a script that calls
+/// the engine directly (`apeglm(...)`, `ashr::ash(...)`).
+const SHRINKAGE_ENGINES: &[ShrinkageEngine] = &[
+    ShrinkageEngine {
+        package: "apeglm",
+        entry_points: &["lfcShrink", "apeglm"],
+    },
+    ShrinkageEngine {
+        package: "ashr",
+        entry_points: &["lfcShrink", "ash"],
+    },
+];
+
+/// Directory, inside a stage's output dir, where the agent retains every script
+/// it authored for that task (the emitter's `scripts/` contract). This — not a
+/// log, not the narrative — is where invocation evidence is read from.
+const RETAINED_SCRIPTS_DIR: &str = "scripts";
+
+/// Extension of files inside `scripts/` that are TRANSCRIPTS, not code. A log
+/// can echo a command line that errored out or was never reached, so it is
+/// never treated as evidence the call ran.
+const TRANSCRIPT_EXT: &str = "log";
+
+/// Depth bound on the walk under `scripts/`. Retained scripts are flat in
+/// practice; the bound keeps a pathological tree from costing an unbounded
+/// walk while still finding a script an agent filed one level down.
+const MAX_SCRIPT_WALK_DEPTH: usize = 3;
+
+/// Outcome of reconciling ONE declaration against its stage's run evidence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DeclarationVerdict {
+    /// The run evidence positively exhibits the declared mechanism. The
+    /// declaration is promoted into the mask — the exemption is EARNED.
+    Confirmed,
+    /// The evidence was readable and does NOT exhibit the declared mechanism.
+    /// No mask; the entry stays as a record that execution contradicted the
+    /// static claim.
+    Refuted,
+    /// No verdict was possible — evidence missing/unreadable, or no positive
+    /// predicate exists for the declared kind. Fail-closed: no mask.
+    Declared,
+}
+
+impl DeclarationVerdict {
+    /// Wire value written back into the declaration's `status` field.
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Confirmed => "confirmed",
+            Self::Refuted => "refuted",
+            Self::Declared => "declared",
+        }
+    }
+}
+
+/// Reconcile the emit-time `declared_non_determinism` block in
+/// `runtime/determinism-shim.json` against each stage's recorded run evidence,
+/// promoting only the declarations the run actually confirms into the
+/// authoritative [`DeterminismShimSidecar::non_deterministic_artifacts`] mask.
+/// Returns the number of CONFIRMED declarations.
+///
+/// # Why this exists
+///
+/// The declarations are projected at EMIT from an atom's static
+/// `non_determinism` YAML — before any task ran. The mask, by contrast, is what
+/// [`ack_for`] serves to [`crate::reexecution::classify_reexecution`] (which
+/// downgrades a real divergence to `AcknowledgedNonDeterminism`) and to
+/// `crate::audit_proof::invariants::equivalence_failure` (which treats the
+/// divergence as satisfied). Writing a static declaration straight into the
+/// mask therefore exempts an artifact from equivalence checking on no evidence
+/// — even when the executed script never used the declared mechanism. This
+/// function is the seam that turns a claim into an observation.
+///
+/// # Confirmation predicate: TWO signals, both required
+///
+/// Modality-agnostic and evidence-based. A declaration is `confirmed` only when
+/// the stage's own recorded run evidence carries BOTH:
+///
+/// **(a) Availability** — the mechanism's engine appears in the stage
+/// `result.json`'s `language_packages_installed[].name` list, named by the
+/// declaration's own `confirmation_evidence` pointer. Names are normalized
+/// (lowercased, channel prefix `<channel>::` dropped, conda-feedstock prefixes
+/// `bioconductor-`/`r-`/`python-` stripped) before matching.
+///
+/// **(b) Use** — a call-shaped occurrence of one of that engine's entry points
+/// (see [`SHRINKAGE_ENGINES`]) in the stage's own retained scripts, i.e. under
+/// `<stage output dir>/scripts/`, the same directory the evidence pointer
+/// resolves into.
+///
+/// ## Why availability alone is insufficient
+///
+/// `language_packages_installed` proves the engine was AVAILABLE to the stage,
+/// never that the stage USED it. A base image that happens to bundle `apeglm`,
+/// or an install step that pulls it in as a transitive dependency of something
+/// else, would make signal (a) unconditionally true — and every DE stage would
+/// then silently earn an exemption from re-execution equivalence checking on a
+/// mechanism it never invoked. Since the mask this function writes is exactly
+/// what suppresses a real divergence, an install-only predicate re-opens the
+/// hole this seam exists to close. Requiring direct evidence of the CALL keeps
+/// the exemption tied to an observation of the run.
+///
+/// Signal (b) is read only from `scripts/`, never from `*.log`: a transcript
+/// can echo a command that errored out or was never reached. Occurrences inside
+/// a comment (`#`, the marker in R/Python/shell) are skipped, so a
+/// commented-out call is not evidence.
+///
+/// | [`NonDetKind`] | Verdict rule |
+/// |---|---|
+/// | `AdaptiveShrinkage` | `confirmed` iff (a) a shrinkage engine (`apeglm` or `ashr`) is in the installed set AND (b) one of its entry points is called in the retained scripts; (a) without (b) — available but unused — is `refuted`, as is (a) failing |
+/// | `MultithreadedReduction`, `UnseededRng`, `FloatingPointAssociativity`, `Other` | no positive two-signal predicate exists → left `declared`, NO mask |
+/// | any future variant (`NonDetKind` is `#[non_exhaustive]`) | left `declared`, NO mask |
+///
+/// Fail-closed in every ambiguous case: a missing/unreadable/non-JSON evidence
+/// file, an absent or unparseable `kind`, an evidence pointer that escapes the
+/// package root, or a declaration with no `artifact` all leave the entry
+/// `declared` and grant NO mask. A kind is never confirmed by default.
+///
+/// # Effects
+///
+/// Rewrites the sidecar atomically (tmp + rename via
+/// [`crate::fs_helpers::atomic_write_bytes_sync`]), preserving every unrelated
+/// JSON field, setting each declaration's `status`, and flipping the block's
+/// own `status` to `reconciled`. Idempotent — a second call over the same
+/// evidence produces byte-identical output. A package with no sidecar, a
+/// non-object sidecar, or no declaration block is a no-op returning `Ok(0)`.
+///
+/// `runtime/determinism-shim.json` is EXCLUDED from the BagIt payload manifest
+/// (`emitter::bagit`), so this rewrite needs no manifest reseal.
+pub fn reconcile_declared_non_determinism(package_root: &Path) -> std::io::Result<usize> {
+    let path = package_root.join(SHIM_REL_PATH);
+    // A package with no shim (legacy or pre-emit) has nothing to reconcile.
+    let Ok(bytes) = std::fs::read(&path) else {
+        return Ok(0);
+    };
+    let mut root: serde_json::Value =
+        serde_json::from_slice(&bytes).map_err(std::io::Error::other)?;
+    let Some(obj) = root.as_object_mut() else {
+        return Ok(0);
+    };
+    let Some(mut block) = obj.remove(DECLARED_BLOCK_KEY) else {
+        return Ok(0);
+    };
+    if !block.is_object() {
+        // Not the shape we write; put it back untouched rather than dropping a
+        // field we do not own.
+        obj.insert(DECLARED_BLOCK_KEY.to_string(), block);
+        return Ok(0);
+    }
+
+    let mut confirmed: Vec<NonDetAck> = Vec::new();
+    if let Some(block_obj) = block.as_object_mut() {
+        if let Some(declarations) = block_obj
+            .get_mut("declarations")
+            .and_then(serde_json::Value::as_array_mut)
+        {
+            for entry in declarations.iter_mut() {
+                let Some(entry_obj) = entry.as_object_mut() else {
+                    continue;
+                };
+                let (verdict, ack) = reconcile_one(package_root, entry_obj);
+                if let Some(ack) = ack {
+                    confirmed.push(ack);
+                }
+                entry_obj.insert(
+                    "status".to_string(),
+                    serde_json::Value::String(verdict.as_str().to_string()),
+                );
+            }
+        }
+        block_obj.insert(
+            "status".to_string(),
+            serde_json::Value::String("reconciled".to_string()),
+        );
+    }
+
+    // Promote through the canonical setter so the mask stays sorted + deduped
+    // (byte-stability contract), and so re-running the reconciliation over an
+    // already-promoted shim is a no-op rather than a duplicate.
+    let mut shim: DeterminismShimSidecar =
+        serde_json::from_value(serde_json::Value::Object(obj.clone()))
+            .map_err(std::io::Error::other)?;
+    let mut acks = std::mem::take(&mut shim.non_deterministic_artifacts);
+    acks.extend(confirmed.iter().cloned());
+    shim.set_non_deterministic_artifacts(acks);
+
+    let shim_value = serde_json::to_value(&shim).map_err(std::io::Error::other)?;
+    // `non_deterministic_artifacts` is `skip_serializing_if = Vec::is_empty`,
+    // so an empty mask omits the key entirely. Drop any prior copy first: a
+    // merge alone could otherwise leave an UNEARNED mask behind.
+    obj.remove("non_deterministic_artifacts");
+    if let Some(fields) = shim_value.as_object() {
+        for (key, value) in fields {
+            obj.insert(key.clone(), value.clone());
+        }
+    }
+    obj.insert(DECLARED_BLOCK_KEY.to_string(), block);
+
+    let body = serde_json::to_vec_pretty(&root).map_err(std::io::Error::other)?;
+    crate::fs_helpers::atomic_write_bytes_sync(&path, &body)?;
+    Ok(confirmed.len())
+}
+
+/// Reconcile a single declaration entry. Returns its verdict plus the mask
+/// entry it earned (`Some` only on [`DeclarationVerdict::Confirmed`]).
+fn reconcile_one(
+    package_root: &Path,
+    entry: &serde_json::Map<String, serde_json::Value>,
+) -> (DeclarationVerdict, Option<NonDetAck>) {
+    // An absent or unparseable kind (including a variant this build does not
+    // know) is not confirmable.
+    let Some(kind) = entry
+        .get("kind")
+        .and_then(|k| serde_json::from_value::<NonDetKind>(k.clone()).ok())
+    else {
+        return (DeclarationVerdict::Declared, None);
+    };
+    let Some(evidence_rel) = entry
+        .get("confirmation_evidence")
+        .and_then(serde_json::Value::as_str)
+    else {
+        return (DeclarationVerdict::Declared, None);
+    };
+    // The pointer is data read out of a file: refuse anything that could
+    // resolve outside the package root.
+    let rel = Path::new(evidence_rel);
+    if evidence_rel.is_empty()
+        || rel.is_absolute()
+        || rel
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return (DeclarationVerdict::Declared, None);
+    }
+    let evidence_path = package_root.join(rel);
+    let Ok(text) = std::fs::read_to_string(&evidence_path) else {
+        return (DeclarationVerdict::Declared, None);
+    };
+    let Ok(evidence) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return (DeclarationVerdict::Declared, None);
+    };
+
+    match kind {
+        NonDetKind::AdaptiveShrinkage => {
+            // INVOCATION IS THE PRIMARY SIGNAL. The install set is only
+            // corroborating, because it is unreliable in BOTH directions:
+            //   * available-but-unused would grant an unearned exemption
+            //     (a base image that bundles apeglm makes it unconditional);
+            //   * used-but-not-recorded is real — an observed run called
+            //     `lfcShrink(type="apeglm")` and recorded the choice while
+            //     `language_packages_installed` listed only DESeq2, because
+            //     the engine came from the image rather than a stage install.
+            //     `lfcShrink(type="normal")` is DESeq2's own shrinkage and can
+            //     never appear in an install set at all.
+            // So: a call-shaped, non-comment invocation in the stage's own
+            // retained scripts confirms. The scripts dir is derived from the
+            // (already path-jailed) evidence pointer's own directory, so both
+            // signals are read from the same stage and no second untrusted
+            // path string enters the lookup.
+            let scripts_dir = evidence_path
+                .parent()
+                .unwrap_or(package_root)
+                .join(RETAINED_SCRIPTS_DIR);
+            let all_entry_points: Vec<&str> = SHRINKAGE_ENGINES
+                .iter()
+                .flat_map(|e| e.entry_points.iter().copied())
+                .collect();
+            if !scripts_invoke_any(&scripts_dir, &all_entry_points) {
+                // No invocation in the stage's own scripts: whether or not an
+                // engine was installed, nothing shrank. An unearned exemption
+                // is exactly the failure mode this predicate exists to
+                // prevent, so refute.
+                return (DeclarationVerdict::Refuted, None);
+            }
+            // Corroboration only, and deliberately non-blocking: record when
+            // the install set agrees, but never let its absence override a
+            // real observed call (see the `type="normal"` case above).
+            let installed = installed_package_names(&evidence);
+            let corroborated = SHRINKAGE_ENGINES
+                .iter()
+                .any(|e| installed.iter().any(|name| name.as_str() == e.package));
+            if !corroborated {
+                tracing::debug!(
+                    target: "determinism-shim",
+                    "shrinkage invocation confirmed from retained scripts; no engine in \
+                     language_packages_installed (image-provided engine or DESeq2-native \
+                     shrinkage)"
+                );
+            }
+            match ack_from_declaration(entry, kind) {
+                Some(ack) => (DeclarationVerdict::Confirmed, Some(ack)),
+                // A declaration naming no artifact cannot scope a mask entry.
+                None => (DeclarationVerdict::Declared, None),
+            }
+        }
+        // No positive, evidence-based two-signal predicate exists for the
+        // remaining kinds — and `NonDetKind` is `#[non_exhaustive]`, so future
+        // variants land here too. Fail closed rather than granting a mask on a
+        // kind whose confirmation rule has not been written.
+        _ => (DeclarationVerdict::Declared, None),
+    }
+}
+
+/// Build the mask entry a confirmed declaration earns. `None` when the entry
+/// names no artifact (nothing to scope the exemption to).
+fn ack_from_declaration(
+    entry: &serde_json::Map<String, serde_json::Value>,
+    kind: NonDetKind,
+) -> Option<NonDetAck> {
+    let artifact = entry
+        .get("artifact")
+        .and_then(serde_json::Value::as_str)
+        .filter(|a| !a.is_empty())?;
+    let columns = entry
+        .get("columns")
+        .and_then(serde_json::Value::as_array)
+        .map(|cols| {
+            cols.iter()
+                .filter_map(serde_json::Value::as_str)
+                .map(str::to_owned)
+                .collect::<Vec<String>>()
+        });
+    let reason = entry
+        .get("reason")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    Some(NonDetAck {
+        artifact: artifact.to_string(),
+        columns,
+        kind,
+        reason,
+    })
+}
+
+/// Normalized `language_packages_installed[].name` values from a stage
+/// `result.json`. Empty when the stage recorded no install set — which is
+/// itself a fail-closed input (nothing can be confirmed against it).
+fn installed_package_names(evidence: &serde_json::Value) -> Vec<String> {
+    let Some(list) = evidence
+        .get("language_packages_installed")
+        .and_then(serde_json::Value::as_array)
+    else {
+        return Vec::new();
+    };
+    list.iter()
+        .filter_map(|pkg| pkg.get("name").and_then(serde_json::Value::as_str))
+        .map(normalized_package_name)
+        .collect()
+}
+
+/// Reduce a recorded package name to its upstream identity so the predicate
+/// matches whichever packaging surface the run happened to install from:
+/// lowercase, drop a `<channel>::` qualifier, strip a conda-feedstock prefix.
+fn normalized_package_name(raw: &str) -> String {
+    let lower = raw.trim().to_ascii_lowercase();
+    let bare = match lower.rsplit_once("::") {
+        Some((_, name)) => name,
+        None => lower.as_str(),
+    };
+    for prefix in ["bioconductor-", "r-", "python-"] {
+        if let Some(rest) = bare.strip_prefix(prefix) {
+            return rest.to_string();
+        }
+    }
+    bare.to_string()
+}
+
+/// True when any script retained under `scripts_dir` contains a call-shaped,
+/// non-commented occurrence of one of `entry_points` — the "was it actually
+/// USED" half of the confirmation predicate.
+///
+/// An unreadable or absent `scripts/` directory yields `false`: no evidence is
+/// not evidence of use.
+fn scripts_invoke_any(scripts_dir: &Path, entry_points: &[&str]) -> bool {
+    retained_script_paths(scripts_dir)
+        .into_iter()
+        .filter_map(|path| std::fs::read_to_string(path).ok())
+        .any(|source| source_calls_any(&source, entry_points))
+}
+
+/// Every code file retained under `dir`, sorted (a `BTreeSet` — `read_dir`
+/// order is filesystem-dependent, and this crate's contract is deterministic
+/// behaviour). Transcripts (`*.log`) are excluded.
+fn retained_script_paths(dir: &Path) -> Vec<std::path::PathBuf> {
+    let mut found = std::collections::BTreeSet::new();
+    collect_script_paths(dir, 0, &mut found);
+    found.into_iter().collect()
+}
+
+/// Depth-bounded walk feeding [`retained_script_paths`].
+fn collect_script_paths(
+    dir: &Path,
+    depth: usize,
+    found: &mut std::collections::BTreeSet<std::path::PathBuf>,
+) {
+    if depth > MAX_SCRIPT_WALK_DEPTH {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        // `file_type()` does NOT follow symlinks, so a symlinked directory is
+        // neither descended nor read — the walk cannot loop, and the scan
+        // cannot be steered outside the package by a planted link.
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        let path = entry.path();
+        if file_type.is_dir() {
+            collect_script_paths(&path, depth + 1, found);
+        } else if file_type.is_file() && !is_transcript(&path) {
+            found.insert(path);
+        }
+    }
+}
+
+/// True for a run transcript rather than a script.
+fn is_transcript(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case(TRANSCRIPT_EXT))
+}
+
+/// True when `source` calls any of `entry_points` outside a comment.
+fn source_calls_any(source: &str, entry_points: &[&str]) -> bool {
+    source.lines().any(|line| {
+        let code = strip_comment(line);
+        entry_points.iter().any(|token| line_calls(code, token))
+    })
+}
+
+/// The code portion of one line: everything before the first `#` that is not
+/// inside a quoted string. `#` is the comment marker in R, Python and shell —
+/// the languages retained scripts are written in — so a commented-out call is
+/// dropped before the call scan sees it. Quote tracking keeps a `#` inside a
+/// string literal (a hex colour, a header line) from truncating real code.
+///
+/// Deliberately stateless across lines — this is a comment filter, not a
+/// parser. A string literal continued across a newline is the one shape it
+/// mis-reads, and it mis-reads it toward truncation, i.e. toward NOT finding
+/// an invocation: the fail-closed direction, which withholds the exemption
+/// rather than granting an unearned one.
+fn strip_comment(line: &str) -> &str {
+    let mut quote: Option<u8> = None;
+    let mut escaped = false;
+    for (i, byte) in line.bytes().enumerate() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match quote {
+            Some(open) => {
+                if byte == b'\\' {
+                    escaped = true;
+                } else if byte == open {
+                    quote = None;
+                }
+            }
+            // `#` and the quote bytes are ASCII, so `i` is always a char
+            // boundary and the slice below cannot split a UTF-8 sequence.
+            None => match byte {
+                b'\'' | b'"' => quote = Some(byte),
+                b'#' => return &line[..i],
+                _ => {}
+            },
+        }
+    }
+    line
+}
+
+/// True when `code` contains `token` in CALL shape: preceded by a
+/// non-identifier byte (so `hash(` is not a call to `ash`) and immediately
+/// followed by `(` (so a bare mention in prose or a `type = "apeglm"` argument
+/// is not read as an invocation).
+fn line_calls(code: &str, token: &str) -> bool {
+    let bytes = code.as_bytes();
+    let mut from = 0usize;
+    while let Some(offset) = code[from..].find(token) {
+        let start = from + offset;
+        let end = start + token.len();
+        let boundary_before = start == 0 || !is_identifier_byte(bytes[start - 1]);
+        let call_after = bytes.get(end) == Some(&b'(');
+        if boundary_before && call_after {
+            return true;
+        }
+        // Tokens are ASCII, so `start + 1` is always a char boundary.
+        from = start + 1;
+    }
+    false
+}
+
+/// Bytes that may appear INSIDE an identifier. `.` is included because R
+/// permits it in names: `my.ash(` must not read as a call to `ash`.
+fn is_identifier_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'.'
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -546,5 +1071,513 @@ mod tests {
             Some(v) => env::set_var("LC_ALL", v),
             None => env::remove_var("LC_ALL"),
         }
+    }
+
+    // ---------------------------------------------------------------------
+    // reconcile_declared_non_determinism
+    // ---------------------------------------------------------------------
+
+    const DE_TASK: &str = "differential_expression";
+    const DE_ARTIFACT: &str = "runtime/outputs/differential_expression/de_results.tsv";
+    const DE_EVIDENCE: &str = "runtime/outputs/differential_expression/result.json";
+
+    /// Write a shim carrying exactly one emit-projected declaration, in the
+    /// shape `conversation::emit::sidecars::write_determinism_shim` produces.
+    fn seed_shim(root: &std::path::Path, kind: &str, confirmation_evidence: &str) {
+        let runtime = root.join("runtime");
+        std::fs::create_dir_all(&runtime).unwrap();
+        let shim = serde_json::json!({
+            "schema_version": "1",
+            "env_capture": { "captured_env_vars": ["TZ"], "redacted_env_vars": [] },
+            "seed_policy": { "random_seed": null, "seed_source": "process-default" },
+            "temp_path_policy": { "strategy": "stable-by-task-id", "root": "runtime/scratch" },
+            "locale": "C.UTF-8",
+            "timezone": "UTC",
+            "ablation_engaged": false,
+            "declared_non_determinism": {
+                "status": "declared_pending_run_confirmation",
+                "note": "Projected from static atom declarations at emit.",
+                "declarations": [{
+                    "task_id": DE_TASK,
+                    "artifact": DE_ARTIFACT,
+                    "columns": ["log2FC", "lfcSE"],
+                    "kind": kind,
+                    "reason": "Empirical-Bayes adaptive shrinkage of effect sizes.",
+                    "status": "declared",
+                    "confirmation_evidence": confirmation_evidence
+                }]
+            }
+        });
+        std::fs::write(
+            runtime.join("determinism-shim.json"),
+            serde_json::to_vec_pretty(&shim).unwrap(),
+        )
+        .unwrap();
+    }
+
+    /// Write the stage `result.json` the declaration points at.
+    fn seed_result_json(root: &std::path::Path, task: &str, installed: &[(&str, &str)]) {
+        let dir = root.join("runtime/outputs").join(task);
+        std::fs::create_dir_all(&dir).unwrap();
+        let packages: Vec<serde_json::Value> = installed
+            .iter()
+            .map(|(name, version)| {
+                serde_json::json!({ "name": name, "version": version, "channel": "bioconda" })
+            })
+            .collect();
+        let result = serde_json::json!({
+            "task_id": task,
+            "status": "completed",
+            "language_packages_installed": packages
+        });
+        std::fs::write(
+            dir.join("result.json"),
+            serde_json::to_vec_pretty(&result).unwrap(),
+        )
+        .unwrap();
+    }
+
+    /// Write one retained script into the stage's `scripts/` dir — the
+    /// directory the "was it actually invoked" signal is read from.
+    fn seed_script(root: &std::path::Path, task: &str, file_name: &str, body: &str) {
+        let dir = root
+            .join("runtime/outputs")
+            .join(task)
+            .join(RETAINED_SCRIPTS_DIR);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(file_name), body).unwrap();
+    }
+
+    /// A retained R script that really calls the DESeq2 shrinkage front door.
+    const INVOKING_R_SCRIPT: &str = "\
+library(DESeq2)\n\
+dds <- DESeq(dds)\n\
+res_shrunk <- lfcShrink(dds, coef = coef_name, type = \"apeglm\", quiet = TRUE)\n\
+write.table(as.data.frame(res_shrunk), \"de_results.tsv\", sep = \"\\t\")\n";
+
+    /// A retained R script that fits the model but never shrinks — the engine
+    /// may be installed, yet nothing here invokes it.
+    const NON_INVOKING_R_SCRIPT: &str = "\
+library(DESeq2)\n\
+dds <- DESeq(dds)\n\
+res <- results(dds, alpha = 0.05)\n\
+write.table(as.data.frame(res), \"de_results.tsv\", sep = \"\\t\")\n";
+
+    fn read_shim_json(root: &std::path::Path) -> serde_json::Value {
+        let body = std::fs::read(root.join("runtime/determinism-shim.json")).unwrap();
+        serde_json::from_slice(&body).unwrap()
+    }
+
+    /// The one declaration in the reconciled block.
+    fn only_declaration(shim: &serde_json::Value) -> &serde_json::Value {
+        &shim["declared_non_determinism"]["declarations"][0]
+    }
+
+    #[test]
+    /// An observed run called `lfcShrink(type="apeglm")` and recorded the
+    /// choice, yet `language_packages_installed` listed only DESeq2 — the
+    /// engine came from the base image, not a stage install. Ranking the
+    /// install record above the invocation would FALSE-REFUTE a stage that
+    /// genuinely shrank, and `lfcShrink(type="normal")` (DESeq2's own
+    /// shrinkage) can never appear in an install set at all. Invocation
+    /// decides; the install record only corroborates.
+    #[test]
+    fn invocation_confirms_even_when_the_engine_was_never_separately_installed() {
+        let tmp = tempfile::tempdir().unwrap();
+        seed_shim(tmp.path(), "adaptive_shrinkage", DE_EVIDENCE);
+        seed_result_json(tmp.path(), DE_TASK, &[("DESeq2", "1.50.2")]);
+        seed_script(tmp.path(), DE_TASK, "01_deseq2_de.R", INVOKING_R_SCRIPT);
+
+        let confirmed = reconcile_declared_non_determinism(tmp.path()).unwrap();
+        assert_eq!(
+            confirmed, 1,
+            "a real invocation must confirm without an install record"
+        );
+        let shim = read_shim_json(tmp.path());
+        assert_eq!(only_declaration(&shim)["status"], "confirmed");
+    }
+
+    #[test]
+    fn reconcile_confirms_when_evidence_names_a_shrinkage_engine() {
+        let tmp = tempfile::tempdir().unwrap();
+        seed_shim(tmp.path(), "adaptive_shrinkage", DE_EVIDENCE);
+        seed_result_json(
+            tmp.path(),
+            DE_TASK,
+            &[("apeglm", "1.32.0"), ("DESeq2", "1.50.2")],
+        );
+        // Confirmation turns on the INVOCATION in a retained script; the
+        // install record merely corroborates it.
+        seed_script(tmp.path(), DE_TASK, "01_deseq2_de.R", INVOKING_R_SCRIPT);
+
+        let confirmed = reconcile_declared_non_determinism(tmp.path()).unwrap();
+        assert_eq!(
+            confirmed, 1,
+            "one declaration was confirmed by run evidence"
+        );
+
+        let shim = read_shim_json(tmp.path());
+        assert_eq!(
+            shim["declared_non_determinism"]["status"], "reconciled",
+            "the block must record that a reconciliation pass ran"
+        );
+        assert_eq!(
+            only_declaration(&shim)["status"],
+            "confirmed",
+            "the declaration must be marked confirmed"
+        );
+
+        // The mask is EARNED: the artifact + its columns now appear in
+        // `non_deterministic_artifacts`, so `ack_for` covers it.
+        let parsed: DeterminismShimSidecar =
+            serde_json::from_value(shim.clone()).expect("reconciled shim still parses");
+        assert_eq!(
+            parsed.non_deterministic_artifacts.len(),
+            1,
+            "confirmation must grant exactly one mask entry"
+        );
+        let ack = ack_for(&parsed, DE_ARTIFACT).expect("confirmed artifact is masked");
+        assert_eq!(
+            ack.kind,
+            NonDetKind::AdaptiveShrinkage,
+            "the mask must carry the declared kind"
+        );
+        assert_eq!(
+            ack.columns,
+            Some(vec!["log2FC".to_string(), "lfcSE".to_string()]),
+            "the mask must inherit the declaration's column scope, not widen it"
+        );
+
+        // Idempotent: re-running over the same evidence changes nothing.
+        let before = std::fs::read(tmp.path().join("runtime/determinism-shim.json")).unwrap();
+        let again = reconcile_declared_non_determinism(tmp.path()).unwrap();
+        let after = std::fs::read(tmp.path().join("runtime/determinism-shim.json")).unwrap();
+        assert_eq!(again, 1, "re-reconciliation reports the same confirmation");
+        assert_eq!(before, after, "re-reconciliation must be byte-idempotent");
+    }
+
+    #[test]
+    fn confirmation_turns_on_invocation_not_on_the_install_record() {
+        // INVOCATION decides. `language_packages_installed` proves only that
+        // the engine was reachable, never that the stage ran it — and it is
+        // unreliable in the other direction too (an image-provided engine, or
+        // DESeq2-native `lfcShrink(type="normal")`, leaves no install record
+        // for a run that genuinely shrank). So the invoked column alone
+        // determines the verdict, and the installed column must not change it.
+        let cases = [
+            (true, true, 1usize, "confirmed"),
+            (false, true, 1, "confirmed"),
+            (true, false, 0, "refuted"),
+            (false, false, 0, "refuted"),
+        ];
+        for (installed, invoked, expect_confirmed, expect_status) in cases {
+            let tmp = tempfile::tempdir().unwrap();
+            seed_shim(tmp.path(), "adaptive_shrinkage", DE_EVIDENCE);
+            let packages: &[(&str, &str)] = if installed {
+                &[("DESeq2", "1.50.2"), ("apeglm", "1.32.0")]
+            } else {
+                &[("DESeq2", "1.50.2")]
+            };
+            seed_result_json(tmp.path(), DE_TASK, packages);
+            seed_script(
+                tmp.path(),
+                DE_TASK,
+                "01_deseq2_de.R",
+                if invoked {
+                    INVOKING_R_SCRIPT
+                } else {
+                    NON_INVOKING_R_SCRIPT
+                },
+            );
+
+            assert_eq!(
+                reconcile_declared_non_determinism(tmp.path()).unwrap(),
+                expect_confirmed,
+                "installed={installed} invoked={invoked} must yield \
+                 {expect_confirmed} confirmation(s)"
+            );
+            let shim = read_shim_json(tmp.path());
+            assert_eq!(
+                only_declaration(&shim)["status"],
+                expect_status,
+                "installed={installed} invoked={invoked} must be recorded {expect_status}"
+            );
+            let parsed: DeterminismShimSidecar = serde_json::from_value(shim).unwrap();
+            assert_eq!(
+                parsed.non_deterministic_artifacts.len(),
+                expect_confirmed,
+                "installed={installed} invoked={invoked} must grant \
+                 {expect_confirmed} mask entr(y/ies)"
+            );
+        }
+    }
+
+    #[test]
+    fn engine_installed_but_never_invoked_is_refuted() {
+        let tmp = tempfile::tempdir().unwrap();
+        seed_shim(tmp.path(), "adaptive_shrinkage", DE_EVIDENCE);
+        // The image (or a transitive dependency) made apeglm AVAILABLE, so the
+        // install-set signal alone holds...
+        seed_result_json(
+            tmp.path(),
+            DE_TASK,
+            &[("DESeq2", "1.50.2"), ("apeglm", "1.32.0")],
+        );
+        // ...but the script the stage actually ran never shrinks anything.
+        seed_script(tmp.path(), DE_TASK, "01_deseq2_de.R", NON_INVOKING_R_SCRIPT);
+        // A transcript can echo a call that errored out or was never reached,
+        // so `*.log` is excluded from the scan and must not flip the verdict.
+        seed_script(
+            tmp.path(),
+            DE_TASK,
+            "01_deseq2_de.log",
+            "R> res_shrunk <- lfcShrink(dds, coef = \"cond\", type = \"apeglm\")\n\
+             Error: object 'dds' not found\n",
+        );
+
+        assert_eq!(
+            reconcile_declared_non_determinism(tmp.path()).unwrap(),
+            0,
+            "availability without invocation must confirm nothing"
+        );
+
+        let shim = read_shim_json(tmp.path());
+        assert_eq!(
+            only_declaration(&shim)["status"],
+            "refuted",
+            "an installed-but-unused engine is a refutation, not an open question"
+        );
+        // NO mask entry is created at all — not an empty-columns one, not a
+        // whole-artifact one.
+        assert!(
+            shim.get("non_deterministic_artifacts").is_none(),
+            "an unused engine must not write the mask key at all, got: {shim}"
+        );
+        let parsed: DeterminismShimSidecar = serde_json::from_value(shim).unwrap();
+        assert!(
+            parsed.non_deterministic_artifacts.is_empty(),
+            "availability alone must never earn an exemption"
+        );
+        assert!(
+            ack_for(&parsed, DE_ARTIFACT).is_none(),
+            "the comparator must still equivalence-check this artifact"
+        );
+    }
+
+    #[test]
+    fn commented_out_invocation_is_not_evidence() {
+        let tmp = tempfile::tempdir().unwrap();
+        seed_shim(tmp.path(), "adaptive_shrinkage", DE_EVIDENCE);
+        seed_result_json(
+            tmp.path(),
+            DE_TASK,
+            &[("DESeq2", "1.50.2"), ("apeglm", "1.32.0")],
+        );
+        // Every occurrence of an entry point sits behind a `#`: a full-line
+        // comment, a trailing comment, and a direct-call mention. None ran.
+        seed_script(
+            tmp.path(),
+            DE_TASK,
+            "01_deseq2_de.R",
+            "library(DESeq2)\n\
+             # res_shrunk <- lfcShrink(dds, coef = coef_name, type = \"apeglm\") # disabled\n\
+             res <- results(dds, alpha = 0.05)  # could also use lfcShrink(dds)\n\
+             #   apeglm(x, y) direct call also disabled\n\
+             write.table(as.data.frame(res), \"de_results.tsv\", sep = \"\\t\")\n",
+        );
+
+        assert_eq!(
+            reconcile_declared_non_determinism(tmp.path()).unwrap(),
+            0,
+            "a commented-out call is not evidence the method ran"
+        );
+        let shim = read_shim_json(tmp.path());
+        assert_eq!(
+            only_declaration(&shim)["status"],
+            "refuted",
+            "the engine was available and demonstrably not invoked"
+        );
+        let parsed: DeterminismShimSidecar = serde_json::from_value(shim).unwrap();
+        assert!(
+            parsed.non_deterministic_artifacts.is_empty(),
+            "commented-out code must grant no exemption"
+        );
+    }
+
+    #[test]
+    fn call_scan_ignores_mentions_and_respects_identifier_boundaries() {
+        // Unit-level guard on the call-shape rule the two-signal predicate
+        // rests on, so a regression is localized rather than surfacing only
+        // through a whole reconciliation.
+        assert!(
+            source_calls_any("res <- lfcShrink(dds, type = \"apeglm\")\n", &["lfcShrink"]),
+            "a plain call must be recognized"
+        );
+        assert!(
+            source_calls_any("res <- DESeq2::lfcShrink(dds)\n", &["lfcShrink"]),
+            "a namespace-qualified call must be recognized (`::` is a boundary)"
+        );
+        assert!(
+            !source_calls_any(
+                "cat(\"Using lfcShrink coef:\", coef_name)\n",
+                &["lfcShrink"]
+            ),
+            "a bare mention with no `(` is not a call"
+        );
+        assert!(
+            !source_calls_any("res <- lfcShrink(dds)\n", &["apeglm"]),
+            "the `type=` argument value is not itself an invocation"
+        );
+        assert!(
+            !source_calls_any("h <- hash(x)\ny <- my.ash(z)\n", &["ash"]),
+            "an identifier that merely ENDS in the token is not a call to it"
+        );
+        assert!(
+            source_calls_any("fit <- ashr::ash(betahat, sebetahat)\n", &["ash"]),
+            "the qualified estimator call must be recognized"
+        );
+        // A `#` inside a string literal must not truncate real code.
+        assert!(
+            source_calls_any(
+                "plot(col = \"#FF0000\"); res <- lfcShrink(dds)\n",
+                &["lfcShrink"]
+            ),
+            "a `#` inside a quoted string is not a comment marker"
+        );
+    }
+
+    #[test]
+    fn reconcile_refutes_when_evidence_lacks_the_engine() {
+        let tmp = tempfile::tempdir().unwrap();
+        seed_shim(tmp.path(), "adaptive_shrinkage", DE_EVIDENCE);
+        // The run installed DESeq2 only AND retained no script that calls a
+        // shrinkage entry point, so the static claim that this stage shrank
+        // effect sizes is contradicted on the signal that actually decides it
+        // (invocation) as well as on the corroborating install record.
+        seed_result_json(tmp.path(), DE_TASK, &[("DESeq2", "1.50.2")]);
+
+        let confirmed = reconcile_declared_non_determinism(tmp.path()).unwrap();
+        assert_eq!(confirmed, 0, "no declaration may be confirmed");
+
+        let shim = read_shim_json(tmp.path());
+        assert_eq!(
+            only_declaration(&shim)["status"],
+            "refuted",
+            "execution contradicted the static claim — keep it as a record"
+        );
+        assert_eq!(
+            shim["declared_non_determinism"]["status"], "reconciled",
+            "the block must record that a reconciliation pass ran"
+        );
+
+        // NO mask is granted: the artifact stays subject to equivalence checking.
+        assert!(
+            shim.get("non_deterministic_artifacts").is_none(),
+            "a refuted declaration must not write the mask key at all, got: {shim}"
+        );
+        let parsed: DeterminismShimSidecar = serde_json::from_value(shim).unwrap();
+        assert!(
+            parsed.non_deterministic_artifacts.is_empty(),
+            "a refuted declaration must grant no exemption"
+        );
+        assert!(
+            ack_for(&parsed, DE_ARTIFACT).is_none(),
+            "the comparator must still see this artifact as un-acked"
+        );
+    }
+
+    #[test]
+    fn reconcile_is_fail_closed_when_evidence_is_missing() {
+        let tmp = tempfile::tempdir().unwrap();
+        seed_shim(tmp.path(), "adaptive_shrinkage", DE_EVIDENCE);
+        // No result.json written: the stage never produced the evidence the
+        // declaration names.
+
+        let confirmed = reconcile_declared_non_determinism(tmp.path()).unwrap();
+        assert_eq!(confirmed, 0, "unreadable evidence can confirm nothing");
+
+        let shim = read_shim_json(tmp.path());
+        assert_eq!(
+            only_declaration(&shim)["status"],
+            "declared",
+            "missing evidence is not a refutation — the entry stays unresolved"
+        );
+        assert_eq!(
+            shim["declared_non_determinism"]["status"], "reconciled",
+            "the pass still records that it ran"
+        );
+        let parsed: DeterminismShimSidecar = serde_json::from_value(shim).unwrap();
+        assert!(
+            parsed.non_deterministic_artifacts.is_empty(),
+            "fail-closed: no evidence, no mask"
+        );
+    }
+
+    #[test]
+    fn reconcile_leaves_kinds_without_a_predicate_declared() {
+        let tmp = tempfile::tempdir().unwrap();
+        // `other` has no positive two-signal predicate; readable evidence must
+        // still not confirm it, and must not be misread as a refutation.
+        seed_shim(tmp.path(), "other", DE_EVIDENCE);
+        seed_result_json(tmp.path(), DE_TASK, &[("apeglm", "1.32.0")]);
+
+        let confirmed = reconcile_declared_non_determinism(tmp.path()).unwrap();
+        assert_eq!(confirmed, 0, "a kind with no predicate is never confirmed");
+
+        let shim = read_shim_json(tmp.path());
+        assert_eq!(
+            only_declaration(&shim)["status"],
+            "declared",
+            "no predicate exists, so no verdict is possible"
+        );
+        let parsed: DeterminismShimSidecar = serde_json::from_value(shim).unwrap();
+        assert!(
+            parsed.non_deterministic_artifacts.is_empty(),
+            "no mask without a confirmation rule"
+        );
+    }
+
+    #[test]
+    fn reconcile_normalizes_channel_and_feedstock_prefixed_engine_names() {
+        // Real runs record the engine under whichever packaging surface
+        // installed it: `apeglm`, `bioconductor-apeglm`, or `bioconda::ashr`.
+        for recorded in ["apeglm", "bioconductor-apeglm", "bioconda::ashr", "r-ashr"] {
+            let tmp = tempfile::tempdir().unwrap();
+            seed_shim(tmp.path(), "adaptive_shrinkage", DE_EVIDENCE);
+            seed_result_json(tmp.path(), DE_TASK, &[(recorded, "1.0.0")]);
+            seed_script(tmp.path(), DE_TASK, "01_deseq2_de.R", INVOKING_R_SCRIPT);
+            assert_eq!(
+                reconcile_declared_non_determinism(tmp.path()).unwrap(),
+                1,
+                "recorded engine name {recorded} must confirm the declaration"
+            );
+        }
+    }
+
+    #[test]
+    fn reconcile_is_a_noop_without_a_declaration_block() {
+        let tmp = tempfile::tempdir().unwrap();
+        let runtime = tmp.path().join("runtime");
+        std::fs::create_dir_all(&runtime).unwrap();
+        let body = serde_json::to_vec_pretty(&serialize_active_settings()).unwrap();
+        std::fs::write(runtime.join("determinism-shim.json"), &body).unwrap();
+
+        assert_eq!(
+            reconcile_declared_non_determinism(tmp.path()).unwrap(),
+            0,
+            "no declarations means nothing to confirm"
+        );
+        assert_eq!(
+            std::fs::read(runtime.join("determinism-shim.json")).unwrap(),
+            body,
+            "a shim with no declaration block must be left byte-identical"
+        );
+        // A package with no shim at all is also a no-op.
+        let empty = tempfile::tempdir().unwrap();
+        assert_eq!(
+            reconcile_declared_non_determinism(empty.path()).unwrap(),
+            0,
+            "a package with no shim must not error"
+        );
     }
 }
