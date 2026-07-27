@@ -13,44 +13,84 @@ use std::fs;
 use std::path::Path;
 
 use ecaa_workflow_core::blocker::{LiteratureClaimFailureKind, ValidationFailureCause};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+
+/// The NA-family "no value in this cell" sentinels every tabular producer in
+/// the stack writes: R / `org.Hs.eg.db` (`NA`), pandas (`NaN`, `None`), JSON-ish
+/// exporters (`null`), and hand-written placeholders (`-`, `.`, `?`). An empty
+/// (or all-whitespace) cell is absent too. Case-insensitive, trimmed.
+///
+/// Shared by the CSV-lenient deserializers and [`is_unresolved_gene_symbol`] so
+/// "absent" means the same thing in every column of every literature artifact.
+/// A value OUTSIDE this set is a real value: a genuinely malformed cell still
+/// fails its column's parse rather than silently reading as absent.
+fn is_absent_sentinel(s: &str) -> bool {
+    let t = s.trim();
+    t.is_empty()
+        || matches!(
+            t.to_ascii_lowercase().as_str(),
+            "na" | "n/a" | "nan" | "null" | "none" | "-" | "." | "?"
+        )
+}
 
 /// CSV-lenient `u64`: the `method_landscape.csv` shape emits an EMPTY
 /// `evidence_quote_offset` on `curated_baseline` candidate rows (which carry no
-/// evidence). A bare `u64` field rejects "" and fails the WHOLE `load_rows`
-/// parse, which the offset-reading validators then mis-report as a spurious
-/// `EvidenceArtifactMissing` at row 0 (stranding the keystone
-/// `survey_method_landscape` task and every downstream stage). Treat empty as 0.
+/// evidence), and per-row NA-family sentinels elsewhere. A bare `u64` field
+/// rejects both and fails the WHOLE `load_rows` parse, which the offset-reading
+/// validators then mis-report as a spurious table-wide failure (stranding the
+/// keystone `survey_method_landscape` task and every downstream stage). Treat
+/// every absent-value sentinel as 0.
 fn de_u64_lenient<'de, D>(d: D) -> Result<u64, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
     let s = String::deserialize(d)?;
+    parse_u64_lenient(&s).ok_or_else(|| {
+        serde::de::Error::custom(format!("invalid unsigned integer: {:?}", s.trim()))
+    })
+}
+
+/// The accept-set behind [`de_u64_lenient`], factored out so the parse-failure
+/// diagnostic ([`locate_unparseable_column`]) tests cells with exactly the same
+/// rule the deserializer applies — the two cannot drift apart.
+fn parse_u64_lenient(s: &str) -> Option<u64> {
     let t = s.trim();
-    if t.is_empty() {
-        return Ok(0);
+    if is_absent_sentinel(t) {
+        return Some(0);
     }
-    t.parse::<u64>().map_err(serde::de::Error::custom)
+    t.parse::<u64>().ok()
+}
+
+/// The accept-set behind [`de_bool_lenient`]; see [`parse_u64_lenient`].
+fn parse_bool_lenient(s: &str) -> Option<bool> {
+    let t = s.trim();
+    if is_absent_sentinel(t) {
+        return Some(false);
+    }
+    match t {
+        "true" | "True" | "TRUE" | "1" => Some(true),
+        "false" | "False" | "FALSE" | "0" => Some(false),
+        _ => None,
+    }
 }
 
 /// CSV-lenient `bool`: `curated_baseline` rows emit an EMPTY `redistributable`
-/// (and may emit an empty `verified`). A bare `bool` rejects "" and fails the
-/// whole CSV parse — same spurious-`EvidenceArtifactMissing` class as
-/// [`de_u64_lenient`]. Treat empty as `false`; accept the usual true/false
-/// tokens otherwise.
+/// (and may emit an empty `verified`), and a producer that assessed nothing for
+/// a row writes the NA-family sentinel its language spells absence with — a
+/// contextualize step wrote `redistributable=NA` on 4029 `not_assessed` rows. A
+/// bare `bool` rejects both, ONE such cell fails the whole CSV parse, and every
+/// load_rows-based obligation then reported a row-0 failure against a table that
+/// was fine. Absent (empty or NA-family, see [`is_absent_sentinel`]) reads as
+/// `false` — not marked redistributable / not verified, the conservative
+/// reading; the usual true/false tokens are accepted; anything else is still an
+/// error.
 fn de_bool_lenient<'de, D>(d: D) -> Result<bool, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
     let s = String::deserialize(d)?;
-    match s.trim() {
-        "" => Ok(false),
-        "true" | "True" | "TRUE" | "1" => Ok(true),
-        "false" | "False" | "FALSE" | "0" => Ok(false),
-        other => Err(serde::de::Error::custom(format!(
-            "invalid bool literal: {other:?}"
-        ))),
-    }
+    parse_bool_lenient(&s)
+        .ok_or_else(|| serde::de::Error::custom(format!("invalid bool literal: {:?}", s.trim())))
 }
 
 /// Canonical normalization applied to source text before substring-match.
@@ -272,11 +312,265 @@ struct EvidenceEntry {
     pub license: String,
 }
 
-fn load_rows(csv_path: &Path) -> Result<Vec<ClaimsMatrixRow>, String> {
-    let mut rdr = csv::Reader::from_path(csv_path).map_err(|e| e.to_string())?;
+/// Structured detail of a claims-table deserialization failure: WHICH data row
+/// and WHICH column the csv reader choked on, plus the reader's own message.
+///
+/// Kept structured (rather than the flattened `String` this used to be) so the
+/// runner-dispatch layer can report an honest `table_parse_error` instead of the
+/// row-0 `evidence_artifact_missing` fallback every runner used to emit. A table
+/// that will not parse is not a missing evidence artifact, and reporting it as
+/// one sent SMEs hunting for files that were never absent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TableParseFailure {
+    /// 0-based index of the DATA row that failed to deserialize (header
+    /// excluded), matching the `row_index` every literature cause reports.
+    pub row_index: u64,
+    /// Header name of the offending column, when the reader identified one.
+    pub column: Option<String>,
+    /// The csv reader's own message (carries the line / byte position).
+    pub detail: String,
+}
+
+/// Harness-local widening of the core `ValidationFailureCause` taxonomy.
+///
+/// `ValidationFailureCause` (`crates/ecaa-types/src/blocker.rs`) is a closed,
+/// wire-facing enum this crate must not extend, and its
+/// `LiteratureClaimFailureKind` has no member for "the artifact table itself did
+/// not parse". So every literature runner reported an unparseable table as
+/// `evidence_artifact_missing` at row 0: a real deposit surfaced six REQUIRED
+/// contextualization obligations that way, all six caused by a single
+/// unparseable cell, none of them missing any evidence file.
+///
+/// This mirror carries the same `cause_kind` tag and the same `LiteratureClaim`
+/// payload (so the rendered message is unchanged for claim failures) and adds
+/// the honest [`Self::TableParseError`]. When the core enum gains a matching
+/// variant this type collapses into a `From` conversion.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "cause_kind", rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum LiteratureFailureCause {
+    /// Mirror of `ValidationFailureCause::LiteratureClaim` — an obligation
+    /// failed on a specific row of a literature artifact.
+    LiteratureClaim {
+        row_index: u64,
+        artifact: String,
+        kind: LiteratureClaimFailureKind,
+    },
+    /// The artifact table could not be deserialized, so NO obligation could be
+    /// evaluated over it. Names the offending row and column so the producer can
+    /// fix the cell instead of auditing evidence files.
+    TableParseError {
+        row_index: u64,
+        artifact: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        column: Option<String>,
+        detail: String,
+    },
+}
+
+impl LiteratureFailureCause {
+    /// The row the cause is anchored to, for the `row N: <cause>` message prefix.
+    fn row_index(&self) -> u64 {
+        match self {
+            Self::LiteratureClaim { row_index, .. } | Self::TableParseError { row_index, .. } => {
+                *row_index
+            }
+        }
+    }
+}
+
+impl From<ValidationFailureCause> for LiteratureFailureCause {
+    fn from(cause: ValidationFailureCause) -> Self {
+        match cause {
+            ValidationFailureCause::LiteratureClaim {
+                row_index,
+                artifact,
+                kind,
+            } => Self::LiteratureClaim {
+                row_index,
+                artifact,
+                kind,
+            },
+        }
+    }
+}
+
+impl TableParseFailure {
+    /// Render as the honest [`LiteratureFailureCause::TableParseError`].
+    fn into_cause(self, artifact: &str) -> LiteratureFailureCause {
+        LiteratureFailureCause::TableParseError {
+            row_index: self.row_index,
+            artifact: artifact.to_string(),
+            column: self.column,
+            detail: self.detail,
+        }
+    }
+}
+
+/// The artifact name a failure cause reports: the CSV's file name, falling back
+/// to the full path when it has none.
+fn artifact_name(csv_path: &Path) -> String {
+    match csv_path.file_name() {
+        Some(f) => f.to_string_lossy().to_string(),
+        None => csv_path.to_string_lossy().to_string(),
+    }
+}
+
+/// The `ClaimsMatrixRow` columns that carry a TYPED (non-string) value, each
+/// paired with the predicate that accepts a cell. Every other column
+/// deserializes as `String` and cannot fail, so a claims table that does not
+/// parse broke on one of these — which is what lets
+/// [`locate_unparseable_column`] name the column when the csv reader cannot.
+/// Aliases are listed alongside their canonical spelling because the producer
+/// may have written either.
+const TYPED_COLUMNS: &[(&str, fn(&str) -> bool)] = &[
+    ("evidence_quote_offset", cell_parses_as_u64),
+    ("quote_start", cell_parses_as_u64),
+    ("redistributable", cell_parses_as_bool),
+    ("verified", cell_parses_as_bool),
+];
+
+fn cell_parses_as_u64(cell: &str) -> bool {
+    parse_u64_lenient(cell).is_some()
+}
+
+fn cell_parses_as_bool(cell: &str) -> bool {
+    parse_bool_lenient(cell).is_some()
+}
+
+/// Name the column that broke a row.
+///
+/// The csv reader reports a field INDEX only for errors it raises itself; an
+/// error raised inside a `deserialize_with` parser — which is how every lenient
+/// column parser here rejects a malformed cell — carries none (csv's
+/// `serde::de::Error::custom` sets `field: None`). So re-read the offending
+/// record and name the first typed column whose cell no lenient parser accepts.
+/// Runs only on the failure path.
+fn locate_unparseable_column(
+    csv_path: &Path,
+    headers: &[String],
+    row_index: u64,
+) -> Option<String> {
+    let mut rdr = csv::Reader::from_path(csv_path).ok()?;
+    let record = rdr.records().nth(row_index as usize)?.ok()?;
+    for (name, accepts) in TYPED_COLUMNS {
+        let Some(i) = headers.iter().position(|h| h.trim() == *name) else {
+            continue;
+        };
+        if let Some(cell) = record.get(i) {
+            if !accepts(cell) {
+                return Some((*name).to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Translate a `csv::Error` into a [`TableParseFailure`], naming the DATA row
+/// and the offending column.
+fn table_parse_failure(csv_path: &Path, e: &csv::Error, headers: &[String]) -> TableParseFailure {
+    // `Position::record` counts the header as record 0, so the first data row
+    // is record 1; report the 0-based data-row index the causes use elsewhere.
+    let data_row = |pos: &Option<csv::Position>| -> u64 {
+        match pos {
+            Some(p) => p.record().saturating_sub(1),
+            None => 0,
+        }
+    };
+    let detail = e.to_string();
+    match e.kind() {
+        csv::ErrorKind::Deserialize { pos, err, .. } => {
+            let row_index = data_row(pos);
+            let column = match err.field().and_then(|i| headers.get(i as usize)) {
+                Some(name) => Some(name.clone()),
+                None => locate_unparseable_column(csv_path, headers, row_index),
+            };
+            TableParseFailure {
+                row_index,
+                column,
+                detail,
+            }
+        }
+        csv::ErrorKind::UnequalLengths { pos, .. } => TableParseFailure {
+            row_index: data_row(pos),
+            column: None,
+            detail,
+        },
+        _ => TableParseFailure {
+            row_index: 0,
+            column: None,
+            detail,
+        },
+    }
+}
+
+/// Deserialize the whole claims table.
+///
+/// Deliberately NOT per-row tolerant: one malformed row still fails the whole
+/// table, because a half-parsed literature matrix would silently drop claim rows
+/// from every gate that reads it. The fix for the row-0 false positives is to
+/// report the failure HONESTLY (which row, which column — see
+/// [`table_parse_failure`] and [`probe_claims_table`]) and to stop rejecting
+/// legitimate absent-value cells (see [`is_absent_sentinel`]), not to swallow
+/// malformed ones.
+fn load_rows(csv_path: &Path) -> Result<Vec<ClaimsMatrixRow>, TableParseFailure> {
+    let mut rdr = csv::Reader::from_path(csv_path).map_err(|e| TableParseFailure {
+        row_index: 0,
+        column: None,
+        detail: e.to_string(),
+    })?;
+    // Snapshot the header row so a field INDEX in the reader's error can be
+    // reported as a column NAME. Cloned because `deserialize()` needs `&mut`.
+    let headers: Vec<String> = match rdr.headers() {
+        Ok(h) => h.iter().map(|s| s.to_string()).collect(),
+        // A header-read failure re-surfaces on the deserialize below; carry an
+        // empty header list so the column name is simply absent.
+        Err(_) => Vec::new(),
+    };
     rdr.deserialize()
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())
+        .map_err(|e| table_parse_failure(csv_path, &e, &headers))
+}
+
+/// Parse-probe the claims table an obligation's runner reads through
+/// [`load_rows`], returning the honest
+/// [`LiteratureFailureCause::TableParseError`] when it does not deserialize.
+///
+/// Called by the runner-dispatch layer ahead of the runners that read the table
+/// this way, so the SME-visible validator message names the offending row and
+/// column instead of the row-0 `evidence_artifact_missing` those runners must
+/// still return through the closed core cause type.
+pub fn probe_claims_table(csv_path: &Path) -> Result<(), LiteratureFailureCause> {
+    match load_rows(csv_path) {
+        Ok(_) => Ok(()),
+        Err(failure) => Err(failure.into_cause(&artifact_name(csv_path))),
+    }
+}
+
+/// Map a claims-table parse failure onto the CLOSED core cause taxonomy for the
+/// pure-fn runners, whose `Result<(), (u64, ValidationFailureCause)>` signature
+/// cannot carry [`LiteratureFailureCause::TableParseError`].
+///
+/// The honest cause is emitted by the dispatch layer (see
+/// [`probe_claims_table`]); this shim is the degraded rendering for direct
+/// callers of the pure fns. It preserves the FAILING row index — the old code
+/// hardcoded row 0, which read as "row 0's evidence artifact is missing" for a
+/// failure that had nothing to do with row 0 or with any artifact. When
+/// `ValidationFailureCause` gains a `TableParseError` variant, this shim becomes
+/// a `From` conversion and the degrade disappears.
+fn table_parse_core_cause(
+    artifact: &str,
+    failure: TableParseFailure,
+) -> (u64, ValidationFailureCause) {
+    let row_index = failure.row_index;
+    (
+        row_index,
+        ValidationFailureCause::LiteratureClaim {
+            row_index,
+            artifact: artifact.to_string(),
+            kind: LiteratureClaimFailureKind::EvidenceArtifactMissing,
+        },
+    )
 }
 
 fn load_manifest(manifest_path: &Path) -> Result<EvidenceManifest, String> {
@@ -455,16 +749,7 @@ pub fn run_pmid_resolves(
         .file_name()
         .map(|f| f.to_string_lossy().to_string())
         .unwrap_or_else(|| csv_path.to_string_lossy().to_string());
-    let rows = load_rows(csv_path).map_err(|_e| {
-        (
-            0,
-            ValidationFailureCause::LiteratureClaim {
-                row_index: 0,
-                artifact: artifact.clone(),
-                kind: LiteratureClaimFailureKind::EvidenceArtifactMissing,
-            },
-        )
-    })?;
+    let rows = load_rows(csv_path).map_err(|f| table_parse_core_cause(&artifact, f))?;
     let manifest = load_manifest(manifest_path).map_err(|_| {
         (
             0,
@@ -755,16 +1040,7 @@ pub fn run_evidence_quote_substring_match(
         .file_name()
         .map(|f| f.to_string_lossy().to_string())
         .unwrap_or_else(|| csv_path.to_string_lossy().to_string());
-    let rows = load_rows(csv_path).map_err(|_| {
-        (
-            0,
-            ValidationFailureCause::LiteratureClaim {
-                row_index: 0,
-                artifact: artifact.clone(),
-                kind: LiteratureClaimFailureKind::EvidenceArtifactMissing,
-            },
-        )
-    })?;
+    let rows = load_rows(csv_path).map_err(|f| table_parse_core_cause(&artifact, f))?;
     let manifest = load_manifest(manifest_path).map_err(|_| {
         (
             0,
@@ -930,16 +1206,7 @@ pub fn run_redistributable_or_marked(
         .file_name()
         .map(|f| f.to_string_lossy().to_string())
         .unwrap_or_else(|| csv_path.to_string_lossy().to_string());
-    let rows = load_rows(csv_path).map_err(|_| {
-        (
-            0,
-            ValidationFailureCause::LiteratureClaim {
-                row_index: 0,
-                artifact: artifact.clone(),
-                kind: LiteratureClaimFailureKind::EvidenceArtifactMissing,
-            },
-        )
-    })?;
+    let rows = load_rows(csv_path).map_err(|f| table_parse_core_cause(&artifact, f))?;
     // A leaner claims matrix (e.g. the bulk_rnaseq contextualize schema) omits the
     // per-row `source_kind`/`redistributable` columns, so an asserting row that
     // cites a PMID has source_kind="" and would fail the row-only legal gate below
@@ -1059,16 +1326,7 @@ pub fn run_claim_row_has_finding_id(
         .file_name()
         .map(|f| f.to_string_lossy().to_string())
         .unwrap_or_else(|| csv_path.to_string_lossy().to_string());
-    let rows = load_rows(csv_path).map_err(|_| {
-        (
-            0,
-            ValidationFailureCause::LiteratureClaim {
-                row_index: 0,
-                artifact: artifact.clone(),
-                kind: LiteratureClaimFailureKind::EvidenceArtifactMissing,
-            },
-        )
-    })?;
+    let rows = load_rows(csv_path).map_err(|f| table_parse_core_cause(&artifact, f))?;
     // Load findings table primary keys (first column or `id` column). The
     // findings file is delimiter-sniffed: the analysis atoms emit TAB-separated
     // `.tsv` (de_results.tsv, peak_calls.tsv, variant_calls.tsv) — reading those
@@ -1211,16 +1469,7 @@ pub fn run_concordance_flag_in_closed_set(
         .file_name()
         .map(|f| f.to_string_lossy().to_string())
         .unwrap_or_else(|| csv_path.to_string_lossy().to_string());
-    let rows = load_rows(csv_path).map_err(|_| {
-        (
-            0,
-            ValidationFailureCause::LiteratureClaim {
-                row_index: 0,
-                artifact: artifact.clone(),
-                kind: LiteratureClaimFailureKind::EvidenceArtifactMissing,
-            },
-        )
-    })?;
+    let rows = load_rows(csv_path).map_err(|f| table_parse_core_cause(&artifact, f))?;
     let closed = [
         "same_direction",
         "opposite_direction",
@@ -1333,16 +1582,7 @@ pub fn run_direction_supported_by_quote(
         .file_name()
         .map(|f| f.to_string_lossy().to_string())
         .unwrap_or_else(|| csv_path.to_string_lossy().to_string());
-    let rows = load_rows(csv_path).map_err(|_| {
-        (
-            0,
-            ValidationFailureCause::LiteratureClaim {
-                row_index: 0,
-                artifact: artifact.clone(),
-                kind: LiteratureClaimFailureKind::EvidenceArtifactMissing,
-            },
-        )
-    })?;
+    let rows = load_rows(csv_path).map_err(|f| table_parse_core_cause(&artifact, f))?;
     for (i, row) in rows.iter().enumerate() {
         if !flag_asserts_direction(row.concordance_flag.as_deref()) {
             continue;
@@ -1790,19 +2030,16 @@ pub fn run_doc_page_matches_tool(
 /// false-flags as a cross-gene wrong-binding against that arbitrary first
 /// Ensembl (the 2026-07-23 himes deposit domain-validation failure).
 fn is_unresolved_gene_symbol(s: &str) -> bool {
-    let t = s.trim();
-    t.is_empty()
+    // NA-family sentinels, shared with the CSV-lenient deserializers so absence
+    // is spelled the same way in every column …
+    is_absent_sentinel(s)
+        // … plus the word-form "no symbol resolved" placeholders other
+        // annotation steps write. Kept local to the symbol reader: these are
+        // real (if useless) strings, not absent values, so a typed column must
+        // still reject them.
         || matches!(
-            t.to_ascii_lowercase().as_str(),
-            // NA-family sentinels (org.Hs.eg.db / pandas) …
-            "na" | "n/a" | "nan" | "null" | "none" | "-" | "." | "?"
-            // … and word-form "no symbol resolved" placeholders that other
-            // annotation steps write (none is a real HGNC symbol). Without
-            // these, every `UNRESOLVED` locus collapses to the first
-            // `UNRESOLVED → Ensembl` binding and false-flags as a cross-gene
-            // wrong-binding (the himes 242-`UNRESOLVED`-vs-ENSG00000002079
-            // domain-validation failure).
-            | "unresolved" | "unmapped" | "unknown" | "unassigned"
+            s.trim().to_ascii_lowercase().as_str(),
+            "unresolved" | "unmapped" | "unknown" | "unassigned"
         )
 }
 
@@ -2507,11 +2744,40 @@ fn find_literature_csv(artifact_path: &Path) -> Option<std::path::PathBuf> {
     None
 }
 
-fn cause_to_message(cause: &ValidationFailureCause) -> String {
+fn cause_to_message<C: Serialize>(cause: &C) -> String {
     serde_json::to_string(cause).unwrap_or_else(|e| format!("cause_serialize_error:{}", e))
 }
 
-fn runner_dispatch<F>(artifact_path: &Path, require_manifest: bool, run: F) -> ValidatorOutcome
+/// Render a failure cause as the `row N: <json>` validator message.
+fn failure_message(cause: LiteratureFailureCause) -> ValidatorOutcome {
+    ValidatorOutcome::Failed {
+        message: format!("row {}: {}", cause.row_index(), cause_to_message(&cause)),
+    }
+}
+
+/// Parse-probe the claims table for the obligations whose runner reads it via
+/// `load_rows`, so an unparseable table reports `table_parse_error` (naming the
+/// row and column) rather than the row-0 `evidence_artifact_missing` the closed
+/// core cause type forces on those runners. Returns `None` when the table parses
+/// (or when this obligation does not read it that way).
+fn claims_table_parse_outcome(csv: &Path, reads_claims_table: bool) -> Option<ValidatorOutcome> {
+    if !reads_claims_table {
+        return None;
+    }
+    probe_claims_table(csv).err().map(failure_message)
+}
+
+/// `reads_claims_table` marks the obligations whose runner deserializes the
+/// whole table through `load_rows`. Scoped rather than unconditional: the
+/// header-name readers (`source_resolves`, `claim_support_satisfied`,
+/// `doc_page_matches_tool`) legitimately evaluate a table that `ClaimsMatrixRow`
+/// cannot deserialize, and must not start failing on a column they never read.
+fn runner_dispatch<F>(
+    artifact_path: &Path,
+    require_manifest: bool,
+    reads_claims_table: bool,
+    run: F,
+) -> ValidatorOutcome
 where
     F: FnOnce(&Path, &Path) -> Result<(), (u64, ValidationFailureCause)>,
 {
@@ -2529,11 +2795,12 @@ where
             reason: format!("evidence/manifest.json missing at {}", manifest.display()),
         };
     }
+    if let Some(parse_failure) = claims_table_parse_outcome(&csv, reads_claims_table) {
+        return parse_failure;
+    }
     match run(&csv, &manifest) {
         Ok(()) => ValidatorOutcome::Passed,
-        Err((row_index, cause)) => ValidatorOutcome::Failed {
-            message: format!("row {}: {}", row_index, cause_to_message(&cause)),
-        },
+        Err((_row_index, cause)) => failure_message(cause.into()),
     }
 }
 
@@ -2544,7 +2811,7 @@ impl ValidatorRunner for PmidResolvesRunner {
         "pmid_resolves"
     }
     fn run(&self, artifact_path: &Path) -> ValidatorOutcome {
-        runner_dispatch(artifact_path, true, run_pmid_resolves)
+        runner_dispatch(artifact_path, true, true, run_pmid_resolves)
     }
 }
 
@@ -2556,7 +2823,7 @@ impl ValidatorRunner for SourceResolvesRunner {
         "source_resolves"
     }
     fn run(&self, artifact_path: &Path) -> ValidatorOutcome {
-        runner_dispatch(artifact_path, true, run_source_resolves)
+        runner_dispatch(artifact_path, true, false, run_source_resolves)
     }
 }
 
@@ -2567,7 +2834,12 @@ impl ValidatorRunner for EvidenceQuoteSubstringMatchRunner {
         "evidence_quote_substring_match"
     }
     fn run(&self, artifact_path: &Path) -> ValidatorOutcome {
-        runner_dispatch(artifact_path, true, run_evidence_quote_substring_match)
+        runner_dispatch(
+            artifact_path,
+            true,
+            true,
+            run_evidence_quote_substring_match,
+        )
     }
 }
 
@@ -2578,7 +2850,7 @@ impl ValidatorRunner for RedistributableOrMarkedRunner {
         "redistributable_or_marked"
     }
     fn run(&self, artifact_path: &Path) -> ValidatorOutcome {
-        runner_dispatch(artifact_path, false, run_redistributable_or_marked)
+        runner_dispatch(artifact_path, false, true, run_redistributable_or_marked)
     }
 }
 
@@ -2640,11 +2912,14 @@ impl ValidatorRunner for ClaimRowHasFindingIdRunner {
             // manifest-based evidence validators.
             return ValidatorOutcome::Passed;
         };
+        // Same honest-parse-failure probe the shared `runner_dispatch` applies:
+        // this runner reads the claims table through `load_rows` too.
+        if let Some(parse_failure) = claims_table_parse_outcome(&csv, true) {
+            return parse_failure;
+        }
         match run_claim_row_has_finding_id(&csv, &findings_csv) {
             Ok(()) => ValidatorOutcome::Passed,
-            Err((row_index, cause)) => ValidatorOutcome::Failed {
-                message: format!("row {}: {}", row_index, cause_to_message(&cause)),
-            },
+            Err((_row_index, cause)) => failure_message(cause.into()),
         }
     }
 }
@@ -2658,7 +2933,7 @@ impl ValidatorRunner for ClaimSupportSatisfiedRunner {
         "claim_support_satisfied"
     }
     fn run(&self, artifact_path: &Path) -> ValidatorOutcome {
-        runner_dispatch(artifact_path, false, run_claim_support_satisfied)
+        runner_dispatch(artifact_path, false, false, run_claim_support_satisfied)
     }
 }
 
@@ -2671,7 +2946,7 @@ impl ValidatorRunner for DocPageMatchesToolRunner {
         "doc_page_matches_tool"
     }
     fn run(&self, artifact_path: &Path) -> ValidatorOutcome {
-        runner_dispatch(artifact_path, true, run_doc_page_matches_tool)
+        runner_dispatch(artifact_path, true, false, run_doc_page_matches_tool)
     }
 }
 
@@ -2682,7 +2957,12 @@ impl ValidatorRunner for ConcordanceFlagInClosedSetRunner {
         "concordance_flag_in_closed_set"
     }
     fn run(&self, artifact_path: &Path) -> ValidatorOutcome {
-        runner_dispatch(artifact_path, false, run_concordance_flag_in_closed_set)
+        runner_dispatch(
+            artifact_path,
+            false,
+            true,
+            run_concordance_flag_in_closed_set,
+        )
     }
 }
 
@@ -2694,7 +2974,7 @@ impl ValidatorRunner for DirectionSupportedByQuoteRunner {
         "direction_supported_by_quote"
     }
     fn run(&self, artifact_path: &Path) -> ValidatorOutcome {
-        runner_dispatch(artifact_path, false, run_direction_supported_by_quote)
+        runner_dispatch(artifact_path, false, true, run_direction_supported_by_quote)
     }
 }
 
@@ -2753,6 +3033,77 @@ mod tests {
 
     fn write(p: &Path, s: &str) {
         fs::write(p, s).unwrap();
+    }
+
+    /// Drive the real `deserialize_with` hook (not just its accept-set helper)
+    /// the way serde calls it: from a string cell.
+    fn de_bool(cell: &str) -> Result<bool, String> {
+        #[derive(Deserialize)]
+        struct BoolCell {
+            #[serde(deserialize_with = "de_bool_lenient")]
+            v: bool,
+        }
+        serde_json::from_value::<BoolCell>(serde_json::json!({ "v": cell }))
+            .map(|c| c.v)
+            .map_err(|e| e.to_string())
+    }
+
+    /// A cell that says "no value here" is ABSENT, not malformed. The
+    /// contextualize step wrote `redistributable=NA` on 4029 `not_assessed`
+    /// rows; rejecting `NA` failed the whole CSV parse and stranded six REQUIRED
+    /// obligations on a table that had nothing wrong with it. A genuinely
+    /// malformed value must still be an error — this is a sentinel set, not a
+    /// blanket "anything unparseable is false".
+    #[test]
+    fn de_bool_lenient_accepts_na_family() {
+        for s in [
+            "NA", "na", "N/A", "n/a", "NaN", "nan", "NULL", "null", "None", "none", "-", ".", "?",
+            " NA ",
+        ] {
+            assert_eq!(
+                de_bool(s),
+                Ok(false),
+                "{s:?} is an absent-value sentinel and must read as absent (false)"
+            );
+        }
+        // Real values are unchanged.
+        for s in ["true", "True", "TRUE", "1"] {
+            assert_eq!(de_bool(s), Ok(true), "{s:?} must still read as true");
+        }
+        for s in ["false", "False", "FALSE", "0", ""] {
+            assert_eq!(de_bool(s), Ok(false), "{s:?} must still read as false");
+        }
+        // A malformed value is still an error — absence is a closed set.
+        for s in ["maybe", "yes", "2", "tru"] {
+            let err = de_bool(s).expect_err("a malformed bool cell must still error");
+            assert!(
+                err.contains("invalid bool literal"),
+                "{s:?} must fail as a malformed bool, got: {err}"
+            );
+        }
+    }
+
+    /// Same absent-value contract on the numeric column: an `NA` offset is a
+    /// cell with no value, not a broken table.
+    #[test]
+    fn de_u64_lenient_accepts_na_family() {
+        for s in ["NA", "n/a", "NaN", "null", "None", "-", ".", "?", ""] {
+            assert_eq!(
+                parse_u64_lenient(s),
+                Some(0),
+                "{s:?} is an absent-value sentinel and must read as 0"
+            );
+        }
+        assert_eq!(
+            parse_u64_lenient("42"),
+            Some(42),
+            "real values are unchanged"
+        );
+        assert_eq!(
+            parse_u64_lenient("twelve"),
+            None,
+            "a malformed offset must still be an error"
+        );
     }
 
     #[test]
