@@ -175,9 +175,12 @@ pub struct DepositReadiness {
     pub bagit: CheckStatus,
     /// Per-task domain-correctness validation rollup (RCA I-10): `Fail` when
     /// any `validate_*` task's own `result.json` recorded a failing verdict or
-    /// the package recorded a `failed:`/`errored:` contract obligation;
-    /// `Unverified` when NOTHING was inspected (non-blocking, but never
-    /// silently reported as `Pass`). See [`scan_domain_validation`]. Separate
+    /// the package recorded a `failed:` contract obligation; `Unverified` when
+    /// NOTHING reached a verdict (non-blocking, but never silently reported as
+    /// `Pass`). An obligation the harness could not run (`errored:`) or has no
+    /// checker for (`unimplemented:`) reaches no verdict and never flips this
+    /// to `Fail` — see [`DomainValidationSummary::unverified_obligations`] and
+    /// [`scan_domain_validation`]. Separate
     /// from `ro_crate`/`bagit` (structural integrity) and from computational
     /// completion (whether tasks ran at all) — this is the domain-science
     /// signal. `#[serde(default)]` for attestations predating this field.
@@ -380,6 +383,24 @@ pub struct DomainValidationSummary {
     /// deserializes cleanly.
     #[serde(default)]
     pub reporting_warnings: Vec<String>,
+    /// `"<task_id>.<obligation_id> (<outcome>)"` for every contract obligation
+    /// that reached NO verdict — the harness recorded it `errored:` (the
+    /// checker could not run: missing input, parse error) or `unimplemented:`
+    /// (no checker is registered for it). Sorted + de-duplicated.
+    ///
+    /// Neither a pass nor a failure, so these are surfaced for operator
+    /// visibility and NEVER folded into [`Self::failed_tasks`] /
+    /// [`Self::required_failures`]. The harness itself does not treat this
+    /// class as a failure: `ValidatorOutcome::Errored` is documented as a
+    /// soft-skip and `ValidationReportSummary::has_failures()` matches only
+    /// `Failed`, so the task stays `Completed`. An obligation that could not
+    /// reach a verdict over the package's own artifacts is a gap in the
+    /// validator suite (or in this package's optional inputs), not a defect in
+    /// its science — the same rationale that already exempts
+    /// `unimplemented:`. `#[serde(default)]` so an older serialized summary
+    /// deserializes cleanly.
+    #[serde(default)]
+    pub unverified_obligations: Vec<String>,
 }
 
 impl DomainValidationSummary {
@@ -397,10 +418,17 @@ impl DomainValidationSummary {
     /// * `Fail` — at least one recorded verdict was a failure.
     /// * `Unverified` — NOTHING was inspected: no `validate_*` task recorded
     ///   a verdict [`task_validation_verdict`] recognizes, the package
-    ///   carries no contract-obligation records, and the
-    ///   reporting-correctness checklist found none of its inputs. Reporting
-    ///   this as `Pass` is the vacuous-gate bug this axis exists to avoid.
-    /// * `Pass` — at least one check ran and none failed.
+    ///   carries no contract-obligation records that reached a CONCRETE
+    ///   verdict, and the reporting-correctness checklist found none of its
+    ///   inputs. Reporting this as `Pass` is the vacuous-gate bug this axis
+    ///   exists to avoid. A package whose obligation records are ENTIRELY
+    ///   [`Self::unverified_obligations`] (every one `errored:` /
+    ///   `unimplemented:`) lands here rather than on `Pass`, because
+    ///   [`scan_domain_validation`] only counts the obligation axis as
+    ///   inspected once some obligation reached a pass or a failure.
+    /// * `Pass` — at least one check ran to a concrete verdict and none
+    ///   failed. Obligations that reached no verdict do not detract from a
+    ///   sibling obligation's genuine pass.
     pub fn status(&self) -> CheckStatus {
         if !self.failed_tasks.is_empty() {
             CheckStatus::Fail
@@ -525,25 +553,60 @@ fn contract_obligation_rows(package_root: &Path) -> Vec<serde_json::Value> {
     rows
 }
 
-/// `"<task_id>.<obligation_id> (<outcome>)"` when this obligation record is a
-/// REQUIRED failure, else `None`.
+/// How one contract-obligation record classifies for the deposit boundary.
 ///
-/// `outcome` has four serialized forms: `passed`, `failed:…`, `errored:…` and
-/// `unimplemented:…`. Only `failed:` (the obligation ran and the assertion did
-/// not hold) and `errored:` (the obligation could not reach a verdict over
-/// the package's own artifacts) are required failures. `unimplemented:` names
-/// a catalog obligation with no checker yet — a gap in the validator suite,
-/// not a defect in this package's science — so it never blocks.
-fn obligation_required_failure(v: &serde_json::Value) -> Option<String> {
+/// The harness serializes four `outcome` forms
+/// (`crates/harness/src/validators.rs::ValidationReportSummary::to_jsonl`):
+/// `passed`, `failed:…`, `errored:…`, `unimplemented:…`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ObligationClass {
+    /// `failed:` — the obligation RAN and its assertion did not hold. The only
+    /// class that blocks the deposit, matching the harness gate exactly
+    /// (`ValidationReportSummary::has_failures()` matches only
+    /// `ValidatorOutcome::Failed`).
+    Failed,
+    /// `errored:` — the checker could not run (missing input, parse error) — or
+    /// `unimplemented:` — no checker is registered. NO verdict was reached, so
+    /// this is neither a pass nor a failure: surfaced in
+    /// [`DomainValidationSummary::unverified_obligations`], never blocking.
+    Unverified,
+    /// `passed`, or any spelling this gate does not recognize: a concrete
+    /// verdict that is not a failure.
+    Passed,
+}
+
+/// Classify one obligation record, paired with its
+/// `"<task_id>.<obligation_id> (<outcome>)"` attribution label.
+///
+/// `None` for a malformed record carrying no `outcome` field at all — it
+/// records no verdict, so it neither blocks nor counts as evidence that
+/// something was inspected.
+///
+/// `errored:` is deliberately NOT a required failure. The harness treats
+/// `ValidatorOutcome::Errored` as a soft-skip ("validator could not run …
+/// treated as soft-skip rather than hard fail") and leaves the task
+/// `Completed`; folding it in here made the deposit gate the one consumer that
+/// disagreed, blocking a package over, e.g., a missing OPTIONAL independent
+/// annotation table while the science it checked was independently sound. The
+/// `unimplemented:` rationale — "a gap in the validator suite, not a defect in
+/// this package's science" — applies verbatim. A validator that must fail
+/// closed on a missing input reports `Failed` instead (as
+/// `variant_af_spectrum` does when its measurement input is absent), so the
+/// fail-closed choice stays owned by the validator, not re-litigated here.
+fn classify_obligation(v: &serde_json::Value) -> Option<(ObligationClass, String)> {
     let outcome = v.get("outcome").and_then(|x| x.as_str())?.trim();
     let lower = outcome.to_ascii_lowercase();
-    let is_failure = lower.starts_with("failed:")
-        || lower.starts_with("errored:")
-        || lower == "failed"
-        || lower == "errored";
-    if !is_failure {
-        return None;
-    }
+    let class = if lower.starts_with("failed:") || lower == "failed" {
+        ObligationClass::Failed
+    } else if lower.starts_with("errored:")
+        || lower == "errored"
+        || lower.starts_with("unimplemented:")
+        || lower == "unimplemented"
+    {
+        ObligationClass::Unverified
+    } else {
+        ObligationClass::Passed
+    };
     let task = v
         .get("task_id")
         .and_then(|x| x.as_str())
@@ -552,7 +615,16 @@ fn obligation_required_failure(v: &serde_json::Value) -> Option<String> {
         .get("obligation_id")
         .and_then(|x| x.as_str())
         .unwrap_or("<unknown obligation>");
-    Some(format!("{task}.{obligation} ({outcome})"))
+    Some((class, format!("{task}.{obligation} ({outcome})")))
+}
+
+/// `"<task_id>.<obligation_id> (<outcome>)"` when this obligation record is a
+/// REQUIRED failure (`failed:` / bare `failed`), else `None`.
+fn obligation_required_failure(v: &serde_json::Value) -> Option<String> {
+    match classify_obligation(v)? {
+        (ObligationClass::Failed, label) => Some(label),
+        _ => None,
+    }
 }
 
 /// Roll the package's contract-obligation records
@@ -561,10 +633,11 @@ fn obligation_required_failure(v: &serde_json::Value) -> Option<String> {
 ///
 /// These are the harness-run `policies/validation-contract.json` obligations —
 /// a per-artifact evidence surface that the deposit rollup previously never
-/// read at all, so an obligation the package itself recorded as `failed:` /
-/// `errored:` could not block the deposit boundary. Returns an empty `Vec`
-/// for a package with no sidecar, no records, or only passing / not-yet-
-/// implemented obligations.
+/// read at all, so an obligation the package itself recorded as `failed:`
+/// could not block the deposit boundary. Returns an empty `Vec` for a package
+/// with no sidecar, no records, or only passing / no-verdict (`errored:` /
+/// `unimplemented:`) obligations — the no-verdict class is reported separately
+/// in [`DomainValidationSummary::unverified_obligations`].
 pub fn scan_contract_obligations(package_root: &Path) -> Vec<String> {
     let mut out: Vec<String> = contract_obligation_rows(package_root)
         .iter()
@@ -644,33 +717,52 @@ pub fn scan_domain_validation(package_root: &Path) -> DomainValidationSummary {
     }
 
     // Fold in the package's own contract-obligation records: the harness
-    // appends one `{task_id, obligation_id, outcome}` per checked obligation
-    // to `runtime/validation-reports.jsonl`, and a `failed:` / `errored:`
-    // outcome there is a domain-correctness failure the deposit boundary must
-    // see. Records exist ⇒ something WAS inspected, so their presence also
-    // lifts the rollup out of `Unverified` even when every obligation passed.
+    // appends one `{task_id, obligation_id, outcome}` per checked obligation to
+    // `runtime/validation-reports.jsonl`, and a `failed:` outcome there is a
+    // domain-correctness failure the deposit boundary must see.
+    //
+    // `errored:` / `unimplemented:` reached NO verdict and are collected into
+    // `unverified_obligations` instead of the required failures — see
+    // `classify_obligation` for why an `errored:` must not block. Only a
+    // CONCRETE verdict (a pass or a failure) is evidence that something was
+    // inspected, so an obligation set that is ENTIRELY no-verdict does not lift
+    // the rollup out of `Unverified` — recording it as `Pass` would be the same
+    // vacuity bug the axis exists to avoid.
     let obligation_rows = contract_obligation_rows(package_root);
-    if !obligation_rows.is_empty() {
+    let mut fails: Vec<String> = Vec::new();
+    let mut unverified: Vec<String> = Vec::new();
+    let mut any_concrete_verdict = false;
+    for row in &obligation_rows {
+        match classify_obligation(row) {
+            Some((ObligationClass::Failed, label)) => {
+                any_concrete_verdict = true;
+                fails.push(label);
+            }
+            Some((ObligationClass::Unverified, label)) => unverified.push(label),
+            Some((ObligationClass::Passed, _)) => any_concrete_verdict = true,
+            None => {}
+        }
+    }
+    fails.sort();
+    fails.dedup();
+    unverified.sort();
+    unverified.dedup();
+    if any_concrete_verdict {
         summary
             .checked_tasks
             .push(CONTRACT_OBLIGATIONS_TASK_ID.to_string());
-        let mut fails: Vec<String> = obligation_rows
-            .iter()
-            .filter_map(obligation_required_failure)
-            .collect();
-        fails.sort();
-        fails.dedup();
-        if !fails.is_empty() {
+    }
+    if !fails.is_empty() {
+        summary
+            .failed_tasks
+            .push(CONTRACT_OBLIGATIONS_TASK_ID.to_string());
+        for f in fails {
             summary
-                .failed_tasks
-                .push(CONTRACT_OBLIGATIONS_TASK_ID.to_string());
-            for f in fails {
-                summary
-                    .required_failures
-                    .push(format!("{CONTRACT_OBLIGATIONS_TASK_ID}: {f}"));
-            }
+                .required_failures
+                .push(format!("{CONTRACT_OBLIGATIONS_TASK_ID}: {f}"));
         }
     }
+    summary.unverified_obligations = unverified;
 
     // Fold in the source-owned reporting-correctness checklist (RP-8): it
     // RECOMPUTES values from the package's own runtime outputs rather than
@@ -1330,6 +1422,19 @@ pub fn write_deposit_readiness(
         )
     });
 
+    // Contract obligations that reached NO verdict (`errored:` /
+    // `unimplemented:`): named in the attestation so an operator can see WHICH
+    // obligations went unchecked, but deliberately NOT folded into
+    // `deposit_ready` — the harness treats them as soft-skips and leaves the
+    // task Completed, so the deposit gate must not be the one consumer that
+    // converts "could not check" into "failed".
+    let unverified_obligations_detail = (!domain.unverified_obligations.is_empty()).then(|| {
+        format!(
+            "contract obligation(s) UNVERIFIED (no verdict reached; non-blocking): {}",
+            domain.unverified_obligations.join(", ")
+        )
+    });
+
     // Advisory reporting-correctness warnings (RP-1/RP-3/RP-9): recorded in
     // the attestation for operator visibility but deliberately NOT folded
     // into `deposit_ready` — a warn-only prose finding must never block a
@@ -1359,6 +1464,7 @@ pub fn write_deposit_readiness(
         tier1.detail.clone(),
         domain_detail,
         domain_unverified_detail,
+        unverified_obligations_detail,
         divergence_detail,
         substrate_detail,
         reporting_warnings_detail,
@@ -2370,8 +2476,11 @@ mod tests {
     }
 
     /// `runtime/validation-reports.jsonl` is the package's own record of the
-    /// contract obligations the harness ran. A `failed:` / `errored:` outcome
-    /// there is a domain-correctness failure the deposit rollup never read.
+    /// contract obligations the harness ran. A `failed:` outcome there is a
+    /// domain-correctness failure the deposit rollup never read.
+    ///
+    /// `errored:` is NOT folded in (see `errored_obligation_is_unverified_not_failed`):
+    /// only the outcome class the harness itself gates on (`failed:`) blocks.
     #[test]
     fn domain_validation_folds_contract_obligation_failures() {
         let tmp = tempfile::tempdir().unwrap();
@@ -2384,6 +2493,9 @@ mod tests {
                 // Duplicate row (an obligation declared on two required
                 // artifacts) must be folded once.
                 serde_json::json!({"task_id":"t2","obligation_id":"ob_bad","outcome":"failed:threshold not met"}),
+                // An obligation whose checker COULD NOT RUN reached no verdict.
+                // The harness treats it as a soft-skip and leaves the task
+                // Completed, so it must not block here either.
                 serde_json::json!({"task_id":"t3","obligation_id":"ob_err","outcome":"errored:input table absent"}),
                 // A catalog obligation with no checker yet is a validator-suite
                 // gap, not a defect in this package — it must not block.
@@ -2394,10 +2506,8 @@ mod tests {
         let failures = scan_contract_obligations(root);
         assert_eq!(
             failures,
-            vec![
-                "t2.ob_bad (failed:threshold not met)",
-                "t3.ob_err (errored:input table absent)"
-            ]
+            vec!["t2.ob_bad (failed:threshold not met)"],
+            "only the `failed:` class is a required failure"
         );
 
         let summary = scan_domain_validation(root);
@@ -2407,6 +2517,14 @@ mod tests {
             .required_failures
             .iter()
             .all(|f| f.starts_with("contract_obligations: ")));
+        // The two no-verdict obligations are surfaced, not folded into failures.
+        assert_eq!(
+            summary.unverified_obligations,
+            vec![
+                "t3.ob_err (errored:input table absent)",
+                "t4.ob_todo (unimplemented:foo_check)"
+            ]
+        );
 
         // An all-passing obligation set is not a failure, but it IS evidence
         // that something was inspected.
@@ -2421,6 +2539,168 @@ mod tests {
             clean_summary.checked_tasks,
             vec![CONTRACT_OBLIGATIONS_TASK_ID]
         );
+        assert!(clean_summary.unverified_obligations.is_empty());
+    }
+
+    /// An obligation the harness recorded as `errored:` (its checker could not
+    /// run) is NOT a required failure — it reached no verdict.
+    ///
+    /// Reproduces the real fresh-package case: one
+    /// `errored:no independent symbol↔Ensembl annotation table in package …`
+    /// for `gene_symbol_ensembl_consistent` alongside 14 passing obligations.
+    /// That single line used to flip `domain_validation` to `fail` and block the
+    /// deposit even though the science it would have checked was independently
+    /// verified sound — and even though the harness left the task `Completed`
+    /// (`ValidationReportSummary::has_failures()` matches only `Failed`), making
+    /// this gate the only consumer that disagreed.
+    #[test]
+    fn errored_obligation_is_unverified_not_failed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let mut rows = vec![serde_json::json!({
+            "task_id": "contextualize_findings_with_literature",
+            "obligation_id": "gene_symbol_ensembl_consistent",
+            "outcome": "errored:no independent symbol↔Ensembl annotation table in package",
+        })];
+        for i in 0..14 {
+            rows.push(serde_json::json!({
+                "task_id": "differential_expression",
+                "obligation_id": format!("ob_{i:02}"),
+                "outcome": "passed",
+            }));
+        }
+        write_validation_reports(root, &rows);
+
+        // Not a required failure on either surface.
+        assert!(
+            scan_contract_obligations(root).is_empty(),
+            "an obligation that could not run must not be a required failure"
+        );
+        let summary = scan_domain_validation(root);
+        assert!(summary.failed_tasks.is_empty(), "{summary:?}");
+        assert!(summary.required_failures.is_empty(), "{summary:?}");
+        assert!(summary.passed(), "{summary:?}");
+
+        // Surfaced instead, attributably.
+        assert_eq!(
+            summary.unverified_obligations,
+            vec![
+                "contextualize_findings_with_literature.gene_symbol_ensembl_consistent \
+                 (errored:no independent symbol↔Ensembl annotation table in package)"
+            ]
+        );
+        // 14 concrete passes ⇒ the axis WAS inspected ⇒ Pass, not Unverified.
+        assert_eq!(summary.status(), CheckStatus::Pass);
+
+        // …and the deposit is not blocked, end to end through the attestation.
+        write_deposit_readiness(
+            root,
+            "full",
+            &tier1(CheckStatus::Pass, CheckStatus::Pass, None),
+            ReexecStatus::Partial,
+            None,
+            None,
+            &WallClock,
+        )
+        .unwrap();
+        let dr = read_deposit_readiness(root).unwrap().unwrap();
+        assert_eq!(dr.domain_validation, CheckStatus::Pass, "{dr:?}");
+        assert!(
+            dr.deposit_ready,
+            "an obligation that could not run must not block the deposit: {dr:?}"
+        );
+        assert!(
+            dr.detail
+                .as_deref()
+                .unwrap_or_default()
+                .contains("gene_symbol_ensembl_consistent"),
+            "the unchecked obligation must still be NAMED in the attestation: {dr:?}"
+        );
+        // The Layer-3 gate admits it. `--strict` is not an escalation lever for
+        // a no-verdict domain axis (that lever is `ReexecStatus::NotVerified`).
+        assert!(check_deposit_readiness(root, false).is_ok());
+        assert!(check_deposit_readiness(root, true).is_ok());
+    }
+
+    /// `unimplemented:` was already exempt from the required failures — pin that
+    /// it stays exempt AND is now NAMED in `unverified_obligations` rather than
+    /// vanishing silently.
+    #[test]
+    fn unimplemented_obligation_stays_non_blocking() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write_validation_reports(
+            root,
+            &[
+                serde_json::json!({"task_id":"t1","obligation_id":"ob_ok","outcome":"passed"}),
+                serde_json::json!({"task_id":"t2","obligation_id":"ob_todo","outcome":"unimplemented:foo_check"}),
+            ],
+        );
+
+        assert!(scan_contract_obligations(root).is_empty());
+        let summary = scan_domain_validation(root);
+        assert!(summary.failed_tasks.is_empty(), "{summary:?}");
+        assert!(summary.required_failures.is_empty(), "{summary:?}");
+        assert_eq!(summary.status(), CheckStatus::Pass);
+        assert_eq!(
+            summary.unverified_obligations,
+            vec!["t2.ob_todo (unimplemented:foo_check)"]
+        );
+        assert!(compute_deposit_ready(
+            "full",
+            CheckStatus::Pass,
+            CheckStatus::Pass,
+            summary.status(),
+            ReexecStatus::Partial
+        ));
+    }
+
+    /// An obligation set that reached NO verdict at all inspected NOTHING, so
+    /// the axis must attest `Unverified` — rendering it `Pass` would be the same
+    /// vacuity bug `vacuous_scan_is_not_a_pass` pins for an empty scan. Still
+    /// non-blocking on both gate layers.
+    #[test]
+    fn only_unverified_obligations_yields_unverified_axis() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write_validation_reports(
+            root,
+            &[
+                serde_json::json!({"task_id":"t1","obligation_id":"ob_err","outcome":"errored:input absent"}),
+                serde_json::json!({"task_id":"t2","obligation_id":"ob_todo","outcome":"unimplemented:bar_check"}),
+            ],
+        );
+
+        let summary = scan_domain_validation(root);
+        assert!(
+            summary.checked_tasks.is_empty(),
+            "no obligation reached a concrete verdict, so nothing was inspected: {summary:?}"
+        );
+        assert!(summary.failed_tasks.is_empty(), "{summary:?}");
+        assert_eq!(summary.unverified_obligations.len(), 2, "{summary:?}");
+        assert_eq!(
+            summary.status(),
+            CheckStatus::Unverified,
+            "an all-no-verdict obligation set must not attest a pass: {summary:?}"
+        );
+
+        write_deposit_readiness(
+            root,
+            "full",
+            &tier1(CheckStatus::Pass, CheckStatus::Pass, None),
+            ReexecStatus::Partial,
+            None,
+            None,
+            &WallClock,
+        )
+        .unwrap();
+        let dr = read_deposit_readiness(root).unwrap().unwrap();
+        assert_eq!(dr.domain_validation, CheckStatus::Unverified, "{dr:?}");
+        assert!(
+            dr.deposit_ready,
+            "Unverified is surfaced, not blocking: {dr:?}"
+        );
+        assert!(check_deposit_readiness(root, false).is_ok());
     }
 
     /// The core of the vacuity bug: a scan that inspected NOTHING must be
