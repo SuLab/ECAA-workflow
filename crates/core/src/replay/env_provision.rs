@@ -350,6 +350,192 @@ pub fn install_conda_env_from_lock(image: &str, lock: &Path, env_target: &Path) 
     }
 }
 
+// ---------------------------------------------------------------------------
+// Thread-budget re-injection
+// ---------------------------------------------------------------------------
+
+/// Where the numerical-library thread budget a replay runs under came from.
+///
+/// Thread count fixes the ORDER in which a multithreaded BLAS / OpenMP kernel
+/// accumulates partial sums, and floating-point addition is not associative, so
+/// a replay that runs at a DIFFERENT thread count than the original reproduces
+/// the same computation with different low-order bits. This verdict is what the
+/// replay report uses to say whether the budget was reproduced or merely
+/// inherited from whatever host happened to run the replay — the fallback is
+/// never silent.
+///
+/// `#[non_exhaustive]` per the public-enum SemVer contract.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ThreadBudgetProvenance {
+    /// The package recorded the thread-budget VALUES; the replay re-injected
+    /// them verbatim, so BLAS runs at the original thread count.
+    Recorded,
+    /// The package records no thread-budget values, so nothing was injected and
+    /// the replay inherits the numerical libraries' own default — in practice
+    /// the REPLAY host's visible core count, not the recorded one. Any reduced
+    /// float may therefore differ in its low-order bits for a reason the package
+    /// does not disclose.
+    ///
+    /// This is the state of every package emitted so far: the determinism
+    /// envelope declares the thread-budget NAMES
+    /// (`determinism_shim::THREAD_BUDGET_ENV_VARS`) but no writer records their
+    /// values. See [`apply_recorded_thread_budget`] for where the values have to
+    /// come from.
+    NotRecorded,
+}
+
+impl ThreadBudgetProvenance {
+    /// Wire label for the replay report. Stable strings — a report consumer may
+    /// match on them.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Recorded => "recorded",
+            Self::NotRecorded => "not_recorded",
+        }
+    }
+
+    /// True when the replay reproduces the ORIGINAL thread budget. `false` means
+    /// the run is thread-count-unpinned and any multithreaded reduction is free
+    /// to drift within floating-point rounding.
+    pub fn is_reproduced(self) -> bool {
+        matches!(self, Self::Recorded)
+    }
+}
+
+/// Re-inject the RECORDED numerical-library thread budget into the replay
+/// environment, returning whether the original budget was actually reproduced.
+///
+/// Called on the env map handed to `script_runner::stage_and_run` (and from
+/// there to [`ExecEnv::build_command`] as `docker run --env KEY=VALUE`), so a
+/// recorded `OMP_NUM_THREADS=8` makes the replay container run BLAS with 8
+/// threads regardless of the replay host's core count. Without this the replay
+/// injects nothing, BLAS falls back to its own default — the replay host's
+/// visible cores — and the reduction order changes.
+///
+/// # Where the values come from
+///
+/// Per-task `runtime/outputs/<task_id>/determinism-env.json`, in either shape:
+///
+/// 1. a `thread_budget` object keyed by the exact env-var name
+///    (`{"thread_budget": {"OMP_NUM_THREADS": "8", …}}`) — preferred, because it
+///    is self-describing and needs no case mapping; or
+/// 2. flat lowercase fields (`{"omp_num_threads": "8"}`), matching the
+///    convention the file already uses for `source_date_epoch` / `lc_all` /
+///    `pythonhashseed`.
+///
+/// Only keys in `determinism_shim::THREAD_BUDGET_ENV_VARS` are read, and only
+/// positive-integer values are accepted (string or JSON number). Anything else
+/// — absent, empty, zero, non-numeric — is treated as NOT recorded rather than
+/// re-injected, so a malformed sidecar cannot push a nonsense thread count into
+/// the container.
+///
+/// **No writer populates either shape today.** `determinism-env.json` is written
+/// by `scripts/agent-claude.sh`, whose capture loop covers the five seed/locale
+/// vars only; the package-level `runtime/determinism-shim.json` records env-var
+/// NAMES by design ("values not captured for privacy"). So on every package
+/// emitted so far this returns [`ThreadBudgetProvenance::NotRecorded`], and it
+/// deliberately injects NOTHING rather than inventing a value or substituting
+/// the replay host's `nproc`: the verdict is the disclosure. Populating the
+/// wrapper's `thread_budget` block is what upgrades a replay to `Recorded`.
+///
+/// # Task scope
+///
+/// Reads the first task directory in lexicographic order that carries a
+/// `determinism-env.json` — the same convention `recorded_image` and
+/// `replay::read_recorded_env` use, and correct for the serial harness, which
+/// renders one `recommended_threads` for every task of a run. A genuinely
+/// per-task budget would need the map threaded through `stage_and_run` per task;
+/// [`recorded_thread_budget`] is the per-task primitive that would serve it.
+pub fn apply_recorded_thread_budget(
+    pkg: &Path,
+    env: &mut BTreeMap<String, String>,
+) -> ThreadBudgetProvenance {
+    let Some(task_dir) = find_first_task_dir(&pkg.join("runtime/outputs")) else {
+        tracing::warn!(
+            "replay: no determinism-env.json in the package, so the recorded BLAS/OpenMP \
+             thread budget is unknown; the replay runs at the REPLAY host's thread count \
+             and any multithreaded reduction may differ in its low-order bits \
+             (thread_budget=not_recorded)"
+        );
+        return ThreadBudgetProvenance::NotRecorded;
+    };
+    let Some(recorded) = recorded_thread_budget(&task_dir) else {
+        tracing::warn!(
+            "replay: {} records no thread-budget VALUES (only the env-var names are \
+             declared), so the recorded BLAS/OpenMP thread count cannot be restored; the \
+             replay runs at the REPLAY host's thread count and any multithreaded reduction \
+             may differ in its low-order bits (thread_budget=not_recorded)",
+            task_dir.display()
+        );
+        return ThreadBudgetProvenance::NotRecorded;
+    };
+    // Recorded evidence wins over anything already in the map: reproducing the
+    // original budget is the whole point of the re-injection.
+    for (key, value) in &recorded {
+        env.insert(key.clone(), value.clone());
+    }
+    tracing::info!(
+        "replay: re-injected the recorded thread budget from {} ({} key(s), \
+         OMP_NUM_THREADS={})",
+        task_dir.display(),
+        recorded.len(),
+        recorded
+            .get("OMP_NUM_THREADS")
+            .map(String::as_str)
+            .unwrap_or("<unset>")
+    );
+    ThreadBudgetProvenance::Recorded
+}
+
+/// The thread-budget values `task_dir`'s `determinism-env.json` recorded, keyed
+/// by env-var name. `None` when the sidecar is absent, unparseable, or records
+/// no usable value for any key in
+/// `determinism_shim::THREAD_BUDGET_ENV_VARS` — see
+/// [`apply_recorded_thread_budget`] for the accepted shapes and the
+/// positive-integer rule.
+///
+/// The returned map is a `BTreeMap`, so iteration order is the env-var name
+/// order and injection is byte-stable.
+pub fn recorded_thread_budget(task_dir: &Path) -> Option<BTreeMap<String, String>> {
+    let raw = std::fs::read_to_string(task_dir.join("determinism-env.json")).ok()?;
+    let sidecar: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let nested = sidecar.get("thread_budget");
+
+    let mut out: BTreeMap<String, String> = BTreeMap::new();
+    for key in crate::determinism_shim::THREAD_BUDGET_ENV_VARS {
+        // Shape 1: `thread_budget` keyed by the exact env-var name.
+        let from_nested = nested.and_then(|b| b.get(*key));
+        // Shape 2: a flat lowercase field, the convention the sidecar already
+        // uses for `source_date_epoch` / `lc_all` / `pythonhashseed`.
+        let from_flat = || sidecar.get(key.to_ascii_lowercase());
+        let Some(value) = from_nested.or_else(from_flat) else {
+            continue;
+        };
+        if let Some(threads) = positive_thread_count(value) {
+            out.insert((*key).to_string(), threads);
+        }
+    }
+    (!out.is_empty()).then_some(out)
+}
+
+/// A recorded thread count as a string, when `value` is a positive integer in
+/// either JSON string or number form. `None` for absent / empty / zero /
+/// negative / non-numeric — a thread budget that is not a positive count is not
+/// evidence of anything, and injecting it would be worse than injecting nothing.
+fn positive_thread_count(value: &serde_json::Value) -> Option<String> {
+    let text = match value {
+        serde_json::Value::String(s) => s.trim().to_string(),
+        serde_json::Value::Number(n) => n.to_string(),
+        _ => return None,
+    };
+    if text.is_empty() || !text.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    // Reject "0" / "000": zero threads is not a budget any BLAS honours.
+    (text.bytes().any(|b| b != b'0')).then_some(text)
+}
+
 impl ExecEnv {
     /// Short label for the chosen tier.
     pub fn tier_name(&self) -> &'static str {
@@ -1339,5 +1525,248 @@ mod tests {
             .build_command(Path::new("/w/c.sh"), &env, cwd)
             .unwrap();
         assert_eq!(sh_argv[sh_argv.len() - 2], "bash");
+    }
+
+    // ---- Thread-budget re-injection ----
+
+    /// Write a `determinism-env.json` carrying a recorded thread budget in the
+    /// preferred nested shape (keyed by the exact env-var name).
+    fn write_det_env_with_thread_budget(root: &Path, task: &str, budget: serde_json::Value) {
+        let task_dir = root.join("runtime/outputs").join(task);
+        fs::create_dir_all(&task_dir).unwrap();
+        let content = serde_json::json!({
+            "schema_version": "1",
+            "captured_env_vars": ["PYTHONHASHSEED", "SOURCE_DATE_EPOCH", "TZ", "LANG", "LC_ALL"],
+            "source_date_epoch": "1782173329",
+            "lang": "C.UTF-8",
+            "lc_all": "C.UTF-8",
+            "tz": "UTC",
+            "pythonhashseed": "0",
+            "thread_budget": budget,
+            "task_container_digest": "sha256:img"
+        });
+        fs::write(
+            task_dir.join("determinism-env.json"),
+            serde_json::to_string(&content).unwrap(),
+        )
+        .unwrap();
+    }
+
+    /// The load-bearing case: a package that recorded `OMP_NUM_THREADS=8` must
+    /// replay at 8 threads, NOT at the replay host's core count. Anything else
+    /// changes BLAS reduction order and drifts the low-order bits of every
+    /// reduced float.
+    #[test]
+    fn recorded_thread_budget_is_reinjected_not_host_nproc() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_det_env_with_thread_budget(
+            tmp.path(),
+            "differential_expression",
+            serde_json::json!({ "OMP_NUM_THREADS": "8", "OPENBLAS_NUM_THREADS": "8" }),
+        );
+
+        let mut env: BTreeMap<String, String> = BTreeMap::new();
+        let provenance = apply_recorded_thread_budget(tmp.path(), &mut env);
+
+        assert_eq!(provenance, ThreadBudgetProvenance::Recorded);
+        assert!(provenance.is_reproduced());
+        assert_eq!(provenance.as_str(), "recorded");
+        assert_eq!(env.get("OMP_NUM_THREADS").map(String::as_str), Some("8"));
+        assert_eq!(
+            env.get("OPENBLAS_NUM_THREADS").map(String::as_str),
+            Some("8")
+        );
+        // The replay host's parallelism must not leak in as a substitute.
+        let host = std::thread::available_parallelism()
+            .map(|n| n.get().to_string())
+            .unwrap_or_else(|_| "1".to_string());
+        if host != "8" {
+            assert_ne!(
+                env.get("OMP_NUM_THREADS").map(String::as_str),
+                Some(host.as_str()),
+                "the replay host's nproc must never substitute for the recorded budget"
+            );
+        }
+        // Only keys the package actually recorded are injected — the rest are
+        // left to the image default rather than invented.
+        assert!(!env.contains_key("MKL_NUM_THREADS"));
+    }
+
+    /// A recorded budget must survive into the container invocation as a real
+    /// `docker run --env KEY=VALUE` pair; a value stuck in the map that never
+    /// reaches the container would not change BLAS behaviour.
+    #[test]
+    fn reinjected_thread_budget_reaches_the_container_env() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_det_env_with_thread_budget(
+            tmp.path(),
+            "differential_expression",
+            serde_json::json!({ "OMP_NUM_THREADS": "8" }),
+        );
+        let mut env: BTreeMap<String, String> = BTreeMap::new();
+        assert_eq!(
+            apply_recorded_thread_budget(tmp.path(), &mut env),
+            ThreadBudgetProvenance::Recorded
+        );
+
+        let argv = container_env()
+            .build_command(Path::new("/w/de.R"), &env, Path::new("/w"))
+            .unwrap();
+        assert!(
+            argv.windows(2)
+                .any(|w| w[0] == "--env" && w[1] == "OMP_NUM_THREADS=8"),
+            "recorded thread budget missing from the container argv: {argv:?}"
+        );
+    }
+
+    /// Flat lowercase fields — the convention `determinism-env.json` already
+    /// uses for `source_date_epoch` / `lc_all` / `pythonhashseed` — are read too,
+    /// so whichever shape the writer adopts, replay honours it.
+    #[test]
+    fn flat_lowercase_thread_fields_are_read() {
+        let tmp = tempfile::tempdir().unwrap();
+        let task_dir = tmp.path().join("runtime/outputs/de");
+        fs::create_dir_all(&task_dir).unwrap();
+        fs::write(
+            task_dir.join("determinism-env.json"),
+            r#"{"schema_version":"1","omp_num_threads":"4","mkl_num_threads":4,
+                "task_container_digest":"sha256:img"}"#,
+        )
+        .unwrap();
+
+        let mut env: BTreeMap<String, String> = BTreeMap::new();
+        assert_eq!(
+            apply_recorded_thread_budget(tmp.path(), &mut env),
+            ThreadBudgetProvenance::Recorded
+        );
+        assert_eq!(env.get("OMP_NUM_THREADS").map(String::as_str), Some("4"));
+        // A JSON number is as valid a record as a JSON string.
+        assert_eq!(env.get("MKL_NUM_THREADS").map(String::as_str), Some("4"));
+    }
+
+    /// Today's real packages: `determinism-env.json` records the five
+    /// seed/locale vars and NO thread values. Nothing may be injected, and the
+    /// unreproduced budget must be reported rather than silently inherited.
+    #[test]
+    fn absent_thread_budget_is_reported_not_silently_defaulted() {
+        let tmp = tempfile::tempdir().unwrap();
+        // `write_det_env` is the shape agent-claude.sh actually writes today.
+        write_det_env(tmp.path(), "differential_expression", "sha256:img");
+
+        let mut env: BTreeMap<String, String> = BTreeMap::new();
+        let provenance = apply_recorded_thread_budget(tmp.path(), &mut env);
+
+        assert_eq!(provenance, ThreadBudgetProvenance::NotRecorded);
+        assert!(!provenance.is_reproduced());
+        assert_eq!(provenance.as_str(), "not_recorded");
+        assert!(
+            env.is_empty(),
+            "no value may be invented when none was recorded, got {env:?}"
+        );
+    }
+
+    /// A package with no `determinism-env.json` at all is the same verdict —
+    /// reported, never guessed.
+    #[test]
+    fn missing_determinism_env_reports_not_recorded() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut env: BTreeMap<String, String> = BTreeMap::new();
+        assert_eq!(
+            apply_recorded_thread_budget(tmp.path(), &mut env),
+            ThreadBudgetProvenance::NotRecorded
+        );
+        assert!(env.is_empty());
+    }
+
+    /// A thread count that is not a positive integer is not evidence; injecting
+    /// it would push a nonsense budget into the container, which is worse than
+    /// injecting nothing.
+    #[test]
+    fn malformed_thread_values_are_rejected() {
+        for bogus in [
+            serde_json::json!({ "OMP_NUM_THREADS": "" }),
+            serde_json::json!({ "OMP_NUM_THREADS": "   " }),
+            serde_json::json!({ "OMP_NUM_THREADS": "0" }),
+            serde_json::json!({ "OMP_NUM_THREADS": "-4" }),
+            serde_json::json!({ "OMP_NUM_THREADS": "auto" }),
+            serde_json::json!({ "OMP_NUM_THREADS": "8; rm -rf /" }),
+            serde_json::json!({ "OMP_NUM_THREADS": true }),
+            serde_json::json!({ "OMP_NUM_THREADS": serde_json::Value::Null }),
+        ] {
+            let tmp = tempfile::tempdir().unwrap();
+            write_det_env_with_thread_budget(tmp.path(), "de", bogus.clone());
+            let mut env: BTreeMap<String, String> = BTreeMap::new();
+            assert_eq!(
+                apply_recorded_thread_budget(tmp.path(), &mut env),
+                ThreadBudgetProvenance::NotRecorded,
+                "{bogus} must not be honoured as a thread budget"
+            );
+            assert!(env.is_empty(), "{bogus} must inject nothing, got {env:?}");
+        }
+    }
+
+    /// Only the canonical key set is read; a stray key in the recorded block is
+    /// ignored rather than promoted into the container env.
+    #[test]
+    fn only_canonical_thread_keys_are_reinjected() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_det_env_with_thread_budget(
+            tmp.path(),
+            "de",
+            serde_json::json!({ "OMP_NUM_THREADS": "6", "LD_PRELOAD_HACK": "12" }),
+        );
+        let mut env: BTreeMap<String, String> = BTreeMap::new();
+        apply_recorded_thread_budget(tmp.path(), &mut env);
+        assert_eq!(
+            env.keys().map(String::as_str).collect::<Vec<_>>(),
+            vec!["OMP_NUM_THREADS"],
+            "a non-canonical key must not be promoted into the container env"
+        );
+    }
+
+    /// The recorded budget is authoritative: it overrides whatever the caller
+    /// had already put in the map (e.g. a replay-host-derived default), because
+    /// reproducing the ORIGINAL thread count is the point.
+    #[test]
+    fn recorded_values_override_a_preexisting_entry() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_det_env_with_thread_budget(
+            tmp.path(),
+            "de",
+            serde_json::json!({ "OMP_NUM_THREADS": "8" }),
+        );
+        let mut env: BTreeMap<String, String> = BTreeMap::new();
+        env.insert("OMP_NUM_THREADS".to_string(), "64".to_string());
+        apply_recorded_thread_budget(tmp.path(), &mut env);
+        assert_eq!(env.get("OMP_NUM_THREADS").map(String::as_str), Some("8"));
+    }
+
+    /// Every key core declares as part of the applied thread budget is readable
+    /// end-to-end, so a future writer that records the full block replays the
+    /// full block (no silently-dropped key).
+    #[test]
+    fn all_canonical_thread_keys_round_trip() {
+        let keys = crate::determinism_shim::THREAD_BUDGET_ENV_VARS;
+        let budget: serde_json::Value = serde_json::Value::Object(
+            keys.iter()
+                .map(|k| ((*k).to_string(), serde_json::json!("8")))
+                .collect(),
+        );
+        let tmp = tempfile::tempdir().unwrap();
+        write_det_env_with_thread_budget(tmp.path(), "de", budget);
+
+        let mut env: BTreeMap<String, String> = BTreeMap::new();
+        assert_eq!(
+            apply_recorded_thread_budget(tmp.path(), &mut env),
+            ThreadBudgetProvenance::Recorded
+        );
+        assert_eq!(env.len(), keys.len());
+        for k in keys {
+            assert_eq!(
+                env.get(*k).map(String::as_str),
+                Some("8"),
+                "{k} must round-trip through re-injection"
+            );
+        }
     }
 }

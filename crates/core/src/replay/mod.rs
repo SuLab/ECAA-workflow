@@ -130,7 +130,13 @@ pub fn run_replay(pkg: &Path, opts: &ReplayOptions) -> anyhow::Result<ReplayRepo
         // (from determinism-env.json `pkg_root`) is where a shipped conda env
         // was created, so provisioning needs it to mount that env back at its
         // baked path when the package has been relocated.
-        let (recorded_root, recorded_env) = read_recorded_env(pkg);
+        let (recorded_root, mut recorded_env) = read_recorded_env(pkg);
+
+        // Re-inject the recorded BLAS/OpenMP thread budget so the replay runs
+        // at the ORIGINAL thread count. Left unpinned, a replay host with a
+        // different core count changes BLAS reduction order and produces
+        // last-decimal-digit drift the comparator then has to absorb.
+        let thread_budget = env_provision::apply_recorded_thread_budget(pkg, &mut recorded_env);
 
         // Provision an execution environment with real system probes.
         let mut env = provision_env(pkg, opts.allow_rebuild, &recorded_root);
@@ -261,6 +267,7 @@ pub fn run_replay(pkg: &Path, opts: &ReplayOptions) -> anyhow::Result<ReplayRepo
             env_tier,
             report: reexec_report,
             unprovisionable,
+            thread_budget: thread_budget.as_str().to_string(),
         });
     }
 

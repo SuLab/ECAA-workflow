@@ -61,21 +61,16 @@ pub const HW_TASK_RESOURCE_CLASS: &str = "ECAA_HW_TASK_RESOURCE_CLASS";
 /// joblib/loky), the agent is responsible for constraining per-worker
 /// BLAS at runtime via `RhpcBLASctl::blas_set_num_threads(N)` inside
 /// each worker — see `prompt_role.txt` "Hardware-aware execution".
-pub const BLAS_THREAD_ENV_KEYS: &[&str] = &[
-    "OMP_NUM_THREADS",
-    "OPENBLAS_NUM_THREADS",
-    "GOTO_NUM_THREADS",
-    "MKL_NUM_THREADS",
-    "BLIS_NUM_THREADS",
-    "VECLIB_MAXIMUM_THREADS",
-    "NUMEXPR_NUM_THREADS",
-    "NUMEXPR_MAX_THREADS",
-    "TBB_NUM_THREADS",
-    "RAYON_NUM_THREADS",
-    "NUMBA_NUM_THREADS",
-    "JULIA_NUM_THREADS",
-    "POLARS_MAX_THREADS",
-];
+///
+/// This is an ALIAS of the canonical list, which lives in core
+/// (`ecaa_workflow_core::determinism_shim::THREAD_BUDGET_ENV_VARS`) because the
+/// determinism envelope has to declare the same set the harness injects, and
+/// core must not depend on the harness. Aliasing rather than restating makes
+/// drift between the injected set and the declared set structurally impossible;
+/// `blas_thread_env_keys_match_cores_canonical_list` guards against a future
+/// edit that re-inlines the literals.
+pub const BLAS_THREAD_ENV_KEYS: &[&str] =
+    ecaa_workflow_core::determinism_shim::THREAD_BUDGET_ENV_VARS;
 /// the dispatched task's id. The agent script reads
 /// this to drive the heartbeat-touch background loop. Required for the
 /// heartbeat stall detector; absent ⇒ the detector falls back to
@@ -573,6 +568,41 @@ mod tests {
         let facts: JsonValue = serde_json::from_str(&env[HW_INTAKE_FACTS]).unwrap();
         assert_eq!(facts["modality"], "bulk_rnaseq");
         assert_eq!(facts["sample_count"], 50);
+    }
+
+    #[test]
+    fn blas_thread_env_keys_match_cores_canonical_list() {
+        // The injected set and the set the determinism envelope DECLARES
+        // (`determinism_shim::THREAD_BUDGET_ENV_VARS`) must be identical, or a
+        // replay silently runs BLAS at a thread count nothing recorded. Today
+        // this const is an alias, so the assertion is structural; the test
+        // exists so that re-inlining the literals here fails loudly instead of
+        // re-opening the gap.
+        assert_eq!(
+            BLAS_THREAD_ENV_KEYS,
+            ecaa_workflow_core::determinism_shim::THREAD_BUDGET_ENV_VARS,
+            "harness thread-budget keys drifted from core's canonical list"
+        );
+    }
+
+    #[test]
+    fn every_injected_thread_key_is_declared_in_the_determinism_envelope() {
+        // End-to-end shape of the invariant: what `render_envelope` actually
+        // puts on the task env must be a subset of what a freshly serialized
+        // determinism shim declares in `captured_env_vars`. This is the
+        // assertion that would have caught the original gap.
+        let tmp = TempDir::new().unwrap();
+        let dag = minimal_dag("de_t1", "differential_expression", ResourceClass::CpuHeavy);
+        let env = render_envelope(tmp.path(), "de_t1", &dag, &inputs_phase2_cpu());
+        let shim = ecaa_workflow_core::determinism_shim::serialize_active_settings();
+        for key in ecaa_workflow_core::determinism_shim::THREAD_BUDGET_ENV_VARS {
+            assert!(env.contains_key(*key), "render_envelope must inject {key}");
+            assert!(
+                shim.env_capture.captured_env_vars.iter().any(|v| v == key),
+                "{key} is injected into every task container but not declared \
+                 in determinism-shim.json::captured_env_vars"
+            );
+        }
     }
 
     #[test]

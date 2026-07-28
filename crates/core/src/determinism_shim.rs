@@ -15,6 +15,12 @@
 //!   `runtime/outputs/<task_id>/determinism-env.json` the agent records
 //!   at runtime (LANG=C.UTF-8, PYTHONHASHSEED=0, SOURCE_DATE_EPOCH=<run
 //!   epoch>), rather than contradicting it;
+//! - the numerical-library thread budget ([`THREAD_BUDGET_ENV_VARS`]) the
+//!   harness also injects into every per-task container. The thread count
+//!   fixes the REDUCTION ORDER of every multithreaded BLAS / OpenMP kernel,
+//!   so leaving it undeclared lets a re-execution on a host with a different
+//!   core count drift in the low-order bits of any reduced float — exactly
+//!   the class of jitter this envelope exists to eliminate;
 //! - which secret env vars are present and redacted from the capture
 //!   (recorded by name only — never values);
 //! - the seed policy (SOURCE_DATE_EPOCH value if the host set one, else
@@ -178,6 +184,59 @@ const CAPTURED_ENV_VARS: &[&str] = &[
     "SOURCE_DATE_EPOCH",
 ];
 
+/// BLAS / OpenMP / numerical-library thread-budget env vars the harness sets on
+/// EVERY per-task dispatch (`harness::executor::hardware_envelope`, which
+/// aliases this slice as its `BLAS_THREAD_ENV_KEYS` so the two can never
+/// drift). Canonical, ordered, deduplicated — this module is the single source
+/// of truth; core owns it because the determinism envelope must declare it and
+/// core must not depend on the harness.
+///
+/// Each key is read by the corresponding shared library at LIBRARY-INIT time
+/// (when BLAS is dlopen'd as the language runtime starts), so the harness MUST
+/// set them before spawning the agent — `Sys.setenv()` in R or
+/// `os.environ[...] = ...` in Python is too late once BLAS has loaded.
+///
+/// Coverage spans every BLAS implementation encountered in bioinformatics
+/// stacks (OpenBLAS, MKL, BLIS, Apple Accelerate, reference netlib via
+/// `LD_PRELOAD`) plus closely-adjacent thread pools (OpenMP, NumExpr, Numba,
+/// Rayon, TBB, Julia, Polars). All keys are set to the same value
+/// (`recommended_threads`) so a single-process Rscript or Python script gets
+/// the full thread budget by default; for multi-worker fan-out (BiocParallel
+/// `mclapply`, joblib/loky) the agent constrains per-worker BLAS at runtime via
+/// `RhpcBLASctl::blas_set_num_threads(N)` inside each worker — see
+/// `prompt_role.txt` "Hardware-aware execution".
+///
+/// # Why the determinism envelope must declare these
+///
+/// The thread count fixes the ORDER in which a multithreaded reduction
+/// accumulates partial sums, and floating-point addition is not associative. A
+/// package that records only the seed/locale policy therefore re-executes with
+/// whatever thread count the REPLAY host's core count implies, and any reduced
+/// float (a column mean, a variance, a `vst` dispersion fit) shifts in its
+/// low-order bits — an unrecorded, unreproducible divergence rather than an
+/// acknowledged one. Declaring the names here is what makes the budget part of
+/// the disclosed environment; [`crate::replay::env_provision`] re-injects the
+/// recorded VALUES on replay.
+///
+/// Order is presentation-only: every consumer either sets all keys to the same
+/// value or unions them into a `BTreeSet`, so nothing depends on this sequence.
+/// It is kept stable anyway to keep diffs readable.
+pub const THREAD_BUDGET_ENV_VARS: &[&str] = &[
+    "OMP_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "GOTO_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "BLIS_NUM_THREADS",
+    "VECLIB_MAXIMUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+    "NUMEXPR_MAX_THREADS",
+    "TBB_NUM_THREADS",
+    "RAYON_NUM_THREADS",
+    "NUMBA_NUM_THREADS",
+    "JULIA_NUM_THREADS",
+    "POLARS_MAX_THREADS",
+];
+
 /// Determinism-relevant env vars the harness ALWAYS injects into every
 /// per-task execution container (`crates/harness` — LANG=C.UTF-8,
 /// PYTHONHASHSEED=0, SOURCE_DATE_EPOCH=<run epoch>, TZ=UTC). The emit-time
@@ -186,6 +245,13 @@ const CAPTURED_ENV_VARS: &[&str] = &[
 /// `determinism-env.json` evidence the agent records at runtime. These names
 /// are always present in `captured_env_vars`; the compiler-host presence scan
 /// (`CAPTURED_ENV_VARS`) can only ADD to the set.
+///
+/// [`THREAD_BUDGET_ENV_VARS`] is the SECOND half of the applied-policy floor
+/// (`serialize_active_settings` unions both): the harness injects those
+/// unconditionally too, from `apply_blas_thread_envelope`, before any
+/// per-stage `compute-resource-policy.json` lookup. They are held in a separate
+/// const because the harness aliases that one directly and because they form a
+/// distinct class (thread budget, not seed/locale policy).
 const APPLIED_POLICY_ENV_VARS: &[&str] = &["LANG", "PYTHONHASHSEED", "SOURCE_DATE_EPOCH", "TZ"];
 
 const REDACTED_ENV_VARS: &[&str] = &[
@@ -209,8 +275,16 @@ pub fn serialize_active_settings() -> DeterminismShimSidecar {
     // per-task container) with any determinism var also present on the
     // compiler host. A `BTreeSet` keeps the result deduped + sorted so the
     // capture is byte-stable regardless of host env ordering.
+    //
+    // The floor spans BOTH applied-policy classes. The seed/locale vars are
+    // unconditional per D3; the thread-budget vars are unconditional per
+    // `harness::executor::hardware_envelope::apply_blas_thread_envelope`, which
+    // runs on every dispatch before any per-stage policy lookup. Declaring the
+    // thread budget is what stops a replay on a differently-sized host from
+    // silently changing BLAS reduction order (see `THREAD_BUDGET_ENV_VARS`).
     let mut captured: std::collections::BTreeSet<String> = APPLIED_POLICY_ENV_VARS
         .iter()
+        .chain(THREAD_BUDGET_ENV_VARS.iter())
         .map(|k| (*k).to_string())
         .collect();
     captured.extend(
@@ -330,6 +404,24 @@ fn artifact_ack_matches(declared: &str, artifact_path: &str) -> bool {
 /// (`runtime/outputs/<task_id>/determinism-env.json`, D4) augments it
 /// at finalize. Byte-stable: identical inputs yield identical output
 /// ordering.
+///
+/// The union is over NAMES only and is idempotent, so the applied-policy floor
+/// (seed/locale + [`THREAD_BUDGET_ENV_VARS`]) can never conflict with a later
+/// container fold: a name the container also reports simply collapses. That is
+/// why the thread-budget vars belong in the floor rather than in the
+/// compiler-host presence scan — the compiler host does not normally carry
+/// `OMP_NUM_THREADS`, so a presence scan would record them approximately never,
+/// while the harness injects them on every dispatch.
+///
+/// Note the asymmetry this leaves: the agent wrapper's per-task
+/// `determinism-env.json` writes `captured_env_vars` over the five-var
+/// seed/locale allowlist only, so per-task evidence under-reports the thread
+/// budget relative to this floor. That is a gap in the RUNTIME capture, not a
+/// contradiction in the declaration — the harness demonstrably does inject all
+/// of [`THREAD_BUDGET_ENV_VARS`]. Closing it means teaching the wrapper to
+/// record those keys WITH their values, which is also what
+/// [`crate::replay::env_provision::apply_recorded_thread_budget`] needs in order
+/// to re-inject the original budget instead of inheriting the replay host's.
 pub fn merge_container_env(host: &mut DeterminismShimSidecar, container_keys: &[String]) {
     let mut set: std::collections::BTreeSet<String> =
         host.env_capture.captured_env_vars.iter().cloned().collect();
@@ -1049,6 +1141,76 @@ mod tests {
         sorted.sort();
         sorted.dedup();
         assert_eq!(sorted, s.env_capture.captured_env_vars);
+    }
+
+    #[test]
+    fn captured_env_declares_the_thread_budget() {
+        // The harness sets all 13 numerical-library thread vars on every task
+        // dispatch, and thread count fixes multithreaded reduction ORDER. An
+        // undeclared budget is an unrecorded re-execution variable, so every
+        // key must appear in the applied-policy floor — not only when the
+        // compiler host happens to export it.
+        let s = serialize_active_settings();
+        for k in THREAD_BUDGET_ENV_VARS {
+            assert!(
+                s.env_capture.captured_env_vars.iter().any(|v| v == k),
+                "thread-budget env var {k} must be declared in the shim capture"
+            );
+        }
+        assert_eq!(
+            THREAD_BUDGET_ENV_VARS.len(),
+            13,
+            "the canonical thread-budget list is 13 keys; a change here must be \
+             mirrored in scripts/_agent-blas-bootstrap.sh (both the apply loop \
+             and the container forward allowlist)"
+        );
+    }
+
+    #[test]
+    fn captured_env_is_sorted_and_deduped_after_adding_the_thread_budget() {
+        // The capture is a `BTreeSet` union of two applied-policy classes plus a
+        // host presence scan whose members OVERLAP the first class. Byte-stability
+        // of `determinism-shim.json` depends on the result staying sorted with no
+        // repeats regardless of host env ordering.
+        let s = serialize_active_settings();
+        let mut expected = s.env_capture.captured_env_vars.clone();
+        expected.sort();
+        expected.dedup();
+        assert_eq!(
+            expected, s.env_capture.captured_env_vars,
+            "captured_env_vars must be sorted + deduped for byte-stability"
+        );
+        // Union semantics: at least both applied-policy classes, and no name
+        // appears twice even though the host scan can re-supply LANG/TZ/etc.
+        assert!(
+            s.env_capture.captured_env_vars.len()
+                >= APPLIED_POLICY_ENV_VARS.len() + THREAD_BUDGET_ENV_VARS.len(),
+            "the floor must contain both applied-policy classes, got {:?}",
+            s.env_capture.captured_env_vars
+        );
+    }
+
+    #[test]
+    fn thread_budget_list_has_no_duplicates() {
+        let set: std::collections::BTreeSet<&&str> = THREAD_BUDGET_ENV_VARS.iter().collect();
+        assert_eq!(
+            set.len(),
+            THREAD_BUDGET_ENV_VARS.len(),
+            "THREAD_BUDGET_ENV_VARS must be deduplicated: {THREAD_BUDGET_ENV_VARS:?}"
+        );
+    }
+
+    #[test]
+    fn thread_budget_and_seed_policy_classes_are_disjoint() {
+        // Two separate consts unioned into one floor; an accidental overlap
+        // would be a sign the classes were confused (a seed var is not a
+        // thread var and vice versa).
+        for k in THREAD_BUDGET_ENV_VARS {
+            assert!(
+                !APPLIED_POLICY_ENV_VARS.contains(k),
+                "{k} appears in both applied-policy classes"
+            );
+        }
     }
 
     #[test]

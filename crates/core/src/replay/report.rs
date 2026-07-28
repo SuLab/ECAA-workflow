@@ -27,7 +27,14 @@ pub struct ReverifyResult { pub checks: Vec<VerifierDiff>, pub reader_matches_wr
 #[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 #[ts(export)]
 pub struct ReexecuteResult { pub env_tier: String, pub report: ReexecutionReport,
-    pub unprovisionable: bool }
+    pub unprovisionable: bool,
+    /// Whether the recorded per-task BLAS/OpenMP thread budget could be
+    /// re-injected into the replay container (`"recorded"`) or the replay ran
+    /// at the REPLAY host's thread count (`"not_recorded"`). An unpinned
+    /// thread budget changes floating-point reduction order, so this is a
+    /// disclosure, not a pass/fail.
+    #[serde(default)]
+    pub thread_budget: String }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 #[ts(export)]
@@ -90,7 +97,8 @@ mod tests {
         let mut rep = ReexecutionReport::empty("0.1");
         rep.per_artifact.push(ArtifactClassification { artifact_path: "a.tsv".into(),
             bucket: ReexecutionBucket::ByteIdentical, reason: None });
-        r.reexecute = Some(ReexecuteResult { env_tier: "container".into(), report: rep, unprovisionable: false });
+        r.reexecute = Some(ReexecuteResult { env_tier: "container".into(), report: rep, unprovisionable: false,
+            thread_budget: "recorded".into() });
         assert_eq!(compute_verdict(&r), ReplayVerdict::Pass);
     }
 
@@ -118,7 +126,8 @@ mod tests {
         let mut rep = ReexecutionReport::empty("0.1");
         rep.per_artifact.push(ArtifactClassification { artifact_path: "de.tsv".into(),
             bucket: ReexecutionBucket::Failed, reason: Some("nonzero exit".into()) });
-        r.reexecute = Some(ReexecuteResult { env_tier: "host".into(), report: rep, unprovisionable: false });
+        r.reexecute = Some(ReexecuteResult { env_tier: "host".into(), report: rep, unprovisionable: false,
+            thread_budget: "recorded".into() });
         assert_eq!(compute_verdict(&r), ReplayVerdict::Fail);
     }
 
@@ -126,7 +135,8 @@ mod tests {
     fn partial_when_env_unprovisionable() {
         let mut r = base();
         r.reexecute = Some(ReexecuteResult { env_tier: "none".into(),
-            report: ReexecutionReport::empty("0.1"), unprovisionable: true });
+            report: ReexecutionReport::empty("0.1"), unprovisionable: true,
+            thread_budget: "not_recorded".into() });
         assert_eq!(compute_verdict(&r), ReplayVerdict::Partial);
     }
 }

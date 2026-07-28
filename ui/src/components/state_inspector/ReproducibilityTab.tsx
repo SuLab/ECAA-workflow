@@ -440,6 +440,21 @@ export function ReproducibilityTab({
                 above still ran offline.
               </span>
             ) : null}
+            {reproReport?.reexecute?.thread_budget === 'not_recorded' ? (
+              <span
+                style={{
+                  display: 'block',
+                  marginTop: 6,
+                  color: '#92400e',
+                  fontSize: 12,
+                }}
+                data-testid="thread-budget-explainer"
+              >
+                The recorded run did not capture its BLAS/OpenMP thread budget,
+                so this replay ran at this host&apos;s thread count. Numeric
+                results may differ in their last decimal digits.
+              </span>
+            ) : null}
           </p>
         ) : null}
       </div>

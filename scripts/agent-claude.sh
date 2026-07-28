@@ -1985,11 +1985,35 @@ if [ -n "${ECAA_TASK_ID:-}" ]; then
       _DET_CAPTURED="$_DET_CAPTURED \"$_k\","
     fi
   done
+  # Thread budget: the BLAS/OpenMP/etc. counts the harness injected
+  # (core::determinism_shim::THREAD_BUDGET_ENV_VARS — keep this list in sync).
+  # Recorded WITH VALUES, unlike the seed/locale vars above, because a replay
+  # must re-inject the ORIGINAL count: BLAS reduction order depends on the
+  # thread count, so a replay host with a different core count produces
+  # last-decimal-digit drift that looks like non-determinism. Read via
+  # `printenv` over a fixed literal list (no user input) and kept only when the
+  # value is a bare positive integer, so a malformed value is recorded as
+  # absent rather than pushed into the replay container.
+  _DET_THREADS=""
+  for _k in OMP_NUM_THREADS OPENBLAS_NUM_THREADS GOTO_NUM_THREADS \
+            MKL_NUM_THREADS BLIS_NUM_THREADS VECLIB_MAXIMUM_THREADS \
+            NUMEXPR_NUM_THREADS NUMEXPR_MAX_THREADS TBB_NUM_THREADS \
+            RAYON_NUM_THREADS NUMBA_NUM_THREADS JULIA_NUM_THREADS \
+            POLARS_MAX_THREADS; do
+    _v="$(printenv "$_k" 2>/dev/null || true)"
+    case "$_v" in
+      ''|0|*[!0-9]*) continue ;;
+    esac
+    _DET_THREADS="$_DET_THREADS \"$_k\": \"$_v\","
+    _DET_CAPTURED="$_DET_CAPTURED \"$_k\","
+  done
+  _DET_THREADS="$(printf '%s' "$_DET_THREADS" | sed 's/,$//')"
   _DET_CAPTURED="$(printf '%s' "$_DET_CAPTURED" | sed 's/,$//')"
   {
     printf '{\n'
     printf '  "schema_version": "1",\n'
     printf '  "captured_env_vars": [%s ],\n' "$_DET_CAPTURED"
+    printf '  "thread_budget": {%s },\n' "$_DET_THREADS"
     printf '  "source_date_epoch": "%s",\n' "${SOURCE_DATE_EPOCH:-}"
     printf '  "lang": "%s",\n' "${LANG:-}"
     printf '  "lc_all": "%s",\n' "${LC_ALL:-}"

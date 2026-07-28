@@ -135,7 +135,12 @@ describe('ReproducibilityTab', () => {
       reader_version: '1',
       min_reader_version: null,
       reverify: null,
-      reexecute: { env_tier: 'local', report: {} as never, unprovisionable: true },
+      reexecute: {
+        env_tier: 'local',
+        report: {} as never,
+        unprovisionable: true,
+        thread_budget: 'recorded',
+      },
       skipped: [],
       verdict: 'partial',
     }
@@ -163,6 +168,44 @@ describe('ReproducibilityTab', () => {
       { timeout: 5000 },
     )
     expect(screen.getByTestId('reproduce-result')).toHaveTextContent(/partial/i)
+    // A recorded thread budget means the replay reproduced the original thread
+    // count, so the numeric-drift disclosure must stay hidden.
+    expect(screen.queryByTestId('thread-budget-explainer')).not.toBeInTheDocument()
+  }, 10000)
+
+  it('discloses an unrecorded thread budget as a numeric-drift caveat', async () => {
+    mockGetAuditProof.mockResolvedValue(fullReport())
+    mockStartReplayReproduce.mockResolvedValue({ replay_id: 'r1' })
+    const doneReport: ReplayReport = {
+      schema_version: '0.2',
+      package_iri: 'pkg',
+      reader_version: '1',
+      min_reader_version: null,
+      reverify: null,
+      reexecute: {
+        env_tier: 'local',
+        report: {} as never,
+        unprovisionable: false,
+        thread_budget: 'not_recorded',
+      },
+      skipped: [],
+      verdict: 'pass',
+    }
+    mockGetReplay
+      .mockResolvedValueOnce({ status: 'idle' })
+      .mockResolvedValue({ status: 'done', report: doneReport })
+
+    render(<ReproducibilityTab sessionId="s1" />)
+    await screen.findByText('claim_completeness')
+    await userEvent.click(screen.getByTestId('reproduce-button'))
+
+    await waitFor(
+      () =>
+        expect(screen.getByTestId('thread-budget-explainer')).toBeInTheDocument(),
+      { timeout: 5000 },
+    )
+    // The runtime WAS provisionable — only the thread budget is unpinned.
+    expect(screen.queryByTestId('unprovisionable-explainer')).not.toBeInTheDocument()
   }, 10000)
 
   it('renders a no-session placeholder', () => {
