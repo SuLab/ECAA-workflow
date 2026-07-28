@@ -4,8 +4,8 @@ This is the reusable implementation of the
 `contextualize_findings_with_literature` atom. It maps every row of an
 upstream result table onto the prior-work sources an upstream literature
 task actually retrieved, and emits `claims_evidence_matrix.csv` plus this
-task's own `evidence/manifest.json` and the two markdown reports the atom
-declares.
+task's own `evidence/manifest.json`, `annotation/symbol_map.tsv` and the two
+markdown reports the atom declares.
 
 Why it exists
 -------------
@@ -74,6 +74,7 @@ from .direction import (
 )
 from .evidence import EvidenceEntry, load_evidence, mentions, verify_quote
 from .matrix import (
+    SYMBOL_MAP_RELPATH,
     ClaimRow,
     Finding,
     MatrixError,
@@ -82,7 +83,9 @@ from .matrix import (
     read_prior_claims,
     read_result_table,
     searched_entities,
+    symbol_map_pairs,
     write_matrix,
+    write_symbol_map,
 )
 
 ENTITY_KINDS = ("gene", "region", "variant")
@@ -468,6 +471,15 @@ def contextualize(
     write_evidence_manifest(rows, evidence, evidence_manifest, out_dir)
     write_reports(rows, table, evidence, out_dir, contrast_terms=contrast_terms)
 
+    # The label↔accession mapping the input carried, emitted as a declared
+    # artifact at a deposit-safe path so the independent consistency check reads
+    # a known table instead of scavenging the output tree for a plausible one.
+    # Written unconditionally (header-only when the input pairs no accession
+    # with a label) so its absence always means the task did not run the
+    # library, never that the input happened to lack a column.
+    mapping = symbol_map_pairs(results, id_column=id_column, symbol_column=symbol_column)
+    write_symbol_map(mapping, out_dir / SYMBOL_MAP_RELPATH)
+
     return {
         "n_findings": len(table.findings),
         "n_rows": len(rows),
@@ -481,6 +493,7 @@ def contextualize(
             "effect": table.effect_column,
             "significance": table.significance_column,
         },
+        "symbol_map": {"path": SYMBOL_MAP_RELPATH, "n_rows": len(mapping)},
     }
 
 

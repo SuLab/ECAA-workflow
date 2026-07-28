@@ -20,6 +20,8 @@ from lib.literature.direction import CONCORDANCE_FLAGS
 from lib.literature.evidence import load_evidence
 from lib.literature.matrix import (
     COLUMNS,
+    SYMBOL_MAP_COLUMNS,
+    SYMBOL_MAP_RELPATH,
     MatrixError,
     read_prior_claims,
     read_result_table,
@@ -300,8 +302,23 @@ def test_declared_artifacts_are_all_written(workspace: dict) -> None:
         "literature_search_protocol.md",
         "citation_verification_report.md",
         "evidence/manifest.json",
+        SYMBOL_MAP_RELPATH,
     ):
         assert (workspace["out"] / name).is_file()
+
+
+def test_symbol_map_carries_every_input_mapping(workspace: dict) -> None:
+    """The declared annotation artifact records the label↔accession mapping the
+    input carried — including the row the significance threshold excluded, so
+    the map is a property of the annotation and not of the threshold."""
+    summary = _run(workspace)
+    written = (workspace["out"] / SYMBOL_MAP_RELPATH).read_text(encoding="utf-8")
+    header, *rows = written.splitlines()
+    assert header.split("\t") == list(SYMBOL_MAP_COLUMNS)
+    assert rows == [
+        f"{symbol}\t{gene}" for gene, symbol, _effect, _padj in sorted(DE_ROWS)
+    ]
+    assert summary["symbol_map"] == {"path": SYMBOL_MAP_RELPATH, "n_rows": len(DE_ROWS)}
 
 
 def test_report_states_when_contrast_grounding_was_not_applied(workspace: dict) -> None:

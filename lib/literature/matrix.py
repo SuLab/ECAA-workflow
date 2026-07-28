@@ -91,6 +91,34 @@ COLUMNS: Tuple[str, ...] = (
     "searched",
 )
 
+#: Header of the canonical entity-label ↔ accession annotation table this
+#: library emits alongside the matrix, in emitted order.
+#:
+#: The NAMES are fixed because they are the convention the independent
+#: label↔accession consistency check resolves against — the same
+#: compatibility-alias reasoning as `analysis_log2fc` above. The SOURCE columns
+#: are still resolved by ROLE (`SYMBOL_COLUMNS` → the label,
+#: `ID_COLUMNS` → the accession), so a region- or variant-keyed table emits its
+#: own identifiers here with no entity-specific handling; `ensembl_gene_id` is
+#: then the conventional name for the accession role, not a claim that the
+#: value is a gene accession.
+SYMBOL_MAP_COLUMNS: Tuple[str, ...] = ("symbol", "ensembl_gene_id")
+
+#: Path of that table, relative to the task output directory (the convention
+#: every other declared artifact uses, cf. `evidence/manifest.json`).
+#:
+#: `annotation/` deliberately, NOT `intermediates/`: the deposit exporter drops
+#: every path carrying an `intermediates` component as reproducible bloat, so a
+#: map written there is absent from each exported deposit and the consistency
+#: obligation can never be discharged in the artifact a reader receives.
+SYMBOL_MAP_RELPATH: str = "annotation/symbol_map.tsv"
+
+#: Cell values that mean "no value", compared case-insensitively after
+#: stripping. A mapping row is only emitted when BOTH sides carry a value, so
+#: an unresolved identifier is absent from the map rather than present with an
+#: empty cell that a reader could mistake for a real binding.
+_MISSING_CELLS = frozenset({"", "na", "n/a", "nan", "null", "none", "-", "."})
+
 _TOKEN = re.compile(r"[A-Za-z0-9]+")
 
 
@@ -182,6 +210,14 @@ def _float(raw: Optional[str]) -> Optional[float]:
     except (TypeError, ValueError, AttributeError):
         return None
     return value if value == value and abs(value) != float("inf") else None
+
+
+def _present(raw: Optional[str]) -> Optional[str]:
+    """`raw` stripped, or `None` when it is absent or a missing-value marker."""
+    if raw is None:
+        return None
+    value = raw.strip()
+    return None if value.lower() in _MISSING_CELLS else value
 
 
 def _sniff_delimiter(path: Path) -> str:
@@ -376,3 +412,72 @@ def write_matrix(rows: Sequence[ClaimRow], out_path: Path) -> None:
         writer.writeheader()
         for row in ordered:
             writer.writerow({k: asdict(row)[k] for k in COLUMNS})
+
+
+def symbol_map_pairs(
+    path: Path,
+    *,
+    id_column: Optional[str] = None,
+    symbol_column: Optional[str] = None,
+) -> List[Tuple[str, str]]:
+    """Distinct `(entity label, accession)` pairs the table at `path` carries.
+
+    Both sides are resolved by ROLE from the same candidate lists the matrix
+    build uses — `SYMBOL_COLUMNS` for the label, `ID_COLUMNS` for the
+    accession — so this is the mapping the run's own identity join actually
+    supplied, never one this library invents. A declared column that is absent
+    from the header raises, exactly as it does for the matrix.
+
+    Returns `[]` when the table resolves only ONE of the two roles (or both to
+    the same column): that is the honest answer for an input carrying no
+    accession — or no label — column, and the caller writes a header-only map
+    rather than fabricating bindings.
+
+    Rows are skipped when either side is missing / a missing-value marker, and
+    when the two sides are equal (an identity pair records no mapping). Every
+    row of the table is considered, not just the significant set: the mapping is
+    a property of the input annotation, not of a significance threshold.
+
+    Ordered by `(accession, label)`, so the emitted file is byte-identical
+    across runs over identical input regardless of the table's own row order.
+    """
+    delimiter = _sniff_delimiter(path)
+    with path.open("r", encoding="utf-8", newline="") as fh:
+        reader = csv.DictReader(fh, delimiter=delimiter)
+        header = list(reader.fieldnames or [])
+        if not header:
+            raise MatrixError(f"result table {path} has no header row")
+        accession_col = _resolve(header, id_column, ID_COLUMNS)
+        label_col = _resolve(header, symbol_column, SYMBOL_COLUMNS)
+        if accession_col is None or label_col is None or accession_col == label_col:
+            return []
+        pairs = set()
+        for row in reader:
+            accession = _present(row.get(accession_col))
+            label = _present(row.get(label_col))
+            if accession is None or label is None or accession == label:
+                continue
+            pairs.add((label, accession))
+    return sorted(pairs, key=lambda pair: (pair[1], pair[0]))
+
+
+def write_symbol_map(pairs: Sequence[Tuple[str, str]], out_path: Path) -> Path:
+    """Write the declared entity-label ↔ accession annotation table.
+
+    This is the evidence the independent label↔accession consistency check
+    needs: a table carrying BOTH roles in named columns, at a stable path the
+    deposit export keeps. Emitting it as a DECLARED artifact is what stops the
+    check from having to scavenge whichever plausibly-shaped file a run happens
+    to have left behind.
+
+    An empty `pairs` writes the header alone — an honest empty map, from which
+    no binding can be read, rather than a silently absent file that a
+    completion check would report as a missing artifact.
+    """
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with out_path.open("w", encoding="utf-8", newline="") as fh:
+        writer = csv.writer(fh, delimiter="\t", lineterminator="\n")
+        writer.writerow(list(SYMBOL_MAP_COLUMNS))
+        for label, accession in pairs:
+            writer.writerow([label, accession])
+    return out_path

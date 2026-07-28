@@ -6,6 +6,17 @@ confirmatory: true
 description: |
   Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against
   ranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.
+
+  Ranking gene sets needs an entity-label ↔ accession mapping (the DE table is
+  keyed by Ensembl accession; gene sets are keyed by symbol or Entrez id), so
+  this stage necessarily resolves one. Write it out as
+  annotation/symbol_map.tsv — tab-delimited, header `symbol` then
+  `ensembl_gene_id`, one row per distinct mapping, sorted by accession — under
+  this task's own output dir and NOT under intermediates/, which the deposit
+  export drops. This mapping comes from the pinned genome annotation
+  (org.Hs.eg.db / biomaRt) rather than from the literature join, so it is the
+  INDEPENDENT source the entity-label ↔ accession consistency check needs in
+  order to catch a citation attached to the wrong entity.
 edam_operation: "operation:2436"
 edam_data: "data:0951"
 edam_format: "format:3475"
@@ -16,6 +27,12 @@ plot_stage_id: biological_interpretation
 expected_artifacts:
   - pathway_results.tsv
   - pathway_summary.json
+  # The annotation-derived entity-label ↔ accession mapping this stage resolves
+  # in order to rank gene sets. Expected rather than REQUIRED: no shipped
+  # library writes it here, so making it required would fail-close every
+  # re-dispatch of this stage. Expected still surfaces it as a coverage gap and
+  # tells the agent where to put it.
+  - annotation/symbol_map.tsv
   - manifest.json
   - result.json
 required_figures:

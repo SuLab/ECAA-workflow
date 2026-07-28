@@ -25,17 +25,26 @@ description: |
       --contrast-term <perturbation> [--contrast-term <synonym> ...]
 
   It writes claims_evidence_matrix.csv, evidence/manifest.json,
-  literature_search_protocol.md and citation_verification_report.md, and
-  prints a JSON summary on stdout to fold into result.json. Run it from the
-  package root. Column arguments are optional — omitted, each is resolved
-  from a declared candidate list — but naming them explicitly is preferred,
-  and a named column that is absent from the header is a hard error rather
-  than a silent fallback to a different measurement.
+  annotation/symbol_map.tsv, literature_search_protocol.md and
+  citation_verification_report.md, and prints a JSON summary on stdout to fold
+  into result.json. Run it from the package root. Column arguments are
+  optional — omitted, each is resolved from a declared candidate list — but
+  naming them explicitly is preferred, and a named column that is absent from
+  the header is a hard error rather than a silent fallback to a different
+  measurement.
 
   YOUR ONLY PREPARATORY STEP is the identity join: the library does not
   resolve identifiers, so if the results table has no entity-label column,
   add one using the run's pinned annotation (see the gene-identity rule
-  below) and pass it as --symbol-column.
+  below) and pass it as --symbol-column. Write that joined table under this
+  task's own output dir, NOT under intermediates/ — the deposit export drops
+  every intermediates/ path, so a join left there is absent from the deposit.
+  The library then records the mapping it read as the declared artifact
+  annotation/symbol_map.tsv (tab-delimited, header `symbol` then
+  `ensembl_gene_id`, one row per distinct mapping, sorted by accession). Do
+  NOT hand-write, rename, or post-edit that file, and do not invent a
+  different filename for it: it is the table the independent
+  entity-label ↔ accession consistency check reads.
 
   The library derives PMIDs, quotes, offsets, source hashes and prior
   directions from the retrieved snapshots themselves, and the analysis
@@ -110,6 +119,7 @@ attributes:
       "data:3498": variant
 expected_artifacts:
   - claims_evidence_matrix.csv
+  - annotation/symbol_map.tsv
   - literature_search_protocol.md
   - citation_verification_report.md
   - evidence/manifest.json
@@ -119,6 +129,14 @@ required_artifacts:
     schema_ref: schemas/claims_evidence_matrix.schema.json
   - path: evidence/manifest.json
     schema_ref: schemas/literature_evidence_manifest.schema.json
+  # The entity-label ↔ accession mapping the run's identity join supplied,
+  # written by `runtime/literature` as a two-column TSV (`symbol`,
+  # `ensembl_gene_id`). Declared so the consistency obligation reads a known
+  # table instead of scavenging the output tree, and deliberately NOT under
+  # intermediates/ (Tier-E: dropped from every exported deposit, which left the
+  # obligation undischargeable there). No schema_ref: the artifact-schema check
+  # applies to `.json` payloads only, and the header IS the contract here.
+  - path: annotation/symbol_map.tsv
 validators:
   - pmid_resolves
   - evidence_quote_substring_match
@@ -210,4 +228,12 @@ claim_boundary: |
   gene row, ALSO populate the `entity` column with that gene's HGNC symbol (and
   entity_kind = gene), carried straight from the same annotation join used for
   the Ensembl id — so the independent gene-symbol↔Ensembl consistency check can
-  confirm the citation is attached to the right gene.
+  confirm the citation is attached to the right gene. That check reads the
+  mapping from the declared artifact
+  runtime/outputs/<this task>/annotation/symbol_map.tsv — tab-delimited, header
+  `symbol` then `ensembl_gene_id`, one row per distinct mapping — which
+  `python3 -m runtime.literature` writes for you from the very columns you
+  passed it. Do not write it yourself, do not put it under intermediates/ (the
+  deposit export drops that path), and do not substitute a differently-named
+  file: the mapping must be the one your join actually supplied, recorded where
+  a deposit keeps it.

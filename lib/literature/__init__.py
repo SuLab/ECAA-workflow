@@ -18,8 +18,10 @@ from the sign of the result table's effect column.
 Entry points:
 
 * [`contextualize`][lib.literature.contextualize.contextualize] — read
-  inputs, emit `claims_evidence_matrix.csv`, `evidence/manifest.json`, and
-  the two declared markdown reports.
+  inputs, emit `claims_evidence_matrix.csv`, `evidence/manifest.json`,
+  `annotation/symbol_map.tsv` (the entity-label ↔ accession mapping the
+  input carried, at a path the deposit export keeps), and the two declared
+  markdown reports.
 * `python3 -m lib.literature.contextualize --help` — the same, as a CLI.
 
 Modality-agnostic: column names are resolved from a declared candidate
@@ -48,6 +50,8 @@ from .evidence import (
 )
 from .matrix import (
     COLUMNS,
+    SYMBOL_MAP_COLUMNS,
+    SYMBOL_MAP_RELPATH,
     ClaimRow,
     Finding,
     MatrixError,
@@ -55,13 +59,17 @@ from .matrix import (
     read_prior_claims,
     read_result_table,
     searched_entities,
+    symbol_map_pairs,
     write_matrix,
+    write_symbol_map,
 )
 
 __all__ = [
     "CONCORDANCE_FLAGS",
     "COLUMNS",
     "DOWN",
+    "SYMBOL_MAP_COLUMNS",
+    "SYMBOL_MAP_RELPATH",
     "UP",
     "ClaimRow",
     "DirectionCall",
@@ -82,8 +90,10 @@ __all__ = [
     "reference_text",
     "searched_entities",
     "sentences",
+    "symbol_map_pairs",
     "verify_quote",
     "write_evidence_manifest",
     "write_matrix",
     "write_reports",
+    "write_symbol_map",
 ]
