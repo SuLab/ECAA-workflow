@@ -32,9 +32,23 @@ use super::{ReportData, ResultArtifactSummary, ResultSchema, summarize_artifact,
 /// therefore cannot drift.
 pub const CONTEXTUALIZE_STAGE_ID: &str = "contextualize_findings_with_literature";
 
-/// Picks the CSV delimiter from the artifact's file extension: `.tsv` →
-/// tab, anything else (including `.csv`) → comma.
+/// Picks the delimiter for a result artifact by sniffing its CONTENT, using
+/// the file extension only as the fallback when the content is ambiguous
+/// (`.tsv` → tab, anything else including `.csv` → comma — the historical
+/// mapping, preserved so extensionless paths keep behaving as before).
+///
+/// Content-first matters here because a table written with R's `write.csv()`
+/// under a `.tsv` name parses on tab as ONE column named after the entire
+/// header line. `crate::finalize::load` then finds no recognizable entity
+/// column and drops the table as "not a result table" — a real result silently
+/// missing from the report rather than a loud failure. Shares the sniff rule
+/// with the re-execution comparator via [`crate::table_delimiter`] so the two
+/// can never disagree about how a given table parses.
 pub(crate) fn delimiter_for(path: &Path) -> u8 {
+    crate::table_delimiter::sniff_delimiter_from_path(path, delimiter_from_extension(path))
+}
+
+fn delimiter_from_extension(path: &Path) -> u8 {
     if path.extension().and_then(|e| e.to_str()) == Some("tsv") {
         b'\t'
     } else {

@@ -127,6 +127,25 @@ writer of task state.
    per file, in a stable order, with no timestamps. If the task read no
    cross-stage input files, omit the manifest (an absent file is fine).
 
+### Tabular file format
+
+A table's filename extension MUST match its actual delimiter: `.tsv` is
+tab-separated, `.csv` is comma-separated. Nothing else is acceptable — a
+comma-delimited file named `.tsv` is a defect even when its contents are
+otherwise correct, because every consumer that keys off the extension
+(re-execution comparison, deposit verification, downstream joins, a human
+opening it) then reads the wrong thing.
+
+- **R** — for a `.tsv` write `write.table(x, file, sep = "\t", quote = FALSE,
+  row.names = FALSE)`. `write.csv()` emits COMMAS; use it only for a `.csv`
+  name. This is the most common source of the mismatch: `write.csv(x,
+  "foo.tsv")` produces a comma file with a tab-file name.
+- **Python** — `df.to_csv(path, sep = "\t", index = False)` for a `.tsv`,
+  `df.to_csv(path, index = False)` for a `.csv`.
+
+Write the header row with the same delimiter as the data rows, and do not
+quote fields unless a value genuinely contains the delimiter.
+
 ### Identifiers
 
 Never hardcode gene→Ensembl IDs; resolve via the pinned annotation or the

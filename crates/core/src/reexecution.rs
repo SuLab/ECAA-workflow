@@ -26,6 +26,7 @@
 
 use crate::determinism_shim::{ack_for, DeterminismShimSidecar, NonDetAck};
 use crate::hash_utils::sha256_hex;
+use crate::table_delimiter::{contains_foreign_delimiter, sniff_delimiter};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -308,9 +309,11 @@ fn classify_single_artifact(
     // is a NON-divergent outcome (spec §5.6, "byte_identical / semantic_equivalent
     // / unavailable are non-divergent and need no ack") and must not be relabeled
     // as a divergent acknowledged outcome. The default is the historical ±5%
-    // relative band. The delimiter is derived from the artifact extension
-    // (Rec 2: `.csv` → comma, else tab) so a comma-delimited table is no longer
-    // mis-parsed as a single tab-delimited column.
+    // relative band. The delimiter is SNIFFED FROM CONTENT (see
+    // [`delimiter_for`]) — an agent that writes `write.csv()` output to a
+    // `.tsv` name is common, and trusting the extension tab-parsed such a file
+    // into a single column whose name was the entire header line, so every
+    // data row string-compared and the artifact failed spuriously.
     // Path-normalize BEFORE the semantic comparison (but after the byte-identical
     // check above): a text artifact that embeds the absolute package root — a
     // validation-report `detail` column naming an input file, a logged output
@@ -322,7 +325,7 @@ fn classify_single_artifact(
     // applies to scripts. A byte-identical artifact never reaches here.
     let parent_norm = normalize_root(&parent_bytes, recorded_root);
     let replay_norm = normalize_root(&replay_bytes, scratch_root);
-    let delimiter = delimiter_for(parent_artifact);
+    let delimiter = delimiter_for(&parent_norm, parent_artifact);
     let diverging = match check_semantic_equivalence(&parent_norm, &replay_norm, delimiter, bounds)
     {
         Ok(cols) => cols,
@@ -378,7 +381,9 @@ fn classify_single_artifact(
 
 /// Derive the delimiter for a tabular artifact from its extension:
 /// `.csv` → comma, `.tsv` / anything else → tab (the historical default).
-fn delimiter_for(path: &Path) -> u8 {
+/// Used only as the fallback for [`delimiter_for`] — never on its own, because
+/// the extension is a naming convention the writer may violate.
+fn delimiter_from_extension(path: &Path) -> u8 {
     match path
         .extension()
         .and_then(|e| e.to_str())
@@ -388,6 +393,15 @@ fn delimiter_for(path: &Path) -> u8 {
         Some("csv") => b',',
         _ => b'\t',
     }
+}
+
+/// Sniff the field delimiter for a tabular artifact from its CONTENT, falling
+/// back to the extension only when the content is ambiguous. See
+/// [`crate::table_delimiter`] for the sniff rule — shared with the report-data
+/// assembler so the comparator and the reporting path can never disagree about
+/// how a given table parses.
+fn delimiter_for(bytes: &[u8], path: &Path) -> u8 {
+    sniff_delimiter(bytes, delimiter_from_extension(path))
 }
 
 /// Replace every occurrence of the absolute package root `root` with a stable
@@ -507,6 +521,13 @@ fn check_semantic_equivalence(
 /// crate. `has_headers(false)` keeps every row (we detect the header
 /// ourselves); `flexible(true)` tolerates ragged rows so a shape mismatch is
 /// surfaced as divergence rather than a hard parse error.
+///
+/// Rejects a single-field parse whose header cell still contains one of the
+/// OTHER [`CANDIDATE_DELIMITERS`]: a one-column table whose column name embeds a
+/// tab or comma is never legitimate here, it means the whole header line came
+/// back as one field. Returning `Err` makes the caller record a structural
+/// divergence instead of silently comparing one synthetic column named after the
+/// entire header — the failure mode that produced a false-positive `Failed`.
 fn parse_delimited(bytes: &[u8], delimiter: u8) -> Result<Vec<Vec<String>>, String> {
     let mut rdr = csv::ReaderBuilder::new()
         .delimiter(delimiter)
@@ -517,6 +538,16 @@ fn parse_delimited(bytes: &[u8], delimiter: u8) -> Result<Vec<Vec<String>>, Stri
     for rec in rdr.records() {
         let rec = rec.map_err(|e| e.to_string())?;
         rows.push(rec.iter().map(str::to_string).collect());
+    }
+    if let Some(header) = rows.first() {
+        if header.len() == 1 && contains_foreign_delimiter(&header[0], delimiter) {
+            // Bound the diagnostic: the offending "field" can be an entire line.
+            let sample: String = header[0].chars().take(80).collect();
+            return Err(format!(
+                "single-field parse of a header containing a foreign delimiter (delimiter {:?}): {sample:?}",
+                delimiter as char
+            ));
+        }
     }
     Ok(rows)
 }
@@ -946,6 +977,285 @@ mod tests {
             ReexecutionBucket::ByteIdentical,
             "identical legacy table must classify ByteIdentical, got {:?}",
             ac.bucket
+        );
+    }
+
+    /// Delimiter sniffing is driven by CONTENT, with the extension as the
+    /// tie-break only when both candidates parse consistently.
+    #[test]
+    fn delimiter_is_sniffed_from_content_not_extension() {
+        // Comma-delimited body written under a `.tsv` name (R `write.csv()` to a
+        // `*.tsv` path): tab yields one field per line, so comma must win.
+        let misnamed = b"gene_id,mean_log10\nENSG1,2.87\n";
+        assert_eq!(
+            delimiter_for(misnamed, Path::new("mean_variance.tsv")),
+            b',',
+            "comma-delimited content under a .tsv name must sniff comma"
+        );
+        // Genuine TSV under a `.tsv` name is untouched.
+        assert_eq!(
+            delimiter_for(b"gene\tlog2FC\nGENE1\t2.0\n", Path::new("de.tsv")),
+            b'\t',
+            "tab-delimited content must stay on tab"
+        );
+        // Genuine CSV under a `.csv` name is untouched.
+        assert_eq!(
+            delimiter_for(b"gene,log2FC\nGENE1,2.0\n", Path::new("de.csv")),
+            b',',
+            "comma-delimited content under a .csv name must stay on comma"
+        );
+        // AMBIGUOUS: both delimiters give a consistent 2-field parse. The
+        // extension breaks the tie, so a genuine TSV whose first column embeds a
+        // comma is not flipped onto comma.
+        assert_eq!(
+            delimiter_for(b"name,tag\tvalue\nA,x\t1.0\nB,y\t2.0\n", Path::new("t.tsv")),
+            b'\t',
+            "ambiguous content must fall back to the extension (tab for .tsv)"
+        );
+        assert_eq!(
+            delimiter_for(b"name,tag\tvalue\nA,x\t1.0\nB,y\t2.0\n", Path::new("t.csv")),
+            b',',
+            "ambiguous content must fall back to the extension (comma for .csv)"
+        );
+        // A genuinely single-column table stays on the extension default and is
+        // NOT re-sniffed onto a delimiter that never appears.
+        assert_eq!(
+            delimiter_for(b"gene\nGENE1\nGENE2\n", Path::new("genes.tsv")),
+            b'\t',
+            "single-column table keeps the extension delimiter"
+        );
+        // Empty content must not panic and must not flip the delimiter.
+        assert_eq!(delimiter_for(b"", Path::new("empty.tsv")), b'\t');
+    }
+
+    /// THE DEFECT: a comma-delimited file named `.tsv` whose only difference is
+    /// last-digit float-formatting jitter must classify `SemanticEquivalent`.
+    ///
+    /// Rows and values are taken verbatim from the artifact that regressed —
+    /// `runtime/outputs/normalisation/figures/mean_variance.tsv`, written by
+    /// R's `write.csv()` despite the `.tsv` name. Trusting the extension
+    /// tab-parsed it into ONE column whose name was the entire header line
+    /// (`gene_id,mean_log10,vst_variance,is_hvg`), so every data row fell to the
+    /// string-compare branch and the artifact failed spuriously.
+    #[test]
+    fn comma_delimited_file_named_tsv_is_semantic_equivalent_under_float_jitter() {
+        let parent = tempfile::tempdir().expect("parent tempdir");
+        let replay = tempfile::tempdir().expect("replay tempdir");
+        let rel = "runtime/outputs/normalisation/figures/mean_variance.tsv";
+        write_file(
+            &parent.path().join(rel),
+            "gene_id,mean_log10,vst_variance,is_hvg\n\
+             ENSG00000000003,2.87091574326627,0.0535216861992685,FALSE\n\
+             ENSG00000000419,2.72906349651869,0.00938594839046472,FALSE\n\
+             ENSG00000000457,2.38560627359831,0.00311338100563051,TRUE\n",
+        );
+        // vst_variance differs in the last decimal digit only (<= ~1.3e-14
+        // relative), far inside the default ±5% band.
+        write_file(
+            &replay.path().join(rel),
+            "gene_id,mean_log10,vst_variance,is_hvg\n\
+             ENSG00000000003,2.87091574326627,0.0535216861992686,FALSE\n\
+             ENSG00000000419,2.72906349651869,0.00938594839046479,FALSE\n\
+             ENSG00000000457,2.38560627359831,0.00311338100563055,TRUE\n",
+        );
+
+        let report =
+            classify_reexecution(parent.path(), replay.path(), None, ModalityBounds::default())
+                .expect("classify_reexecution must succeed");
+        let ac = classification_for(&report, rel);
+        assert_eq!(
+            ac.bucket,
+            ReexecutionBucket::SemanticEquivalent,
+            "float-formatting jitter in a misnamed CSV must be SemanticEquivalent, got {:?} ({:?})",
+            ac.bucket,
+            ac.reason
+        );
+    }
+
+    /// A misnamed CSV must be compared per REAL column: an out-of-band
+    /// divergence names the actual column (`vst_variance`), never the whole
+    /// header line. This is the assertion that pins the false-positive shape —
+    /// the regressed run reported a single "column" named
+    /// `gene_id,mean_log10,vst_variance,is_hvg`.
+    #[test]
+    fn misnamed_csv_diverges_on_the_real_column_name() {
+        let parent = b"gene_id,mean_log10,vst_variance,is_hvg\nENSG1,2.87,1.00,FALSE\n";
+        let replay = b"gene_id,mean_log10,vst_variance,is_hvg\nENSG1,2.87,9.00,FALSE\n";
+        let delimiter = delimiter_for(parent, Path::new("mean_variance.tsv"));
+        let diverging =
+            check_semantic_equivalence(parent, replay, delimiter, &ModalityBounds::default())
+                .expect("misnamed CSV must parse, not error");
+        assert_eq!(
+            diverging,
+            BTreeSet::from(["vst_variance".to_string()]),
+            "divergence must name the real column, not the whole header line"
+        );
+    }
+
+    /// LATENT LANDMINE: `hvg_count_bar.tsv` is also a comma-delimited file under
+    /// a `.tsv` name. It passed only because it was byte-identical and
+    /// short-circuited at the SHA-256 check before ever being parsed. Once its
+    /// bytes shift it must still compare per column.
+    #[test]
+    fn misnamed_csv_still_compares_when_bytes_shift() {
+        let parent = tempfile::tempdir().expect("parent tempdir");
+        let replay = tempfile::tempdir().expect("replay tempdir");
+        let rel = "runtime/outputs/normalisation/figures/hvg_count_bar.tsv";
+        write_file(
+            &parent.path().join(rel),
+            "category,count\nall_retained,22369\nhvg,2000\n",
+        );
+        // Byte-different, but within the ±5% band (~4.5e-5 relative).
+        write_file(
+            &replay.path().join(rel),
+            "category,count\nall_retained,22370\nhvg,2000\n",
+        );
+
+        let report =
+            classify_reexecution(parent.path(), replay.path(), None, ModalityBounds::default())
+                .expect("classify_reexecution must succeed");
+        let ac = classification_for(&report, rel);
+        assert_eq!(
+            ac.bucket,
+            ReexecutionBucket::SemanticEquivalent,
+            "byte-shifted misnamed CSV must compare per column, got {:?} ({:?})",
+            ac.bucket,
+            ac.reason
+        );
+    }
+
+    /// REGRESSION: a genuinely tab-delimited table is unaffected by the sniff —
+    /// including one whose free-text column contains commas, which must not
+    /// tempt the sniffer onto comma.
+    #[test]
+    fn genuine_tab_delimited_table_is_unaffected() {
+        let parent = tempfile::tempdir().expect("parent tempdir");
+        let replay = tempfile::tempdir().expect("replay tempdir");
+        let rel = "runtime/outputs/differential_expression/de_results.tsv";
+        // The `detail` column carries commas; tab is still the field separator.
+        write_file(
+            &parent.path().join(rel),
+            "gene\tlog2FC\tdetail\nGENE1\t2.00\thello, world\nGENE2\t1.00\ta, b, c\n",
+        );
+        write_file(
+            &replay.path().join(rel),
+            "gene\tlog2FC\tdetail\nGENE1\t2.05\thello, world\nGENE2\t1.00\ta, b, c\n",
+        );
+
+        let report =
+            classify_reexecution(parent.path(), replay.path(), None, ModalityBounds::default())
+                .expect("classify_reexecution must succeed");
+        let ac = classification_for(&report, rel);
+        assert_eq!(
+            ac.bucket,
+            ReexecutionBucket::SemanticEquivalent,
+            "tab-delimited table with commas in a text column must stay on tab, got {:?} ({:?})",
+            ac.bucket,
+            ac.reason
+        );
+
+        // And an out-of-band change still names the real tab-delimited column.
+        let oob_parent = b"gene\tlog2FC\tdetail\nGENE1\t1.00\thello, world\n";
+        let oob_replay = b"gene\tlog2FC\tdetail\nGENE1\t9.00\thello, world\n";
+        let diverging = check_semantic_equivalence(
+            oob_parent,
+            oob_replay,
+            delimiter_for(oob_parent, Path::new("de.tsv")),
+            &ModalityBounds::default(),
+        )
+        .expect("tab table must parse");
+        assert_eq!(diverging, BTreeSet::from(["log2FC".to_string()]));
+    }
+
+    /// A one-column parse whose header cell still embeds a foreign delimiter is
+    /// a MIS-PARSE, never a legitimate single-column table. It must surface as a
+    /// parse error (→ structural divergence), not be silently compared as one
+    /// synthetic column named after the whole header line.
+    #[test]
+    fn one_column_header_containing_a_comma_is_rejected() {
+        // Ragged under comma (1 / 2 / 3 fields) so comma is not viable, and
+        // single-field under tab — the exact state that used to slip through.
+        let body = b"a,b\nx\ny,z,w\n";
+        assert_eq!(
+            delimiter_for(body, Path::new("t.tsv")),
+            b'\t',
+            "neither candidate is viable, so the extension default stands"
+        );
+        let err = parse_delimited(body, b'\t')
+            .expect_err("a one-column header containing a comma must be a parse error");
+        assert!(
+            err.contains("foreign delimiter"),
+            "error must explain the mis-parse, got {err:?}"
+        );
+
+        // End-to-end: the parse error becomes a structural divergence, which a
+        // column-scoped ack can never cover.
+        let parent = tempfile::tempdir().expect("parent tempdir");
+        let replay = tempfile::tempdir().expect("replay tempdir");
+        let rel = "runtime/outputs/x/ragged.tsv";
+        write_file(&parent.path().join(rel), "a,b\nx\ny,z,w\n");
+        write_file(&replay.path().join(rel), "a,b\nx\ny,z,q\n");
+        let report =
+            classify_reexecution(parent.path(), replay.path(), None, ModalityBounds::default())
+                .expect("classify_reexecution must succeed");
+        let ac = classification_for(&report, rel);
+        assert_eq!(ac.bucket, ReexecutionBucket::Failed);
+        let reason = ac.reason.as_deref().unwrap_or("");
+        assert!(
+            reason.contains(STRUCTURE_SENTINEL),
+            "mis-parse must be reported as a structural divergence, got {reason:?}"
+        );
+
+        // A legitimate single-column table (no foreign delimiter in the header)
+        // still parses fine.
+        assert_eq!(
+            parse_delimited(b"gene\nGENE1\nGENE2\n", b'\t').expect("single column is legitimate"),
+            vec![
+                vec!["gene".to_string()],
+                vec!["GENE1".to_string()],
+                vec!["GENE2".to_string()]
+            ]
+        );
+    }
+
+    /// A boolean column compares EXACTLY (case-insensitive) and is never routed
+    /// through the numeric tolerance: `TRUE`/`FALSE` do not parse as `f64`, so a
+    /// flipped flag always diverges no matter how wide the band.
+    #[test]
+    fn boolean_column_compares_exactly_not_numerically() {
+        let wide = ModalityBounds {
+            relative_tolerance: 1.0e9,
+            absolute_tolerance: 1.0e9,
+        };
+        let parent = b"gene_id,is_hvg\nG1,TRUE\nG2,FALSE\n";
+
+        // Identical flags: no divergence.
+        assert!(
+            check_semantic_equivalence(parent, parent, b',', &ModalityBounds::default())
+                .expect("parses")
+                .is_empty(),
+            "identical boolean column must not diverge"
+        );
+
+        // Flipped flag: diverges on `is_hvg` even under an absurdly wide band.
+        let flipped = b"gene_id,is_hvg\nG1,FALSE\nG2,FALSE\n";
+        assert_eq!(
+            check_semantic_equivalence(parent, flipped, b',', &wide).expect("parses"),
+            BTreeSet::from(["is_hvg".to_string()]),
+            "a flipped boolean must diverge regardless of the numeric band"
+        );
+
+        // Case-insensitive equality is accepted (`TRUE` vs `true`).
+        assert!(
+            check_semantic_equivalence(
+                parent,
+                b"gene_id,is_hvg\nG1,true\nG2,false\n",
+                b',',
+                &ModalityBounds::default()
+            )
+            .expect("parses")
+            .is_empty(),
+            "boolean comparison is case-insensitive"
         );
     }
 

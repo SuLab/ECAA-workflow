@@ -31,6 +31,7 @@ from lib.plotting.core import (  # noqa: E402
     generate,
     glasbey20_palette,
     heatmap,
+    load_tsv_columns,
     register_alias,
     register_figure,
     savefig,
@@ -1941,3 +1942,42 @@ def test_bar_ignores_length_mismatched_directions(tmp_path):
 
 if __name__ == "__main__":  # pragma: no cover
     pytest.main([__file__, "-v"])
+
+
+def test_load_tsv_columns_reads_tab_delimited(tmp_path):
+    p = tmp_path / "t.tsv"
+    p.write_text("gene\tvalue\nA\t1\nB\t2\n")
+    assert load_tsv_columns(p) == {"gene": ["A", "B"], "value": ["1", "2"]}
+
+
+def test_load_tsv_columns_reads_comma_file_named_tsv(tmp_path):
+    """A table written with R's `write.csv()` but named `.tsv` must still
+    resolve its real columns. Splitting on tab would yield one column keyed
+    by the whole header line, so every downstream `cols["value"]` lookup
+    would miss and the figure would render empty instead of failing."""
+    p = tmp_path / "t.tsv"
+    p.write_text("gene,value\nA,1\nB,2\n")
+    assert load_tsv_columns(p) == {"gene": ["A", "B"], "value": ["1", "2"]}
+
+
+def test_load_tsv_columns_prefers_tab_when_values_contain_commas(tmp_path):
+    p = tmp_path / "t.tsv"
+    p.write_text("gene\tdescription\nA\tone, two\n")
+    assert load_tsv_columns(p) == {"gene": ["A"], "description": ["one, two"]}
+
+
+def test_load_tsv_columns_single_column_table(tmp_path):
+    p = tmp_path / "t.tsv"
+    p.write_text("gene\nA\nB\n")
+    assert load_tsv_columns(p) == {"gene": ["A", "B"]}
+
+
+def test_load_tsv_columns_skips_width_mismatched_rows(tmp_path):
+    p = tmp_path / "t.tsv"
+    p.write_text("gene,value\nA,1\nB\nC,3\n")
+    assert load_tsv_columns(p) == {"gene": ["A", "C"], "value": ["1", "3"]}
+
+
+def test_load_tsv_columns_missing_path_returns_none(tmp_path):
+    assert load_tsv_columns(None) is None
+    assert load_tsv_columns(tmp_path / "absent.tsv") is None

@@ -89,6 +89,7 @@ pub mod edam_labels;
 pub mod emission_invariants;
 /// Emitter module.
 pub mod emitter;
+pub mod entity_columns;
 pub mod expected_claim;
 // Shared validators (C-8 / C-9)
 // for env-var names and values that flow into shell-interpolated
@@ -185,6 +186,7 @@ pub mod schema_helpers;
 pub mod session_mode;
 pub mod stage_labels;
 pub mod strata;
+pub(crate) mod table_delimiter;
 pub mod taxonomy;
 pub mod time_helpers;
 pub mod validation_bound;

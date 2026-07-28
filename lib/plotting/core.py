@@ -634,18 +634,42 @@ def load_tsv_columns(path: Optional[Path]) -> Optional[Dict[str, List[str]]]:
 
     String-typed by design — callers cast numeric columns at use site
     so missing/empty cells stay distinguishable from numeric zeros.
+
+    The delimiter is taken from the header's CONTENT, not the filename:
+    a table written with ``write.csv()`` but named ``.tsv`` would
+    otherwise split into a single column whose name is the entire header
+    line, and every ``cols["<real column>"]`` lookup downstream would
+    miss — yielding a silently empty figure instead of an error. Tab wins
+    when both delimiters are present, so a legitimate TSV carrying commas
+    inside its values parses as a TSV.
     """
     if path is None or not path.exists():
         return None
     with open(path) as f:
-        header = f.readline().rstrip("\n").split("\t")
+        header_line = f.readline().rstrip("\n")
+        delim = _sniff_delimiter(header_line)
+        header = header_line.split(delim)
         cols: Dict[str, List[str]] = {h: [] for h in header}
         for line in f:
-            parts = line.rstrip("\n").split("\t")
+            parts = line.rstrip("\n").split(delim)
             if len(parts) == len(header):
                 for h, v in zip(header, parts):
                     cols[h].append(v)
     return cols
+
+
+def _sniff_delimiter(header_line: str) -> str:
+    """Pick the delimiter a header row is actually written with.
+
+    Tab-first (these tables are declared as TSV), falling back to comma
+    only when the header contains no tab at all. A header with neither
+    is a single-column table and splits on tab harmlessly.
+    """
+    if "\t" in header_line:
+        return "\t"
+    if "," in header_line:
+        return ","
+    return "\t"
 
 
 def iter_runs(ctx: "FigureContext") -> List[Dict[str, Any]]:

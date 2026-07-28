@@ -42,6 +42,10 @@ use std::sync::LazyLock;
 use ts_rs::TS;
 
 use crate::claim_contract::ClaimContract;
+use crate::entity_columns::{
+    is_claims_matrix_artifact, resolve_entity_column_roles, sniff_table_rows,
+    ENTITY_ROLE_SNIFF_ROWS,
+};
 use crate::report_contract::full_table::{FULL_TABLE_END, FULL_TABLE_START};
 
 /// Blank out every marker-delimited SYSTEM-GENERATED block in `text`.
@@ -782,15 +786,30 @@ impl ExtractorConfig {
 }
 
 /// Load an INDEPENDENT gene symbol → Ensembl-id map from a TSV/CSV reference
-/// (for VF-13). Tolerant header matching picks a symbol column
-/// (`gene_symbol`/`symbol`/`gene_name`/`gene`/`hgnc_symbol`) and an Ensembl
-/// column (`ensembl_id`/`ensembl_gene_id`/`ensembl`/`gene_id`). First binding
-/// wins per symbol; keys are `to_ascii_lowercase`. Returns `None` on any read/
-/// parse failure or an empty map so a missing/garbled reference simply disables
-/// VF-13 rather than erroring config construction.
+/// (for VF-13). The label and accession columns are resolved by
+/// [`resolve_entity_column_roles`] — CONTENT first, header names only to break
+/// ties — which is the same resolution the harness's
+/// `gene_symbol_ensembl_consistent` obligation performs, from the same candidate
+/// lists in [`crate::entity_columns`]. Matching by name and by file column order
+/// instead bound a `gene` column holding ENSG accessions as the SYMBOL and then
+/// found no accession column at all, so the canonical DESeq2-plus-symbol header
+/// (`gene baseMean … padj symbol`) silently returned `None` and left VF-13
+/// inert.
+///
+/// First binding wins per symbol; keys are `to_ascii_lowercase`. Returns `None`
+/// on any read/parse failure, when the table carries only one of the two roles,
+/// or on an empty map, so a missing/garbled reference simply disables VF-13
+/// rather than erroring config construction.
 fn load_symbol_ensembl_map(
     path: &std::path::Path,
 ) -> Option<std::collections::BTreeMap<String, String>> {
+    // A claims matrix resolves BOTH roles (`finding_id` is accession-shaped,
+    // `entity` is a label), so a policy pointing here at the matrix derived FROM
+    // the narrative would make VF-13 adjudicate that narrative against itself —
+    // a vacuous Verified forever. The field promises INDEPENDENCE; refuse.
+    if is_claims_matrix_artifact(path) {
+        return None;
+    }
     let file = std::fs::File::open(path).ok()?;
     let ext = path
         .extension()
@@ -804,16 +823,13 @@ fn load_symbol_ensembl_map(
         .flexible(true)
         .from_reader(file);
     let headers = reader.headers().ok()?.clone();
-    let norm: Vec<String> = headers.iter().map(|h| h.trim().to_ascii_lowercase()).collect();
-    let sym_idx = norm.iter().position(|h| {
-        matches!(h.as_str(), "gene_symbol" | "symbol" | "gene_name" | "gene" | "hgnc_symbol")
-    })?;
-    let ens_idx = norm.iter().position(|h| {
-        matches!(h.as_str(), "ensembl_id" | "ensembl_gene_id" | "ensembl" | "gene_id" | "ensembl_gene")
-    })?;
+    // The sniffed rows decide the column ROLES and are then re-consumed via
+    // `chain`, so the reference table is still read exactly once.
+    let sample = sniff_table_rows(&mut reader, ENTITY_ROLE_SNIFF_ROWS);
+    let roles = resolve_entity_column_roles(&headers, &sample)?;
     let mut map: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
-    for rec in reader.records().flatten() {
-        let (Some(s), Some(e)) = (rec.get(sym_idx), rec.get(ens_idx)) else {
+    for rec in sample.iter().cloned().chain(reader.records().flatten()) {
+        let (Some(s), Some(e)) = (rec.get(roles.label_idx), rec.get(roles.accession_idx)) else {
             continue;
         };
         let (s, e) = (s.trim(), e.trim());

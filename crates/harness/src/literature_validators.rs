@@ -13,25 +13,16 @@ use std::fs;
 use std::path::Path;
 
 use ecaa_workflow_core::blocker::{LiteratureClaimFailureKind, ValidationFailureCause};
+// Entity-column ROLE resolution (accession ↔ label) and the shared absent-cell
+// predicate live in core: this file and `core::claim_extractor` must resolve the
+// same roles from the same candidate lists, and when each carried its own copy
+// they drifted into two mutually INVERTED lists.
+use ecaa_workflow_core::entity_columns::{
+    find_accession_column, is_absent_sentinel, is_claims_matrix_artifact, open_delimited_table,
+    resolve_entity_column_roles, sniff_table_rows, EFFECT_COLUMN_CANDIDATES,
+    ENTITY_ROLE_SNIFF_ROWS,
+};
 use serde::{Deserialize, Serialize};
-
-/// The NA-family "no value in this cell" sentinels every tabular producer in
-/// the stack writes: R / `org.Hs.eg.db` (`NA`), pandas (`NaN`, `None`), JSON-ish
-/// exporters (`null`), and hand-written placeholders (`-`, `.`, `?`). An empty
-/// (or all-whitespace) cell is absent too. Case-insensitive, trimmed.
-///
-/// Shared by the CSV-lenient deserializers and [`is_unresolved_gene_symbol`] so
-/// "absent" means the same thing in every column of every literature artifact.
-/// A value OUTSIDE this set is a real value: a genuinely malformed cell still
-/// fails its column's parse rather than silently reading as absent.
-fn is_absent_sentinel(s: &str) -> bool {
-    let t = s.trim();
-    t.is_empty()
-        || matches!(
-            t.to_ascii_lowercase().as_str(),
-            "na" | "n/a" | "nan" | "null" | "none" | "-" | "." | "?"
-        )
-}
 
 /// CSV-lenient `u64`: the `method_landscape.csv` shape emits an EMPTY
 /// `evidence_quote_offset` on `curated_baseline` candidate rows (which carry no
@@ -2043,39 +2034,35 @@ fn is_unresolved_gene_symbol(s: &str) -> bool {
         )
 }
 
-/// Read a delimited table into a `(symbol -> ensembl)` map by HEADER NAME,
-/// tolerating column-name variance: the symbol column is the first header in
-/// {`symbol`, `gene_symbol`, `gene_name`, `gene`} and the Ensembl column the
-/// first in {`gene_id`, `ensembl`, `ensembl_id`, `ensembl_gene_id`}. Returns
-/// `None` when the file is unreadable or carries neither pairing — the caller
-/// treats that as "no independent annotation source" (soft-pass). Delimiter is
-/// sniffed from the extension (`.tsv` → tab, else comma).
+// ============================================================================
+// Entity-label ↔ accession COLUMN ROLES.
+// ============================================================================
+//
+// The resolver itself — the accession SHAPE predicate, the accession/label/
+// effect candidate lists, the per-column content vote, the tie-break ranking and
+// `resolve_entity_column_roles` — lives in
+// `ecaa_workflow_core::entity_columns`, imported at the top of this file.
+// `core::claim_extractor` reads the same roles for its VF-13 annotation table,
+// and while each side carried its own lists they drifted into two INVERTED
+// copies: one bound `gene` (holding ENSG accessions) as the entity LABEL and
+// then found no accession column at all.
+//
+// What stays here is the harness's use of those roles: the truth-table loaders,
+// the discovery scan, and the obligation runner.
+
+/// Read a delimited table into a `(label -> accession)` map, resolving the two
+/// columns by [`resolve_entity_column_roles`] (content-first, name-fallback).
+/// Returns `None` when the file is unreadable, carries only one of the two
+/// roles, or yields no usable binding — the caller treats that as "no
+/// independent annotation source" (soft-skip).
 fn load_symbol_ensembl_map(path: &Path) -> Option<BTreeMap<String, String>> {
-    let delimiter = if path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.eq_ignore_ascii_case("tsv"))
-        .unwrap_or(false)
-    {
-        b'\t'
-    } else {
-        b','
-    };
-    let mut rdr = csv::ReaderBuilder::new()
-        .delimiter(delimiter)
-        .from_path(path)
-        .ok()?;
+    let mut rdr = open_delimited_table(path)?;
     let headers = rdr.headers().ok()?.clone();
-    let find_col = |names: &[&str]| -> Option<usize> {
-        headers
-            .iter()
-            .position(|h| names.iter().any(|n| h.eq_ignore_ascii_case(n)))
-    };
-    let sym_idx = find_col(&["symbol", "gene_symbol", "gene_name", "gene"])?;
-    let ens_idx = find_col(&["gene_id", "ensembl", "ensembl_id", "ensembl_gene_id"])?;
+    let sample = sniff_table_rows(&mut rdr, ENTITY_ROLE_SNIFF_ROWS);
+    let roles = resolve_entity_column_roles(&headers, &sample)?;
     let mut map: BTreeMap<String, String> = BTreeMap::new();
-    for rec in rdr.records().flatten() {
-        let (Some(sym), Some(ens)) = (rec.get(sym_idx), rec.get(ens_idx)) else {
+    for rec in sample.iter().cloned().chain(rdr.records().flatten()) {
+        let (Some(sym), Some(ens)) = (rec.get(roles.label_idx), rec.get(roles.accession_idx)) else {
             continue;
         };
         let (sym, ens) = (sym.trim(), ens.trim());
@@ -2083,7 +2070,7 @@ fn load_symbol_ensembl_map(path: &Path) -> Option<BTreeMap<String, String>> {
             continue;
         }
         // First binding wins (deterministic over the BTreeMap on re-read); the
-        // independent annotation table is symbol-unique by construction.
+        // independent annotation table is label-unique by construction.
         map.entry(sym.to_string())
             .or_insert_with(|| ens.to_string());
     }
@@ -2346,51 +2333,32 @@ fn classify_mismatch(
 
 /// Read an `(ensembl -> effect)` map from the independent annotation table so
 /// the paralog direction/effect concordance check (DR-10) has a signal. The
-/// effect column is the first present in a small canonical set
-/// (`log2foldchange`/`log2fc`/`logfc`/`lfc`/`stat`/`statistic`/`score`/`t`);
-/// keys are normalized Ensembl ids. Returns an empty map when the file has no
+/// accession column comes from the same content-first resolution the annotation
+/// loader uses ([`find_accession_column`]), so a DE table keyed on a bare `gene`
+/// column still yields a signal instead of silently returning empty. The effect
+/// column is the first header present in [`EFFECT_COLUMN_CANDIDATES`]; keys are
+/// normalized Ensembl ids. Returns an empty map when the file has no
 /// Ensembl+effect pairing (the caller then falls back to `concordance_flag`).
 fn load_ensembl_effect_map(path: &Path) -> BTreeMap<String, f64> {
     let mut out: BTreeMap<String, f64> = BTreeMap::new();
-    let delimiter = if path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.eq_ignore_ascii_case("tsv"))
-        .unwrap_or(false)
-    {
-        b'\t'
-    } else {
-        b','
-    };
-    let Ok(mut rdr) = csv::ReaderBuilder::new().delimiter(delimiter).from_path(path) else {
+    let Some(mut rdr) = open_delimited_table(path) else {
         return out;
     };
     let Ok(headers) = rdr.headers().map(|h| h.clone()) else {
         return out;
     };
-    let find_col = |names: &[&str]| -> Option<usize> {
-        headers
+    let sample = sniff_table_rows(&mut rdr, ENTITY_ROLE_SNIFF_ROWS);
+    let Some(ens_idx) = find_accession_column(&headers, &sample) else {
+        return out;
+    };
+    let Some(eff_idx) = headers.iter().position(|h| {
+        EFFECT_COLUMN_CANDIDATES
             .iter()
-            .position(|h| names.iter().any(|n| h.eq_ignore_ascii_case(n)))
-    };
-    let Some(ens_idx) = find_col(&["gene_id", "ensembl", "ensembl_id", "ensembl_gene_id"]) else {
+            .any(|n| h.eq_ignore_ascii_case(n))
+    }) else {
         return out;
     };
-    let Some(eff_idx) = find_col(&[
-        "log2foldchange",
-        "log2fc",
-        "log2_fold_change",
-        "logfc",
-        "lfc",
-        "stat",
-        "statistic",
-        "score",
-        "wald",
-        "t",
-    ]) else {
-        return out;
-    };
-    for rec in rdr.records().flatten() {
+    for rec in sample.iter().cloned().chain(rdr.records().flatten()) {
         let (Some(ens), Some(eff)) = (rec.get(ens_idx), rec.get(eff_idx)) else {
             continue;
         };
@@ -2402,47 +2370,120 @@ fn load_ensembl_effect_map(path: &Path) -> BTreeMap<String, f64> {
     out
 }
 
-/// Locate the independent symbol↔Ensembl annotation TABLE (path), reusing the
-/// same preference-then-scan discovery as [`gene_symbol_ensembl_consistent`]
-/// so the paralog effect map can be loaded from the same file.
-fn find_symbol_ensembl_table(outputs: &Path) -> Option<std::path::PathBuf> {
-    let preferred = [
-        outputs.join("pathway_enrichment/intermediates/ranked_genes.tsv"),
-        outputs.join("pathway_enrichment/intermediates/ranked_gene_list.tsv"),
-        outputs.join("pathway_enrichment/ranked_genes.tsv"),
-        outputs.join("pathway_enrichment/ranked_gene_list.tsv"),
-        outputs.join("differential_expression/de_results.tsv"),
-    ];
-    if let Some(p) = preferred
-        .iter()
-        .filter(|p| p.exists())
-        .find(|p| load_symbol_ensembl_map(p).is_some())
-    {
-        return Some(p.clone());
-    }
-    scan_for_symbol_ensembl_table_path(outputs)
+/// Locate the independent entity-label↔Ensembl annotation TABLE (path), shared
+/// with [`gene_symbol_ensembl_consistent`] so the paralog effect map is loaded
+/// from the same file.
+///
+/// ROLE SATISFACTION IS THE PRIMARY KEY: a table qualifies iff
+/// [`load_symbol_ensembl_map`] builds a non-empty map from it, found by a
+/// deterministic sorted scan. A basename is not evidence about a table's
+/// columns — preferring one by name put an agent-chosen `ranked_genes.tsv`
+/// (whose columns are `symbol`+`stat`, no accession at all, and which no atom
+/// declares) ahead of the table that actually carried both roles. The only
+/// remaining preference is a CONTENT one, applied among qualifying tables.
+/// Relative path of the annotation map declared by
+/// `contextualize_findings_with_literature` and `pathway_enrichment`. A
+/// declared artifact beats an agent-invented filename because it is the one the
+/// exporter is guaranteed to carry — an agent-named table under
+/// `intermediates/` exists in the working package but is pruned from every
+/// deposit, so preferring it would make the working package and its own deposit
+/// disagree about which source produced the verdict.
+const CANONICAL_ANNOTATION_RELPATH: &str = "annotation/symbol_map.tsv";
+
+/// Output dir of the stage that writes the claims matrix. A truth source under
+/// it is NOT independent of the claim under test.
+const CLAIMS_PRODUCER_STAGE_DIR: &str = "contextualize_findings_with_literature";
+
+fn is_canonical_annotation_artifact(path: &Path) -> bool {
+    path.to_string_lossy()
+        .replace('\\', "/")
+        .ends_with(CANONICAL_ANNOTATION_RELPATH)
 }
 
-/// Scan every task output dir (and its `intermediates/` subdir) for the first
+/// True when `path` was produced by the same stage that wrote the claims
+/// matrix. Such a table is derived from the same identity join, so a wrong join
+/// yields a map that AGREES with the matrix and the obligation passes
+/// vacuously — the precise failure mode it exists to catch. Not fatal (it is
+/// still better than no adjudication), but it must be disclosed.
+fn produced_by_claims_producer(path: &Path) -> bool {
+    path.components()
+        .any(|c| c.as_os_str() == CLAIMS_PRODUCER_STAGE_DIR)
+}
+
+fn find_symbol_ensembl_table(outputs: &Path) -> Option<std::path::PathBuf> {
+    let qualifying = scan_for_symbol_ensembl_tables(outputs);
+    // Rank among tables that all satisfy the two-role requirement. Independence
+    // outranks everything: a map from a stage other than the claims producer can
+    // actually falsify the claim. Then the declared canonical artifact, so the
+    // working package and its exported deposit resolve the SAME truth source.
+    // Then an effect-bearing table, so the paralog concordance check (DR-10)
+    // keeps a direction signal. `min_by_key` returns the first of equal minima
+    // and the scan is sorted, so the choice is deterministic.
+    qualifying
+        .iter()
+        .min_by_key(|p| {
+            (
+                u8::from(produced_by_claims_producer(p)),
+                u8::from(!is_canonical_annotation_artifact(p)),
+                u8::from(!table_carries_effect_signal(p)),
+            )
+        })
+        .cloned()
+}
+
+/// The qualifying table to read per-Ensembl effect sizes from, chosen
+/// SEPARATELY from the truth source: the declared annotation map deliberately
+/// carries no effect column, so binding both roles to one table would silence
+/// DR-10 whenever the declared map wins. Never smear a measurement into an
+/// annotation table to satisfy one reader.
+fn find_ensembl_effect_table(outputs: &Path) -> Option<std::path::PathBuf> {
+    scan_for_symbol_ensembl_tables(outputs)
+        .into_iter()
+        .find(|p| table_carries_effect_signal(p))
+}
+
+/// Does this table carry an effect column, i.e. can it feed the DR-10
+/// direction/effect concordance signal? Header-only, so ranking candidate
+/// tables never re-reads their bodies.
+fn table_carries_effect_signal(path: &Path) -> bool {
+    let Some(mut rdr) = open_delimited_table(path) else {
+        return false;
+    };
+    let Ok(headers) = rdr.headers() else {
+        return false;
+    };
+    headers.iter().any(|h| {
+        EFFECT_COLUMN_CANDIDATES
+            .iter()
+            .any(|n| h.eq_ignore_ascii_case(n))
+    })
+}
+
+/// Scan every task output dir — and each of its IMMEDIATE subdirs — for EVERY
 /// `.tsv`/`.csv` from which [`load_symbol_ensembl_map`] builds a non-empty
-/// symbol→Ensembl map, returning its PATH. Deterministic (sorted traversal),
-/// so re-reads pick the same table; `None` when no table in the package pairs
-/// a symbol with an Ensembl id (the validator then soft-skips).
-fn scan_for_symbol_ensembl_table_path(outputs_dir: &Path) -> Option<std::path::PathBuf> {
+/// label→Ensembl map, returning their PATHS in deterministic (sorted) order so
+/// re-reads rank the same tables identically. Empty when no table in the package
+/// pairs an entity label with an accession (the validator then soft-skips).
+///
+/// One subdir level, not a named one: producers write an annotation table under
+/// whichever convention they use (`intermediates/`, `annotation/`, …), and
+/// enumerating the level is convention-agnostic where a hardcoded subdir name
+/// silently misses the table — the same failure mode as hardcoding a basename.
+fn scan_for_symbol_ensembl_tables(outputs_dir: &Path) -> Vec<std::path::PathBuf> {
     let mut dirs: Vec<std::path::PathBuf> = Vec::new();
     if let Ok(rd) = std::fs::read_dir(outputs_dir) {
         for e in rd.flatten() {
             let p = e.path();
             if p.is_dir() {
-                dirs.push(p.clone());
-                let inter = p.join("intermediates");
-                if inter.is_dir() {
-                    dirs.push(inter);
+                if let Ok(sub) = std::fs::read_dir(&p) {
+                    dirs.extend(sub.flatten().map(|s| s.path()).filter(|s| s.is_dir()));
                 }
+                dirs.push(p);
             }
         }
     }
     dirs.sort();
+    let mut found: Vec<std::path::PathBuf> = Vec::new();
     for dir in dirs {
         let Ok(rd) = std::fs::read_dir(&dir) else {
             continue;
@@ -2456,12 +2497,17 @@ fn scan_for_symbol_ensembl_table_path(outputs_dir: &Path) -> Option<std::path::P
                 .and_then(|x| x.to_str())
                 .map(|x| x.eq_ignore_ascii_case("tsv") || x.eq_ignore_ascii_case("csv"))
                 .unwrap_or(false);
-            if is_table && load_symbol_ensembl_map(&f).is_some() {
-                return Some(f);
+            // The artifact under test can never be its own truth source: its
+            // `finding_id` + `entity` columns DO resolve both roles, so the
+            // exclusion has to happen where a path is in hand — the resolver
+            // never sees one (`core::entity_columns::CLAIMS_MATRIX_BASENAMES`).
+            let is_self = is_claims_matrix_artifact(&f);
+            if is_table && !is_self && load_symbol_ensembl_map(&f).is_some() {
+                found.push(f);
             }
         }
     }
-    None
+    found
 }
 
 /// The synthetic `validate_*` task dir whose `result.json` carries the
@@ -2521,9 +2567,12 @@ fn record_gene_symbol_domain_verdict(
 /// agent-generated script hardcoded a wrong symbol→Ensembl map (CRISPLD2 bound
 /// to ENSG00000197142, which is ACSL5). It does NOT trust any map the producer
 /// emitted: the ground truth is read from an INDEPENDENT in-package annotation
-/// table — the pathway step's `pathway_enrichment/intermediates/ranked_genes.tsv`
-/// (symbol↔Ensembl from org.Hs.eg.db) — and the claims matrix's
-/// `(gene_symbol, finding_id)` pairs are checked against it.
+/// table — ANY other output table that carries both an entity-label column and
+/// an Ensembl-accession column, identified by column CONTENT rather than by
+/// filename — and the claims matrix's `(entity, finding_id)` pairs are checked
+/// against it. The claims matrices themselves are excluded from discovery
+/// (`core::entity_columns::CLAIMS_MATRIX_BASENAMES`) so the check can never
+/// adjudicate a table against itself.
 ///
 /// DR-10: a disagreement is classified paralog-aware — a benign same-family
 /// segmental-duplication paralog (concordant direction, non-pseudogene,
@@ -2544,38 +2593,40 @@ fn record_gene_symbol_domain_verdict(
 pub fn gene_symbol_ensembl_consistent(package_root: &Path) -> ValidatorOutcome {
     let outputs = package_root.join("runtime/outputs");
 
-    // (1) INDEPENDENT truth source: ANY in-package table that pairs a gene
-    // symbol with an Ensembl id. Filenames drift across runs
-    // (ranked_genes.tsv vs ranked_gene_list.tsv) and the pairing may live in
-    // the DE results table, the pathway ranking, or a dedicated annotation
-    // table — so rather than hardcode one basename, we (a) try a few known
-    // basenames first (cheap, deterministic order) and (b) fall back to
-    // scanning every task output dir for the first .tsv/.csv from which
-    // `load_symbol_ensembl_map` can build a non-empty symbol→Ensembl map. The
-    // map is only usable if a table actually carries BOTH columns, so this is
-    // robust to filename drift without ever fabricating a truth source.
+    // (1) INDEPENDENT truth source: ANY in-package table that pairs an entity
+    // label with an Ensembl accession. Both the filename and the header names
+    // drift across runs, and the pairing may live in the DE results table, a
+    // ranking, or a dedicated annotation table — so discovery is a deterministic
+    // sorted scan keyed on what the COLUMNS hold, never on a basename
+    // (`find_symbol_ensembl_table`). Robust to filename and header drift without
+    // ever fabricating a truth source.
     let Some(truth_path) = find_symbol_ensembl_table(&outputs) else {
-        // No table in the package pairs a symbol with an Ensembl id, so there
-        // is no INDEPENDENT annotation to adjudicate against. Soft-skip
+        // No table in the package pairs a label with an Ensembl accession, so
+        // there is no INDEPENDENT annotation to adjudicate against. Soft-skip
         // (Errored is non-blocking) rather than fabricate a verdict.
         return ValidatorOutcome::Errored {
-            reason: "no independent symbol↔Ensembl annotation table in package \
-                     (no output table carries both a symbol and an Ensembl/gene_id column)"
+            reason: "no independent entity-label↔Ensembl annotation table in package \
+                     (no output table carries both an entity-label column and an \
+                     Ensembl-accession column)"
                 .into(),
         };
     };
     let Some(truth) = load_symbol_ensembl_map(&truth_path) else {
         return ValidatorOutcome::Errored {
-            reason: "no independent symbol↔Ensembl annotation table in package \
-                     (no output table carries both a symbol and an Ensembl/gene_id column)"
+            reason: "no independent entity-label↔Ensembl annotation table in package \
+                     (no output table carries both an entity-label column and an \
+                     Ensembl-accession column)"
                 .into(),
         };
     };
-    // Per-Ensembl DE effect from the SAME independent table, so the paralog
-    // direction/effect concordance check (DR-10) has a signal (may be empty
-    // when the table has no effect column — the classifier then falls back to
-    // the claims-row concordance_flag).
-    let effects = load_ensembl_effect_map(&truth_path);
+    // Per-Ensembl DE effect for the paralog direction/effect concordance check
+    // (DR-10), from whichever qualifying table carries an effect column — not
+    // necessarily the truth source, since the declared annotation map carries
+    // none. Empty when no qualifying table has one; the classifier then falls
+    // back to the claims-row concordance_flag.
+    let effects = find_ensembl_effect_table(&outputs)
+        .map(|p| load_ensembl_effect_map(&p))
+        .unwrap_or_default();
 
     // (2) The claims matrix the contextualize step emitted.
     let claims_csv =
@@ -2633,6 +2684,18 @@ pub fn gene_symbol_ensembl_consistent(package_root: &Path) -> ValidatorOutcome {
     // benign same-family WARNING vs a REQUIRED failure.
     let mut required: Vec<String> = Vec::new();
     let mut warnings: Vec<String> = Vec::new();
+    // Disclose a non-independent truth source rather than recording a silent
+    // clean pass: adjudicating the claims matrix against a table the SAME stage
+    // derived from the SAME identity join cannot falsify a wrong join.
+    if produced_by_claims_producer(&truth_path) {
+        warnings.push(format!(
+            "truth source not independent of the claims-matrix producer: {}",
+            truth_path
+                .strip_prefix(&outputs)
+                .unwrap_or(&truth_path)
+                .display()
+        ));
+    }
     for rec in rdr.records().flatten() {
         let Some(symbol) = rec.get(sym_idx).map(str::trim) else {
             continue;
@@ -3029,6 +3092,9 @@ pub fn literature_runners() -> Vec<Box<dyn ValidatorRunner>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Exercised only from the tests below (the resolver that consumes it now
+    // lives in core), so it is imported here rather than module-wide.
+    use ecaa_workflow_core::entity_columns::looks_like_ensembl_accession;
     use tempfile::TempDir;
 
     fn write(p: &Path, s: &str) {
@@ -4216,20 +4282,47 @@ mod tests {
 
     // ---- gene_symbol_ensembl_consistent (Workstream B) ----
 
-    fn scaffold_gene_pkg(root: &Path, matrix_csv: &str, with_truth: bool) {
-        let ctx = root.join("runtime/outputs/contextualize_findings_with_literature");
+    /// Write the claims matrix plus ONE candidate annotation table at
+    /// `rel` (relative to `runtime/outputs`). The column-role cases below differ
+    /// only in that table's header + values, so they all reuse this.
+    fn scaffold_gene_pkg_with_truth(
+        root: &Path,
+        matrix_csv: &str,
+        rel: &str,
+        truth: &str,
+    ) -> std::path::PathBuf {
+        let outputs = root.join("runtime/outputs");
+        let ctx = outputs.join("contextualize_findings_with_literature");
         fs::create_dir_all(&ctx).unwrap();
         write(&ctx.join("claims_evidence_matrix.csv"), matrix_csv);
+        let truth_path = outputs.join(rel);
+        fs::create_dir_all(truth_path.parent().unwrap()).unwrap();
+        write(&truth_path, truth);
+        truth_path
+    }
+
+    fn scaffold_gene_pkg(root: &Path, matrix_csv: &str, with_truth: bool) {
         if with_truth {
-            let pw = root.join("runtime/outputs/pathway_enrichment/intermediates");
-            fs::create_dir_all(&pw).unwrap();
             // Independent annotation: CRISPLD2 -> ENSG00000103196 (the real gene).
-            write(
-                &pw.join("ranked_genes.tsv"),
+            scaffold_gene_pkg_with_truth(
+                root,
+                matrix_csv,
+                "pathway_enrichment/intermediates/ranked_genes.tsv",
                 "symbol\tgene_id\tstat\nCRISPLD2\tENSG00000103196\t16.7\n",
             );
+        } else {
+            let ctx = root.join("runtime/outputs/contextualize_findings_with_literature");
+            fs::create_dir_all(&ctx).unwrap();
+            write(&ctx.join("claims_evidence_matrix.csv"), matrix_csv);
         }
     }
+
+    /// The real shape the DESeq2-plus-annotation step writes: `gene` holds the
+    /// ENSG accession, `symbol` the HGNC label, and `gene` comes FIRST in file
+    /// column order.
+    const DESEQ_PLUS_SYMBOL_TSV: &str = "gene\tbaseMean\tlog2FoldChange\tlfcSE\tstat\tpvalue\tpadj\tsymbol\n\
+         ENSG00000103196\t997.4447\t4.574967\t0.184241\t24.83137\t4.11066699528116e-136\t7.05595989740011e-132\tCRISPLD2\n\
+         ENSG00000152583\t495.0957\t3.291099\t0.133053\t24.735296\t4.46338432298434e-135\t3.83069959520131e-131\tSPARCL1\n";
 
     #[test]
     fn gene_symbol_ensembl_consistent_catches_wrong_gene_citation() {
@@ -4307,6 +4400,213 @@ mod tests {
             ),
             "must discover the drifted-name truth table and catch the mislabel"
         );
+    }
+
+    // ---- column ROLES: content decides, header order does not ----------------
+
+    #[test]
+    fn roles_bind_by_content_when_gene_holds_accessions() {
+        // The defect: `gene` is a legal name in BOTH roles and comes first in
+        // file column order, so a name+order match bound it as the SYMBOL and
+        // then found no Ensembl column at all — the table was reported missing
+        // while sitting in the package. Content must win: `gene` (ENSG values)
+        // is the accession, `symbol` the label.
+        let dir = TempDir::new().unwrap();
+        let path = scaffold_gene_pkg_with_truth(
+            dir.path(),
+            "finding_id,gene_symbol\nENSG00000103196,CRISPLD2\n",
+            "contextualize_findings_with_literature/intermediates/de_results_with_symbols.tsv",
+            DESEQ_PLUS_SYMBOL_TSV,
+        );
+        // Keyed by SYMBOL, valued by ACCESSION — the inverted binding would map
+        // "ENSG00000103196" -> "CRISPLD2" instead.
+        let map = load_symbol_ensembl_map(&path).expect("both roles are present in this table");
+        assert_eq!(map.get("CRISPLD2").map(String::as_str), Some("ENSG00000103196"));
+        assert_eq!(map.get("SPARCL1").map(String::as_str), Some("ENSG00000152583"));
+        // …and the whole obligation now reaches a verdict instead of Errored.
+        assert!(
+            matches!(
+                gene_symbol_ensembl_consistent(dir.path()),
+                ValidatorOutcome::Passed
+            ),
+            "a package that ships the annotation table must reach a verdict"
+        );
+    }
+
+    #[test]
+    fn roles_bind_conventionally_for_symbol_then_gene_id() {
+        // The conventional header order must be unaffected by the content sniff.
+        let dir = TempDir::new().unwrap();
+        let path = scaffold_gene_pkg_with_truth(
+            dir.path(),
+            "finding_id,gene_symbol\nENSG00000103196,CRISPLD2\n",
+            "pathway_enrichment/intermediates/ranked_genes.tsv",
+            "symbol\tgene_id\nCRISPLD2\tENSG00000103196\n",
+        );
+        let map = load_symbol_ensembl_map(&path).expect("symbol+gene_id is the conventional shape");
+        assert_eq!(map.get("CRISPLD2").map(String::as_str), Some("ENSG00000103196"));
+    }
+
+    #[test]
+    fn gene_column_holding_labels_still_binds_as_the_symbol() {
+        // The mirror case: `gene` holds real symbols and the identifier column
+        // is a non-Ensembl accession (Entrez), so NO column is accession-shaped
+        // and resolution degrades to the name candidates. The dual-role `gene`
+        // must lose the accession role to the unambiguous `gene_id` and take the
+        // label role — its content does not look like an accession.
+        let dir = TempDir::new().unwrap();
+        let path = scaffold_gene_pkg_with_truth(
+            dir.path(),
+            "finding_id,gene_symbol\n83716,CRISPLD2\n",
+            "normalisation/annotation.tsv",
+            "gene\tgene_id\nCRISPLD2\t83716\nSPARCL1\t8404\n",
+        );
+        let map = load_symbol_ensembl_map(&path).expect("name-based fallback must still resolve");
+        assert_eq!(map.get("CRISPLD2").map(String::as_str), Some("83716"));
+        assert_eq!(map.get("SPARCL1").map(String::as_str), Some("8404"));
+    }
+
+    #[test]
+    fn single_role_table_is_honestly_not_an_annotation_source() {
+        // Roles are DISJOINT: one column can never satisfy both. A label-only
+        // ranking (`symbol stat` — the shape the pathway step actually writes)
+        // and an accession-only table (`gene_id variance`) each carry ONE role,
+        // so neither is an annotation source and the obligation soft-skips
+        // rather than fabricating a truth source from a single column.
+        let dir = TempDir::new().unwrap();
+        let ranked = scaffold_gene_pkg_with_truth(
+            dir.path(),
+            "finding_id,gene_symbol\nENSG00000197142,CRISPLD2\n",
+            "pathway_enrichment/intermediates/ranked_genes.tsv",
+            "symbol\tstat\nCRISPLD2\t16.7\n",
+        );
+        assert!(load_symbol_ensembl_map(&ranked).is_none(), "label-only table");
+        let hvg = dir.path().join("runtime/outputs/normalisation/hvg_list.tsv");
+        fs::create_dir_all(hvg.parent().unwrap()).unwrap();
+        write(&hvg, "gene_id\tvariance\nENSG00000129824\t5.74\n");
+        assert!(load_symbol_ensembl_map(&hvg).is_none(), "accession-only table");
+        match gene_symbol_ensembl_consistent(dir.path()) {
+            ValidatorOutcome::Errored { reason } => {
+                assert!(reason.contains("no independent"), "reason: {reason}");
+            }
+            other => panic!("no two-role table ⇒ honest soft-skip, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn claims_matrix_is_never_its_own_annotation_source() {
+        // The canonical claims matrix carries `finding_id` (accession-shaped)
+        // and `entity` (a label), so a content-driven scan would happily resolve
+        // both roles ON THE ARTIFACT UNDER TEST and Pass vacuously. It must stay
+        // excluded from discovery.
+        let dir = TempDir::new().unwrap();
+        scaffold_gene_pkg(
+            dir.path(),
+            "finding_id,entity,entity_kind\nENSG00000197142,CRISPLD2,gene\n",
+            false,
+        );
+        assert!(
+            matches!(
+                gene_symbol_ensembl_consistent(dir.path()),
+                ValidatorOutcome::Errored { .. }
+            ),
+            "the matrix under test must never serve as its own truth source"
+        );
+    }
+
+    #[test]
+    fn effect_map_reads_the_accession_from_a_bare_gene_column() {
+        // The same inverted candidate list silently emptied the DR-10 effect
+        // map on a `gene`-keyed DE table, so every paralog disagreement lost its
+        // direction signal.
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("de_results_with_symbols.tsv");
+        write(&path, DESEQ_PLUS_SYMBOL_TSV);
+        let effects = load_ensembl_effect_map(&path);
+        assert_eq!(effects.get("ENSG00000103196").copied(), Some(4.574967));
+        assert_eq!(effects.get("ENSG00000152583").copied(), Some(3.291099));
+    }
+
+    #[test]
+    fn accession_shape_is_anchored_and_species_agnostic() {
+        assert!(looks_like_ensembl_accession("ENSG00000103196"));
+        assert!(looks_like_ensembl_accession("ENSG00000103196.13"));
+        assert!(looks_like_ensembl_accession("ENSMUSG00000017167"));
+        assert!(looks_like_ensembl_accession(" ENSG00000103196 "));
+        // A composite key is a label-bearing identifier, not a bare accession
+        // column, and a symbol is neither.
+        assert!(!looks_like_ensembl_accession("DE_CRISPLD2_ENSG00000103196"));
+        assert!(!looks_like_ensembl_accession("CRISPLD2"));
+        assert!(!looks_like_ensembl_accession("ENST00000367714"));
+    }
+
+    #[test]
+    fn discovery_picks_the_two_role_table_over_the_named_ranking() {
+        // Both files exist, and this is the shape the live run produced:
+        // `ranked_genes.tsv` was preferred by NAME (first in the hardcoded list)
+        // but carries only the label role, and the fall-through then failed to
+        // read the table that DOES carry both — so the obligation Errored with
+        // the annotation table sitting in the package. Discovery must key on the
+        // roles, not the basename.
+        let dir = TempDir::new().unwrap();
+        scaffold_gene_pkg_with_truth(
+            dir.path(),
+            "finding_id,gene_symbol\nENSG00000103196,CRISPLD2\n",
+            "pathway_enrichment/intermediates/ranked_genes.tsv",
+            "symbol\tstat\nCRISPLD2\t16.7\n",
+        );
+        let real = scaffold_gene_pkg_with_truth(
+            dir.path(),
+            "finding_id,gene_symbol\nENSG00000103196,CRISPLD2\n",
+            "contextualize_findings_with_literature/intermediates/de_results_with_symbols.tsv",
+            DESEQ_PLUS_SYMBOL_TSV,
+        );
+        assert_eq!(
+            find_symbol_ensembl_table(&dir.path().join("runtime/outputs")),
+            Some(real),
+        );
+    }
+
+    #[test]
+    fn a_dedicated_annotation_subdir_is_discovered() {
+        // The producer writes its first-class map under `annotation/` rather
+        // than `intermediates/` (which the deposit exporter prunes). Discovery
+        // enumerates one subdir level instead of naming one, so the promoted
+        // table is found without the Rust side knowing the convention.
+        let dir = TempDir::new().unwrap();
+        let real = scaffold_gene_pkg_with_truth(
+            dir.path(),
+            "finding_id,gene_symbol\nENSG00000197142,CRISPLD2\n",
+            "contextualize_findings_with_literature/annotation/symbol_map.tsv",
+            "symbol\tensembl_gene_id\nCRISPLD2\tENSG00000103196\n",
+        );
+        assert_eq!(
+            find_symbol_ensembl_table(&dir.path().join("runtime/outputs")),
+            Some(real),
+        );
+        assert!(
+            matches!(
+                gene_symbol_ensembl_consistent(dir.path()),
+                ValidatorOutcome::Failed { .. }
+            ),
+            "the promoted annotation table must adjudicate the mislabel"
+        );
+    }
+
+    #[test]
+    fn a_table_of_non_gene_entities_resolves_the_same_way() {
+        // Modality-agnostic: nothing outside the accession sniff is
+        // gene-specific, so a peak table (`region_id` + `label`) resolves
+        // through the same name-based degrade path.
+        let dir = TempDir::new().unwrap();
+        let path = scaffold_gene_pkg_with_truth(
+            dir.path(),
+            "finding_id,entity\nPEAK_1,chr1:1000-2000\n",
+            "peak_calling/annotation.tsv",
+            "region_id\tlabel\nPEAK_1\tchr1:1000-2000\n",
+        );
+        let map = load_symbol_ensembl_map(&path).expect("region_id+label carries both roles");
+        assert_eq!(map.get("chr1:1000-2000").map(String::as_str), Some("PEAK_1"));
     }
 
     #[test]

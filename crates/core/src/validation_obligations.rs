@@ -294,10 +294,13 @@ fn literature_obligations() -> Vec<ValidationObligation> {
         ValidationObligation {
             id: "gene_symbol_ensembl_consistent".into(),
             kind: "literature_integrity".into(),
-            statement: "Every claims_evidence_matrix.csv row that carries a gene_symbol binds it \
+            statement: "Every claims_evidence_matrix.csv row that carries an entity label binds it \
                         to an Ensembl finding_id consistent with an INDEPENDENT in-package \
-                        annotation source (the pathway step's symbol↔Ensembl map), so a literature \
-                        citation cannot be attached to the wrong gene."
+                        annotation source: any OTHER package output table that carries both an \
+                        entity-label column and an Ensembl-accession column, identified by column \
+                        content rather than by filename. So a literature citation cannot be \
+                        attached to the wrong entity. Soft-skipped (non-blocking) when the package \
+                        carries no such table."
                 .into(),
             reference: Some("claims_evidence_matrix.csv".into()),
         },
