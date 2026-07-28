@@ -1744,9 +1744,22 @@ pub struct PostSealValidation {
     /// How many distinct file-presence claims were recovered and re-checked.
     pub claims_checked: usize,
     /// The subset of the recovered claims naming a path that is NOT in the
-    /// sealed tree, sorted. Non-empty ⇒ the package asserts the presence of a
-    /// file it does not contain.
+    /// sealed tree AND is not disclosed as dropped by the export, sorted.
+    /// Non-empty ⇒ the package asserts the presence of a file it does not
+    /// contain and does not admit to lacking.
     pub missing_claims: Vec<PresenceClaim>,
+    /// Claims whose path is absent from the sealed tree but which the SAME
+    /// report discloses as dropped at export
+    /// (`export_reconciliation.unavailable[].dropped_at_export`), sorted.
+    ///
+    /// Not a defect: the export tier gate deliberately drops `intermediates/`
+    /// and `view_data/`, and `emitter::export::reconcile_dropped_file_references`
+    /// records each drop on the very report that cites it. A checker that
+    /// re-flags a disclosed drop reports the package as dishonest about
+    /// precisely the thing it was honest about. Surfaced for visibility,
+    /// excluded from [`Self::presence_claims_hold`].
+    #[serde(default)]
+    pub reconciled_claims: Vec<PresenceClaim>,
     /// REQUIRED failures from the source-owned reporting-correctness
     /// checklist, re-run against the sealed tree.
     pub reporting_required_failures: Vec<String>,
@@ -1769,6 +1782,30 @@ impl PostSealValidation {
     pub fn presence_claims_hold(&self) -> bool {
         self.missing_claims.is_empty()
     }
+}
+
+/// Package-relative paths a report discloses as dropped by the export, read
+/// from the `export_reconciliation.unavailable` block
+/// `emitter::export::reconcile_dropped_file_references` writes onto every
+/// report whose citations the tier gate invalidated.
+///
+/// Only an entry explicitly flagged `dropped_at_export` counts. A bare
+/// `available: false` is not accepted: that would let any producer excuse its
+/// own dangling citation by asserting the file is missing, which is the claim
+/// under test, not evidence about it.
+fn export_dropped_paths(doc: &serde_json::Value) -> std::collections::BTreeSet<String> {
+    doc.get("export_reconciliation")
+        .and_then(|b| b.get("unavailable"))
+        .and_then(|u| u.as_array())
+        .map(|entries| {
+            entries
+                .iter()
+                .filter(|e| e.get("dropped_at_export").and_then(serde_json::Value::as_bool) == Some(true))
+                .filter_map(|e| e.get("path").and_then(serde_json::Value::as_str))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// `true` when `p`'s final segment looks like a filename with an extension.
@@ -1957,6 +1994,7 @@ pub fn revalidate_post_seal(package_root: &Path, clock: &dyn Clock) -> PostSealV
 
     let mut claims_checked = 0usize;
     let mut missing_claims: Vec<PresenceClaim> = Vec::new();
+    let mut reconciled_claims: Vec<PresenceClaim> = Vec::new();
     for task_id in &task_ids {
         for source in PRESENCE_CLAIM_SOURCES {
             let report_path = outputs_dir.join(task_id).join(source);
@@ -1966,6 +2004,10 @@ pub fn revalidate_post_seal(package_root: &Path, clock: &dyn Clock) -> PostSealV
             let Ok(doc) = serde_json::from_str::<serde_json::Value>(&raw) else {
                 continue;
             };
+            // Drops this very report discloses. Scoped to the same document on
+            // purpose: a drop admitted by one task's report must not excuse a
+            // dangling claim in another's.
+            let dropped = export_dropped_paths(&doc);
             let mut claims: std::collections::BTreeSet<Vec<String>> =
                 std::collections::BTreeSet::new();
             collect_presence_claims(task_id, None, &doc, &mut claims);
@@ -1977,7 +2019,7 @@ pub fn revalidate_post_seal(package_root: &Path, clock: &dyn Clock) -> PostSealV
                 if candidates.iter().any(|rel| package_root.join(rel).exists()) {
                     continue;
                 }
-                missing_claims.push(PresenceClaim {
+                let claim = PresenceClaim {
                     task_id: task_id.clone(),
                     source: source.to_string(),
                     // Non-empty by construction: `claim_candidates` returns an
@@ -1986,13 +2028,20 @@ pub fn revalidate_post_seal(package_root: &Path, clock: &dyn Clock) -> PostSealV
                         .first()
                         .cloned()
                         .unwrap_or_else(|| "<unresolvable claim>".to_string()),
-                });
+                };
+                if candidates.iter().any(|rel| dropped.contains(rel)) {
+                    reconciled_claims.push(claim);
+                } else {
+                    missing_claims.push(claim);
+                }
             }
         }
     }
-    missing_claims.sort_by(|a, b| {
+    let by_identity = |a: &PresenceClaim, b: &PresenceClaim| {
         (&a.task_id, &a.source, &a.claimed_path).cmp(&(&b.task_id, &b.source, &b.claimed_path))
-    });
+    };
+    missing_claims.sort_by(by_identity);
+    reconciled_claims.sort_by(by_identity);
 
     let ri = crate::reporting_invariants::check_reporting_invariants(package_root);
     let reporting_required_failures = ri.required_failures();
@@ -2007,6 +2056,7 @@ pub fn revalidate_post_seal(package_root: &Path, clock: &dyn Clock) -> PostSealV
         schema_version: "0.1".to_string(),
         claims_checked,
         missing_claims,
+        reconciled_claims,
         reporting_required_failures,
         reporting_warnings,
         contract_obligation_failures,

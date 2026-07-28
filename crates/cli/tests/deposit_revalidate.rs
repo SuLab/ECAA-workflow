@@ -184,3 +184,119 @@ fn revalidate_passes_on_a_consistent_deposit() {
     assert_eq!(parsed["passed"], serde_json::Value::Bool(true));
     assert_eq!(parsed["schema_version"], "0.1");
 }
+
+/// Stage the shape a real re-executable deposit has: the artifact is absent
+/// because the export tier gate dropped it, and `export` recorded that drop on
+/// the very report that cites it.
+fn stage_deposit_with_export_disclosure(dropped_at_export: bool, on_own_report: bool) -> TempDir {
+    let tmp = stage_deposit(false);
+    let root = tmp.path();
+    let block = serde_json::json!({
+        "note": "Written by `ecaa-workflow export`.",
+        "unavailable": [{
+            "path": "runtime/outputs/analysis_stage/results_table.tsv",
+            "available": false,
+            "dropped_at_export": dropped_at_export,
+        }],
+    });
+    if on_own_report {
+        // What `export` actually does: the block lands on EVERY report whose
+        // citations the drop invalidated — here the validation report that
+        // claims the artifact.
+        let mut doc: serde_json::Value =
+            serde_json::from_str(&presence_report("analysis_stage")).expect("valid fixture");
+        doc.as_object_mut()
+            .expect("object")
+            .insert("export_reconciliation".to_string(), block);
+        write_output(
+            root,
+            "validate_analysis_stage",
+            "validation_report.json",
+            &doc.to_string(),
+        );
+    } else {
+        // Disclosed by a DIFFERENT task's report than the one making the claim.
+        write_output(
+            root,
+            "analysis_stage",
+            "result.json",
+            &serde_json::json!({ "status": "completed", "export_reconciliation": block })
+                .to_string(),
+        );
+    }
+    tmp
+}
+
+/// A claim whose target the export deliberately dropped, disclosed on the same
+/// report, is reconciled — not a missing claim. Re-flagging it reported the
+/// package as dishonest about precisely the thing it was honest about, and
+/// refused every real `--profile re-executable` deposit under `--strict`
+/// (`intermediates/` and `view_data/` are always dropped).
+#[test]
+fn revalidate_honors_an_export_dropped_disclosure() {
+    let tmp = stage_deposit_with_export_disclosure(true, true);
+    let root = tmp.path();
+
+    let report = revalidate_post_seal(root, &WallClock);
+    assert!(
+        report.claims_checked >= 2,
+        "a vacuous scan must not be reported as a pass: {report:?}"
+    );
+    assert!(
+        report.missing_claims.is_empty(),
+        "a disclosed export drop is not a missing claim: {report:?}"
+    );
+    assert!(
+        report
+            .reconciled_claims
+            .iter()
+            .any(|c| c.claimed_path == "runtime/outputs/analysis_stage/results_table.tsv"),
+        "the drop must still be SURFACED, not silently swallowed: {report:?}"
+    );
+    assert!(report.presence_claims_hold());
+    assert!(report.passed, "{report:?}");
+
+    run_post_seal_revalidation(root, true, &WallClock)
+        .expect("--strict must accept a deposit whose absent artifacts are disclosed drops");
+}
+
+/// The exemption is evidence-gated: `available: false` alone does not excuse a
+/// dangling citation, because a producer would then excuse itself by asserting
+/// the very thing under test. Only `dropped_at_export` counts.
+#[test]
+fn revalidate_rejects_an_unavailable_entry_that_is_not_an_export_drop() {
+    let tmp = stage_deposit_with_export_disclosure(false, true);
+    let root = tmp.path();
+
+    let report = revalidate_post_seal(root, &WallClock);
+    assert!(
+        report
+            .missing_claims
+            .iter()
+            .any(|c| c.claimed_path == "runtime/outputs/analysis_stage/results_table.tsv"),
+        "an `available: false` entry without `dropped_at_export` must stay missing: {report:?}"
+    );
+    assert!(report.reconciled_claims.is_empty(), "{report:?}");
+    assert!(!report.presence_claims_hold());
+    run_post_seal_revalidation(root, true, &WallClock)
+        .expect_err("--strict must still refuse an undisclosed absence");
+}
+
+/// The exemption is scoped to the report making the claim: a drop admitted by
+/// one task's report must not excuse another task's dangling citation.
+#[test]
+fn revalidate_does_not_let_one_report_excuse_another() {
+    let tmp = stage_deposit_with_export_disclosure(true, false);
+    let root = tmp.path();
+
+    let report = revalidate_post_seal(root, &WallClock);
+    assert!(
+        report
+            .missing_claims
+            .iter()
+            .any(|c| c.task_id == "validate_analysis_stage"),
+        "the validate task's claim is undisclosed on ITS OWN report: {report:?}"
+    );
+    run_post_seal_revalidation(root, true, &WallClock)
+        .expect_err("--strict must refuse a claim disclosed only on someone else's report");
+}

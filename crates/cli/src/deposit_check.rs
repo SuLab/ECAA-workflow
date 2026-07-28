@@ -49,9 +49,10 @@ pub(crate) fn run(args: DepositCheckArgs) -> Result<()> {
             &ecaa_workflow_core::clock::WallClock,
         )?;
         println!(
-            "  revalidate: {} presence claim(s) checked, {} missing, passed={}",
+            "  revalidate: {} presence claim(s) checked, {} missing, {} reconciled (dropped at export), passed={}",
             report.claims_checked,
             report.missing_claims.len(),
+            report.reconciled_claims.len(),
             report.passed
         );
         for missing in report.missing_claims.iter().take(10) {

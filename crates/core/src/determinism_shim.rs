@@ -1335,7 +1335,6 @@ write.table(as.data.frame(res), \"de_results.tsv\", sep = \"\\t\")\n";
         &shim["declared_non_determinism"]["declarations"][0]
     }
 
-    #[test]
     /// An observed run called `lfcShrink(type="apeglm")` and recorded the
     /// choice, yet `language_packages_installed` listed only DESeq2 — the
     /// engine came from the base image, not a stage install. Ranking the
