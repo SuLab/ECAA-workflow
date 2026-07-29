@@ -98,6 +98,10 @@ ${TASK_EXECUTION_BODY}"
 #    uses; per-task derived images are deferred — see SCAFFOLDING SCOPE).
 CONTAINER_IMAGE="${ECAA_DEFAULT_CONTAINER_IMAGE:-bio-min:local}"
 
+if [ -n "${ECAA_SESSION_CACHE_DIR:-}" ]; then
+    ensure_writable_session_cache "$ECAA_SESSION_CACHE_DIR" "$CONTAINER_IMAGE"
+fi
+
 # ── Per-task scratch + agent HOME (writable; the container is --read-only).
 # The agent HOME MUST live OUTSIDE the emitted package root. The ChatGPT
 # OAuth token is copied into $AGENT_HOME_DIR/.codex/auth.json below; keeping
@@ -360,26 +364,7 @@ run_codex_with_retries() {
 }
 
 set +e
-# DooD-safe helper staging (see agent-claude.sh for the full rationale). Under
-# the container-first deployment $SCRIPT_DIR is a container-only path, so a
-# `-v "$SCRIPT_DIR/ecaa-install":...` bind resolves on the HOST where the path
-# is absent — docker then creates an empty dir and the sibling sees no
-# ecaa-install. Stage the helpers into a host-shared, identical-path-mounted
-# directory and mount from there; on a pure-host harness this path is equally
-# valid. Falls back to $SCRIPT_DIR when staging can't be written.
-HELPER_MOUNT_DIR="${ECAA_SESSION_CACHE_DIR:-$HOME/.ecaa-workflow/agent-cache}/helpers"
-mkdir -p "$HELPER_MOUNT_DIR" 2>/dev/null || true
-if cp -f "$SCRIPT_DIR/ecaa-install" "$HELPER_MOUNT_DIR/ecaa-install" 2>/dev/null; then
-  chmod 0755 "$HELPER_MOUNT_DIR/ecaa-install" 2>/dev/null || true
-  ECAA_INSTALL_MOUNT_SRC="$HELPER_MOUNT_DIR/ecaa-install"
-else
-  ECAA_INSTALL_MOUNT_SRC="$SCRIPT_DIR/ecaa-install"
-fi
-if cp -f "$SCRIPT_DIR/agent_literature_fetch.py" "$HELPER_MOUNT_DIR/agent_literature_fetch.py" 2>/dev/null; then
-  LIT_FETCH_MOUNT_SRC="$HELPER_MOUNT_DIR/agent_literature_fetch.py"
-else
-  LIT_FETCH_MOUNT_SRC="$SCRIPT_DIR/agent_literature_fetch.py"
-fi
+stage_dood_helpers "$SCRIPT_DIR" "$PACKAGE" "${ECAA_TASK_ID:-}"
 if run_codex_with_retries docker run --rm \
     --user "$(id -u):$(id -g)" \
     --read-only \

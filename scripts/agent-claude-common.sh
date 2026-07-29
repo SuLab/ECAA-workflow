@@ -108,6 +108,104 @@ run_no_xtrace() {
     return $rc
 }
 
+# Stage helper files at a path that both the wrapper container and the host
+# Docker daemon can resolve. In a container-first deployment, paths beside the
+# wrapper such as /app/scripts exist only inside the server container. Passing
+# one of those paths to `docker run -v` makes the host daemon create an empty
+# directory and hides the intended helper in the task container.
+stage_dood_helpers() {
+    local script_dir="$1"
+    local package="$2"
+    local task_id="${3:-}"
+    local helper_dir
+
+    if [ -n "${ECAA_TASK_SCRATCH_DIR:-}" ]; then
+        helper_dir="$ECAA_TASK_SCRATCH_DIR/ecaa-helpers"
+    elif [ -n "$task_id" ]; then
+        helper_dir="$package/runtime/outputs/$task_id/.ecaa-helpers"
+    else
+        helper_dir="$package/runtime/.ecaa-helpers"
+    fi
+
+    if ! mkdir -p "$helper_dir"; then
+        echo "FATAL: cannot create host-visible helper directory: $helper_dir" >&2
+        return 1
+    fi
+    if ! cp -f "$script_dir/ecaa-install" "$helper_dir/ecaa-install"; then
+        echo "FATAL: cannot stage ecaa-install in host-visible storage" >&2
+        return 1
+    fi
+    if ! cp -f "$script_dir/agent_literature_fetch.py" "$helper_dir/agent_literature_fetch.py"; then
+        echo "FATAL: cannot stage agent_literature_fetch.py in host-visible storage" >&2
+        return 1
+    fi
+    chmod 0755 "$helper_dir/ecaa-install"
+
+    if [ ! -f "$helper_dir/ecaa-install" ] || [ ! -x "$helper_dir/ecaa-install" ]; then
+        echo "FATAL: staged ecaa-install is not an executable file" >&2
+        return 1
+    fi
+    if [ ! -f "$helper_dir/agent_literature_fetch.py" ]; then
+        echo "FATAL: staged agent_literature_fetch.py is not a file" >&2
+        return 1
+    fi
+
+    ECAA_INSTALL_MOUNT_SRC="$helper_dir/ecaa-install"
+    LIT_FETCH_MOUNT_SRC="$helper_dir/agent_literature_fetch.py"
+    export ECAA_INSTALL_MOUNT_SRC LIT_FETCH_MOUNT_SRC
+}
+
+# A prior root-run Docker bind can leave the persistent install cache owned by
+# root. The task container runs as the invoking uid, so such a cache appears
+# mounted and configured but every installation fails with EACCES. Repair the
+# bounded cache tree through the same Docker daemon, then require every install
+# directory to be writable before launching the task.
+ensure_writable_session_cache() {
+    local cache_dir="$1"
+    local container_image="${2:-}"
+    local cache_uid cache_gid needs_repair child
+
+    cache_uid="$(id -u)"
+    cache_gid="$(id -g)"
+    needs_repair=0
+
+    if ! mkdir -p "$cache_dir" 2>/dev/null; then
+        needs_repair=1
+    elif [ ! -O "$cache_dir" ] || [ ! -w "$cache_dir" ]; then
+        needs_repair=1
+    fi
+    for child in pip conda conda-envs apt R-libs python helpers; do
+        if [ -e "$cache_dir/$child" ] \
+           && { [ ! -O "$cache_dir/$child" ] || [ ! -w "$cache_dir/$child" ]; }; then
+            needs_repair=1
+            break
+        fi
+    done
+
+    if [ "$needs_repair" = "1" ]; then
+        if [ -z "$container_image" ] || ! command -v docker >/dev/null 2>&1; then
+            echo "FATAL: session cache is not writable and Docker ownership repair is unavailable: $cache_dir" >&2
+            return 1
+        fi
+        if ! docker run --rm --user 0:0 \
+            -v "$cache_dir":"$cache_dir" \
+            --entrypoint chown "$container_image" \
+            -R "$cache_uid:$cache_gid" "$cache_dir" >/dev/null 2>&1; then
+            echo "FATAL: could not repair session cache ownership: $cache_dir" >&2
+            return 1
+        fi
+    fi
+
+    for child in pip conda conda-envs apt R-libs python helpers; do
+        if ! mkdir -p "$cache_dir/$child" \
+           || [ ! -d "$cache_dir/$child" ] \
+           || [ ! -w "$cache_dir/$child" ]; then
+            echo "FATAL: session cache directory is not writable: $cache_dir/$child" >&2
+            return 1
+        fi
+    done
+}
+
 # Load the shared task-execution prompt body and expand runtime placeholders
 # to the caller's current values. Used by all three agent wrappers (local /
 # aws / slurm) so the patch-merge envelope, blocker-kind vocabulary,

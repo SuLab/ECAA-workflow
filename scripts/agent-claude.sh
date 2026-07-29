@@ -623,6 +623,10 @@ if [ -z "$CONTAINER_IMAGE" ] && [ -n "${ECAA_DEFAULT_CONTAINER_IMAGE:-}" ]; then
   CONTAINER_IMAGE="$ECAA_DEFAULT_CONTAINER_IMAGE"
 fi
 
+if [ -n "${ECAA_SESSION_CACHE_DIR:-}" ]; then
+  ensure_writable_session_cache "$ECAA_SESSION_CACHE_DIR" "$CONTAINER_IMAGE"
+fi
+
 # Agent billing mode: subscription (default) vs api.
 #
 # SUBSCRIPTION: the machine has a logged-in `~/.claude/.credentials.json`
@@ -1539,30 +1543,7 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   DOCKER_CIDFILE="$(mktemp -u "${TMPDIR:-/tmp}/ecaa-agent-cid.XXXXXX")"
   export DOCKER_CIDFILE
 
-  # DooD-safe helper staging. Under the container-first deployment this script
-  # runs INSIDE the server image where $SCRIPT_DIR is a container-only path
-  # (e.g. /app/scripts). A `-v "$SCRIPT_DIR/ecaa-install":...` bind is resolved
-  # by the HOST docker daemon, where /app/scripts does not exist, so docker
-  # silently creates an empty directory at the source and the sibling sees no
-  # ecaa-install ("command not found"). The agent then falls back to a
-  # package-local r-libs install that no `capture_explicit_lock` can snapshot,
-  # silently breaking offline re-execution of the deposit. Stage the helpers
-  # into a host-shared, identical-path-mounted directory and mount from there;
-  # on a pure-host harness this path is equally valid, so behavior is uniform
-  # across deployments. Falls back to $SCRIPT_DIR when staging can't be written.
-  HELPER_MOUNT_DIR="${ECAA_SESSION_CACHE_DIR:-$HOME/.ecaa-workflow/agent-cache}/helpers"
-  mkdir -p "$HELPER_MOUNT_DIR" 2>/dev/null || true
-  if cp -f "$SCRIPT_DIR/ecaa-install" "$HELPER_MOUNT_DIR/ecaa-install" 2>/dev/null; then
-    chmod 0755 "$HELPER_MOUNT_DIR/ecaa-install" 2>/dev/null || true
-    ECAA_INSTALL_MOUNT_SRC="$HELPER_MOUNT_DIR/ecaa-install"
-  else
-    ECAA_INSTALL_MOUNT_SRC="$SCRIPT_DIR/ecaa-install"
-  fi
-  if cp -f "$SCRIPT_DIR/agent_literature_fetch.py" "$HELPER_MOUNT_DIR/agent_literature_fetch.py" 2>/dev/null; then
-    LIT_FETCH_MOUNT_SRC="$HELPER_MOUNT_DIR/agent_literature_fetch.py"
-  else
-    LIT_FETCH_MOUNT_SRC="$SCRIPT_DIR/agent_literature_fetch.py"
-  fi
+  stage_dood_helpers "$SCRIPT_DIR" "$PACKAGE" "${ECAA_TASK_ID:-}"
 
   # Docker isolation hardening. The agent writes outputs into
   # $PACKAGE and $AGENT_HOME_DIR (which are bound RW above);
