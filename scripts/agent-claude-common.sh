@@ -479,6 +479,15 @@ except Exception:
 
     local rel_outputs="runtime/outputs/$task_id"
     mkdir -p "$task_dir" 2>/dev/null || true
+    local render_cache_base="${ECAA_TASK_SCRATCH_DIR:-${TMPDIR:-/tmp}}"
+    local render_cache_dir="$render_cache_base/ecaa-render-$task_id"
+    local render_home="$render_cache_dir/home"
+    local render_xdg_cache="$render_cache_dir/xdg"
+    local render_mpl_config="$render_cache_dir/matplotlib"
+    mkdir -p "$render_home" "$render_xdg_cache" "$render_mpl_config" 2>/dev/null || true
+    local container_render_home="/tmp"
+    local container_render_xdg_cache="/tmp/ecaa-render-$task_id-xdg"
+    local container_render_mpl_config="/tmp/ecaa-render-$task_id-matplotlib"
 
     echo "[render] rendering required figures for $task_id (stage=$stage figures=$figs)" >&2
 
@@ -490,7 +499,7 @@ except Exception:
     # to the host interpreter when no runtime/image is available. Captures stdout
     # (the result-manifest JSON); tees stderr into progress.log.
     local render_out=""
-    local render_host="( cd \"$package\" && PYTHONPATH=\"$package\" python3 -m runtime.plotting render --stage \"$stage\" --outputs \"$rel_outputs\" --required \"$figs\" )"
+    local render_host="( cd \"$package\" && HOME=\"$render_home\" XDG_CACHE_HOME=\"$render_xdg_cache\" MPLCONFIGDIR=\"$render_mpl_config\" PYTHONPATH=\"$package\" python3 -m runtime.plotting render --stage \"$stage\" --outputs \"$rel_outputs\" --required \"$figs\" )"
     case "$mode" in
         container|docker|podman)
             local engine="docker"
@@ -506,6 +515,9 @@ except Exception:
                     "${user_args[@]}" \
                     -v "$package":"$package":rw \
                     -w "$package" \
+                    -e "HOME=$container_render_home" \
+                    -e "XDG_CACHE_HOME=$container_render_xdg_cache" \
+                    -e "MPLCONFIGDIR=$container_render_mpl_config" \
                     "$container_image" \
                     python3 -m runtime.plotting render \
                       --stage "$stage" \
@@ -523,6 +535,10 @@ except Exception:
                     --bind "$package":"$package" \
                     --pwd "$package" \
                     "docker://$container_image" \
+                    env \
+                      "HOME=$container_render_home" \
+                      "XDG_CACHE_HOME=$container_render_xdg_cache" \
+                      "MPLCONFIGDIR=$container_render_mpl_config" \
                     python3 -m runtime.plotting render \
                       --stage "$stage" \
                       --outputs "$rel_outputs" \

@@ -242,3 +242,17 @@ def test_docker_api_key_not_embedded_in_process_argv():
     assert "--env-file" in script
     assert 'ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY' not in script
     assert '-e "ANTHROPIC_API_KEY=' not in script
+
+
+def test_render_container_uses_writable_plot_cache_paths():
+    script = Path("scripts/agent-claude-common.sh").read_text()
+
+    assert 'local container_render_home="/tmp"' in script
+    assert 'local container_render_xdg_cache="/tmp/ecaa-render-$task_id-xdg"' in script
+    assert (
+        'local container_render_mpl_config="/tmp/ecaa-render-$task_id-matplotlib"'
+        in script
+    )
+    assert '-e "HOME=$container_render_home"' in script
+    assert '-e "XDG_CACHE_HOME=$container_render_xdg_cache"' in script
+    assert '-e "MPLCONFIGDIR=$container_render_mpl_config"' in script
