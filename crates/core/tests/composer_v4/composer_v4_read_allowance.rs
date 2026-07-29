@@ -148,7 +148,13 @@ fn bulk_rnaseq_normalisation_gets_a_typed_data_acquisition_metadata_edge() {
         .iter()
         .find(|e| e.from_node == "qc_preprocessing" && e.to_node == "normalisation")
         .expect("qc_preprocessing -> normalisation edge must survive unchanged");
+    assert_eq!(
+        count_edge.from_port, "filtered_count_matrix",
+        "normalisation must consume the filtered matrix, not QC metrics: {count_edge:?}"
+    );
     assert_eq!(count_edge.to_port, "count_matrix");
+    assert_eq!(count_edge.proof.producer_type, "data:3917");
+    assert_eq!(count_edge.proof.consumer_type, "data:3917");
 }
 
 /// `final_reporting` declares a `read_allowance` facet (its own atom

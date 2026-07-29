@@ -1,14 +1,20 @@
 id: qc_preprocessing
-version: "1.0.0"
+version: "2.0.0"
 role: operation
 description: |
-  Apply count-matrix-level QC: cell or sample filtering by total counts, gene
-  detection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`
-  (which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —
-  EDAM operation:3218 conflates raw-read QC with count-matrix QC.
+  Apply modality-appropriate count-matrix QC. For bulk RNA-seq, columns are
+  samples: assess library size and gene detection, omit cell-only doublet
+  scoring, and retain the filtered raw-count matrix as tabular text. Compute a
+  mitochondrial fraction only from a versioned annotation or stable-identifier
+  mapping retained in the package; do not query a live annotation service for
+  this metric. Record the metric as unavailable when no retained mapping exists.
+  Single-cell workflows may additionally assess per-cell mitochondrial fraction
+  and doublet scores. Distinct from `raw_qc`, which operates on raw reads.
+  ecaax:scrnaseq_cell_qc per the EDAM audit; EDAM operation:3218 conflates
+  raw-read QC with count-matrix QC.
 edam_operation: "ecaax:scrnaseq_cell_qc"
 edam_data: "data:3917"
-edam_format: "format:3590"
+edam_format: "format:3475"
 assignee: agent
 depends_on:
   - quantification
@@ -16,6 +22,9 @@ plot_stage_id: quality_control
 expected_artifacts:
   - qc_summary.json
   - filtered_cells_index.json
+  - filtered_count_matrix.tsv
+  - qc_metrics.tsv
+  - summary_stats.json
   - manifest.json
   - result.json
 required_figures:
@@ -48,17 +57,27 @@ inputs:
     normalization_state: "raw"
     privacy_class: internal
 outputs:
-  - name: filtered_count_matrix
+  - name: qc_metrics
     semantic_type:
       kind: local_extension
       namespace: "ecaax"
       id: "qc_metrics"
       proposed_parent_terms:
         - "data:3917"
-      definition: "Per-sample / per-cell QC metrics with cell-filter index from count-matrix-level QC"
+      definition: "Per-sample or per-cell count-matrix quality-control metrics and filter decisions"
     physical_format:
-      iri: "format:3590"
-      label: "HDF5"
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal
+  - name: filtered_count_matrix
+    semantic_type:
+      kind: ontology_term
+      iri: "data:3917"
+      label: "Count matrix"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
     statistical_state: "raw_counts"
     units: "read counts"
     normalization_state: "raw"

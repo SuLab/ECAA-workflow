@@ -2201,7 +2201,9 @@ pub fn lift_to_workflow_dag(
 /// Strategy:
 ///
 /// 1. Iterate every (output, input) pair and call `engine.prove`.
-/// 2. Return the first `Compatible` pair (lossless proof).
+/// 2. For each input, prefer a `Compatible` output with the same semantic
+///    type. If none exists, return the first lossless ontology-compatible
+///    output for that input.
 /// 3. If no lossless pair, return the first `CompatibleWithAdapters`
 ///    pair (lossy proof; risky-adapter audit handled by the scorer).
 /// 4. If no proof succeeds, fall back to the first-output/first-input
@@ -2222,15 +2224,27 @@ pub(crate) fn pick_best_port_pair(
     let mut adapter_fallback: Option<(PortContract, PortContract, CompatibilityProof, EdgeKind)> =
         None;
     for in_port in consumer_inputs {
+        let mut compatible_fallback: Option<(
+            PortContract,
+            PortContract,
+            CompatibilityProof,
+            EdgeKind,
+        )> = None;
         for out_port in producer_outputs {
             match engine.prove(out_port, in_port, &cctx) {
                 CompatibilityResult::Compatible(proof) => {
-                    return (
+                    let candidate = (
                         out_port.clone(),
                         in_port.clone(),
                         proof,
                         EdgeKind::TypedDataFlow,
                     );
+                    if out_port.semantic_type.stable_id() == in_port.semantic_type.stable_id() {
+                        return candidate;
+                    }
+                    if compatible_fallback.is_none() {
+                        compatible_fallback = Some(candidate);
+                    }
                 }
                 CompatibilityResult::CompatibleWithAdapters {
                     mut proof,
@@ -2250,6 +2264,9 @@ pub(crate) fn pick_best_port_pair(
                 }
                 _ => {}
             }
+        }
+        if let Some(quad) = compatible_fallback {
+            return quad;
         }
     }
     if let Some(quad) = adapter_fallback {
