@@ -153,7 +153,10 @@ use amendment::{
     read_parent_link,
 };
 use bagit::write_bagit_manifest;
-use copy_libs::{copy_literature_library, copy_plotting_library, copy_r_plotting_library};
+use copy_libs::{
+    copy_literature_fetch_helper, copy_literature_library, copy_plotting_library,
+    copy_r_plotting_library,
+};
 pub use export::{
     export_depositable_package, export_depositable_package_with_profile, zip_dir, DepositProfile,
     ExportReport,
@@ -806,6 +809,7 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
     copy_plotting_library(dir).context("copying plotting library")?;
     copy_r_plotting_library(dir).context("copying R plotting library")?;
     copy_literature_library(dir).context("copying literature library")?;
+    copy_literature_fetch_helper(dir).context("copying literature retrieval helper")?;
     copy_af_spectrum_measurement_script(dir).context("copying AF-spectrum measurement script")?;
     copy_de_effect_size_measurement_script(dir)
         .context("copying DE effect-size measurement script")?;
@@ -1057,6 +1061,20 @@ pub fn regenerate_bagit_manifest(
 pub fn reseal_emit_manifest(dir: &std::path::Path, clock: &dyn crate::clock::Clock) -> Result<()> {
     bagit::write_bagit_manifest_with_mode(dir, clock, bagit::SealMode::Emit)
         .context("re-sealing SHA-512 manifest over the final pre-execution payload")
+}
+
+/// Persist a completed replay classification as the package's canonical
+/// `runtime/reexecution.json` sidecar. This replaces the empty emit-time stub
+/// before [`reseal_audit_report`] refreshes the deferred equivalence verdict.
+pub fn write_reexecution_report(
+    pkg: &Path,
+    report: &crate::reexecution::ReexecutionReport,
+) -> Result<()> {
+    let runtime = pkg.join("runtime");
+    std::fs::create_dir_all(&runtime).with_context(|| format!("creating {}", runtime.display()))?;
+    let path = runtime.join("reexecution.json");
+    let body = serde_json::to_vec_pretty(report).context("serializing reexecution report")?;
+    std::fs::write(&path, body).with_context(|| format!("writing {}", path.display()))
 }
 
 /// Re-seal a package's audit trail in place after a re-execution result has

@@ -962,6 +962,10 @@ struct RelocRoot {
     /// root itself (resolved by walking up from the script's own location);
     /// `Some(rel)` = a path under the deposit root (the staged input dir).
     fallback_rel: Option<String>,
+    /// This root names an external runtime dependency that is not bundled in
+    /// the deposit. The generated script must require its environment variable
+    /// instead of silently substituting the deposit root.
+    required_env: bool,
 }
 
 impl RelocRoot {
@@ -1145,6 +1149,7 @@ fn build_reloc_roots(pkg_roots: &[String], input_roots: &[(String, String)]) -> 
             env_var: "PKG_ROOT".to_string(),
             stem: "PKG_ROOT".to_string(),
             fallback_rel: None,
+            required_env: false,
         });
     }
     for (idx, (root, label)) in input_roots.iter().enumerate() {
@@ -1160,6 +1165,7 @@ fn build_reloc_roots(pkg_roots: &[String], input_roots: &[(String, String)]) -> 
             // that is the honest in-deposit fallback when the operator has
             // not pointed `ECAA_INPUT_<n>` at the external data.
             fallback_rel: Some(format!("inputs/{label}")),
+            required_env: false,
         });
     }
     // Longest first: a prefix relationship between two roots must resolve to
@@ -1171,6 +1177,89 @@ fn build_reloc_roots(pkg_roots: &[String], input_roots: &[(String, String)]) -> 
             .then_with(|| a.path.cmp(&b.path))
     });
     out
+}
+
+fn discover_external_relocation_roots(
+    src: &Path,
+    profile: DepositProfile,
+    protected: &std::collections::BTreeSet<String>,
+    retained_intermediates: &std::collections::BTreeSet<String>,
+    known: &[RelocRoot],
+) -> Vec<RelocRoot> {
+    let mut paths = std::collections::BTreeSet::new();
+    for entry in walkdir::WalkDir::new(src)
+        .sort_by_file_name()
+        .into_iter()
+        .filter_map(|entry| entry.ok())
+    {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let Ok(rel) = entry.path().strip_prefix(src) else {
+            continue;
+        };
+        let rel_string = rel.to_string_lossy().replace('\\', "/");
+        let kept = (is_kept(classify(rel)) || retained_intermediates.contains(&rel_string))
+            && !profile_extra_drop(profile, rel, protected);
+        if !kept {
+            continue;
+        }
+        if entry.metadata().is_ok_and(|metadata| {
+            metadata.len() > crate::deposit_readiness::PORTABILITY_MAX_FILE_BYTES
+        }) {
+            continue;
+        }
+        if rel
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| {
+                crate::deposit_readiness::PORTABILITY_SKIP_EXTS
+                    .contains(&extension.to_ascii_lowercase().as_str())
+            })
+        {
+            continue;
+        }
+        let Ok(content) = std::fs::read_to_string(entry.path()) else {
+            continue;
+        };
+        for (_, _, path) in crate::deposit_readiness::find_host_paths(&content) {
+            if known
+                .iter()
+                .any(|root| path == root.path || path.starts_with(&format!("{}/", root.path)))
+            {
+                continue;
+            }
+            const HELPER_MARKER: &str = "/agent-cache/global/helpers";
+            let root = path
+                .find(HELPER_MARKER)
+                .map(|index| path[..index + HELPER_MARKER.len()].to_string())
+                .unwrap_or(path);
+            paths.insert(root);
+        }
+    }
+
+    paths
+        .into_iter()
+        .enumerate()
+        .map(|(index, path)| {
+            let image_helper = path.ends_with("/agent-cache/global/helpers");
+            RelocRoot {
+                path,
+                env_var: if image_helper {
+                    "ECAA_LITERATURE_HELPER_DIR".to_string()
+                } else {
+                    format!("ECAA_EXTERNAL_{index}")
+                },
+                stem: if image_helper {
+                    "LITERATURE_HELPER_DIR".to_string()
+                } else {
+                    format!("EXTERNAL_{index}")
+                },
+                fallback_rel: image_helper.then(|| "lib".to_string()),
+                required_env: !image_helper,
+            }
+        })
+        .collect()
 }
 
 /// The `..` walk-up chain from a script's own directory to the deposit root,
@@ -1227,13 +1316,20 @@ fn relocation_prologue(lang: ScriptLang, depth: usize, roots: &[RelocRoot]) -> S
                     "{var} <- Sys.getenv(\"{}\", unset = \"\")\n",
                     r.env_var
                 ));
-                let fallback = match &r.fallback_rel {
-                    None => format!("normalizePath(file.path(.ECAA_SELF_DIR, {up_r}), mustWork = FALSE)"),
-                    Some(rel) => format!(
-                        "file.path(normalizePath(file.path(.ECAA_SELF_DIR, {up_r}), mustWork = FALSE), \"{rel}\")"
-                    ),
-                };
-                s.push_str(&format!("if (!nzchar({var})) {var} <- {fallback}\n"));
+                if r.required_env {
+                    s.push_str(&format!(
+                        "if (!nzchar({var})) stop(\"{} must point to the recorded external dependency\")\n",
+                        r.env_var
+                    ));
+                } else {
+                    let fallback = match &r.fallback_rel {
+                        None => format!("normalizePath(file.path(.ECAA_SELF_DIR, {up_r}), mustWork = FALSE)"),
+                        Some(rel) => format!(
+                            "file.path(normalizePath(file.path(.ECAA_SELF_DIR, {up_r}), mustWork = FALSE), \"{rel}\")"
+                        ),
+                    };
+                    s.push_str(&format!("if (!nzchar({var})) {var} <- {fallback}\n"));
+                }
             }
             s.push_str("# --- end ECAA relocation prologue ---\n");
         }
@@ -1248,14 +1344,23 @@ fn relocation_prologue(lang: ScriptLang, depth: usize, roots: &[RelocRoot]) -> S
             ));
             for r in roots {
                 let var = reloc_var(lang, &r.stem);
-                let fallback = match &r.fallback_rel {
-                    None => "_ECAA_DEPOSIT_ROOT".to_string(),
-                    Some(rel) => format!("_ecaa_os.path.join(_ECAA_DEPOSIT_ROOT, \"{rel}\")"),
-                };
-                s.push_str(&format!(
-                    "{var} = _ecaa_os.environ.get(\"{}\") or {fallback}\n",
-                    r.env_var
-                ));
+                if r.required_env {
+                    s.push_str(&format!(
+                        "{var} = _ecaa_os.environ.get(\"{}\")\nif not {var}:\n    raise RuntimeError(\"{} must point to the recorded external dependency\")\n",
+                        r.env_var, r.env_var
+                    ));
+                } else {
+                    let fallback = match &r.fallback_rel {
+                        None => "_ECAA_DEPOSIT_ROOT".to_string(),
+                        Some(rel) => {
+                            format!("_ecaa_os.path.join(_ECAA_DEPOSIT_ROOT, \"{rel}\")")
+                        }
+                    };
+                    s.push_str(&format!(
+                        "{var} = _ecaa_os.environ.get(\"{}\") or {fallback}\n",
+                        r.env_var
+                    ));
+                }
             }
             s.push_str("# --- end ECAA relocation prologue ---\n");
         }
@@ -1270,11 +1375,18 @@ fn relocation_prologue(lang: ScriptLang, depth: usize, roots: &[RelocRoot]) -> S
             ));
             for r in roots {
                 let var = reloc_var(lang, &r.stem);
-                let fallback = match &r.fallback_rel {
-                    None => "$_ECAA_DEPOSIT_ROOT".to_string(),
-                    Some(rel) => format!("$_ECAA_DEPOSIT_ROOT/{rel}"),
-                };
-                s.push_str(&format!("{var}=\"${{{}:-{fallback}}}\"\n", r.env_var));
+                if r.required_env {
+                    s.push_str(&format!(
+                        "{var}=\"${{{}:?{} must point to the recorded external dependency}}\"\n",
+                        r.env_var, r.env_var
+                    ));
+                } else {
+                    let fallback = match &r.fallback_rel {
+                        None => "$_ECAA_DEPOSIT_ROOT".to_string(),
+                        Some(rel) => format!("$_ECAA_DEPOSIT_ROOT/{rel}"),
+                    };
+                    s.push_str(&format!("{var}=\"${{{}:-{fallback}}}\"\n", r.env_var));
+                }
             }
             s.push_str("# --- end ECAA relocation prologue ---\n");
         }
@@ -1529,6 +1641,14 @@ pub fn export_depositable_package_with_profile(
     } else {
         cross_stage_consumed_intermediates(src)
     };
+    let known_reloc_roots = build_reloc_roots(&all_recorded_pkg_roots(src), &input_roots);
+    let external_reloc_roots = discover_external_relocation_roots(
+        src,
+        profile,
+        &protected,
+        &retained_intermediates,
+        &known_reloc_roots,
+    );
 
     // Per-script root-derivation verdicts, collected as the copy loop relocates
     // each packaged script. The rewriter's job is "no absolute host path
@@ -1608,7 +1728,15 @@ pub fn export_depositable_package_with_profile(
                             read_recorded_pkg_root(&src.join("runtime/outputs").join(task_id))
                         })
                         .clone();
-                    let roots = build_reloc_roots(&[pkg_root, src_root.clone()], &input_roots);
+                    let mut roots = build_reloc_roots(&[pkg_root, src_root.clone()], &input_roots);
+                    roots.extend(external_reloc_roots.iter().cloned());
+                    roots.sort_by(|a, b| {
+                        b.path
+                            .len()
+                            .cmp(&a.path.len())
+                            .then_with(|| a.path.cmp(&b.path))
+                    });
+                    roots.dedup_by(|a, b| a.path == b.path);
                     let rewritten = relocate_script_paths(&text, rel, &roots);
                     // A prologue was injected iff the rewrite added one (the
                     // rewriter is a no-op on a body that named no host root).
@@ -1770,13 +1898,15 @@ pub fn export_depositable_package_with_profile(
     // flags as a recorded-vs-fresh divergence. Re-running the audit-proof here
     // computes the verdicts over the deposit as it actually ships, so the
     // "recorded" sidecar a downloader reads agrees with the "fresh" verdicts
-    // their replay recomputes over the same graph. `write_audit_proof_report`
-    // uses the same `NoopWrrocValidator` + `WallClock` path as that re-verify,
-    // so recorded and fresh match by construction. Runs AFTER the prune so it
-    // sees the final deposit graph; the report is on the BagIt manifest
+    // their replay recomputes over the same graph. Replay equivalence and
+    // substrate validation are deferred checks already established on the
+    // source package, so the export preserves those two verdicts while
+    // recomputing the four graph-dependent invariants. Export verification
+    // uses `WallClock`, so `evaluated_at` records when this check actually ran.
+    // Runs AFTER the prune so it sees the final deposit graph; the report is on the BagIt manifest
     // exclusion list (`emitter::bagit`) and its `@graph` file node carries no
     // content hash, so rewriting it perturbs no seal (no re-seal required).
-    super::ecaa::write_audit_proof_report(dst)
+    super::ecaa::write_export_audit_proof_report(dst, &clock)
         .context("re-recording audit-proof report over the deposit graph")?;
 
     // Account for every retained task output without treating every scientific
@@ -1822,7 +1952,15 @@ pub fn export_depositable_package_with_profile(
     // above (else the regenerated bytes would re-introduce the paths) and
     // BEFORE `register_deposit_entities`, so the legend sidecar it writes is
     // itself declared in the `@graph` (no dark payload).
-    let doc_roots = build_reloc_roots(&all_recorded_pkg_roots(src), &input_roots);
+    let mut doc_roots = known_reloc_roots;
+    doc_roots.extend(external_reloc_roots);
+    doc_roots.sort_by(|a, b| {
+        b.path
+            .len()
+            .cmp(&a.path.len())
+            .then_with(|| a.path.cmp(&b.path))
+    });
+    doc_roots.dedup_by(|a, b| a.path == b.path);
     tokenize_accountability_files(dst, &doc_roots, &script_findings)
         .context("tokenizing host paths in the deposit's accountability documents")?;
 
@@ -1872,7 +2010,7 @@ pub fn export_depositable_package_with_profile(
     // verdicts match a downloader's fresh `replay` exactly, then regenerate the
     // audit report so its `evaluated_at` matches the final report.
     if registered > 0 || dr11 || declassed || objects_rebuilt {
-        super::ecaa::write_audit_proof_report(dst)
+        super::ecaa::write_export_audit_proof_report(dst, &clock)
             .context("re-recording audit-proof after @graph registration")?;
         super::audit_report::write_audit_report(dst)
             .context("regenerating AUDIT-REPORT.md after @graph registration")?;
@@ -1901,10 +2039,11 @@ pub fn export_depositable_package_with_profile(
     // Layer 1 (always-on, blocking): self-validate the deposit we just sealed —
     // recorded-verdict re-verify (RO-Crate / audit-proof / claim-verification) +
     // BagIt manifest checksum integrity — and stamp the result into
-    // `DEPOSIT-READINESS.json`. Re-execution is left `NotVerified` here; the CLI
-    // export handler runs it for the `re-executable` profile (Layer 2) since it
-    // requires containers. An export that cannot validate itself is a bug: refuse
-    // to hand out the broken deposit (the attestation still records WHY). The
+    // `DEPOSIT-READINESS.json`. A completed replay already persisted in
+    // `runtime/reexecution.json` is carried into the attestation; otherwise the
+    // status remains `NotVerified` and the CLI export handler may run Layer 2.
+    // An export that cannot validate itself is a bug: refuse to hand out the
+    // broken deposit (the attestation still records WHY). The
     // attestation is manifest-excluded (`emitter::bagit`), so writing it after the
     // final reseal perturbs no seal.
     let reader_version = ecaa_workflow_types::consts::ECAA_VERSION;
@@ -1914,12 +2053,13 @@ pub fn export_depositable_package_with_profile(
         let img = crate::replay::env_provision::recorded_image(dst);
         (!img.is_empty()).then_some(img)
     };
+    let (reexecution_status, reexecution_detail) = persisted_reexecution_attestation(dst)?;
     crate::deposit_readiness::write_deposit_readiness(
         dst,
         &profile.to_string(),
         &tier1,
-        crate::deposit_readiness::ReexecStatus::NotVerified,
-        None,
+        reexecution_status,
+        reexecution_detail,
         image_digest,
         &clock,
     )
@@ -1943,6 +2083,30 @@ pub fn export_depositable_package_with_profile(
             .map(ScriptRelocationFinding::warning_line)
             .collect(),
     })
+}
+
+fn persisted_reexecution_attestation(
+    root: &Path,
+) -> Result<(crate::deposit_readiness::ReexecStatus, Option<String>)> {
+    let path = root.join("runtime/reexecution.json");
+    if !path.is_file() {
+        return Ok((crate::deposit_readiness::ReexecStatus::NotVerified, None));
+    }
+    let report: crate::reexecution::ReexecutionReport = serde_json::from_str(
+        &std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?,
+    )
+    .with_context(|| format!("parsing {}", path.display()))?;
+    let status = crate::deposit_readiness::reexec_status_from_report(&report);
+    let detail = (!report.per_artifact.is_empty()).then(|| {
+        let counts = report
+            .bucket_counts
+            .iter()
+            .map(|(bucket, count)| format!("{bucket}={count}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        format!("persisted replay classification [{counts}]")
+    });
+    Ok((status, detail))
 }
 
 /// Write `dst/runtime/execution-lineage.txt` from `git -C <src> log --stat
@@ -2639,11 +2803,6 @@ fn mark_unavailable_references(
     }
 }
 
-/// Deposit-root accountability files that are prose/metadata rather than
-/// executable code, and so are tokenized rather than rewritten into
-/// expressions. Every `*.md` at the deposit root is included implicitly.
-const TOKENIZED_ROOT_FILES: &[&str] = &["ro-crate-metadata.json", "ro-crate-preview.html"];
-
 /// Marker opening the legend appended to a tokenized Markdown file. Presence
 /// makes the append idempotent across a re-export.
 const RELOCATION_LEGEND_MARKER: &str = "<!-- ecaa:relocation-legend -->";
@@ -2664,11 +2823,13 @@ const RELOCATION_LEGEND_MARKER: &str = "<!-- ecaa:relocation-legend -->";
 /// [`EXPORT_RELOCATION_LEGEND_REL`] for the JSON/HTML files, which cannot
 /// carry prose. Returns the number of files rewritten.
 ///
-/// Deliberately NOT in scope: per-task `agent-code.json` and the
-/// conversation/decision JSONL logs. Those are verbatim transcripts of what an
-/// agent or an SME actually said — rewriting them would falsify a record
-/// rather than relocate a path. Their residual host paths remain a documented,
-/// warn-only portability finding (`deposit_readiness::scan_portability`).
+/// Every retained UTF-8 text artifact within the portability scanner's size
+/// bound is included. The replacement is lossless at the semantic level: a
+/// declared token stands in for host-local bytes, and the machine-readable
+/// relocation legend records how a consumer resolves it. This includes
+/// transcripts and agent-code records because retaining an unusable host path
+/// there is neither more faithful nor more auditable than retaining its
+/// explicit relocation token.
 fn tokenize_accountability_files(
     dst: &Path,
     roots: &[RelocRoot],
@@ -2679,28 +2840,32 @@ fn tokenize_accountability_files(
     // this package had any absolute host root to tokenize.
     let all: Vec<&RelocRoot> = roots.iter().collect();
     write_relocation_legend(dst, &all, scripts)?;
-    if roots.is_empty() {
+    let session_id =
+        crate::deposit_readiness::declared_session_uuid(dst).map(|(session_id, _)| session_id);
+    if roots.is_empty() && session_id.is_none() {
         return Ok(0);
     }
-    let mut targets: Vec<PathBuf> = TOKENIZED_ROOT_FILES
-        .iter()
-        .map(|n| dst.join(n))
-        .filter(|p| p.is_file())
-        .collect();
-    if let Ok(entries) = std::fs::read_dir(dst) {
-        let mut md: Vec<PathBuf> = entries
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| {
-                p.is_file()
-                    && p.extension()
-                        .and_then(|e| e.to_str())
-                        .is_some_and(|e| e.eq_ignore_ascii_case("md"))
+    let mut targets: Vec<PathBuf> = walkdir::WalkDir::new(dst)
+        .sort_by_file_name()
+        .into_iter()
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.file_type().is_file())
+        .filter(|entry| {
+            entry.metadata().is_ok_and(|metadata| {
+                metadata.len() <= crate::deposit_readiness::PORTABILITY_MAX_FILE_BYTES
             })
-            .collect();
-        md.sort();
-        targets.extend(md);
-    }
+        })
+        .map(|entry| entry.into_path())
+        .filter(|path| {
+            !path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| {
+                    crate::deposit_readiness::PORTABILITY_SKIP_EXTS
+                        .contains(&extension.to_ascii_lowercase().as_str())
+                })
+        })
+        .collect();
     targets.sort();
     targets.dedup();
 
@@ -2711,6 +2876,7 @@ fn tokenize_accountability_files(
         };
         let mut out = body;
         let mut hit: Vec<&RelocRoot> = Vec::new();
+        let mut session_hit = false;
         // `roots` is longest-first, so a nested root wins over its parent.
         for r in roots {
             if out.contains(&r.path) {
@@ -2718,7 +2884,13 @@ fn tokenize_accountability_files(
                 hit.push(r);
             }
         }
-        if hit.is_empty() {
+        if let Some(session_id) = session_id.as_deref() {
+            if out.contains(session_id) {
+                out = out.replace(session_id, "${ECAA_SESSION_ID}");
+                session_hit = true;
+            }
+        }
+        if hit.is_empty() && !session_hit {
             continue;
         }
         let is_md = target
@@ -2726,7 +2898,7 @@ fn tokenize_accountability_files(
             .and_then(|e| e.to_str())
             .is_some_and(|e| e.eq_ignore_ascii_case("md"));
         if is_md && !out.contains(RELOCATION_LEGEND_MARKER) {
-            out.push_str(&markdown_relocation_legend(&hit));
+            out.push_str(&markdown_relocation_legend(&hit, session_hit));
         }
         std::fs::write(&target, out)
             .with_context(|| format!("writing tokenized {}", target.display()))?;
@@ -2747,7 +2919,7 @@ fn unique_by_env_var<'a>(roots: &[&'a RelocRoot]) -> Vec<&'a RelocRoot> {
 }
 
 /// The prose legend appended to a tokenized Markdown accountability file.
-fn markdown_relocation_legend(roots: &[&RelocRoot]) -> String {
+fn markdown_relocation_legend(roots: &[&RelocRoot], session_tokenized: bool) -> String {
     let mut s = String::from("\n");
     s.push_str(RELOCATION_LEGEND_MARKER);
     s.push_str("\n\n## Path tokens\n\n");
@@ -2757,17 +2929,28 @@ fn markdown_relocation_legend(roots: &[&RelocRoot]) -> String {
     // One row per TOKEN (several host spellings can map to `PKG_ROOT`), in a
     // deterministic order regardless of encounter order.
     for r in unique_by_env_var(roots) {
-        let meaning = match &r.fallback_rel {
-            None => "the root of this deposit (the directory holding `ro-crate-metadata.json`)".to_string(),
-            Some(rel) => format!(
+        let meaning = if r.env_var == "ECAA_LITERATURE_HELPER_DIR" {
+            "the literature helper bundled in this deposit at `lib/`".to_string()
+        } else if r.required_env {
+            "a recorded external dependency that is not bundled in the deposit".to_string()
+        } else {
+            match &r.fallback_rel {
+                None => "the root of this deposit (the directory holding `ro-crate-metadata.json`)".to_string(),
+                Some(rel) => format!(
                 "a data root registered outside the deposit; the in-deposit staging copy is `{rel}/`"
-            ),
+                ),
+            }
         };
         s.push_str(&format!(
             "- `{}` — {meaning}. Override with the `{}` environment variable.\n",
             r.token(),
             r.env_var
         ));
+    }
+    if session_tokenized {
+        s.push_str(
+            "- `${ECAA_SESSION_ID}` — the originating session identifier. Set `ECAA_SESSION_ID` when a consumer requires that runtime identity.\n",
+        );
     }
     s
 }
@@ -2786,9 +2969,17 @@ fn write_relocation_legend(
             serde_json::json!({
                 "token": r.token(),
                 "env_var": r.env_var,
-                "resolves_to": match &r.fallback_rel {
-                    None => "deposit root".to_string(),
-                    Some(rel) => format!("external data root; in-deposit staging copy at {rel}/"),
+                "resolves_to": if r.env_var == "ECAA_LITERATURE_HELPER_DIR" {
+                    "literature helper bundled in deposit at lib/".to_string()
+                } else if r.required_env {
+                    "recorded external dependency; environment variable required".to_string()
+                } else {
+                    match &r.fallback_rel {
+                        None => "deposit root".to_string(),
+                        Some(rel) => {
+                            format!("external data root; in-deposit staging copy at {rel}/")
+                        }
+                    }
                 },
             })
         })
@@ -2822,10 +3013,18 @@ fn write_relocation_legend(
         .filter(|f| f.resolution.is_warning())
         .map(ScriptRelocationFinding::warning_line)
         .collect();
+    let session_token = crate::deposit_readiness::declared_session_uuid(dst).map(|_| {
+        serde_json::json!({
+            "token": "${ECAA_SESSION_ID}",
+            "env_var": "ECAA_SESSION_ID",
+            "resolves_to": "originating session identifier"
+        })
+    });
     let doc = serde_json::json!({
         "schema_version": "2",
         "note": "Absolute host paths in this deposit's scripts and accountability documents were replaced by these tokens so the package is relocatable. Each resolves from its environment variable when set, else relative to the deposit root.",
         "tokens": tokens,
+        "session_token": session_token,
         "scripts_note": "How each packaged script locates the deposit root. `relocation_safe: false` means the export could NOT establish that the script resolves the root independently of the process working directory.",
         "scripts": script_rows,
         "script_warnings": warnings,
@@ -3366,6 +3565,33 @@ pub fn zip_dir(src_dir: &Path, out: &mut (impl std::io::Write + std::io::Seek)) 
 mod tests {
     use super::*;
     use std::io::{Cursor, Read};
+
+    #[test]
+    fn persisted_replay_status_is_carried_into_export_attestation() {
+        use crate::reexecution::{ArtifactClassification, ReexecutionBucket, ReexecutionReport};
+
+        let tmp = tempfile::tempdir().unwrap();
+        let runtime = tmp.path().join("runtime");
+        std::fs::create_dir_all(&runtime).unwrap();
+        let mut report = ReexecutionReport::empty("0.1");
+        report.per_artifact.push(ArtifactClassification {
+            artifact_path: "runtime/outputs/demo/result.tsv".into(),
+            bucket: ReexecutionBucket::ByteIdentical,
+            reason: None,
+        });
+        report.bucket_counts.insert("byte_identical".into(), 1);
+        std::fs::write(
+            runtime.join("reexecution.json"),
+            serde_json::to_vec_pretty(&report).unwrap(),
+        )
+        .unwrap();
+
+        let (status, detail) = persisted_reexecution_attestation(tmp.path()).unwrap();
+        assert_eq!(status, crate::deposit_readiness::ReexecStatus::Pass);
+        assert!(detail
+            .as_deref()
+            .is_some_and(|text| text.contains("byte_identical=1")));
+    }
 
     // --- GAP-5: package-level lock promotion -----------------------------
 
@@ -4796,6 +5022,73 @@ mod tests {
             0,
             "tokenization must be idempotent"
         );
+    }
+
+    #[test]
+    fn nested_records_and_session_ids_are_tokenized() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dst = tmp.path();
+        let session_id = "b9334ad6-2725-4fd4-b053-2ebf162f2c53";
+        let workflow_id = "workflow-b9334ad627254fd4b0532ebf162f2c53";
+        let input = "/home/a/mounts/wadmin/himes-inputs";
+        std::fs::create_dir_all(dst.join("runtime/outputs/reporting")).unwrap();
+        std::fs::write(
+            dst.join("WORKFLOW.json"),
+            serde_json::json!({"workflow_id": workflow_id, "tasks": {}}).to_string(),
+        )
+        .unwrap();
+        std::fs::write(
+            dst.join("runtime/decisions.jsonl"),
+            format!("{{\"session_id\":\"{session_id}\",\"input\":\"{input}/counts.tsv\"}}\n"),
+        )
+        .unwrap();
+        std::fs::write(
+            dst.join("runtime/outputs/reporting/report.md"),
+            format!("Source: {input}/counts.tsv\n"),
+        )
+        .unwrap();
+        let roots = build_reloc_roots(&[], &[(input.to_string(), "himes-inputs".to_string())]);
+
+        tokenize_accountability_files(dst, &roots, &[]).unwrap();
+
+        let decisions = std::fs::read_to_string(dst.join("runtime/decisions.jsonl")).unwrap();
+        assert!(decisions.contains("${ECAA_SESSION_ID}"));
+        assert!(decisions.contains("${ECAA_INPUT_0}/counts.tsv"));
+        let portability = crate::deposit_readiness::scan_portability(dst);
+        assert!(portability.is_clean(), "{portability:?}");
+    }
+
+    #[test]
+    fn cached_literature_helper_relocates_to_packaged_copy() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path();
+        let script = src.join("runtime/outputs/survey/scripts/fetch.py");
+        std::fs::create_dir_all(script.parent().unwrap()).unwrap();
+        let helper = "/home/a/run/agent-cache/global/helpers";
+        std::fs::write(
+            &script,
+            format!("HELPER_DIR = \"{helper}\"\nprint(HELPER_DIR)\n"),
+        )
+        .unwrap();
+
+        let roots = discover_external_relocation_roots(
+            src,
+            DepositProfile::Full,
+            &std::collections::BTreeSet::new(),
+            &std::collections::BTreeSet::new(),
+            &[],
+        );
+        assert_eq!(roots.len(), 1);
+        assert!(!roots[0].required_env);
+        assert_eq!(roots[0].fallback_rel.as_deref(), Some("lib"));
+        let rewritten = relocate_script_paths(
+            &std::fs::read_to_string(&script).unwrap(),
+            Path::new("runtime/outputs/survey/scripts/fetch.py"),
+            &roots,
+        );
+        assert!(!rewritten.contains(helper));
+        assert!(rewritten.contains("ECAA_LITERATURE_HELPER_DIR"));
+        assert!(rewritten.contains("\"lib\""));
     }
 
     /// End-to-end: a sealed R script whose recorded

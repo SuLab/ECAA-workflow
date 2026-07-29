@@ -727,6 +727,10 @@ fn emit_copies_de_effect_size_measurement_script_and_de_task_carries_it() {
         tmp.path().join("lib/measure_de_effect_size.py").is_file(),
         "measure_de_effect_size.py must be copied into the package lib/"
     );
+    assert!(
+        tmp.path().join("lib/agent_literature_fetch.py").is_file(),
+        "the literature retrieval helper must be packaged for offline replay"
+    );
 
     // Measurement delivery: the differential_expression task must surface
     // `spec.attributes.measurement_script` so the de-effect-size runbook gate in

@@ -67,12 +67,8 @@ pub(crate) fn select_validator(prefer_runcrate_if_available: bool) -> Box<dyn Wr
 /// stub. Manifest-excluded (see `emitter::bagit`), so no reseal is needed for
 /// this file itself.
 pub(crate) fn write_reexecution_json(pkg: &Path, report: &ReexecutionReport) -> Result<()> {
-    let runtime = pkg.join("runtime");
-    std::fs::create_dir_all(&runtime).with_context(|| format!("creating {}", runtime.display()))?;
-    let out = runtime.join("reexecution.json");
-    let body = serde_json::to_vec_pretty(report).context("serializing runtime/reexecution.json")?;
-    std::fs::write(&out, body).with_context(|| format!("writing {}", out.display()))?;
-    Ok(())
+    ecaa_workflow_core::emitter::write_reexecution_report(pkg, report)
+        .context("writing runtime/reexecution.json")
 }
 
 /// Fold the deferred verifications into the package's audit report: re-record

@@ -154,35 +154,98 @@ pub(super) fn write_emit_time_sidecars(
 /// `ro_crate::inject_audit_proof_verdict_nodes`). Returns `Ok(None)` when
 /// the AuditProof ablation flag suppresses the report.
 pub(super) fn write_audit_proof_report(output_dir: &Path) -> Result<Option<Value>> {
+    // Emit-time bytes use the deterministic run epoch so identical inputs
+    // produce an identical first seal.
+    write_audit_proof_report_with_clock(output_dir, &crate::clock::run_epoch_clock())
+}
+
+pub(super) fn write_audit_proof_report_with_clock(
+    output_dir: &Path,
+    clock: &dyn crate::clock::Clock,
+) -> Result<Option<Value>> {
     if AblationFlag::AuditProof.is_active() {
         return Ok(None);
     }
     let validator = crate::wrroc_validator::NoopWrrocValidator;
-    // DR-4: `evaluated_at` is anchored to the deterministic RUN epoch
-    // (`run_epoch_clock`, = `SOURCE_DATE_EPOCH` or the `2026-01-01` base),
-    // NOT the wall clock. This makes `audit-proof-report.json` byte-identical
-    // across two emits of the same input, so the report is now a first-class
-    // BagIt-manifested payload file at BOTH emit and reseal (rather than being
-    // held off the manifest to hide a per-emit timestamp). The value matches
-    // `ro-crate-metadata.json::dateCreated`, which is anchored to the same
-    // run-epoch clock, so the two are CONSISTENT. "Manifest only at reseal"
-    // does not make the manifest reproducible; stable bytes do.
-    //
-    // The projected `@graph` verdict nodes (`inject_audit_proof_verdict_nodes`)
-    // still drop `evaluated_at`; the deterministic value also reaches
-    // `ro-crate-metadata.json` cleanly if ever surfaced there.
-    let report = crate::audit_proof::run_audit_proof(
-        output_dir,
-        &validator,
-        &crate::clock::run_epoch_clock(),
-    )
-    .context("running audit-proof invariants")?;
+    // The caller selects the time semantics: emit uses the deterministic run
+    // epoch, while an export-time verification uses WallClock so
+    // `evaluated_at` states when that verification actually ran.
+    let report = crate::audit_proof::run_audit_proof(output_dir, &validator, clock)
+        .context("running audit-proof invariants")?;
     let report = serde_json::to_value(&report).context("serializing audit-proof report")?;
     write_pretty_json(
         &output_dir.join("runtime").join("audit-proof-report.json"),
         &report,
     )?;
     Ok(Some(report))
+}
+
+fn preserve_deferred_audit_verdicts(
+    fresh: &mut crate::audit_proof::AuditProofReport,
+    recorded: &crate::audit_proof::AuditProofReport,
+) {
+    use crate::audit_proof::InvariantId;
+
+    for id in [
+        InvariantId::EquivalenceFailure,
+        InvariantId::SubstrateValidity,
+    ] {
+        let Some(recorded_verdict) = recorded
+            .verdicts
+            .iter()
+            .find(|verdict| verdict.id == id)
+            .cloned()
+        else {
+            continue;
+        };
+        if let Some(fresh_verdict) = fresh.verdicts.iter_mut().find(|verdict| verdict.id == id) {
+            *fresh_verdict = recorded_verdict;
+        }
+    }
+}
+
+/// Recompute graph-dependent audit verdicts over an exported package while
+/// preserving replay and substrate verdicts already established against the
+/// source package. The core exporter cannot rerun either deferred check, so
+/// replacing those outcomes with a no-op validator would erase valid evidence.
+pub(super) fn write_export_audit_proof_report(
+    output_dir: &Path,
+    clock: &dyn crate::clock::Clock,
+) -> Result<Option<Value>> {
+    if AblationFlag::AuditProof.is_active() {
+        return Ok(None);
+    }
+
+    let existing_path = output_dir.join("runtime").join("audit-proof-report.json");
+    let recorded = if existing_path.is_file() {
+        match std::fs::read_to_string(&existing_path)
+            .ok()
+            .and_then(|raw| serde_json::from_str::<crate::audit_proof::AuditProofReport>(&raw).ok())
+        {
+            Some(report) => Some(report),
+            None => {
+                tracing::warn!(
+                    path = %existing_path.display(),
+                    "existing audit-proof report was not readable; deferred verdicts cannot be preserved"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    let validator = crate::wrroc_validator::NoopWrrocValidator;
+    let mut report = crate::audit_proof::run_audit_proof(output_dir, &validator, clock)
+        .context("running export-scoped audit-proof invariants")?;
+    if let Some(recorded) = &recorded {
+        preserve_deferred_audit_verdicts(&mut report, recorded);
+    }
+
+    write_pretty_json(&existing_path, &report)?;
+    serde_json::to_value(report)
+        .map(Some)
+        .context("serializing export-scoped audit-proof report")
 }
 
 /// Core-side baseline for the closed tool-vocabulary size. The conversation
@@ -883,6 +946,43 @@ mod tests {
             .output()
             .map(|o| o.status.success())
             .unwrap_or(false)
+    }
+
+    #[test]
+    fn export_audit_preserves_replay_and_substrate_verdicts_only() {
+        use crate::audit_proof::{AuditProofReport, InvariantId, InvariantStatus};
+
+        let mut recorded = AuditProofReport::empty();
+        let mut fresh = AuditProofReport::empty();
+        for verdict in &mut recorded.verdicts {
+            verdict.status = InvariantStatus::Pass;
+            verdict.detail = Some("recorded".into());
+        }
+        for verdict in &mut fresh.verdicts {
+            verdict.status = InvariantStatus::Fail;
+            verdict.detail = Some("fresh".into());
+        }
+
+        preserve_deferred_audit_verdicts(&mut fresh, &recorded);
+
+        for verdict in fresh.verdicts {
+            let deferred = matches!(
+                verdict.id,
+                InvariantId::EquivalenceFailure | InvariantId::SubstrateValidity
+            );
+            assert_eq!(
+                verdict.status,
+                if deferred {
+                    InvariantStatus::Pass
+                } else {
+                    InvariantStatus::Fail
+                }
+            );
+            assert_eq!(
+                verdict.detail.as_deref(),
+                Some(if deferred { "recorded" } else { "fresh" })
+            );
+        }
     }
 
     #[test]

@@ -23,7 +23,8 @@ use ecaa_workflow_core::audit_proof::{run_audit_proof_with_verifier, AuditProofR
 use ecaa_workflow_core::audit_writer::AuditWriter;
 use ecaa_workflow_core::clock::WallClock;
 use ecaa_workflow_core::replay::{run_replay, PackageTrust, ReplayOptions, ReplayReport, Tier};
-use ecaa_workflow_core::wrroc_validator::NoopWrrocValidator;
+use ecaa_workflow_core::wrroc_validator::{NoopWrrocValidator, WrrocValidator};
+use ecaa_workflow_harness::wrroc_validator_impl::PythonRuncrateWrrocValidator;
 
 /// The ECAA spec version this build of the reader implements. Threaded
 /// into `ReplayOptions::reader_version` so re-verify can tell real
@@ -130,6 +131,36 @@ fn parse_tier(s: &str) -> Option<Tier> {
 /// `replay_completed` payload.
 fn verdict_str(r: &ReplayReport) -> String {
     format!("{:?}", r.verdict).to_lowercase()
+}
+
+fn runcrate_available() -> bool {
+    std::process::Command::new("runcrate")
+        .arg("--help")
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+fn fold_replay_into_package(
+    root: &std::path::Path,
+    report: &ReplayReport,
+    verifier: Option<&AuditWriter>,
+    validator: &dyn WrrocValidator,
+) -> anyhow::Result<()> {
+    let reexecution = report
+        .reexecute
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("completed Tier-2 replay had no re-execution report"))?;
+    ecaa_workflow_core::emitter::write_reexecution_report(root, &reexecution.report)?;
+    let refresh = [
+        ecaa_workflow_core::audit_proof::InvariantId::EquivalenceFailure,
+        ecaa_workflow_core::audit_proof::InvariantId::SubstrateValidity,
+    ];
+    let refresh_only = root
+        .join("runtime/audit-proof-report.json")
+        .exists()
+        .then_some(refresh.as_slice());
+    ecaa_workflow_core::emitter::reseal_audit_report(root, validator, verifier, refresh_only)
 }
 
 /// `POST /api/chat/session/:id/replay` — run a replay.
@@ -286,6 +317,8 @@ pub(super) async fn start_replay(
     }
     let rv = reader_version();
     let tier_label = req.tier.clone();
+    let audit_secret = session.audit_writer_secret;
+    let imported = session.imported;
     // Tier-2 replay re-executes compute in sibling containers (DooD). Those
     // mounts are resolved by the HOST docker daemon, so the replay scratch must
     // live on a path the host can see — NOT the server container's private
@@ -315,7 +348,16 @@ pub(super) async fn start_replay(
                 reader_version: rv,
                 trust,
             };
-            let r = run_replay(&root, &opts);
+            let r = run_replay(&root, &opts).and_then(|report| {
+                let writer = (!imported).then(|| AuditWriter::with_secret(audit_secret));
+                let validator: Box<dyn WrrocValidator> = if runcrate_available() {
+                    Box::new(PythonRuncrateWrrocValidator)
+                } else {
+                    Box::new(NoopWrrocValidator)
+                };
+                fold_replay_into_package(&root, &report, writer.as_ref(), validator.as_ref())?;
+                Ok(report)
+            });
             // Best-effort scratch cleanup (host-visible path under package_root).
             let _ = std::fs::remove_dir_all(&scratch_path);
             r
@@ -398,12 +440,61 @@ pub(super) fn routes() -> axum::Router<ChatAppState> {
 
 #[cfg(test)]
 mod tests {
+    use super::fold_replay_into_package;
     use crate::chat_routes::test_support::{
         insert_running_execution, make_router, seed_session_with_completed_task,
     };
     use axum::body::{to_bytes, Body};
     use axum::http::{Request, StatusCode};
     use tower::util::ServiceExt;
+
+    #[test]
+    fn completed_replay_is_persisted_and_folded_into_audit() {
+        use ecaa_workflow_core::reexecution::{
+            ArtifactClassification, ReexecutionBucket, ReexecutionReport,
+        };
+        use ecaa_workflow_core::replay::{ReexecuteResult, ReplayReport, ReplayVerdict};
+
+        let pkg = tempfile::tempdir().unwrap();
+        let mut reexecution = ReexecutionReport::empty("0.1");
+        reexecution.per_artifact.push(ArtifactClassification {
+            artifact_path: "runtime/outputs/demo/result.tsv".into(),
+            bucket: ReexecutionBucket::ByteIdentical,
+            reason: None,
+        });
+        reexecution.bucket_counts.insert("byte_identical".into(), 1);
+        let replay = ReplayReport {
+            schema_version: "0.1".into(),
+            package_iri: "urn:test:package".into(),
+            reader_version: "0.1".into(),
+            min_reader_version: None,
+            reverify: None,
+            reexecute: Some(ReexecuteResult {
+                env_tier: "test".into(),
+                report: reexecution,
+                unprovisionable: false,
+                thread_budget: "recorded".into(),
+            }),
+            skipped: Vec::new(),
+            verdict: ReplayVerdict::Pass,
+        };
+
+        fold_replay_into_package(
+            pkg.path(),
+            &replay,
+            None,
+            &ecaa_workflow_core::wrroc_validator::NoopWrrocValidator,
+        )
+        .unwrap();
+
+        let persisted: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(pkg.path().join("runtime/reexecution.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(persisted["per_artifact"].as_array().unwrap().len(), 1);
+        assert!(pkg.path().join("runtime/audit-proof-report.json").exists());
+        assert!(pkg.path().join("AUDIT-REPORT.md").exists());
+    }
 
     /// Re-verify runs the 6 audit-proof invariants over the emitted
     /// package and returns one verdict per invariant.

@@ -17,6 +17,17 @@
 use anyhow::{Context, Result};
 use std::path::Path;
 
+/// Ship the literature-retrieval helper inside every package. Agent execution
+/// and replay can then import the same pinned bytes from `lib/` without a host
+/// cache mount or a machine-specific path.
+pub(super) fn copy_literature_fetch_helper(package_dir: &Path) -> Result<()> {
+    const HELPER: &str = include_str!("../../../../scripts/agent_literature_fetch.py");
+    let lib_dir = package_dir.join("lib");
+    std::fs::create_dir_all(&lib_dir).context("creating lib dir")?;
+    std::fs::write(lib_dir.join("agent_literature_fetch.py"), HELPER)
+        .context("writing packaged literature retrieval helper")
+}
+
 /// Copy the shared plotting library from the repo's `lib/plotting/` tree
 /// into `runtime/plotting/` inside the emitted package so the agent can
 /// `from runtime.plotting.core import generate` without any external

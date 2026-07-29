@@ -165,6 +165,32 @@ pub fn reexec_status_from_verdict(v: &ReplayVerdict) -> ReexecStatus {
     }
 }
 
+/// Derive the attestation status from a persisted re-execution classification.
+/// An empty report is the emit-time sentinel and therefore remains
+/// `NotVerified`; any failed artifact fails the replay, unavailable artifacts
+/// make it partial, and a non-empty report containing only reproduced or
+/// acknowledged artifacts passes.
+pub fn reexec_status_from_report(report: &crate::reexecution::ReexecutionReport) -> ReexecStatus {
+    if report.per_artifact.is_empty() {
+        return ReexecStatus::NotVerified;
+    }
+    if report
+        .per_artifact
+        .iter()
+        .any(|artifact| artifact.bucket == crate::reexecution::ReexecutionBucket::Failed)
+    {
+        return ReexecStatus::Fail;
+    }
+    if report
+        .per_artifact
+        .iter()
+        .any(|artifact| artifact.bucket == crate::reexecution::ReexecutionBucket::Unavailable)
+    {
+        return ReexecStatus::Partial;
+    }
+    ReexecStatus::Pass
+}
+
 /// The `DEPOSIT-READINESS.json` payload.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DepositReadiness {
@@ -1384,7 +1410,7 @@ const HOST_PATH_ROOTS: &[&str] = &["/home/", "/Users/", "/root/"];
 /// worth surfacing lives in a TEXT config/lock/script, never inside a binary
 /// blob (the copied BLAS `.so` is skipped here; the TEXT `env.lock` /
 /// `determinism-env.json` that REFERENCES its absolute path is not).
-const PORTABILITY_SKIP_EXTS: &[&str] = &[
+pub(crate) const PORTABILITY_SKIP_EXTS: &[&str] = &[
     "so", "a", "o", "dylib", "dll", "zip", "gz", "bz2", "xz", "zst", "tar", "tgz", "pdf", "png",
     "jpg", "jpeg", "gif", "bmp", "ico", "parquet", "feather", "arrow", "h5", "hdf5", "h5ad",
     "loom", "bam", "sam", "cram", "bai", "crai", "npz", "npy", "pyc", "pyo", "whl", "rds", "rdata",
@@ -1393,7 +1419,7 @@ const PORTABILITY_SKIP_EXTS: &[&str] = &[
 
 /// Files larger than this are skipped by the portability scan (host-path
 /// references live in small config/lock/script files; a multi-MB file is data).
-const PORTABILITY_MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
+pub(crate) const PORTABILITY_MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
 
 /// Cap on findings of each kind so the attestation stays bounded even for a
 /// deposit that leaks the same path across thousands of lines.
@@ -1447,7 +1473,7 @@ impl PortabilitySummary {
 /// exempting the declared `workflow-…` string itself. `None` for any other
 /// `workflow_id` shape (CLI-built packages, legacy ids) — the host-path axis
 /// still applies, only the session-id axis is skipped.
-fn declared_session_uuid(package_root: &Path) -> Option<(String, String)> {
+pub(crate) fn declared_session_uuid(package_root: &Path) -> Option<(String, String)> {
     let raw = std::fs::read_to_string(package_root.join("WORKFLOW.json")).ok()?;
     let wf: serde_json::Value = serde_json::from_str(&raw).ok()?;
     let workflow_id = wf.get("workflow_id")?.as_str()?.to_string();
@@ -1471,7 +1497,7 @@ fn declared_session_uuid(package_root: &Path) -> Option<(String, String)> {
 /// `(start, end)` byte spans plus the matched path string. A match begins at a
 /// [`HOST_PATH_ROOTS`] prefix and runs until a path-terminating delimiter
 /// (whitespace, quotes, backtick, or JSON/markdown structural punctuation).
-fn find_host_paths(content: &str) -> Vec<(usize, usize, String)> {
+pub(crate) fn find_host_paths(content: &str) -> Vec<(usize, usize, String)> {
     /// A byte that terminates a filesystem path token in JSON / markdown /
     /// shell contexts. `:` and `=` end key/value framing; brackets/quotes end
     /// string literals. Unix paths in this codebase never contain these.
@@ -2853,6 +2879,35 @@ mod tests {
             reexec_status_from_verdict(&ReplayVerdict::Fail),
             ReexecStatus::Fail
         );
+    }
+
+    #[test]
+    fn reexec_status_maps_from_persisted_report() {
+        use crate::reexecution::{ArtifactClassification, ReexecutionBucket, ReexecutionReport};
+
+        let mut report = ReexecutionReport::empty("0.1");
+        assert_eq!(
+            reexec_status_from_report(&report),
+            ReexecStatus::NotVerified
+        );
+        report.per_artifact.push(ArtifactClassification {
+            artifact_path: "a.tsv".into(),
+            bucket: ReexecutionBucket::ByteIdentical,
+            reason: None,
+        });
+        assert_eq!(reexec_status_from_report(&report), ReexecStatus::Pass);
+        report.per_artifact.push(ArtifactClassification {
+            artifact_path: "b.tsv".into(),
+            bucket: ReexecutionBucket::Unavailable,
+            reason: None,
+        });
+        assert_eq!(reexec_status_from_report(&report), ReexecStatus::Partial);
+        report.per_artifact.push(ArtifactClassification {
+            artifact_path: "c.tsv".into(),
+            bucket: ReexecutionBucket::Failed,
+            reason: Some("diverged".into()),
+        });
+        assert_eq!(reexec_status_from_report(&report), ReexecStatus::Fail);
     }
 
     #[test]

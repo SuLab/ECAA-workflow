@@ -17,6 +17,7 @@ path = "src/main.rs"
 [dependencies]
 ecaa-workflow-core = { version = "0.1", path = "../core" }
 ecaa-workflow-conversation = { version = "0.1", path = "../conversation" }
+ecaa-workflow-harness = { version = "0.1", path = "../harness" }
 axum = "0.7"
 tokio = { version = "1", features = ["full"] }
 tower-http = { version = "0.6", features = ["cors", "fs", "limit", "timeout", "trace"] }

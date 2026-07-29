@@ -144,6 +144,12 @@ pub fn stage_and_run(
     // `runtime/sme-review-confirmed-*.json`, `runtime/execution-order.json`,
     // `runtime/inputs/`. Without these, discover_*/validate_* re-runs hit
     // FileNotFoundError on paths like `policies/best-practice-scoring-policy.json`.
+    //
+    // `runtime/cache/` is deliberately not copied. Environment provisioning
+    // consumes a shipped conda prefix directly from that tree and bind-mounts
+    // it into the replay container. Copying the cache duplicates gigabytes of
+    // package-manager state, and following a stale package-cache symlink can
+    // abort the entire replay before any task runs.
     for root in ["policies", "lib"] {
         let src = pkg.join(root);
         if src.is_dir() {
@@ -154,8 +160,11 @@ pub fn stage_and_run(
         let mut children: Vec<_> = entries.filter_map(|e| e.ok()).collect();
         children.sort_by_key(|e| e.file_name());
         for e in children {
-            if e.file_name() == "outputs" {
-                continue; // staged per-stage above
+            if matches!(
+                e.file_name().to_string_lossy().as_ref(),
+                "outputs" | "cache"
+            ) {
+                continue;
             }
             let src = e.path();
             let dst = scratch.join("runtime").join(e.file_name());
@@ -439,13 +448,7 @@ fn copy_dir_excluding(src: &Path, dst: &Path, exclude: &str) -> io::Result<()> {
         if name.to_string_lossy() == exclude {
             continue;
         }
-        let src_path = entry.path();
-        let dst_path = dst.join(&name);
-        if src_path.is_dir() {
-            copy_dir_all(&src_path, &dst_path)?;
-        } else {
-            std::fs::copy(&src_path, &dst_path)?;
-        }
+        copy_entry(&entry.path(), &dst.join(&name), &entry.file_type()?)?;
     }
     Ok(())
 }
@@ -457,15 +460,41 @@ fn copy_dir_all(src: &Path, dst: &Path) -> io::Result<()> {
     }
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
-        let src_path = entry.path();
-        let dst_path = dst.join(entry.file_name());
-        if src_path.is_dir() {
-            copy_dir_all(&src_path, &dst_path)?;
-        } else {
-            std::fs::copy(&src_path, &dst_path)?;
-        }
+        copy_entry(
+            &entry.path(),
+            &dst.join(entry.file_name()),
+            &entry.file_type()?,
+        )?;
     }
     Ok(())
+}
+
+fn copy_entry(src: &Path, dst: &Path, file_type: &std::fs::FileType) -> io::Result<()> {
+    if file_type.is_dir() {
+        return copy_dir_all(src, dst);
+    }
+    if file_type.is_symlink() {
+        return copy_symlink(src, dst);
+    }
+    std::fs::copy(src, dst).map(|_| ())
+}
+
+#[cfg(unix)]
+fn copy_symlink(src: &Path, dst: &Path) -> io::Result<()> {
+    use std::os::unix::fs::symlink;
+
+    if let Some(parent) = dst.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    if std::fs::symlink_metadata(dst).is_ok() {
+        std::fs::remove_file(dst)?;
+    }
+    symlink(std::fs::read_link(src)?, dst)
+}
+
+#[cfg(not(unix))]
+fn copy_symlink(src: &Path, dst: &Path) -> io::Result<()> {
+    std::fs::copy(src, dst).map(|_| ())
 }
 
 /// Set the executable bit on a file (Unix only; no-op on other platforms).
@@ -1333,6 +1362,60 @@ mod tests {
         assert!(
             scratch.join("lib/helper.py").exists(),
             "lib/ must be staged into scratch"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn skips_runtime_cache_and_preserves_other_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let pkg_tmp = tempdir().unwrap();
+        let scratch_tmp = tempdir().unwrap();
+        let pkg = pkg_tmp.path();
+        let scratch = scratch_tmp.path();
+
+        let cache = pkg.join("runtime/cache/conda-pkgs");
+        std::fs::create_dir_all(&cache).unwrap();
+        symlink("missing-package-file.so", cache.join("libblas.so")).unwrap();
+
+        std::fs::create_dir_all(pkg.join("inputs")).unwrap();
+        std::fs::write(pkg.join("inputs/counts.tsv"), "gene\tcount\nA\t1\n").unwrap();
+        symlink("counts.tsv", pkg.join("inputs/counts-link.tsv")).unwrap();
+
+        let scripts = pkg.join("runtime/outputs/task/scripts");
+        std::fs::create_dir_all(&scripts).unwrap();
+        std::fs::write(
+            scripts.join("run.sh"),
+            "#!/usr/bin/env bash\nset -e\ntest -L \"$PKG_ROOT/inputs/counts-link.tsv\"\n",
+        )
+        .unwrap();
+        let task = ComputeTask {
+            task_id: "task".to_string(),
+            scripts_dir: scripts,
+            result_tables: vec![],
+        };
+
+        let outcomes = stage_and_run(
+            pkg,
+            scratch,
+            &[task],
+            &[],
+            &shell_env(),
+            "/irrelevant",
+            &BTreeMap::new(),
+        )
+        .unwrap();
+
+        assert!(
+            outcomes[0].ok,
+            "a broken cache symlink must not abort staging: {}",
+            outcomes[0].stderr
+        );
+        assert!(!scratch.join("runtime/cache").exists());
+        assert_eq!(
+            std::fs::read_link(scratch.join("inputs/counts-link.tsv")).unwrap(),
+            PathBuf::from("counts.tsv")
         );
     }
 }
