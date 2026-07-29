@@ -359,6 +359,7 @@ pub async fn get_state(
 ) -> impl IntoResponse {
     match app.conversation.get_session(session_id).await {
         Some(session) => {
+            let dag_task_count = session.current_dag().map(|d| d.tasks.len()).unwrap_or(0);
             // Short-circuit the sibling-package disk scan when the
             // cached entry for this session is still valid. Cache is
             // invalidated by `post_set_task_state` (the authoritative
@@ -367,7 +368,15 @@ pub async fn get_state(
             // the next GET. Cache miss / stale falls through to the
             // reconciliation walk + repopulate.
             let cached = match app.reconciled_progress_cache.get(&session_id) {
-                Some(entry) if entry.valid => {
+                Some(entry)
+                    if entry.valid
+                        && (dag_task_count == 0
+                            || entry.progress.completed
+                                + entry.progress.ready
+                                + entry.progress.blocked
+                                + entry.progress.pending
+                                == dag_task_count) =>
+                {
                     Some((entry.progress.clone(), entry.blocked_tasks.clone()))
                 }
                 _ => None,
@@ -424,7 +433,7 @@ pub async fn get_state(
                 // bool field.
                 user_confirmed: session.is_confirmed(),
                 last_activity: session.last_activity,
-                task_count: session.current_dag().map(|d| d.tasks.len()).unwrap_or(0),
+                task_count: dag_task_count,
                 progress,
                 emitted_package_path: session.emitted_package_path.clone(),
                 title: session.title.clone(),
@@ -733,6 +742,7 @@ pub(super) fn routes() -> axum::Router<ChatAppState> {
 #[cfg(test)]
 mod tests {
     use crate::chat_routes::test_support::{assistant, body_json, make_router, tool_use};
+    use crate::chat_routes::ProgressSummary;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use ecaa_workflow_conversation::{BatchableTool, Tool};
@@ -1069,6 +1079,58 @@ mod tests {
             body["blocked_tasks"].as_array().unwrap(),
             &vec![serde_json::json!("blocked_on_disk")]
         );
+    }
+
+    #[tokio::test]
+    async fn get_state_rejects_cached_progress_for_transient_tasks() {
+        use crate::chat_routes::app_state::ReconciledProgressEntry;
+        use crate::chat_routes::test_support::seed_session_with_completed_task;
+
+        let pkg = tempfile::tempdir().unwrap();
+        std::fs::write(
+            pkg.path().join("WORKFLOW.json"),
+            serde_json::json!({
+                "tasks": {
+                    "kept_task": {
+                        "state": {
+                            "status": "completed",
+                            "result": {}
+                        }
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let (router, app) = make_router(vec![]).await;
+        let id =
+            seed_session_with_completed_task(&app, "kept_task", Some(pkg.path().to_path_buf()))
+                .await;
+        app.reconciled_progress_cache.insert(
+            id,
+            ReconciledProgressEntry {
+                progress: ProgressSummary {
+                    completed: 1,
+                    ready: 2,
+                    blocked: 0,
+                    pending: 0,
+                },
+                blocked_tasks: Vec::new(),
+                valid: true,
+            },
+        );
+
+        let req = Request::builder()
+            .method("GET")
+            .uri(format!("/api/chat/session/{id}/state"))
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        let body = body_json(resp.into_body()).await;
+        assert_eq!(body["task_count"], serde_json::json!(1));
+        assert_eq!(body["progress"]["completed"], serde_json::json!(1));
+        assert_eq!(body["progress"]["ready"], serde_json::json!(0));
     }
 
     #[tokio::test]
