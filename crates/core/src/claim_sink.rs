@@ -903,6 +903,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn re_finalize_replaces_task_row_not_appends() {
         // Re-finalizing the same task must REPLACE its signed row, never leave a
         // stale earlier row behind (the append-only bug let the audit-proof

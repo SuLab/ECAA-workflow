@@ -173,7 +173,7 @@ pub fn run_one(scenario: &Tier4_1Scenario) -> Result<Tier4_1Result> {
     // VF-16: aggregate count claims carry no per-entity Claim, so fold the
     // narrative-count scan's verdicts into the report (mirrors the production
     // finalize path) — otherwise count scenarios would score as all-zero.
-    for verdict in verify_narrative_counts(&narrative, &tables_root, &cfg) {
+    for verdict in verify_narrative_counts(&narrative, &tables_root, &tables_root, &cfg) {
         report.push(verdict);
     }
     // CF-4 STRUCTURED (VF-1): when the scenario provides a structured-claims

@@ -1142,7 +1142,16 @@ fn resolve_entity_row(
             let entity_column = cfg
                 .entity_columns
                 .iter()
-                .find(|c| row.values.contains_key(&normalize(c)))
+                .find(|c| {
+                    row.values
+                        .get(&normalize(c))
+                        .is_some_and(|value| normalize(value) == needle)
+                })
+                .or_else(|| {
+                    cfg.entity_columns
+                        .iter()
+                        .find(|c| row.values.contains_key(&normalize(c)))
+                })
                 .cloned();
             return Some(ResolvedRow {
                 table_label: table_label(&path),
@@ -1791,11 +1800,7 @@ fn verify_thresholded(
         // second `File::open`.
         if let Some(source_ref) = claim.source_table.as_deref() {
             if let Ok((_path, cached)) = cached_table_for(cache, index, source_ref, cfg) {
-                if let Some(row) = cached
-                    .rows
-                    .iter()
-                    .find(|r| r.entity.eq_ignore_ascii_case(&claim.entity))
-                {
+                if let Some(row) = cached.get_by_normalized(&normalize(&claim.entity)) {
                     // VF-7 — judge a bare-significance claim on the p-value
                     // column CLASS the claim NAMES. A claim naming an adjusted
                     // threshold ("significant at FDR/padj < 0.05") is judged on
@@ -2424,11 +2429,7 @@ fn verify_categorical(
         Ok(t) => t,
         Err(status) => return status,
     };
-    let Some(row) = cached
-        .rows
-        .iter()
-        .find(|r| r.entity.eq_ignore_ascii_case(&claim.entity))
-    else {
+    let Some(row) = cached.get_by_normalized(&normalize(&claim.entity)) else {
         return ClaimStatus::Unverifiable {
             reason: format!("entity `{}` not found in table", claim.entity),
         };
@@ -2496,11 +2497,7 @@ fn verify_time_series(
             Ok(t) => t,
             Err(status) => return status,
         };
-        let Some(row) = cached
-            .rows
-            .iter()
-            .find(|r| r.entity.eq_ignore_ascii_case(&claim.entity))
-        else {
+        let Some(row) = cached.get_by_normalized(&normalize(&claim.entity)) else {
             return ClaimStatus::Unverifiable {
                 reason: format!("entity `{}` not found in table", claim.entity),
             };
@@ -3095,13 +3092,33 @@ struct CachedTable {
 
 impl CachedTable {
     /// Build from a freshly-parsed `Vec<TableRow>`, precomputing the
-    /// `normalize(entity) -> row index` map. On duplicate entity keys
-    /// the first occurrence wins (matches the prior `iter().find(...)`
-    /// semantics, which returned the earliest matching row).
-    fn from_rows(rows: Vec<TableRow>) -> Self {
+    /// normalized identifier-to-row map. Compatible identifier columns in the
+    /// same family are indexed as aliases, so a `symbol` can resolve the row
+    /// whose primary key is `gene`. On duplicate keys the first occurrence
+    /// wins, matching the prior linear-search behavior.
+    fn from_rows(rows: Vec<TableRow>, entity_columns: &[String]) -> Self {
         let mut by_entity: BTreeMap<String, usize> = BTreeMap::new();
+        let primary_column = rows.first().and_then(|row| {
+            entity_columns
+                .iter()
+                .find(|column| row.values.contains_key(&normalize(column)))
+        });
+        let primary_family = primary_column.and_then(|column| entity_alias_family(column));
         for (i, row) in rows.iter().enumerate() {
             by_entity.entry(normalize(&row.entity)).or_insert(i);
+            if let Some(family) = primary_family {
+                for column in entity_columns {
+                    if entity_alias_family(column) != Some(family) {
+                        continue;
+                    }
+                    let Some(alias) = row.values.get(&normalize(column)) else {
+                        continue;
+                    };
+                    if !alias.trim().is_empty() {
+                        by_entity.entry(normalize(alias)).or_insert(i);
+                    }
+                }
+            }
         }
         Self { rows, by_entity }
     }
@@ -3112,6 +3129,28 @@ impl CachedTable {
         self.by_entity
             .get(needle)
             .and_then(|idx| self.rows.get(*idx))
+    }
+}
+
+/// Identifier columns in one family can safely serve as aliases for a row.
+/// Unrelated dimensions such as `sample` and `gene` never alias each other.
+fn entity_alias_family(column: &str) -> Option<&'static str> {
+    let normalized = normalize(column).replace([' ', '-', '.'], "_");
+    match normalized.as_str() {
+        "gene" | "gene_id" | "gene_name" | "symbol" | "ensembl_id" | "ensembl_gene_id" => {
+            Some("gene")
+        }
+        "pathway" | "pathway_id" | "term" | "gene_set_id" => Some("set"),
+        "sample" | "sample_id" => Some("sample"),
+        "cell" | "cell_id" | "barcode" => Some("cell"),
+        "taxon" | "taxon_id" | "taxon_name" | "otu" | "otu_id" | "asv" => Some("taxon"),
+        "region" | "peak" | "peak_id" | "cpg" | "cpg_id" | "site" | "probe" | "probe_id" => {
+            Some("region")
+        }
+        "variant" | "snp" | "rsid" | "locus" => Some("variant"),
+        "protein" | "protein_id" | "uniprot" => Some("protein"),
+        "transcript" | "transcript_id" => Some("transcript"),
+        _ => None,
     }
 }
 
@@ -3282,7 +3321,7 @@ fn load_table_rows(path: &Path, entity_columns: &[String]) -> Result<CachedTable
     let delimiter = if ext == "csv" { b',' } else { b'\t' };
     let rows = parse_table_rows_from_reader(file, delimiter, entity_columns)
         .with_context(|| format!("parsing {}", path.display()))?;
-    Ok(CachedTable::from_rows(rows))
+    Ok(CachedTable::from_rows(rows, entity_columns))
 }
 
 /// Pure CSV/TSV → `TableRow` parser. No fs access; the caller chose
@@ -4087,6 +4126,17 @@ fn parse_count(raw: &str) -> Option<f64> {
 /// below the claimed threshold and (when present) whose effect size
 /// satisfies the claimed direction / magnitude constraint.
 fn verify_count_claim(text: &str, table_path: &Path, cfg: &ExtractorConfig) -> Option<ClaimStatus> {
+    let cached = load_table_rows(table_path, &cfg.entity_columns).ok()?;
+    verify_count_claim_in_table(text, table_path, cfg, &cached)
+}
+
+/// Verify a count claim against an already loaded table.
+fn verify_count_claim_in_table(
+    text: &str,
+    table_path: &Path,
+    cfg: &ExtractorConfig,
+    cached: &CachedTable,
+) -> Option<ClaimStatus> {
     // "N of M <noun> significant" — the verifiable count is N (how many
     // passed), not M (the total tested). Prefer the leading number when
     // the "X of Y" shape is present; otherwise take the number written
@@ -4101,8 +4151,6 @@ fn verify_count_claim(text: &str, table_path: &Path, cfg: &ExtractorConfig) -> O
     } else {
         parse_count(noun_caps.get(1)?.as_str())?
     };
-
-    let cached = load_table_rows(table_path, &cfg.entity_columns).ok()?;
 
     // No p-value threshold in the claim: handle the "N <grouping> identified"
     // shape ("6 clusters", "12 cell types", "8 taxa") by counting DISTINCT
@@ -4424,28 +4472,39 @@ fn is_round_count(n: f64) -> bool {
 /// entity, so they produce no per-claim `Claim` and bypass the per-entity
 /// verifier entirely — an inflated/fabricated count escapes. This scan splits
 /// the narrative with the SAME splitter as the extractor, and for each
-/// count-shaped sentence recomputes the count from the CITED result table.
+/// count-shaped sentence recomputes the count from the cited result table, or
+/// infers a support link when an emitted result table exactly reproduces an
+/// uncited thresholded count.
 ///
 /// ABSTAIN-FIRST (false-positive safety is paramount — this runs over every
 /// production narrative): a count is checked ONLY when it (a) is not hedged
 /// ("~", "about", "at least"), (b) is not a round-number summary, (c) does not
 /// combine up+down in one sentence (which `verify_count_claim` cannot split),
-/// (d) cites a table that resolves and carries the named significance column.
-/// Any of those → `Unverifiable`, never `Mismatch`. Only an exact, single-
-/// direction, cited count that the table can recompute is promoted, and only to
-/// the verdict `verify_count_claim` returns (Verified when within
-/// `compare_count`'s band, else Mismatch).
+/// and (d) resolves to a table carrying the named significance column. A
+/// non-matching uncited table never produces a Mismatch. Only an exact,
+/// single-direction count that a resolved or inferred table can recompute is
+/// promoted.
 pub fn verify_narrative_counts(
     narrative: &str,
     tables_root: &Path,
+    package_root: &Path,
     cfg: &ExtractorConfig,
 ) -> Vec<ClaimVerdict> {
     let index = TableIndex::scan(tables_root);
     let mut out: Vec<ClaimVerdict> = Vec::new();
-    for sentence in crate::claim_extractor::split_sentences(narrative) {
+    let mut cache: BTreeMap<PathBuf, CachedTable> = BTreeMap::new();
+    let narrative = crate::claim_extractor::strip_system_generated_blocks(narrative);
+    for sentence in crate::claim_extractor::split_sentences(&narrative) {
         let s = sentence.trim();
         // Skip markdown table rows (mined structurally elsewhere).
-        if s.is_empty() || s.starts_with('|') || s.matches('|').count() >= 2 {
+        let emphasized_heading =
+            s.starts_with("**") && s.ends_with("**") && !s.contains(['.', '!', '?']);
+        if s.is_empty()
+            || crate::claim_extractor::is_markdown_heading(s)
+            || emphasized_heading
+            || s.starts_with('|')
+            || s.matches('|').count() >= 2
+        {
             continue;
         }
         let Some(noun_caps) = COUNT_NOUN_RE.captures(s) else {
@@ -4453,6 +4512,12 @@ pub fn verify_narrative_counts(
         };
         let noun = noun_caps.get(2).map(|m| m.as_str()).unwrap_or("items");
         let lower = s.to_lowercase();
+        // Display cardinality is presentation metadata, not an analytical
+        // aggregate claim.
+        if lower.contains("table below") && (lower.contains("shows") || lower.contains("contains"))
+        {
+            continue;
+        }
         let has_up = cfg
             .up_words
             .iter()
@@ -4529,26 +4594,52 @@ pub fn verify_narrative_counts(
             ));
             continue;
         }
-        // Resolve the cited table (cited-first; abstain on absent/unresolved —
-        // no uncited discovery, keeping the production blast radius FP-safe).
-        let Some(src) = crate::claim_extractor::scan_table_reference(s) else {
-            out.push(unverifiable(
-                "no table cited — aggregate count not recomputable",
-            ));
+        // Resolve a cited table before considering evidence discovery.
+        if let Some(src) = crate::claim_extractor::scan_table_reference(s) {
+            let Some(path) = index.resolve(&src) else {
+                out.push(unverifiable(
+                    "cited table for the aggregate count did not resolve",
+                ));
+                continue;
+            };
+            let path = path.to_path_buf();
+            let status = ensure_cached(&mut cache, &path, cfg)
+                .and_then(|cached| verify_count_claim_in_table(s, &path, cfg, cached));
+            match status {
+                Some(status) => out.push(make(status, Some(table_label(&path)))),
+                None => out.push(unverifiable(
+                    "cited table lacks the named significance column or the count is not recomputable",
+                )),
+            }
             continue;
-        };
-        let Some(path) = index.resolve(&src) else {
-            out.push(unverifiable(
-                "cited table for the aggregate count did not resolve",
+        }
+
+        // Infer an evidence link only when an emitted result table positively
+        // reproduces the exact thresholded count. A non-matching uncited table
+        // never creates a Mismatch.
+        let mut candidates = index.distinct_paths();
+        candidates.extend(discovery_candidate_tables(package_root));
+        candidates.sort();
+        candidates.dedup();
+        let mut inferred = None;
+        for path in candidates {
+            let verified = ensure_cached(&mut cache, &path, cfg)
+                .and_then(|cached| verify_count_claim_in_table(s, &path, cfg, cached))
+                .is_some_and(|status| matches!(status, ClaimStatus::Verified));
+            if verified {
+                inferred = Some(path);
+                break;
+            }
+        }
+        if let Some(path) = inferred {
+            out.push(make(
+                ClaimStatus::Verified,
+                Some(package_relative_label(&path, package_root)),
             ));
-            continue;
-        };
-        let path = path.to_path_buf();
-        match verify_count_claim(s, &path, cfg) {
-            Some(status) => out.push(make(status, Some(table_label(&path)))),
-            None => out.push(unverifiable(
-                "cited table lacks the named significance column or the count is not recomputable",
-            )),
+        } else {
+            out.push(unverifiable(
+                "no table cited and no emitted result table reproduced the aggregate count",
+            ));
         }
     }
     out
@@ -5888,6 +5979,54 @@ mod tests {
     }
 
     #[test]
+    fn extreme_claim_resolves_symbol_alias_in_gene_keyed_table() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_table(
+            tmp.path(),
+            "de_results.tsv",
+            "gene\tsymbol\tlog2FC\tpadj\n\
+             ENSG00000109906\tZBTB16\t4.84\t2.21e-40\n\
+             ENSG00000152583\tSPARCL1\t4.31\t7.06e-132\n",
+        );
+        let claim = Claim {
+            entity: "ZBTB16".into(),
+            direction: None,
+            effect_size: Some(4.84),
+            pvalue: Some(2.21e-40),
+            source_table: Some("de_results.tsv".into()),
+            excerpt:
+                "ZBTB16 had the largest positive log2FC (log2FC=4.84, padj=2.21e-40, Table S1)"
+                    .into(),
+            contract: ClaimContract::ExtremeValue,
+            literature_evidence: None,
+            matched_pvalue_keyword: Some("padj".into()),
+            linear_fold: None,
+            aggregate_kind: None,
+            aggregate_column: None,
+            aggregate_rowset: None,
+            aggregate_value: None,
+            collection: None,
+            term: None,
+            keyed_column: None,
+            keyed_value: None,
+        };
+        let report = verify_claims(&[claim], tmp.path(), &cfg);
+        assert!(
+            matches!(report.verdicts[0].status, ClaimStatus::Verified),
+            "a symbol alias must resolve the gene-keyed row: {:?}",
+            report.verdicts[0].status
+        );
+        assert_eq!(
+            report.verdicts[0]
+                .audit
+                .as_ref()
+                .and_then(|audit| audit.entity_column.as_deref()),
+            Some("symbol")
+        );
+    }
+
+    #[test]
     fn anaphoric_subset_extreme_abstains_instead_of_using_global_extreme() {
         let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
         let tmp = tempdir().unwrap();
@@ -6961,7 +7100,7 @@ mod tests {
             "de_c.tsv",
             "gene\tlog2FC\tpvalue\tpadj\nU1\t2.0\t1e-8\t1e-6\nU2\t1.5\t2e-8\t2e-6\nU3\t1.2\t3e-8\t3e-6\nD1\t-2.0\t1e-7\t1e-5\nD2\t-1.5\t2e-7\t2e-5\n",
         );
-        let run = |t: &str| verify_narrative_counts(t, tmp.path(), &cfg);
+        let run = |t: &str| verify_narrative_counts(t, tmp.path(), tmp.path(), &cfg);
 
         // CATCH: inflated count (12 up vs 3).
         let fab = run("12 genes were upregulated at FDR < 0.05 (Table C).");
@@ -6979,6 +7118,24 @@ mod tests {
             "exact count must Verify, got {:?}",
             ok[0].status
         );
+        let inferred = run("3 genes were upregulated at FDR < 0.05.");
+        assert!(
+            matches!(inferred[0].status, ClaimStatus::Verified),
+            "an exact uncited count may infer emitted evidence, got {:?}",
+            inferred[0].status
+        );
+        assert_eq!(inferred[0].claim.source_table.as_deref(), Some("de_c.tsv"));
+
+        for heading in [
+            "# Top 10 genes",
+            "**Top-hits table (top 10 genes):**",
+            "The table below shows the 10 genes.",
+        ] {
+            assert!(
+                run(heading).is_empty(),
+                "presentation headings must not become aggregate claims: {heading}"
+            );
+        }
 
         // ABSTAIN guards — each must be Unverifiable, never Mismatch:
         for (label, text) in [

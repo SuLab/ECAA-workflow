@@ -761,10 +761,9 @@ pub fn verify_task_with_context_deduped(
             }
             // VF-16: aggregate count sentences ("2209 genes upregulated at
             // FDR<0.05 (Table N)") carry no per-entity Claim, so recompute them
-            // from the cited table and fold the verdicts in. Abstain-first
-            // (hedged / round / combined / uncited → Unverifiable) keeps the
-            // production blast radius false-positive-safe.
-            for v in verify_narrative_counts(&narrative, &effective_root, &cfg) {
+            // from cited or matching emitted evidence and fold the verdicts in.
+            // Hedged, rounded, or combined claims remain unverifiable.
+            for v in verify_narrative_counts(&narrative, &effective_root, package_root, &cfg) {
                 report.push(v);
             }
         }
@@ -1345,78 +1344,109 @@ fn compute_task_coverage(
     Some(cov)
 }
 
-/// Build a single significant-count `StructuredClaim` for an enrichment-style
-/// stage from its `result.json` summary + produced table, so the recall floor
-/// can be re-verified by recompute when the agent shipped no `claims[]`.
+/// Build a single significant-count `StructuredClaim` from a stage's
+/// `result.json` summary and produced table, so the recall floor can be
+/// re-verified by recompute when the agent shipped no `claims[]`.
 ///
-/// Detects the pattern `result.json` carries: a declared total
-/// (`n_terms_tested` / `n_genes_tested` / …) and a `n_sig_<kw>_<digits>` count
-/// whose suffix encodes the FDR/padj threshold (`n_sig_fdr_025` → FDR<0.25,
-/// `n_sig_padj_05` → padj<0.05; threshold = trailing-digits / 100). The cited
-/// table is the one whose data-row count equals the declared total — this pins
-/// the 5,426-row `pathway_results.tsv` over a 500-row `enrichment.tsv`, so the
-/// downstream recompute lands on the right denominator. Returns `None` whenever
-/// the pattern is absent, so non-enrichment stages are untouched. The CLAIM is
-/// only a recompute target: [`verify_structured_claims`] recounts the table and
-/// decides Verified/Mismatch, so a wrong threshold/table simply fails to close
-/// the gap rather than asserting a false count.
+/// A declared total can be a scalar or an object with a `total` member.
+/// Significance can use a threshold-bearing key such as `n_sig_fdr_025` or
+/// `n_significant_fdr25`, or `n_significant` with a separate threshold field.
+/// The cited table is the one whose data-row count equals the declared total.
+/// [`verify_structured_claims`] recounts that table, so an inconsistent summary
+/// cannot close the coverage gap.
 fn synthesize_stage_count_claim(package_root: &Path, task_id: &str) -> Option<StructuredClaim> {
     let dir = resolve_task_runtime_dir_local(package_root, task_id)?;
     let raw = std::fs::read_to_string(dir.join("result.json")).ok()?;
     let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
     let obj = value.as_object()?;
 
-    // Declared total (the "of M" denominator).
-    let total = [
+    let (total_key, total) = [
         "n_terms_tested",
         "n_gene_sets_tested",
+        "n_pathways_tested",
         "n_genes_tested",
         "n_features_tested",
     ]
     .iter()
-    .find_map(|k| obj.get(*k).and_then(serde_json::Value::as_u64))?;
+    .find_map(|key| {
+        let value = obj.get(*key)?;
+        let total = value
+            .as_u64()
+            .or_else(|| value.get("total").and_then(serde_json::Value::as_u64))?;
+        Some((*key, total))
+    })?;
     if total == 0 {
         return None;
     }
 
-    // Declared significant count + the threshold encoded in its key suffix.
-    let (count, threshold, noun) = obj.iter().find_map(|(k, val)| {
-        let kl = k.to_ascii_lowercase();
-        if !kl.starts_with("n_sig_") {
+    let explicit_threshold = [
+        ("adjusted_pvalue_threshold", "padj"),
+        ("padj_threshold", "padj"),
+        ("fdr_threshold", "FDR"),
+        ("significance_threshold", "FDR"),
+        ("alpha", "FDR"),
+    ]
+    .iter()
+    .find_map(|(key, label)| {
+        let threshold = obj.get(*key)?.as_f64()?;
+        Some((threshold, *label))
+    });
+
+    let (count, threshold, label) = obj.iter().find_map(|(key, value)| {
+        let key = key.to_ascii_lowercase();
+        if key != "n_significant"
+            && !key.starts_with("n_sig_")
+            && !key.starts_with("n_significant_")
+        {
             return None;
         }
-        let count = val.as_u64()?;
-        let digits: String = kl.chars().rev().take_while(char::is_ascii_digit).collect();
-        if digits.is_empty() {
-            return None;
-        }
-        let digits: String = digits.chars().rev().collect();
-        let threshold = digits.parse::<u32>().ok()? as f64 / 100.0;
+        let count = value.as_u64()?;
+        let digits_reversed: String = key.chars().rev().take_while(char::is_ascii_digit).collect();
+        let encoded_threshold = if digits_reversed.is_empty() {
+            None
+        } else {
+            let digits: String = digits_reversed.chars().rev().collect();
+            Some(digits.parse::<u32>().ok()? as f64 / 100.0)
+        };
+        let (threshold, label) = encoded_threshold
+            .map(|threshold| {
+                let label = if key.contains("padj") || key.contains("adj") {
+                    "padj"
+                } else if key.contains("pvalue") {
+                    "pvalue"
+                } else {
+                    "FDR"
+                };
+                (threshold, label)
+            })
+            .or(explicit_threshold)?;
         if !(threshold > 0.0 && threshold < 1.0) {
             return None;
         }
-        let noun = if kl.contains("fdr")
-            || kl.contains("term")
-            || kl.contains("set")
-            || kl.contains("pathway")
-        {
-            "gene sets"
-        } else {
-            "features"
-        };
-        Some((count, threshold, noun))
+        Some((count, threshold, label))
     })?;
 
-    // The produced table whose data-row count == the declared total.
     let table = stage_count_table(&dir, total)?;
     let rel = table
         .strip_prefix(package_root)
         .ok()?
         .to_string_lossy()
         .into_owned();
+    let noun_source = format!("{task_id}_{total_key}").to_ascii_lowercase();
+    let noun = if noun_source.contains("pathway")
+        || noun_source.contains("enrichment")
+        || noun_source.contains("term")
+        || noun_source.contains("gene_set")
+    {
+        "gene sets"
+    } else if noun_source.contains("gene") {
+        "genes"
+    } else {
+        "features"
+    };
 
     Some(StructuredClaim {
-        claim: format!("{count} of {total} {noun} significant at FDR < {threshold}"),
+        claim: format!("{count} of {total} {noun} significant at {label} < {threshold}"),
         evidence: Some(rel),
     })
 }
@@ -1424,29 +1454,35 @@ fn synthesize_stage_count_claim(package_root: &Path, task_id: &str) -> Option<St
 /// Find a `.tsv`/`.csv` directly under `dir` whose data-row count (lines minus
 /// header) equals `total`. Top-level only (skips `figures/`, `intermediates/`).
 fn stage_count_table(dir: &Path, total: u64) -> Option<PathBuf> {
-    let entries = std::fs::read_dir(dir).ok()?;
-    let mut best: Option<PathBuf> = None;
-    for e in entries.flatten() {
-        let p = e.path();
-        let is_table = p
-            .extension()
-            .and_then(|x| x.to_str())
-            .map(|x| x.eq_ignore_ascii_case("tsv") || x.eq_ignore_ascii_case("csv"))
-            .unwrap_or(false);
-        if !p.is_file() || !is_table {
-            continue;
-        }
-        let Ok(content) = std::fs::read_to_string(&p) else {
+    let mut candidates: Vec<PathBuf> = std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_file()
+                && path
+                    .extension()
+                    .and_then(|extension| extension.to_str())
+                    .is_some_and(|extension| {
+                        extension.eq_ignore_ascii_case("tsv")
+                            || extension.eq_ignore_ascii_case("csv")
+                    })
+        })
+        .collect();
+    candidates.sort();
+    for path in candidates {
+        let Ok(content) = std::fs::read_to_string(&path) else {
             continue;
         };
-        let data_rows = content.lines().filter(|l| !l.trim().is_empty()).count();
-        // lines minus the header row.
+        let data_rows = content
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .count();
         if data_rows >= 1 && (data_rows - 1) as u64 == total {
-            best = Some(p);
-            break;
+            return Some(path);
         }
     }
-    best
+    None
 }
 
 fn expected_claim_matches_task(
@@ -1707,6 +1743,77 @@ mod tests {
     }
 
     #[test]
+    fn synthesize_stage_count_claim_accepts_differential_expression_schema() {
+        let tmp = tempdir().unwrap();
+        let dir = tmp.path().join("runtime/outputs/differential_expression");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("result.json"),
+            r#"{
+                "task_id":"differential_expression",
+                "n_genes_tested":4,
+                "n_significant":2,
+                "adjusted_pvalue_threshold":0.05
+            }"#,
+        )
+        .unwrap();
+        fs::write(
+            dir.join("de_results.tsv"),
+            "gene\tlog2FoldChange\tpadj\nA\t1\t0.01\nB\t-1\t0.04\nC\t0\t0.2\nD\t0\tNA\n",
+        )
+        .unwrap();
+
+        let claim = synthesize_stage_count_claim(tmp.path(), "differential_expression")
+            .expect("differential-expression floor claim synthesized");
+        assert_eq!(claim.claim, "2 of 4 genes significant at padj < 0.05");
+        assert_eq!(
+            claim.evidence.as_deref(),
+            Some("runtime/outputs/differential_expression/de_results.tsv")
+        );
+        let verdicts =
+            verify_structured_claims(std::slice::from_ref(&claim), tmp.path(), &test_cfg());
+        assert!(matches!(
+            verdicts[0].status,
+            crate::claim_verifier::ClaimStatus::Verified
+        ));
+    }
+
+    #[test]
+    fn synthesize_stage_count_claim_accepts_nested_pathway_total() {
+        let tmp = tempdir().unwrap();
+        let dir = tmp.path().join("runtime/outputs/pathway_enrichment");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("result.json"),
+            r#"{
+                "task_id":"pathway_enrichment",
+                "n_pathways_tested":{"H":2,"C2_CP_REACTOME":1,"C5_GO_BP":2,"total":5},
+                "n_significant_fdr25":3
+            }"#,
+        )
+        .unwrap();
+        fs::write(
+            dir.join("pathway_results.tsv"),
+            "term\tNES\tpadj\nA\t1\t0.01\nB\t-1\t0.10\nC\t1\t0.24\nD\t1\t0.30\nE\t1\t0.90\n",
+        )
+        .unwrap();
+
+        let claim = synthesize_stage_count_claim(tmp.path(), "pathway_enrichment")
+            .expect("pathway floor claim synthesized");
+        assert_eq!(claim.claim, "3 of 5 gene sets significant at FDR < 0.25");
+        assert_eq!(
+            claim.evidence.as_deref(),
+            Some("runtime/outputs/pathway_enrichment/pathway_results.tsv")
+        );
+        let verdicts =
+            verify_structured_claims(std::slice::from_ref(&claim), tmp.path(), &test_cfg());
+        assert!(matches!(
+            verdicts[0].status,
+            crate::claim_verifier::ClaimStatus::Verified
+        ));
+    }
+
+    #[test]
     fn synthesize_stage_count_claim_none_for_non_enrichment_stage() {
         // A stage with no n_sig_*/total summary fields yields no derived claim,
         // so ordinary stages are never touched by the floor mechanism.
@@ -1732,7 +1839,7 @@ mod tests {
                     "down": ["downregulated"]
                 },
                 "effectSizeColumns": ["log2FC"],
-                "entityColumns": ["gene"],
+                "entityColumns": ["gene", "term"],
                 "pvalueColumns": ["padj"]
             }
         });

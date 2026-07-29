@@ -72,28 +72,60 @@ use crate::report_contract::ResultSchema;
 /// everything after it: a truncated system block is still system-generated, and
 /// mining its tail would reintroduce the circularity.
 pub fn strip_system_generated_blocks(text: &str) -> String {
-    if !text.contains(FULL_TABLE_START) {
-        return text.to_string();
-    }
-    let mut out = String::with_capacity(text.len());
-    let mut inside = false;
-    for line in text.lines() {
-        if inside {
-            if line.contains(FULL_TABLE_END) {
-                inside = false;
+    let without_generated_table = if text.contains(FULL_TABLE_START) {
+        let mut out = String::with_capacity(text.len());
+        let mut inside = false;
+        for line in text.lines() {
+            if inside {
+                if line.contains(FULL_TABLE_END) {
+                    inside = false;
+                }
+                out.push('\n');
+                continue;
             }
+            if line.contains(FULL_TABLE_START) {
+                // A single line carrying BOTH markers opens and closes in place.
+                inside = !line.contains(FULL_TABLE_END);
+                out.push('\n');
+                continue;
+            }
+            out.push_str(line);
             out.push('\n');
-            continue;
         }
-        if line.contains(FULL_TABLE_START) {
-            // A single line carrying BOTH markers opens and closes in place.
-            inside = !line.contains(FULL_TABLE_END);
-            out.push('\n');
-            continue;
+        out
+    } else {
+        text.to_string()
+    };
+
+    strip_html_comments(&without_generated_table)
+}
+
+/// Blank HTML comments while retaining their newline structure.
+///
+/// Report-control markers such as `<!-- ECAA:data-provenance START -->` are
+/// metadata, not narrative assertions. Leaving them in the prose stream makes
+/// broad entity patterns emit claims for tokens such as `START` and `END`.
+/// Text outside a comment is copied unchanged. An unterminated comment is
+/// blanked through end-of-input.
+fn strip_html_comments(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut cursor = 0usize;
+    while let Some(open_rel) = text[cursor..].find("<!--") {
+        let open = cursor + open_rel;
+        out.push_str(&text[cursor..open]);
+        let after_open = open + "<!--".len();
+        let close = text[after_open..]
+            .find("-->")
+            .map(|rel| after_open + rel + "-->".len())
+            .unwrap_or(text.len());
+        for ch in text[open..close].chars() {
+            if ch == '\n' {
+                out.push('\n');
+            }
         }
-        out.push_str(line);
-        out.push('\n');
+        cursor = close;
     }
+    out.push_str(&text[cursor..]);
     out
 }
 
@@ -1307,6 +1339,7 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
                     || ENTITY_STOPLIST.contains(&tok_upper.as_str());
                 if excluded
                     || is_embedded_in_alnum_token(trimmed, m.start(), m.end())
+                    || is_namespace_component(trimmed, m.start(), m.end())
                     || table_ref_spans
                         .iter()
                         .any(|(start, end)| *start <= m.start() && m.end() <= *end)
@@ -2141,6 +2174,16 @@ fn is_embedded_in_alnum_token(sentence: &str, start: usize, end: usize) -> bool 
     prev_blocks || next_blocks
 }
 
+/// `true` when a broad all-caps match is one component of a colon-delimited
+/// taxonomy or namespace token such as `C2:CP:REACTOME`.
+///
+/// A standalone `CP` can be the ceruloplasmin gene and remains eligible. Only
+/// the colon-adjacent form is structural metadata rather than a gene mention.
+fn is_namespace_component(sentence: &str, start: usize, end: usize) -> bool {
+    sentence[..start].chars().next_back() == Some(':')
+        || sentence[end..].chars().next() == Some(':')
+}
+
 fn is_alnum_token_char(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || ch == '_'
 }
@@ -2394,11 +2437,14 @@ pub(crate) fn scan_table_reference(sentence: &str) -> Option<String> {
     TABLE_REF_RE
         .find_iter(sentence)
         .find(|m| {
-            m.start() == 0
+            let standalone = m.start() == 0
                 || !sentence[..m.start()]
                     .chars()
                     .next_back()
-                    .is_some_and(|c| c.is_alphanumeric() || c == '-' || c == '_')
+                    .is_some_and(|c| c.is_alphanumeric() || c == '-' || c == '_');
+            let label = m.as_str().to_ascii_lowercase();
+            let deictic = matches!(label.as_str(), "table below" | "table above" | "table here");
+            standalone && !deictic
         })
         .map(|m| m.as_str().to_string())
 }
@@ -2696,6 +2742,30 @@ mod tests {
         assert_eq!(
             scan_table_reference("upregulated (log2FC=3.0, Table Z9)").as_deref(),
             Some("Table Z9")
+        );
+        assert_eq!(
+            scan_table_reference("The table below shows the top 10 genes."),
+            None,
+            "a deictic display reference is not an evidence citation"
+        );
+    }
+
+    #[test]
+    fn colon_delimited_taxonomy_tokens_are_not_gene_claims() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let taxonomy = extract_claims(
+            "The C2:CP:REACTOME collection contained 1,070 pathways.",
+            &cfg,
+        );
+        assert!(
+            taxonomy.is_empty(),
+            "namespace components must not become gene claims: {taxonomy:?}"
+        );
+
+        let gene = extract_claims("CP was upregulated (log2FC=2.1).", &cfg);
+        assert!(
+            gene.iter().any(|claim| claim.entity == "CP"),
+            "a standalone CP gene mention must remain eligible"
         );
     }
 
@@ -3923,5 +3993,15 @@ mod tests {
             strip_system_generated_blocks("plain\ntext\n"),
             "plain\ntext\n"
         );
+        let comments = "before\n<!-- ECAA:data-provenance START -->\ninside <!-- control --> outside\n<!-- unterminated";
+        let stripped = strip_system_generated_blocks(comments);
+        assert_eq!(
+            stripped.matches('\n').count(),
+            comments.matches('\n').count()
+        );
+        assert!(stripped.contains("before"));
+        assert!(stripped.contains("inside  outside"));
+        assert!(!stripped.contains("START"));
+        assert!(!stripped.contains("unterminated"));
     }
 }
