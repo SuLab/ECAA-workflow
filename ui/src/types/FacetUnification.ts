@@ -3,7 +3,11 @@
 /**
  * Outcome of unifying one facet across producer/consumer.
  */
-export type FacetUnification = "Exact" | { "Subtype": { rationale: string, } } | { "Substituted": { 
+export type FacetUnification = "Exact" | { "ProducerOnly": { 
+/**
+ * Why this is one-sided rather than an agreement.
+ */
+reason: string, } } | { "Subtype": { rationale: string, } } | { "Substituted": { 
 /**
  * Adapter id.
  */

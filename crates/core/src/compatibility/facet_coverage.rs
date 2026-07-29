@@ -201,10 +201,15 @@ impl FacetCoverage {
                 row.exact_both_declared += 1;
                 self.exact_both_declared += 1;
             }
-            // `Exact` with only one side declared: the producer stated a
-            // value and the consumer placed no constraint on it. Nothing
-            // was checked against anything, so it is not agreement.
+            // Defensive compatibility for a legacy or externally deserialized
+            // `Exact` paired with a missing declaration. New unification emits
+            // `ProducerOnly`, but the coverage report must never count an
+            // inconsistent one-sided row as two-sided agreement.
             FacetUnification::Exact => {
+                row.producer_only += 1;
+                self.producer_only += 1;
+            }
+            FacetUnification::ProducerOnly { .. } => {
                 row.producer_only += 1;
                 self.producer_only += 1;
             }

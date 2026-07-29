@@ -9,9 +9,20 @@ use crate::workflow_contracts::edge::FacetMatchKind;
 /// Outcome of unifying one facet across producer/consumer.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema)]
 #[ts(export)]
+#[non_exhaustive]
 pub enum FacetUnification {
-    /// Identical strings.
+    /// Identical strings. Both sides declared the facet and the values agree —
+    /// the only outcome that is a two-sided match.
     Exact,
+    /// Producer declared the facet; the consumer placed no constraint on it.
+    /// Compatible — an unconstrained consumer cannot be violated — but NOT a
+    /// match: nothing was checked against anything. Held separate from
+    /// [`FacetUnification::Exact`] so a one-sided declaration can never be
+    /// counted, or reported in a proof, as an agreement.
+    ProducerOnly {
+        /// Why this is one-sided rather than an agreement.
+        reason: String,
+    },
     /// Producer subtype of consumer (e.g. consumer accepts
     /// "mammal", producer is "Homo sapiens").
     Subtype { rationale: String },
@@ -37,6 +48,14 @@ impl FacetUnification {
     pub fn match_kind(&self) -> FacetMatchKind {
         match self {
             FacetUnification::Exact => FacetMatchKind::Exact,
+            // A one-sided declaration is reported as `Unknown` — literally
+            // "engine could not decide", which is what happened: the consumer
+            // stated no constraint, so no agreement was established. The wire
+            // enum has no producer-only discriminant; the recorded
+            // producer/consumer values (consumer empty) and the rationale keep
+            // it distinguishable from a facet neither side declared. What it
+            // must NOT be is `Exact`, which asserts a two-sided match.
+            FacetUnification::ProducerOnly { .. } => FacetMatchKind::Unknown,
             FacetUnification::Subtype { .. } => FacetMatchKind::Subtype,
             FacetUnification::Substituted { .. } => FacetMatchKind::Substituted,
             FacetUnification::Unknown { .. } => FacetMatchKind::Unknown,
@@ -48,9 +67,17 @@ impl FacetUnification {
         }
     }
 
-    /// Is compatible.
+    /// Is compatible. `ProducerOnly` is compatible: a consumer that constrains
+    /// nothing cannot be violated. Only a hard mismatch is incompatible.
     pub fn is_compatible(&self) -> bool {
         !matches!(self, FacetUnification::Incompatible { .. })
+    }
+
+    /// True only for a two-sided agreement. Use this — never
+    /// `matches!(.., Exact)` plus a side-channel check on whether the consumer
+    /// declared anything — when counting or reporting facet agreement.
+    pub fn is_two_sided_match(&self) -> bool {
+        matches!(self, FacetUnification::Exact)
     }
 }
 
@@ -59,8 +86,9 @@ impl FacetUnification {
 /// Rules:
 ///
 /// - Both `None` → `Unknown` ("facet unset on both sides").
-/// - Producer `Some(x)`, consumer `None` → `Exact` (consumer
-///   doesn't constrain).
+/// - Producer `Some(x)`, consumer `None` → `ProducerOnly` (the consumer
+///   doesn't constrain the facet, so the edge holds, but no agreement was
+///   checked — this is NOT `Exact`).
 /// - Producer `None`, consumer `Some(x)` → `Unknown` ("producer
 ///   didn't declare {facet}").
 /// - Both `Some(x)`, equal → `Exact`.
@@ -77,7 +105,12 @@ pub fn unify_facet(
         (None, None) => FacetUnification::Unknown {
             reason: format!("{facet_name} unset on both producer and consumer"),
         },
-        (Some(_), None) => FacetUnification::Exact,
+        (Some(_), None) => FacetUnification::ProducerOnly {
+            reason: format!(
+                "{facet_name}: producer declared it; consumer does not constrain it \
+                 — one-sided declaration, no agreement was checked"
+            ),
+        },
         (None, Some(_)) => FacetUnification::Unknown {
             reason: format!("producer did not declare {facet_name}"),
         },
@@ -123,16 +156,67 @@ mod tests {
         assert!(u.is_compatible());
     }
 
+    /// A producer-declared / consumer-unset facet is compatible but is NOT a
+    /// two-sided match: `runtime/proofs.jsonl` reported three such rows as
+    /// `kind:"exact"` with an empty consumer (and, for `statistical_state`, a
+    /// rationale reading "exact statistical-state match on bound port"), which
+    /// inflated the both-sides-declared exact count from 23 to 26.
     #[test]
-    fn exact_when_consumer_unconstrained() {
+    fn producer_only_is_not_reported_as_a_two_sided_exact() {
         let u = unify_facet(
-            "genome_build",
-            Some("GRCh38"),
+            "units",
+            Some("log2 fold change"),
             None,
             never_subtype,
             never_adapter,
         );
-        assert!(matches!(u, FacetUnification::Exact));
+
+        assert!(
+            matches!(u, FacetUnification::ProducerOnly { .. }),
+            "one-sided declaration must not unify Exact, got {u:?}"
+        );
+        assert!(
+            !u.is_two_sided_match(),
+            "nothing was checked against anything"
+        );
+        assert_ne!(
+            u.match_kind(),
+            FacetMatchKind::Exact,
+            "the reported kind must differ from a genuine agreement"
+        );
+
+        // The verdict is unchanged: an unconstrained consumer cannot be violated.
+        assert!(
+            u.is_compatible(),
+            "a one-sided declaration stays compatible, never Incompatible"
+        );
+
+        // And the rationale must not claim a match.
+        let FacetUnification::ProducerOnly { reason } = &u else {
+            unreachable!("asserted above")
+        };
+        assert!(
+            reason.contains("units") && reason.contains("does not constrain"),
+            "the rationale must name the facet and the one-sidedness: {reason}"
+        );
+        assert!(
+            !reason.contains("match"),
+            "a one-sided declaration must not be rationalized as a match: {reason}"
+        );
+    }
+
+    /// Both sides declaring the same value is still — and only — `Exact`.
+    #[test]
+    fn two_sided_agreement_is_still_exact() {
+        let u = unify_facet(
+            "statistical_state",
+            Some("raw_counts"),
+            Some("raw_counts"),
+            never_subtype,
+            never_adapter,
+        );
+        assert!(u.is_two_sided_match());
+        assert_eq!(u.match_kind(), FacetMatchKind::Exact);
     }
 
     #[test]
@@ -226,6 +310,11 @@ mod tests {
         assert_eq!(
             FacetUnification::Unknown { reason: "x".into() }.match_kind(),
             FacetMatchKind::Unknown
+        );
+        assert_eq!(
+            FacetUnification::ProducerOnly { reason: "x".into() }.match_kind(),
+            FacetMatchKind::Unknown,
+            "no wire discriminant for producer-only; it must not borrow Exact's"
         );
     }
 }

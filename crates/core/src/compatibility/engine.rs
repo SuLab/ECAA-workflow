@@ -1159,19 +1159,10 @@ impl DeterministicCompatibilityEngine {
                     // group was bound (the DE `raw_counts → raw_counts` vs
                     // `normalized → normalized` edge).
                     //
-                    // Note the two situations `unify_facet` folds into Exact:
-                    // both sides declared and agreed, and producer declared
-                    // while the consumer left the facet unconstrained. The
-                    // recorded consumer value distinguishes them — it is
-                    // empty in the second case — and `facet_coverage` counts
-                    // them in separate buckets so an unconstrained consumer
-                    // is never read as agreement.
                     let rationale = if name.as_str() == "statistical_state" {
                         "exact statistical-state match on bound port".to_string()
-                    } else if consumer_value.is_some() {
-                        format!("{name}: producer and consumer declared the same value")
                     } else {
-                        format!("{name}: producer declared it; consumer does not constrain it")
+                        format!("{name}: producer and consumer declared the same value")
                     };
                     builder.add_facet(
                         name,
@@ -1179,6 +1170,15 @@ impl DeterministicCompatibilityEngine {
                         *consumer_value,
                         outcome.match_kind(),
                         Some(rationale),
+                    );
+                }
+                FacetUnification::ProducerOnly { reason } => {
+                    builder.add_facet(
+                        name,
+                        *producer_value,
+                        *consumer_value,
+                        outcome.match_kind(),
+                        Some(reason.clone()),
                     );
                 }
                 FacetUnification::Subtype { rationale } => {
