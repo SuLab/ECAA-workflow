@@ -833,12 +833,21 @@ export function useConversation(): UseConversation {
 
   const importAndOpen = useCallback(
     async (file: File) => {
-      const resp = await importPackage(file)
-      // Set capabilities eagerly from the import response so the
-      // read-only badge renders immediately; the sessionId-keyed effect
-      // above re-confirms them on the switch.
-      setCapabilities({ imported: resp.imported, capabilities: resp.capabilities })
-      await switchToSession(resp.session_id)
+      setError(null)
+      try {
+        const resp = await importPackage(file)
+        // Set capabilities eagerly from the import response so the
+        // read-only badge renders immediately; the sessionId-keyed effect
+        // above re-confirms them on the switch.
+        setCapabilities({
+          imported: resp.imported,
+          capabilities: resp.capabilities,
+        })
+        await switchToSession(resp.session_id)
+      } catch (e) {
+        const detail = e instanceof Error ? e.message : String(e)
+        setError(`Could not open package: ${detail}`)
+      }
     },
     [switchToSession],
   )

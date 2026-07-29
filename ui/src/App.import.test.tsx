@@ -104,3 +104,26 @@ it('Open a package uploads and switches to the imported read-only session', asyn
   )
   expect(screen.getByTestId('imported-badge').textContent).toMatch(/read-only/i)
 })
+
+it('Open a package surfaces an invalid archive error', async () => {
+  vi.mocked(importPackage).mockRejectedValueOnce(
+    new Error('unsupported archive format'),
+  )
+
+  render(
+    <ThemeProvider>
+      <App />
+    </ThemeProvider>,
+  )
+
+  const input = await screen.findByTestId('open-package-input')
+  const file = new File(['not an archive'], 'bad.zip', {
+    type: 'application/zip',
+  })
+  await userEvent.upload(input, file)
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'Could not open package: unsupported archive format',
+  )
+  expect(screen.getByTestId('session-id-prefix')).toHaveTextContent('s0')
+})
