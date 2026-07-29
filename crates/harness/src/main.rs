@@ -1048,8 +1048,8 @@ fn stamp_provisioning_policy(
 /// `TaskKind::Computation` exception: compute tasks whose YAML carries
 /// the bare default `NetworkPolicy::None { allowlist: vec![] }` are
 /// upgraded to "bridge". The PROMPT.md install-at-task-start path
-/// (pip / BiocManager / conda for SME-pinned or discover-picked
-/// methods not in the base image) needs network egress, and almost
+/// (`ecaa-install` for SME-pinned or discover-picked methods not in
+/// the base image) needs network egress, and almost
 /// no atom YAML sets `safety.network` explicitly — the empty-
 /// allowlist None is the structural default, not an authored
 /// intent. Compute atoms that GENUINELY need air-gapped execution
@@ -10265,7 +10265,7 @@ mod read_dag_tests {
         // Compute task whose YAML didn't set `safety.network` lands on
         // the structural default `NetworkPolicy::None { allowlist: [] }`.
         // The harness must stamp "bridge" so the agent's install path
-        // (pip / BiocManager / conda) can reach pypi / Bioconductor.
+        // (`ecaa-install`) can reach PyPI / Bioconductor.
         let dag = one_compute_task_dag();
         let mut env: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
         stamp_safety_network(&mut env, &dag, "compute");

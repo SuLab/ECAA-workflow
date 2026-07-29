@@ -25,10 +25,11 @@ You run inside a standardized container. Do not spend turns discovering it:
 - **Python:** use `python3` on `PATH` (equivalently `$ECAA_PY`) — the Python
   interpreter selected for this image. Do **not** search for or test alternate
   interpreters. If an import is genuinely missing, `ecaa-install py <pkg>`.
-- **R:** use `Rscript` — the R interpreter selected for this image. Install
-  extra R packages with `ecaa-install r|bioc` (never raw
-  `install.packages`/`BiocManager`/`conda`) so they append to the base library
-  and base graphics (cairo/ragg) stay importable — never an isolated env.
+- **R:** use `Rscript` for image-provided and CRAN packages. Install CRAN
+  packages with `ecaa-install r <pkg>`. Install Bioconductor packages with
+  `ecaa-install bioc <pkg>` and follow the helper's interpreter hint, normally
+  `conda run -n ecaa-bioc Rscript <script>`. Never call raw
+  `install.packages`, `BiocManager`, `conda`, or `mamba`.
 - **Compute language is your free choice.** Python and R are both first-class
   here; neither is privileged. Pick whichever fits the method — the choice does
   not affect figures (those are rendered downstream from your tables, below).
@@ -44,9 +45,10 @@ You run inside a standardized container. Do not spend turns discovering it:
 - **Installing packages:** if a task needs a package that isn't present, use
   the standard verb **`ecaa-install <py|r|bioc> <pkg>...`** (e.g.
   `ecaa-install bioc DESeq2`, `ecaa-install py scanpy`). It routes to the right
-  ecosystem, installs into the shared per-session cache, and appends to the
-  canonical env so it's reused by later tasks and never shadows base packages.
-  Do **not** call raw `pip` / `conda` / `mamba` / `BiocManager` directly.
+  ecosystem, installs into a shared per-session cache, and records enough
+  information for the environment snapshotter. Do not override `R_LIBS_USER`,
+  `PYTHONUSERBASE`, `CONDA_ENVS_DIRS`, or `CONDA_PKGS_DIRS`. Do **not** call
+  raw `pip`, `install.packages`, `conda`, `mamba`, or `BiocManager` directly.
 - **Resolved context:** your task prompt includes a "Resolved context for this
   task" block listing your completed dependencies' output files and the
   schema (columns) of registered input tables. Use those paths directly — do

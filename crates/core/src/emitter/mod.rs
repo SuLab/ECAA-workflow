@@ -1490,7 +1490,7 @@ Before composite-scoring any `discover_*` candidate pool:\n\
 1. **Read `runtime/env_capability.json`** (harness-written at startup). Two sections both inform candidate scoring:\n\
    - `capabilities` carries six coarse-grained signals — `r_seurat`, `r_cellchat`, `pyscenic`, `python_lisi`, `cellranger_version`, `rna_velocity_capable` — for the historical spec-preference flags.\n\
    - `methods` carries per-method availability for every common candidate (DE: deseq2 / edger / limma_voom / mast / dexseq / drimseq; normalisation: scran / sctransform / deseq2_vst / edger_tmm / seurat_lognormalize; pathway: fgsea / clusterprofiler / gsea / enrichr; clustering: leiden / louvain / umap / phate; integration: harmony / bbknn / scvi / mnn_correct / combat; multi-omics: mofa2 / mofa_plus / mixomics_diablo; cell-type: celltypist / singler / sctype / azimuth; peaks: macs2 / chipseeker / diffbind / csaw; spatial: bayesspace / banksy / squidpy_neighbors; coloc: coloc / susie_coloc / hyprcoloc). Each entry is `{{ available: bool, language: \"python\"|\"r\", probe_target: <import-name> }}`.\n\
-   For each candidate method, check `methods.<id>.available` (or the legacy `capabilities` flag when the method isn't in the `methods` map yet). Candidates whose required capability is unavailable get tagged `{{ env_capability_skip: true, missing: [cap...] }}` in `decision.json::candidate_pool_full` and are DOWN-RANKED (not excluded — the install-at-task-start path may still install them). This signals which methods will need a `pip` / `BiocManager` / `conda` install before they can run, so the discover step can prefer in-image methods when scoring is close.\n\
+   For each candidate method, check `methods.<id>.available` (or the legacy `capabilities` flag when the method isn't in the `methods` map yet). Candidates whose required capability is unavailable get tagged `{{ env_capability_skip: true, missing: [cap...] }}` in `decision.json::candidate_pool_full` and are DOWN-RANKED (not excluded — the install-at-task-start path may still install them). This signals which methods will need `ecaa-install` before they can run, so the discover step can prefer in-image methods when scoring is close.\n\
 \n\
 2. **Apply `task.spec.spec_preferred_methods` boosts.** When the stage's task spec carries a non-empty `spec_preferred_methods: {{method_id: rationale}}` map, apply a `+0.30` boost on the `spec_match` composite axis to every candidate whose `method_id` is a key in that map. Record the boost in `decision.json::candidate_pool_full[i].spec_match_applied` + cite the rationale. Spec-preferred candidates that are env-available MUST outrank non-spec candidates of otherwise equal score. Set `decision.json::spec_preference_applied = true` when the final pick was re-ranked by the boost.\n\
 \n\
@@ -1524,12 +1524,13 @@ The flow at task start:\n\
 \n\
 1. **Resolve the chosen method** from `sme-decisions.json` (`method_substitution.chosen`), the upstream `discover_*` decision (`runtime/outputs/discover_<stage>/decision.json::chosen`), or — if neither pins one — pick from `attributes.candidate_tools` using the same composite-scoring rationale.\n\
 2. **Probe importability** of the package(s) the method requires (`python -c 'import gseapy'`, `Rscript -e 'library(fgsea)'`, etc.). On a clean import, proceed.\n\
-3. **On `ModuleNotFoundError` / package-not-found**, install at task start. Default channel per language:\n\
-   - **Python wheels:** `pip install <name>` (or `pip install <name>==<version>` when the discover decision pins a version).\n\
-   - **R / Bioconductor:** `Rscript -e 'if (!requireNamespace(\"BiocManager\", quietly=TRUE)) install.packages(\"BiocManager\"); BiocManager::install(\"<name>\", update=FALSE, ask=FALSE)'` for Bioconductor packages (fgsea, clusterProfiler, DESeq2, edgeR, limma, …); plain `install.packages(\"<name>\")` for CRAN.\n\
-   - **Conda / bioconda:** `conda install -y -c bioconda -c conda-forge <name>` when neither pip nor BiocManager carries it and the base image has conda.\n\
-   - Capture the install transcript to `runtime/outputs/<task_id>/scripts/00_install.log` and record `language_packages_installed: [{{name, version, channel}}]` in `result.json` so the package stays auditable.\n\
-4. **Re-probe** after install. If the import now succeeds, run the method as-pinned. If the install itself failed (network blocked, package name doesn't exist on the channel, build dependency missing), THEN re-block with `awaiting_structured_decision` and `decision_points_for_sme: [\"switch to <available_alternative>\", \"skip stage\"]`. The install failure goes into the blocker's `evidence` block.\n\
+3. **On `ModuleNotFoundError` / package-not-found**, install at task start with the standard helper. This is the ONLY supported installation path:\n\
+   - **Python:** `ecaa-install py <name>` (or `ecaa-install py <name>==<version>` when the discover decision pins a version).\n\
+   - **CRAN:** `ecaa-install r <name>`.\n\
+   - **Bioconductor:** `ecaa-install bioc <name>` for packages such as fgsea, clusterProfiler, DESeq2, edgeR, and limma. Follow the helper's interpreter hint; Bioconductor packages normally run with `conda run -n ecaa-bioc Rscript <script>`.\n\
+   - Capture the helper transcript to `runtime/outputs/<task_id>/scripts/00_install.log` and record `language_packages_installed: [{{name, version, channel}}]` in `result.json` so the package stays auditable.\n\
+   - **Never** call raw `pip`, `install.packages`, `BiocManager`, `conda`, or `mamba`. Do not override `R_LIBS_USER`, `PYTHONUSERBASE`, `CONDA_ENVS_DIRS`, or `CONDA_PKGS_DIRS`; the executor sets them to writable shared caches that the environment snapshotter records.\n\
+4. **Re-probe** with the same interpreter that `ecaa-install` reported. If the import now succeeds, run the method as pinned. If the helper itself failed (network blocked, package name absent, or an unsatisfied dependency), THEN re-block with `awaiting_structured_decision` and `decision_points_for_sme: [\"switch to <available_alternative>\", \"skip stage\"]`. Put the helper failure in the blocker's `evidence` block.\n\
 \n\
 Treat the install as part of the method's setup, not as an exceptional event. The base image is intentionally minimal; expanding the toolbox at task time is the expected path, not a fallback.\n\
 \n\
@@ -1690,7 +1691,7 @@ This pattern lets every multi-phase task display real progress. Without it the b
 \n\
 ## Package containment (everything stays in $PACKAGE)\n\
 \n\
-The package is a self-contained, byte-reproducible artifact. EVERY script you author, every byte you download, every intermediate file you write, and every environment lock must land somewhere under `$PACKAGE/`. Nothing escapes — no `/tmp/`, no `$HOME/Downloads/`, no system-wide pip/conda/R caches the next runner won't have.\n\
+The package is a self-contained, byte-reproducible artifact. EVERY script you author, every byte you download, every intermediate file you write, and every environment lock must land somewhere under `$PACKAGE/`. Nothing escapes to unmanaged locations such as `/tmp/`, `$HOME/Downloads/`, or system package directories. The executor-managed package caches are the sole exception: `ecaa-install` writes to mounted per-session caches, and the harness captures their resolved locks for export and replay.\n\
 \n\
 ### Required layout under runtime/outputs/<task_id>/\n\
 \n\
@@ -1713,13 +1714,12 @@ Set these BEFORE invoking heavy tools:\n\
 ```bash\n\
 export TMPDIR=\"$PACKAGE/runtime/outputs/<task_id>/tmp\"\n\
 export XDG_CACHE_HOME=\"$PACKAGE/runtime/cache\"\n\
-export R_LIBS_USER=\"$PACKAGE/runtime/r-libs\"\n\
 export PIP_CACHE_DIR=\"$PACKAGE/runtime/cache/pip\"\n\
 export HF_HOME=\"$PACKAGE/runtime/cache/huggingface\"\n\
-mkdir -p \"$TMPDIR\" \"$XDG_CACHE_HOME\" \"$R_LIBS_USER\" \"$PIP_CACHE_DIR\" \"$HF_HOME\"\n\
+mkdir -p \"$TMPDIR\" \"$XDG_CACHE_HOME\" \"$PIP_CACHE_DIR\" \"$HF_HOME\"\n\
 ```\n\
 \n\
-`runtime/cache/` is shared across all tasks in the package; per-task `tmp/` is task-scoped.\n\
+`runtime/cache/` is shared across all tasks in the package; per-task `tmp/` is task-scoped. Do not set `R_LIBS_USER`, `PYTHONUSERBASE`, `CONDA_ENVS_DIRS`, or `CONDA_PKGS_DIRS` here. The executor supplies those values for `ecaa-install`, and overriding them breaks environment snapshotting and replay.\n\
 \n\
 ### When containment is impossible\n\
 \n\
@@ -2068,6 +2068,18 @@ mod figure_contract_tests {
         assert!(
             !AGENT_EXECUTOR_BRIEF.contains("from runtime.plotting.core import generate"),
             "AGENT-EXECUTOR.md must not carry the render-it-yourself snippet"
+        );
+        assert!(
+            AGENT_EXECUTOR_BRIEF.contains("ecaa-install bioc <pkg>"),
+            "AGENT-EXECUTOR.md must route Bioconductor installs through ecaa-install"
+        );
+        assert!(
+            !AGENT_EXECUTOR_BRIEF.contains("BiocManager::install"),
+            "AGENT-EXECUTOR.md must not carry a raw BiocManager recipe"
+        );
+        assert!(
+            !AGENT_EXECUTOR_BRIEF.contains("conda install -y"),
+            "AGENT-EXECUTOR.md must not carry a bare conda recipe"
         );
 
         // (d) COMPUTE-LANGUAGE NEUTRALITY (render-as-contract intent): the

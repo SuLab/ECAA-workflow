@@ -1914,8 +1914,8 @@ fn prompt_md_includes_package_containment_and_git_sections() {
         "must redirect XDG_CACHE_HOME"
     );
     assert!(
-        prompt.contains("export R_LIBS_USER="),
-        "must redirect R_LIBS_USER"
+        prompt.contains("Do not set `R_LIBS_USER`"),
+        "must preserve the executor-managed R library"
     );
     assert!(
         prompt.contains("export PIP_CACHE_DIR="),
@@ -1928,6 +1928,21 @@ fn prompt_md_includes_package_containment_and_git_sections() {
     assert!(
         prompt.contains("containment_violation"),
         "must define a blocker_kind for failed verification"
+    );
+
+    // Installation instructions must agree with AGENT-EXECUTOR.md. Raw
+    // package-manager recipes bypass the shared cache and its replay lock.
+    assert!(
+        prompt.contains("ecaa-install bioc <name>"),
+        "must route Bioconductor installs through ecaa-install"
+    );
+    assert!(
+        !prompt.contains("BiocManager::install"),
+        "must not emit a conflicting raw BiocManager recipe"
+    );
+    assert!(
+        !prompt.contains("conda install -y"),
+        "must not emit a conflicting bare conda recipe"
     );
 
     // Git versioning section
