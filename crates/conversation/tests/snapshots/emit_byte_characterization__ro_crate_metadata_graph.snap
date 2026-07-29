@@ -1,6 +1,6 @@
 ---
 source: crates/conversation/tests/emit_byte_characterization.rs
-assertion_line: 344
+assertion_line: 349
 expression: value
 ---
 {
@@ -721,14 +721,14 @@ expression: value
       "@id": "#step-qc_preprocessing",
       "@type": "HowToStep",
       "additionalType": "computation",
-      "name": "Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
+      "name": "Apply modality-appropriate count-matrix QC. For bulk RNA-seq, columns are\nsamples: assess library size and gene detection, omit cell-only doublet\nscoring, and retain the filtered raw-count matrix as tabular text. Compute a\nmitochondrial fraction only from a versioned annotation or stable-identifier\nmapping retained in the package; do not query a live annotation service for\nthis metric. Record the metric as unavailable when no retained mapping exists.\nSingle-cell workflows may additionally assess per-cell mitochondrial fraction\nand doublet scores. Distinct from `raw_qc`, which operates on raw reads.\necaax:scrnaseq_cell_qc per the EDAM audit; EDAM operation:3218 conflates\nraw-read QC with count-matrix QC.\n",
       "position": 24
     },
     {
       "@id": "#step-validate_qc_preprocessing",
       "@type": "HowToStep",
       "additionalType": "validation",
-      "name": "Validate outputs of: Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
+      "name": "Validate outputs of: Apply modality-appropriate count-matrix QC. For bulk RNA-seq, columns are\nsamples: assess library size and gene detection, omit cell-only doublet\nscoring, and retain the filtered raw-count matrix as tabular text. Compute a\nmitochondrial fraction only from a versioned annotation or stable-identifier\nmapping retained in the package; do not query a live annotation service for\nthis metric. Record the metric as unavailable when no retained mapping exists.\nSingle-cell workflows may additionally assess per-cell mitochondrial fraction\nand doublet scores. Distinct from `raw_qc`, which operates on raw reads.\necaax:scrnaseq_cell_qc per the EDAM audit; EDAM operation:3218 conflates\nraw-read QC with count-matrix QC.\n",
       "position": 25
     },
     {

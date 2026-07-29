@@ -1,5 +1,5 @@
 id: spatial_domain_segmentation
-version: "1.0.0"
+version: "1.1.0"
 role: operation
 description: |
   Segment a spatial-transcriptomics tissue section into regions of similar
@@ -7,7 +7,9 @@ description: |
   Squidpy spatial neighbors, GraphST). Emits per-spot region label + adjacency
   graph that downstream neighborhood-enrichment stages consume.
   ecaax:spatial_clustering — EDAM clusters at operation:3432 but spatial
-  modality has additional graph-aware constraints.
+  modality has additional graph-aware constraints. Retain the spatial object
+  with its domain labels so downstream spatial analyses preserve expression,
+  coordinates, and the fitted segmentation in one typed artifact.
 edam_operation: "ecaax:spatial_clustering"
 edam_data: "ecaax:spatial_coordinates"
 edam_format: "format:3590"
@@ -16,6 +18,7 @@ depends_on:
   - qc_preprocessing
 plot_stage_id: spatial_clustering
 expected_artifacts:
+  - segmented_spatial_object.h5ad
   - spatial_domains.tsv
   - adjacency_graph.json
   - manifest.json
@@ -63,5 +66,18 @@ outputs:
     physical_format:
       iri: "format:3475"
       label: "Tabular text"
+    modality: "spatial_transcriptomics"
+    privacy_class: internal
+  - name: segmented_spatial_object
+    semantic_type:
+      kind: local_extension
+      namespace: "ecaax"
+      id: "spatial_object"
+      proposed_parent_terms:
+        - "data:3917"
+      definition: "Spatial transcriptomics object with fitted domain labels, expression values, and coordinates"
+    physical_format:
+      iri: "format:3590"
+      label: "HDF5"
     modality: "spatial_transcriptomics"
     privacy_class: internal
