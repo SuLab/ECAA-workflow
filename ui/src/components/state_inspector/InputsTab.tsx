@@ -52,6 +52,7 @@ function totalBytes(inp: UserInput): number {
 interface UploadPanelProps {
   sessionId: string | null
   onUploadsRegistered: () => void
+  onStart: () => void
   onError: (msg: string) => void
   onInfo: (msg: string) => void
 }
@@ -67,6 +68,7 @@ interface FileProgress {
 function UploadPanel({
   sessionId,
   onUploadsRegistered,
+  onStart,
   onError,
   onInfo,
 }: UploadPanelProps): JSX.Element {
@@ -81,6 +83,7 @@ function UploadPanel({
         return
       }
       if (!files || files.length === 0) return
+      onStart()
       const token = genUploadToken()
       const list: FileProgress[] = Array.from(files).map((f) => ({
         name: f.name,
@@ -139,7 +142,7 @@ function UploadPanel({
       setBusy(false)
       if (inputRef.current) inputRef.current.value = ''
     },
-    [sessionId, onError, onInfo, onUploadsRegistered],
+    [sessionId, onStart, onError, onInfo, onUploadsRegistered],
   )
 
   return (
@@ -470,8 +473,18 @@ export function InputsTab({ sessionId }: Props): JSX.Element {
       <UploadPanel
         sessionId={sessionId}
         onUploadsRegistered={() => void refresh()}
-        onError={(msg) => setError(msg)}
-        onInfo={(msg) => setInfo(msg)}
+        onStart={() => {
+          setError(null)
+          setInfo(null)
+        }}
+        onError={(msg) => {
+          setInfo(null)
+          setError(msg)
+        }}
+        onInfo={(msg) => {
+          setError(null)
+          setInfo(msg)
+        }}
       />
 
 
