@@ -86,6 +86,45 @@ async fn classify_intake_returns_modality() {
 }
 
 #[tokio::test]
+async fn taxonomy_info_accepts_modality_or_exact_archetype_id() {
+    for id in ["bulk_rnaseq", "bulk_rnaseq_de"] {
+        let mut session = crate::session::Session::new(false);
+        let result = dispatch_one(
+            &Tool::Batchable(BatchableTool::GetTaxonomyInfo {
+                modality_id: id.into(),
+            }),
+            &mut session,
+            &ctx(),
+        )
+        .await;
+        assert!(!result.is_error, "{id}: {:?}", result.content);
+        assert_eq!(result.content["id"], "bulk_rnaseq_de");
+    }
+}
+
+#[tokio::test]
+async fn taxonomy_info_unknown_id_returns_deterministic_alternatives() {
+    let mut session = crate::session::Session::new(false);
+    let result = dispatch_one(
+        &Tool::Batchable(BatchableTool::GetTaxonomyInfo {
+            modality_id: "not_a_real_modality".into(),
+        }),
+        &mut session,
+        &ctx(),
+    )
+    .await;
+    assert!(result.is_error);
+    let alternatives = result.content["valid_alternatives"]
+        .as_array()
+        .expect("validation error must expose alternatives");
+    assert!(alternatives.iter().any(|value| value == "bulk_rnaseq"));
+    assert!(alternatives.iter().any(|value| value == "bulk_rnaseq_de"));
+    assert!(alternatives
+        .windows(2)
+        .all(|pair| pair[0].as_str() <= pair[1].as_str()));
+}
+
+#[tokio::test]
 async fn classify_intake_rejects_empty() {
     let mut s = crate::session::Session::new(false);
     let res = dispatch_one(

@@ -374,11 +374,14 @@ fn raw_tool_schemas() -> Vec<serde_json::Value> {
         }),
         json!({
             "name": "get_taxonomy_info",
-            "description": "Load taxonomy details for a given modality id. Returns stage list, claim boundary, policies, and intake_hints.",
+            "description": "Load taxonomy details for a modality or exact archetype id. Returns stage list, claim boundary, policies, and intake_hints.",
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "modality_id": { "type": "string" }
+                    "modality_id": {
+                        "type": "string",
+                        "description": "Primary modality id such as bulk_rnaseq, or exact archetype id such as bulk_rnaseq_de."
+                    }
                 },
                 "required": ["modality_id"]
             }

@@ -134,9 +134,9 @@ pub enum BatchableTool {
         /// Free-text intake prose to classify.
         prose: String,
     },
-    /// Return the taxonomy info (atom list, method options) for a given modality.
+    /// Return the taxonomy info (atom list, method options) for a modality or archetype.
     GetTaxonomyInfo {
-        /// Modality identifier (e.g. `bulk_rnaseq`).
+        /// Modality or archetype identifier (e.g. `bulk_rnaseq` or `bulk_rnaseq_de`).
         modality_id: String,
     },
     /// Return the current session state snapshot (state, intake, DAG summary).
