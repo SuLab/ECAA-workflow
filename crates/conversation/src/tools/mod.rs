@@ -1672,10 +1672,7 @@ fn dispatch_batchable(
             // so the intake agent falls back to asking the SME.
             let acc = accession.clone();
             let probed = match tokio::runtime::Handle::try_current() {
-                Ok(h)
-                    if h.runtime_flavor()
-                        == tokio::runtime::RuntimeFlavor::MultiThread =>
-                {
+                Ok(h) if h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
                     tokio::task::block_in_place(|| {
                         h.block_on(crate::dataset_probe::probe_accession(&acc))
                     })
@@ -2132,10 +2129,36 @@ pub(crate) fn dag_has_bound_analysis(dag: &ecaa_workflow_core::dag::DAG) -> bool
 pub(crate) fn prose_requests_analysis(session: &Session) -> bool {
     let p = session.intake_prose.to_ascii_lowercase();
     const VERBS: &[&str] = &[
-        "analy", "test", "identif", "compar", "predict", "rank", "enrich", "associat",
-        "correlat", "cluster", "differential", "stratif", "mediat", "regress", "classif",
-        "deconvol", "coloc", "pleiotrop", "concord", "signature", "which ", "do the", "does ",
-        "are there", "find ", "detect", "quantif", "estimate", "model ", "score",
+        "analy",
+        "test",
+        "identif",
+        "compar",
+        "predict",
+        "rank",
+        "enrich",
+        "associat",
+        "correlat",
+        "cluster",
+        "differential",
+        "stratif",
+        "mediat",
+        "regress",
+        "classif",
+        "deconvol",
+        "coloc",
+        "pleiotrop",
+        "concord",
+        "signature",
+        "which ",
+        "do the",
+        "does ",
+        "are there",
+        "find ",
+        "detect",
+        "quantif",
+        "estimate",
+        "model ",
+        "score",
     ];
     VERBS.iter().any(|v| p.contains(v))
 }
@@ -2176,13 +2199,23 @@ fn auto_author_analysis_node(session: &mut Session) {
     let Some(wf) = session.workflow_dag.as_mut() else {
         return;
     };
-    if wf.nodes.iter().any(|n| n.id.as_str() == "agent_generated_analysis") {
+    if wf
+        .nodes
+        .iter()
+        .any(|n| n.id.as_str() == "agent_generated_analysis")
+    {
         return; // idempotent
     }
-    let upstream = ["normalisation", "qc_preprocessing", "raw_qc", "data_import", "data_acquisition"]
-        .iter()
-        .find(|c| wf.nodes.iter().any(|n| n.id.as_str() == **c))
-        .map(|s| s.to_string());
+    let upstream = [
+        "normalisation",
+        "qc_preprocessing",
+        "raw_qc",
+        "data_import",
+        "data_acquisition",
+    ]
+    .iter()
+    .find(|c| wf.nodes.iter().any(|n| n.id.as_str() == **c))
+    .map(|s| s.to_string());
     let terminal = ["generic_summary", "reporting", "final_reporting"]
         .iter()
         .find(|c| wf.nodes.iter().any(|n| n.id.as_str() == **c))
@@ -2199,7 +2232,8 @@ fn auto_author_analysis_node(session: &mut Session) {
         serde_json::to_value(ecaa_workflow_core::atom::AtomAssignee::Agent)
             .unwrap_or(serde_json::Value::Null),
     );
-    node.lifecycle_state = ecaa_workflow_core::workflow_contracts::lifecycle::LifecycleState::Production;
+    node.lifecycle_state =
+        ecaa_workflow_core::workflow_contracts::lifecycle::LifecycleState::Production;
     node.inputs = vec![PortContract::from_edam(
         "analysis_input",
         Some("data:0006"),

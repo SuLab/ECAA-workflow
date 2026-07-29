@@ -122,9 +122,9 @@ impl TaskRunner for HarnessRunner {
         set_task_ready(pkg, &directive.task)?;
 
         // 2. Re-run the harness over the package, scoped to the agent cmd.
-        let pkg_str = pkg.to_str().ok_or_else(|| {
-            anyhow::anyhow!("package path is not valid UTF-8: {}", pkg.display())
-        })?;
+        let pkg_str = pkg
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("package path is not valid UTF-8: {}", pkg.display()))?;
         let max_iters = self.max_iterations.to_string();
         run_harness_subprocess(pkg_str, &self.agent_cmd, &max_iters)
     }
@@ -136,27 +136,24 @@ impl TaskRunner for HarnessRunner {
 /// atomic write.
 fn set_task_ready(pkg: &Path, task: &str) -> Result<()> {
     let wf_path = pkg.join("WORKFLOW.json");
-    let bytes = std::fs::read(&wf_path)
-        .with_context(|| format!("reading {}", wf_path.display()))?;
-    let mut doc: serde_json::Value = serde_json::from_slice(&bytes)
-        .with_context(|| format!("parsing {}", wf_path.display()))?;
+    let bytes =
+        std::fs::read(&wf_path).with_context(|| format!("reading {}", wf_path.display()))?;
+    let mut doc: serde_json::Value =
+        serde_json::from_slice(&bytes).with_context(|| format!("parsing {}", wf_path.display()))?;
 
     let task_obj = doc
         .get_mut("tasks")
         .and_then(|t| t.get_mut(task))
-        .ok_or_else(|| {
-            anyhow::anyhow!("task '{}' not found in {}", task, wf_path.display())
-        })?;
-    let obj = task_obj.as_object_mut().ok_or_else(|| {
-        anyhow::anyhow!("task '{}' is not a JSON object", task)
-    })?;
+        .ok_or_else(|| anyhow::anyhow!("task '{}' not found in {}", task, wf_path.display()))?;
+    let obj = task_obj
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("task '{}' is not a JSON object", task))?;
     obj.insert(
         "state".to_string(),
         serde_json::json!({ "status": "ready" }),
     );
 
-    let serialized =
-        serde_json::to_vec_pretty(&doc).context("serializing WORKFLOW.json")?;
+    let serialized = serde_json::to_vec_pretty(&doc).context("serializing WORKFLOW.json")?;
     ecaa_workflow_core::fs_helpers::atomic_write_bytes_sync(&wf_path, &serialized)
         .with_context(|| format!("atomic write {}", wf_path.display()))?;
     Ok(())
@@ -170,7 +167,14 @@ fn run_harness_subprocess(pkg: &str, agent_cmd: &str, max_iters: &str) -> Result
 
     let harness_bin = "ecaa-workflow-harness";
     let status = Command::new(harness_bin)
-        .args(["--package", pkg, "--agent", agent_cmd, "--max-iterations", max_iters])
+        .args([
+            "--package",
+            pkg,
+            "--agent",
+            agent_cmd,
+            "--max-iterations",
+            max_iters,
+        ])
         .status();
 
     match status {
@@ -303,7 +307,10 @@ mod tests {
         let bytes = std::fs::read(dir.path().join("WORKFLOW.json")).expect("read back");
         let dag: DAG = serde_json::from_slice(&bytes).expect("DAG round-trips");
         assert!(
-            matches!(dag.tasks.get("deseq").expect("task").state, TaskState::Ready),
+            matches!(
+                dag.tasks.get("deseq").expect("task").state,
+                TaskState::Ready
+            ),
             "already-Ready task must stay Ready"
         );
     }

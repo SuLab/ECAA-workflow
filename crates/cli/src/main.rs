@@ -9,8 +9,8 @@ mod audit_fold;
 mod chat;
 mod chat_llm;
 // `export` subcommand. Emits a clean, deposit-ready `.zip` of a completed
-// package (tier A+B only; caches / logs / `.git` stripped, BagIt + RO-Crate
-// re-sealed).
+// package (tier A+B only; caches / logs / `.git` stripped, checksum seal +
+// RO-Crate re-sealed).
 mod export;
 // `deposit-check` subcommand (Layer 3). Reads a package's
 // `DEPOSIT-READINESS.json` and refuses a package that was not produced by a
@@ -174,13 +174,13 @@ enum Commands {
     Replay(replay::ReplayArgs),
     /// Export a clean, deposit-ready `.zip` of a completed package: copy
     /// the tier A+B audit/review/deposit + re-execution surface into a
-    /// scratch tree, re-seal the BagIt manifest + RO-Crate, strip `.git`,
+    /// scratch tree, re-seal the SHA-512 manifest + RO-Crate, strip `.git`,
     /// and pack the result into `--out`. Caches, R libraries, logs,
     /// heartbeats, and other reproducible bloat are dropped.
     Export(export::ExportArgs),
     /// Deposit gate (Layer 3): read a package's `DEPOSIT-READINESS.json` and
     /// refuse (non-zero exit) any package that was not produced by a
-    /// self-validating export, or whose RO-Crate / BagIt self-validation failed,
+    /// self-validating export, or whose RO-Crate / checksum self-validation failed,
     /// or whose re-execution FAILED. `--strict` also refuses a package whose
     /// re-execution was never verified. Run before trusting a deposit.
     DepositCheck(deposit_check::DepositCheckArgs),
@@ -865,22 +865,21 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
     let compose_strict = ecaa_workflow_core::config::Config::from_env()
         .map(|c| c.compose_strict)
         .unwrap_or(false);
-    let output_compose =
-        ecaa_workflow_core::composer::compose_with_modalities_full_pref_strict(
-            &goal,
-            project_class_str,
-            &atoms,
-            &archetypes,
-            &modalities,
-            None,
-            // R1/R2 closure — `intake` is the deterministic CLI entry; no
-            // chat session attached, so the opaque sink stays None.
-            None,
-            None,
-            &preferred_methods,
-            compose_strict,
-        )
-        .map_err(|e| anyhow::anyhow!("v4 composer dispatch failed: {:?}", e))?;
+    let output_compose = ecaa_workflow_core::composer::compose_with_modalities_full_pref_strict(
+        &goal,
+        project_class_str,
+        &atoms,
+        &archetypes,
+        &modalities,
+        None,
+        // R1/R2 closure — `intake` is the deterministic CLI entry; no
+        // chat session attached, so the opaque sink stays None.
+        None,
+        None,
+        &preferred_methods,
+        compose_strict,
+    )
+    .map_err(|e| anyhow::anyhow!("v4 composer dispatch failed: {:?}", e))?;
     // Literature contextualization is unconditional — the
     // review_prior_work + contextualize_findings_with_literature atoms
     // are present in every emitted DAG regardless of intake keywords, so

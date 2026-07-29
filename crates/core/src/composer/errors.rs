@@ -116,7 +116,9 @@ pub enum CompositionError {
     /// emit (e.g. a `pathway_enrichment` whose `gene_set_collection`
     /// input — data:2600 — has no gene-set source). Surfaces the atom id
     /// + the unsourced port name so the blocker UI can name the gap.
-    #[error("atom {atom_id} has a required input port {port} that no upstream producer can source")]
+    #[error(
+        "atom {atom_id} has a required input port {port} that no upstream producer can source"
+    )]
     UnsourcedRequiredInput {
         /// Atom (node) id in the composed DAG.
         atom_id: String,

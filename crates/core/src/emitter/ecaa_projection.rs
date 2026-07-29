@@ -473,10 +473,10 @@ fn project_intent_subgraph(pkg: &LoadedPackage) -> Vec<SpecNode> {
 }
 
 /// Project the C (Claim) sub-graph from `claim-verification.json`. Each
-/// `verdicts[]` entry becomes a `Claim` node; each `supported_by[]` string
-/// becomes a cross-graph `supported_by` edge tagged into V (§5.5 anchors
-/// Invariant 1). The 3-value status enum is mapped onto the closed
-/// `verified|pending|contradicted` spec set.
+/// `verdicts[]` entry becomes a `Claim` node. Each `supported_by[]` string
+/// becomes a cross-graph `supported_by` edge and each `contradicts[]` string
+/// becomes a `contradicts` edge tagged into V. The 3-value status enum is
+/// mapped onto the closed `verified|pending|contradicted` spec set.
 fn project_claim_subgraph(pkg: &LoadedPackage) -> Vec<Value> {
     let Some(claims) = pkg.claims.as_ref() else {
         return Vec::new();
@@ -516,6 +516,13 @@ fn project_claim_subgraph(pkg: &LoadedPackage) -> Vec<Value> {
                 // The supported_by target is a V Evidence node; tag it into V.
                 let target = format!("V:{}", evidence_local_id(r));
                 let edge = SpecEdge::new(&id, target, SpecPredicate::SupportedBy);
+                out.push(edge.to_value('C'));
+            }
+        }
+        if let Some(refs) = v.get("contradicts").and_then(Value::as_array) {
+            for r in refs.iter().filter_map(Value::as_str) {
+                let target = format!("V:{}", evidence_local_id(r));
+                let edge = SpecEdge::new(&id, target, SpecPredicate::Contradicts);
                 out.push(edge.to_value('C'));
             }
         }
@@ -810,11 +817,11 @@ pub fn project_audit_proof_jsonld(report: &Value) -> Vec<Value> {
 ///
 /// REUSES [`project_claim_subgraph`] verbatim (which owns the `claim_id`
 /// sanitization, the `verified|pending|contradicted` [`map_claim_status`]
-/// mapping, and the `supported_by → V:` [`evidence_local_id`] edge derivation)
-/// by handing it a minimal [`LoadedPackage`] carrying only the claims; the spec
-/// node/edge output is then RESHAPED into `@graph` nodes with the
-/// `supported_by` edge FOLDED onto its `Claim` node as a JSON-LD object
-/// reference (idiomatic in an RO-Crate `@graph`, mirroring
+/// mapping, and the Evidence edge derivation) by handing it a minimal
+/// [`LoadedPackage`] carrying only the claims; the spec node/edge output is
+/// then RESHAPED into `@graph` nodes with `supported_by` and `contradicts`
+/// edges FOLDED onto each `Claim` node as JSON-LD object references (idiomatic
+/// in an RO-Crate `@graph`, mirroring
 /// [`project_audit_proof_jsonld`]'s `evaluated_against` fold).
 ///
 /// Each verdict becomes one node:
@@ -866,7 +873,7 @@ pub fn project_claim_jsonld(claims: &Value) -> Vec<Value> {
         }
         // Spec edges are intentionally ignored here (see above).
     }
-    // Fold each verdict's REAL-path `supported_by` onto its Claim node. The node
+    // Fold each verdict's REAL-path evidence edges onto its Claim node. The node
     // `@id` is `C:<sanitize(claim_id)>` — the exact id `project_claim_subgraph`
     // assigns — so this re-keys deterministically. The folded `@id` is the
     // recorded `supported_by` path verbatim (the registered File entity's
@@ -883,23 +890,28 @@ pub fn project_claim_jsonld(claims: &Value) -> Vec<Value> {
             let Some(node) = nodes.get_mut(&node_id) else {
                 continue;
             };
-            let Some(refs) = v.get("supported_by").and_then(Value::as_array) else {
-                continue;
-            };
-            for r in refs.iter().filter_map(Value::as_str) {
-                // Only real File-path references are folded. A `<letter>:<id>`
-                // prefix-tagged value or empty string has no registered File
-                // entity to point at, so it is dropped (not dangled).
-                if r.is_empty() || is_prefix_tagged(r) {
+            for (field, predicate) in [
+                ("supported_by", SpecPredicate::SupportedBy),
+                ("contradicts", SpecPredicate::Contradicts),
+            ] {
+                let Some(refs) = v.get(field).and_then(Value::as_array) else {
                     continue;
-                }
-                let arr = node
-                    .as_object_mut()
-                    .expect("node is an object literal")
-                    .entry(SpecPredicate::SupportedBy.as_str())
-                    .or_insert_with(|| Value::Array(Vec::new()));
-                if let Some(a) = arr.as_array_mut() {
-                    a.push(json!({ "@id": r }));
+                };
+                for r in refs.iter().filter_map(Value::as_str) {
+                    // Only real File-path references are folded. A `<letter>:<id>`
+                    // prefix-tagged value or empty string has no registered File
+                    // entity to point at, so it is dropped (not dangled).
+                    if r.is_empty() || is_prefix_tagged(r) {
+                        continue;
+                    }
+                    let arr = node
+                        .as_object_mut()
+                        .expect("node is an object literal")
+                        .entry(predicate.as_str())
+                        .or_insert_with(|| Value::Array(Vec::new()));
+                    if let Some(a) = arr.as_array_mut() {
+                        a.push(json!({ "@id": r }));
+                    }
                 }
             }
         }

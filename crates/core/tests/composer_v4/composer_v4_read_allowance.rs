@@ -36,7 +36,9 @@ use ecaa_workflow_core::atom_registry::AtomRegistry;
 use ecaa_workflow_core::composer_v4::{plan as v4_plan, PlanningContext};
 use ecaa_workflow_core::goal_spec::GoalSpec;
 use ecaa_workflow_core::provenance::ObservedRead;
-use ecaa_workflow_core::ro_crate::{parameter_connection_entity, reconcile_ro_crate_edges_with_allowances};
+use ecaa_workflow_core::ro_crate::{
+    parameter_connection_entity, reconcile_ro_crate_edges_with_allowances,
+};
 use ecaa_workflow_core::workflow_contracts::data_product::DataProductContract;
 use ecaa_workflow_core::workflow_contracts::outcome::ComposeOutcome;
 use ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag;
@@ -127,7 +129,11 @@ fn bulk_rnaseq_normalisation_gets_a_typed_data_acquisition_metadata_edge() {
             dag.edges
                 .iter()
                 .filter(|e| e.to_node == "normalisation")
-                .map(|e| (e.from_node.as_str(), e.from_port.as_str(), e.to_port.as_str()))
+                .map(|e| (
+                    e.from_node.as_str(),
+                    e.from_port.as_str(),
+                    e.to_port.as_str()
+                ))
                 .collect::<Vec<_>>()
         )
     });
@@ -237,8 +243,8 @@ fn every_synthesized_validator_carries_an_upstream_read_allowance() {
             panic!("validator {v} has no read_allowance — its cross-stage re-reads would false-divergence and block the deposit")
         });
         assert!(
-            a.iter().any(|x| x.scope
-                == ecaa_workflow_core::atom::ReadAllowanceScope::AnyUpstreamStage),
+            a.iter()
+                .any(|x| x.scope == ecaa_workflow_core::atom::ReadAllowanceScope::AnyUpstreamStage),
             "validator {v} allowance must include AnyUpstreamStage: {a:?}"
         );
     }
@@ -260,7 +266,9 @@ fn node_read_allowances(dag: &WorkflowDag) -> BTreeMap<String, Vec<ReadAllowance
 /// `ParameterConnection` node per declared edge — enough for
 /// `reconcile_ro_crate_edges_with_allowances` to stamp against, mirroring
 /// `crate::ro_crate`'s own `graph_with_parameter_connections` test helper.
-fn graph_with_parameter_connections(edges: &[ecaa_workflow_core::workflow_contracts::edge::EdgeContract]) -> Value {
+fn graph_with_parameter_connections(
+    edges: &[ecaa_workflow_core::workflow_contracts::edge::EdgeContract],
+) -> Value {
     let mut graph: Vec<Value> = vec![json!({"@id": "./", "@type": "Dataset", "hasPart": []})];
     for e in edges {
         graph.push(parameter_connection_entity(
@@ -374,7 +382,9 @@ fn bulk_rnaseq_reconciliation_has_no_unresolved_divergence() {
     let allowed = root
         .get("ecaax:provenanceReadAllowance")
         .and_then(Value::as_array)
-        .unwrap_or_else(|| panic!("expected ecaax:provenanceReadAllowance to record the sanctioned reads"));
+        .unwrap_or_else(|| {
+            panic!("expected ecaax:provenanceReadAllowance to record the sanctioned reads")
+        });
     // 3 cross-stage reads each for final_reporting + validate_final_reporting.
     assert_eq!(
         allowed.len(),

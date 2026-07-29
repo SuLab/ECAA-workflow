@@ -42,8 +42,7 @@ fn copy_tree(src: &Path, dst: &Path) {
 }
 
 fn stage_gap_pkg() -> (tempfile::TempDir, std::path::PathBuf) {
-    let fixture =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/coverage-gap-pkg");
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/coverage-gap-pkg");
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("pkg");
     copy_tree(&fixture, &root);

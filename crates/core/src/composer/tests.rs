@@ -1026,8 +1026,8 @@ fn joint_with_rejects_mismatched_sources() {
         resource_estimate: ResourceEstimate::default(),
     };
     let registry = registry_from(vec![counts, protein, integrate]);
-    let err =
-        validate_composition(&result, &registry, None).expect_err("must surface JointSourceMismatch");
+    let err = validate_composition(&result, &registry, None)
+        .expect_err("must surface JointSourceMismatch");
     match err {
         CompositionError::JointSourceMismatch {
             atom,

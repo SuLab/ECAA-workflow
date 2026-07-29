@@ -20,7 +20,10 @@ use crate::clock::Clock;
 use super::report_data::{
     build_entity_rows, join_literature, load_policy_column_synonyms, should_spill,
 };
-use super::{ReportData, ResultArtifactSummary, ResultSchema, summarize_artifact, write_supplementary};
+use super::{
+    rank_artifact, summarize_artifact, write_supplementary, ReportData, ResultArtifactSummary,
+    ResultSchema,
+};
 
 /// The stage_id of the literature-contextualization atom whose outputs
 /// (`claims_evidence_matrix.csv` + `result.json`) feed [`join_literature`].
@@ -31,6 +34,11 @@ use super::{ReportData, ResultArtifactSummary, ResultSchema, summarize_artifact,
 /// before the literature matrix exists — the read-side and the dependency-side
 /// therefore cannot drift.
 pub const CONTEXTUALIZE_STAGE_ID: &str = "contextualize_findings_with_literature";
+
+/// Number of canonical rows retained per sign class for report top-hit tables.
+/// The list is deliberately larger than a typical narrative excerpt so a
+/// report may render a shorter prefix without recomputing the order.
+pub const REPORT_RANKING_TOP_N: usize = 25;
 
 /// Picks the delimiter for a result artifact by sniffing its CONTENT, using
 /// the file extension only as the fallback when the content is ambiguous
@@ -122,6 +130,7 @@ pub fn assemble_report_data(
 
         let (headers, rows) = read_table(&artifact_path)?;
         let stats = summarize_artifact(&rows, &headers, schema, &synonyms);
+        let ranking = rank_artifact(&rows, &headers, schema, &synonyms, REPORT_RANKING_TOP_N);
 
         let stem = Path::new(&schema.artifact)
             .file_stem()
@@ -140,7 +149,13 @@ pub fn assemble_report_data(
         let entities = if spilled {
             Vec::new()
         } else {
-            build_entity_rows(&rows, &headers, schema, &synonyms, &stats.significant_row_indices)
+            build_entity_rows(
+                &rows,
+                &headers,
+                schema,
+                &synonyms,
+                &stats.significant_row_indices,
+            )
         };
 
         let start = all_sig_entities.len();
@@ -156,6 +171,7 @@ pub fn assemble_report_data(
             direction_split: stats.direction_split,
             effect_distribution: stats.effect_distribution,
             grouped_significant: stats.grouped_significant,
+            ranking,
             significant_entities: entities,
             significant_table_path: format!("runtime/outputs/{stage_id}/{sig_rel}"),
             full_table_path: format!("runtime/outputs/{stage_id}/{full_rel}"),
@@ -176,7 +192,10 @@ pub fn assemble_report_data(
         None
     };
 
-    let report = ReportData { artifacts, literature };
+    let report = ReportData {
+        artifacts,
+        literature,
+    };
 
     let reporting_dir = outputs_dir.join("reporting");
     std::fs::create_dir_all(&reporting_dir)
@@ -260,6 +279,18 @@ mod tests {
         assert_eq!(artifact.n_significant, Some(2));
         assert!(!artifact.spilled_to_attachment_only);
         assert_eq!(artifact.significant_entities.len(), 2);
+        let ranking = artifact
+            .ranking
+            .as_ref()
+            .expect("resolved schema must produce a canonical ranking");
+        assert_eq!(
+            ranking.top_enriched().map(|term| term.entity.as_str()),
+            Some("ENSG1")
+        );
+        assert_eq!(
+            ranking.top_depleted().map(|term| term.entity.as_str()),
+            Some("ENSG2")
+        );
 
         let report_json_path = outputs.join("reporting").join("report-data.json");
         assert!(report_json_path.exists());
@@ -275,12 +306,24 @@ mod tests {
             .join("de_results.full.tsv");
         assert!(sig_table.exists());
         assert!(full_table.exists());
-        assert_eq!(std::fs::read_to_string(&sig_table).unwrap().lines().count(), 3);
-        assert_eq!(std::fs::read_to_string(&full_table).unwrap().lines().count(), 4);
+        assert_eq!(
+            std::fs::read_to_string(&sig_table).unwrap().lines().count(),
+            3
+        );
+        assert_eq!(
+            std::fs::read_to_string(&full_table)
+                .unwrap()
+                .lines()
+                .count(),
+            4
+        );
 
         // Rollup built from the matrix rows: 1 same_direction (entity GONE) +
         // 1 no_prior_finding (novel).
-        let lit = report.literature.as_ref().expect("contextualize dir present");
+        let lit = report
+            .literature
+            .as_ref()
+            .expect("contextualize dir present");
         assert_eq!(lit.concordant.len(), 1);
         // LitFinding.entity is the matrix's `entity` column, not the report-data
         // row identifier (which matched by finding_id).
@@ -294,9 +337,14 @@ mod tests {
             .collect();
         assert_eq!(
             by_entity["ENSG1"],
-            crate::report_contract::LiteratureStatus::Concordant { pmid: "555".to_string() }
+            crate::report_contract::LiteratureStatus::Concordant {
+                pmid: "555".to_string()
+            }
         );
-        assert_eq!(by_entity["ENSG2"], crate::report_contract::LiteratureStatus::Novel);
+        assert_eq!(
+            by_entity["ENSG2"],
+            crate::report_contract::LiteratureStatus::Novel
+        );
     }
 
     #[test]
@@ -318,7 +366,10 @@ mod tests {
             .join("outputs")
             .join("reporting")
             .join("report-data.json");
-        assert!(report_json_path.exists(), "report-data.json is always written");
+        assert!(
+            report_json_path.exists(),
+            "report-data.json is always written"
+        );
     }
 
     #[test]
@@ -371,6 +422,19 @@ mod tests {
                     n_significant: 1
                 },
             ]
+        );
+        let ranking = report.artifacts[0]
+            .ranking
+            .as_ref()
+            .expect("unsigned pathway artifact still has one canonical list");
+        assert!(!ranking.directional);
+        assert_eq!(
+            ranking
+                .undirected
+                .iter()
+                .map(|term| term.entity.as_str())
+                .collect::<Vec<_>>(),
+            vec!["P2", "P1", "P3"]
         );
     }
 }

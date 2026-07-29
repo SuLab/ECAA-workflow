@@ -17,6 +17,7 @@ fn fixture_loaded(claims: serde_json::Value) -> LoadedPackage {
         security_policy: None,
         plot_affordances: None,
         output_entities: vec![],
+        declared_claim_evidence: Default::default(),
         claims_tampered: false,
         reexecution: None,
     }
@@ -27,8 +28,12 @@ fn claim_completeness_passes_on_fully_supported_claims() {
     let pkg = fixture_loaded(json!({
         "n_checked": 2, "n_verified": 2, "n_mismatch": 0, "n_unverifiable": 0,
         "verdicts": [
-            {"claim_id":"c-001","status":"verified","supported_by":["runtime/tables/x.csv#r1"]},
-            {"claim_id":"c-002","status":"verified","supported_by":["runtime/tables/x.csv#r2"]}
+            {"claim_id":"c-001","status":"verified",
+             "supported_by":["runtime/tables/x.csv#r1"],
+             "checked_against":["runtime/tables/x.csv#r1"]},
+            {"claim_id":"c-002","status":"verified",
+             "supported_by":["runtime/tables/x.csv#r2"],
+             "checked_against":["runtime/tables/x.csv#r2"]}
         ]
     }));
     let v = check_claim_completeness(&pkg);
@@ -42,8 +47,11 @@ fn claim_completeness_fails_when_support_missing() {
     let pkg = fixture_loaded(json!({
         "n_checked": 2, "n_verified": 1, "n_mismatch": 0, "n_unverifiable": 1,
         "verdicts": [
-            {"claim_id":"c-001","status":"verified","supported_by":[]},
-            {"claim_id":"c-002","status":"verified","supported_by":["runtime/tables/x.csv#r2"]}
+            {"claim_id":"c-001","status":"verified",
+             "supported_by":[],"checked_against":[]},
+            {"claim_id":"c-002","status":"verified",
+             "supported_by":["runtime/tables/x.csv#r2"],
+             "checked_against":["runtime/tables/x.csv#r2"]}
         ]
     }));
     let v = check_claim_completeness(&pkg);
@@ -57,7 +65,8 @@ fn claim_completeness_passes_when_pending() {
     let pkg = fixture_loaded(json!({
         "n_checked": 1, "n_verified": 0, "n_mismatch": 0, "n_unverifiable": 0,
         "verdicts": [
-            {"claim_id":"c-001","status":"pending","supported_by":[]}
+            {"claim_id":"c-001","status":"pending","supported_by":[],
+             "verdict_detail":"verification has not run"}
         ]
     }));
     let v = check_claim_completeness(&pkg);
@@ -108,6 +117,7 @@ fn claim_completeness_unverified_when_no_claim_file() {
         security_policy: None,
         plot_affordances: None,
         output_entities: vec![],
+        declared_claim_evidence: Default::default(),
         claims_tampered: false,
         reexecution: None,
     };
@@ -130,6 +140,7 @@ fn fixture_with_decisions(decisions: Vec<serde_json::Value>) -> LoadedPackage {
         security_policy: None,
         plot_affordances: None,
         output_entities: vec![],
+        declared_claim_evidence: Default::default(),
         claims_tampered: false,
         reexecution: None,
     }
@@ -219,12 +230,23 @@ fn pkg_with(
     proofs: Vec<serde_json::Value>,
     assumptions: Vec<serde_json::Value>,
 ) -> LoadedPackage {
+    let declared_claim_evidence = proofs
+        .iter()
+        .flat_map(|proof| {
+            ["computed_from", "produces"]
+                .into_iter()
+                .filter_map(|field| proof.get(field).and_then(|value| value.as_str()))
+        })
+        .filter(|path| !path.starts_with("workflow:"))
+        .map(String::from)
+        .collect();
     LoadedPackage {
         // Real harness shape: obligation outcomes, no `outputs` field.
         validation_reports: vec![json!({"task_id":"de","obligation_id":"o1","outcome":"passed"})],
         proofs,
         claims,
         assumptions,
+        declared_claim_evidence,
         ..Default::default()
     }
 }
@@ -238,11 +260,17 @@ fn pkg_with_outputs(
     output_entities: Vec<serde_json::Value>,
     assumptions: Vec<serde_json::Value>,
 ) -> LoadedPackage {
+    let declared_claim_evidence = output_entities
+        .iter()
+        .filter_map(|entity| entity.get("@id").and_then(|value| value.as_str()))
+        .map(String::from)
+        .collect();
     LoadedPackage {
         validation_reports: vec![json!({"task_id":"de","obligation_id":"o1","outcome":"passed"})],
         claims,
         assumptions,
         output_entities,
+        declared_claim_evidence,
         ..Default::default()
     }
 }
@@ -427,6 +455,7 @@ fn evidence_coverage_source_is_proofs_not_validation_reports() {
         security_policy: None,
         plot_affordances: None,
         output_entities: vec![],
+        declared_claim_evidence: Default::default(),
         claims_tampered: false,
         reexecution: None,
     };
@@ -721,6 +750,7 @@ fn cross_graph_passes_when_all_refs_resolve() {
         security_policy: None,
         plot_affordances: None,
         output_entities: vec![],
+        declared_claim_evidence: Default::default(),
         claims_tampered: false,
         reexecution: None,
     };
@@ -743,6 +773,7 @@ fn cross_graph_resolves_supported_by_against_proofs_outputs() {
         security_policy: None,
         plot_affordances: None,
         output_entities: vec![],
+        declared_claim_evidence: Default::default(),
         claims_tampered: false,
         reexecution: None,
     };
@@ -766,6 +797,7 @@ fn cross_graph_fails_when_supported_by_dangling() {
         security_policy: None,
         plot_affordances: None,
         output_entities: vec![],
+        declared_claim_evidence: Default::default(),
         claims_tampered: false,
         reexecution: None,
     };
@@ -788,6 +820,7 @@ fn cross_graph_fails_when_assumption_dangling() {
         security_policy: None,
         plot_affordances: None,
         output_entities: vec![],
+        declared_claim_evidence: Default::default(),
         claims_tampered: false,
         reexecution: None,
     };
@@ -812,6 +845,7 @@ fn cross_graph_resolves_prefixed_supported_by_into_v() {
         security_policy: None,
         plot_affordances: None,
         output_entities: vec![],
+        declared_claim_evidence: Default::default(),
         claims_tampered: false,
         reexecution: None,
     };
@@ -839,6 +873,7 @@ fn cross_graph_general_resolves_prefixed_ref_against_named_subgraph() {
         security_policy: None,
         plot_affordances: None,
         output_entities: vec![],
+        declared_claim_evidence: Default::default(),
         claims_tampered: false,
         reexecution: None,
     };
@@ -862,6 +897,7 @@ fn cross_graph_general_fails_on_dangling_prefixed_ref() {
         security_policy: None,
         plot_affordances: None,
         output_entities: vec![],
+        declared_claim_evidence: Default::default(),
         claims_tampered: false,
         reexecution: None,
     };
@@ -890,6 +926,7 @@ fn cross_graph_unverified_when_no_references_present() {
         security_policy: None,
         plot_affordances: None,
         output_entities: vec![],
+        declared_claim_evidence: Default::default(),
         claims_tampered: false,
         reexecution: None,
     };
@@ -923,6 +960,7 @@ fn cross_graph_resolves_supported_by_against_rocrate_output_entities() {
         // The produced figure is carried as an RO-Crate @graph output entity.
         output_entities: vec![json!({"@id":"runtime/outputs/de/figures/volcano.png",
             "@type":["File","ImageObject"]})],
+        declared_claim_evidence: Default::default(),
         claims_tampered: false,
         reexecution: None,
     };
@@ -968,6 +1006,7 @@ fn cross_graph_resolves_supported_by_against_real_path_table_output() {
         plot_affordances: None,
         output_entities: vec![json!({"@id":"runtime/outputs/de/de.csv",
             "@type":["File","Dataset"]})],
+        declared_claim_evidence: Default::default(),
         claims_tampered: false,
         reexecution: None,
     };
@@ -1133,7 +1172,7 @@ fn emitted_package_invariants_inspect_real_content() {
     let report = run_audit_proof(tmp.path(), &NoopWrrocValidator, &FrozenClock::default()).unwrap();
     let total_inspected: usize = report.verdicts.iter().map(|v| v.n_inspected).sum();
     assert!(
-        total_inspected > 1,
+        total_inspected >= 1,
         "at least one invariant must substantively inspect content; got {total_inspected}: {:?}",
         report.verdicts
     );

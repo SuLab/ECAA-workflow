@@ -14,7 +14,17 @@ python3 lib/measure_de_effect_size.py \
 
 The script emits `information_column_recorded` and
 `top_effect_abundance_ratio` into result.json (plus informational
-`top_effect_k` and `tested_feature_count`). It ALSO emits two
+`top_effect_k` and `tested_feature_count`). It emits that ratio together with
+its own definition: `top_effect_abundance_ratio_description` is one sentence
+naming the numerator population, the denominator population, and each
+population's size, and `top_effect_abundance_ratio_basis` carries the same facts
+machine-readably (including how many of the top-K carry no usable significance
+value — when that count is nonzero the top-K set is NOT a subset of the
+significant set). If you cite the ratio in any narrative, use that description;
+do not restate the population in your own words, and never attribute the ratio
+to a significant subset, to a mean/average, or to a number of samples. When
+`computed` is false the recorded ratio is a non-failing sentinel, not a
+measurement — do not cite it at all. It ALSO emits two
 report-completeness presence flags — `r_squared_column_recorded` and
 `sample_size_column_recorded` — set true only when your OWN results table
 records a model-fit / variance-explained column or a per-row sample-size column

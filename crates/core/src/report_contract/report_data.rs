@@ -15,7 +15,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use super::{Comparator, ResultSchema, Significance};
+use super::{Comparator, PathwayRanking, ResultSchema, Significance};
 
 /// Data-driven column-name synonym lists loaded from the emitted package's
 /// interpretation policy (`verifiableEntities` block) — the SAME maintained
@@ -105,6 +105,11 @@ pub struct ResultArtifactSummary {
     /// pathway `collection`). Sorted by group name for determinism.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grouped_significant: Option<Vec<GroupCount>>,
+    /// Canonical top-N selection, computed from the source artifact under the
+    /// declared schema. Reporting stages must use this field for every "top"
+    /// table or superlative rather than selecting rows independently.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ranking: Option<PathwayRanking>,
     /// The ENTIRE significant set (or all rows if no significance declared).
     pub significant_entities: Vec<EntityRow>,
     /// Supplementary attachment (rel path).
@@ -352,31 +357,34 @@ pub fn summarize_artifact(
     // counts, `n_significant` stays `None`); declared and resolved (normal
     // filter); declared but no candidate column present in the header
     // (unresolvable — must NOT be conflated with "zero rows pass").
-    let (significant_row_indices, n_significant, significance_unresolvable): (Vec<usize>, Option<u64>, bool) =
-        match &schema.significance {
-            None => ((0..rows.len()).collect(), None, false),
-            Some(sig) => match resolve_significance_column(headers, sig, synonyms) {
-                Some(sig_idx) => {
-                    let indices: Vec<usize> = rows
-                        .iter()
-                        .enumerate()
-                        .filter_map(|(i, row)| {
-                            let v = parse_finite(row, sig_idx)?;
-                            let hit = match sig.comparator {
-                                Comparator::Lt => v < sig.threshold,
-                                Comparator::Gt => v > sig.threshold,
-                            };
-                            hit.then_some(i)
-                        })
-                        .collect();
-                    let n = indices.len() as u64;
-                    (indices, Some(n), false)
-                }
-                // Declared significance column absent from the actual header:
-                // unresolvable / not-assessed, never "zero significant rows found".
-                None => (Vec::new(), None, true),
-            },
-        };
+    let (significant_row_indices, n_significant, significance_unresolvable): (
+        Vec<usize>,
+        Option<u64>,
+        bool,
+    ) = match &schema.significance {
+        None => ((0..rows.len()).collect(), None, false),
+        Some(sig) => match resolve_significance_column(headers, sig, synonyms) {
+            Some(sig_idx) => {
+                let indices: Vec<usize> = rows
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, row)| {
+                        let v = parse_finite(row, sig_idx)?;
+                        let hit = match sig.comparator {
+                            Comparator::Lt => v < sig.threshold,
+                            Comparator::Gt => v > sig.threshold,
+                        };
+                        hit.then_some(i)
+                    })
+                    .collect();
+                let n = indices.len() as u64;
+                (indices, Some(n), false)
+            }
+            // Declared significance column absent from the actual header:
+            // unresolvable / not-assessed, never "zero significant rows found".
+            None => (Vec::new(), None, true),
+        },
+    };
 
     let direction_split = (!significance_unresolvable)
         .then(|| {
@@ -409,7 +417,10 @@ pub fn summarize_artifact(
                 DIST_BIN_LABELS
                     .iter()
                     .zip(bins)
-                    .map(|(label, count)| DistBin { label: (*label).to_string(), count })
+                    .map(|(label, count)| DistBin {
+                        label: (*label).to_string(),
+                        count,
+                    })
                     .collect()
             })
         })
@@ -436,7 +447,10 @@ pub fn summarize_artifact(
                     }
                     counts
                         .into_iter()
-                        .map(|(group, n_significant)| GroupCount { group, n_significant })
+                        .map(|(group, n_significant)| GroupCount {
+                            group,
+                            n_significant,
+                        })
                         .collect::<Vec<_>>()
                 })
         })
@@ -612,7 +626,8 @@ fn read_cited_pmids(result_json: &Path) -> Vec<String> {
 /// A JSON number OR numeric string as `f64` (the contextualize atom's
 /// `result.json` mixes both representations across fields).
 fn json_as_f64(v: &serde_json::Value) -> Option<f64> {
-    v.as_f64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+    v.as_f64()
+        .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
 }
 
 /// Joins the reporting significant set against the contextualize stage's
@@ -694,9 +709,16 @@ pub fn join_literature(
     // try the known variants in order. Local to this matrix reader — the atom's
     // own output is fixed-ish, so a small candidate list tolerates its known
     // column-name drift.
-    let effect_idx = ["lfc", "log2FoldChange", "logFC", "log2fc", "nes", "analysis_log2fc"]
-        .iter()
-        .find_map(|name| resolve_column(&headers, name));
+    let effect_idx = [
+        "lfc",
+        "log2FoldChange",
+        "logFC",
+        "log2fc",
+        "nes",
+        "analysis_log2fc",
+    ]
+    .iter()
+    .find_map(|name| resolve_column(&headers, name));
     let quote_idx = resolve_column(&headers, "evidence_quote");
 
     // File-order list of every matrix row (drives the authoritative rollup)
@@ -705,7 +727,10 @@ pub fn join_literature(
     let mut by_key: BTreeMap<String, MatrixRow> = BTreeMap::new();
     for rec in reader.records().flatten() {
         let row = MatrixRow {
-            entity: entity_idx.and_then(|i| rec.get(i)).unwrap_or("").to_string(),
+            entity: entity_idx
+                .and_then(|i| rec.get(i))
+                .unwrap_or("")
+                .to_string(),
             concordance_flag: flag_idx.and_then(|i| rec.get(i)).unwrap_or("").to_string(),
             pmid: pmid_idx.and_then(|i| rec.get(i)).unwrap_or("").to_string(),
             effect: effect_idx
@@ -713,10 +738,16 @@ pub fn join_literature(
                 .and_then(|s| s.trim().parse::<f64>().ok()),
             evidence_quote: quote_idx.and_then(|i| rec.get(i)).unwrap_or("").to_string(),
         };
-        if let Some(fid) = finding_idx.and_then(|i| rec.get(i)).filter(|s| !s.is_empty()) {
+        if let Some(fid) = finding_idx
+            .and_then(|i| rec.get(i))
+            .filter(|s| !s.is_empty())
+        {
             by_key.insert(fid.to_string(), row.clone());
         }
-        if let Some(ent) = entity_idx.and_then(|i| rec.get(i)).filter(|s| !s.is_empty()) {
+        if let Some(ent) = entity_idx
+            .and_then(|i| rec.get(i))
+            .filter(|s| !s.is_empty())
+        {
             by_key.insert(ent.to_string(), row.clone());
         }
         matrix_rows.push(row);
@@ -769,9 +800,15 @@ pub fn join_literature(
     for e in sig_entities.iter_mut() {
         e.literature = match by_key.get(&e.entity) {
             Some(row) => match row.concordance_flag.as_str() {
-                "same_direction" => LiteratureStatus::Concordant { pmid: row.pmid.clone() },
-                "opposite_direction" => LiteratureStatus::Discordant { pmid: row.pmid.clone() },
-                "unverifiable" => LiteratureStatus::Unverifiable { pmid: row.pmid.clone() },
+                "same_direction" => LiteratureStatus::Concordant {
+                    pmid: row.pmid.clone(),
+                },
+                "opposite_direction" => LiteratureStatus::Discordant {
+                    pmid: row.pmid.clone(),
+                },
+                "unverifiable" => LiteratureStatus::Unverifiable {
+                    pmid: row.pmid.clone(),
+                },
                 // Searched, nothing retrieved → the searched-set novelty tag.
                 "no_prior_finding" => LiteratureStatus::Novel,
                 // Retrieval not performed (or an unrecognized/empty flag) →
@@ -839,9 +876,8 @@ mod tests {
 
     #[test]
     fn signed_table_counts_significant_and_direction_split() {
-        let (hdr, rows) = tsv(
-            "gene\tlog2FoldChange\tpadj\nGUP\t5\t0.001\nGDOWN\t-4.8\t0.002\nNS\t0.1\t0.9",
-        );
+        let (hdr, rows) =
+            tsv("gene\tlog2FoldChange\tpadj\nGUP\t5\t0.001\nGDOWN\t-4.8\t0.002\nNS\t0.1\t0.9");
         let schema = de_schema();
         let s = summarize_artifact(&rows, &hdr, &schema, &PolicyColumnSynonyms::default());
         assert_eq!(s.n_total, 3);
@@ -913,7 +949,9 @@ mod tests {
         let s = summarize_artifact(&rows, &hdr, &schema, &PolicyColumnSynonyms::default());
         assert_eq!(s.n_significant, Some(2));
         assert_eq!(s.direction_split, Some(DirectionSplit { up: 1, down: 1 }));
-        let dist = s.effect_distribution.expect("aliased effect column resolved");
+        let dist = s
+            .effect_distribution
+            .expect("aliased effect column resolved");
         assert_eq!(dist.iter().map(|b| b.count).sum::<u64>(), 2);
     }
 
@@ -940,14 +978,12 @@ mod tests {
         // the significant set (2 HALLMARK + 1 GO_BP), then per-collection
         // counts are tallied in sorted (BTreeMap) order. KEGG's only row is
         // non-significant, so it never appears in the breakdown.
-        let (hdr, rows) = tsv(
-            "pathway\tcollection\tpadj\n\
+        let (hdr, rows) = tsv("pathway\tcollection\tpadj\n\
              P1\tHALLMARK\t0.01\n\
              P2\tHALLMARK\t0.02\n\
              P3\tGO_BP\t0.001\n\
              P4\tGO_BP\t0.9\n\
-             P5\tKEGG\t0.9",
-        );
+             P5\tKEGG\t0.9");
         let schema = ResultSchema {
             artifact: "pathway_results.tsv".into(),
             entity_column: "pathway".into(),
@@ -967,8 +1003,14 @@ mod tests {
         assert_eq!(
             grouped,
             vec![
-                GroupCount { group: "GO_BP".into(), n_significant: 1 },
-                GroupCount { group: "HALLMARK".into(), n_significant: 2 },
+                GroupCount {
+                    group: "GO_BP".into(),
+                    n_significant: 1
+                },
+                GroupCount {
+                    group: "HALLMARK".into(),
+                    n_significant: 2
+                },
             ]
         );
     }
@@ -1080,7 +1122,11 @@ mod tests {
         // entity resolves via `term` (an entityColumns synonym) → rows populated.
         let entities =
             build_entity_rows(&rows, &hdr, &schema, &synonyms, &s.significant_row_indices);
-        assert_eq!(entities.len(), 2, "significant_entities populated via the `term` synonym");
+        assert_eq!(
+            entities.len(),
+            2,
+            "significant_entities populated via the `term` synonym"
+        );
         assert!(entities.iter().any(|e| e.entity == "HALLMARK_HYPOXIA"));
         assert!(
             entities.iter().all(|e| e.effect.is_some()),
@@ -1094,10 +1140,8 @@ mod tests {
         // declared significance column (`padj`) is absent → n_significant None
         // (unchanged three-state: unresolvable, never Some(0)). Proves synonyms
         // are the ONLY thing that made the mismatched header resolve above.
-        let (hdr, rows) = tsv(
-            "term\tcollection\tp_value\tadj_p_value\tnes\n\
-             HALLMARK_HYPOXIA\tHALLMARK\t0.001\t0.01\t2.1",
-        );
+        let (hdr, rows) = tsv("term\tcollection\tp_value\tadj_p_value\tnes\n\
+             HALLMARK_HYPOXIA\tHALLMARK\t0.001\t0.01\t2.1");
         let schema = ResultSchema {
             artifact: "pathway_results.tsv".into(),
             entity_column: "pathway".into(),
@@ -1123,12 +1167,16 @@ mod tests {
         // the schema declares canonical `entity_column: gene` plus `gene_id`
         // as an accepted alias. Resolution falls through to the alias —
         // data-driven, from the schema, no hardcoded synonym list here.
-        let (hdr, rows) =
-            tsv("gene_id\tlog2FoldChange\tpadj\nENSG1\t5\t0.001\nENSG2\t-4.8\t0.002");
+        let (hdr, rows) = tsv("gene_id\tlog2FoldChange\tpadj\nENSG1\t5\t0.001\nENSG2\t-4.8\t0.002");
         let mut schema = de_schema();
         schema.entity_column_aliases = vec!["gene_id".into()];
-        let entities =
-            build_entity_rows(&rows, &hdr, &schema, &PolicyColumnSynonyms::default(), &[0, 1]);
+        let entities = build_entity_rows(
+            &rows,
+            &hdr,
+            &schema,
+            &PolicyColumnSynonyms::default(),
+            &[0, 1],
+        );
         assert_eq!(entities.len(), 2);
         assert_eq!(entities[0].entity, "ENSG1");
         assert_eq!(entities[1].entity, "ENSG2");
@@ -1151,9 +1199,8 @@ mod tests {
     #[test]
     fn write_supplementary_writes_significant_and_full_tables() {
         let tmp = tempfile::tempdir().unwrap();
-        let (hdr, rows) = tsv(
-            "gene\tlog2FoldChange\tpadj\nGUP\t5\t0.001\nGDOWN\t-4.8\t0.002\nNS\t0.1\t0.9",
-        );
+        let (hdr, rows) =
+            tsv("gene\tlog2FoldChange\tpadj\nGUP\t5\t0.001\nGDOWN\t-4.8\t0.002\nNS\t0.1\t0.9");
         let sig_indices = vec![0usize, 1usize];
 
         let (sig_rel, full_rel) =
@@ -1180,8 +1227,7 @@ mod tests {
     fn write_supplementary_writes_zero_row_significant_table_when_none_significant() {
         let tmp = tempfile::tempdir().unwrap();
         let (hdr, rows) = tsv("gene\tlog2FoldChange\tpadj\nNS\t0.1\t0.9");
-        let (sig_rel, full_rel) =
-            write_supplementary(tmp.path(), "x", &hdr, &rows, &[]).unwrap();
+        let (sig_rel, full_rel) = write_supplementary(tmp.path(), "x", &hdr, &rows, &[]).unwrap();
         let sig_content = std::fs::read_to_string(tmp.path().join(&sig_rel)).unwrap();
         assert_eq!(sig_content.lines().count(), 1, "header only");
         let full_content = std::fs::read_to_string(tmp.path().join(&full_rel)).unwrap();
@@ -1212,7 +1258,11 @@ mod tests {
         let (sig_rel, _full_rel) =
             write_supplementary(tmp.path(), "big", &hdr, &rows, &sig_indices).unwrap();
         let sig_content = std::fs::read_to_string(tmp.path().join(&sig_rel)).unwrap();
-        assert_eq!(sig_content.lines().count(), SPILL_THRESHOLD + 2, "header + every significant row");
+        assert_eq!(
+            sig_content.lines().count(),
+            SPILL_THRESHOLD + 2,
+            "header + every significant row"
+        );
     }
 
     // -- Task 5: literature join ---------------------------------------
@@ -1273,15 +1323,21 @@ mod tests {
 
         assert_eq!(
             sig_entities[0].literature,
-            LiteratureStatus::Concordant { pmid: "111".to_string() }
+            LiteratureStatus::Concordant {
+                pmid: "111".to_string()
+            }
         );
         assert_eq!(
             sig_entities[1].literature,
-            LiteratureStatus::Discordant { pmid: "222".to_string() }
+            LiteratureStatus::Discordant {
+                pmid: "222".to_string()
+            }
         );
         assert_eq!(
             sig_entities[2].literature,
-            LiteratureStatus::Unverifiable { pmid: "333".to_string() }
+            LiteratureStatus::Unverifiable {
+                pmid: "333".to_string()
+            }
         );
         // F4 matches the no_prior_finding matrix row → Novel per-entity tag.
         assert_eq!(sig_entities[3].literature, LiteratureStatus::Novel);
@@ -1317,7 +1373,12 @@ mod tests {
 
         assert_eq!(
             rollup.retrieved_sources,
-            vec!["111".to_string(), "222".to_string(), "333".to_string(), "444".to_string()]
+            vec![
+                "111".to_string(),
+                "222".to_string(),
+                "333".to_string(),
+                "444".to_string()
+            ]
         );
     }
 
@@ -1350,7 +1411,9 @@ mod tests {
         );
         assert_eq!(
             sig_entities[0].literature,
-            LiteratureStatus::Concordant { pmid: "111".to_string() }
+            LiteratureStatus::Concordant {
+                pmid: "111".to_string()
+            }
         );
         assert!(rollup.non_replications.is_empty());
         // retrieved_sources is the union of ALL matrix prior_pmids (rollup is
@@ -1397,10 +1460,7 @@ mod tests {
         // (b) A pathway-only slice that matches nothing in the gene-keyed
         // matrix — rollup MUST be identical (pathways cannot pollute it), and
         // every non-matching entity stays NotAssessed (never novel).
-        let mut pathways = vec![
-            entity_row("HALLMARK_HYPOXIA"),
-            entity_row("KEGG_MAPK"),
-        ];
+        let mut pathways = vec![entity_row("HALLMARK_HYPOXIA"), entity_row("KEGG_MAPK")];
         let r_path = super::join_literature(&mut pathways, &matrix_path, missing_json);
         expected(&r_path);
         assert_eq!(r_empty, r_path, "rollup independent of the entities passed");
@@ -1414,11 +1474,15 @@ mod tests {
         expected(&r_genes);
         assert_eq!(
             genes[0].literature,
-            LiteratureStatus::Concordant { pmid: "10".to_string() }
+            LiteratureStatus::Concordant {
+                pmid: "10".to_string()
+            }
         );
         assert_eq!(
             genes[1].literature,
-            LiteratureStatus::Discordant { pmid: "12".to_string() }
+            LiteratureStatus::Discordant {
+                pmid: "12".to_string()
+            }
         );
     }
 
@@ -1475,7 +1539,9 @@ mod tests {
         );
         assert_eq!(
             entities[0].literature,
-            LiteratureStatus::Concordant { pmid: "999".to_string() }
+            LiteratureStatus::Concordant {
+                pmid: "999".to_string()
+            }
         );
     }
 

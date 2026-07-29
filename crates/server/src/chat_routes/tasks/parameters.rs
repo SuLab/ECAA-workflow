@@ -45,8 +45,7 @@ pub(crate) struct TaskParametersResponse {
     /// The SME-authored validation bounds currently attached to this task's
     /// stage class (resolved the harness way: `spec.stage_class`, falling back
     /// to `task_id`). Lets the drawer list + remove the bounds that apply here.
-    pub current_validation_bounds:
-        Vec<ecaa_workflow_core::validation_bound::SmeValidationBound>,
+    pub current_validation_bounds: Vec<ecaa_workflow_core::validation_bound::SmeValidationBound>,
 }
 
 /// Request body for `POST .../task/:task_id/parameters`.
@@ -348,7 +347,10 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("GET")
-                    .uri(format!("/api/chat/session/{}/task/no_such_task/parameters", id))
+                    .uri(format!(
+                        "/api/chat/session/{}/task/no_such_task/parameters",
+                        id
+                    ))
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -372,7 +374,9 @@ mod tests {
                         id, task_id
                     ))
                     .header("content-type", "application/json")
-                    .body(Body::from(r#"{"overrides":{"min_lfc":1.0},"rationale":"tighten"}"#))
+                    .body(Body::from(
+                        r#"{"overrides":{"min_lfc":1.0},"rationale":"tighten"}"#,
+                    ))
                     .unwrap(),
             )
             .await
@@ -396,7 +400,10 @@ mod tests {
             .sme_parameter_overrides
             .for_task(&task_id)
             .expect("override recorded for the task");
-        assert_eq!(ov.get("min_lfc").map(|o| &o.value), Some(&serde_json::json!(1.0)));
+        assert_eq!(
+            ov.get("min_lfc").map(|o| &o.value),
+            Some(&serde_json::json!(1.0))
+        );
         // The decision log carries the typed SetTaskParameter record.
         assert!(
             s.decisions.iter().any(|d| {

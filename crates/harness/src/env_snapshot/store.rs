@@ -181,7 +181,10 @@ mod tests {
     fn full_digest_hex_strips_prefix_and_returns_all_64_chars() {
         let digest = "sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
         let hex = full_digest_hex(digest);
-        assert_eq!(hex, "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890");
+        assert_eq!(
+            hex,
+            "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+        );
         assert_eq!(hex.len(), 64);
     }
 }

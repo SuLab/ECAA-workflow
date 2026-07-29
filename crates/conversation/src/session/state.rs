@@ -1299,8 +1299,10 @@ pub struct ConfirmationCard {
 /// surfaced as removable. Mirrors the optional-stage examples called
 /// out in the `discover_*` / exclusion tool schemas
 /// (`pathway_enrichment`, `contextualize_findings_with_literature`).
-pub const CURATED_OPTIONAL_STAGES: [&str; 2] =
-    ["pathway_enrichment", "contextualize_findings_with_literature"];
+pub const CURATED_OPTIONAL_STAGES: [&str; 2] = [
+    "pathway_enrichment",
+    "contextualize_findings_with_literature",
+];
 
 /// One retained optional analysis stage, surfaced on the
 /// [`ConfirmationCard`] so the SME can drop it before package emit.
@@ -1609,7 +1611,13 @@ mod tests {
         };
         let json = serde_json::to_value(&card).expect("serialize card");
         let back: ConfirmationCard = serde_json::from_value(json).expect("deserialize card");
-        assert_eq!(back.retained_optional_stages.as_deref().unwrap_or_default().len(), 1);
+        assert_eq!(
+            back.retained_optional_stages
+                .as_deref()
+                .unwrap_or_default()
+                .len(),
+            1
+        );
         assert_eq!(
             back.retained_optional_stages.as_ref().unwrap()[0].stage_id,
             "pathway_enrichment"
@@ -1623,6 +1631,9 @@ mod tests {
         });
         let parsed: ConfirmationCard =
             serde_json::from_value(legacy).expect("legacy card deserializes");
-        assert!(parsed.retained_optional_stages.unwrap_or_default().is_empty());
+        assert!(parsed
+            .retained_optional_stages
+            .unwrap_or_default()
+            .is_empty());
     }
 }

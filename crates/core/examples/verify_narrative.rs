@@ -13,12 +13,20 @@ fn main() {
     let narrative = std::fs::read_to_string(nar).expect("read narrative");
     let policy_path = Path::new(cfgdir).join("downstream-policy/interpretation-policy.json");
     let policy: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&policy_path).expect("read policy")).expect("parse policy");
-    let cfg = ExtractorConfig::from_policy_for_class(&policy, Path::new(cfgdir), ProjectClass::Bioinformatics)
-        .expect("build extractor config");
+        serde_json::from_str(&std::fs::read_to_string(&policy_path).expect("read policy"))
+            .expect("parse policy");
+    let cfg = ExtractorConfig::from_policy_for_class(
+        &policy,
+        Path::new(cfgdir),
+        ProjectClass::Bioinformatics,
+    )
+    .expect("build extractor config");
     let claims = extract_claims(&narrative, &cfg);
     let report = verify_claims(&claims, Path::new(tables), &cfg);
-    println!("=== claim-verification on {} (table dir {}) ===", nar, tables);
+    println!(
+        "=== claim-verification on {} (table dir {}) ===",
+        nar, tables
+    );
     println!("extracted_claims={}  checked={} verified={} mismatch={} suspicious={} unverifiable={} pending={}",
         claims.len(), report.n_checked, report.n_verified, report.n_mismatch,
         report.n_suspicious, report.n_unverifiable, report.n_pending);
@@ -33,7 +41,11 @@ fn main() {
         };
         // print the claim excerpt compactly
         let c = format!("{:?}", v.claim);
-        let c = if c.len() > 160 { format!("{}…", &c[..160]) } else { c };
+        let c = if c.len() > 160 {
+            format!("{}…", &c[..160])
+        } else {
+            c
+        };
         println!("[{tag}]\n    {c}");
     }
 }

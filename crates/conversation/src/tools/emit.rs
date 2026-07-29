@@ -143,7 +143,10 @@ fn gate_bound_analysis(session: &mut Session) -> Option<ToolResult> {
         session_id = %session.id,
         "emit_package_precondition_failure_no_bound_analysis",
     );
-    Some(ToolResult::err(ToolError::PreconditionFailure { reason, hint }))
+    Some(ToolResult::err(ToolError::PreconditionFailure {
+        reason,
+        hint,
+    }))
 }
 
 /// Gate 1 — the per-emit `ConfirmationToken`. A confirm-then-amend race drifts

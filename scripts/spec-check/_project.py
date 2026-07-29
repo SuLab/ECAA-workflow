@@ -761,6 +761,14 @@ def project(pkg_dir, log=print):
                     continue
                 if letter == "D":
                     entry = project_decision_record(entry, records_seen)
+                elif letter == "E" and entry.get("type") == "WorkflowStep":
+                    # `ecaa:status` is the Claim-status property and has
+                    # `ecaa:Claim` as its RDFS domain. Runtime execution rows
+                    # also use a wire-level `status` field. Projecting that
+                    # field through the canonical context would therefore
+                    # infer every WorkflowStep as a Claim and make
+                    # ClaimCompletenessShape inspect the wrong graph.
+                    entry = {key: value for key, value in entry.items() if key != "status"}
                 elif letter == "Q":
                     entry = project_rerun_outcome_row(entry, records_seen)
                 elif letter == "F":

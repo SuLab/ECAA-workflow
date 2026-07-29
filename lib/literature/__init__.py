@@ -29,7 +29,14 @@ list with an explicit override, and `entity_kind` covers gene / region /
 variant. No modality, tool, or organism is named in the logic.
 """
 
-from .contextualize import build_rows, contextualize, write_evidence_manifest, write_reports
+from .contextualize import (
+    COUNT_DEFINITIONS,
+    assessment_counts,
+    build_rows,
+    contextualize,
+    write_evidence_manifest,
+    write_reports,
+)
 from .direction import (
     CONCORDANCE_FLAGS,
     DOWN,
@@ -67,6 +74,7 @@ from .matrix import (
 __all__ = [
     "CONCORDANCE_FLAGS",
     "COLUMNS",
+    "COUNT_DEFINITIONS",
     "DOWN",
     "SYMBOL_MAP_COLUMNS",
     "SYMBOL_MAP_RELPATH",
@@ -78,6 +86,7 @@ __all__ = [
     "Finding",
     "MatrixError",
     "ResultTable",
+    "assessment_counts",
     "build_rows",
     "concordance",
     "contextualize",

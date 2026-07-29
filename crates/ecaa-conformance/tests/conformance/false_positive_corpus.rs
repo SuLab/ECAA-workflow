@@ -103,7 +103,7 @@ fn no_spurious_fail_on_valid_emitted_corpus() {
 /// Regression over the harvested-violation fixtures produced by
 /// `scripts/harvest-invariant-violations.py`. Each fixture carries an
 /// `EXPECTED.json` mapping the debug-formatted invariant id (e.g.
-/// `"EvidenceCoverage"`) to the observed status string (e.g. `"warn"`); we
+/// `"EvidenceCoverage"`) to the current expected status string; we
 /// re-run the evaluator and assert the observed verdicts reproduce.
 ///
 /// If the harvester has not yet captured anything (no fixtures on disk), the

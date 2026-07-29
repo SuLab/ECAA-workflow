@@ -22,14 +22,14 @@ fn report() -> ClaimVerificationReport {
         literature_evidence: None,
         matched_pvalue_keyword: None,
         linear_fold: None,
-                aggregate_kind: None,
-                aggregate_column: None,
-                aggregate_rowset: None,
-                aggregate_value: None,
-                collection: None,
-                term: None,
-                keyed_column: None,
-                keyed_value: None,
+        aggregate_kind: None,
+        aggregate_column: None,
+        aggregate_rowset: None,
+        aggregate_value: None,
+        collection: None,
+        term: None,
+        keyed_column: None,
+        keyed_value: None,
     };
     ClaimVerificationReport {
         n_checked: 1,
@@ -100,14 +100,14 @@ fn two_claim_report() -> ClaimVerificationReport {
         literature_evidence: None,
         matched_pvalue_keyword: None,
         linear_fold: None,
-                aggregate_kind: None,
-                aggregate_column: None,
-                aggregate_rowset: None,
-                aggregate_value: None,
-                collection: None,
-                term: None,
-                keyed_column: None,
-                keyed_value: None,
+        aggregate_kind: None,
+        aggregate_column: None,
+        aggregate_rowset: None,
+        aggregate_value: None,
+        collection: None,
+        term: None,
+        keyed_column: None,
+        keyed_value: None,
     };
     let v = |entity: &str| ClaimVerdict {
         claim: mk(entity),
@@ -146,7 +146,10 @@ fn double_finalize_does_not_double_count_inspected_claims() {
     persist_signed_verdicts(dir.path(), "diff_expr", &rep, None, &w).unwrap();
 
     let pkg = LoadedPackage::from_root_with_verifier(dir.path(), Some(&w)).unwrap();
-    assert!(!pkg.claims_tampered, "each appended row is individually signed");
+    assert!(
+        !pkg.claims_tampered,
+        "each appended row is individually signed"
+    );
 
     // The unioned `claims` value carries exactly one row per distinct claim_id.
     let verdicts = pkg

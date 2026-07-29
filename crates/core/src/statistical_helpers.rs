@@ -83,8 +83,16 @@ pub fn compute_distribution_stats(values: &[f64]) -> DistributionStats {
     let var = clean.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n as f64;
     let stdev = var.sqrt();
     let (skewness, kurtosis) = if stdev > 0.0 {
-        let m3 = clean.iter().map(|v| ((v - mean) / stdev).powi(3)).sum::<f64>() / n as f64;
-        let m4 = clean.iter().map(|v| ((v - mean) / stdev).powi(4)).sum::<f64>() / n as f64;
+        let m3 = clean
+            .iter()
+            .map(|v| ((v - mean) / stdev).powi(3))
+            .sum::<f64>()
+            / n as f64;
+        let m4 = clean
+            .iter()
+            .map(|v| ((v - mean) / stdev).powi(4))
+            .sum::<f64>()
+            / n as f64;
         (m3, m4)
     } else {
         (0.0, 0.0)

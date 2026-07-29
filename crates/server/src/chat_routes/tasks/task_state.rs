@@ -68,29 +68,28 @@ pub(crate) async fn post_set_task_state(
     // phantom artifact cannot escape into the deposit via this route.
     // Evaluated against the pre-write snapshot: the declared artifacts and
     // package root are structural and don't change under the write below.
-    let demotion: Option<(TaskState, String)> =
-        if matches!(req.state, TaskState::Completed { .. }) {
-            let missing = crate::chat_routes::artifact_guard::missing_declared_artifacts(
-                &session, &task_id,
-            );
-            if missing.is_empty() {
-                None
-            } else {
-                tracing::warn!(
-                    %session_id,
-                    task_id = %task_id,
-                    missing = ?missing,
-                    "set_task_state: refused Completed — declared required artifacts missing/empty; demoting to [missing_artifact] blocker"
-                );
-                let reason =
-                    crate::chat_routes::artifact_guard::missing_artifact_reason(&task_id, &missing);
-                let state =
-                    crate::chat_routes::artifact_guard::demoted_blocked_state(&task_id, &missing);
-                Some((state, reason))
-            }
-        } else {
+    let demotion: Option<(TaskState, String)> = if matches!(req.state, TaskState::Completed { .. })
+    {
+        let missing =
+            crate::chat_routes::artifact_guard::missing_declared_artifacts(&session, &task_id);
+        if missing.is_empty() {
             None
-        };
+        } else {
+            tracing::warn!(
+                %session_id,
+                task_id = %task_id,
+                missing = ?missing,
+                "set_task_state: refused Completed — declared required artifacts missing/empty; demoting to [missing_artifact] blocker"
+            );
+            let reason =
+                crate::chat_routes::artifact_guard::missing_artifact_reason(&task_id, &missing);
+            let state =
+                crate::chat_routes::artifact_guard::demoted_blocked_state(&task_id, &missing);
+            Some((state, reason))
+        }
+    } else {
+        None
+    };
     let refused_reason: Option<String> = demotion.as_ref().map(|(_, r)| r.clone());
     let task_id_for_closure = task_id.clone();
     // The state actually written: the demoted `Blocked` state on a refused

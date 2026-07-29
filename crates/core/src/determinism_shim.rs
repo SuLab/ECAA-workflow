@@ -119,16 +119,7 @@ pub struct NonDetAck {
 /// the public-enum SemVer contract — adding a future class is a non-breaking
 /// minor change for downstream RO-Crate / schema consumers.
 #[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Serialize,
-    Deserialize,
-    schemars::JsonSchema,
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, schemars::JsonSchema,
 )]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
@@ -1081,7 +1072,11 @@ mod tests {
         }]);
         // File-name match against a full relative path.
         assert!(
-            ack_for(&shim, "runtime/outputs/differential_expression/de_results.tsv").is_some(),
+            ack_for(
+                &shim,
+                "runtime/outputs/differential_expression/de_results.tsv"
+            )
+            .is_some(),
             "bare filename ack must match a full rel path by file name"
         );
         // Exact match.

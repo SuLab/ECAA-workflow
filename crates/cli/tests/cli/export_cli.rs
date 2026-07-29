@@ -23,7 +23,10 @@ fn build_fixture_package(root: &std::path::Path) {
         &root.join("runtime/outputs/t/de_results.tsv"),
         "gene\tpadj\nA\t0.01\n",
     ); // A
-    write_file(&root.join("runtime/outputs/t/agent-claude.log"), "log line\n"); // C
+    write_file(
+        &root.join("runtime/outputs/t/agent-claude.log"),
+        "log line\n",
+    ); // C
     write_file(&root.join("runtime/cache/x/y"), "cached bytes\n"); // E
     write_file(&root.join("runtime/outputs/t/scripts/s.R"), "print('hi')\n"); // B
     write_file(&root.join("manifest-sha512.txt"), "stale manifest\n"); // D

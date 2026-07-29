@@ -148,6 +148,18 @@ pub struct PathwayRanking {
     /// `enriched`/`depleted` are meaningful. Callers must not read an
     /// empty `depleted` as "no depleted terms" when this is `false`.
     pub directional: bool,
+    /// Maximum number of rows retained in each list.
+    #[serde(default)]
+    pub retained_per_class: usize,
+    /// Number of eligible positive-effect rows before truncation.
+    #[serde(default)]
+    pub eligible_enriched: usize,
+    /// Number of eligible negative-effect rows before truncation.
+    #[serde(default)]
+    pub eligible_depleted: usize,
+    /// Number of eligible undirected rows before truncation.
+    #[serde(default)]
+    pub eligible_undirected: usize,
 }
 
 impl PathwayRanking {
@@ -318,6 +330,7 @@ pub fn rank_terms(
 
     let mut ranking = PathwayRanking {
         directional,
+        retained_per_class: top_n,
         ..Default::default()
     };
     for term in sorted {
@@ -327,9 +340,18 @@ pub fn rank_terms(
             SignClass::Undirected
         };
         let bucket = match class {
-            SignClass::Enriched => &mut ranking.enriched,
-            SignClass::Depleted => &mut ranking.depleted,
-            SignClass::Undirected => &mut ranking.undirected,
+            SignClass::Enriched => {
+                ranking.eligible_enriched += 1;
+                &mut ranking.enriched
+            }
+            SignClass::Depleted => {
+                ranking.eligible_depleted += 1;
+                &mut ranking.depleted
+            }
+            SignClass::Undirected => {
+                ranking.eligible_undirected += 1;
+                &mut ranking.undirected
+            }
         };
         if bucket.len() < top_n {
             bucket.push(term);

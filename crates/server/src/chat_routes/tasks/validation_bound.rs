@@ -191,8 +191,9 @@ mod tests {
         ])
         .await;
         let id = emitted_session(&app).await;
-        let router = crate::chat_routes::router(app.clone())
-            .layer(axum::Extension(crate::auth::RequestPrincipal::test_default()));
+        let router = crate::chat_routes::router(app.clone()).layer(axum::Extension(
+            crate::auth::RequestPrincipal::test_default(),
+        ));
 
         let resp = router
             .oneshot(
@@ -224,7 +225,10 @@ mod tests {
             "a bound edit must raise a confirmation card so /confirm re-emits"
         );
         assert!(
-            s.sme_validation_bounds.0.iter().any(|b| b.id == "sme_de_padj"),
+            s.sme_validation_bounds
+                .0
+                .iter()
+                .any(|b| b.id == "sme_de_padj"),
             "the SME bound must be stored on the session"
         );
         assert!(
@@ -247,8 +251,9 @@ mod tests {
         ])
         .await;
         let id = emitted_session(&app).await;
-        let router = crate::chat_routes::router(app.clone())
-            .layer(axum::Extension(crate::auth::RequestPrincipal::test_default()));
+        let router = crate::chat_routes::router(app.clone()).layer(axum::Extension(
+            crate::auth::RequestPrincipal::test_default(),
+        ));
 
         let body = serde_json::json!({
             "bound": {
@@ -296,8 +301,9 @@ mod tests {
         ])
         .await;
         let id = emitted_session(&app).await;
-        let router = crate::chat_routes::router(app.clone())
-            .layer(axum::Extension(crate::auth::RequestPrincipal::test_default()));
+        let router = crate::chat_routes::router(app.clone()).layer(axum::Extension(
+            crate::auth::RequestPrincipal::test_default(),
+        ));
 
         let body = serde_json::json!({
             "bound": {
@@ -346,8 +352,9 @@ mod tests {
         ])
         .await;
         let id = emitted_session(&app).await;
-        let router = crate::chat_routes::router(app.clone())
-            .layer(axum::Extension(crate::auth::RequestPrincipal::test_default()));
+        let router = crate::chat_routes::router(app.clone()).layer(axum::Extension(
+            crate::auth::RequestPrincipal::test_default(),
+        ));
 
         let body = serde_json::json!({
             "bound": {
@@ -387,8 +394,9 @@ mod tests {
         // Seeded session is in Greeting (not Emitted) — the endpoint must reject.
         let (_router, app) = make_router(vec![]).await;
         let id = seed_session_with_completed_task(&app, "differential_expression", None).await;
-        let router = crate::chat_routes::router(app.clone())
-            .layer(axum::Extension(crate::auth::RequestPrincipal::test_default()));
+        let router = crate::chat_routes::router(app.clone()).layer(axum::Extension(
+            crate::auth::RequestPrincipal::test_default(),
+        ));
         let resp = router
             .oneshot(
                 Request::builder()

@@ -514,7 +514,7 @@ expression: value
     {
       "@id": "DEPOSIT-READINESS.json",
       "@type": "CreativeWork",
-      "description": "Self-validation verdict written by `ecaa-workflow export`: RO-Crate re-verify + BagIt checksum integrity (Layer 1) and, for the re-executable profile, re-execution equivalence (Layer 2). Mutable meta file — excluded from the payload manifest by design.",
+      "description": "Self-validation verdict written by `ecaa-workflow export`: RO-Crate re-verify + flat-layout SHA-512 checksum integrity (Layer 1) and, for the re-executable profile, re-execution equivalence (Layer 2). Mutable meta file — excluded from the payload manifest by design.",
       "encodingFormat": "application/json",
       "name": "Deposit-readiness attestation"
     },
@@ -1916,7 +1916,7 @@ expression: value
         "@id": "ro-crate-metadata.json"
       },
       "invariant_id": "evidence_coverage",
-      "verdict": "warn"
+      "verdict": "unverified"
     },
     {
       "@id": "A:substrate_validity",

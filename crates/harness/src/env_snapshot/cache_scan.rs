@@ -20,8 +20,7 @@ pub fn resolve_cache_dir() -> Option<PathBuf> {
             std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".ecaa-workflow/agent-cache"))
         })?;
 
-    let session = std::env::var("ECAA_CHAT_SESSION_ID")
-        .unwrap_or_else(|_| "global".to_owned());
+    let session = std::env::var("ECAA_CHAT_SESSION_ID").unwrap_or_else(|_| "global".to_owned());
 
     Some(base.join(session))
 }
@@ -134,7 +133,8 @@ mod tests {
         std::fs::create_dir_all(t.path().join("R-libs")).unwrap();
         // Install a package into PYTHONUSERBASE layout.
         std::fs::create_dir_all(
-            t.path().join("python/lib/python3.11/site-packages/pydeseq2"),
+            t.path()
+                .join("python/lib/python3.11/site-packages/pydeseq2"),
         )
         .unwrap();
         assert!(cache_has_installs(t.path()));

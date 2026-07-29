@@ -182,7 +182,12 @@ fn integrative_question_over_multiomic_inventory_keeps_companions() {
     );
     let result = clf.classify(&prose);
     let all: std::collections::HashSet<&str> = std::iter::once(result.modality.as_str())
-        .chain(result.additional_modalities.iter().map(|m| m.modality.as_str()))
+        .chain(
+            result
+                .additional_modalities
+                .iter()
+                .map(|m| m.modality.as_str()),
+        )
         .collect();
     assert!(
         result.additional_modalities.len() >= 1 && all.len() >= 2,

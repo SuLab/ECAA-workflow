@@ -72,9 +72,8 @@ pub(crate) fn classify(rel: &Path) -> DepositTier {
     // `__pycache__`, `intermediates` match at any depth, not just as a
     // substring of some longer component).
     let has_component = |name: &str| {
-        rel.components().any(|c| {
-            matches!(c, std::path::Component::Normal(s) if s.to_string_lossy() == name)
-        })
+        rel.components()
+            .any(|c| matches!(c, std::path::Component::Normal(s) if s.to_string_lossy() == name))
     };
 
     // --- Tier E — drop (reproducible bloat) ------------------------------
@@ -135,7 +134,13 @@ pub(crate) fn classify(rel: &Path) -> DepositTier {
     }
 
     // --- Tier D — regenerate (skip copy; rebuilt by reseal) --------------
-    if basename == "manifest-sha512.txt" || basename == "tagmanifest-sha512.txt" {
+    if matches!(
+        basename.as_str(),
+        "manifest-sha512.txt"
+            | "seal-info.json"
+            | "seal-tagmanifest-sha512.txt"
+            | "tagmanifest-sha512.txt"
+    ) {
         return DepositTier::D;
     }
 
@@ -180,6 +185,265 @@ pub struct ExportReport {
     pub dropped: usize,
     /// Root of the export tree on disk (echoes the `dst` argument).
     pub dst: PathBuf,
+    /// One line per packaged script whose deposit-root derivation the export
+    /// could NOT establish as relocation-safe (see [`ScriptRootResolution`]).
+    /// Empty on a clean export. Warn-only: a script the rewriter cannot vouch
+    /// for must be visible to the operator, not silently shipped — but it is not
+    /// grounds to refuse an otherwise-valid deposit. The machine-readable form
+    /// (one verdict per script, including the safe ones) is published in the
+    /// deposit at [`EXPORT_RELOCATION_LEGEND_REL`].
+    pub script_relocation_warnings: Vec<String>,
+}
+
+/// How a packaged per-task script locates the deposit root — the postcondition
+/// [`relocate_script_paths`] is responsible for but historically never checked.
+///
+/// The rewriter is driven entirely by "does this body contain an absolute host
+/// path" (`relocate_script_paths`'s `active.is_empty()` early return), so a
+/// script that never baked one in is copied verbatim and gets NO prologue. That
+/// is correct for a script which locates itself some other way — and silently
+/// wrong for one that does not. In a verified deposit, 20 of 22 scripts carried
+/// the injected prologue and resolved the root from their own location; the 2
+/// that did not were exactly the 2 that were broken at replay
+/// (`Path(__file__).resolve().parents[3]` where the script sits 4 levels down,
+/// producing `<deposit>/runtime/runtime/…` — the recorded replay failure — and a
+/// script using bare CWD-relative `runtime/outputs/…` paths).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ScriptRootResolution {
+    /// The export injected its self-locating prologue (the script named an
+    /// absolute host root, which is now derived from the script's own path).
+    PrologueInjected,
+    /// No prologue was needed: the script derives its root from its own
+    /// location (`__file__` / `BASH_SOURCE` / `commandArgs(--file=)`).
+    SelfLocating,
+    /// Self-locating, but at a depth that disagreed with where the script
+    /// actually sits — normalized by [`normalize_python_file_parents_depth`].
+    DepthNormalized,
+    /// Consults a root ENV VAR (`PKG_ROOT` / `PACKAGE` / `ECAA_INPUT_<n>`) but
+    /// falls back to the process CWD. Resolves under `replay` (which injects
+    /// `PKG_ROOT`) and breaks for anyone running the script directly.
+    EnvRootWithCwdFallback,
+    /// Cites package-anchored paths but derives no root at all — purely
+    /// CWD-dependent. The strongest finding.
+    Unresolved,
+    /// Nothing to resolve: the script cites no package-anchored path (or is not
+    /// text the rewriter can analyse).
+    NoPackagePaths,
+}
+
+impl ScriptRootResolution {
+    /// Whether this verdict belongs in [`ExportReport::script_relocation_warnings`].
+    fn is_warning(self) -> bool {
+        matches!(self, Self::EnvRootWithCwdFallback | Self::Unresolved)
+    }
+
+    /// Stable machine-readable tag for the deposit-side legend sidecar.
+    fn tag(self) -> &'static str {
+        match self {
+            Self::PrologueInjected => "prologue_injected",
+            Self::SelfLocating => "self_locating",
+            Self::DepthNormalized => "depth_normalized",
+            Self::EnvRootWithCwdFallback => "env_root_with_cwd_fallback",
+            Self::Unresolved => "unresolved_root",
+            Self::NoPackagePaths => "no_package_paths",
+        }
+    }
+
+    /// Operator-facing explanation of what is (or is not) guaranteed.
+    fn note(self) -> &'static str {
+        match self {
+            Self::PrologueInjected => {
+                "Deposit root derived from the script's own location by the injected ECAA relocation prologue."
+            }
+            Self::SelfLocating => {
+                "Derives the deposit root from the script's own location; no prologue needed."
+            }
+            Self::DepthNormalized => {
+                "Derived the deposit root from its own location at the WRONG depth; the export corrected the level count to match where the script sits."
+            }
+            Self::EnvRootWithCwdFallback => {
+                "Reads a root environment variable but falls back to the process working directory: resolves under `ecaa-workflow replay` (which injects PKG_ROOT) and NOT when run directly from another directory."
+            }
+            Self::Unresolved => {
+                "Cites package-relative paths but derives no deposit root: it only resolves when the process working directory IS the deposit root."
+            }
+            Self::NoPackagePaths => "Cites no package-anchored path.",
+        }
+    }
+}
+
+/// One script's root-derivation verdict, as published in the deposit's
+/// relocation legend and (for the warnings) in [`ExportReport`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ScriptRelocationFinding {
+    /// Package-relative path of the script.
+    script: String,
+    resolution: ScriptRootResolution,
+    /// What was repaired, when anything was.
+    detail: Option<String>,
+}
+
+impl ScriptRelocationFinding {
+    fn warning_line(&self) -> String {
+        format!(
+            "{} [{}] {}",
+            self.script,
+            self.resolution.tag(),
+            self.resolution.note()
+        )
+    }
+}
+
+/// Repair the ONE root-derivation idiom that is provably wrong from evidence
+/// intrinsic to the script: `<NAME> = …__file__….parents[N]` where `N` is not
+/// the script's actual depth below the deposit root, and `<NAME>` is elsewhere
+/// joined with a `runtime/`-anchored package path.
+///
+/// Two independent signals make the repair safe rather than a guess:
+///
+/// 1. the expression is rooted at `__file__`, so it is deriving a path from the
+///    script's own location — and the script's own location is known exactly
+///    (`walk_up_components`, `runtime/outputs/<task>/scripts/x.py` → 4);
+/// 2. the bound name is later joined with a string starting `runtime/`, i.e. a
+///    path anchored at the PACKAGE ROOT. A name used that way can only denote
+///    the package root, which is unambiguously `parents[depth]`.
+///
+/// Without signal 2 the rewrite would be a guess — a script may legitimately
+/// want some other ancestor — so a `parents[N]` whose bound name is never joined
+/// with a package-anchored path is left alone and merely reported.
+///
+/// Returns the (possibly rewritten) body and one `"parents[N] → parents[D]"`
+/// note per repaired line.
+fn normalize_python_file_parents_depth(body: &str, depth: usize) -> (String, Vec<String>) {
+    let mut notes: Vec<String> = Vec::new();
+    if depth == 0 || !body.contains("__file__") || !body.contains(".parents[") {
+        return (body.to_string(), notes);
+    }
+    let mut out = String::with_capacity(body.len());
+    for line in body.split_inclusive('\n') {
+        let Some(repaired) = repair_parents_depth_line(line, body, depth) else {
+            out.push_str(line);
+            continue;
+        };
+        notes.push(repaired.1);
+        out.push_str(&repaired.0);
+    }
+    (out, notes)
+}
+
+/// Apply [`normalize_python_file_parents_depth`]'s rule to a single line,
+/// returning `(rewritten_line, note)` when it repaired something. `body` is the
+/// whole script, needed for signal 2 (how the bound name is used elsewhere).
+fn repair_parents_depth_line(line: &str, body: &str, depth: usize) -> Option<(String, String)> {
+    let (lhs, rhs) = line.split_once('=')?;
+    // A bare `=` assignment only — never `==`, `!=`, `<=`, `>=`, `+=`, …
+    if rhs.starts_with('=') || lhs.ends_with(['=', '!', '<', '>', '+', '-', '*', '/']) {
+        return None;
+    }
+    let name = lhs.trim();
+    if name.is_empty()
+        || !name.chars().all(|c| c.is_alphanumeric() || c == '_')
+        || name.chars().next().is_some_and(|c| c.is_ascii_digit())
+    {
+        return None;
+    }
+    if !rhs.contains("__file__") {
+        return None;
+    }
+    // Signal 1: the `parents[N]` index, and whether it already agrees.
+    let at = rhs.find(".parents[")?;
+    let rest = &rhs[at + ".parents[".len()..];
+    let close = rest.find(']')?;
+    let digits = &rest[..close];
+    let n: usize = digits.parse().ok()?;
+    if n == depth {
+        return None;
+    }
+    // Signal 2: the bound name is joined with a package-root-anchored path —
+    // `<NAME> / "runtime/…"` (pathlib) or `…join(<NAME>, "runtime/…")`, in any
+    // spacing. Only a name used that way is provably the package root.
+    let anchored = ["/", ","].iter().any(|op| {
+        ["\"runtime/", "'runtime/"].iter().any(|q| {
+            [
+                format!("{name} {op} {q}"),
+                format!("{name}{op} {q}"),
+                format!("{name} {op}{q}"),
+                format!("{name}{op}{q}"),
+            ]
+            .iter()
+            .any(|probe| body.contains(probe))
+        })
+    });
+    if !anchored {
+        return None;
+    }
+    let head = &rhs[..at + ".parents[".len()];
+    let tail = &rest[close..];
+    Some((
+        format!("{lhs}={head}{depth}{tail}"),
+        format!("{name}: parents[{n}] → parents[{depth}]"),
+    ))
+}
+
+/// Classify how `body` (a packaged per-task script, already relocated) derives
+/// the deposit root. See [`ScriptRootResolution`].
+///
+/// Deliberately conservative in BOTH directions. It only reports
+/// [`ScriptRootResolution::Unresolved`] when the body carries a QUOTED
+/// package-anchored path (`"runtime/…"`), so a script that merely names one in a
+/// header comment is not flagged; and it accepts any `__file__` /
+/// `BASH_SOURCE` / `commandArgs(--file=)` anchoring as self-locating without
+/// re-deriving the depth, because only the `parents[N]` spelling exposes its
+/// level count in a form that can be checked (a `"../../.."` chain can be
+/// assembled at runtime, and mis-flagging one would be a false alarm on a
+/// correct script). Missing a broken variant is the safe direction here — the
+/// verdict is a warning, and the classes it DOES catch are the ones observed
+/// breaking real deposits.
+fn classify_script_root(
+    body: &str,
+    lang: ScriptLang,
+    prologue_injected: bool,
+    depth_normalized: bool,
+) -> ScriptRootResolution {
+    if prologue_injected {
+        return ScriptRootResolution::PrologueInjected;
+    }
+    let self_locating = match lang {
+        ScriptLang::Python => body.contains("__file__"),
+        ScriptLang::R => {
+            body.contains("commandArgs") || body.contains("sys.frame") || body.contains("this.path")
+        }
+        ScriptLang::Shell => body.contains("BASH_SOURCE") || body.contains("dirname \"$0\""),
+        ScriptLang::Other => true,
+    };
+    if depth_normalized {
+        return ScriptRootResolution::DepthNormalized;
+    }
+    if self_locating {
+        return ScriptRootResolution::SelfLocating;
+    }
+    // A quoted, package-root-anchored path is the signal that this script
+    // resolves paths against SOMETHING — and therefore that failing to derive a
+    // root matters.
+    let cites_package_path = body.contains("\"runtime/")
+        || body.contains("'runtime/")
+        || body.contains("\"policies/")
+        || body.contains("'policies/")
+        || body.contains("\"inputs/")
+        || body.contains("'inputs/")
+        || body.contains("\"lib/")
+        || body.contains("'lib/");
+    if !cites_package_path {
+        return ScriptRootResolution::NoPackagePaths;
+    }
+    let env_root = ["PKG_ROOT", "PACKAGE", "ECAA_INPUT_"]
+        .iter()
+        .any(|v| body.contains(v));
+    if env_root {
+        ScriptRootResolution::EnvRootWithCwdFallback
+    } else {
+        ScriptRootResolution::Unresolved
+    }
 }
 
 /// Which surface of a completed package a deposit export carries.
@@ -238,8 +502,8 @@ impl std::fmt::Display for DepositProfile {
 /// new stages/layouts are covered automatically (not a per-path blocklist).
 const SERIALIZED_OBJECT_EXTS: &[&str] = &[
     ".rds", ".rdata", ".h5", ".h5ad", ".hdf5", ".loom", ".npy", ".npz", ".pkl", ".pickle",
-    ".joblib", ".feather", ".arrow", ".mtx", ".mtx.gz", ".bam", ".cram", ".bai", ".crai",
-    ".bw", ".bigwig", ".bigbed", ".2bit",
+    ".joblib", ".feather", ".arrow", ".mtx", ".mtx.gz", ".bam", ".cram", ".bai", ".crai", ".bw",
+    ".bigwig", ".bigbed", ".2bit",
 ];
 
 /// Package-relative `@id`s the source `ro-crate-metadata.json` references as a
@@ -267,7 +531,7 @@ fn collect_provenance_referenced_paths(src: &Path) -> std::collections::BTreeSet
         Some(Value::Array(a)) => a.iter().any(|t| t.as_str() == Some("CreateAction")),
         _ => false,
     };
-    let mut add_ref = |out: &mut std::collections::BTreeSet<String>, v: &Value| match v {
+    let add_ref = |out: &mut std::collections::BTreeSet<String>, v: &Value| match v {
         Value::Object(o) => {
             if let Some(id) = o.get("@id").and_then(Value::as_str) {
                 out.insert(id.to_string());
@@ -448,6 +712,119 @@ fn profile_extra_drop(
         }
     }
     false
+}
+
+/// Whether `consumer` is inside the producing task's OWN scope for the purpose
+/// of the cross-stage retention decision ([`cross_stage_consumed_intermediates`]):
+/// the producer itself, or its synthesized `validate_<producer>` companion.
+///
+/// The companion is not an independent downstream stage — the v4 composer mints
+/// it FOR the producer (`composer_v4::companion_synthesis`, which even inherits
+/// the producer's `read_allowance`), and it exists to audit that one stage's own
+/// output. A validator asserting the presence of its subject's scratch file is a
+/// validator-vs-profile mismatch, not evidence that the file carries a data flow
+/// the deposit must preserve; treating it as a genuine consumer would retain
+/// every stage's working `.rds`/`.tsv` scratch and balloon the deposit.
+fn is_own_task_scope(producer: &str, consumer: &str) -> bool {
+    consumer == producer
+        || consumer
+            .strip_prefix("validate_")
+            .is_some_and(|subject| subject == producer)
+}
+
+/// Package-relative `runtime/outputs/<producer>/intermediates/…` paths the
+/// package's OWN evidence shows a task OUTSIDE the producer's scope consumes.
+///
+/// [`REGENERABLE_TASK_OUTPUT_SUBDIRS`] drops `intermediates/` wholesale as
+/// "reproducible bloat", but that premise is false for a file another STAGE
+/// reads: a verified deposit dropped
+/// `contextualize_findings_with_literature/intermediates/de_results_with_symbols.tsv`,
+/// which `reporting/scripts/01_build_manifest.py` (and `validate_reporting`'s
+/// script) opens by full path — so the deposit shipped a re-executable profile
+/// whose `reporting` stage cannot run. Regenerating it means re-running the
+/// producing stage, which is exactly what a `--profile re-executable` deposit
+/// promises NOT to require of an unrelated downstream stage.
+///
+/// Two evidence sources, both intrinsic to the package (never a hardcoded
+/// filename list, so a new stage is covered automatically):
+///
+/// 1. a row in another task's `runtime/outputs/<consumer>/reads.jsonl` whose
+///    `path` is the intermediate — the harness's recorded observed-read fact;
+/// 2. a script under `runtime/outputs/<consumer>/scripts/` that cites the
+///    intermediate's full package-relative path.
+///
+/// Both are scoped by [`is_own_task_scope`], and both require the FULL
+/// package-relative path: a task-relative `intermediates/<name>` citation is
+/// ambiguous across tasks (every stage has an `intermediates/`), the same
+/// reasoning [`reconcile_one_reference_file`]'s Repair 2 encodes for another
+/// task's output. Everything else under `intermediates/` stays dropped.
+///
+/// Best-effort and read from `src` (the pre-export tree, the only place the
+/// candidates still exist). Deterministic: sorted walks, `BTreeSet` result.
+fn cross_stage_consumed_intermediates(src: &Path) -> std::collections::BTreeSet<String> {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let mut retained: BTreeSet<String> = BTreeSet::new();
+    let outputs = src.join("runtime").join("outputs");
+    let Ok(entries) = std::fs::read_dir(&outputs) else {
+        return retained;
+    };
+    let mut task_dirs: Vec<PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect();
+    task_dirs.sort();
+
+    // Candidate intermediates, keyed by package-relative path → producer task.
+    let mut candidates: BTreeMap<String, String> = BTreeMap::new();
+    // Per-consumer evidence text: its `reads.jsonl` plus every `scripts/` body.
+    let mut evidence: BTreeMap<String, String> = BTreeMap::new();
+
+    for task_dir in &task_dirs {
+        let Some(task_id) = task_dir
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+        else {
+            continue;
+        };
+        for entry in walkdir::WalkDir::new(task_dir.join("intermediates")).sort_by_file_name() {
+            let Ok(entry) = entry else { continue };
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            if let Ok(rel) = entry.path().strip_prefix(src) {
+                candidates.insert(rel.to_string_lossy().replace('\\', "/"), task_id.clone());
+            }
+        }
+        let mut text = std::fs::read_to_string(task_dir.join("reads.jsonl")).unwrap_or_default();
+        for entry in walkdir::WalkDir::new(task_dir.join("scripts")).sort_by_file_name() {
+            let Ok(entry) = entry else { continue };
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            if let Ok(body) = std::fs::read_to_string(entry.path()) {
+                text.push('\n');
+                text.push_str(&body);
+            }
+        }
+        if !text.trim().is_empty() {
+            evidence.insert(task_id, text);
+        }
+    }
+
+    for (candidate, producer) in &candidates {
+        for (consumer, text) in &evidence {
+            if is_own_task_scope(producer, consumer) {
+                continue;
+            }
+            if contains_path_token(text, candidate) {
+                retained.insert(candidate.clone());
+                break;
+            }
+        }
+    }
+    retained
 }
 
 /// Export the A+B-tier (audit/review/deposit + re-execution) surface of the
@@ -673,7 +1050,12 @@ fn read_registered_input_roots(src: &Path) -> Vec<(String, String)> {
 /// two non-empty path components (`/home/a` is the shortest accepted form).
 fn is_relocatable_root(root: &str) -> bool {
     root.starts_with('/')
-        && root.trim_end_matches('/').split('/').filter(|s| !s.is_empty()).count() >= 2
+        && root
+            .trim_end_matches('/')
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .count()
+            >= 2
 }
 
 /// The source tree's own absolute path, canonicalized when possible. This is
@@ -695,7 +1077,11 @@ fn all_recorded_pkg_roots(src: &Path) -> Vec<String> {
     let mut roots: std::collections::BTreeSet<String> =
         std::collections::BTreeSet::from([canonical_root_string(src)]);
     if let Ok(entries) = std::fs::read_dir(src.join("runtime/outputs")) {
-        let mut dirs: Vec<PathBuf> = entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
+        let mut dirs: Vec<PathBuf> = entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_dir())
+            .collect();
         dirs.sort();
         for d in dirs {
             let recorded = read_recorded_pkg_root(&d);
@@ -797,6 +1183,13 @@ fn walk_up_components(rel: &Path) -> usize {
         .saturating_sub(1)
 }
 
+/// Opening line of the injected self-locating prologue. Single source of truth
+/// so the copy loop's "did this script get a prologue?" check
+/// ([`ScriptRootResolution::PrologueInjected`]) cannot drift from what
+/// [`relocation_prologue`] actually emits.
+const RELOCATION_PROLOGUE_MARKER: &str =
+    "# --- ECAA relocation prologue (added by `ecaa-workflow export`) ---";
+
 /// Emit the self-locating prologue that binds every root the script needs.
 ///
 /// The contract this encodes: **no absolute host path survives**. Each root
@@ -809,11 +1202,18 @@ fn walk_up_components(rel: &Path) -> usize {
 fn relocation_prologue(lang: ScriptLang, depth: usize, roots: &[RelocRoot]) -> String {
     let mut s = String::new();
     let depth = depth.max(1);
-    let up_r = std::iter::repeat("\"..\"").take(depth).collect::<Vec<_>>().join(", ");
-    let up_posix = std::iter::repeat("..").take(depth).collect::<Vec<_>>().join("/");
+    let up_r = std::iter::repeat("\"..\"")
+        .take(depth)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let up_posix = std::iter::repeat("..")
+        .take(depth)
+        .collect::<Vec<_>>()
+        .join("/");
     match lang {
         ScriptLang::R => {
-            s.push_str("# --- ECAA relocation prologue (added by `ecaa-workflow export`) ---\n");
+            s.push_str(RELOCATION_PROLOGUE_MARKER);
+            s.push('\n');
             s.push_str("# Roots resolve from the environment, else from THIS script's own\n");
             s.push_str("# location. No absolute host path is baked in.\n");
             s.push_str(".ECAA_SELF_DIR <- local({\n");
@@ -838,7 +1238,8 @@ fn relocation_prologue(lang: ScriptLang, depth: usize, roots: &[RelocRoot]) -> S
             s.push_str("# --- end ECAA relocation prologue ---\n");
         }
         ScriptLang::Python => {
-            s.push_str("# --- ECAA relocation prologue (added by `ecaa-workflow export`) ---\n");
+            s.push_str(RELOCATION_PROLOGUE_MARKER);
+            s.push('\n');
             s.push_str("# Roots resolve from the environment, else from THIS script's own\n");
             s.push_str("# location. No absolute host path is baked in.\n");
             s.push_str("import os as _ecaa_os\n");
@@ -859,8 +1260,11 @@ fn relocation_prologue(lang: ScriptLang, depth: usize, roots: &[RelocRoot]) -> S
             s.push_str("# --- end ECAA relocation prologue ---\n");
         }
         ScriptLang::Shell => {
-            s.push_str("# --- ECAA relocation prologue (added by `ecaa-workflow export`) ---\n");
-            s.push_str("_ECAA_SELF_DIR=\"$(cd \"$(dirname \"${BASH_SOURCE[0]:-$0}\")\" && pwd)\"\n");
+            s.push_str(RELOCATION_PROLOGUE_MARKER);
+            s.push('\n');
+            s.push_str(
+                "_ECAA_SELF_DIR=\"$(cd \"$(dirname \"${BASH_SOURCE[0]:-$0}\")\" && pwd)\"\n",
+            );
             s.push_str(&format!(
                 "_ECAA_DEPOSIT_ROOT=\"$(cd \"$_ECAA_SELF_DIR/{up_posix}\" && pwd)\"\n"
             ));
@@ -929,7 +1333,11 @@ fn relocate_script_paths(body: &str, rel: &Path, roots: &[RelocRoot]) -> String 
     // Only bind the roots the body actually referenced — a prologue naming an
     // unused root is noise a reviewer has to discount.
     let bound: Vec<RelocRoot> = active.iter().copied().cloned().collect();
-    insert_prologue(&out, lang, &relocation_prologue(lang, walk_up_components(rel), &bound))
+    insert_prologue(
+        &out,
+        lang,
+        &relocation_prologue(lang, walk_up_components(rel), &bound),
+    )
 }
 
 /// Splice each root occurrence into a variable reference (see
@@ -954,7 +1362,8 @@ fn splice_root_occurrences(body: &str, lang: ScriptLang, roots: &[&RelocRoot]) -
             let quote = (i > 0)
                 .then(|| bytes[i - 1] as char)
                 .filter(|c| (*c == '"' || *c == '\'') && out.ends_with(*c));
-            let triple = quote.is_some_and(|q| i >= 3 && bytes[i - 2] == q as u8 && bytes[i - 3] == q as u8);
+            let triple =
+                quote.is_some_and(|q| i >= 3 && bytes[i - 2] == q as u8 && bytes[i - 3] == q as u8);
             // `Other` has no prologue to bind a variable, so it never splices
             // — every occurrence becomes the documentation token.
             let splices = !matches!(lang, ScriptLang::Other);
@@ -1090,7 +1499,8 @@ pub fn export_depositable_package_with_profile(
     // encounters that task's `scripts/` files. Read from `src` (not `dst`) so
     // the lookup never depends on the walk's visitation order within a task
     // directory (`determinism-env.json` need not already be copied).
-    let mut pkg_roots: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+    let mut pkg_roots: std::collections::BTreeMap<String, String> =
+        std::collections::BTreeMap::new();
 
     // SME-registered EXTERNAL input roots (`runtime/inputs.json`). Read once —
     // they are package-scoped, not per-task, and every script + accountability
@@ -1103,6 +1513,29 @@ pub fn export_depositable_package_with_profile(
     // reference is fine". Bounded to referenceable data artifacts (see
     // `is_referenceable_artifact`) — the cache/log bulk is never cited.
     let mut removed: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+
+    // Narrow OVERRIDE of the Tier-E `intermediates/` drop: the files the
+    // package's own evidence proves a DIFFERENT stage consumes (see
+    // `cross_stage_consumed_intermediates`). The tier gate itself is untouched —
+    // `classify` still returns `E` for every `intermediates/` path, so the
+    // replay's `REGENERABLE_TASK_OUTPUT_SUBDIRS` recreation stays correct — this
+    // only stops the copy loop from dropping a genuine cross-stage dependency.
+    // `MinimalAudit` is by contract NOT re-executable and already drops the
+    // consuming `scripts/` along with the rest of the re-execution tier, so
+    // retaining their input there would be dead weight; the dangling read stays
+    // honestly marked by `mark_dangling_reads_manifest_rows`.
+    let retained_intermediates = if matches!(profile, DepositProfile::MinimalAudit) {
+        std::collections::BTreeSet::new()
+    } else {
+        cross_stage_consumed_intermediates(src)
+    };
+
+    // Per-script root-derivation verdicts, collected as the copy loop relocates
+    // each packaged script. The rewriter's job is "no absolute host path
+    // survives"; these record whether the script that came out can actually FIND
+    // the deposit root, so one that cannot is a visible finding rather than a
+    // silent skip. Pushed in walk order (`sort_by_file_name`) → deterministic.
+    let mut script_findings: Vec<ScriptRelocationFinding> = Vec::new();
 
     // Walk source; copy only kept (A+B) files, preserving layout. `.git/` is
     // pruned at the directory level so the walk never descends into VCS
@@ -1130,10 +1563,11 @@ pub fn export_depositable_package_with_profile(
             .strip_prefix(src)
             .with_context(|| format!("stripping {} from {}", src.display(), abs.display()))?;
 
-        let keep = is_kept(classify(rel)) && !profile_extra_drop(profile, rel, &protected);
+        let rel_str = rel.to_string_lossy().replace('\\', "/");
+        let keep = (is_kept(classify(rel)) || retained_intermediates.contains(&rel_str))
+            && !profile_extra_drop(profile, rel, &protected);
         if !keep {
             dropped += 1;
-            let rel_str = rel.to_string_lossy().replace('\\', "/");
             if is_referenceable_artifact(&rel_str) {
                 removed.insert(rel_str);
             }
@@ -1151,7 +1585,11 @@ pub fn export_depositable_package_with_profile(
                 .with_context(|| format!("reading symlink {}", abs.display()))?;
             let _ = std::fs::remove_file(&dest_path);
             symlink_verbatim(&target, &dest_path).with_context(|| {
-                format!("recreating symlink {} -> {}", dest_path.display(), target.display())
+                format!(
+                    "recreating symlink {} -> {}",
+                    dest_path.display(),
+                    target.display()
+                )
             })?;
         } else if let Some(task_id) = task_scripts_dir_task_id(rel) {
             // A sealed per-task script: rewrite EVERY absolute host root it
@@ -1172,20 +1610,48 @@ pub fn export_depositable_package_with_profile(
                         .clone();
                     let roots = build_reloc_roots(&[pkg_root, src_root.clone()], &input_roots);
                     let rewritten = relocate_script_paths(&text, rel, &roots);
+                    // A prologue was injected iff the rewrite added one (the
+                    // rewriter is a no-op on a body that named no host root).
+                    let prologue_injected = rewritten.contains(RELOCATION_PROLOGUE_MARKER)
+                        && !text.contains(RELOCATION_PROLOGUE_MARKER);
+                    let lang = script_language(rel);
+                    // Repair a provably-wrong `parents[N]` depth; everything else
+                    // is classified and reported, never rewritten.
+                    let (rewritten, depth_notes) = if matches!(lang, ScriptLang::Python) {
+                        normalize_python_file_parents_depth(&rewritten, walk_up_components(rel))
+                    } else {
+                        (rewritten, Vec::new())
+                    };
+                    script_findings.push(ScriptRelocationFinding {
+                        script: rel_str.clone(),
+                        resolution: classify_script_root(
+                            &rewritten,
+                            lang,
+                            prologue_injected,
+                            !depth_notes.is_empty(),
+                        ),
+                        detail: (!depth_notes.is_empty()).then(|| depth_notes.join("; ")),
+                    });
                     std::fs::write(&dest_path, rewritten).with_context(|| {
                         format!("writing relocation-safe script {}", dest_path.display())
                     })?;
                 }
                 Err(_) => {
+                    // Non-UTF8 content: copied verbatim, and honestly recorded as
+                    // un-analysable rather than silently vouched for.
+                    script_findings.push(ScriptRelocationFinding {
+                        script: rel_str.clone(),
+                        resolution: ScriptRootResolution::NoPackagePaths,
+                        detail: Some("not UTF-8 text; copied verbatim, not analysed".to_string()),
+                    });
                     std::fs::copy(abs, &dest_path).with_context(|| {
                         format!("copying {} -> {}", abs.display(), dest_path.display())
                     })?;
                 }
             }
         } else {
-            std::fs::copy(abs, &dest_path).with_context(|| {
-                format!("copying {} -> {}", abs.display(), dest_path.display())
-            })?;
+            std::fs::copy(abs, &dest_path)
+                .with_context(|| format!("copying {} -> {}", abs.display(), dest_path.display()))?;
         }
         kept += 1;
     }
@@ -1196,8 +1662,8 @@ pub fn export_depositable_package_with_profile(
     // reseal + RO-Crate prune below, so the manifest and `@graph` reflect the
     // deduplicated set; the prune then drops each deleted table's `@graph` File
     // entity and its `#action/<path>` CreateAction. Counted out of `kept`.
-    let renames = dedup_duplicate_output_tables(dst)
-        .context("de-duplicating output tables over export")?;
+    let renames =
+        dedup_duplicate_output_tables(dst).context("de-duplicating output tables over export")?;
     let deduped = renames.len();
     kept = kept.saturating_sub(deduped);
     dropped += deduped;
@@ -1246,8 +1712,8 @@ pub fn export_depositable_package_with_profile(
     // Content-aware, so a run that DOES record the agent's code, or a non-empty
     // pool set (e.g. the method-survey stage), is kept.
     if matches!(profile, DepositProfile::MinimalAudit) {
-        let pruned = prune_content_empty_outputs(dst)
-            .context("pruning content-empty per-task sidecars")?;
+        let pruned =
+            prune_content_empty_outputs(dst).context("pruning content-empty per-task sidecars")?;
         kept = kept.saturating_sub(pruned);
         dropped += pruned;
     }
@@ -1292,7 +1758,7 @@ pub fn export_depositable_package_with_profile(
     // tagmanifest); the post-seal RO-Crate recheck now sees a graph whose every
     // declared content hash is backed by a present payload file.
     crate::emitter::regenerate_bagit_manifest(dst, &clock)
-        .context("re-sealing BagIt manifest over export")?;
+        .context("re-sealing SHA-512 manifest over export")?;
 
     // Re-record the audit-proof report against the deposit-scoped graph. The
     // prune above drops the embedded `C:*` Claim and `A:*` InvariantVerdict
@@ -1312,6 +1778,15 @@ pub fn export_depositable_package_with_profile(
     // content hash, so rewriting it perturbs no seal (no re-seal required).
     super::ecaa::write_audit_proof_report(dst)
         .context("re-recording audit-proof report over the deposit graph")?;
+
+    // Account for every retained task output without treating every scientific
+    // file as promised narrative evidence. The ledger distinguishes declared
+    // claim evidence, other analytical results, presentation files,
+    // intermediates, validation outputs, retained inputs, superseded outputs,
+    // and execution machinery. It is written before the readability and
+    // zero-dark-payload passes so both surfaces include it.
+    super::output_accountability::write_output_accountability(dst)
+        .context("writing output-accountability ledger over the deposit")?;
 
     // Deposit readability transforms (all pure functions of the exported tree,
     // none touch the `@graph`): reorder `WORKFLOW.json` tasks into execution
@@ -1337,8 +1812,7 @@ pub fn export_depositable_package_with_profile(
     // existence checks see the artifacts above. A final reseal then folds the
     // reordered WORKFLOW.json + ARTIFACTS.md + AUDIT-REPORT.md + README into the
     // BagIt manifest (all derived deterministically, so the seal is stable).
-    super::readability::augment_readme(dst)
-        .context("augmenting README.md over the deposit")?;
+    super::readability::augment_readme(dst).context("augmenting README.md over the deposit")?;
 
     // Host-path tokenization over the accountability documents. The scripts
     // were relocated at copy time, but `CONTEXT.md` / `PROMPT.md` /
@@ -1349,7 +1823,7 @@ pub fn export_depositable_package_with_profile(
     // BEFORE `register_deposit_entities`, so the legend sidecar it writes is
     // itself declared in the `@graph` (no dark payload).
     let doc_roots = build_reloc_roots(&all_recorded_pkg_roots(src), &input_roots);
-    tokenize_accountability_files(dst, &doc_roots)
+    tokenize_accountability_files(dst, &doc_roots, &script_findings)
         .context("tokenizing host paths in the deposit's accountability documents")?;
 
     // Zero dark payload: register every kept file not yet in the RO-Crate
@@ -1368,18 +1842,36 @@ pub fn export_depositable_package_with_profile(
     // time. Left alone, every real deposit shipped an attestation with ZERO
     // references in its own provenance graph while `emitter::bagit` documented
     // the file as "instead represented as an RO-Crate `@graph` entity".
-    // Re-declare it here, after the last graph rewrite and before the final
-    // reseal. It stays OFF the payload manifest (mutable meta) and carries no
-    // content hash, so the post-seal hash recheck is unaffected.
-    let dr11 = ensure_deposit_readiness_entity(dst)
-        .context("re-declaring DEPOSIT-READINESS.json in the deposit RO-Crate @graph")?;
+    // Re-declare it — and its post-seal twin `runtime/post-seal-validation.json`,
+    // which shipped in neither manifest AND with no graph node at all — here,
+    // after the last graph rewrite and before the final reseal. Both stay OFF
+    // the payload manifest (mutable meta) and carry no content hash, so the
+    // post-seal hash recheck is unaffected.
+    let dr11 = ensure_mutable_meta_entities(dst)
+        .context("declaring the post-seal mutable-meta entities in the deposit RO-Crate @graph")?;
+
+    // `register_deposit_entities` types every unregistered payload file as a bare
+    // `File`, which puts the manifest-EXCLUDED meta files into the hashed-`File`
+    // class that `register_content_integrity` can never annotate (it only stamps
+    // what the manifest covers). Re-type them `CreativeWork`, the class the
+    // deposit already uses for exactly this purpose, so "every `File` entity
+    // carries a `sha512`" holds with no exceptions.
+    let declassed = declass_manifest_excluded_meta_entities(dst)
+        .context("re-typing manifest-excluded meta files out of the hashed-File class")?;
+
+    // Restate `CreateAction.object` (PROV `used`) over the now-final graph: the
+    // per-task read targets `register_deposit_entities` just registered were
+    // invisible to the harness-time reconcile, which gates on entity presence.
+    // MUST run after ALL entity registration above and before the final seal.
+    let objects_rebuilt = rebuild_deposit_create_action_objects(src, dst)
+        .context("restating CreateAction.object over the deposit graph")?;
 
     // Adding `File` nodes for on-disk files does not change the audit-proof
     // invariants (they concern Claim / decision / proof / equivalence nodes, not
     // file completeness), but re-record over the now-final graph so the recorded
     // verdicts match a downloader's fresh `replay` exactly, then regenerate the
     // audit report so its `evaluated_at` matches the final report.
-    if registered > 0 || dr11 {
+    if registered > 0 || dr11 || declassed || objects_rebuilt {
         super::ecaa::write_audit_proof_report(dst)
             .context("re-recording audit-proof after @graph registration")?;
         super::audit_report::write_audit_report(dst)
@@ -1394,11 +1886,11 @@ pub fn export_depositable_package_with_profile(
     // computed over tokenized bytes in the common case. Runs before the final
     // reseal, whose `register_content_integrity` refreshes every recorded
     // content hash over the rewritten payload.
-    tokenize_accountability_files(dst, &doc_roots)
+    tokenize_accountability_files(dst, &doc_roots, &script_findings)
         .context("re-tokenizing host paths after the audit-report regeneration")?;
 
     crate::emitter::regenerate_bagit_manifest(dst, &clock)
-        .context("re-sealing BagIt manifest after readability transforms")?;
+        .context("re-sealing SHA-512 manifest after readability transforms")?;
 
     // Execution lineage: best-effort `git log` of the source working tree.
     // Full profile only — the lean profiles treat it as droppable convenience.
@@ -1434,7 +1926,7 @@ pub fn export_depositable_package_with_profile(
     .context("writing DEPOSIT-READINESS.json")?;
     if !tier1.passed() {
         anyhow::bail!(
-            "export self-validation failed (RO-Crate/BagIt integrity): {} — see {} in {}",
+            "export self-validation failed (RO-Crate/checksum-seal integrity): {} — see {} in {}",
             tier1.detail.as_deref().unwrap_or("unknown"),
             crate::deposit_readiness::DEPOSIT_READINESS_FILE,
             dst.display()
@@ -1445,6 +1937,11 @@ pub fn export_depositable_package_with_profile(
         kept,
         dropped,
         dst: dst.to_path_buf(),
+        script_relocation_warnings: script_findings
+            .iter()
+            .filter(|f| f.resolution.is_warning())
+            .map(ScriptRelocationFinding::warning_line)
+            .collect(),
     })
 }
 
@@ -1491,7 +1988,8 @@ fn prune_content_empty_outputs(dst: &Path) -> Result<usize> {
             Err(_) => continue,
         };
         let name = entry.file_name().to_string_lossy().into_owned();
-        if !entry.file_type().is_file() || (name != "agent-code.json" && name != "curated_pools.json")
+        if !entry.file_type().is_file()
+            || (name != "agent-code.json" && name != "curated_pools.json")
         {
             continue;
         }
@@ -1564,7 +2062,10 @@ fn declared_task_artifact_basenames(
         return out;
     };
     let basename_of = |s: &str| -> Option<String> {
-        s.rsplit('/').next().filter(|b| !b.is_empty()).map(str::to_string)
+        s.rsplit('/')
+            .next()
+            .filter(|b| !b.is_empty())
+            .map(str::to_string)
     };
     for (task_id, task) in tasks {
         let entry = out.entry(task_id.clone()).or_default();
@@ -1578,7 +2079,10 @@ fn declared_task_artifact_basenames(
             }
         }
         if let Some(arr) = task.get("required_artifacts").and_then(Value::as_array) {
-            for v in arr.iter().filter_map(|r| r.get("path").and_then(Value::as_str)) {
+            for v in arr
+                .iter()
+                .filter_map(|r| r.get("path").and_then(Value::as_str))
+            {
                 entry.extend(basename_of(v));
             }
         }
@@ -1648,7 +2152,10 @@ fn dedup_duplicate_output_tables(dst: &Path) -> Result<std::collections::BTreeMa
     // can never dangle a reference (fail-safe).
     let claim_meta = {
         let mut s = String::new();
-        for sidecar in ["runtime/claim-verification.json", "runtime/audit-proof-report.json"] {
+        for sidecar in [
+            "runtime/claim-verification.json",
+            "runtime/audit-proof-report.json",
+        ] {
             if let Ok(t) = std::fs::read_to_string(dst.join(sidecar)) {
                 s.push_str(&t);
             }
@@ -1662,8 +2169,7 @@ fn dedup_duplicate_output_tables(dst: &Path) -> Result<std::collections::BTreeMa
     let declared = declared_task_artifact_basenames(dst);
 
     let outputs = dst.join("runtime").join("outputs");
-    let mut renames: std::collections::BTreeMap<String, String> =
-        std::collections::BTreeMap::new();
+    let mut renames: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
     if !outputs.is_dir() {
         return Ok(renames);
     }
@@ -1694,7 +2200,10 @@ fn dedup_duplicate_output_tables(dst: &Path) -> Result<std::collections::BTreeMa
             if !p.is_file() {
                 continue;
             }
-            if !matches!(p.extension().and_then(|e| e.to_str()), Some("tsv") | Some("csv")) {
+            if !matches!(
+                p.extension().and_then(|e| e.to_str()),
+                Some("tsv") | Some("csv")
+            ) {
                 continue;
             }
             let Ok(bytes) = std::fs::read(&p) else {
@@ -1795,7 +2304,10 @@ fn is_path_token_boundary(text: &str, idx: usize, tok: &str) -> bool {
     // dot means a longer name (`…tsv.gz`, `…tsv.bak`). The cost is that a
     // filename ending a prose sentence is left alone — the safe direction,
     // since a false rewrite silently renames a DIFFERENT file.
-    let before_ok = text[..idx].chars().next_back().is_none_or(|c| !is_path_token_char(c));
+    let before_ok = text[..idx]
+        .chars()
+        .next_back()
+        .is_none_or(|c| !is_path_token_char(c));
     let after_ok = text[idx + tok.len()..]
         .chars()
         .next()
@@ -1882,7 +2394,11 @@ fn reconcile_dropped_file_references(
     let mut targets: Vec<PathBuf> = Vec::new();
     let outputs = dst.join("runtime").join("outputs");
     if let Ok(entries) = std::fs::read_dir(&outputs) {
-        let mut dirs: Vec<PathBuf> = entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
+        let mut dirs: Vec<PathBuf> = entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_dir())
+            .collect();
         dirs.sort();
         for d in dirs {
             for name in PER_TASK_RECONCILED_SIDECARS {
@@ -1923,18 +2439,56 @@ fn reconcile_one_reference_file(
         return Ok(false);
     }
 
+    let basename_of = |s: &str| -> String { s.rsplit('/').next().unwrap_or(s).to_string() };
+
+    // This sidecar's OWN task-output dir, as a `runtime/outputs/<task>/`
+    // prefix — `None` for the package-level `determinism-shim.json`, and for
+    // any other target that is not a direct child of a single task dir. The
+    // bare-basename rewrite below is legal only INSIDE this prefix (see
+    // Repair 1).
+    let own_task_prefix: Option<String> = target
+        .parent()
+        .and_then(|p| p.strip_prefix(dst).ok())
+        .map(|p| p.to_string_lossy().replace('\\', "/"))
+        .filter(|d| {
+            d.strip_prefix("runtime/outputs/")
+                .is_some_and(|t| !t.is_empty() && !t.contains('/'))
+        })
+        .map(|d| format!("{d}/"));
+
     // --- Repair 1: rewrite dropped-twin citations (textual, so it reaches
     // the inside of composed strings like `file_present:<name>`). Full paths
     // first, then bare basenames; both at path-token boundaries.
+    //
+    // The bare-basename form is TASK-SCOPED, exactly as Repair 2's `forms` are.
+    // A rename is minted by `dedup_duplicate_output_tables` per task directory,
+    // so `<dropped>` and `<keep>` are always siblings in ONE task dir; applying
+    // the basename form to every task's sidecars rewrote a DIFFERENT task's
+    // citation of a same-named-but-unrelated file. A real deposit renamed
+    // `review_prior_work/method_landscape.csv` → `prior_claims_matrix.csv` and
+    // the unscoped basename pass rewrote `survey_method_landscape/result.json`
+    // so its `artifacts[]` and narrative cited `prior_claims_matrix.csv` — a
+    // file absent from that task dir — while the deposit's only surviving copy
+    // of `method_landscape.csv` (NOT a byte-identical twin: different sha256,
+    // 103 rows vs 26) was dropped from its own `artifacts[]` entirely.
+    //
+    // Outside its own task dir only the FULL path is an unambiguous citation of
+    // the dropped file — the same reasoning Repair 2 already encodes for
+    // "another task's output". A package-level dropped path (not under
+    // `runtime/outputs/`) keeps its basename form: there is exactly one such
+    // file per package, so the basename cannot collide across tasks.
     let mut text = raw.clone();
     let mut applied: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
-    let basename_of =
-        |s: &str| -> String { s.rsplit('/').next().unwrap_or(s).to_string() };
     for (dropped, keep) in renames {
-        for (from, to) in [
-            (dropped.clone(), keep.clone()),
-            (basename_of(dropped), basename_of(keep)),
-        ] {
+        let basename_is_unambiguous_here = match own_task_prefix.as_deref() {
+            Some(prefix) => dropped.starts_with(prefix),
+            None => !dropped.starts_with("runtime/outputs/"),
+        };
+        let mut forms = vec![(dropped.clone(), keep.clone())];
+        if basename_is_unambiguous_here {
+            forms.push((basename_of(dropped), basename_of(keep)));
+        }
+        for (from, to) in forms {
             if from == to {
                 continue;
             }
@@ -2115,7 +2669,16 @@ const RELOCATION_LEGEND_MARKER: &str = "<!-- ecaa:relocation-legend -->";
 /// agent or an SME actually said — rewriting them would falsify a record
 /// rather than relocate a path. Their residual host paths remain a documented,
 /// warn-only portability finding (`deposit_readiness::scan_portability`).
-fn tokenize_accountability_files(dst: &Path, roots: &[RelocRoot]) -> Result<usize> {
+fn tokenize_accountability_files(
+    dst: &Path,
+    roots: &[RelocRoot],
+    scripts: &[ScriptRelocationFinding],
+) -> Result<usize> {
+    // The legend is written FIRST and unconditionally: it also publishes the
+    // per-script root-derivation verdicts, which exist independently of whether
+    // this package had any absolute host root to tokenize.
+    let all: Vec<&RelocRoot> = roots.iter().collect();
+    write_relocation_legend(dst, &all, scripts)?;
     if roots.is_empty() {
         return Ok(0);
     }
@@ -2140,15 +2703,6 @@ fn tokenize_accountability_files(dst: &Path, roots: &[RelocRoot]) -> Result<usiz
     }
     targets.sort();
     targets.dedup();
-
-    // Written UNCONDITIONALLY whenever a substitution table exists — the
-    // scripts are relocated on every export, so the tokens are always live,
-    // and an unconditional write keeps the sidecar registered in the `@graph`
-    // by `register_deposit_entities` (which runs after the first pass). A
-    // conditional write could materialize the file only on the SECOND pass,
-    // after registration, leaving it as dark payload.
-    let all: Vec<&RelocRoot> = roots.iter().collect();
-    write_relocation_legend(dst, &all)?;
 
     let mut rewritten = 0usize;
     for target in targets {
@@ -2221,7 +2775,11 @@ fn markdown_relocation_legend(roots: &[&RelocRoot]) -> String {
 /// Publish the token legend machine-readably for the tokenized JSON/HTML
 /// accountability files, which cannot carry the Markdown legend inline. Names
 /// no host path — that is the whole point of the tokenization.
-fn write_relocation_legend(dst: &Path, roots: &[&RelocRoot]) -> Result<()> {
+fn write_relocation_legend(
+    dst: &Path,
+    roots: &[&RelocRoot],
+    scripts: &[ScriptRelocationFinding],
+) -> Result<()> {
     let tokens: Vec<serde_json::Value> = unique_by_env_var(roots)
         .into_iter()
         .map(|r| {
@@ -2235,10 +2793,42 @@ fn write_relocation_legend(dst: &Path, roots: &[&RelocRoot]) -> Result<()> {
             })
         })
         .collect();
+    // Per-script root-derivation verdicts (see `ScriptRootResolution`). A
+    // rewriter that silently skips a script it does not recognise ships a
+    // broken script invisibly; publishing every verdict — the safe ones
+    // included — makes the postcondition auditable from the deposit itself.
+    let script_rows: Vec<serde_json::Value> = scripts
+        .iter()
+        .map(|f| {
+            let mut row = serde_json::Map::new();
+            row.insert("script".to_string(), serde_json::json!(f.script));
+            row.insert(
+                "root_resolution".to_string(),
+                serde_json::json!(f.resolution.tag()),
+            );
+            row.insert("note".to_string(), serde_json::json!(f.resolution.note()));
+            row.insert(
+                "relocation_safe".to_string(),
+                serde_json::json!(!f.resolution.is_warning()),
+            );
+            if let Some(detail) = &f.detail {
+                row.insert("detail".to_string(), serde_json::json!(detail));
+            }
+            serde_json::Value::Object(row)
+        })
+        .collect();
+    let warnings: Vec<String> = scripts
+        .iter()
+        .filter(|f| f.resolution.is_warning())
+        .map(ScriptRelocationFinding::warning_line)
+        .collect();
     let doc = serde_json::json!({
-        "schema_version": "1",
+        "schema_version": "2",
         "note": "Absolute host paths in this deposit's scripts and accountability documents were replaced by these tokens so the package is relocatable. Each resolves from its environment variable when set, else relative to the deposit root.",
         "tokens": tokens,
+        "scripts_note": "How each packaged script locates the deposit root. `relocation_safe: false` means the export could NOT establish that the script resolves the root independently of the process working directory.",
+        "scripts": script_rows,
+        "script_warnings": warnings,
     });
     let path = dst.join(EXPORT_RELOCATION_LEGEND_REL);
     if let Some(parent) = path.parent() {
@@ -2250,25 +2840,52 @@ fn write_relocation_legend(dst: &Path, roots: &[&RelocRoot]) -> Result<()> {
     Ok(())
 }
 
-/// Re-declare `DEPOSIT-READINESS.json` as a `CreativeWork` in the deposit's
-/// RO-Crate `@graph`, linked from the root Dataset via `mentions`.
+/// The mutable POST-SEAL meta files a deposit carries: written after the final
+/// BagIt seal, deliberately off the payload manifest
+/// ([`super::bagit::MANIFEST_EXCLUDED_META_FILES`]), and therefore declared in
+/// the RO-Crate as a `mentions`-linked `CreativeWork` rather than a hashed
+/// `File`. `(id, name, description)`, sorted by `@id` for deterministic bytes.
+const MUTABLE_META_ENTITIES: &[(&str, &str, &str)] = &[
+    (
+        crate::deposit_readiness::DEPOSIT_READINESS_FILE,
+        "Deposit-readiness attestation",
+        "Self-validation verdict written by `ecaa-workflow export`: RO-Crate re-verify + flat-layout SHA-512 checksum integrity (Layer 1) and, for the re-executable profile, re-execution equivalence (Layer 2). Mutable meta file — excluded from the payload manifest by design.",
+    ),
+    (
+        crate::deposit_readiness::POST_SEAL_VALIDATION_FILE,
+        "Post-seal revalidation report",
+        "Offline re-check written by `ecaa-workflow deposit-check`: every file-presence claim the package's own per-task reports make about themselves, re-verified against the sealed tree, plus the reporting-invariant and contract-obligation findings. Written after the seal and carrying a wall-clock `checked_at`, so it is a mutable meta file — excluded from the payload manifest by design, and declared here so it is discoverable rather than dark.",
+    ),
+];
+
+/// Declare each [`MUTABLE_META_ENTITIES`] file as a `CreativeWork` in the
+/// deposit's RO-Crate `@graph`, linked from the root Dataset via `mentions`.
 ///
-/// The emitter declares this entity at emit time (`crate::ro_crate`, DR-11),
-/// but the export's [`prune_rocrate_dangling`] necessarily removes it: the
-/// attestation is written at the very END of
+/// The emitter declares the attestation entity at emit time (`crate::ro_crate`,
+/// DR-11), but the export's [`prune_rocrate_dangling`] necessarily removes it:
+/// the attestation is written at the very END of
 /// [`export_depositable_package_with_profile`] and so is genuinely absent from
 /// disk when the prune runs. The net effect in every shipped deposit was an
 /// attestation with ZERO references in its own provenance graph — while
 /// `emitter::bagit` documents the manifest exclusion as safe precisely BECAUSE
 /// the file "is surfaced instead as an RO-Crate `@graph` CreativeWork".
 ///
-/// `mentions` (not `hasPart`) is the honest edge: the file is a mutable meta
-/// artifact off the sealed payload manifest. The node carries no `sha512`, so
-/// the post-seal content-hash recheck is unaffected. Idempotent — returns
-/// whether the graph changed.
-fn ensure_deposit_readiness_entity(dst: &Path) -> Result<bool> {
+/// `runtime/post-seal-validation.json` was worse: written ~26 minutes later by
+/// `deposit_readiness::run_post_seal_revalidation` with nothing to reseal or
+/// register it, it appeared in NEITHER manifest and was absent from the `@graph`
+/// entirely — so its bytes could be altered with no checksum, manifest, or crate
+/// consequence. Sealing it is not possible in principle (its findings are a
+/// function of the sealed tree it re-reads, so a seal covering it would
+/// invalidate the report that just entered it), so it takes the attestation's
+/// documented mutable-meta treatment instead: a declared manifest exclusion plus
+/// a discoverable graph entity.
+///
+/// `mentions` (not `hasPart`) is the honest edge: these are mutable meta
+/// artifacts off the sealed payload manifest. The nodes carry no `sha512` and no
+/// `contentSize`, so the post-seal content-hash recheck is unaffected. Runs
+/// before the final reseal; idempotent — returns whether the graph changed.
+fn ensure_mutable_meta_entities(dst: &Path) -> Result<bool> {
     use serde_json::Value;
-    let id = crate::deposit_readiness::DEPOSIT_READINESS_FILE;
     let descriptor = dst.join("ro-crate-metadata.json");
     let Ok(bytes) = std::fs::read(&descriptor) else {
         return Ok(false);
@@ -2281,57 +2898,240 @@ fn ensure_deposit_readiness_entity(dst: &Path) -> Result<bool> {
     };
 
     let mut changed = false;
-    if !graph
-        .iter()
-        .any(|e| e.get("@id").and_then(Value::as_str) == Some(id))
-    {
-        graph.push(serde_json::json!({
-            "@id": id,
-            "@type": "CreativeWork",
-            "name": "Deposit-readiness attestation",
-            "description": "Self-validation verdict written by `ecaa-workflow export`: RO-Crate re-verify + BagIt checksum integrity (Layer 1) and, for the re-executable profile, re-execution equivalence (Layer 2). Mutable meta file — excluded from the payload manifest by design.",
-            "encodingFormat": "application/json"
-        }));
-        changed = true;
+    for (id, name, description) in MUTABLE_META_ENTITIES {
+        if !graph
+            .iter()
+            .any(|e| e.get("@id").and_then(Value::as_str) == Some(*id))
+        {
+            graph.push(serde_json::json!({
+                "@id": id,
+                "@type": "CreativeWork",
+                "name": name,
+                "description": description,
+                "encodingFormat": "application/json"
+            }));
+            changed = true;
+        }
+        // Link it from the root Dataset. `mentions` is created when absent.
+        for entry in graph.iter_mut() {
+            if entry.get("@id").and_then(Value::as_str) != Some("./") {
+                continue;
+            }
+            let Some(obj) = entry.as_object_mut() else {
+                continue;
+            };
+            let already = obj
+                .get("mentions")
+                .and_then(Value::as_array)
+                .is_some_and(|a| {
+                    a.iter()
+                        .any(|m| m.get("@id").and_then(Value::as_str) == Some(*id))
+                });
+            if already {
+                break;
+            }
+            match obj.get_mut("mentions").and_then(Value::as_array_mut) {
+                Some(arr) => arr.push(serde_json::json!({ "@id": id })),
+                None => {
+                    obj.insert("mentions".to_string(), serde_json::json!([{ "@id": id }]));
+                }
+            }
+            changed = true;
+            break;
+        }
     }
-    // Link it from the root Dataset. `mentions` is created when absent.
+
+    if changed {
+        let serialized = serde_json::to_vec_pretty(&doc)
+            .context("re-serializing ro-crate-metadata.json with the mutable-meta entities")?;
+        std::fs::write(&descriptor, serialized)
+            .with_context(|| format!("writing {}", descriptor.display()))?;
+    }
+    Ok(changed)
+}
+
+/// Move every manifest-excluded meta file OUT of the hashed-`File` class in the
+/// deposit's `@graph`, re-typing it `CreativeWork` and stripping the `File`
+/// facets (`contentSize`, `sha512`, `about`).
+///
+/// `ro_crate::register_content_integrity` stamps `sha512` onto a `File` entity
+/// only when the payload manifest covers it, so a manifest-excluded path
+/// registered as a bare `File` by `readability::register_deposit_entities` ends
+/// up as a hash-bearing CLASS with no hash — indistinguishable, to a reviewer or
+/// a strict consumer, from a file whose integrity annotation was lost. A
+/// verified deposit shipped exactly one such node in 488: `decisions.jsonl.mac`.
+///
+/// The deposit's existing doctrine for these files is `CreativeWork` (see
+/// `runtime/determinism-shim.json` and `DEPOSIT-READINESS.json`, both of which
+/// carry no hash BY CONSTRUCTION rather than by omission), and this makes it
+/// hold with no exceptions: every `File` entity in a deposit carries a `sha512`.
+///
+/// A `sha512` is deliberately NOT synthesized for these instead.
+/// `emitter::bagit` documents `decisions.jsonl.mac` as "verified with the
+/// session secret, NOT by re-hashing" — a plain digest would assert an integrity
+/// layer the doctrine rejects, and nothing re-checks a hash that is not in the
+/// manifest, so it would be a checksum with no verifier: the precise failure
+/// mode of sealing a record that is wrong. The `.mac` needs none: the
+/// `decisions.jsonl` it is keyed over IS manifested, so tampering with either
+/// half of the pair is detectable without the session secret.
+///
+/// The `hasPart` edge is kept — the file IS part of the deposit; only its type
+/// changes. Idempotent; returns whether the graph changed.
+fn declass_manifest_excluded_meta_entities(dst: &Path) -> Result<bool> {
+    use serde_json::Value;
+    let descriptor = dst.join("ro-crate-metadata.json");
+    let Ok(bytes) = std::fs::read(&descriptor) else {
+        return Ok(false);
+    };
+    let Ok(mut doc) = serde_json::from_slice::<Value>(&bytes) else {
+        return Ok(false);
+    };
+    let Some(graph) = doc.get_mut("@graph").and_then(Value::as_array_mut) else {
+        return Ok(false);
+    };
+
+    let mut changed = false;
     for entry in graph.iter_mut() {
-        if entry.get("@id").and_then(Value::as_str) != Some("./") {
+        let Some(id) = entry.get("@id").and_then(Value::as_str).map(String::from) else {
+            continue;
+        };
+        if !super::bagit::is_manifest_excluded_meta(&id) {
+            continue;
+        }
+        let is_file = match entry.get("@type") {
+            Some(Value::String(s)) => s == "File",
+            Some(Value::Array(a)) => a.iter().any(|v| v.as_str() == Some("File")),
+            _ => false,
+        };
+        if !is_file {
             continue;
         }
         let Some(obj) = entry.as_object_mut() else {
             continue;
         };
-        let already = obj
-            .get("mentions")
-            .and_then(Value::as_array)
-            .is_some_and(|a| {
-                a.iter()
-                    .any(|m| m.get("@id").and_then(Value::as_str) == Some(id))
-            });
-        if already {
-            break;
-        }
-        match obj.get_mut("mentions").and_then(Value::as_array_mut) {
-            Some(arr) => arr.push(serde_json::json!({ "@id": id })),
-            None => {
-                obj.insert(
-                    "mentions".to_string(),
-                    serde_json::json!([{ "@id": id }]),
-                );
-            }
+        obj.insert(
+            "@type".to_string(),
+            Value::String("CreativeWork".to_string()),
+        );
+        for facet in ["contentSize", "sha512", "about"] {
+            obj.remove(facet);
         }
         changed = true;
-        break;
     }
 
     if changed {
         let serialized = serde_json::to_vec_pretty(&doc)
-            .context("re-serializing ro-crate-metadata.json with the DR-11 entity")?;
+            .context("re-serializing ro-crate-metadata.json after meta-file declassing")?;
         std::fs::write(&descriptor, serialized)
             .with_context(|| format!("writing {}", descriptor.display()))?;
     }
     Ok(changed)
+}
+
+/// Re-run the observed-read reconcile over the FINAL deposit graph so every
+/// `CreateAction.object` (PROV `used`) is the UNION of declared inputs and
+/// observed reads that `crate::ro_crate` contracts it to be.
+///
+/// **The pass-ordering bug this closes.** The only reconcile in the lifecycle
+/// runs at end-of-run finalize (`harness::end_of_run_finalize` →
+/// `ro_crate::reconcile_ro_crate_edges_with_allowances`), and its `used` rebuild
+/// admits an observed read ONLY when the read's target is already a registered
+/// `@graph` entity (`if entity_ids.contains(path)`) — it never invents a File
+/// node. But most per-task read targets (`result.json`, `manifest.json`,
+/// `decision.json`, `evidence/manifest.json`, `*_index.json`) are registered
+/// only much later, by `readability::register_deposit_entities` at EXPORT time,
+/// and the export never re-ran the reconcile. So every one of those reads was
+/// silently absent from both `object` and `ecaax:objectProvenance`: in a
+/// verified deposit, 35 observed reads whose targets ARE registered entities and
+/// ARE on disk appeared in neither — while the 35 that were honoured were
+/// exactly the ones whose entities predated the reconcile. The codebase asserts
+/// the stronger form in its own test
+/// (`ro_crate::tests::object_and_reads_reconcile_exactly_for_a_simple_task` —
+/// "`used` and `reads.jsonl` agree EXACTLY").
+///
+/// **Why a second pass is safe.** The rebuild is exactly idempotent — asserted
+/// by `ro_crate::tests::used_rebuild_is_idempotent`, which reconciles twice over
+/// identical inputs and requires FULL graph equality plus exactly one
+/// provenance node per `(task, used entry)`. `union_used_entries` is also
+/// monotone: it seeds from the entries already on the action and only ever
+/// appends, so re-running can add the newly-registered reads and can never
+/// remove a declared data flow. Nothing dangles either: an observed read is
+/// admitted only when its path is in the post-prune, post-registration
+/// `entity_ids`, and the `#object-provenance/…` side-channel nodes are
+/// `#`-fragments the prune never touches.
+///
+/// **Ordering.** This file already has form for the hazard where a registration
+/// step runs after a write and leaves the earlier artifact stale (the DR-11
+/// entity the prune removed; the `AUDIT-REPORT.md` regeneration that
+/// re-introduced host paths). So this runs after ALL entity registration —
+/// `register_produced_output_tables`, `register_deposit_entities`,
+/// `ensure_mutable_meta_entities` — and before the final manifest seal, with the
+/// audit-proof re-record downstream of it so the recorded verdicts describe the
+/// graph the deposit actually ships.
+///
+/// **Where the inputs come from.** The declared edges (`runtime/proofs.jsonl`)
+/// and the per-task read allowances (`runtime/task-nodes.json`) are Tier A and
+/// so are read from the DEPOSIT, keeping the reconcile reproducible from the
+/// deposit itself. The observed reads live in `runtime/invocations.jsonl`, which
+/// is Tier C and therefore absent from every deposit, so they are read from
+/// `src` — the same file, through the same shared core parser, that the harness
+/// reconcile consumed. That parser's rows are the harness-FILTERED set
+/// (`harness::observed_reads::is_ignored` has already removed system paths and,
+/// critically, the task's own `runtime/outputs/<self>/…` reads), so this can
+/// never make a task `used` its own output. Re-deriving that filter here would
+/// fork harness logic into core; a `src` without `invocations.jsonl` (e.g.
+/// re-exporting an already-exported deposit) simply yields no reads and the
+/// reconcile no-ops, exactly as it does before any dispatch.
+///
+/// Returns whether `ro-crate-metadata.json` was rewritten. Best-effort: an
+/// unreadable or unparseable descriptor is left untouched.
+fn rebuild_deposit_create_action_objects(src: &Path, dst: &Path) -> Result<bool> {
+    use crate::provenance;
+
+    let mut declared_edges = provenance::read_declared_edges(dst);
+    if declared_edges.is_empty() {
+        declared_edges = provenance::read_declared_edges(src);
+    }
+    let observed_reads = provenance::read_observed_reads(src);
+    // `reconcile_ro_crate_edges_with_allowances` no-ops on either empty input;
+    // short-circuit so an un-executed package's descriptor is not rewritten.
+    if declared_edges.is_empty() || observed_reads.is_empty() {
+        return Ok(false);
+    }
+    let mut read_allowances = provenance::read_task_read_allowances(dst);
+    if read_allowances.is_empty() {
+        read_allowances = provenance::read_task_read_allowances(src);
+    }
+
+    let descriptor = dst.join("ro-crate-metadata.json");
+    let Ok(bytes) = std::fs::read(&descriptor) else {
+        return Ok(false);
+    };
+    let Ok(mut metadata) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+        return Ok(false);
+    };
+    let before = metadata.clone();
+
+    // The returned divergence list is deliberately DISCARDED: recording a
+    // divergence and re-blocking the offending task is the harness's job (§G-B2,
+    // on every execution path), and the reconcile has already stamped the durable
+    // `ecaax:provenanceDivergence` / `ecaax:provenanceReadAllowance` nodes onto
+    // the root Dataset. Export re-states the graph; it never re-adjudicates a run.
+    let _ = crate::ro_crate::reconcile_ro_crate_edges_with_allowances(
+        &mut metadata,
+        &declared_edges,
+        &observed_reads,
+        &read_allowances,
+    );
+
+    if metadata == before {
+        return Ok(false);
+    }
+    let serialized = serde_json::to_vec_pretty(&metadata)
+        .context("re-serializing ro-crate-metadata.json after the observed-read reconcile")?;
+    std::fs::write(&descriptor, serialized)
+        .with_context(|| format!("writing {}", descriptor.display()))?;
+    Ok(true)
 }
 
 /// Drop `@graph` entries from `dst/ro-crate-metadata.json` whose `@id` is a
@@ -2467,7 +3267,11 @@ fn mark_dangling_reads_manifest_rows(dst: &Path) -> Result<usize> {
     let Ok(entries) = std::fs::read_dir(&outputs) else {
         return Ok(0);
     };
-    let mut task_dirs: Vec<PathBuf> = entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
+    let mut task_dirs: Vec<PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect();
     task_dirs.sort();
 
     let mut marked = 0usize;
@@ -2506,7 +3310,8 @@ fn mark_dangling_reads_manifest_rows(dst: &Path) -> Result<usize> {
             if body.ends_with('\n') {
                 out.push('\n');
             }
-            std::fs::write(&manifest, out).with_context(|| format!("rewriting {}", manifest.display()))?;
+            std::fs::write(&manifest, out)
+                .with_context(|| format!("rewriting {}", manifest.display()))?;
         }
     }
     Ok(marked)
@@ -2543,8 +3348,8 @@ pub fn zip_dir(src_dir: &Path, out: &mut (impl std::io::Write + std::io::Seek)) 
             writer
                 .start_file(&rel_str, options)
                 .with_context(|| format!("starting zip entry {rel_str}"))?;
-            let mut f = std::fs::File::open(abs)
-                .with_context(|| format!("opening {}", abs.display()))?;
+            let mut f =
+                std::fs::File::open(abs).with_context(|| format!("opening {}", abs.display()))?;
             let mut buf = Vec::new();
             f.read_to_end(&mut buf)
                 .with_context(|| format!("reading {}", abs.display()))?;
@@ -2585,7 +3390,11 @@ mod tests {
         mk("normalisation", 3);
         mk("pathway_enrichment", 5);
         std::fs::create_dir_all(out.join("validate_x")).unwrap();
-        std::fs::write(out.join("validate_x/env.explicit.lock"), "# empty\n@EXPLICIT\n").unwrap();
+        std::fs::write(
+            out.join("validate_x/env.explicit.lock"),
+            "# empty\n@EXPLICIT\n",
+        )
+        .unwrap();
 
         let best = fullest_per_task_lock(tmp.path()).expect("a non-empty lock exists");
         assert_eq!(
@@ -2613,7 +3422,10 @@ mod tests {
             // `view_data/` is a regenerable UI projection of the result tables
             // — Tier C, dropped from deposits (not RO-Crate-registered, not a
             // re-execution input).
-            ("runtime/outputs/x/view_data/mean_variance.json", DepositTier::C),
+            (
+                "runtime/outputs/x/view_data/mean_variance.json",
+                DepositTier::C,
+            ),
             ("runtime/cache/conda-envs/e/f", DepositTier::E),
             ("runtime/r-libs/DESeq2/DESCRIPTION", DepositTier::E),
             ("runtime/outputs/x/scripts/01.R", DepositTier::B),
@@ -2621,10 +3433,7 @@ mod tests {
             ("manifest-sha512.txt", DepositTier::D),
             (".git/config", DepositTier::E),
             ("runtime/outputs/x/intermediates/t.tsv", DepositTier::E),
-            (
-                "runtime/outputs/x/state.patch.applied.json",
-                DepositTier::C,
-            ),
+            ("runtime/outputs/x/state.patch.applied.json", DepositTier::C),
             ("ro-crate-metadata.json", DepositTier::A),
         ];
         for (path, expected) in cases {
@@ -2665,7 +3474,10 @@ mod tests {
             "ro-crate-metadata.json",
             r#"{"@context":"https://w3id.org/ro/crate/1.1/context","@graph":[{"@id":"ro-crate-metadata.json","@type":"CreativeWork","about":{"@id":"./"}},{"@id":"./","@type":"Dataset","hasPart":[]}]}"#,
         ); // A
-        write("bagit.txt", "BagIt-Version: 1.0\nTag-File-Character-Encoding: UTF-8\n");
+        write(
+            "bagit.txt",
+            "BagIt-Version: 1.0\nTag-File-Character-Encoding: UTF-8\n",
+        );
     }
 
     #[test]
@@ -2699,15 +3511,15 @@ mod tests {
             !dst.join("runtime/cache").exists(),
             "tier-E runtime/cache must NOT be copied"
         );
-        assert!(
-            !dst.join(".git").exists(),
-            ".git must NOT be copied"
-        );
+        assert!(!dst.join(".git").exists(), ".git must NOT be copied");
 
         // The manifest was regenerated (D is skipped at copy then rebuilt by
         // reseal): it exists and lists the kept files only.
         let manifest_path = dst.join("manifest-sha512.txt");
-        assert!(manifest_path.is_file(), "manifest-sha512.txt must be regenerated");
+        assert!(
+            manifest_path.is_file(),
+            "manifest-sha512.txt must be regenerated"
+        );
         let manifest = std::fs::read_to_string(&manifest_path).expect("read manifest");
         assert!(
             manifest.contains("runtime/outputs/t/de_results.tsv"),
@@ -2731,8 +3543,13 @@ mod tests {
             let rel = entry.path().strip_prefix(&dst).expect("strip dst");
             let tier = classify(rel);
             let basename = rel.file_name().unwrap_or_default().to_string_lossy();
-            let is_regenerated_manifest =
-                basename == "manifest-sha512.txt" || basename == "tagmanifest-sha512.txt";
+            let is_regenerated_manifest = matches!(
+                basename.as_ref(),
+                "manifest-sha512.txt"
+                    | "seal-info.json"
+                    | "seal-tagmanifest-sha512.txt"
+                    | "tagmanifest-sha512.txt"
+            );
             assert!(
                 is_kept(tier) || is_regenerated_manifest,
                 "exported file {} classified as {:?} but is not a regenerated manifest",
@@ -2741,8 +3558,16 @@ mod tests {
             );
         }
 
-        assert!(report.kept >= 3, "expected >=3 kept files, got {}", report.kept);
-        assert!(report.dropped >= 3, "expected >=3 dropped files, got {}", report.dropped);
+        assert!(
+            report.kept >= 3,
+            "expected >=3 kept files, got {}",
+            report.kept
+        );
+        assert!(
+            report.dropped >= 3,
+            "expected >=3 dropped files, got {}",
+            report.dropped
+        );
         assert_eq!(report.dst, dst, "report.dst must echo the dst arg");
     }
 
@@ -2816,7 +3641,8 @@ mod tests {
             .expect("export must succeed: dropped @graph entities are pruned before the recheck");
 
         assert!(
-            !dst.join("runtime/outputs/t/intermediates/ranked.tsv").exists(),
+            !dst.join("runtime/outputs/t/intermediates/ranked.tsv")
+                .exists(),
             "tier-E intermediates must be dropped"
         );
         assert!(
@@ -2901,7 +3727,10 @@ mod tests {
         export_depositable_package(&src, &dst).expect("export succeeds");
 
         let report_path = dst.join("runtime/audit-proof-report.json");
-        assert!(report_path.is_file(), "deposit must carry an audit-proof report");
+        assert!(
+            report_path.is_file(),
+            "deposit must carry an audit-proof report"
+        );
         let body = std::fs::read_to_string(&report_path).expect("read deposit report");
 
         // Sentinel detail + stale version markers gone ⇒ regenerated, not copied.
@@ -2984,8 +3813,16 @@ mod tests {
         std::fs::create_dir_all(&de).expect("mkdir");
         // Two tables with byte-identical DATA rows, differing only in the header.
         let data = "ENSG1\t1.0\t0.01\nENSG2\t-2.0\t0.40\n";
-        std::fs::write(de.join("de_results.tsv"), format!("gene_id\tlog2fc\tpadj\n{data}")).unwrap();
-        std::fs::write(de.join("de_table.tsv"), format!("gene\tlog2fc\tpadj\n{data}")).unwrap();
+        std::fs::write(
+            de.join("de_results.tsv"),
+            format!("gene_id\tlog2fc\tpadj\n{data}"),
+        )
+        .unwrap();
+        std::fs::write(
+            de.join("de_table.tsv"),
+            format!("gene\tlog2fc\tpadj\n{data}"),
+        )
+        .unwrap();
         // A genuinely-different table must be left alone.
         std::fs::write(de.join("vst.tsv"), "gene\tv\nENSG1\t5\n").unwrap();
         // Descriptor: both tables have a File + #action; de_results is ALSO
@@ -3003,24 +3840,40 @@ mod tests {
         .unwrap();
 
         let n = dedup_duplicate_output_tables(dst).expect("dedup ok");
-        assert_eq!(n.len(), 1, "exactly the unconsumed duplicate must be deleted");
         assert_eq!(
-            n.get("runtime/outputs/differential_expression/de_table.tsv").map(String::as_str),
+            n.len(),
+            1,
+            "exactly the unconsumed duplicate must be deleted"
+        );
+        assert_eq!(
+            n.get("runtime/outputs/differential_expression/de_table.tsv")
+                .map(String::as_str),
             Some("runtime/outputs/differential_expression/de_results.tsv"),
             "the dropped→kept twin map must record the substitution: {n:?}"
         );
-        assert!(de.join("de_results.tsv").exists(), "consumed twin must be kept");
-        assert!(!de.join("de_table.tsv").exists(), "unconsumed duplicate must be deleted");
-        assert!(de.join("vst.tsv").exists(), "a distinct table must be untouched");
+        assert!(
+            de.join("de_results.tsv").exists(),
+            "consumed twin must be kept"
+        );
+        assert!(
+            !de.join("de_table.tsv").exists(),
+            "unconsumed duplicate must be deleted"
+        );
+        assert!(
+            de.join("vst.tsv").exists(),
+            "a distinct table must be untouched"
+        );
 
         // The prune then drops the deleted table's File entity AND its
         // #action/<path> CreateAction, leaving no de_table reference.
         let removed = prune_rocrate_dangling(dst).expect("prune ok");
-        assert!(removed >= 2, "File + #action must both be pruned, got {removed}");
-        let doc: serde_json::Value = serde_json::from_slice(
-            &std::fs::read(dst.join("ro-crate-metadata.json")).unwrap(),
-        )
-        .unwrap();
+        assert!(
+            removed >= 2,
+            "File + #action must both be pruned, got {removed}"
+        );
+        let doc: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(dst.join("ro-crate-metadata.json")).unwrap())
+                .unwrap();
         let ids: Vec<&str> = doc["@graph"]
             .as_array()
             .unwrap()
@@ -3031,7 +3884,10 @@ mod tests {
             !ids.iter().any(|i| i.contains("de_table.tsv")),
             "no de_table File or #action node may survive: {ids:?}"
         );
-        assert!(ids.iter().any(|i| i.contains("de_results.tsv")), "de_results kept");
+        assert!(
+            ids.iter().any(|i| i.contains("de_results.tsv")),
+            "de_results kept"
+        );
     }
 
     #[test]
@@ -3053,10 +3909,16 @@ mod tests {
         // (an extra RO-Crate mention) → it out-scores `de_results.tsv` and is the
         // dedup's `keep`. `de_results.tsv` is the claim-anchored, RO-Crate-lower
         // twin the old code deleted.
-        std::fs::write(de.join("de_results.tsv"), format!("gene_id\tlog2fc\tpadj\n{data}"))
-            .unwrap();
-        std::fs::write(de.join("de_results.full.tsv"), format!("gene\tlog2fc\tpadj\n{data}"))
-            .unwrap();
+        std::fs::write(
+            de.join("de_results.tsv"),
+            format!("gene_id\tlog2fc\tpadj\n{data}"),
+        )
+        .unwrap();
+        std::fs::write(
+            de.join("de_results.full.tsv"),
+            format!("gene\tlog2fc\tpadj\n{data}"),
+        )
+        .unwrap();
         std::fs::write(
             dst.join("ro-crate-metadata.json"),
             r##"{"@graph":[
@@ -3077,7 +3939,10 @@ mod tests {
         .unwrap();
 
         let n = dedup_duplicate_output_tables(dst).expect("dedup ok");
-        assert!(n.is_empty(), "a claim-anchored twin must be kept, not deleted: {n:?}");
+        assert!(
+            n.is_empty(),
+            "a claim-anchored twin must be kept, not deleted: {n:?}"
+        );
         assert!(
             de.join("de_results.tsv").exists(),
             "claim-anchored twin must survive dedup"
@@ -3101,7 +3966,10 @@ mod tests {
             "ro-crate-metadata.json",
             r##"{"@context":"https://w3id.org/ro/crate/1.1/context","@graph":[{"@id":"ro-crate-metadata.json","@type":"CreativeWork","about":{"@id":"./"}},{"@id":"./","@type":"Dataset","name":"x","description":"y","hasPart":[]},{"@id":"#action/keep","@type":"CreateAction","result":{"@id":"runtime/outputs/a_step/protected_model.rds"}}]}"##,
         );
-        w("bagit.txt", "BagIt-Version: 1.0\nTag-File-Character-Encoding: UTF-8\n");
+        w(
+            "bagit.txt",
+            "BagIt-Version: 1.0\nTag-File-Character-Encoding: UTF-8\n",
+        );
         // bloat / policy docs (lean profiles drop)
         w("package.ttl", "@prefix x: <urn:y> .\n");
         w("ro-crate-preview.html", "<html></html>\n");
@@ -3141,37 +4009,70 @@ mod tests {
         w("runtime/outputs/a_step/result.tsv", "g\tp\nA\t0.01\n");
         // Leaner-minimal inputs: a transparency artifact to KEEP+REGISTER, plus
         // operational/re-exec/duplicate files the minimal must DROP.
-        w("runtime/outputs/a_step/agent-code.json", r#"{"prompt":"p","executed_code":"x"}"#); // register
-        w("runtime/outputs/a_step/determinism-env.json", r#"{"pkg_root":"/x"}"#); // drop (minimal)
+        w(
+            "runtime/outputs/a_step/agent-code.json",
+            r#"{"prompt":"p","executed_code":"x"}"#,
+        ); // register
+        w(
+            "runtime/outputs/a_step/determinism-env.json",
+            r#"{"pkg_root":"/x"}"#,
+        ); // drop (minimal)
         w("runtime/outputs/a_step/task-spec.json", "{}"); // drop (minimal)
         w("runtime/outputs/a_step/figures/v.png", "PNG"); // keep
         w("runtime/outputs/a_step/figures/v.pdf", "PDF"); // drop (minimal), keep full
         w("runtime/outputs/a_step/qc_summary.json", "{}"); // drop (minimal)
         w("runtime/inputs/a_step/provisioning.json", "{}"); // drop (minimal)
         w("runtime/typed-blocker.json", "{}"); // drop (minimal)
-        // z_step: a content-EMPTY agent-code.json (only boilerplate prompt) — drop
-        // in minimal; the populated a_step/agent-code.json (executed_code "x") stays.
+                                               // z_step: a content-EMPTY agent-code.json (only boilerplate prompt) — drop
+                                               // in minimal; the populated a_step/agent-code.json (executed_code "x") stays.
         w("runtime/outputs/z_step/result.tsv", "g\tp\nB\t0.02\n");
-        w("runtime/outputs/z_step/agent-code.json", r#"{"prompt":"p","executed_code":"","response_text":""}"#);
+        w(
+            "runtime/outputs/z_step/agent-code.json",
+            r#"{"prompt":"p","executed_code":"","response_text":""}"#,
+        );
         // Further minimal drops: the ~1 MB verifier trace + the empty dependency
         // lock (re-exec metadata) + a content-empty curated_pools (vs a non-empty
         // one that must survive).
-        w("runtime/verifier-decisions.jsonl", "{\"kind\":\"unification_failed\"}\n"); // drop (minimal)
-        w("runtime/dependency-lock.json", r#"{"r":[],"python":[],"conda":[]}"#); // drop (minimal)
-        w("runtime/outputs/a_step/curated_pools.json", r#"{"x":[],"y":[]}"#); // empty -> drop (minimal)
-        w("runtime/outputs/z_step/curated_pools.json", r#"{"de":["deseq2","edger"]}"#); // non-empty -> keep
-        // RE-EXECUTION WORKING DATA under stage-output subdirs (the large-deposit
-        // root cause): serialized binary objects + re-staged inputs. Minimal must
-        // DROP these (they are not provenance-referenced); re-executable + full
-        // KEEP them. A serialized object is never a result table, so it is only a
-        // zero-dark File — safe to drop.
-        w("runtime/outputs/a_step/normalized_counts/sct_residuals.rds", "BINARY-RDS"); // drop (minimal)
-        w("runtime/outputs/a_step/normalized_counts/raw_hvg.h5ad", "BINARY-H5AD"); // drop (minimal)
-        w("runtime/outputs/data_acquisition/data/da/big_input_matrix.txt", "x\ty\n1\t2\n"); // drop (minimal): re-staged input
-        // A serialized object that IS a CreateAction result must be KEPT even in
-        // minimal (provenance-load-bearing). The metadata graph above references
-        // it as a result, so it lands in `protected`.
-        w("runtime/outputs/a_step/protected_model.rds", "BINARY-PROTECTED"); // keep (all): is a CreateAction result
+        w(
+            "runtime/verifier-decisions.jsonl",
+            "{\"kind\":\"unification_failed\"}\n",
+        ); // drop (minimal)
+        w(
+            "runtime/dependency-lock.json",
+            r#"{"r":[],"python":[],"conda":[]}"#,
+        ); // drop (minimal)
+        w(
+            "runtime/outputs/a_step/curated_pools.json",
+            r#"{"x":[],"y":[]}"#,
+        ); // empty -> drop (minimal)
+        w(
+            "runtime/outputs/z_step/curated_pools.json",
+            r#"{"de":["deseq2","edger"]}"#,
+        ); // non-empty -> keep
+           // RE-EXECUTION WORKING DATA under stage-output subdirs (the large-deposit
+           // root cause): serialized binary objects + re-staged inputs. Minimal must
+           // DROP these (they are not provenance-referenced); re-executable + full
+           // KEEP them. A serialized object is never a result table, so it is only a
+           // zero-dark File — safe to drop.
+        w(
+            "runtime/outputs/a_step/normalized_counts/sct_residuals.rds",
+            "BINARY-RDS",
+        ); // drop (minimal)
+        w(
+            "runtime/outputs/a_step/normalized_counts/raw_hvg.h5ad",
+            "BINARY-H5AD",
+        ); // drop (minimal)
+        w(
+            "runtime/outputs/data_acquisition/data/da/big_input_matrix.txt",
+            "x\ty\n1\t2\n",
+        ); // drop (minimal): re-staged input
+           // A serialized object that IS a CreateAction result must be KEPT even in
+           // minimal (provenance-load-bearing). The metadata graph above references
+           // it as a result, so it lands in `protected`.
+        w(
+            "runtime/outputs/a_step/protected_model.rds",
+            "BINARY-PROTECTED",
+        ); // keep (all): is a CreateAction result
 
         let run = |prof: DepositProfile| -> std::path::PathBuf {
             let d = tmp.path().join(format!("dst-{prof}"));
@@ -3181,62 +4082,91 @@ mod tests {
 
         // Full keeps everything.
         let full = run(DepositProfile::Full);
-        for f in ["policies/interpretation-policy.json", "package.ttl",
-                  "runtime/outputs/de/scripts/01.R", "inputs/counts.tsv",
-                  "runtime/execution-lineage.txt"] {
+        for f in [
+            "policies/interpretation-policy.json",
+            "package.ttl",
+            "runtime/outputs/de/scripts/01.R",
+            "inputs/counts.tsv",
+            "runtime/execution-lineage.txt",
+        ] {
             assert!(full.join(f).exists(), "full must keep {f}");
         }
 
         // Re-executable: drops policy docs + bloat; keeps re-exec tier + audit + results.
         let re = run(DepositProfile::ReExecutable);
-        for f in ["package.ttl", "ro-crate-preview.html", "runtime/ed-cf-self-assessment.json",
-                  "runtime/execution-lineage.txt"] {
+        for f in [
+            "package.ttl",
+            "ro-crate-preview.html",
+            "runtime/ed-cf-self-assessment.json",
+            "runtime/execution-lineage.txt",
+        ] {
             assert!(!re.join(f).exists(), "re-executable must drop {f}");
         }
-        for f in ["runtime/outputs/de/scripts/01.R", "inputs/counts.tsv", "lib/measure.py",
-                  "runtime/audit-proof-report.json", "runtime/claim-verification.json",
-                  "runtime/outputs/de/de_results.tsv",
-                  // re-executable RETAINS the policies/ best-practice catalog: the
-                  // discover_*/validate_* re-execution stages read
-                  // policies/best-practice-scoring-policy.json at replay, so it must
-                  // survive (only MinimalAudit drops it).
-                  "policies/interpretation-policy.json", "policies/container.json",
-                  // re-executable KEEPS stage working data (it is re-executable)
-                  "runtime/outputs/a_step/normalized_counts/sct_residuals.rds",
-                  "runtime/outputs/a_step/normalized_counts/raw_hvg.h5ad",
-                  "runtime/outputs/data_acquisition/data/da/big_input_matrix.txt"] {
+        for f in [
+            "runtime/outputs/de/scripts/01.R",
+            "inputs/counts.tsv",
+            "lib/measure.py",
+            "runtime/audit-proof-report.json",
+            "runtime/claim-verification.json",
+            "runtime/outputs/de/de_results.tsv",
+            // re-executable RETAINS the policies/ best-practice catalog: the
+            // discover_*/validate_* re-execution stages read
+            // policies/best-practice-scoring-policy.json at replay, so it must
+            // survive (only MinimalAudit drops it).
+            "policies/interpretation-policy.json",
+            "policies/container.json",
+            // re-executable KEEPS stage working data (it is re-executable)
+            "runtime/outputs/a_step/normalized_counts/sct_residuals.rds",
+            "runtime/outputs/a_step/normalized_counts/raw_hvg.h5ad",
+            "runtime/outputs/data_acquisition/data/da/big_input_matrix.txt",
+        ] {
             assert!(re.join(f).exists(), "re-executable must keep {f}");
         }
 
         // Minimal: drops policy docs + bloat + re-exec tier; keeps audit + results.
         let min = run(DepositProfile::MinimalAudit);
-        for f in ["policies/interpretation-policy.json", "package.ttl",
-                  "runtime/outputs/de/scripts/01.R", "runtime/outputs/de/env.lock",
-                  "inputs/counts.tsv", "lib/measure.py", "runtime/plotting/VERSION",
-                  "runtime/execution-lineage.txt",
-                  // root cause: re-execution working data under stage-output
-                  // subdirs — serialized objects + re-staged inputs — now dropped
-                  "runtime/outputs/a_step/normalized_counts/sct_residuals.rds",
-                  "runtime/outputs/a_step/normalized_counts/raw_hvg.h5ad",
-                  "runtime/outputs/data_acquisition/data/da/big_input_matrix.txt"] {
+        for f in [
+            "policies/interpretation-policy.json",
+            "package.ttl",
+            "runtime/outputs/de/scripts/01.R",
+            "runtime/outputs/de/env.lock",
+            "inputs/counts.tsv",
+            "lib/measure.py",
+            "runtime/plotting/VERSION",
+            "runtime/execution-lineage.txt",
+            // root cause: re-execution working data under stage-output
+            // subdirs — serialized objects + re-staged inputs — now dropped
+            "runtime/outputs/a_step/normalized_counts/sct_residuals.rds",
+            "runtime/outputs/a_step/normalized_counts/raw_hvg.h5ad",
+            "runtime/outputs/data_acquisition/data/da/big_input_matrix.txt",
+        ] {
             assert!(!min.join(f).exists(), "minimal must drop {f}");
         }
-        for f in ["runtime/claim-verification.json", "runtime/audit-proof-report.json",
-                  "runtime/outputs/de/de_results.tsv",
-                  // a serialized object that IS a CreateAction result is
-                  // provenance-load-bearing → kept even in minimal
-                  "runtime/outputs/a_step/protected_model.rds"] {
+        for f in [
+            "runtime/claim-verification.json",
+            "runtime/audit-proof-report.json",
+            "runtime/outputs/de/de_results.tsv",
+            // a serialized object that IS a CreateAction result is
+            // provenance-load-bearing → kept even in minimal
+            "runtime/outputs/a_step/protected_model.rds",
+        ] {
             assert!(min.join(f).exists(), "minimal must keep {f}");
         }
 
         // Every profile carries the human-readable audit report, sourced from
         // the sidecars, with the key audit/provenance sections present.
         for d in [&full, &re, &min] {
-            assert!(d.join("AUDIT-REPORT.md").is_file(), "AUDIT-REPORT.md must be in every profile");
+            assert!(
+                d.join("AUDIT-REPORT.md").is_file(),
+                "AUDIT-REPORT.md must be in every profile"
+            );
         }
         let body = std::fs::read_to_string(min.join("AUDIT-REPORT.md")).unwrap();
-        for h in ["# Audit & provenance report", "## Audit-proof invariants",
-                  "## Claim verification"] {
+        for h in [
+            "# Audit & provenance report",
+            "## Audit-proof invariants",
+            "## Claim verification",
+        ] {
             assert!(body.contains(h), "audit report must contain section {h:?}");
         }
 
@@ -3244,15 +4174,30 @@ mod tests {
         // WORKFLOW.json, README.md, execution-order.json — are Tier-A, kept in
         // all three).
         for d in [&full, &re, &min] {
-            assert!(d.join("ARTIFACTS.md").is_file(), "ARTIFACTS.md in every profile");
+            assert!(
+                d.join("ARTIFACTS.md").is_file(),
+                "ARTIFACTS.md in every profile"
+            );
 
             // README navigation appended, original footer preserved.
             let readme = std::fs::read_to_string(d.join("README.md")).unwrap();
-            assert!(readme.contains("## Package navigation"), "README nav section");
-            assert!(readme.contains("AUDIT-REPORT.md"), "README links audit report");
+            assert!(
+                readme.contains("## Package navigation"),
+                "README nav section"
+            );
+            assert!(
+                readme.contains("AUDIT-REPORT.md"),
+                "README links audit report"
+            );
             assert!(readme.contains("ARTIFACTS.md"), "README links artifact map");
-            assert!(readme.contains("Steps, in execution order"), "README inline exec table");
-            assert!(readme.contains("_Generated deterministically"), "README footer preserved");
+            assert!(
+                readme.contains("Steps, in execution order"),
+                "README inline exec table"
+            );
+            assert!(
+                readme.contains("_Generated deterministically"),
+                "README footer preserved"
+            );
 
             // WORKFLOW.json reordered: tasks block last, a_step before z_step,
             // and value-equal (every task + the execution_order survive).
@@ -3264,47 +4209,68 @@ mod tests {
             );
             let wf: serde_json::Value =
                 serde_json::from_str(&wf_txt).expect("reordered WORKFLOW.json parses");
-            assert_eq!(wf["tasks"].as_object().unwrap().len(), 2, "both tasks survive reorder");
-            assert_eq!(wf["execution_order"], serde_json::json!(["a_step", "z_step"]));
+            assert_eq!(
+                wf["tasks"].as_object().unwrap().len(),
+                2,
+                "both tasks survive reorder"
+            );
+            assert_eq!(
+                wf["execution_order"],
+                serde_json::json!(["a_step", "z_step"])
+            );
         }
 
         // Per-step artifact section is present and lists the producing step.
         let artifacts = std::fs::read_to_string(min.join("ARTIFACTS.md")).unwrap();
-        assert!(artifacts.contains("## Per-step outputs"), "per-step section");
+        assert!(
+            artifacts.contains("## Per-step outputs"),
+            "per-step section"
+        );
         assert!(artifacts.contains("a_step"), "per-step lists a_step");
-        assert!(artifacts.contains("result.tsv"), "per-step lists the step output");
+        assert!(
+            artifacts.contains("result.tsv"),
+            "per-step lists the step output"
+        );
 
         // Leaner minimal: operational / re-exec / duplicate files dropped …
-        for f in ["runtime/outputs/a_step/determinism-env.json",
-                  "runtime/outputs/a_step/task-spec.json",
-                  "runtime/outputs/a_step/qc_summary.json",
-                  "runtime/outputs/a_step/figures/v.pdf",
-                  "runtime/inputs/a_step/provisioning.json",
-                  "runtime/typed-blocker.json",
-                  "runtime/verifier-decisions.jsonl",
-                  "runtime/dependency-lock.json",
-                  "runtime/outputs/a_step/curated_pools.json"] {
+        for f in [
+            "runtime/outputs/a_step/determinism-env.json",
+            "runtime/outputs/a_step/task-spec.json",
+            "runtime/outputs/a_step/qc_summary.json",
+            "runtime/outputs/a_step/figures/v.pdf",
+            "runtime/inputs/a_step/provisioning.json",
+            "runtime/typed-blocker.json",
+            "runtime/verifier-decisions.jsonl",
+            "runtime/dependency-lock.json",
+            "runtime/outputs/a_step/curated_pools.json",
+        ] {
             assert!(!min.join(f).exists(), "minimal must drop {f}");
         }
         // … while the transparency artifact + the PNG figure + the NON-empty
         // curated_pools are kept …
         // a_step/agent-code.json has executed_code "x" → content-bearing, KEPT;
         // z_step/agent-code.json is empty → content-empty, DROPPED in minimal.
-        for f in ["runtime/outputs/a_step/agent-code.json",
-                  "runtime/outputs/a_step/figures/v.png",
-                  "runtime/outputs/z_step/curated_pools.json"] {
+        for f in [
+            "runtime/outputs/a_step/agent-code.json",
+            "runtime/outputs/a_step/figures/v.png",
+            "runtime/outputs/z_step/curated_pools.json",
+        ] {
             assert!(min.join(f).exists(), "minimal must keep {f}");
         }
-        assert!(!min.join("runtime/outputs/z_step/agent-code.json").exists(),
-            "minimal must drop the content-empty agent-code.json");
+        assert!(
+            !min.join("runtime/outputs/z_step/agent-code.json").exists(),
+            "minimal must drop the content-empty agent-code.json"
+        );
         // Full keeps the duplicate/operational files + the empty agent-code +
         // the verifier trace / dependency-lock / empty curated_pools (only minimal drops them).
-        for f in ["runtime/outputs/a_step/determinism-env.json",
-                  "runtime/outputs/a_step/figures/v.pdf",
-                  "runtime/outputs/z_step/agent-code.json",
-                  "runtime/verifier-decisions.jsonl",
-                  "runtime/dependency-lock.json",
-                  "runtime/outputs/a_step/curated_pools.json"] {
+        for f in [
+            "runtime/outputs/a_step/determinism-env.json",
+            "runtime/outputs/a_step/figures/v.pdf",
+            "runtime/outputs/z_step/agent-code.json",
+            "runtime/verifier-decisions.jsonl",
+            "runtime/dependency-lock.json",
+            "runtime/outputs/a_step/curated_pools.json",
+        ] {
             assert!(full.join(f).exists(), "full must keep {f}");
         }
 
@@ -3321,19 +4287,35 @@ mod tests {
                 .iter()
                 .filter_map(|e| e["@id"].as_str().map(String::from))
                 .collect();
-            let structural = ["ro-crate-metadata.json", "ro-crate-preview.html",
-                "bagit.txt", "bag-info.txt", "manifest-sha512.txt", "tagmanifest-sha512.txt",
+            let structural = [
+                "ro-crate-metadata.json",
+                "ro-crate-preview.html",
+                "bagit.txt",
+                "bag-info.txt",
+                "manifest-sha512.txt",
+                "seal-info.json",
+                "seal-tagmanifest-sha512.txt",
+                "tagmanifest-sha512.txt",
                 // Deposit self-attestation: a mutable meta file (Layer 1 writes it,
                 // the CLI re-execution check updates it post-export), so — like the
                 // manifest and ro-crate-metadata.json themselves — it is deposit
                 // structure, not a hashed payload entity in the @graph.
-                "DEPOSIT-READINESS.json"];
+                "DEPOSIT-READINESS.json",
+            ];
             for e in walkdir::WalkDir::new(root) {
                 let e = e.unwrap();
-                if !e.file_type().is_file() { continue; }
-                let rel = e.path().strip_prefix(root).unwrap()
-                    .to_string_lossy().replace('\\', "/");
-                if structural.contains(&rel.as_str()) { continue; }
+                if !e.file_type().is_file() {
+                    continue;
+                }
+                let rel = e
+                    .path()
+                    .strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                if structural.contains(&rel.as_str()) {
+                    continue;
+                }
                 assert!(ids.contains(&rel), "dark payload (not in @graph): {rel}");
             }
         };
@@ -3341,11 +4323,18 @@ mod tests {
         zero_dark(&full);
         // The kept transparency artifact is among the registered entities.
         let ids: std::collections::HashSet<String> = serde_json::from_slice::<serde_json::Value>(
-            &std::fs::read(min.join("ro-crate-metadata.json")).unwrap()).unwrap()
-            ["@graph"].as_array().unwrap().iter()
-            .filter_map(|e| e["@id"].as_str().map(String::from)).collect();
-        assert!(ids.contains("runtime/outputs/a_step/agent-code.json"),
-            "agent-code.json must be registered in @graph");
+            &std::fs::read(min.join("ro-crate-metadata.json")).unwrap(),
+        )
+        .unwrap()["@graph"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|e| e["@id"].as_str().map(String::from))
+            .collect();
+        assert!(
+            ids.contains("runtime/outputs/a_step/agent-code.json"),
+            "agent-code.json must be registered in @graph"
+        );
     }
 
     #[test]
@@ -3365,11 +4354,13 @@ mod tests {
             {"@id": "removed.log", "@type": "File"}
           ]
         }"##;
-        std::fs::write(dst.join("ro-crate-metadata.json"), descriptor)
-            .expect("write descriptor");
+        std::fs::write(dst.join("ro-crate-metadata.json"), descriptor).expect("write descriptor");
 
         let removed = prune_rocrate_dangling(dst).expect("prune succeeds");
-        assert_eq!(removed, 1, "exactly the absent removed.log entry must be pruned");
+        assert_eq!(
+            removed, 1,
+            "exactly the absent removed.log entry must be pruned"
+        );
 
         let doc: serde_json::Value = serde_json::from_slice(
             &std::fs::read(dst.join("ro-crate-metadata.json")).expect("read pruned descriptor"),
@@ -3381,8 +4372,14 @@ mod tests {
             .iter()
             .filter_map(|e| e["@id"].as_str())
             .collect();
-        assert!(ids.contains(&"present.tsv"), "present file entry must be kept");
-        assert!(!ids.contains(&"removed.log"), "absent file entry must be dropped");
+        assert!(
+            ids.contains(&"present.tsv"),
+            "present file entry must be kept"
+        );
+        assert!(
+            !ids.contains(&"removed.log"),
+            "absent file entry must be dropped"
+        );
         assert!(ids.contains(&"#step-x"), "fragment id must be kept");
         assert!(
             ids.contains(&"https://w3id.org/ro/crate/1.1"),
@@ -3393,10 +4390,7 @@ mod tests {
         // Reference scrub: no surviving entry may still reference the pruned id
         // (else consumers like runcrate choke on the unresolvable @id).
         let graph = doc["@graph"].as_array().expect("graph array");
-        let root = graph
-            .iter()
-            .find(|e| e["@id"] == "./")
-            .expect("root entry");
+        let root = graph.iter().find(|e| e["@id"] == "./").expect("root entry");
         let has_part: Vec<&str> = root["hasPart"]
             .as_array()
             .map(|a| a.iter().filter_map(|x| x["@id"].as_str()).collect())
@@ -3471,7 +4465,10 @@ mod tests {
             std::fs::create_dir_all(p.parent().unwrap()).unwrap();
             std::fs::write(&p, body).unwrap();
         };
-        write("runtime/outputs/normalisation/kept_table.tsv", "gene\tsf\nA\t1.0\n");
+        write(
+            "runtime/outputs/normalisation/kept_table.tsv",
+            "gene\tsf\nA\t1.0\n",
+        );
         write(
             "runtime/outputs/normalisation/intermediates/size_factors.tsv",
             "gene\tsf\nA\t1.0\n",
@@ -3505,19 +4502,23 @@ mod tests {
         export_depositable_package(&src, &dst).expect("export must succeed");
 
         assert!(
-            !dst.join("runtime/outputs/normalisation/intermediates/size_factors.tsv").exists(),
+            !dst.join("runtime/outputs/normalisation/intermediates/size_factors.tsv")
+                .exists(),
             "tier-E intermediates table must genuinely be dropped"
         );
 
-        let manifest = std::fs::read_to_string(
-            dst.join("runtime/outputs/normalisation/reads.jsonl"),
-        )
-        .expect("kept reads.jsonl must survive export");
+        let manifest =
+            std::fs::read_to_string(dst.join("runtime/outputs/normalisation/reads.jsonl"))
+                .expect("kept reads.jsonl must survive export");
         let rows: Vec<serde_json::Value> = manifest
             .lines()
             .map(|l| serde_json::from_str(l).expect("row is valid JSON"))
             .collect();
-        assert_eq!(rows.len(), 2, "both rows survive (marked, never deleted): {rows:?}");
+        assert_eq!(
+            rows.len(),
+            2,
+            "both rows survive (marked, never deleted): {rows:?}"
+        );
 
         let kept_row = rows
             .iter()
@@ -3530,9 +4531,7 @@ mod tests {
 
         let dropped_row = rows
             .iter()
-            .find(|r| {
-                r["path"] == "runtime/outputs/normalisation/intermediates/size_factors.tsv"
-            })
+            .find(|r| r["path"] == "runtime/outputs/normalisation/intermediates/size_factors.tsv")
             .expect("dropped-table row present");
         assert_eq!(
             dropped_row["available"],
@@ -3548,7 +4547,9 @@ mod tests {
 
         // No row anywhere may cite a non-existent file without the marker.
         for row in &rows {
-            let Some(p) = row["path"].as_str() else { continue };
+            let Some(p) = row["path"].as_str() else {
+                continue;
+            };
             if !dst.join(p).exists() {
                 assert_eq!(
                     row["available"],
@@ -3596,14 +4597,23 @@ mod tests {
         let py_rel = Path::new("runtime/outputs/de/scripts/01.py");
 
         // R, variable named `PKG` (not `PKG_ROOT`).
-        let out = relocate_script_paths(&format!("PKG <- \"{root}\"\nlibrary(DESeq2)\n"), r_rel, &roots);
+        let out = relocate_script_paths(
+            &format!("PKG <- \"{root}\"\nlibrary(DESeq2)\n"),
+            r_rel,
+            &roots,
+        );
         assert!(!out.contains(root), "host root must be gone:\n{out}");
         assert!(out.contains("PKG <- .ECAA_PKG_ROOT"), "got:\n{out}");
-        assert!(out.contains("library(DESeq2)"), "the body must survive:\n{out}");
+        assert!(
+            out.contains("library(DESeq2)"),
+            "the body must survive:\n{out}"
+        );
 
         // R, lower-case variable AND an inline path with a suffix.
         let out = relocate_script_paths(
-            &format!("pkg_root <- \"{root}\"\nx <- read.csv(\"{root}/runtime/outputs/de/c.tsv\")\n"),
+            &format!(
+                "pkg_root <- \"{root}\"\nx <- read.csv(\"{root}/runtime/outputs/de/c.tsv\")\n"
+            ),
             r_rel,
             &roots,
         );
@@ -3634,7 +4644,10 @@ mod tests {
             "a script naming no root must be returned byte-identical"
         );
         // An empty recorded root yields no substitution table at all.
-        assert!(pkg_roots_only("").is_empty(), "an empty root is not relocatable");
+        assert!(
+            pkg_roots_only("").is_empty(),
+            "an empty root is not relocatable"
+        );
     }
 
     /// P3-1 — the `unset` default must NOT be the absolute host path. The
@@ -3646,9 +4659,21 @@ mod tests {
         let roots = pkg_roots_only(root);
 
         for (rel, self_locator, walk_up) in [
-            ("runtime/outputs/de/scripts/01.R", "commandArgs", "\"..\", \"..\", \"..\", \"..\""),
-            ("runtime/outputs/de/scripts/01.py", "__file__", "../../../.."),
-            ("runtime/outputs/de/scripts/01.sh", "BASH_SOURCE", "../../../.."),
+            (
+                "runtime/outputs/de/scripts/01.R",
+                "commandArgs",
+                "\"..\", \"..\", \"..\", \"..\"",
+            ),
+            (
+                "runtime/outputs/de/scripts/01.py",
+                "__file__",
+                "../../../..",
+            ),
+            (
+                "runtime/outputs/de/scripts/01.sh",
+                "BASH_SOURCE",
+                "../../../..",
+            ),
         ] {
             let body = format!("#!/usr/bin/env x\nPKG_ROOT = \"{root}\"\n");
             let out = relocate_script_paths(&body, Path::new(rel), &roots);
@@ -3684,8 +4709,12 @@ mod tests {
         let body = format!(
             "#!/usr/bin/env python3\nSRC = \"{input}/counts.tsv\"\nOUT = \"{pkg}/runtime/outputs/de\"\n"
         );
-        let out = relocate_script_paths(&body, Path::new("runtime/outputs/de/scripts/01.py"), &roots);
-        assert!(!out.contains(input), "the external input root must be gone:\n{out}");
+        let out =
+            relocate_script_paths(&body, Path::new("runtime/outputs/de/scripts/01.py"), &roots);
+        assert!(
+            !out.contains(input),
+            "the external input root must be gone:\n{out}"
+        );
         assert!(!out.contains(pkg), "the package root must be gone:\n{out}");
         assert!(
             out.contains("_ECAA_INPUT_0 = _ecaa_os.environ.get(\"ECAA_INPUT_0\")"),
@@ -3725,11 +4754,17 @@ mod tests {
             &[(input.to_string(), "himes-inputs".to_string())],
         );
 
-        let n = tokenize_accountability_files(dst, &roots).expect("tokenize ok");
-        assert_eq!(n, 2, "both the markdown and the descriptor must be rewritten");
+        let n = tokenize_accountability_files(dst, &roots, &[]).expect("tokenize ok");
+        assert_eq!(
+            n, 2,
+            "both the markdown and the descriptor must be rewritten"
+        );
 
         let md = std::fs::read_to_string(dst.join("CONTEXT.md")).unwrap();
-        assert!(!md.contains(pkg) && !md.contains(input), "no host path may remain:\n{md}");
+        assert!(
+            !md.contains(pkg) && !md.contains(input),
+            "no host path may remain:\n{md}"
+        );
         assert!(md.contains("${ECAA_INPUT_0}/counts.tsv"), "got:\n{md}");
         assert!(md.contains("${PKG_ROOT}"), "got:\n{md}");
         assert!(
@@ -3744,14 +4779,20 @@ mod tests {
 
         // JSON/HTML can't carry the prose legend, so it is published as a
         // machine-readable sidecar naming no host path.
-        let legend =
-            std::fs::read_to_string(dst.join(EXPORT_RELOCATION_LEGEND_REL)).expect("legend sidecar");
-        assert!(!legend.contains("/home/a"), "the legend must name no host path:\n{legend}");
-        assert!(legend.contains("${PKG_ROOT}") && legend.contains("${ECAA_INPUT_0}"), "got:\n{legend}");
+        let legend = std::fs::read_to_string(dst.join(EXPORT_RELOCATION_LEGEND_REL))
+            .expect("legend sidecar");
+        assert!(
+            !legend.contains("/home/a"),
+            "the legend must name no host path:\n{legend}"
+        );
+        assert!(
+            legend.contains("${PKG_ROOT}") && legend.contains("${ECAA_INPUT_0}"),
+            "got:\n{legend}"
+        );
 
         // Idempotent: a second pass finds nothing to rewrite.
         assert_eq!(
-            tokenize_accountability_files(dst, &roots).expect("tokenize ok"),
+            tokenize_accountability_files(dst, &roots, &[]).expect("tokenize ok"),
             0,
             "tokenization must be idempotent"
         );
@@ -3781,7 +4822,10 @@ mod tests {
             "runtime/outputs/normalisation/determinism-env.json",
             &format!(r#"{{"pkg_root":"{abs_root}"}}"#),
         );
-        write("runtime/outputs/normalisation/result.tsv", "gene\tv\nA\t1\n");
+        write(
+            "runtime/outputs/normalisation/result.tsv",
+            "gene\tv\nA\t1\n",
+        );
         write(
             "bagit.txt",
             "BagIt-Version: 1.0\nTag-File-Character-Encoding: UTF-8\n",
@@ -3837,9 +4881,16 @@ mod tests {
         let de = dst.join("runtime/outputs/differential_expression");
         std::fs::create_dir_all(&de).expect("mkdir");
         let data = "ENSG1\t1.0\t0.01\nENSG2\t-2.0\t0.40\n";
-        std::fs::write(de.join("de_results.tsv"), format!("gene\tlog2fc\tpadj\n{data}")).unwrap();
-        std::fs::write(de.join("de_results.full.tsv"), format!("gene_id\tlog2fc\tpadj\n{data}"))
-            .unwrap();
+        std::fs::write(
+            de.join("de_results.tsv"),
+            format!("gene\tlog2fc\tpadj\n{data}"),
+        )
+        .unwrap();
+        std::fs::write(
+            de.join("de_results.full.tsv"),
+            format!("gene_id\tlog2fc\tpadj\n{data}"),
+        )
+        .unwrap();
         // The `.full.` twin massively out-references the declared name.
         let mut meta = String::from(r#"{"@graph":[{"@id":"x","refs":["#);
         for _ in 0..40 {
@@ -3903,7 +4954,10 @@ mod tests {
         )]);
         let n = reconcile_dropped_file_references(dst, &renames, &Default::default())
             .expect("reconcile ok");
-        assert_eq!(n, 2, "both sidecars citing the dropped twin must be rewritten");
+        assert_eq!(
+            n, 2,
+            "both sidecars citing the dropped twin must be rewritten"
+        );
 
         let man = std::fs::read_to_string(de.join("manifest.json")).unwrap();
         let man_doc: serde_json::Value = serde_json::from_str(&man).expect("manifest stays JSON");
@@ -3923,7 +4977,10 @@ mod tests {
             !payload.contains("de_results.full.tsv"),
             "no dropped citation may remain in the payload:\n{payload}"
         );
-        assert!(man.contains("\"table_path\": \"de_results.tsv\""), "got:\n{man}");
+        assert!(
+            man.contains("\"table_path\": \"de_results.tsv\""),
+            "got:\n{man}"
+        );
         assert!(
             man_doc
                 .pointer("/export_reconciliation/renamed")
@@ -3965,22 +5022,35 @@ mod tests {
         ]);
         let n = reconcile_dropped_file_references(dst, &Default::default(), &removed)
             .expect("reconcile ok");
-        assert_eq!(n, 1, "the one per-task sidecar citing the removed file must be rewritten");
+        assert_eq!(
+            n, 1,
+            "the one per-task sidecar citing the removed file must be rewritten"
+        );
 
         let doc: serde_json::Value =
             serde_json::from_slice(&std::fs::read(de.join("result.json")).unwrap()).unwrap();
         let check = &doc["checks"][0];
         assert_eq!(check["available"], serde_json::json!(false), "got: {check}");
-        assert_eq!(check["dropped_at_export"], serde_json::json!(true), "got: {check}");
+        assert_eq!(
+            check["dropped_at_export"],
+            serde_json::json!(true),
+            "got: {check}"
+        );
         // The bare array element has no object to annotate, so the file-level
         // block carries it.
         let block = &doc["export_reconciliation"]["unavailable"];
         assert_eq!(
             block[0]["path"],
-            serde_json::json!("runtime/outputs/differential_expression/view_data/volcano_data.json"),
+            serde_json::json!(
+                "runtime/outputs/differential_expression/view_data/volcano_data.json"
+            ),
             "got: {block}"
         );
-        assert_eq!(block[0]["available"], serde_json::json!(false), "got: {block}");
+        assert_eq!(
+            block[0]["available"],
+            serde_json::json!(false),
+            "got: {block}"
+        );
         // The root record itself is NOT marked unavailable.
         assert!(
             doc.get("available").is_none(),
@@ -4035,7 +5105,11 @@ mod tests {
             .iter()
             .find(|e| e["@id"] == serde_json::json!(id))
             .unwrap_or_else(|| panic!("no @graph entity for {id}"));
-        assert_eq!(node["@type"], serde_json::json!("CreativeWork"), "got: {node}");
+        assert_eq!(
+            node["@type"],
+            serde_json::json!("CreativeWork"),
+            "got: {node}"
+        );
         assert!(
             node["description"].as_str().is_some_and(|d| !d.is_empty()),
             "the entity must describe what the attestation is: {node}"

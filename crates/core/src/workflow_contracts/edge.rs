@@ -107,7 +107,9 @@ fn default_edge_kind() -> EdgeKind {
 /// One edge in a `WorkflowDag`. Connects a producer port to a
 /// consumer port and carries the compatibility proof or report
 /// explaining why the edge exists.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema,
+)]
 #[ts(export)]
 pub struct EdgeContract {
     /// Producer task node id.
@@ -492,11 +494,21 @@ mod tests {
 
     #[test]
     fn edge_mutually_exclusive_group_defaults_none_and_serializes_skipped() {
-        let e = EdgeContract { mutually_exclusive_group: None, ..EdgeContract::default() };
+        let e = EdgeContract {
+            mutually_exclusive_group: None,
+            ..EdgeContract::default()
+        };
         let json = serde_json::to_string(&e).unwrap();
-        assert!(!json.contains("mutually_exclusive_group"), "absent tag must not serialize");
-        let tagged = EdgeContract { mutually_exclusive_group: Some("counts".into()), ..EdgeContract::default() };
-        let back: EdgeContract = serde_json::from_str(&serde_json::to_string(&tagged).unwrap()).unwrap();
+        assert!(
+            !json.contains("mutually_exclusive_group"),
+            "absent tag must not serialize"
+        );
+        let tagged = EdgeContract {
+            mutually_exclusive_group: Some("counts".into()),
+            ..EdgeContract::default()
+        };
+        let back: EdgeContract =
+            serde_json::from_str(&serde_json::to_string(&tagged).unwrap()).unwrap();
         assert_eq!(back.mutually_exclusive_group.as_deref(), Some("counts"));
     }
 }

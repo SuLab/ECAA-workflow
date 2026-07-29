@@ -64,8 +64,7 @@ trap 'rm -rf "$SCRATCH"' EXIT
 # Exclusion list — kept in sync with `crates/core/src/emitter/bagit.rs`.
 # These paths are deliberately NOT part of the byte-reproducibility
 # surface:
-#  - BagIt tag files (covered by tagmanifest-sha512.txt, written after
-#    the payload walk so hashing them here would be self-referential);
+#  - checksum-seal metadata written after the payload walk;
 #  - the documented session audit logs (intake-conversation.jsonl,
 #    decisions.jsonl[.mac]) written by the conversation emit path AFTER
 #    core emit_package returns;
@@ -77,6 +76,8 @@ EXCLUDE_PATTERNS=(
   'bagit.txt'
   'bag-info.txt'
   'tagmanifest-sha512.txt'
+  'seal-info.json'
+  'seal-tagmanifest-sha512.txt'
   'runtime/intake-conversation.jsonl'
   'runtime/decisions.jsonl'
   'runtime/decisions.jsonl.mac'

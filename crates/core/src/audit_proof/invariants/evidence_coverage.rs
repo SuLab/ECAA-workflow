@@ -1,7 +1,7 @@
 //! Invariant 3: evidence-coverage.
-//! Every analytical output produced by the analysis is either referenced
-//! as Evidence (`claim-verification.json::verdicts[].supported_by`)
-//! or explicitly marked unused (an `output_unused` assumption).
+//! Every output explicitly declared as claim evidence is either referenced by
+//! an adjudication (`supported_by`, `checked_against`, or `contradicts`) or
+//! explicitly marked unused (an `output_unused` assumption).
 //!
 //! Outputs are derived from the SAME real-output source the Evidence (V)
 //! sub-graph projection uses — the RO-Crate `@graph` output entities (figure
@@ -14,16 +14,15 @@
 //! outcomes (`{task_id, obligation_id, outcome}`) and carry no `outputs` field,
 //! so they cannot be the source here.
 //!
-//! # The denominator is claim-ELIGIBLE outputs
+//! # The denominator is declared claim evidence
 //!
-//! The ∀ ranges over the outputs a narrative claim could plausibly cite, not
-//! over every byte the run wrote. Each task also emits execution machinery —
-//! generated `scripts/`, `env.lock`/`env.explicit.lock`, `task-spec.json`,
-//! `agent-code.json`, the literature `evidence/` snapshot store, logs and state
-//! patches — that is required for re-execution and correctly registered in the
-//! RO-Crate, but that no claim will ever reference. Counting it made a real
-//! deposit report 295 outputs inspected and 293 "uncovered", burying the two
-//! genuine gaps.
+//! The universal quantifier ranges over artifacts selected by
+//! `result_schema.artifact` or `report_schemas.*.artifact`, plus artifacts that
+//! a claim actually references. It does not range over every scientific file
+//! merely because the file was retained. A workflow can retain normalized
+//! matrices, alternate table views, summaries, copied inputs, plotting data,
+//! figures, validation reports, and execution machinery without promising that
+//! each file supports a narrative claim.
 //!
 //! The filter is applied HERE rather than inside
 //! [`crate::audit_proof::output_source::analytical_outputs`] on purpose: that
@@ -47,85 +46,144 @@ fn strip_fragment(s: &str) -> String {
     s.split('#').next().unwrap_or(s).to_string()
 }
 
-/// The claim-eligible / administrative partition of a package's analytical
-/// outputs. `administrative` is retained (not discarded) so the verdict can
-/// report how much of the crate was excluded from the denominator and why.
+/// The accountability partition of a package's analytical outputs.
 pub struct CoverageScope {
-    /// Outputs a claim could cite — the Invariant-3 denominator.
-    pub claim_eligible: Vec<String>,
-    /// Execution / provenance machinery, excluded from the denominator.
+    /// Explicitly declared or actually referenced evidence. This is the
+    /// Invariant-3 denominator.
+    pub claim_evidence: Vec<String>,
+    /// Other retained analytical results.
+    pub analytical_results: Vec<String>,
+    /// Human-facing reports and rendered figures.
+    pub presentation: Vec<String>,
+    /// Derived alternate views, summaries, indexes, and plotting data.
+    pub intermediate: Vec<String>,
+    /// Validator outputs.
+    pub validation: Vec<String>,
+    /// Copied inputs retained for inspection or replay.
+    pub retained_inputs: Vec<String>,
+    /// Outputs explicitly marked as superseded.
+    pub superseded: Vec<String>,
+    /// Execution and provenance machinery.
     pub administrative: Vec<String>,
 }
 
-/// Partition a package's analytical outputs into the claim-eligible
-/// denominator and the administrative remainder. Both halves keep the
-/// deterministic path ordering `analytical_outputs` produces.
-pub fn coverage_scope(pkg: &LoadedPackage) -> CoverageScope {
-    let mut claim_eligible = Vec::new();
-    let mut administrative = Vec::new();
-    for o in analytical_outputs(&pkg.output_entities, &pkg.proofs) {
-        match o.role {
-            OutputRole::ClaimEligible => claim_eligible.push(o.path),
-            OutputRole::Administrative => administrative.push(o.path),
-        }
-    }
-    CoverageScope {
-        claim_eligible,
-        administrative,
+/// Return every artifact reference recorded by a claim adjudication.
+pub fn claim_references(pkg: &LoadedPackage) -> BTreeSet<String> {
+    pkg.claims
+        .as_ref()
+        .and_then(|claims| claims.get("verdicts").and_then(|value| value.as_array()))
+        .map(|verdicts| {
+            verdicts
+                .iter()
+                .flat_map(|verdict| {
+                    ["supported_by", "checked_against", "contradicts"]
+                        .into_iter()
+                        .filter_map(|field| verdict.get(field).and_then(|refs| refs.as_array()))
+                        .flatten()
+                })
+                .filter_map(|value| value.as_str().map(strip_fragment))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+pub(crate) fn reference_resolves_output(output: &str, reference: &str) -> bool {
+    output == reference || same_task_basename_match(output, reference)
+}
+
+pub(crate) fn declaration_selects_output(output: &str, declaration: &str) -> bool {
+    let declaration = declaration.split('#').next().unwrap_or(declaration);
+    if declaration.contains('/') {
+        reference_resolves_output(output, declaration)
+    } else {
+        output.rsplit('/').next() == Some(declaration)
     }
 }
 
-/// Suffix appended to every detail string so the excluded objects are visible
-/// in the report rather than silently missing from the denominator.
-fn administrative_note(n_administrative: usize) -> String {
-    if n_administrative == 0 {
+/// Partition all outputs without dropping any retained file. Explicit
+/// declarations and actual claim links take precedence over the path-derived
+/// supporting role.
+pub fn coverage_scope(pkg: &LoadedPackage) -> CoverageScope {
+    let referenced = claim_references(pkg);
+    let mut scope = CoverageScope {
+        claim_evidence: Vec::new(),
+        analytical_results: Vec::new(),
+        presentation: Vec::new(),
+        intermediate: Vec::new(),
+        validation: Vec::new(),
+        retained_inputs: Vec::new(),
+        superseded: Vec::new(),
+        administrative: Vec::new(),
+    };
+    for o in analytical_outputs(&pkg.output_entities, &pkg.proofs) {
+        let selected = referenced
+            .iter()
+            .any(|reference| reference_resolves_output(&o.path, reference))
+            || pkg
+                .declared_claim_evidence
+                .iter()
+                .any(|declaration| declaration_selects_output(&o.path, declaration));
+        if selected {
+            scope.claim_evidence.push(o.path);
+            continue;
+        }
+        match o.role {
+            OutputRole::ClaimEligible => scope.analytical_results.push(o.path),
+            OutputRole::Presentation => scope.presentation.push(o.path),
+            OutputRole::Intermediate => scope.intermediate.push(o.path),
+            OutputRole::Validation => scope.validation.push(o.path),
+            OutputRole::RetainedInput => scope.retained_inputs.push(o.path),
+            OutputRole::Superseded => scope.superseded.push(o.path),
+            OutputRole::Administrative => scope.administrative.push(o.path),
+        }
+    }
+    scope
+}
+
+/// Suffix appended to every detail string so all retained output roles remain
+/// visible even though only declared evidence belongs in the denominator.
+fn accountability_note(scope: &CoverageScope) -> String {
+    let counts = [
+        ("other analytical", scope.analytical_results.len()),
+        ("presentation", scope.presentation.len()),
+        ("intermediate", scope.intermediate.len()),
+        ("validation", scope.validation.len()),
+        ("retained input", scope.retained_inputs.len()),
+        ("superseded", scope.superseded.len()),
+        ("administrative", scope.administrative.len()),
+    ];
+    if counts.iter().all(|(_, count)| *count == 0) {
         String::new()
     } else {
-        format!(
-            " ({n_administrative} administrative output(s) — generated scripts, environment \
-             locks, task specs, agent telemetry, evidence snapshots — excluded from the \
-             denominator)"
-        )
+        let summary = counts
+            .into_iter()
+            .map(|(role, count)| format!("{role}={count}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(" (retained output roles outside denominator: {summary})")
     }
 }
 
 /// Check evidence coverage.
 pub fn check_evidence_coverage(pkg: &LoadedPackage) -> InvariantVerdict {
-    let CoverageScope {
-        claim_eligible: outputs,
-        administrative,
-    } = coverage_scope(pkg);
-    let n_administrative = administrative.len();
+    let scope = coverage_scope(pkg);
+    let outputs = &scope.claim_evidence;
     if outputs.is_empty() {
-        // ∀-over-empty-set is vacuous: when the package declares no
-        // claim-eligible analytical outputs to range over (no figure
-        // obligations, no produced result files — only machinery, or nothing at
-        // all), there is nothing to certify. Report Unverified — not a coerced
-        // Pass/Warn — so the preprint never claims coverage over an empty set.
+        // A universal quantifier over an empty set is vacuous. When the package
+        // declares no evidence artifacts and no claim resolves to an output,
+        // there is nothing to certify.
         return InvariantVerdict {
             id: InvariantId::EvidenceCoverage,
             status: InvariantStatus::Unverified,
             detail: Some(format!(
-                "no claim-eligible analytical outputs declared{}",
-                administrative_note(n_administrative)
+                "no claim-evidence outputs declared or referenced{}",
+                accountability_note(&scope)
             )),
             n_inspected: 0,
             n_violations: 0,
         };
     }
-    let supported: BTreeSet<String> = pkg
-        .claims
-        .as_ref()
-        .and_then(|c| c.get("verdicts").and_then(|v| v.as_array()))
-        .map(|verdicts| {
-            verdicts
-                .iter()
-                .filter_map(|v| v.get("supported_by").and_then(|s| s.as_array()))
-                .flatten()
-                .filter_map(|v| v.as_str().map(strip_fragment))
-                .collect()
-        })
-        .unwrap_or_default();
+    let referenced = claim_references(pkg);
     // A verified claim's `supported_by` is recorded by the runtime verifier as a
     // BASENAME then path-reconstructed by `claim_sink::evidence_ref_for`; a nested
     // table (`…/<task>/tables/de.tsv`) yields a reconstructed path that differs
@@ -142,9 +200,9 @@ pub fn check_evidence_coverage(pkg: &LoadedPackage) -> InvariantVerdict {
         .filter_map(|a| a.get("detail").and_then(|s| s.as_str()).map(String::from))
         .collect();
     let mut violators = Vec::new();
-    for o in &outputs {
-        let covered = supported.contains(o)
-            || supported.iter().any(|r| same_task_basename_match(o, r));
+    for o in outputs {
+        let covered =
+            referenced.contains(o) || referenced.iter().any(|r| same_task_basename_match(o, r));
         if !covered && !unused.contains(o) {
             violators.push(o.clone());
         }
@@ -166,21 +224,21 @@ pub fn check_evidence_coverage(pkg: &LoadedPackage) -> InvariantVerdict {
     // The administrative note rides on every detail (including the clean-pass
     // one, which previously carried `None`) so a reader can always reconcile the
     // denominator against the crate's full output count.
-    let admin = administrative_note(n_administrative);
+    let roles = accountability_note(&scope);
     let detail = if n_violations == 0 && pkg.claims.is_some() {
-        (n_administrative > 0).then(|| {
-            format!("{n_inspected} claim-eligible output(s) all referenced or marked unused{admin}")
-        })
+        Some(format!(
+            "{n_inspected} declared claim-evidence output(s) all referenced or marked unused{roles}"
+        ))
     } else if pkg.claims.is_none() {
         Some(format!(
-            "no claim-verification.json; {n_inspected} outputs uncovered by default{admin}"
+            "no claim-verification.json; {n_inspected} declared evidence outputs uncovered by default{roles}"
         ))
     } else {
         Some(format!(
             "{} output(s) not referenced and not marked unused: {}{}",
             n_violations,
             violators.join(", "),
-            admin
+            roles
         ))
     };
     InvariantVerdict {
@@ -221,6 +279,10 @@ mod tests {
             ],
             claims: Some(json!({"verdicts":[{"claim_id":"c-1","status":"verified",
                 "supported_by":["runtime/outputs/de/de_results.tsv"]}]})),
+            declared_claim_evidence: BTreeSet::from([
+                "de_results.tsv".to_string(),
+                "normalized_counts.tsv".to_string(),
+            ]),
             ..Default::default()
         };
         let v = check_evidence_coverage(&pkg);
@@ -249,7 +311,7 @@ mod tests {
             "machinery must not be listed as uncovered: {detail}"
         );
         assert!(
-            detail.contains("5 administrative output(s)"),
+            detail.contains("administrative=5"),
             "the excluded count must be surfaced, not silently dropped: {detail}"
         );
     }
@@ -276,7 +338,7 @@ mod tests {
         assert_eq!(v.n_inspected, 0, "empty denominator");
         let detail = v.detail.expect("Unverified must explain itself");
         assert!(
-            detail.contains("2 administrative output(s)"),
+            detail.contains("administrative=2"),
             "the excluded count must be surfaced: {detail}"
         );
     }
@@ -293,6 +355,7 @@ mod tests {
             ],
             claims: Some(json!({"verdicts":[{"claim_id":"c-1","status":"verified",
                 "supported_by":["runtime/outputs/de/de_results.tsv"]}]})),
+            declared_claim_evidence: BTreeSet::from(["de_results.tsv".to_string()]),
             ..Default::default()
         };
         let v = check_evidence_coverage(&pkg);
@@ -306,8 +369,27 @@ mod tests {
         assert_eq!(v.n_violations, 0, "it is referenced");
         let detail = v.detail.expect("a Pass alongside machinery must report it");
         assert!(
-            detail.contains("2 administrative output(s)"),
+            detail.contains("administrative=2"),
             "the excluded count must be surfaced on a Pass too: {detail}"
         );
+    }
+
+    #[test]
+    fn comparison_and_contradiction_links_account_for_used_evidence() {
+        let pkg = LoadedPackage {
+            output_entities: vec![file_entity("runtime/outputs/de/de_results.tsv")],
+            claims: Some(json!({"verdicts":[{
+                "claim_id":"c-1",
+                "status":"mismatch",
+                "supported_by":[],
+                "checked_against":["runtime/outputs/de/de_results.tsv"],
+                "contradicts":["runtime/outputs/de/de_results.tsv"]
+            }]})),
+            ..Default::default()
+        };
+        let verdict = check_evidence_coverage(&pkg);
+        assert_eq!(verdict.status, InvariantStatus::Pass, "{verdict:?}");
+        assert_eq!(verdict.n_inspected, 1);
+        assert_eq!(verdict.n_violations, 0);
     }
 }

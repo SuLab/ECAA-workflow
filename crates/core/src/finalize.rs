@@ -17,8 +17,8 @@
 
 use crate::claim_contract::ClaimContract;
 use crate::claim_extractor::{
-    claim_dedupe_key, extract_claims, extract_markdown_table_claims, resolve_result_table_columns,
-    Claim, Direction, ExtractorConfig,
+    claim_dedupe_key, extract_claims, extract_markdown_table_claims,
+    resolve_result_table_columns_with_schema, Claim, Direction, ExtractorConfig,
 };
 use crate::claim_verifier::{
     demote_claims_from_deviations, verdict_class_of, verify_claims_with_discovery,
@@ -221,6 +221,48 @@ const REPORT_DATA_TRANSCRIPTION_TOLERANCE: f64 = 1e-12;
 /// significance value is not compared against an absolute floor that swamps it.
 const REPORT_DATA_TRANSCRIPTION_RELATIVE: f64 = 1e-9;
 
+/// One `TaskNode` as seen by result-schema resolution — only the two fields it
+/// needs. Mirrors `provenance::sidecars::TaskNodeReadAllowanceRow`'s
+/// minimal-shape rationale: a narrow row keeps the parse tolerant of every
+/// other `TaskNode` field evolving.
+#[derive(serde::Deserialize)]
+struct TaskNodeResultSchemaRow {
+    id: String,
+    #[serde(default)]
+    attributes: BTreeMap<String, serde_json::Value>,
+}
+
+/// Each task's DECLARED [`crate::report_contract::ResultSchema`], read from
+/// `runtime/task-nodes.json`'s `TaskNode::attributes["result_schema"]` (put
+/// there by `workflow_contracts::from_atom::preserve_attributes` from the atom's
+/// own declaration).
+///
+/// This is the SAME declaration `report_contract::assemble` reads when it builds
+/// `report-data.json`, so resolving a checker's columns through it is what makes
+/// the assertion and the evidence address the same cells. Best-effort by design:
+/// an absent / unreadable / unparseable file yields an empty map and every
+/// caller falls back to header-only resolution, so an older package still
+/// verifies (just without the declared-name guarantee). Tasks that declare no
+/// schema are simply omitted.
+fn read_task_result_schemas(
+    package_root: &Path,
+) -> BTreeMap<String, crate::report_contract::ResultSchema> {
+    let path = package_root.join("runtime/task-nodes.json");
+    let Ok(body) = std::fs::read_to_string(&path) else {
+        return BTreeMap::new();
+    };
+    let Ok(rows) = serde_json::from_str::<Vec<TaskNodeResultSchemaRow>>(&body) else {
+        return BTreeMap::new();
+    };
+    rows.into_iter()
+        .filter_map(|row| {
+            let raw = row.attributes.get("result_schema")?.clone();
+            let parsed: crate::report_contract::ResultSchema = serde_json::from_value(raw).ok()?;
+            Some((row.id, parsed))
+        })
+        .collect()
+}
+
 /// One cell-level comparison inside a report-data-derived verdict.
 struct CellCheck {
     column: String,
@@ -267,8 +309,17 @@ fn fmt_trace_number(v: f64) -> String {
 /// and final-reporting stages.
 ///
 /// Modality-agnostic: the entity / effect / significance columns are resolved
-/// by [`resolve_result_table_columns`] from the artifact's own headers plus the
-/// policy's configured columns — no domain column name appears here.
+/// by [`resolve_result_table_columns_with_schema`] from the producing atom's
+/// DECLARED [`ResultSchema`] — the same declaration the assembler read when it
+/// wrote `report-data.json` — falling back to the artifact's own headers plus
+/// the policy's configured columns. No domain column name appears here.
+///
+/// Reading the declared schema is what keeps the two sides comparable. The
+/// assembler resolves `signed_effect_column` / `significance.column` by name;
+/// a checker that re-derives the binding from headers alone can pick a
+/// DIFFERENT column of the same family — an FDR-controlled claim against the
+/// raw-p column, a normalized enrichment score against the raw one — and then
+/// report every correctly-transcribed row as a mismatch.
 ///
 /// Abstain-first: when NONE of an artifact's significant entities resolve to a
 /// row, the artifact is skipped entirely (the assembler keyed on a different
@@ -279,6 +330,7 @@ fn report_data_cell_verdicts(
     task_id: &str,
     cfg: &ExtractorConfig,
 ) -> Vec<ClaimVerdict> {
+    let schemas = read_task_result_schemas(package_root);
     let Some(dir) = resolve_task_runtime_dir_local(package_root, task_id) else {
         return Vec::new();
     };
@@ -311,7 +363,12 @@ fn report_data_cell_verdicts(
             "runtime/outputs/{}/{}",
             artifact.stage_id, artifact.artifact
         );
-        let Some(table) = SourceArtifactIndex::load(&package_root.join(&table_rel), cfg) else {
+        // The DECLARED schema of the stage that produced this artifact. Absent
+        // (a package emitted before `task-nodes.json` recorded it) → header-only
+        // resolution, exactly as before.
+        let schema = schemas.get(&artifact.stage_id);
+        let Some(table) = SourceArtifactIndex::load(&package_root.join(&table_rel), cfg, schema)
+        else {
             continue;
         };
         // Abstain wholesale when the assembler's entity ids do not live in the
@@ -366,10 +423,15 @@ impl SourceArtifactIndex {
         self.rows.get(&Self::normalize(entity))
     }
 
-    /// Load `path`, resolving its entity / effect / significance columns.
-    /// `None` when the file is unreadable or exposes no recognizable entity
-    /// column (i.e. it is not a result table).
-    fn load(path: &Path, cfg: &ExtractorConfig) -> Option<Self> {
+    /// Load `path`, resolving its entity / effect / significance columns against
+    /// the producing atom's DECLARED `schema` first (`None` → header-only
+    /// resolution). `None` when the file is unreadable or exposes no
+    /// recognizable entity column (i.e. it is not a result table).
+    fn load(
+        path: &Path,
+        cfg: &ExtractorConfig,
+        schema: Option<&crate::report_contract::ResultSchema>,
+    ) -> Option<Self> {
         let raw = std::fs::read(path).ok()?;
         let delimiter = crate::report_contract::assemble::delimiter_for(path);
         let mut reader = csv::ReaderBuilder::new()
@@ -378,7 +440,7 @@ impl SourceArtifactIndex {
             .flexible(true)
             .from_reader(&raw[..]);
         let headers: Vec<String> = reader.headers().ok()?.iter().map(str::to_string).collect();
-        let cols = resolve_result_table_columns(&headers, cfg)?;
+        let cols = resolve_result_table_columns_with_schema(&headers, cfg, schema)?;
         let entity_idx = headers.iter().position(|h| *h == cols.entity)?;
         let effect_idx = cols
             .effect
@@ -1000,8 +1062,7 @@ pub fn finalize_task_deduped(
                 // `project_audit_proof_jsonld` reads the report's JSON Value
                 // (`verdicts[]`), so serialize the typed report once.
                 let report_value = serde_json::to_value(&doc).unwrap_or(serde_json::Value::Null);
-                if let Err(e) =
-                    crate::ro_crate::reinject_audit_proof_verdicts(root, &report_value)
+                if let Err(e) = crate::ro_crate::reinject_audit_proof_verdicts(root, &report_value)
                 {
                     tracing::warn!(
                         target: "ecaa::finalize",
@@ -1009,9 +1070,7 @@ pub fn finalize_task_deduped(
                         task_id,
                         "audit-proof verdict re-injection into descriptor failed"
                     );
-                } else if let Err(e) =
-                    crate::emitter::regenerate_bagit_manifest(root, &WallClock)
-                {
+                } else if let Err(e) = crate::emitter::regenerate_bagit_manifest(root, &WallClock) {
                     tracing::warn!(
                         target: "ecaa::finalize",
                         error = %e,
@@ -1731,6 +1790,7 @@ mod tests {
                 direction_split: None,
                 effect_distribution: None,
                 grouped_significant: None,
+                ranking: None,
                 significant_entities: vec![
                     entity("ACAN", 2.1, 0.001),
                     entity("COL2A1", -1.5, 7.056e-132),
@@ -1839,6 +1899,7 @@ mod tests {
                 direction_split: None,
                 effect_distribution: None,
                 grouped_significant: None,
+                ranking: None,
                 significant_entities: vec![EntityRow {
                     // Symbol form; the artifact is keyed on Ensembl ids.
                     entity: "ACAN".into(),
@@ -1863,6 +1924,392 @@ mod tests {
         assert!(
             report_data_cell_verdicts(root, "reporting", &cfg).is_empty(),
             "an identifier-form difference must abstain, never mass-Mismatch"
+        );
+    }
+
+    /// Policy fixture whose `pvalueColumns` names the RAW column before the
+    /// adjusted one and whose `effectSizeColumns` carries both `es` and `nes` —
+    /// the shipped policy's shape, and the configuration under which a
+    /// physical-column-order scan binds the wrong column.
+    fn competing_alias_cfg() -> ExtractorConfig {
+        let policy = serde_json::json!({
+            "verifiableEntities": {
+                "enabled": true,
+                "entityNamePatterns": ["[A-Z][A-Z0-9]{1,}", "R-HSA-\\d+"],
+                "entityNameExcludePatterns": ["^ES$", "^NES$"],
+                "directionVocab": { "up": ["upregulated"], "down": ["downregulated"] },
+                "effectSizeColumns": ["log2FC", "log2FoldChange", "nes", "NES", "es"],
+                "entityColumns": ["gene", "term", "pathway"],
+                "pvalueColumns": ["pvalue", "pval", "padj"]
+            }
+        });
+        ExtractorConfig::from_policy(&policy).expect("test policy loads")
+    }
+
+    /// Write `runtime/task-nodes.json` declaring one stage's `result_schema`.
+    fn write_task_nodes(root: &Path, entries: &[(&str, serde_json::Value)]) {
+        let rows: Vec<serde_json::Value> = entries
+            .iter()
+            .map(|(id, schema)| serde_json::json!({ "id": id, "attributes": { "result_schema": schema } }))
+            .collect();
+        fs::create_dir_all(root.join("runtime")).unwrap();
+        fs::write(
+            root.join("runtime/task-nodes.json"),
+            serde_json::to_string(&rows).unwrap(),
+        )
+        .unwrap();
+    }
+
+    /// The transcription check must compare `report-data.json`'s significance
+    /// against the column the assembler READ — the declared `padj` — even though
+    /// the artifact prints `pvalue` first. Binding the raw column instead turns
+    /// every correctly-transcribed row into a Mismatch.
+    ///
+    /// The tolerance is NOT widened to make this pass: it stays the
+    /// float-round-trip floor, and the rows agree because the right cell is
+    /// being read.
+    #[test]
+    fn report_data_significance_binds_the_declared_adjusted_column() {
+        use crate::report_contract::{
+            EntityRow, LiteratureStatus, ReportData, ResultArtifactSummary,
+        };
+
+        let cfg = competing_alias_cfg();
+        let tmp = tempdir().unwrap();
+        let root = tmp.path();
+        let de_dir = root.join("runtime/outputs/differential_expression");
+        fs::create_dir_all(&de_dir).unwrap();
+        // Raw p and adjusted p differ by orders of magnitude, and `pvalue` is
+        // printed FIRST — exactly the DESeq2 layout.
+        fs::write(
+            de_dir.join("de_results.tsv"),
+            "gene\tbaseMean\tlog2FoldChange\tlfcSE\tstat\tpvalue\tpadj\n\
+             ACAN\t100\t2.1\t0.1\t20\t1.0e-40\t3.5e-36\n\
+             COL2A1\t200\t-1.5\t0.1\t-15\t2.0e-20\t4.5e-17\n",
+        )
+        .unwrap();
+
+        let report_data = ReportData {
+            artifacts: vec![ResultArtifactSummary {
+                stage_id: "differential_expression".into(),
+                artifact: "de_results.tsv".into(),
+                n_total: 2,
+                n_significant: Some(2),
+                direction_split: None,
+                effect_distribution: None,
+                grouped_significant: None,
+                ranking: None,
+                // The ADJUSTED values, as the assembler wrote them.
+                significant_entities: vec![
+                    EntityRow {
+                        entity: "ACAN".into(),
+                        effect: Some(2.1),
+                        significance: Some(3.5e-36),
+                        literature: LiteratureStatus::Novel,
+                    },
+                    EntityRow {
+                        entity: "COL2A1".into(),
+                        effect: Some(-1.5),
+                        significance: Some(4.5e-17),
+                        literature: LiteratureStatus::Novel,
+                    },
+                ],
+                significant_table_path: "runtime/outputs/differential_expression/s.tsv".into(),
+                full_table_path: "runtime/outputs/differential_expression/f.tsv".into(),
+                spilled_to_attachment_only: false,
+            }],
+            literature: None,
+        };
+        let reporting = root.join("runtime/outputs/reporting");
+        fs::create_dir_all(&reporting).unwrap();
+        fs::write(
+            reporting.join("report-data.json"),
+            serde_json::to_string(&report_data).unwrap(),
+        )
+        .unwrap();
+
+        let de_schema = serde_json::json!({
+            "artifact": "de_results.tsv",
+            "entity_column": "gene",
+            "signed_effect_column": "log2FoldChange",
+            "significance": { "column": "padj", "threshold": 0.05, "comparator": "lt" }
+        });
+        write_task_nodes(root, &[("differential_expression", de_schema)]);
+
+        let verdicts = report_data_cell_verdicts(root, "reporting", &cfg);
+        assert_eq!(verdicts.len(), 2);
+        for v in &verdicts {
+            assert!(
+                matches!(v.status, ClaimStatus::Verified),
+                "correctly-transcribed row must verify, got {:?}",
+                v.status
+            );
+        }
+        // The trace must name the DECLARED significance column, so the audit
+        // records which cell was actually compared.
+        let sig_columns: Vec<String> = verdicts
+            .iter()
+            .filter_map(|v| v.audit.as_ref())
+            .filter_map(|a| a.measurement_column.clone())
+            .collect();
+        assert!(
+            sig_columns.iter().all(|c| c != "pvalue"),
+            "no verdict may be traced to the raw p column: {sig_columns:?}"
+        );
+
+        // And the same rows still verify with NO schema on disk: candidate
+        // priority alone binds the adjusted column.
+        fs::remove_file(root.join("runtime/task-nodes.json")).unwrap();
+        let no_schema = report_data_cell_verdicts(root, "reporting", &cfg);
+        assert_eq!(no_schema.len(), 2);
+        for v in &no_schema {
+            assert!(
+                matches!(v.status, ClaimStatus::Verified),
+                "candidate priority must bind `padj` without a schema, got {:?}",
+                v.status
+            );
+        }
+    }
+
+    /// A pathway artifact whose header prints `ES` before `NES` and `pval`
+    /// before `padj`: the declared schema binds `NES`/`padj`, so the assembler's
+    /// values agree with their source cells.
+    #[test]
+    fn report_data_pathway_binds_normalized_effect_column() {
+        use crate::report_contract::{
+            EntityRow, LiteratureStatus, ReportData, ResultArtifactSummary,
+        };
+
+        let cfg = competing_alias_cfg();
+        let tmp = tempdir().unwrap();
+        let root = tmp.path();
+        let pw_dir = root.join("runtime/outputs/pathway_enrichment");
+        fs::create_dir_all(&pw_dir).unwrap();
+        // ES and NES disagree well beyond tolerance, as they do in practice.
+        fs::write(
+            pw_dir.join("pathway_results.tsv"),
+            "pathway\tcollection\tterm\tpval\tpadj\tlog2err\tES\tNES\tsize\n\
+             HALLMARK: Adipogenesis\tHALLMARK\tAdipogenesis\t1.0e-06\t5.17e-05\t0.6\t0.412\t1.965\t200\n",
+        )
+        .unwrap();
+
+        let report_data = ReportData {
+            artifacts: vec![ResultArtifactSummary {
+                stage_id: "pathway_enrichment".into(),
+                artifact: "pathway_results.tsv".into(),
+                n_total: 1,
+                n_significant: Some(1),
+                direction_split: None,
+                effect_distribution: None,
+                grouped_significant: None,
+                ranking: None,
+                significant_entities: vec![EntityRow {
+                    entity: "HALLMARK: Adipogenesis".into(),
+                    effect: Some(1.965),
+                    significance: Some(5.17e-05),
+                    literature: LiteratureStatus::Novel,
+                }],
+                significant_table_path: "runtime/outputs/pathway_enrichment/s.tsv".into(),
+                full_table_path: "runtime/outputs/pathway_enrichment/f.tsv".into(),
+                spilled_to_attachment_only: false,
+            }],
+            literature: None,
+        };
+        let reporting = root.join("runtime/outputs/reporting");
+        fs::create_dir_all(&reporting).unwrap();
+        fs::write(
+            reporting.join("report-data.json"),
+            serde_json::to_string(&report_data).unwrap(),
+        )
+        .unwrap();
+        write_task_nodes(
+            root,
+            &[(
+                "pathway_enrichment",
+                serde_json::json!({
+                    "artifact": "pathway_results.tsv",
+                    "entity_column": "pathway",
+                    "grouping_column": "collection",
+                    "signed_effect_column": "NES",
+                    "significance": { "column": "padj", "threshold": 0.25, "comparator": "lt" }
+                }),
+            )],
+        );
+
+        let verdicts = report_data_cell_verdicts(root, "reporting", &cfg);
+        assert_eq!(verdicts.len(), 1);
+        assert!(
+            matches!(verdicts[0].status, ClaimStatus::Verified),
+            "NES must be the compared cell, got {:?}",
+            verdicts[0].status
+        );
+        let audit = verdicts[0].audit.as_ref().expect("trace");
+        assert_eq!(audit.entity_column.as_deref(), Some("pathway"));
+        assert_eq!(audit.measurement_column.as_deref(), Some("NES"));
+    }
+
+    /// Scaffold a package whose `pathway_enrichment` stage wrote a real result
+    /// table, plus a `reporting` narrative carrying a markdown pathway table.
+    fn scaffold_pathway_narrative(root: &Path, narrative_rows: &str) {
+        let pw_dir = root.join("runtime/outputs/pathway_enrichment");
+        fs::create_dir_all(&pw_dir).unwrap();
+        fs::write(
+            pw_dir.join("pathway_results.tsv"),
+            "pathway\tcollection\tterm\tpval\tpadj\tES\tNES\n\
+             REACTOME: Cytosolic tRNA Aminoacylation R-HSA-379716\tREACTOME\tCytosolic tRNA Aminoacylation R-HSA-379716\t1.0e-05\t2.10e-03\t-0.61\t-2.171\n\
+             REACTOME: Formation of a pool of free 40S subunits R-HSA-72689\tREACTOME\tFormation of a pool of free 40S subunits R-HSA-72689\t0.62\t1.0\t0.18\t0.520463\n",
+        )
+        .unwrap();
+        let reporting = root.join("runtime/outputs/reporting");
+        fs::create_dir_all(&reporting).unwrap();
+        fs::write(
+            reporting.join("report.md"),
+            format!(
+                "## Depleted pathways\n\n\
+                 | Pathway | Collection | NES | padj |\n\
+                 |---|---|---|---|\n{narrative_rows}"
+            ),
+        )
+        .unwrap();
+        scaffold_config_dir(root);
+        fs::write(
+            root.join("downstream-policy/interpretation-policy.json"),
+            r#"{
+                "schemaVersion": "1.1",
+                "targetStages": ["biological_interpretation"],
+                "claimBoundary": {"associativeOnly": [], "requiresEvidence": []},
+                "verifiableEntities": {
+                    "enabled": true,
+                    "entityNamePatterns": ["[A-Z][A-Z0-9]{1,}", "R-HSA-\\d+"],
+                    "directionVocab": {
+                        "up": ["upregulated", "increased"],
+                        "down": ["downregulated", "decreased"]
+                    },
+                    "effectSizeColumns": ["NES", "ES"],
+                    "entityColumns": ["term", "pathway"],
+                    "pvalueColumns": ["padj", "pval"]
+                },
+                "validationContract": {"requiredOutputs": [], "metrics": []},
+                "evidenceRules": []
+            }"#,
+        )
+        .unwrap();
+    }
+
+    /// A narrative table row naming a pathway ABSENT from the source table must
+    /// produce a recorded non-Verified verdict rather than vanishing. Before the
+    /// label-cell path, the whole-cell identifier gate dropped the row and the
+    /// fabrication left no trace at all.
+    #[test]
+    fn fabricated_pathway_row_yields_a_non_verified_verdict() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path();
+        scaffold_pathway_narrative(
+            root,
+            "| Cytosolic tRNA Aminoacylation II R-HSA-379726 | REACTOME | -1.569 | 3.26e-02 |\n",
+        );
+
+        let outcome = verify_task_with_context(
+            root,
+            "reporting",
+            root,
+            ProjectClass::Bioinformatics,
+            &[],
+            false,
+        );
+        let v = expect_verified(outcome);
+        let fabricated: Vec<&ClaimVerdict> = v
+            .report
+            .verdicts
+            .iter()
+            .filter(|x| x.claim.entity.contains("Aminoacylation II"))
+            .collect();
+        assert!(
+            !fabricated.is_empty(),
+            "the fabricated row must be represented in the ledger, not dropped: {:?}",
+            v.report
+                .verdicts
+                .iter()
+                .map(|x| &x.claim.entity)
+                .collect::<Vec<_>>()
+        );
+        for f in &fabricated {
+            assert!(
+                !matches!(f.status, ClaimStatus::Verified),
+                "a pathway absent from the source table must never verify: {:?}",
+                f.status
+            );
+        }
+    }
+
+    /// A narrative row naming a REAL pathway with the wrong SIGN is a Mismatch:
+    /// the entity resolves, the source cell is read from the declared effect
+    /// column, and the values disagree.
+    #[test]
+    fn narrative_pathway_row_with_inverted_sign_is_a_mismatch() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path();
+        // Source NES for this pathway is +0.520463; the narrative claims -1.550.
+        scaffold_pathway_narrative(
+            root,
+            "| Formation of a pool of free 40S subunits R-HSA-72689 | REACTOME | -1.550 | 4.94e-02 |\n",
+        );
+
+        let outcome = verify_task_with_context(
+            root,
+            "reporting",
+            root,
+            ProjectClass::Bioinformatics,
+            &[],
+            false,
+        );
+        let v = expect_verified(outcome);
+        let row = v
+            .report
+            .verdicts
+            .iter()
+            .find(|x| x.claim.entity.contains("free 40S subunits"))
+            .expect("the row must yield a verdict");
+        assert!(
+            matches!(row.status, ClaimStatus::Mismatch { .. }),
+            "an inverted effect sign must be a Mismatch, got {:?}",
+            row.status
+        );
+    }
+
+    /// A CORRECT multi-word row verifies — the label path widens what can be
+    /// checked without weakening any comparison.
+    #[test]
+    fn correct_multi_word_pathway_row_verifies() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path();
+        scaffold_pathway_narrative(
+            root,
+            "| Cytosolic tRNA Aminoacylation R-HSA-379716 | REACTOME | -2.171 | 2.10e-03 |\n",
+        );
+
+        let outcome = verify_task_with_context(
+            root,
+            "reporting",
+            root,
+            ProjectClass::Bioinformatics,
+            &[],
+            false,
+        );
+        let v = expect_verified(outcome);
+        let row = v
+            .report
+            .verdicts
+            .iter()
+            .find(|x| {
+                x.claim.entity.contains("Cytosolic tRNA Aminoacylation")
+                    && !x.claim.entity.contains(" II ")
+            })
+            .expect("the row must yield a verdict");
+        assert!(
+            matches!(row.status, ClaimStatus::Verified),
+            "a faithfully transcribed multi-word row must verify, got {:?}",
+            row.status
         );
     }
 

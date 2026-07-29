@@ -19,8 +19,8 @@
       },
       {
         "check": "audit_proof.evidence_coverage",
-        "recorded": "warn",
-        "fresh": "warn",
+        "recorded": "pass",
+        "fresh": "pass",
         "diverged": false
       },
       {

@@ -139,7 +139,13 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let outcome = exec.repair(&f, dir.path(), dir.path(), &MockRunner);
         assert!(
-            matches!(outcome, RepairOutcome::Applied { deterministic: false, .. }),
+            matches!(
+                outcome,
+                RepairOutcome::Applied {
+                    deterministic: false,
+                    ..
+                }
+            ),
             "citation fix is non-deterministic Applied in the mock, got {outcome:?}"
         );
     }

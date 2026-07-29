@@ -36,7 +36,10 @@
 /// scratch-path fields) are not present in the golden and are ignored.
 #[test]
 fn replay_himes_verify_tier_passes_offline() {
-    let pkg = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/replay/himes-parent");
+    let pkg = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../testdata/replay/himes-parent"
+    );
     let opts = ecaa_workflow_core::replay::ReplayOptions {
         tier: ecaa_workflow_core::replay::Tier::Verify,
         scratch_dir: None,
@@ -72,8 +75,8 @@ fn replay_himes_verify_tier_passes_offline() {
         env!("CARGO_MANIFEST_DIR"),
         "/../../testdata/replay/himes-golden-report.json"
     );
-    let golden_raw = std::fs::read_to_string(golden_path)
-        .expect("himes-golden-report.json must be readable");
+    let golden_raw =
+        std::fs::read_to_string(golden_path).expect("himes-golden-report.json must be readable");
     let golden: serde_json::Value =
         serde_json::from_str(&golden_raw).expect("himes-golden-report.json must be valid JSON");
 
@@ -102,7 +105,10 @@ fn replay_himes_verify_tier_passes_offline() {
     let golden_rmw = golden
         .pointer("/reverify/reader_matches_writer")
         .expect("golden reverify.reader_matches_writer must be present");
-    assert_eq!(live_rmw, golden_rmw, "reader_matches_writer must match golden");
+    assert_eq!(
+        live_rmw, golden_rmw,
+        "reader_matches_writer must match golden"
+    );
 
     // Assert per-check stable fields: check id, recorded, fresh, diverged.
     let live_checks = live
@@ -152,7 +158,10 @@ fn replay_himes_execute_tier_reproduces_de_table() {
     if std::env::var("ECAA_REPLAY_EXEC_TEST").is_err() {
         return;
     }
-    let pkg = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/replay/himes-parent");
+    let pkg = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../testdata/replay/himes-parent"
+    );
     let opts = ecaa_workflow_core::replay::ReplayOptions {
         tier: ecaa_workflow_core::replay::Tier::Execute,
         scratch_dir: None,

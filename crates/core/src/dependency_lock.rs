@@ -523,9 +523,13 @@ mod tests {
             "other attached packages:\n [1] DESeq2_1.50.2 SummarizedExperiment_1.40.0\n\nloaded via a namespace (and not attached):\n [1] Rcpp_1.0.12\n",
             &mut seen,
         );
-        assert_eq!(seen.get(&("r".into(), "DESeq2".into())).map(String::as_str), Some("1.50.2"));
         assert_eq!(
-            seen.get(&("r".into(), "SummarizedExperiment".into())).map(String::as_str),
+            seen.get(&("r".into(), "DESeq2".into())).map(String::as_str),
+            Some("1.50.2")
+        );
+        assert_eq!(
+            seen.get(&("r".into(), "SummarizedExperiment".into()))
+                .map(String::as_str),
             Some("1.40.0")
         );
         // "loaded via a namespace" packages are NOT attached -> excluded.

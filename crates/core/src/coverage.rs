@@ -147,7 +147,11 @@ pub fn reconcile_coverage(
     manifest: &ExpectedClaimManifest,
     structured_verdicts: &[ClaimVerdict],
 ) -> CoverageResult {
-    reconcile_coverage_scoped(manifest, structured_verdicts, &std::collections::BTreeSet::new())
+    reconcile_coverage_scoped(
+        manifest,
+        structured_verdicts,
+        &std::collections::BTreeSet::new(),
+    )
 }
 
 /// As [`reconcile_coverage`], but with the current task's id-stem set so a
@@ -431,9 +435,7 @@ mod tests {
         let unver = vec![verdict(
             "some sentence",
             Some("de_results.tsv"),
-            ClaimStatus::Unverifiable {
-                reason: "x".into(),
-            },
+            ClaimStatus::Unverifiable { reason: "x".into() },
         )];
         assert_eq!(
             reconcile_coverage_scoped(&m, &unver, &stems).per_entity["differential_expression"],
@@ -442,7 +444,11 @@ mod tests {
              (divergent entity + table) so the required entry stays a recall gap"
         );
 
-        let mut lit = verdict("some sentence", Some("de_results.tsv"), ClaimStatus::Verified);
+        let mut lit = verdict(
+            "some sentence",
+            Some("de_results.tsv"),
+            ClaimStatus::Verified,
+        );
         lit.claim.contract = ClaimContract::LiteratureGrounded;
         assert_eq!(
             reconcile_coverage_scoped(&m, &[lit], &stems).per_entity["differential_expression"],

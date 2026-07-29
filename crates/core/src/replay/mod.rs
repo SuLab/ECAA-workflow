@@ -5,7 +5,10 @@ pub mod report;
 pub mod reverify;
 pub mod script_runner;
 pub mod select;
-pub use report::{ReplayReport, ReplayVerdict, ReverifyResult, ReexecuteResult, VerifierDiff, SkippedStage, compute_verdict};
+pub use report::{
+    compute_verdict, ReexecuteResult, ReplayReport, ReplayVerdict, ReverifyResult, SkippedStage,
+    VerifierDiff,
+};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -213,7 +216,15 @@ pub fn run_replay(pkg: &Path, opts: &ReplayOptions) -> anyhow::Result<ReplayRepo
         let order = read_execution_order(pkg);
 
         // Run the tasks.
-        let outcomes = stage_and_run(pkg, &scratch, &tasks, &order, &env, &recorded_root, &recorded_env)?;
+        let outcomes = stage_and_run(
+            pkg,
+            &scratch,
+            &tasks,
+            &order,
+            &env,
+            &recorded_root,
+            &recorded_env,
+        )?;
 
         // Un-stage the carried-forward outputs of stages that were NOT
         // re-executed. `stage_and_run` copies every skipped stage's recorded
@@ -238,7 +249,11 @@ pub fn run_replay(pkg: &Path, opts: &ReplayOptions) -> anyhow::Result<ReplayRepo
 
         // Run the comparator: parent=pkg, replay=scratch.
         let shim_path = pkg.join("runtime/determinism-shim.json");
-        let policy_path = if shim_path.exists() { Some(shim_path.as_path()) } else { None };
+        let policy_path = if shim_path.exists() {
+            Some(shim_path.as_path())
+        } else {
+            None
+        };
         let mut reexec_report = classify_reexecution(pkg, &scratch, policy_path, bounds)?;
 
         // ── ok:false → Failed reconciliation ────────────────────────────────
@@ -364,9 +379,15 @@ fn replay_fallback_image() -> Option<String> {
 /// The file shape is: `{ "order": [ { "index": N, "task_id": "…", … }, … ] }`.
 fn read_execution_order(pkg: &Path) -> Vec<String> {
     let path = pkg.join("runtime/execution-order.json");
-    let Ok(raw) = std::fs::read_to_string(&path) else { return vec![]; };
-    let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) else { return vec![]; };
-    let Some(arr) = val.get("order").and_then(|v| v.as_array()) else { return vec![]; };
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return vec![];
+    };
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return vec![];
+    };
+    let Some(arr) = val.get("order").and_then(|v| v.as_array()) else {
+        return vec![];
+    };
     arr.iter()
         .filter_map(|entry| entry.get("task_id")?.as_str().map(str::to_owned))
         .collect()
@@ -398,17 +419,20 @@ pub(crate) fn read_recorded_env(pkg: &Path) -> (String, BTreeMap<String, String>
     // Walk runtime/outputs/ in lexicographic order to find the first
     // determinism-env.json and collect determinism-pinning vars.
     if let Ok(entries) = std::fs::read_dir(&outputs) {
-        let mut dirs: Vec<_> = entries
-            .flatten()
-            .filter(|e| e.path().is_dir())
-            .collect();
+        let mut dirs: Vec<_> = entries.flatten().filter(|e| e.path().is_dir()).collect();
         dirs.sort_by_key(|e| e.file_name());
 
         for dir in dirs {
             let det_env_path = dir.path().join("determinism-env.json");
-            if !det_env_path.exists() { continue; }
-            let Ok(raw) = std::fs::read_to_string(&det_env_path) else { continue; };
-            let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) else { continue; };
+            if !det_env_path.exists() {
+                continue;
+            }
+            let Ok(raw) = std::fs::read_to_string(&det_env_path) else {
+                continue;
+            };
+            let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) else {
+                continue;
+            };
 
             // Source 1: `pkg_root` field (preferred when present).
             if let Some(root) = val.get("pkg_root").and_then(|v| v.as_str()) {
@@ -418,9 +442,18 @@ pub(crate) fn read_recorded_env(pkg: &Path) -> (String, BTreeMap<String, String>
             }
 
             // Determinism-pinning vars: SOURCE_DATE_EPOCH, PYTHONHASHSEED, LC_ALL, TZ, LANG.
-            for key in &["source_date_epoch", "pythonhashseed", "lc_all", "tz", "lang"] {
-                let env_key = if *key == "lc_all" { "LC_ALL".to_string() }
-                              else { key.to_ascii_uppercase() };
+            for key in &[
+                "source_date_epoch",
+                "pythonhashseed",
+                "lc_all",
+                "tz",
+                "lang",
+            ] {
+                let env_key = if *key == "lc_all" {
+                    "LC_ALL".to_string()
+                } else {
+                    key.to_ascii_uppercase()
+                };
                 if let Some(v) = val.get(key).and_then(|v| v.as_str()) {
                     if !v.is_empty() {
                         env.insert(env_key, v.to_owned());
@@ -453,7 +486,9 @@ fn discover_recorded_root_from_scripts(pkg: &Path) -> String {
     let needle = format!("/{}", basename);
 
     let outputs = pkg.join("runtime/outputs");
-    let Ok(task_entries) = std::fs::read_dir(&outputs) else { return String::new(); };
+    let Ok(task_entries) = std::fs::read_dir(&outputs) else {
+        return String::new();
+    };
 
     let mut task_dirs: Vec<_> = task_entries
         .flatten()
@@ -463,7 +498,9 @@ fn discover_recorded_root_from_scripts(pkg: &Path) -> String {
 
     for task_dir in task_dirs {
         let scripts_dir = task_dir.path().join("scripts");
-        let Ok(script_entries) = std::fs::read_dir(&scripts_dir) else { continue; };
+        let Ok(script_entries) = std::fs::read_dir(&scripts_dir) else {
+            continue;
+        };
 
         let mut scripts: Vec<_> = script_entries
             .flatten()
@@ -478,7 +515,9 @@ fn discover_recorded_root_from_scripts(pkg: &Path) -> String {
         scripts.sort_by_key(|e| e.file_name());
 
         for script in scripts {
-            let Ok(text) = std::fs::read_to_string(script.path()) else { continue; };
+            let Ok(text) = std::fs::read_to_string(script.path()) else {
+                continue;
+            };
             if let Some(pos) = text.find(&needle) {
                 // Expand left to the start of the absolute path.
                 // We iterate char_indices in reverse so the slice index is
@@ -487,7 +526,15 @@ fn discover_recorded_root_from_scripts(pkg: &Path) -> String {
                 // delimiter chars since the predicate includes !c.is_ascii()).
                 let before = &text[..pos];
                 let delimiter = |c: char| {
-                    !c.is_ascii() || c == '"' || c == '\'' || c == '(' || c == ' ' || c == '\n' || c == '\r' || c == '\t' || c == '='
+                    !c.is_ascii()
+                        || c == '"'
+                        || c == '\''
+                        || c == '('
+                        || c == ' '
+                        || c == '\n'
+                        || c == '\r'
+                        || c == '\t'
+                        || c == '='
                 };
                 let path_start = before
                     .char_indices()
@@ -518,11 +565,13 @@ fn read_package_meta(pkg: &Path) -> (String, Option<String>) {
     let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) else {
         return ("ro-crate-metadata.json".to_string(), None);
     };
-    let iri = val.get("package_iri")
+    let iri = val
+        .get("package_iri")
         .and_then(|v| v.as_str())
         .unwrap_or("ro-crate-metadata.json")
         .to_string();
-    let min_rv = val.get("min_reader_version")
+    let min_rv = val
+        .get("min_reader_version")
         .and_then(|v| v.as_str())
         .map(str::to_owned);
     (iri, min_rv)
@@ -777,7 +826,9 @@ mod tests {
             .filter(|v| v.get("status").and_then(|s| s.as_str()) == Some("verified"))
             .count() as u64;
 
-        let obj = cv.as_object_mut().expect("claim-verification must be an object");
+        let obj = cv
+            .as_object_mut()
+            .expect("claim-verification must be an object");
         obj.insert("n_mismatch".to_string(), serde_json::json!(n_mismatch));
         obj.insert("n_suspicious".to_string(), serde_json::json!(n_suspicious));
         obj.insert("n_verified".to_string(), serde_json::json!(n_verified));
@@ -826,8 +877,14 @@ mod tests {
              report={report:?}"
         );
         // Sanity: reverify was populated, reexecute was not.
-        assert!(report.reverify.is_some(), "reverify must be Some for Tier::Verify");
-        assert!(report.reexecute.is_none(), "reexecute must be None for Tier::Verify");
+        assert!(
+            report.reverify.is_some(),
+            "reverify must be Some for Tier::Verify"
+        );
+        assert!(
+            report.reexecute.is_none(),
+            "reexecute must be None for Tier::Verify"
+        );
     }
 
     /// A task that ran and exited `ok:false` produces a missing artifact the
@@ -836,7 +893,7 @@ mod tests {
     /// replay report can see WHY it failed without re-running.
     #[test]
     fn reconcile_attaches_stderr_tail_to_failed_task_reason() {
-        use crate::reexecution::{ReexecutionReport, ArtifactClassification, ReexecutionBucket};
+        use crate::reexecution::{ArtifactClassification, ReexecutionBucket, ReexecutionReport};
         use crate::replay::script_runner::RunOutcome;
 
         let mut rep = ReexecutionReport::empty("0.1");
@@ -849,7 +906,8 @@ mod tests {
         let outcomes = vec![RunOutcome {
             task_id: "data_acquisition".into(),
             ok: false,
-            stderr: "Traceback (most recent call last):\nRuntimeError: network unreachable\n".into(),
+            stderr: "Traceback (most recent call last):\nRuntimeError: network unreachable\n"
+                .into(),
         }];
 
         reconcile_failed_task_buckets(&mut rep, &outcomes);
@@ -928,17 +986,16 @@ mod tests {
     #[test]
     fn extract_task_id_roundtrip() {
         assert_eq!(
-            extract_task_id_from_artifact_path("runtime/outputs/differential_expression/de_results.tsv"),
+            extract_task_id_from_artifact_path(
+                "runtime/outputs/differential_expression/de_results.tsv"
+            ),
             Some("differential_expression")
         );
         assert_eq!(
             extract_task_id_from_artifact_path("results/tables/de.tsv"),
             None
         );
-        assert_eq!(
-            extract_task_id_from_artifact_path("runtime/outputs/"),
-            None
-        );
+        assert_eq!(extract_task_id_from_artifact_path("runtime/outputs/"), None);
     }
 
     /// `read_recorded_env` discovers `recorded_root` from a hardcoded absolute

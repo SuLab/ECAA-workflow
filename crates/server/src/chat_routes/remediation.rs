@@ -541,10 +541,7 @@ fn synthesize_validation_failed_envelope(
         TaskState::Blocked { record } => record.reason.clone(),
         _ => return None,
     };
-    if !VALIDATION_BLOCK_MARKERS
-        .iter()
-        .any(|m| reason.contains(m))
-    {
+    if !VALIDATION_BLOCK_MARKERS.iter().any(|m| reason.contains(m)) {
         return None;
     }
 
@@ -770,7 +767,10 @@ mod tests {
     }
 
     /// Build a one-task DAG whose single task is in `state`.
-    fn dag_with_task(task_id: &str, state: ecaa_workflow_core::dag::TaskState) -> ecaa_workflow_core::dag::DAG {
+    fn dag_with_task(
+        task_id: &str,
+        state: ecaa_workflow_core::dag::TaskState,
+    ) -> ecaa_workflow_core::dag::DAG {
         use ecaa_workflow_core::dag::{Assignee, ResourceClass, Task, TaskId, TaskKind, DAG};
         let mut tasks: std::collections::BTreeMap<TaskId, Task> = std::collections::BTreeMap::new();
         tasks.insert(

@@ -614,7 +614,11 @@ fn lower_task(node: &TaskNode, depends_on: Vec<TaskId>) -> Result<Task, EmitErro
     // honours the declared QC/failure-modes (e.g. filter rare/zero-variance
     // features) instead of running off the bare intent. Additive; absent for
     // curated-atom tasks that carry no proposal contract.
-    for key in ["analytical_assumptions", "failure_modes", "declared_validation_tests"] {
+    for key in [
+        "analytical_assumptions",
+        "failure_modes",
+        "declared_validation_tests",
+    ] {
         if let Some(v) = node.attributes.get(key) {
             spec_map.insert(key.into(), v.clone());
         }
@@ -1296,7 +1300,10 @@ mod tests {
             "QA leaves must be excluded from the terminal"
         );
         assert_eq!(fr.source_atom_id.as_deref(), Some("final_reporting"));
-        assert!(fr.container.is_none(), "synthesized terminal runs in the default image");
+        assert!(
+            fr.container.is_none(),
+            "synthesized terminal runs in the default image"
+        );
 
         // Idempotent + deterministic: a second pass changes nothing.
         let deps_before = fr.depends_on.clone();
@@ -1310,7 +1317,10 @@ mod tests {
             "no duplicate terminal on re-run"
         );
         assert_eq!(
-            tasks.get(&TaskId::from("final_reporting")).unwrap().depends_on,
+            tasks
+                .get(&TaskId::from("final_reporting"))
+                .unwrap()
+                .depends_on,
             deps_before,
             "repair is idempotent"
         );

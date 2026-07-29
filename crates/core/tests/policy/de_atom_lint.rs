@@ -106,8 +106,7 @@ fn registry_load_refuses_a_count_glm_atom_missing_raw_counts() {
 
 #[test]
 fn real_de_atom_passes_lint() {
-    let reg =
-        AtomRegistry::load_from_dir(&config_stage_atoms()).expect("real catalog must load");
+    let reg = AtomRegistry::load_from_dir(&config_stage_atoms()).expect("real catalog must load");
     // load_from_dir succeeding + validate_consistency succeeding proves the
     // lint passed for the real catalog's differential_expression atom.
     reg.validate_consistency()

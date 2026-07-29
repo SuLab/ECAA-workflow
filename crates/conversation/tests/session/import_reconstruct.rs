@@ -17,7 +17,11 @@ fn write_pkg(root: &std::path::Path) {
         },
         "execution_order": ["data_acq"]
     });
-    fs::write(root.join("WORKFLOW.json"), serde_json::to_vec_pretty(&dag).unwrap()).unwrap();
+    fs::write(
+        root.join("WORKFLOW.json"),
+        serde_json::to_vec_pretty(&dag).unwrap(),
+    )
+    .unwrap();
     fs::write(root.join("ro-crate-metadata.json"), b"{}").unwrap();
     fs::write(root.join("runtime/proofs.jsonl"), b"").unwrap();
     fs::write(root.join("runtime/assumptions.jsonl"), b"").unwrap();
@@ -44,7 +48,11 @@ fn write_pkg(root: &std::path::Path) {
         "timestamp": "2026-07-08T00:00:00Z", "session_id": "s",
         "decision": {"kind": "package_emitted"}, "actor": "system"
     });
-    fs::write(root.join("runtime/decisions.jsonl"), format!("{decision}\n")).unwrap();
+    fs::write(
+        root.join("runtime/decisions.jsonl"),
+        format!("{decision}\n"),
+    )
+    .unwrap();
 }
 
 #[test]

@@ -158,8 +158,7 @@ fn finalize_emits_per_output_was_generated_by_create_action() {
     .expect("finalize_package");
 
     let descriptor = root.join("ro-crate-metadata.json");
-    let doc: Value =
-        serde_json::from_str(&std::fs::read_to_string(&descriptor).unwrap()).unwrap();
+    let doc: Value = serde_json::from_str(&std::fs::read_to_string(&descriptor).unwrap()).unwrap();
     let graph = doc["@graph"].as_array().expect("@graph array");
 
     // The produced result table for the differential_expression stage.
@@ -181,7 +180,9 @@ fn finalize_emits_per_output_was_generated_by_create_action() {
     let action = graph
         .iter()
         .find(|e| e["@id"].as_str() == Some(action_ref))
-        .unwrap_or_else(|| panic!("CreateAction {action_ref} referenced by wasGeneratedBy missing"));
+        .unwrap_or_else(|| {
+            panic!("CreateAction {action_ref} referenced by wasGeneratedBy missing")
+        });
 
     let types: Vec<&str> = action["@type"]
         .as_array()
@@ -221,8 +222,7 @@ fn finalize_emits_per_output_was_generated_by_create_action() {
         .or_else(|| tool["@type"].as_str().map(|s| vec![s]))
         .unwrap_or_default();
     assert!(
-        tool_types.contains(&"SoftwareApplication")
-            || tool_types.contains(&"SoftwareSourceCode"),
+        tool_types.contains(&"SoftwareApplication") || tool_types.contains(&"SoftwareSourceCode"),
         "instrument tool must be a SoftwareApplication/SoftwareSourceCode; @type = {:?}",
         tool["@type"]
     );
@@ -233,10 +233,7 @@ fn finalize_emits_per_output_was_generated_by_create_action() {
     let objects = action["object"]
         .as_array()
         .expect("CreateAction.object must be an array of input @id refs");
-    let object_ids: Vec<&str> = objects
-        .iter()
-        .filter_map(|o| o["@id"].as_str())
-        .collect();
+    let object_ids: Vec<&str> = objects.iter().filter_map(|o| o["@id"].as_str()).collect();
     assert!(
         object_ids.contains(&"#step-data_import"),
         "CreateAction.object must reference the task input #step-data_import; got {object_ids:?}"
@@ -425,7 +422,9 @@ fn finalize_embedded_invariant_verdicts_equal_at_rest_report() {
             continue;
         }
         embedded_seen += 1;
-        let inv = node["invariant_id"].as_str().expect("embedded invariant_id");
+        let inv = node["invariant_id"]
+            .as_str()
+            .expect("embedded invariant_id");
         let verdict = node["verdict"].as_str().expect("embedded verdict");
         let authoritative = report_status
             .get(inv)
@@ -441,4 +440,3 @@ fn finalize_embedded_invariant_verdicts_equal_at_rest_report() {
         "every at-rest verdict must have a reconciled embedded node"
     );
 }
-

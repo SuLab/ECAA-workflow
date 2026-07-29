@@ -987,8 +987,7 @@ impl Classifier {
         let analytic = analytic_scope_text(normalized_text);
         let analytic: &str = analytic.as_ref();
         let strong_cross_omics_marker = has_strong_cross_omics_marker(analytic);
-        let any_cross_omics_intent =
-            strong_cross_omics_marker || is_cross_omics_intent(analytic);
+        let any_cross_omics_intent = strong_cross_omics_marker || is_cross_omics_intent(analytic);
         // ≥3 canonical-distinct comma-list modalities ("matched bulk
         // RNA-seq, ATAC-seq, and ChIP-seq") is a stronger signal than
         // 2-way conjunction intent: the SME has named three distinct
@@ -1237,7 +1236,11 @@ pub fn analytic_scope_text(normalized: &str) -> std::borrow::Cow<'_, str> {
     // structured intake. The inventory is stripped from START up to the
     // earliest END cue at/after START; text before START and from END onward
     // is retained (END text is plain instruction, carrying no modality list).
-    const END_CUES: &[&str] = &["produce the analysis", "required outputs", "organism and modality"];
+    const END_CUES: &[&str] = &[
+        "produce the analysis",
+        "required outputs",
+        "organism and modality",
+    ];
 
     let Some(start) = START_CUES.iter().filter_map(|c| normalized.find(c)).min() else {
         return std::borrow::Cow::Borrowed(normalized);

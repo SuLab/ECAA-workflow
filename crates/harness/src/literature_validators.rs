@@ -1542,7 +1542,10 @@ fn flag_asserts_direction(flag: Option<&str>) -> bool {
 /// "downstream", "boundary"); the morphological stems above use plain
 /// containment.
 fn quote_states_direction(normalized_quote: &str) -> bool {
-    if DIRECTIONAL_CUES.iter().any(|c| normalized_quote.contains(c)) {
+    if DIRECTIONAL_CUES
+        .iter()
+        .any(|c| normalized_quote.contains(c))
+    {
         return true;
     }
     // Whole-word `up` / `down` (the bare directional adverbs). Split on spaces;
@@ -2062,7 +2065,8 @@ fn load_symbol_ensembl_map(path: &Path) -> Option<BTreeMap<String, String>> {
     let roles = resolve_entity_column_roles(&headers, &sample)?;
     let mut map: BTreeMap<String, String> = BTreeMap::new();
     for rec in sample.iter().cloned().chain(rdr.records().flatten()) {
-        let (Some(sym), Some(ens)) = (rec.get(roles.label_idx), rec.get(roles.accession_idx)) else {
+        let (Some(sym), Some(ens)) = (rec.get(roles.label_idx), rec.get(roles.accession_idx))
+        else {
             continue;
         };
         let (sym, ens) = (sym.trim(), ens.trim());
@@ -2488,8 +2492,11 @@ fn scan_for_symbol_ensembl_tables(outputs_dir: &Path) -> Vec<std::path::PathBuf>
         let Ok(rd) = std::fs::read_dir(&dir) else {
             continue;
         };
-        let mut files: Vec<std::path::PathBuf> =
-            rd.flatten().map(|e| e.path()).filter(|p| p.is_file()).collect();
+        let mut files: Vec<std::path::PathBuf> = rd
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_file())
+            .collect();
         files.sort();
         for f in files {
             let is_table = f
@@ -3176,12 +3183,24 @@ mod tests {
     fn unresolved_word_markers_are_recognized_as_unresolved_symbols() {
         // NA-family sentinels (existing coverage).
         for s in ["NA", "n/a", "NaN", "null", "None", "-", ".", "?", "", "  "] {
-            assert!(is_unresolved_gene_symbol(s), "{s:?} must read as unresolved");
+            assert!(
+                is_unresolved_gene_symbol(s),
+                "{s:?} must read as unresolved"
+            );
         }
         // Word-form "no symbol resolved" placeholders — the class that regressed
         // himes (`UNRESOLVED` → false cross-gene wrong-binding). Case-insensitive.
-        for s in ["UNRESOLVED", "unresolved", "Unmapped", "UNKNOWN", "unassigned"] {
-            assert!(is_unresolved_gene_symbol(s), "{s:?} must read as unresolved");
+        for s in [
+            "UNRESOLVED",
+            "unresolved",
+            "Unmapped",
+            "UNKNOWN",
+            "unassigned",
+        ] {
+            assert!(
+                is_unresolved_gene_symbol(s),
+                "{s:?} must read as unresolved"
+            );
         }
         // Real gene symbols are NOT treated as unresolved.
         for s in ["CRISPLD2", "TP53", "MYH16", "DUSP1"] {
@@ -4421,8 +4440,14 @@ mod tests {
         // Keyed by SYMBOL, valued by ACCESSION — the inverted binding would map
         // "ENSG00000103196" -> "CRISPLD2" instead.
         let map = load_symbol_ensembl_map(&path).expect("both roles are present in this table");
-        assert_eq!(map.get("CRISPLD2").map(String::as_str), Some("ENSG00000103196"));
-        assert_eq!(map.get("SPARCL1").map(String::as_str), Some("ENSG00000152583"));
+        assert_eq!(
+            map.get("CRISPLD2").map(String::as_str),
+            Some("ENSG00000103196")
+        );
+        assert_eq!(
+            map.get("SPARCL1").map(String::as_str),
+            Some("ENSG00000152583")
+        );
         // …and the whole obligation now reaches a verdict instead of Errored.
         assert!(
             matches!(
@@ -4444,7 +4469,10 @@ mod tests {
             "symbol\tgene_id\nCRISPLD2\tENSG00000103196\n",
         );
         let map = load_symbol_ensembl_map(&path).expect("symbol+gene_id is the conventional shape");
-        assert_eq!(map.get("CRISPLD2").map(String::as_str), Some("ENSG00000103196"));
+        assert_eq!(
+            map.get("CRISPLD2").map(String::as_str),
+            Some("ENSG00000103196")
+        );
     }
 
     #[test]
@@ -4480,11 +4508,19 @@ mod tests {
             "pathway_enrichment/intermediates/ranked_genes.tsv",
             "symbol\tstat\nCRISPLD2\t16.7\n",
         );
-        assert!(load_symbol_ensembl_map(&ranked).is_none(), "label-only table");
-        let hvg = dir.path().join("runtime/outputs/normalisation/hvg_list.tsv");
+        assert!(
+            load_symbol_ensembl_map(&ranked).is_none(),
+            "label-only table"
+        );
+        let hvg = dir
+            .path()
+            .join("runtime/outputs/normalisation/hvg_list.tsv");
         fs::create_dir_all(hvg.parent().unwrap()).unwrap();
         write(&hvg, "gene_id\tvariance\nENSG00000129824\t5.74\n");
-        assert!(load_symbol_ensembl_map(&hvg).is_none(), "accession-only table");
+        assert!(
+            load_symbol_ensembl_map(&hvg).is_none(),
+            "accession-only table"
+        );
         match gene_symbol_ensembl_consistent(dir.path()) {
             ValidatorOutcome::Errored { reason } => {
                 assert!(reason.contains("no independent"), "reason: {reason}");
@@ -4606,7 +4642,10 @@ mod tests {
             "region_id\tlabel\nPEAK_1\tchr1:1000-2000\n",
         );
         let map = load_symbol_ensembl_map(&path).expect("region_id+label carries both roles");
-        assert_eq!(map.get("chr1:1000-2000").map(String::as_str), Some("PEAK_1"));
+        assert_eq!(
+            map.get("chr1:1000-2000").map(String::as_str),
+            Some("PEAK_1")
+        );
     }
 
     #[test]
@@ -4693,7 +4732,10 @@ mod tests {
             &[("DE_LRRC37A2_ENSG00000238083", "LRRC37A")],
         );
         assert!(
-            matches!(gene_symbol_ensembl_consistent(dir.path()), ValidatorOutcome::Passed),
+            matches!(
+                gene_symbol_ensembl_consistent(dir.path()),
+                ValidatorOutcome::Passed
+            ),
             "a concordant same-family paralog must not be a required failure"
         );
         let v = read_gene_symbol_verdict(dir.path()).expect("verdict recorded");
@@ -4743,7 +4785,10 @@ mod tests {
         );
         match gene_symbol_ensembl_consistent(dir.path()) {
             ValidatorOutcome::Failed { message } => {
-                assert!(message.contains("opposite clinical meaning"), "msg: {message}");
+                assert!(
+                    message.contains("opposite clinical meaning"),
+                    "msg: {message}"
+                );
             }
             other => panic!("SMN1↔SMN2 must stay required-fail, got {other:?}"),
         }
@@ -4803,12 +4848,54 @@ mod tests {
         // duplication families: each binds its symbol to a concordant
         // same-family paralog → WARN (not required).
         let cases: &[(&str, &str, f64, &str, &str, f64)] = &[
-            ("LRRC37A", "ENSG00000176681", 4.0, "LRRC37A2", "ENSG00000238083", 3.6),
-            ("ARL17A", "ENSG00000185829", 2.5, "ARL17B", "ENSG00000228696", 2.2),
-            ("RABL2B", "ENSG00000079805", 1.8, "RABL2A", "ENSG00000079974", 1.7),
-            ("GOLGA8A", "ENSG00000104332", 3.1, "GOLGA8M", "ENSG00000188626", 2.9),
-            ("SLX1B", "ENSG00000181625", 2.0, "SLX1A", "ENSG00000180992", 1.9),
-            ("GPR89B", "ENSG00000117262", 2.4, "GPR89A", "ENSG00000188092", 2.3),
+            (
+                "LRRC37A",
+                "ENSG00000176681",
+                4.0,
+                "LRRC37A2",
+                "ENSG00000238083",
+                3.6,
+            ),
+            (
+                "ARL17A",
+                "ENSG00000185829",
+                2.5,
+                "ARL17B",
+                "ENSG00000228696",
+                2.2,
+            ),
+            (
+                "RABL2B",
+                "ENSG00000079805",
+                1.8,
+                "RABL2A",
+                "ENSG00000079974",
+                1.7,
+            ),
+            (
+                "GOLGA8A",
+                "ENSG00000104332",
+                3.1,
+                "GOLGA8M",
+                "ENSG00000188626",
+                2.9,
+            ),
+            (
+                "SLX1B",
+                "ENSG00000181625",
+                2.0,
+                "SLX1A",
+                "ENSG00000180992",
+                1.9,
+            ),
+            (
+                "GPR89B",
+                "ENSG00000117262",
+                2.4,
+                "GPR89A",
+                "ENSG00000188092",
+                2.3,
+            ),
         ];
         for (sym, sym_ens, sym_eff, para, para_ens, para_eff) in cases {
             let dir = TempDir::new().unwrap();
@@ -4818,7 +4905,10 @@ mod tests {
                 &[(&format!("DE_{para}_{para_ens}"), sym)],
             );
             assert!(
-                matches!(gene_symbol_ensembl_consistent(dir.path()), ValidatorOutcome::Passed),
+                matches!(
+                    gene_symbol_ensembl_consistent(dir.path()),
+                    ValidatorOutcome::Passed
+                ),
                 "benign paralog {sym}→{para} must downgrade to a warning"
             );
             let v = read_gene_symbol_verdict(dir.path()).unwrap();

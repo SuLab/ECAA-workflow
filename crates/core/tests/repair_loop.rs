@@ -82,11 +82,8 @@ fn build_fixture(root: &Path) -> (PathBuf, PathBuf, PathBuf) {
             policy_src.display()
         )
     });
-    std::fs::write(
-        config_dir.join("interpretation-policy.json"),
-        &policy_bytes,
-    )
-    .expect("write interpretation-policy.json");
+    std::fs::write(config_dir.join("interpretation-policy.json"), &policy_bytes)
+        .expect("write interpretation-policy.json");
 
     // runtime/outputs/reporting/* — narrative, frozen table, structured claim.
     let task_dir = root.join("runtime").join("outputs").join(TASK);

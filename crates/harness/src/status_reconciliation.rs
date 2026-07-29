@@ -215,7 +215,10 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let pkg = tmp.path();
         let out = pkg.join("runtime/outputs/de");
-        write(&out.join("result.json"), r#"{"status":"completed","completed_at":"2026-07-18T18:00:00Z"}"#);
+        write(
+            &out.join("result.json"),
+            r#"{"status":"completed","completed_at":"2026-07-18T18:00:00Z"}"#,
+        );
         assert!(!completion_contradicted_by_kill(pkg, "de"));
         assert_eq!(verdict_for(pkg, "de", &[]), CompletionVerdict::Stands);
     }
@@ -227,7 +230,10 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let pkg = tmp.path();
         let out = pkg.join("runtime/outputs/review_prior_work");
-        write(&out.join("result.json"), r#"{"status":"completed","completed_at":"2026-07-18T17:59:00Z"}"#);
+        write(
+            &out.join("result.json"),
+            r#"{"status":"completed","completed_at":"2026-07-18T17:59:00Z"}"#,
+        );
         write(
             &out.join("error.json"),
             r#"{"error_class":"WallclockExceeded","exit_code":137,"captured_at":"2026-07-18T18:00:00.5+00:00","attempt":1}"#,
@@ -243,13 +249,19 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let pkg = tmp.path();
         let out = pkg.join("runtime/outputs/survey_method_landscape");
-        write(&out.join("result.json"), r#"{"status":"completed","completed_at":"2026-07-18T18:01:37Z"}"#);
+        write(
+            &out.join("result.json"),
+            r#"{"status":"completed","completed_at":"2026-07-18T18:01:37Z"}"#,
+        );
         write(
             &out.join("error.json"),
             r#"{"error_class":"WallclockExceeded","exit_code":137,"captured_at":"2026-07-18T17:52:53.190526951+00:00","attempt":1}"#,
         );
         write(&out.join("landscape.csv"), "col\n1\n");
-        assert!(!completion_contradicted_by_kill(pkg, "survey_method_landscape"));
+        assert!(!completion_contradicted_by_kill(
+            pkg,
+            "survey_method_landscape"
+        ));
         assert_eq!(
             verdict_for(pkg, "survey_method_landscape", &[required("landscape.csv")]),
             CompletionVerdict::Stands
@@ -263,16 +275,26 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let pkg = tmp.path();
         let out = pkg.join("runtime/outputs/review_prior_work");
-        write(&out.join("result.json"), r#"{"status":"completed","completed_at":"2026-07-18T17:59:00Z"}"#);
+        write(
+            &out.join("result.json"),
+            r#"{"status":"completed","completed_at":"2026-07-18T17:59:00Z"}"#,
+        );
         write(
             &out.join("error.json"),
             r#"{"error_class":"WallclockExceeded","exit_code":137,"captured_at":"2026-07-18T18:00:00Z","attempt":1}"#,
         );
-        let verdict = verdict_for(pkg, "review_prior_work", &[required("prior_claims_matrix.csv")]);
+        let verdict = verdict_for(
+            pkg,
+            "review_prior_work",
+            &[required("prior_claims_matrix.csv")],
+        );
         match verdict {
             CompletionVerdict::Demote(reason) => {
                 assert!(reason.contains("[missing_artifact]"), "reason: {reason}");
-                assert!(reason.contains("prior_claims_matrix.csv"), "reason: {reason}");
+                assert!(
+                    reason.contains("prior_claims_matrix.csv"),
+                    "reason: {reason}"
+                );
             }
             other => panic!("expected Demote([missing_artifact]), got {other:?}"),
         }
@@ -286,13 +308,20 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let pkg = tmp.path();
         let out = pkg.join("runtime/outputs/review_prior_work");
-        write(&out.join("result.json"), r#"{"status":"completed","completed_at":"2026-07-18T17:59:00Z"}"#);
+        write(
+            &out.join("result.json"),
+            r#"{"status":"completed","completed_at":"2026-07-18T17:59:00Z"}"#,
+        );
         write(
             &out.join("error.json"),
             r#"{"error_class":"WallclockExceeded","exit_code":137,"captured_at":"2026-07-18T18:00:00Z","attempt":1}"#,
         );
         write(&out.join("prior_claims_matrix.csv"), "pmid,quote\n1,x\n");
-        let verdict = verdict_for(pkg, "review_prior_work", &[required("prior_claims_matrix.csv")]);
+        let verdict = verdict_for(
+            pkg,
+            "review_prior_work",
+            &[required("prior_claims_matrix.csv")],
+        );
         match verdict {
             CompletionVerdict::Demote(reason) => {
                 assert!(reason.contains("[killed_incomplete]"), "reason: {reason}");
@@ -306,7 +335,10 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let pkg = tmp.path();
         let out = pkg.join("runtime/outputs/de");
-        write(&out.join("result.json"), r#"{"status":"completed","completed_at":"2026-07-18T17:00:00Z"}"#);
+        write(
+            &out.join("result.json"),
+            r#"{"status":"completed","completed_at":"2026-07-18T17:00:00Z"}"#,
+        );
         write(
             &out.join("error.json"),
             r#"{"error_class":"None","exit_code":0,"captured_at":"2026-07-18T18:00:00Z","attempt":1}"#,

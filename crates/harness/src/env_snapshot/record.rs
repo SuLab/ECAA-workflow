@@ -36,11 +36,7 @@ use serde_json::Value;
 /// errors, because those reflect environmental problems that should surface.
 /// The `policies/container.json` update is processed once and is not
 /// subject to the per-task skip logic.
-pub fn record_digest(
-    pkg: &Path,
-    digest: &str,
-    compute_task_ids: &[String],
-) -> io::Result<()> {
+pub fn record_digest(pkg: &Path, digest: &str, compute_task_ids: &[String]) -> io::Result<()> {
     // --- policies/container.json ---
     let container_json = pkg.join("policies").join("container.json");
     if container_json.exists() {
@@ -76,8 +72,13 @@ pub fn record_digest(
 /// tasks of a run: the run-stable `SOURCE_DATE_EPOCH` plus the locale /
 /// hash-seed pinning (`ecaa_workflow_core::determinism_seeds`). Keys as they
 /// appear in `determinism-env.json` (lower-snake), NOT the env-var names.
-const DETERMINISM_PIN_FIELDS: &[&str] =
-    &["source_date_epoch", "tz", "lang", "lc_all", "pythonhashseed"];
+const DETERMINISM_PIN_FIELDS: &[&str] = &[
+    "source_date_epoch",
+    "tz",
+    "lang",
+    "lc_all",
+    "pythonhashseed",
+];
 
 /// A determinism-env value is "populated" when `source_date_epoch` carries a
 /// real value — a non-empty string (the canonical shape the agent wrapper
@@ -181,21 +182,24 @@ pub fn backfill_missing_determinism_env(pkg: &Path) -> io::Result<usize> {
 fn update_container_json(path: &Path, digest: &str) -> io::Result<()> {
     let raw = std::fs::read_to_string(path)?;
     let mut val: Value = serde_json::from_str(&raw).map_err(|e| {
-        io::Error::new(io::ErrorKind::InvalidData, format!("container.json parse error: {e}"))
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("container.json parse error: {e}"),
+        )
     })?;
 
     let obj = val.as_object_mut().ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidData, "container.json is not a JSON object")
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "container.json is not a JSON object",
+        )
     })?;
 
     // Set digest unconditionally.
     obj.insert("digest".to_owned(), Value::String(digest.to_owned()));
 
     // Set image only if it was null or absent.
-    let image_is_null_or_absent = obj
-        .get("image")
-        .map(|v| v.is_null())
-        .unwrap_or(true);
+    let image_is_null_or_absent = obj.get("image").map(|v| v.is_null()).unwrap_or(true);
     if image_is_null_or_absent {
         obj.insert("image".to_owned(), Value::String(digest.to_owned()));
     }
@@ -316,16 +320,16 @@ mod tests {
             "sha256:base",
         );
 
-        let listed: Vec<String> = vec![
-            "differential_expression".into(),
-            "normalisation".into(),
-        ];
+        let listed: Vec<String> = vec!["differential_expression".into(), "normalisation".into()];
         record_digest(&pkg, "sha256:new", &listed).unwrap();
 
         // 1. container.json: digest set + image promoted from null.
         let cj = read_json(&pkg.join("policies").join("container.json"));
         assert_eq!(cj["digest"], "sha256:new", "container.json digest mismatch");
-        assert_eq!(cj["image"], "sha256:new", "container.json image should be promoted from null");
+        assert_eq!(
+            cj["image"], "sha256:new",
+            "container.json image should be promoted from null"
+        );
 
         // 2. Both listed tasks updated.
         for task_id in &["differential_expression", "normalisation"] {
@@ -404,7 +408,10 @@ mod tests {
 
         let listed: Vec<String> = vec!["nonexistent_task".into()];
         let result = record_digest(&pkg, "sha256:new", &listed);
-        assert!(result.is_ok(), "absent determinism-env.json should not error");
+        assert!(
+            result.is_ok(),
+            "absent determinism-env.json should not error"
+        );
     }
 
     #[test]
@@ -425,7 +432,10 @@ mod tests {
         let cj = read_json(&pkg.join("policies").join("container.json"));
         assert_eq!(cj["digest"], "sha256:new", "old digest must be overwritten");
         // image was null, so it should be promoted to the new digest.
-        assert_eq!(cj["image"], "sha256:new", "null image must be promoted to new digest");
+        assert_eq!(
+            cj["image"], "sha256:new",
+            "null image must be promoted to new digest"
+        );
     }
 
     #[test]
@@ -540,7 +550,13 @@ mod tests {
         // captured_env_vars matches the sibling; the digest is preserved.
         assert_eq!(
             da["captured_env_vars"],
-            serde_json::json!(["PYTHONHASHSEED", "SOURCE_DATE_EPOCH", "TZ", "LANG", "LC_ALL"])
+            serde_json::json!([
+                "PYTHONHASHSEED",
+                "SOURCE_DATE_EPOCH",
+                "TZ",
+                "LANG",
+                "LC_ALL"
+            ])
         );
         assert_eq!(
             da["task_container_digest"], "sha256:staged",

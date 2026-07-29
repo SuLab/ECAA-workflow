@@ -90,7 +90,9 @@ fn patch_claim_verification_summary(pkg: &std::path::Path) {
         .filter(|v| v.get("status").and_then(|s| s.as_str()) == Some("verified"))
         .count() as u64;
 
-    let obj = cv.as_object_mut().expect("claim-verification must be an object");
+    let obj = cv
+        .as_object_mut()
+        .expect("claim-verification must be an object");
     obj.insert("n_mismatch".to_string(), serde_json::json!(n_mismatch));
     obj.insert("n_suspicious".to_string(), serde_json::json!(n_suspicious));
     obj.insert("n_verified".to_string(), serde_json::json!(n_verified));
@@ -233,7 +235,13 @@ fn replay_strict_flag_makes_partial_exit_nonzero() {
     // With --strict: Partial → non-zero exit.
     Command::cargo_bin("ecaa-workflow")
         .expect("cargo bin ecaa-workflow")
-        .args(["replay", pkg.to_str().unwrap(), "--tier", "verify", "--strict"])
+        .args([
+            "replay",
+            pkg.to_str().unwrap(),
+            "--tier",
+            "verify",
+            "--strict",
+        ])
         .assert()
         .failure();
 }

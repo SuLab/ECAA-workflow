@@ -273,7 +273,8 @@ mod tests {
     async fn clamps_out_of_range_confidence() {
         // A runaway confidence (>1.0) is clamped so the sidecar never
         // surfaces an impossible value to the UI.
-        let canned = r#"{"verdict":"plausible","confidence":4.2,"failed_checks":[],"rationale":"ok"}"#;
+        let canned =
+            r#"{"verdict":"plausible","confidence":4.2,"failed_checks":[],"rationale":"ok"}"#;
         let backend = StubBackend::new(canned);
         let metrics = MetricsStore::new();
         let id = uuid::Uuid::new_v4();

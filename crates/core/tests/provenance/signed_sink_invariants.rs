@@ -23,14 +23,14 @@ fn claim(entity: &str, table: Option<&str>) -> Claim {
         literature_evidence: None,
         matched_pvalue_keyword: None,
         linear_fold: None,
-                aggregate_kind: None,
-                aggregate_column: None,
-                aggregate_rowset: None,
-                aggregate_value: None,
-                collection: None,
-                term: None,
-                keyed_column: None,
-                keyed_value: None,
+        aggregate_kind: None,
+        aggregate_column: None,
+        aggregate_rowset: None,
+        aggregate_value: None,
+        collection: None,
+        term: None,
+        keyed_column: None,
+        keyed_value: None,
     }
 }
 fn v(c: Claim, s: ClaimStatus) -> ClaimVerdict {
@@ -71,7 +71,7 @@ fn verified_claim_is_inspected_and_passes() {
 }
 
 #[test]
-fn mismatch_claim_is_a_violation() {
+fn mismatch_claim_with_comparison_and_contradiction_routes_is_complete() {
     let dir = tempfile::tempdir().unwrap();
     let w = AuditWriter::for_session();
     let rep = ClaimVerificationReport {
@@ -93,8 +93,8 @@ fn mismatch_claim_is_a_violation() {
 
     let pkg = LoadedPackage::from_root_with_verifier(dir.path(), Some(&w)).unwrap();
     let verdict = check_claim_completeness(&pkg);
-    assert_eq!(verdict.status, InvariantStatus::Warn);
-    assert_eq!(verdict.n_violations, 1);
+    assert_eq!(verdict.status, InvariantStatus::Pass);
+    assert_eq!(verdict.n_violations, 0);
 }
 
 #[test]

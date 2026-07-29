@@ -1178,8 +1178,10 @@ pub fn default_runners() -> Vec<Box<dyn ValidatorRunner>> {
 /// are exempted from the starter-coverage drift check below. If the
 /// integrated build later mirrors these into core's starter set, remove
 /// them from this list so the drift check re-tightens.
-const HARNESS_LOCAL_VARIANT_OBLIGATIONS: &[&str] =
-    &["variant_af_spectrum_plausible", "variant_filtered_count_consistency"];
+const HARNESS_LOCAL_VARIANT_OBLIGATIONS: &[&str] = &[
+    "variant_af_spectrum_plausible",
+    "variant_filtered_count_consistency",
+];
 
 /// Harness-local provenance obligation ids with no entry in core's
 /// starter registry. Unlike the variant pair above these are not
@@ -1330,7 +1332,10 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         write_result_json(tmp.path(), serde_json::json!({ "summary": "ok" }));
         let runner = VariantAfSpectrumPlausibleRunner;
-        assert!(matches!(runner.run(tmp.path()), ValidatorOutcome::Errored { .. }));
+        assert!(matches!(
+            runner.run(tmp.path()),
+            ValidatorOutcome::Errored { .. }
+        ));
     }
 
     #[test]

@@ -239,8 +239,16 @@ mod tests {
 
     #[test]
     fn classes_match_their_structs() {
-        assert_eq!(CoverageGap.class(), RepairClass::CoverageGap, "CoverageGap class");
-        assert_eq!(AnalysisRerun.class(), RepairClass::AnalysisRerun, "AnalysisRerun class");
+        assert_eq!(
+            CoverageGap.class(),
+            RepairClass::CoverageGap,
+            "CoverageGap class"
+        );
+        assert_eq!(
+            AnalysisRerun.class(),
+            RepairClass::AnalysisRerun,
+            "AnalysisRerun class"
+        );
         assert_eq!(
             EvidenceCompletion.class(),
             RepairClass::EvidenceCompletion,

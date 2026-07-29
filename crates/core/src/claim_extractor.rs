@@ -42,11 +42,13 @@ use std::sync::LazyLock;
 use ts_rs::TS;
 
 use crate::claim_contract::ClaimContract;
+use crate::claim_verifier::is_adjusted_pvalue_keyword;
 use crate::entity_columns::{
     is_claims_matrix_artifact, resolve_entity_column_roles, sniff_table_rows,
     ENTITY_ROLE_SNIFF_ROWS,
 };
 use crate::report_contract::full_table::{FULL_TABLE_END, FULL_TABLE_START};
+use crate::report_contract::ResultSchema;
 
 /// Blank out every marker-delimited SYSTEM-GENERATED block in `text`.
 ///
@@ -211,11 +213,39 @@ pub struct ResultTableColumns {
 /// "not a result table" verdict [`table_column_roles`] returns). Modality-
 /// agnostic: role names come from the shared variant lists plus the policy's
 /// configured columns.
+///
+/// Prefer [`resolve_result_table_columns_with_schema`] wherever the producing
+/// atom's [`ResultSchema`] is reachable: the DECLARED column names are the
+/// contract, and re-deriving them from header names alone can only ever
+/// approximate it.
 pub fn resolve_result_table_columns(
     headers: &[String],
     cfg: &ExtractorConfig,
 ) -> Option<ResultTableColumns> {
-    let roles = table_column_roles(headers, cfg)?;
+    resolve_result_table_columns_with_schema(headers, cfg, None)
+}
+
+/// [`resolve_result_table_columns`] with the producing atom's DECLARED
+/// [`ResultSchema`] threaded in.
+///
+/// The schema is the contract the artifact was written against —
+/// `entity_column`, `signed_effect_column`, and `significance.column` NAME the
+/// columns a reader must use — so a declared name that resolves against the
+/// header wins outright over any inferred candidate. This mirrors the
+/// resolution `report_contract::report_data` already performs when it BUILDS
+/// `report-data.json`; without it a verifier that re-derives the binding can
+/// disagree with the assembler about which column a value came from and report
+/// a mass of false mismatches (an adjusted-p value compared against the raw-p
+/// column, a normalized enrichment score against the raw one).
+///
+/// `None` keeps the header-only fallback, so a package emitted before the
+/// schema was recorded still resolves.
+pub fn resolve_result_table_columns_with_schema(
+    headers: &[String],
+    cfg: &ExtractorConfig,
+    schema: Option<&ResultSchema>,
+) -> Option<ResultTableColumns> {
+    let roles = table_column_roles_with_schema(headers, cfg, schema)?;
     Some(ResultTableColumns {
         entity: headers[roles.entity_idx].clone(),
         effect: roles.effect_idx.and_then(|i| headers.get(i).cloned()),
@@ -474,9 +504,7 @@ pub enum Direction {
 /// over a column: the median (the 50th-percentile order statistic) or the
 /// arithmetic mean. The verifier recomputes the named statistic from the cited
 /// column over the claimed row set and compares it within tolerance.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, schemars::JsonSchema,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, schemars::JsonSchema)]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum QuantileKind {
@@ -490,9 +518,7 @@ pub enum QuantileKind {
 /// over. "tested genes" restricts to rows whose adjusted p-value is present
 /// (non-NA) — the DE convention for the set of genes that survived independent
 /// filtering — whereas an unqualified aggregate is over every row.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, schemars::JsonSchema,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, schemars::JsonSchema)]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum QuantileRowSet {
@@ -836,7 +862,8 @@ fn load_symbol_ensembl_map(
         if s.is_empty() || e.is_empty() {
             continue;
         }
-        map.entry(s.to_ascii_lowercase()).or_insert_with(|| e.to_string());
+        map.entry(s.to_ascii_lowercase())
+            .or_insert_with(|| e.to_string());
     }
     if map.is_empty() {
         None
@@ -1354,11 +1381,21 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
         let pvalue_positions: Vec<usize> = pvalue_hits.iter().map(|(p, _, _)| *p).collect();
         for (entity_index, (ent_pos, ent_name)) in entity_hits.into_iter().enumerate() {
             let direction = nearest_direction(ent_pos, &direction_hits);
-            let effect_size =
-                bind_slot_index(entity_index, n_entities, last_entity_pos, ent_pos, &effect_positions)
-                    .map(|i| effect_size_hits[i].1);
-            let p_idx =
-                bind_slot_index(entity_index, n_entities, last_entity_pos, ent_pos, &pvalue_positions);
+            let effect_size = bind_slot_index(
+                entity_index,
+                n_entities,
+                last_entity_pos,
+                ent_pos,
+                &effect_positions,
+            )
+            .map(|i| effect_size_hits[i].1);
+            let p_idx = bind_slot_index(
+                entity_index,
+                n_entities,
+                last_entity_pos,
+                ent_pos,
+                &pvalue_positions,
+            );
             let pvalue = p_idx.map(|i| pvalue_hits[i].1);
             let matched_pvalue_keyword = p_idx.map(|i| pvalue_hits[i].2.clone());
             let linear_fold = bind_fold_for_entity(
@@ -1381,11 +1418,7 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
             let literature_evidence = if contract == ClaimContract::LiteratureGrounded {
                 Some(LiteratureEvidence {
                     finding_id: ent_name.clone(),
-                    cited_pmids: bind_pmids_for_entity(
-                        entity_index,
-                        &entity_positions,
-                        &pmid_hits,
-                    ),
+                    cited_pmids: bind_pmids_for_entity(entity_index, &entity_positions, &pmid_hits),
                 })
             } else {
                 None
@@ -1547,9 +1580,15 @@ pub fn extract_markdown_table_claims(text: &str, cfg: &ExtractorConfig) -> Vec<C
             // the agent wrote "log2FC=…" inside a cell; `None` source_table
             // because markdown rows carry no "Table S1" citation (the
             // verifier's discovery step resolves the backing file).
-            if let Some(claim) =
-                claim_from_table_row(&cells, &roles, lines[j], None, cfg, &regex_cache)
-            {
+            if let Some(claim) = claim_from_table_row(
+                &cells,
+                &roles,
+                lines[j],
+                None,
+                cfg,
+                &regex_cache,
+                TableRowOrigin::Narrative,
+            ) {
                 out.push(claim);
             }
             j += 1;
@@ -1570,6 +1609,140 @@ struct TableColumnRoles {
     pvalue_idx: Option<usize>,
 }
 
+/// Header names that NAME the entity (row-key) role. An unordered SET, not a
+/// ranking: two of these can legitimately co-occur in one table (`pathway` +
+/// `term`, `gene` + `symbol`) and neither is "more correct" than the other
+/// without a declared schema to say so — which is why the entity role, alone of
+/// the three, resolves by leftmost-match (see [`leftmost_named_col`]).
+const ENTITY_COLUMN_VARIANTS: &[&str] = &[
+    "gene",
+    "gene id",
+    "gene name",
+    "gene symbol",
+    "feature",
+    "feature id",
+    "symbol",
+    "pathway",
+    "gene set",
+    "geneset",
+    "term",
+    "id",
+    "name",
+    "protein",
+    "protein id",
+    "peak",
+    "peak id",
+    "region",
+    "taxon",
+    "taxon id",
+    "taxon name",
+    "otu",
+    "otu id",
+    "asv",
+    "cpg",
+    "cpg id",
+    "site",
+    "probe",
+    "probe id",
+    "variant",
+    "snp",
+    "rsid",
+    "transcript",
+    "transcript id",
+    "uniprot",
+    "accession",
+    "entity",
+];
+
+/// Header names that NAME the signed-effect role, in PRIORITY order — the list
+/// order is the contract. The explicit log2 spellings lead; `nes` (the
+/// NORMALIZED enrichment score, which is what an enrichment table reports as
+/// its signed effect) outranks the raw `es`; the generic `effect` / `estimate` /
+/// `beta` trail as last resorts. A table carrying BOTH `ES` and `NES` must bind
+/// `NES`, whichever of the two the file happens to print first.
+const EFFECT_COLUMN_VARIANTS: &[&str] = &[
+    "log2fc",
+    "log2 fc",
+    "logfc",
+    "log fc",
+    "logfoldchange",
+    "log2foldchange",
+    "log2 fold change",
+    "log fold change",
+    "lfc",
+    "fold change",
+    "nes",
+    "effect size",
+    "effect",
+    "estimate",
+    "beta",
+    "es",
+];
+
+/// Header names that NAME the significance role, in PRIORITY order. The
+/// adjusted-p family leads the raw-p family because significance in a DE /
+/// enrichment table is FDR-controlled: a table carrying both `pvalue` and
+/// `padj` reports its verdict on `padj`, so binding the raw column would
+/// compare an adjusted claim against a value orders of magnitude smaller. The
+/// split is not hardcoded here — [`is_adjusted_pvalue_keyword`] classifies each
+/// candidate name, so a policy-supplied synonym is ranked the same way.
+const PVALUE_COLUMN_VARIANTS: &[&str] = &[
+    "padj",
+    "p adj",
+    "p adjust",
+    "adj p",
+    "adj p val",
+    "adj p value",
+    "adjusted p value",
+    "fdr",
+    "q value",
+    "qvalue",
+    "q val",
+    "pvalue",
+    "p value",
+    "pval",
+    "fdr q value",
+];
+
+/// Position of the header whose cleaned form IS `name`, or `None`.
+fn position_of_header(clean: &[String], name: &str) -> Option<usize> {
+    let needle = clean_header(name);
+    clean.iter().position(|h| *h == needle)
+}
+
+/// PRIORITY-ORDERED candidate resolution: walk `candidates` in order and return
+/// the position of the first header that names one of them.
+///
+/// The loop nesting is load-bearing. Scanning the HEADERS outermost and merely
+/// testing each against the candidate set — the inverse — hands the decision to
+/// the table's PHYSICAL COLUMN ORDER whenever two candidates both appear, so
+/// `… stat pvalue padj` binds `pvalue` and `… pval padj … ES NES` binds `pval`
+/// and `ES`. Iterating CANDIDATES outermost makes the list's own order express
+/// precedence, which is the only ordering that carries any meaning.
+fn first_named_col<'a>(
+    clean: &[String],
+    candidates: impl IntoIterator<Item = &'a str>,
+) -> Option<usize> {
+    candidates
+        .into_iter()
+        .find_map(|name| position_of_header(clean, name))
+}
+
+/// LEFTMOST header that names the row-key role, over the union of
+/// [`ENTITY_COLUMN_VARIANTS`] and the policy's `entityColumns`.
+///
+/// Unlike the effect and significance roles, the entity candidates are an
+/// unordered set of legal names, so file column order is the only ranking
+/// available — and it is a meaningful one: a result table conventionally puts
+/// its row key first, and the two names that do co-occur (`pathway`/`term`,
+/// `gene`/`symbol`) are ordered accession-before-label by that convention. A
+/// DECLARED `entity_column` overrides this entirely.
+fn leftmost_named_col(clean: &[String], variants: &[&str], cfg_cols: &[String]) -> Option<usize> {
+    clean.iter().position(|h| {
+        variants.iter().any(|v| h == v) || cfg_cols.iter().any(|c| clean_header(c) == *h)
+    })
+}
+
 /// Map header cells to entity / effect-size / p-value roles by EXACT
 /// cleaned-header match. A substring test wrongly maps count / annotation
 /// columns: e.g. "Top up-gene" contains "gene" and "N sig (FDR<0.05)"
@@ -1578,93 +1751,58 @@ struct TableColumnRoles {
 /// "(…)" qualifier, and normalizes separators so a header is matched only
 /// when it *names* the role. Returns `None` when no entity column is found
 /// (a table with no recognizable entity yields no claims).
+///
+/// Header-only resolution, for the narrative-text entry points that have no
+/// producing atom to consult. Callers holding the artifact's declared
+/// [`ResultSchema`] must use [`table_column_roles_with_schema`].
 fn table_column_roles(headers: &[String], cfg: &ExtractorConfig) -> Option<TableColumnRoles> {
+    table_column_roles_with_schema(headers, cfg, None)
+}
+
+/// [`table_column_roles`] with the producing atom's declared [`ResultSchema`].
+///
+/// Resolution order per role is DECLARED name → declared aliases → the curated
+/// priority variants → the policy's configured synonyms; the first candidate
+/// that resolves against the header wins and there is no positional fallback.
+/// Identical in shape to `report_contract::report_data`'s resolvers, so the
+/// verifier reads the same column the assembler wrote from.
+fn table_column_roles_with_schema(
+    headers: &[String],
+    cfg: &ExtractorConfig,
+    schema: Option<&ResultSchema>,
+) -> Option<TableColumnRoles> {
     let clean: Vec<String> = headers.iter().map(|h| clean_header(h)).collect();
-    let find_col = |variants: &[&str], cfg_cols: &[String]| -> Option<usize> {
-        clean.iter().position(|h| {
-            variants.iter().any(|v| h == v) || cfg_cols.iter().any(|c| clean_header(c) == *h)
-        })
-    };
-    let entity_idx = find_col(
-        &[
-            "gene",
-            "gene id",
-            "gene name",
-            "gene symbol",
-            "feature",
-            "feature id",
-            "symbol",
-            "term",
-            "id",
-            "name",
-            "protein",
-            "protein id",
-            "peak",
-            "peak id",
-            "region",
-            "taxon",
-            "taxon id",
-            "taxon name",
-            "otu",
-            "otu id",
-            "asv",
-            "cpg",
-            "cpg id",
-            "site",
-            "probe",
-            "probe id",
-            "variant",
-            "snp",
-            "rsid",
-            "transcript",
-            "transcript id",
-            "uniprot",
-            "accession",
-            "entity",
-        ],
-        &cfg.entity_columns,
-    )?;
-    let effect_idx = find_col(
-        &[
-            "log2fc",
-            "log2 fc",
-            "logfc",
-            "log fc",
-            "logfoldchange",
-            "log2foldchange",
-            "log2 fold change",
-            "log fold change",
-            "lfc",
-            "fold change",
-            "nes",
-            "effect size",
-            "effect",
-            "estimate",
-            "beta",
-            "es",
-        ],
-        &cfg.effect_size_columns,
-    );
-    let pvalue_idx = find_col(
-        &[
-            "padj",
-            "p adj",
-            "p adjust",
-            "adj p",
-            "adj p val",
-            "adj p value",
-            "adjusted p value",
-            "fdr",
-            "q value",
-            "qvalue",
-            "q val",
-            "pvalue",
-            "p value",
-            "pval",
-            "fdr q value",
-        ],
-        &cfg.pvalue_columns,
-    );
+
+    // Entity: declared name + declared aliases, else the leftmost header that
+    // names the role.
+    let declared_entity = schema.into_iter().flat_map(|s| {
+        std::iter::once(s.entity_column.as_str())
+            .chain(s.entity_column_aliases.iter().map(String::as_str))
+    });
+    let entity_idx = first_named_col(&clean, declared_entity)
+        .or_else(|| leftmost_named_col(&clean, ENTITY_COLUMN_VARIANTS, &cfg.entity_columns))?;
+
+    // Effect: declared name + declared aliases, else the curated priority list,
+    // else the policy's synonyms.
+    let declared_effect = schema.into_iter().flat_map(|s| {
+        s.signed_effect_column
+            .as_deref()
+            .into_iter()
+            .chain(s.signed_effect_aliases.iter().map(String::as_str))
+    });
+    let effect_idx = first_named_col(&clean, declared_effect)
+        .or_else(|| first_named_col(&clean, EFFECT_COLUMN_VARIANTS.iter().copied()))
+        .or_else(|| first_named_col(&clean, cfg.effect_size_columns.iter().map(String::as_str)));
+
+    // Significance: the declared column, else the curated variants and the
+    // policy's synonyms scanned ADJUSTED-family first.
+    let declared_significance = schema
+        .and_then(|s| s.significance.as_ref())
+        .map(|sig| sig.column.as_str());
+    let pvalue_idx = declared_significance
+        .and_then(|name| position_of_header(&clean, name))
+        .or_else(|| adjusted_pvalue_first_col(&clean, cfg));
+
     Some(TableColumnRoles {
         entity_idx,
         effect_idx,
@@ -1672,10 +1810,45 @@ fn table_column_roles(headers: &[String], cfg: &ExtractorConfig) -> Option<Table
     })
 }
 
+/// Resolve the significance column over [`PVALUE_COLUMN_VARIANTS`] plus the
+/// policy's `pvalueColumns`, scanning every ADJUSTED-family candidate before
+/// any raw-p one.
+///
+/// The partition is what makes the fallback correct independently of either
+/// list's authored order: the policy ships `pvalue` ahead of `padj`, so a plain
+/// in-order scan of it would bind the raw column on any table carrying both.
+/// A table with NO adjusted column still resolves — every adjusted candidate
+/// simply misses and the raw ones follow.
+fn adjusted_pvalue_first_col(clean: &[String], cfg: &ExtractorConfig) -> Option<usize> {
+    let candidates = || {
+        PVALUE_COLUMN_VARIANTS
+            .iter()
+            .copied()
+            .chain(cfg.pvalue_columns.iter().map(String::as_str))
+    };
+    let adjusted = candidates().filter(|c| is_adjusted_pvalue_keyword(c));
+    let raw = candidates().filter(|c| !is_adjusted_pvalue_keyword(c));
+    first_named_col(clean, adjusted.chain(raw))
+}
+
+/// Where a result-table row came from, which decides whether a multi-word row
+/// LABEL is admissible as the row's entity (see [`entity_label_cell`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TableRowOrigin {
+    /// A markdown row inside an agent-authored narrative — an ASSERTION the
+    /// verifier must resolve against the source data.
+    Narrative,
+    /// A row of a delimited result artifact — the EVIDENCE itself. Mining these
+    /// as claims and checking them against the same bytes is circular (see
+    /// [`strip_system_generated_blocks`]), so this origin keeps the strict
+    /// whole-cell identifier gate.
+    SourceArtifact,
+}
+
 /// Build one `NumericTableLookup` [`Claim`] from a single result-table row,
-/// or `None` if the row's entity cell does not match a configured entity
-/// pattern or the row carries no checkable numeric slot. `row_text` is the
-/// raw line, re-scanned for in-cell `log2FC=…` key/value numerics.
+/// or `None` if the row's entity cell does not resolve to an entity or the row
+/// carries no checkable numeric slot. `row_text` is the raw line, re-scanned
+/// for in-cell `log2FC=…` key/value numerics.
 /// `source_table` is the file basename for a delimited file (so the verifier
 /// reads the cited table directly) or `None` for a markdown row (so the
 /// verifier's discovery step resolves the backing file). Applies the same
@@ -1688,9 +1861,9 @@ fn claim_from_table_row(
     source_table: Option<String>,
     cfg: &ExtractorConfig,
     regex_cache: &ExtractorRegexCache,
+    origin: TableRowOrigin,
 ) -> Option<Claim> {
     let raw_entity = cells.get(roles.entity_idx)?;
-    let entity = matched_entity_token(raw_entity, cfg)?;
     let effect_size = roles
         .effect_idx
         .and_then(|k| cells.get(k))
@@ -1699,6 +1872,20 @@ fn claim_from_table_row(
         .pvalue_idx
         .and_then(|k| cells.get(k))
         .and_then(|c| parse_leading_number(c));
+    // The entity: an identifier-shaped cell first (unchanged), then — for a
+    // NARRATIVE row of a table that resolved a role mapping AND printed a
+    // number in a resolved measurement cell — the whole cell as a row LABEL.
+    let entity = match matched_entity_token(raw_entity, cfg) {
+        Some(e) => e,
+        None => {
+            let measurable = effect_size.is_some() || pvalue.is_some();
+            if origin == TableRowOrigin::Narrative && measurable {
+                entity_label_cell(raw_entity, cfg)?
+            } else {
+                return None;
+            }
+        }
+    };
     let direction = effect_size.map(|e| {
         if e >= 0.0 {
             Direction::Up
@@ -1737,14 +1924,14 @@ fn claim_from_table_row(
         literature_evidence: None,
         matched_pvalue_keyword: None,
         linear_fold: None,
-                aggregate_kind: None,
-                aggregate_column: None,
-                aggregate_rowset: None,
-                aggregate_value: None,
-                collection: None,
-                term: None,
-                keyed_column: None,
-                keyed_value: None,
+        aggregate_kind: None,
+        aggregate_column: None,
+        aggregate_rowset: None,
+        aggregate_value: None,
+        collection: None,
+        term: None,
+        keyed_column: None,
+        keyed_value: None,
     })
 }
 
@@ -1786,9 +1973,15 @@ pub fn extract_delimited_table_claims<R: std::io::Read>(
         // parse the same way the prose and markdown paths do.
         let row_text = canonicalize_scientific(&cells.join(" "));
         let canon_cells: Vec<String> = cells.iter().map(|c| canonicalize_scientific(c)).collect();
-        if let Some(claim) =
-            claim_from_table_row(&canon_cells, &roles, &row_text, None, cfg, &regex_cache)
-        {
+        if let Some(claim) = claim_from_table_row(
+            &canon_cells,
+            &roles,
+            &row_text,
+            None,
+            cfg,
+            &regex_cache,
+            TableRowOrigin::SourceArtifact,
+        ) {
             out.push(claim);
         }
     }
@@ -1846,6 +2039,71 @@ fn matched_entity_token(cell: &str, cfg: &ExtractorConfig) -> Option<String> {
         }
     }
     None
+}
+
+/// Longest an entity cell may be, in characters and in words, to read as a row
+/// LABEL rather than prose. Generous enough for a Reactome pathway name
+/// (`Anchoring Of Basal Body To Plasma Membrane R-HSA-5620912` is 55 chars /
+/// 9 words) and short enough that a sentence in a cell is rejected.
+const MAX_ENTITY_LABEL_CHARS: usize = 120;
+/// Word budget companion to [`MAX_ENTITY_LABEL_CHARS`].
+const MAX_ENTITY_LABEL_WORDS: usize = 14;
+
+/// Accept the WHOLE trimmed `cell` as a row label, for an entity cell that no
+/// [`ExtractorConfig::entity_patterns`] entry spans end-to-end.
+///
+/// Why this is needed: [`matched_entity_token`] requires an entity pattern to
+/// span the entire cell, which a bare accession satisfies and a human-readable
+/// row name never does — `REACTOME: Cytosolic tRNA Aminoacylation II
+/// R-HSA-379726` matches `R-HSA-\d+` at offset 33, so the row yielded no entity
+/// and was DROPPED SILENTLY. Dropping is the worst outcome available: a
+/// narrative row asserting a specific effect size and significance for a
+/// pathway that does not exist in the source table produced no verdict at all,
+/// so a fabricated row was indistinguishable from an absent one.
+///
+/// This is NOT a relaxation of the entity patterns — they are still required to
+/// span the whole cell for the [`matched_entity_token`] path, and nothing here
+/// widens what counts as an identifier inside prose. It is a separate,
+/// whole-cell predicate applied only where the surrounding structure already
+/// establishes that the cell IS the row key: the resolved entity column of a
+/// markdown table whose role mapping resolved and whose row printed a number in
+/// a resolved measurement column. Whether the label names anything real is then
+/// decided against the DATA, by the verifier's table lookup — a name absent
+/// from every result table becomes a recorded non-Verified verdict instead of
+/// silence.
+///
+/// Rejects: an empty cell, a cell with no letters (a bare measurement), a cell
+/// longer than [`MAX_ENTITY_LABEL_CHARS`] / [`MAX_ENTITY_LABEL_WORDS`], a cell
+/// carrying sentence punctuation (prose, not a label), and any cell the
+/// policy's `entityNameExcludePatterns` deny-list rejects.
+fn entity_label_cell(cell: &str, cfg: &ExtractorConfig) -> Option<String> {
+    let token = cell.trim();
+    if token.is_empty() || token.chars().count() > MAX_ENTITY_LABEL_CHARS {
+        return None;
+    }
+    // A label NAMES something. A cell with no letters is a measurement, a count,
+    // or a placeholder — never a row key. A cell that parses WHOLLY as a number
+    // is a measurement even when it carries letters (`4.65e-02`, `NaN`, `inf`).
+    if !token.chars().any(char::is_alphabetic) || token.parse::<f64>().is_ok() {
+        return None;
+    }
+    if token.split_whitespace().count() > MAX_ENTITY_LABEL_WORDS {
+        return None;
+    }
+    // Sentence punctuation marks prose. A trailing period or an internal
+    // sentence break means the cell holds a statement, not an identifier;
+    // `R-HSA-379726` and `Sema4D` carry neither.
+    if token.ends_with('.') || token.contains(". ") || token.contains(';') {
+        return None;
+    }
+    let excluded = cfg
+        .entity_exclude_patterns
+        .iter()
+        .any(|excl| excl.is_match(token));
+    if excluded {
+        return None;
+    }
+    Some(token.to_string())
 }
 
 /// Parse a leading number from a markdown cell ("1.49e-159", "-4.606",
@@ -2431,7 +2689,10 @@ mod tests {
             scan_table_reference("see Table 2 for details").as_deref(),
             Some("Table 2")
         );
-        assert_eq!(scan_table_reference("(Table C)").as_deref(), Some("Table C"));
+        assert_eq!(
+            scan_table_reference("(Table C)").as_deref(),
+            Some("Table C")
+        );
         assert_eq!(
             scan_table_reference("upregulated (log2FC=3.0, Table Z9)").as_deref(),
             Some("Table Z9")
@@ -2492,7 +2753,10 @@ mod tests {
         let a = extract_claims("STAT1 was upregulated, log2FC of 3.5 (Table S1).", &cfg);
         let stat1 = a.iter().find(|c| c.entity == "STAT1").unwrap();
         assert!(
-            stat1.effect_size.map(|e| (e - 3.5).abs() < 1e-9).unwrap_or(false),
+            stat1
+                .effect_size
+                .map(|e| (e - 3.5).abs() < 1e-9)
+                .unwrap_or(false),
             "prose 'log2FC of 3.5' must parse, got {:?}",
             stat1.effect_size
         );
@@ -2502,7 +2766,10 @@ mod tests {
         );
         let ifit1 = b.iter().find(|c| c.entity == "IFIT1").unwrap();
         assert!(
-            ifit1.effect_size.map(|e| (e + 4.2).abs() < 1e-9).unwrap_or(false),
+            ifit1
+                .effect_size
+                .map(|e| (e + 4.2).abs() < 1e-9)
+                .unwrap_or(false),
             "prose 'log2 fold change of -4.2' must parse, got {:?}",
             ifit1.effect_size
         );
@@ -2697,7 +2964,11 @@ mod tests {
         let claims = extract_claims(text, &cfg);
         let socs1 = claims.iter().find(|c| c.entity == "SOCS1").unwrap();
         let cxcl10 = claims.iter().find(|c| c.entity == "CXCL10").unwrap();
-        assert_eq!(socs1.linear_fold, Some(8.0), "fold binds to SOCS1: {socs1:?}");
+        assert_eq!(
+            socs1.linear_fold,
+            Some(8.0),
+            "fold binds to SOCS1: {socs1:?}"
+        );
         assert_eq!(
             cxcl10.linear_fold, None,
             "CXCL10 must not inherit SOCS1's fold: {cxcl10:?}"
@@ -2866,14 +3137,14 @@ mod tests {
             }),
             matched_pvalue_keyword: None,
             linear_fold: None,
-                aggregate_kind: None,
-                aggregate_column: None,
-                aggregate_rowset: None,
-                aggregate_value: None,
-                collection: None,
-                term: None,
-                keyed_column: None,
-                keyed_value: None,
+            aggregate_kind: None,
+            aggregate_column: None,
+            aggregate_rowset: None,
+            aggregate_value: None,
+            collection: None,
+            term: None,
+            keyed_column: None,
+            keyed_value: None,
         };
         let json = serde_json::to_string(&claim).unwrap();
         assert!(json.contains("\"literature_evidence\""), "{json}");
@@ -2896,14 +3167,14 @@ mod tests {
             literature_evidence: None,
             matched_pvalue_keyword: None,
             linear_fold: None,
-                aggregate_kind: None,
-                aggregate_column: None,
-                aggregate_rowset: None,
-                aggregate_value: None,
-                collection: None,
-                term: None,
-                keyed_column: None,
-                keyed_value: None,
+            aggregate_kind: None,
+            aggregate_column: None,
+            aggregate_rowset: None,
+            aggregate_value: None,
+            collection: None,
+            term: None,
+            keyed_column: None,
+            keyed_value: None,
         };
         let bare_json = serde_json::to_string(&bare).unwrap();
         assert!(!bare_json.contains("literature_evidence"), "{bare_json}");
@@ -2930,11 +3201,27 @@ mod tests {
         // trailing c at 70 (after MFGE8, in IRS2's-and-MFGE8's shared group).
         let pmid_hits = vec![(7usize, 1001u64), (30, 1002), (70, 1003)];
 
-        assert_eq!(bind_pmids_for_entity(0, &entity_positions, &pmid_hits), vec![1001], "KLF15 → own PMID only");
-        assert_eq!(bind_pmids_for_entity(1, &entity_positions, &pmid_hits), vec![1002], "CRISPLD2 → own PMID only");
+        assert_eq!(
+            bind_pmids_for_entity(0, &entity_positions, &pmid_hits),
+            vec![1001],
+            "KLF15 → own PMID only"
+        );
+        assert_eq!(
+            bind_pmids_for_entity(1, &entity_positions, &pmid_hits),
+            vec![1002],
+            "CRISPLD2 → own PMID only"
+        );
         // IRS2 has no PMID in [40,60); it inherits MFGE8's trailing PMID.
-        assert_eq!(bind_pmids_for_entity(2, &entity_positions, &pmid_hits), vec![1003], "IRS2 → shared trailing PMID");
-        assert_eq!(bind_pmids_for_entity(3, &entity_positions, &pmid_hits), vec![1003], "MFGE8 → trailing PMID");
+        assert_eq!(
+            bind_pmids_for_entity(2, &entity_positions, &pmid_hits),
+            vec![1003],
+            "IRS2 → shared trailing PMID"
+        );
+        assert_eq!(
+            bind_pmids_for_entity(3, &entity_positions, &pmid_hits),
+            vec![1003],
+            "MFGE8 → trailing PMID"
+        );
 
         // No PMIDs at all → empty (single-gene prose-only literature claim).
         assert!(bind_pmids_for_entity(0, &[0], &[]).is_empty());
@@ -3345,6 +3632,283 @@ mod tests {
             resolve_result_table_columns(&["axis".to_string(), "score".to_string()], &cfg)
                 .is_none()
         );
+    }
+
+    /// A policy whose column-synonym lists mirror the shipped
+    /// `interpretation-policy.json` in the two respects the role resolver has to
+    /// get right: `pvalueColumns` names the RAW column BEFORE the adjusted one,
+    /// and `entityColumns` carries both halves of a pathway table's dual key.
+    fn competing_alias_policy() -> ExtractorConfig {
+        ExtractorConfig::from_policy(&json!({
+            "verifiableEntities": {
+                "enabled": true,
+                "entityNamePatterns": ["[A-Z][A-Z0-9]{1,}", "R-HSA-\\d+", "ENS[A-Z]{0,4}[GTP]\\d{6,}"],
+                "entityNameExcludePatterns": ["^ES$", "^NES$", "^FDR$"],
+                "directionVocab": { "up": ["upregulated"], "down": ["downregulated"] },
+                "effectSizeColumns": ["log2FC", "logFC", "log2FoldChange", "nes", "NES", "es"],
+                "entityColumns": ["gene", "term", "pathway", "ensembl_id"],
+                "pvalueColumns": ["pvalue", "p_value", "pval", "padj", "FDR"]
+            }
+        }))
+        .expect("competing-alias policy loads")
+    }
+
+    fn headers(names: &[&str]) -> Vec<String> {
+        names.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    fn de_schema() -> ResultSchema {
+        serde_json::from_value(json!({
+            "artifact": "de_results.tsv",
+            "entity_column": "gene",
+            "entity_column_aliases": ["gene_id", "gene_name", "symbol"],
+            "signed_effect_column": "log2FoldChange",
+            "signed_effect_aliases": ["log2FC", "logFC"],
+            "significance": { "column": "padj", "threshold": 0.05, "comparator": "lt" }
+        }))
+        .expect("DE schema")
+    }
+
+    fn pathway_schema() -> ResultSchema {
+        serde_json::from_value(json!({
+            "artifact": "pathway_results.tsv",
+            "entity_column": "pathway",
+            "grouping_column": "collection",
+            "signed_effect_column": "NES",
+            "significance": { "column": "padj", "threshold": 0.25, "comparator": "lt" }
+        }))
+        .expect("pathway schema")
+    }
+
+    /// A DESeq2 header prints `pvalue` BEFORE `padj`. Significance must bind
+    /// `padj` — both when the schema declares it and when no schema is available
+    /// (older packages), because the candidate list's ORDER, not the file's
+    /// column order, decides.
+    #[test]
+    fn de_header_binds_adjusted_p_despite_raw_p_appearing_first() {
+        let cfg = competing_alias_policy();
+        let h = headers(&[
+            "gene",
+            "baseMean",
+            "log2FoldChange",
+            "lfcSE",
+            "stat",
+            "pvalue",
+            "padj",
+        ]);
+        // Precondition: the raw column really does come first in the file.
+        assert!(
+            h.iter().position(|c| c == "pvalue") < h.iter().position(|c| c == "padj"),
+            "fixture must reproduce the raw-before-adjusted header order"
+        );
+
+        let declared = resolve_result_table_columns_with_schema(&h, &cfg, Some(&de_schema()))
+            .expect("roles resolve with schema");
+        assert_eq!(declared.entity, "gene");
+        assert_eq!(declared.effect.as_deref(), Some("log2FoldChange"));
+        assert_eq!(
+            declared.significance.as_deref(),
+            Some("padj"),
+            "the DECLARED significance column wins outright"
+        );
+
+        let inferred =
+            resolve_result_table_columns(&h, &cfg).expect("roles resolve without schema");
+        assert_eq!(
+            inferred.significance.as_deref(),
+            Some("padj"),
+            "candidate priority binds the adjusted column even with no schema"
+        );
+        assert_eq!(inferred.effect.as_deref(), Some("log2FoldChange"));
+    }
+
+    /// An fgsea header prints `pval` before `padj` and `ES` before `NES`. Effect
+    /// must bind `NES` (the normalized score) and significance `padj`, with and
+    /// without a schema.
+    #[test]
+    fn pathway_header_binds_normalized_effect_and_adjusted_p() {
+        let cfg = competing_alias_policy();
+        let h = headers(&[
+            "pathway",
+            "collection",
+            "term",
+            "pval",
+            "padj",
+            "log2err",
+            "ES",
+            "NES",
+            "size",
+            "leadingEdge",
+        ]);
+        assert!(
+            h.iter().position(|c| c == "ES") < h.iter().position(|c| c == "NES"),
+            "fixture must reproduce the ES-before-NES header order"
+        );
+
+        let declared = resolve_result_table_columns_with_schema(&h, &cfg, Some(&pathway_schema()))
+            .expect("roles resolve with schema");
+        assert_eq!(declared.entity, "pathway");
+        assert_eq!(declared.effect.as_deref(), Some("NES"));
+        assert_eq!(declared.significance.as_deref(), Some("padj"));
+
+        let inferred =
+            resolve_result_table_columns(&h, &cfg).expect("roles resolve without schema");
+        assert_eq!(
+            inferred.effect.as_deref(),
+            Some("NES"),
+            "`nes` outranks `es` in the candidate list, whatever the column order"
+        );
+        assert_eq!(inferred.significance.as_deref(), Some("padj"));
+    }
+
+    /// A table with ONLY a raw p-value column still resolves it — the
+    /// adjusted-first scan is a preference, not a requirement.
+    #[test]
+    fn raw_p_still_resolves_when_no_adjusted_column_exists() {
+        let cfg = competing_alias_policy();
+        let h = headers(&["gene", "log2FC", "pvalue"]);
+        let cols = resolve_result_table_columns(&h, &cfg).expect("roles resolve");
+        assert_eq!(cols.significance.as_deref(), Some("pvalue"));
+    }
+
+    /// A declared name that is NOT in the header falls through to the declared
+    /// aliases, then to the inferred candidates — never to a positional guess.
+    #[test]
+    fn declared_alias_resolves_when_canonical_name_absent() {
+        let cfg = competing_alias_policy();
+        // The agent emitted `log2FC`, an alias of the declared `log2FoldChange`.
+        let h = headers(&["gene", "log2FC", "pvalue", "padj"]);
+        let cols = resolve_result_table_columns_with_schema(&h, &cfg, Some(&de_schema()))
+            .expect("roles resolve");
+        assert_eq!(cols.effect.as_deref(), Some("log2FC"));
+        assert_eq!(cols.significance.as_deref(), Some("padj"));
+    }
+
+    /// Regression: an entity cell holding a BARE accession still resolves
+    /// through the anchored whole-cell entity patterns, and the row's numeric
+    /// slots are unchanged by the label-cell path.
+    #[test]
+    fn bare_accession_rows_behave_exactly_as_before() {
+        let cfg = competing_alias_policy();
+        let md = "| Ensembl ID | Gene | log2FC | padj |\n\
+                  |---|---|---|---|\n\
+                  | ENSG00000152583 | SPARCL1 | 4.575 | 7.06e-132 |\n\
+                  | ENSG00000162692 | VCAM1 | -3.693 | 5.12e-81 |\n";
+        let claims = extract_markdown_table_claims(md, &cfg);
+        assert_eq!(claims.len(), 2, "one claim per data row: {claims:?}");
+        let up = &claims[0];
+        assert_eq!(up.entity, "ENSG00000152583");
+        assert_eq!(up.direction, Some(Direction::Up));
+        assert!((up.effect_size.unwrap() - 4.575).abs() < 1e-9);
+        assert!((up.pvalue.unwrap() - 7.06e-132).abs() < 1e-140);
+        let down = &claims[1];
+        assert_eq!(down.entity, "ENSG00000162692");
+        assert_eq!(down.direction, Some(Direction::Down));
+    }
+
+    /// A narrative row whose entity cell is a multi-word LABEL (no entity
+    /// pattern spans the whole cell) yields a claim instead of being dropped —
+    /// including a label carrying an accession mid-string, and one carrying no
+    /// accession at all.
+    #[test]
+    fn multi_word_entity_labels_yield_narrative_claims() {
+        let cfg = competing_alias_policy();
+        let md = "| Pathway | Collection | NES | padj |\n\
+                  |---|---|---|---|\n\
+                  | Cytosolic tRNA Aminoacylation II R-HSA-379726 | REACTOME | -1.569 | 3.26e-02 |\n\
+                  | Cytoplasmic Ribosomal Proteins | REACTOME | -1.563 | 4.65e-02 |\n";
+        // Precondition: neither cell is admissible under the whole-cell
+        // identifier gate, which is exactly why both rows used to vanish.
+        assert!(
+            matched_entity_token("Cytosolic tRNA Aminoacylation II R-HSA-379726", &cfg).is_none()
+        );
+        assert!(matched_entity_token("Cytoplasmic Ribosomal Proteins", &cfg).is_none());
+
+        let claims = extract_markdown_table_claims(md, &cfg);
+        assert_eq!(claims.len(), 2, "both label rows extract: {claims:?}");
+        assert_eq!(
+            claims[0].entity,
+            "Cytosolic tRNA Aminoacylation II R-HSA-379726"
+        );
+        assert_eq!(claims[1].entity, "Cytoplasmic Ribosomal Proteins");
+        for c in &claims {
+            assert_eq!(c.direction, Some(Direction::Down));
+            assert!(c.effect_size.is_some() && c.pvalue.is_some());
+        }
+    }
+
+    /// The label path is NARRATIVE-only. Mining a source result artifact's own
+    /// rows and then checking them against the same bytes is circular, so the
+    /// delimited path keeps the strict whole-cell identifier gate.
+    #[test]
+    fn source_artifact_rows_do_not_admit_label_entities() {
+        let cfg = competing_alias_policy();
+        let tsv = "pathway\tcollection\tNES\tpadj\n\
+                   HALLMARK: Adipogenesis\tHALLMARK\t1.965\t5.17e-05\n";
+        let claims = extract_delimited_table_claims(tsv.as_bytes(), b'\t', &cfg);
+        assert!(
+            claims.is_empty(),
+            "a source artifact's label rows must not become claims: {claims:?}"
+        );
+    }
+
+    /// The label path admits row KEYS, not prose and not measurements: a cell
+    /// with no letters, a sentence, an over-long cell, and a deny-listed token
+    /// are all rejected.
+    #[test]
+    fn entity_label_cell_rejects_prose_and_measurements() {
+        let cfg = competing_alias_policy();
+        assert!(entity_label_cell("", &cfg).is_none());
+        assert!(entity_label_cell("  ", &cfg).is_none());
+        assert!(entity_label_cell("-1.563", &cfg).is_none(), "a measurement");
+        assert!(
+            entity_label_cell("4.65e-02", &cfg).is_none(),
+            "a measurement"
+        );
+        assert!(
+            entity_label_cell("NES", &cfg).is_none(),
+            "the policy deny-list still applies"
+        );
+        assert!(
+            entity_label_cell(
+                "The pathway was strongly depleted. Values shown are NES.",
+                &cfg
+            )
+            .is_none(),
+            "sentence punctuation marks prose"
+        );
+        assert!(
+            entity_label_cell("first clause; second clause", &cfg).is_none(),
+            "a semicolon marks prose"
+        );
+        assert!(
+            entity_label_cell(&"word ".repeat(MAX_ENTITY_LABEL_WORDS + 1), &cfg).is_none(),
+            "over the word budget"
+        );
+        assert!(
+            entity_label_cell(&"x".repeat(MAX_ENTITY_LABEL_CHARS + 1), &cfg).is_none(),
+            "over the character budget"
+        );
+        // A real pathway name passes, whitespace-trimmed.
+        assert_eq!(
+            entity_label_cell(
+                "  Anchoring Of Basal Body To Plasma Membrane R-HSA-5620912  ",
+                &cfg
+            )
+            .as_deref(),
+            Some("Anchoring Of Basal Body To Plasma Membrane R-HSA-5620912")
+        );
+    }
+
+    /// A row with a label entity but NO number in a resolved measurement cell
+    /// carries nothing to check, so it is still dropped.
+    #[test]
+    fn label_entity_without_a_measurement_is_dropped() {
+        let cfg = competing_alias_policy();
+        let md = "| Pathway | Collection | NES | padj |\n\
+                  |---|---|---|---|\n\
+                  | Cytoplasmic Ribosomal Proteins | REACTOME | n/a | n/a |\n";
+        assert!(extract_markdown_table_claims(md, &cfg).is_empty());
     }
 
     #[test]

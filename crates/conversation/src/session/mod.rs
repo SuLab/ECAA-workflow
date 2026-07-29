@@ -34,10 +34,10 @@ pub mod confirmation_token;
 pub mod cross_session_aggregator;
 pub mod decision_helpers;
 pub mod derived_dag;
-/// Reconstruct a read-only `Session` from an uploaded, emitted ECAA package.
-mod import;
 /// Per-button single-use execution token (gates `start_execution`).
 pub mod execution_token;
+/// Reconstruct a read-only `Session` from an uploaded, emitted ECAA package.
+mod import;
 pub mod invalidation_guard;
 pub mod lineage;
 pub mod opaque_aggregator;
@@ -59,8 +59,8 @@ pub use sme_edits::SmeEditError;
 pub use state::{
     AssistantIntent, ConfirmationCard, HarnessEvent, PendingAmendment, RemoteExecutionInfo,
     RendererProposal, RendererProposals, RetainedOptionalStage, Session, SessionState, ShareToken,
-    SmeMethodSignals, StructuredCaptureField, StructuredCaptureFieldKind, StructuredCaptureTurnCard,
-    ToolCallRecord, Turn, TurnRole,
+    SmeMethodSignals, StructuredCaptureField, StructuredCaptureFieldKind,
+    StructuredCaptureTurnCard, ToolCallRecord, Turn, TurnRole,
 };
 pub use transitions::{StateTrigger, TransitionError};
 

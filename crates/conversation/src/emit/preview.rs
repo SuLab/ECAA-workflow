@@ -39,7 +39,10 @@ mod tests {
         assert!(html.starts_with("<!DOCTYPE html>"));
         assert!(html.contains("<script type=\"application/ld+json\">"));
         assert!(html.contains("Reexport Test"));
-        assert!(!html.to_lowercase().contains("<script>"), "no executable JS");
+        assert!(
+            !html.to_lowercase().contains("<script>"),
+            "no executable JS"
+        );
     }
 
     /// Ensure the re-exported write function works end-to-end.

@@ -605,13 +605,7 @@ async fn emit_test_session() -> (
                 || k.as_str().starts_with("normalization")
         })
         .map(|k| k.to_string())
-        .unwrap_or_else(|| {
-            dag.tasks
-                .keys()
-                .next()
-                .expect("dag has tasks")
-                .to_string()
-        });
+        .unwrap_or_else(|| dag.tasks.keys().next().expect("dag has tasks").to_string());
     (svc, dir, id, stage)
 }
 

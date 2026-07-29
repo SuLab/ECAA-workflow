@@ -290,8 +290,11 @@ mod tests {
             &["data:2603".into()],
             "x",
             &["inputs satisfy the analysis's statistical preconditions".into()],
-            &["violated preconditions (e.g. rare/zero-variance features) bias the result; \
-               filter/QC before computing".into()],
+            &[
+                "violated preconditions (e.g. rare/zero-variance features) bias the result; \
+               filter/QC before computing"
+                    .into(),
+            ],
             &[],
             &[],
             &ctx,
@@ -310,8 +313,11 @@ mod tests {
             &["data:2603".into()],
             "x",
             &["inputs satisfy the analysis's statistical preconditions".into()],
-            &["violated preconditions (e.g. rare/zero-variance features) bias the result; \
-               filter/QC before computing".into()],
+            &[
+                "violated preconditions (e.g. rare/zero-variance features) bias the result; \
+               filter/QC before computing"
+                    .into(),
+            ],
             &[],
             &[],
             &ctx,
@@ -338,8 +344,11 @@ mod tests {
             &["not-an-iri".into()],
             "rationale",
             &["inputs satisfy the analysis's statistical preconditions".into()],
-            &["violated preconditions (e.g. rare/zero-variance features) bias the result; \
-               filter/QC before computing".into()],
+            &[
+                "violated preconditions (e.g. rare/zero-variance features) bias the result; \
+               filter/QC before computing"
+                    .into(),
+            ],
             &[],
             &[],
             &ctx,
@@ -411,8 +420,11 @@ mod tests {
             &["data:2603".into()],
             "rationale",
             &["inputs satisfy the analysis's statistical preconditions".into()],
-            &["violated preconditions (e.g. rare/zero-variance features) bias the result; \
-               filter/QC before computing".into()],
+            &[
+                "violated preconditions (e.g. rare/zero-variance features) bias the result; \
+               filter/QC before computing"
+                    .into(),
+            ],
             &[],
             &[],
             &ctx,
@@ -427,8 +439,11 @@ mod tests {
             &["data:2603".into()],
             "rationale",
             &["inputs satisfy the analysis's statistical preconditions".into()],
-            &["violated preconditions (e.g. rare/zero-variance features) bias the result; \
-               filter/QC before computing".into()],
+            &[
+                "violated preconditions (e.g. rare/zero-variance features) bias the result; \
+               filter/QC before computing"
+                    .into(),
+            ],
             &[],
             &[],
             &ctx,
@@ -473,8 +488,11 @@ mod tests {
             &["data:0863".into(), "operation:3223".into()],
             "SME requested a cross-cell-line comparison of TAD/compartment calls",
             &["inputs satisfy the analysis's statistical preconditions".into()],
-            &["violated preconditions (e.g. rare/zero-variance features) bias the result; \
-               filter/QC before computing".into()],
+            &[
+                "violated preconditions (e.g. rare/zero-variance features) bias the result; \
+               filter/QC before computing"
+                    .into(),
+            ],
             &[],
             &[],
             &ctx,
@@ -493,8 +511,11 @@ mod tests {
             &["operation:3222".into(), "data:0951".into()],
             "SME requested a cross-cell-line comparison",
             &["inputs satisfy the analysis's statistical preconditions".into()],
-            &["violated preconditions (e.g. rare/zero-variance features) bias the result; \
-               filter/QC before computing".into()],
+            &[
+                "violated preconditions (e.g. rare/zero-variance features) bias the result; \
+               filter/QC before computing"
+                    .into(),
+            ],
             &[],
             &[],
             &ctx,
@@ -537,8 +558,11 @@ mod tests {
             &["operation:3222".into()],
             "SME requested TAD calling",
             &["inputs satisfy the analysis's statistical preconditions".into()],
-            &["violated preconditions (e.g. rare/zero-variance features) bias the result; \
-               filter/QC before computing".into()],
+            &[
+                "violated preconditions (e.g. rare/zero-variance features) bias the result; \
+               filter/QC before computing"
+                    .into(),
+            ],
             &[],
             &[],
             &ctx,
@@ -551,8 +575,11 @@ mod tests {
             &["operation:3223".into()],
             "SME requested A/B compartments",
             &["inputs satisfy the analysis's statistical preconditions".into()],
-            &["violated preconditions (e.g. rare/zero-variance features) bias the result; \
-               filter/QC before computing".into()],
+            &[
+                "violated preconditions (e.g. rare/zero-variance features) bias the result; \
+               filter/QC before computing"
+                    .into(),
+            ],
             &[],
             &[],
             &ctx,
@@ -575,8 +602,11 @@ mod tests {
             &["data:2603".into()],
             "rationale",
             &["inputs satisfy the analysis's statistical preconditions".into()],
-            &["violated preconditions (e.g. rare/zero-variance features) bias the result; \
-               filter/QC before computing".into()],
+            &[
+                "violated preconditions (e.g. rare/zero-variance features) bias the result; \
+               filter/QC before computing"
+                    .into(),
+            ],
             &["p_value_in_unit_interval".into()],
             &[],
             &ctx,
@@ -607,8 +637,11 @@ mod tests {
             &["data:2603".into()],
             "rationale",
             &["inputs satisfy the analysis's statistical preconditions".into()],
-            &["violated preconditions (e.g. rare/zero-variance features) bias the result; \
-               filter/QC before computing".into()],
+            &[
+                "violated preconditions (e.g. rare/zero-variance features) bias the result; \
+               filter/QC before computing"
+                    .into(),
+            ],
             &[],
             &[],
             &ctx,

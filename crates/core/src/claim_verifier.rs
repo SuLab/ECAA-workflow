@@ -38,6 +38,17 @@ use crate::claim_extractor::{Claim, Direction, ExtractorConfig};
 static RANK_TOP_N_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"\btop[\s-](\d+)\b").expect("static regex"));
 
+/// An anaphoric rank scope whose candidate set is outside the extracted
+/// sentence ("within this top-by-significance tier"). The verifier receives a
+/// claim excerpt and a source table, not the preceding rendered table, so
+/// treating this as a global argmax/argmin manufactures a false mismatch.
+static ANAPHORIC_RANK_SCOPE_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r"(?i)\b(?:within\s+(?:this|the)\s+(?:displayed\s+)?(?:top(?:[\s-]+by[\s-]+[a-z0-9_-]+)?(?:\s+tier)?|tier|subset|table)|among\s+(?:this\s+(?:displayed\s+)?(?:top(?:[\s-]+by[\s-]+[a-z0-9_-]+)?(?:\s+tier)?|tier|subset|table)|the\s+displayed\s+(?:top(?:[\s-]+by[\s-]+[a-z0-9_-]+)?(?:\s+tier)?|tier|subset|table)))\b",
+    )
+    .expect("static regex")
+});
+
 /// Floor for the SOFT top-N threshold (a vague "one of the top" claim with no
 /// explicit number). A soft claim never resolves to fewer than this many rows,
 /// so a small table still admits a reasonable "one of the top" set.
@@ -1888,6 +1899,11 @@ fn verify_rank_top_n(
     cfg: &ExtractorConfig,
     cache: &mut BTreeMap<PathBuf, CachedTable>,
 ) -> ClaimStatus {
+    if ANAPHORIC_RANK_SCOPE_RE.is_match(&claim.excerpt) {
+        return ClaimStatus::Unverifiable {
+            reason: "rank scope refers to a displayed subset that is not encoded in the claim; global ranking was not substituted".into(),
+        };
+    }
     let Some(source_ref) = claim.source_table.as_deref() else {
         return ClaimStatus::Unverifiable {
             reason: "no source table cited — cannot check rank membership".into(),
@@ -2022,7 +2038,11 @@ fn verify_rank_top_n(
             reason: format!(
                 "table `{}` has no configured {} column — cannot rank",
                 table_label(&path),
-                if over_pvalue { "p-value" } else { "effect-size" },
+                if over_pvalue {
+                    "p-value"
+                } else {
+                    "effect-size"
+                },
             ),
         };
     }
@@ -2150,13 +2170,17 @@ static EXTREME_PVAL_COL_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
 /// Direction-of-regulation cues that mark the argMIN of a SIGNED effect column
 /// (a down-regulated / most-negative extreme).
 static EXTREME_DOWN_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r"(?i)(down[\s-]?regulat|most[\s-]?negative|largest[\s-]?negative)")
+    regex::Regex::new(
+        r"(?i)(down[\s-]?(?:regulat|associat)|negative[\s-]+effect|most[\s-]?negative|largest[\s-]?negative)",
+    )
         .expect("static regex")
 });
 /// Direction-of-regulation cues that mark the argMAX of a SIGNED effect column
 /// (an up-regulated / most-positive extreme).
 static EXTREME_UP_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r"(?i)(up[\s-]?regulat|most[\s-]?positive|largest[\s-]?positive)")
+    regex::Regex::new(
+        r"(?i)(up[\s-]?(?:regulat|associat)|positive[\s-]+effect|most[\s-]?positive|largest[\s-]?positive)",
+    )
         .expect("static regex")
 });
 
@@ -2210,6 +2234,11 @@ fn verify_extreme_value(
     cfg: &ExtractorConfig,
     cache: &mut BTreeMap<PathBuf, CachedTable>,
 ) -> ClaimStatus {
+    if ANAPHORIC_RANK_SCOPE_RE.is_match(&claim.excerpt) {
+        return ClaimStatus::Unverifiable {
+            reason: "extreme-value scope refers to a displayed subset that is not encoded in the claim; global argmax/argmin was not substituted".into(),
+        };
+    }
     let Some(source_ref) = claim.source_table.as_deref() else {
         return ClaimStatus::Unverifiable {
             reason: "no source table cited — cannot verify extreme-value claim".into(),
@@ -5859,6 +5888,49 @@ mod tests {
     }
 
     #[test]
+    fn anaphoric_subset_extreme_abstains_instead_of_using_global_extreme() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_table(
+            tmp.path(),
+            "de_results.tsv",
+            "gene\tlog2FC\tpadj\n\
+             ENSG00000162692\t-3.692579\t5.12e-81\n\
+             ENSG00000167476\t-5.325\t1.00e-20\n",
+        );
+        let claim = Claim {
+            entity: "ENSG00000162692".into(),
+            direction: Some(Direction::Down),
+            effect_size: Some(-3.693),
+            pvalue: Some(5.12e-81),
+            source_table: Some("de_results.tsv".into()),
+            excerpt: "VCAM1 (ENSG00000162692, log2FC = -3.693, padj = 5.12e-81) is the most strongly down-associated gene within this top-by-significance tier".into(),
+            contract: ClaimContract::ExtremeValue,
+            literature_evidence: None,
+            matched_pvalue_keyword: Some("padj".into()),
+            linear_fold: None,
+            aggregate_kind: None,
+            aggregate_column: None,
+            aggregate_rowset: None,
+            aggregate_value: None,
+            collection: None,
+            term: None,
+            keyed_column: None,
+            keyed_value: None,
+        };
+        let report = verify_claims(std::slice::from_ref(&claim), tmp.path(), &cfg);
+        match &report.verdicts[0].status {
+            ClaimStatus::Unverifiable { reason } => {
+                assert!(reason.contains("displayed subset"), "{reason}");
+                assert!(reason.contains("global argmax/argmin"), "{reason}");
+            }
+            status => {
+                panic!("an anaphoric subset must not be compared with the full table: {status:?}")
+            }
+        }
+    }
+
+    #[test]
     fn a3_top_downregulated_most_negative_is_argmin_not_argmax() {
         // Regression (himes rerun audit 2026-07-21): a report line
         // "Top down-regulated gene (most negative log2FC ...): GENE" is an
@@ -5881,8 +5953,9 @@ mod tests {
             effect_size: None,
             pvalue: None,
             source_table: Some("de_results.tsv".into()),
-            excerpt: "Top down-regulated gene (most negative log2FC among significant genes): GDOWN"
-                .into(),
+            excerpt:
+                "Top down-regulated gene (most negative log2FC among significant genes): GDOWN"
+                    .into(),
             contract: ClaimContract::ExtremeValue,
             literature_evidence: None,
             matched_pvalue_keyword: None,
@@ -6431,7 +6504,7 @@ mod tests {
 
     #[test]
     fn clinical_trial_overlay_verifies_hazard_ratio_claim() {
-        use crate::claim_extractor::{extract_claims, ExtractorConfig};
+        use crate::claim_extractor::extract_claims;
         let base = policy_json();
         let config_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -8465,7 +8538,11 @@ mod tests {
         // A non-p comparison is untouched: exact-equality zero still agrees, and
         // a claimed 0.0 never matches an observed that is not below the floor.
         assert!(pvalue_within_tolerance(0.0, 0.0, 0.1));
-        assert!(!pvalue_within_tolerance(0.0, PVALUE_ZERO_DISPLAY_FLOOR * 10.0, 0.1));
+        assert!(!pvalue_within_tolerance(
+            0.0,
+            PVALUE_ZERO_DISPLAY_FLOOR * 10.0,
+            0.1
+        ));
     }
 
     #[test]
@@ -10034,7 +10111,7 @@ mod tests {
     ///     key, not a lone term match, is doing the work.
     #[test]
     fn keyed_cell_autophagy_padj_flips_on_collection_and_term() {
-        use crate::claim_extractor::{extract_claims, ExtractorConfig};
+        use crate::claim_extractor::extract_claims;
         let mut cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
         // The enrichment table is keyed on `term` (not a gene column), so it
         // must be a configured entity column for the table to load.
@@ -10103,7 +10180,7 @@ mod tests {
     /// Mismatch. Here the term `Mitophagy` is absent from `enrichment.tsv`.
     #[test]
     fn keyed_cell_absent_term_abstains() {
-        use crate::claim_extractor::{extract_claims, ExtractorConfig};
+        use crate::claim_extractor::extract_claims;
         let mut cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
         cfg.entity_columns = vec!["term".into(), "gene".into()];
         cfg.pvalue_relative_tolerance = 0.01;
@@ -10146,7 +10223,7 @@ mod tests {
     ///   * Claim "median baseMean (tested genes) = 263.14" → Verified.
     #[test]
     fn quantile_basemean_tested_genes_flips_on_rowset() {
-        use crate::claim_extractor::{extract_claims, ExtractorConfig};
+        use crate::claim_extractor::extract_claims;
         let cfg = cfg_with_entity_cols(&["gene", "gene_id"]);
         let tmp = tempdir().unwrap();
         // Tested (non-NA padj) baseMean values: 50, 263.14, 700 → median 263.14.
@@ -10218,7 +10295,7 @@ mod tests {
     /// table does NOT carry must ABSTAIN (`Unverifiable`), never false-Mismatch.
     #[test]
     fn quantile_absent_column_abstains() {
-        use crate::claim_extractor::{extract_claims, ExtractorConfig};
+        use crate::claim_extractor::extract_claims;
         let cfg = cfg_with_entity_cols(&["gene", "gene_id"]);
         let tmp = tempdir().unwrap();
         // No `baseMean` column at all.

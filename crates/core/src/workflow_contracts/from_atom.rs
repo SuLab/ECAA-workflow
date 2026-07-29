@@ -329,8 +329,7 @@ fn preserve_attributes(atom: &AtomDefinition) -> BTreeMap<String, serde_json::Va
     if !atom.required_report_sections.is_empty() {
         a.insert(
             "required_report_sections".into(),
-            serde_json::to_value(&atom.required_report_sections)
-                .unwrap_or(serde_json::Value::Null),
+            serde_json::to_value(&atom.required_report_sections).unwrap_or(serde_json::Value::Null),
         );
     }
     if !atom.required_tables.is_empty() {
@@ -611,7 +610,10 @@ mod tests {
             serde_json::from_value(sections.clone()).expect("deserializes as Vec<String>");
         assert_eq!(
             sections,
-            vec!["primary_results".to_string(), "qc_preprocessing".to_string()]
+            vec![
+                "primary_results".to_string(),
+                "qc_preprocessing".to_string()
+            ]
         );
 
         let tables = a

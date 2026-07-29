@@ -3,8 +3,9 @@
 //!
 //! Thin CLI wrapper over the core exporter. The core
 //! [`export_depositable_package_with_profile`] copies the A+B audit/review/
-//! deposit + re-execution surface, re-seals BagIt + RO-Crate, strips `.git`, and
-//! then SELF-VALIDATES the sealed deposit (Layer 1: RO-Crate + BagIt integrity),
+//! deposit + re-execution surface, re-seals the SHA-512 manifest + RO-Crate,
+//! strips `.git`, and then SELF-VALIDATES the sealed deposit (Layer 1: RO-Crate
+//! + checksum integrity),
 //! stamping `DEPOSIT-READINESS.json`. This handler adds Layer 2: for the
 //! `re-executable` profile it runs an agent-free re-execution of the deposit's
 //! compute (`replay --tier execute`) and folds the verdict into the attestation,
@@ -20,6 +21,8 @@ use ecaa_workflow_core::deposit_readiness::{
 use ecaa_workflow_core::emitter::{
     export_depositable_package_with_profile, zip_dir, DepositProfile,
 };
+use ecaa_workflow_core::intake_facts::IntakeFacts;
+use ecaa_workflow_core::reexecution_bounds::{ModalityBounds, ModalityBoundsProvider};
 use ecaa_workflow_core::replay::{run_replay, PackageTrust, ReplayOptions, Tier};
 
 #[derive(clap::Args, Debug)]
@@ -45,7 +48,7 @@ pub(crate) struct ExportArgs {
     #[arg(long, default_value = "full")]
     profile: String,
     /// Skip the automatic re-execution verification for a `re-executable`
-    /// deposit (Layer 2). RO-Crate + BagIt self-validation (Layer 1) always runs
+    /// deposit (Layer 2). RO-Crate + checksum self-validation (Layer 1) always runs
     /// regardless. When skipped, the attestation records `reexecution:
     /// not_verified`, and the downstream `deposit-check --strict` gate will
     /// refuse the package until re-execution is verified.
@@ -80,19 +83,27 @@ pub(crate) fn run(args: ExportArgs) -> Result<()> {
                 report.dropped,
                 dir.display()
             );
-            maybe_verify_reexecution(dir, profile, args.no_reexec_check, &args.reexec_scratch_dir)?;
+            maybe_verify_reexecution(
+                dir,
+                &args.package,
+                profile,
+                args.no_reexec_check,
+                &args.reexec_scratch_dir,
+            )?;
             Ok(())
         }
         // Zip export: build the tree in a scratch tempdir, then zip into `--out`.
         (Some(out), None) => {
             let staging = tempfile::tempdir().context("creating export staging tempdir")?;
             let export_root = staging.path().join("export");
-            let report = export_depositable_package_with_profile(&args.package, &export_root, profile)
-                .with_context(|| format!("exporting package {}", args.package.display()))?;
+            let report =
+                export_depositable_package_with_profile(&args.package, &export_root, profile)
+                    .with_context(|| format!("exporting package {}", args.package.display()))?;
             // Layer 2 runs on the sealed tree BEFORE zipping so the attestation
             // the `.zip` carries reflects the re-execution verdict.
             maybe_verify_reexecution(
                 &export_root,
+                &args.package,
                 profile,
                 args.no_reexec_check,
                 &args.reexec_scratch_dir,
@@ -119,12 +130,79 @@ pub(crate) fn run(args: ExportArgs) -> Result<()> {
     }
 }
 
+/// The modality the package declares for ITSELF, read from
+/// `policies/intake-facts.json` — the record the emitter writes for every
+/// package and that every profile except `minimal` retains in the deposit. The
+/// deposit tree is consulted first (it is what gets re-executed) and the source
+/// package second, so a profile that pruned the record still resolves. `None`
+/// when neither tree carries a usable one; the caller then keeps the generic
+/// band rather than guessing a modality.
+fn declared_modality(dst: &Path, src: &Path) -> Option<String> {
+    for root in [dst, src] {
+        let Ok(raw) = std::fs::read_to_string(root.join("policies/intake-facts.json")) else {
+            continue;
+        };
+        if let Ok(facts) = serde_json::from_str::<IntakeFacts>(&raw) {
+            if !facts.modality.is_empty() {
+                return Some(facts.modality);
+            }
+        }
+    }
+    None
+}
+
+/// `config/reexecution-bounds/` — the per-modality tolerance registry the
+/// comparator resolves its numeric band from. Routed through the typed `Config`
+/// (`ECAA_CONFIG_DIR`, default `./config`), which is the single sanctioned
+/// env-var read site.
+fn reexecution_bounds_dir() -> PathBuf {
+    ecaa_workflow_core::config::Config::from_env()
+        .map(|c| c.config_dir)
+        .unwrap_or_else(|_| PathBuf::from("./config"))
+        .join("reexecution-bounds")
+}
+
+/// Audit label for the numeric band a deposit's declared modality resolves to,
+/// so `DEPOSIT-READINESS.json` states the tolerance the equivalence verdict was
+/// reached under instead of leaving a reader to assume one.
+///
+/// A modality with a `config/reexecution-bounds/<modality>.yaml` gets that
+/// file's band. Everything else — unconfigured modality, absent registry,
+/// package that declares no modality — is labelled as the generic fallback, so
+/// the deposit never implies a tighter band than the one that was in force.
+fn describe_applied_bounds(bounds_dir: &Path, modality: Option<&str>) -> String {
+    let render = |label: &str, b: ModalityBounds| {
+        format!(
+            "{label} (rel {:.3}, abs {:.6})",
+            b.relative_tolerance, b.absolute_tolerance
+        )
+    };
+    match modality {
+        Some(m) if bounds_dir.join(format!("{m}.yaml")).is_file() => render(
+            m,
+            ModalityBoundsProvider::from_dir(bounds_dir).bounds_for(m),
+        ),
+        Some(m) => render(
+            &format!("generic (no per-modality bounds declared for {m})"),
+            ModalityBounds::default(),
+        ),
+        None => render(
+            "generic (package declares no modality)",
+            ModalityBounds::default(),
+        ),
+    }
+}
+
 /// Layer 2: for a `re-executable` deposit, re-execute its deterministic compute
 /// (agent-free) and fold the verdict into `DEPOSIT-READINESS.json`. A skip
 /// (`--no-reexec-check`, or a non-`re-executable` profile) leaves the Layer-1
 /// `reexecution: not_verified` stamp untouched.
+///
+/// `src` is the package the deposit was exported FROM; it is consulted only as a
+/// fallback source for the deposit's own modality record.
 fn maybe_verify_reexecution(
     dst: &Path,
+    src: &Path,
     profile: DepositProfile,
     no_reexec_check: bool,
     scratch_dir: &Option<PathBuf>,
@@ -139,11 +217,27 @@ fn maybe_verify_reexecution(
         return Ok(());
     }
 
+    // Per-modality semantic-equivalence bounds. Passing `None` here applied the
+    // GENERIC ±5% placeholder to every deposit regardless of what its modality
+    // declares, so a `bulk_rnaseq` adjusted p-value moving 0.049 → 0.051 (3.9%
+    // relative) was still stamped `semantic_equivalent` — the gene crossed FDR
+    // 0.05 and the significant set changed. `config/reexecution-bounds/` exists
+    // precisely to tighten that (bulk_rnaseq: rel 0.02, abs 0.001).
+    //
+    // `ReplayOptions::bounds` names the registry DIRECTORY; the replay resolves
+    // the modality key itself from the package it is re-executing. It must
+    // resolve it from the same `policies/intake-facts.json` record read here for
+    // the recorded label and the band actually in force to agree.
+    let bounds_dir = reexecution_bounds_dir();
+    let modality = declared_modality(dst, src);
+    let applied_bounds = describe_applied_bounds(&bounds_dir, modality.as_deref());
+
     println!("  reexec-check: re-executing deposit compute to verify reproducibility…");
+    println!("  reexec-check: equivalence bounds {applied_bounds}");
     let opts = ReplayOptions {
         tier: Tier::Execute,
         scratch_dir: scratch_dir.clone(),
-        bounds: None,
+        bounds: Some(bounds_dir),
         // Rely on the recorded image / image-fallback rather than rebuilding
         // from a Dockerfile inside an export.
         allow_rebuild: false,
@@ -195,7 +289,12 @@ fn maybe_verify_reexecution(
         }
     }
 
-    let detail = summarize_reexecution(&report);
+    // The band rides along in the recorded detail: a `reproduced` verdict is only
+    // interpretable against the tolerance that produced it.
+    let detail = format!(
+        "{}; bounds={applied_bounds}",
+        summarize_reexecution(&report)
+    );
     update_deposit_readiness_reexecution(dst, status, Some(detail.clone()), None, &WallClock)
         .context("recording re-execution verdict into DEPOSIT-READINESS.json")?;
 
@@ -219,11 +318,105 @@ fn summarize_reexecution(report: &ecaa_workflow_core::replay::ReplayReport) -> S
         }
     }
     if !report.skipped.is_empty() {
-        parts.push(format!("{} stage(s) skipped (not offline-reproducible)", report.skipped.len()));
+        parts.push(format!(
+            "{} stage(s) skipped (not offline-reproducible)",
+            report.skipped.len()
+        ));
     }
     if parts.is_empty() {
         "no re-execution artifacts".to_string()
     } else {
         parts.join("; ")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The repo's real registry: `bulk_rnaseq.yaml` declares rel 0.02 / abs
+    /// 0.001, `variant_calling.yaml` rel 0.01; every other modality is
+    /// unconfigured and must fall through to the generic band.
+    fn registry() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../config/reexecution-bounds")
+    }
+
+    fn write_facts(root: &Path, modality: &str) {
+        std::fs::create_dir_all(root.join("policies")).unwrap();
+        std::fs::write(
+            root.join("policies/intake-facts.json"),
+            format!("{{\"modality\":\"{modality}\",\"methods\":[]}}"),
+        )
+        .unwrap();
+    }
+
+    /// The modality comes from the package's OWN record, never from a
+    /// hardcoded default or the directory name — a deposit tree is written to an
+    /// arbitrary `--out`/`--dir` destination.
+    #[test]
+    fn modality_is_read_from_the_package_record() {
+        let dst = tempfile::tempdir().unwrap();
+        let src = tempfile::tempdir().unwrap();
+        assert_eq!(
+            declared_modality(dst.path(), src.path()),
+            None,
+            "no record on either side must not invent a modality"
+        );
+
+        // A profile that pruned the record from the deposit still resolves via
+        // the package it was exported from.
+        write_facts(src.path(), "variant_calling");
+        assert_eq!(
+            declared_modality(dst.path(), src.path()).as_deref(),
+            Some("variant_calling")
+        );
+
+        // The deposit's own record wins: it is the tree being re-executed.
+        write_facts(dst.path(), "bulk_rnaseq");
+        assert_eq!(
+            declared_modality(dst.path(), src.path()).as_deref(),
+            Some("bulk_rnaseq")
+        );
+    }
+
+    /// A modality with a declared bounds file gets THAT band, and the deposit
+    /// records it — not the generic ±5% placeholder that let a padj cross FDR
+    /// 0.05 while still being stamped `semantic_equivalent`.
+    #[test]
+    fn configured_modality_gets_its_declared_band_and_records_it() {
+        let label = describe_applied_bounds(&registry(), Some("bulk_rnaseq"));
+        assert!(
+            label.contains("bulk_rnaseq"),
+            "the band must name the modality it came from: {label}"
+        );
+        assert!(
+            label.contains("rel 0.020") && label.contains("abs 0.001000"),
+            "bulk_rnaseq.yaml declares rel 0.02 / abs 0.001: {label}"
+        );
+        assert!(
+            !label.contains("rel 0.050"),
+            "the generic placeholder must not be reported for a configured \
+             modality: {label}"
+        );
+    }
+
+    /// No per-modality file → the generic band, labelled as such. Falling back
+    /// is correct; claiming a modality-specific tolerance would not be.
+    #[test]
+    fn unconfigured_modality_falls_back_to_generic_and_says_so() {
+        for label in [
+            describe_applied_bounds(&registry(), Some("single_cell_rnaseq")),
+            describe_applied_bounds(&registry(), None),
+            describe_applied_bounds(Path::new("/nonexistent/registry"), Some("bulk_rnaseq")),
+        ] {
+            assert!(
+                label.contains("generic"),
+                "an unresolved modality must be labelled generic: {label}"
+            );
+            assert!(
+                label.contains("rel 0.050") && label.contains("abs 0.000000"),
+                "the generic band is the ±5% placeholder: {label}"
+            );
+        }
     }
 }

@@ -25,7 +25,10 @@ use std::collections::BTreeMap;
 /// dispatch identity and to keep the seeds bound to a specific run, but it
 /// does NOT perturb `SOURCE_DATE_EPOCH` — that value is the run epoch
 /// verbatim so it remains a defensible, human-meaningful build date.
-pub fn seed_env_from_dispatch(run_id: &str, run_source_date_epoch: u64) -> BTreeMap<String, String> {
+pub fn seed_env_from_dispatch(
+    run_id: &str,
+    run_source_date_epoch: u64,
+) -> BTreeMap<String, String> {
     // run_id intentionally does not feed SOURCE_DATE_EPOCH (see doc); it is
     // accepted so callers thread the same identity used for the dispatch WAL.
     let _ = run_id;

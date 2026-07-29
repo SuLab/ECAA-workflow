@@ -697,9 +697,7 @@ pub fn collapse_one_of_gaps(
             .iter()
             .filter(|m| {
                 edges.iter().any(|e| {
-                    e.to_node == consumer_id
-                        && &e.to_port == *m
-                        && is_genuine_producer(e.kind)
+                    e.to_node == consumer_id && &e.to_port == *m && is_genuine_producer(e.kind)
                 })
             })
             .count();

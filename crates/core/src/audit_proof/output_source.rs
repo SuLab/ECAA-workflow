@@ -55,17 +55,20 @@ const ADMINISTRATIVE_DIRS: [&str; 2] = ["scripts", "evidence"];
 /// real results: environment locks, the task spec slice, agent telemetry and
 /// logs, the read-provenance manifest, and per-directory file manifests.
 /// Sorted for reviewability; membership is by exact basename match.
-const ADMINISTRATIVE_BASENAMES: [&str; 11] = [
+const ADMINISTRATIVE_BASENAMES: [&str; 14] = [
     ".container-state.json",
     "agent-claude.log",
     "agent-code.json",
     "agent-usage.json",
+    "decision.json",
     "determinism-env.json",
     "env.explicit.lock",
     "env.lock",
+    "error.json",
     "manifest.json",
     "progress.log",
     "reads.jsonl",
+    "result.json",
     "task-spec.json",
 ];
 
@@ -104,66 +107,103 @@ pub enum OutputKind {
     File,
 }
 
-/// Whether an output is the sort of object a narrative claim can cite.
+/// The accountability role of a retained output.
 ///
-/// This is a SECOND, orthogonal axis to [`OutputKind`]. `OutputKind` is the
-/// spec's closed V node-type set (§5.4) — every produced file is a
-/// `Figure`/`Table`/`File` there, machinery included, and the V projection must
-/// keep emitting a node for each so the crate stays a faithful description of
-/// what the run produced. The role axis answers the different question
-/// Invariant 3 asks: *should this object have been referenced as evidence?*
+/// This is a second, orthogonal axis to [`OutputKind`]. `OutputKind` is the
+/// spec's closed V node-type set (§5.4), while this role records the purpose of
+/// a retained file. Invariant 3 separately promotes explicit report-schema
+/// artifacts and actual claim references to claim evidence.
 ///
-/// Generated `scripts/`, `env.lock`, `task-spec.json`, agent telemetry and the
-/// literature `evidence/` snapshot store are all real, required artifacts that
-/// no claim will ever cite. Counting them in the evidence-coverage denominator
-/// makes a healthy package read as ~99% uncovered and drowns the genuine gaps.
-/// They are CLASSIFIED here rather than dropped from
-/// [`analytical_outputs`] so the count stays visible and the V projection /
-/// Invariant 5 keep ranging over the identical output set they always have.
-///
-/// Exempt from the workspace `#[non_exhaustive]` default (as is its sibling
-/// [`OutputKind`]): this is an internal analysis discriminant, not a wire type —
-/// it crosses no `ts-rs` / RO-Crate / HTTP boundary, and the partition is closed
-/// by construction (an output either can carry a claim or cannot), so exhaustive
-/// matching is the property callers want.
+/// Generated scripts, environment captures, validation results, copied
+/// inputs, plotting sources, and human presentation artifacts remain visible
+/// in [`analytical_outputs`]. They are classified rather than discarded so the
+/// V projection and Invariant 5 still range over the full output set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputRole {
-    /// A scientific result: a table, a figure, a narrative report, a
-    /// stage `result.json`. Belongs in the Invariant-3 denominator.
+    /// A primary or supporting analytical result that can be selected by a
+    /// report schema.
     ClaimEligible,
-    /// Execution / provenance machinery. Excluded from the Invariant-3
-    /// denominator, counted separately.
+    /// A human-facing report or rendered figure.
+    Presentation,
+    /// A derived alternate view, summary, index, or plotting-data file.
+    Intermediate,
+    /// A validator's scientific or reporting check output.
+    Validation,
+    /// A copied input retained for offline inspection or replay.
+    RetainedInput,
+    /// An output explicitly superseded in package metadata.
+    Superseded,
+    /// Execution or provenance machinery.
     Administrative,
 }
 
-/// True when `path` names a claim-bearing scientific result — the outputs
-/// Invariant 3 (`evidence_coverage`) is entitled to demand a claim reference
-/// (or an explicit `output_unused` assumption) for.
-///
-/// False for the execution machinery every task emits alongside its results:
-/// anything under a `scripts/` or `evidence/` component, the fixed
-/// [`ADMINISTRATIVE_BASENAMES`], and the `state.patch*` bookkeeping files.
-/// Result tables (`*.tsv`/`*.csv`/`*.parquet`), figures, narrative reports
-/// (`*.md`) and the per-stage `result.json` stay eligible.
+impl OutputRole {
+    /// Stable wire spelling used by the output-accountability sidecar.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ClaimEligible => "analytical_result",
+            Self::Presentation => "presentation",
+            Self::Intermediate => "intermediate",
+            Self::Validation => "validation",
+            Self::RetainedInput => "retained_input",
+            Self::Superseded => "superseded",
+            Self::Administrative => "administrative",
+        }
+    }
+}
+
+/// True when a path names an analytical result or presentation artifact that
+/// could be selected as narrative evidence. The authoritative Invariant-3
+/// denominator is based on explicit declarations plus actual claim links.
 pub fn is_claim_eligible(path: &str) -> bool {
+    matches!(
+        role_for_path(path),
+        OutputRole::ClaimEligible | OutputRole::Presentation
+    )
+}
+
+fn is_administrative(path: &str) -> bool {
     let path = strip_fragment(path);
     if path.is_empty() {
-        return false;
+        return true;
     }
     let basename = path.rsplit('/').next().unwrap_or(path);
     if ADMINISTRATIVE_BASENAMES.contains(&basename) || basename.starts_with(STATE_PATCH_PREFIX) {
-        return false;
+        return true;
     }
-    !path.split('/').any(|c| ADMINISTRATIVE_DIRS.contains(&c))
+    path.split('/')
+        .any(|component| ADMINISTRATIVE_DIRS.contains(&component))
 }
 
 /// The [`OutputRole`] of `path`.
 fn role_for_path(path: &str) -> OutputRole {
-    if is_claim_eligible(path) {
-        OutputRole::ClaimEligible
-    } else {
-        OutputRole::Administrative
+    let path = strip_fragment(path);
+    if is_administrative(path) {
+        return OutputRole::Administrative;
     }
+    let basename = path.rsplit('/').next().unwrap_or(path);
+    let producer = producer_task_from_path(path).unwrap_or_default();
+    if producer.starts_with("validate_") || basename == "validation_report.json" {
+        return OutputRole::Validation;
+    }
+    if path.split('/').any(|component| component == "data") {
+        return OutputRole::RetainedInput;
+    }
+    if basename == "report-data.json"
+        || basename.ends_with(".full.tsv")
+        || basename.ends_with(".significant.tsv")
+        || basename.ends_with("_data.tsv")
+        || basename.ends_with("_summary.json")
+        || basename.ends_with("_index.json")
+        || (path.contains("/figures/")
+            && matches!(path.rsplit('.').next(), Some("tsv" | "csv" | "parquet")))
+    {
+        return OutputRole::Intermediate;
+    }
+    if matches!(path.rsplit('.').next(), Some("md" | "png" | "pdf" | "svg")) {
+        return OutputRole::Presentation;
+    }
+    OutputRole::ClaimEligible
 }
 
 /// True when `@type` (a string or array) names `ImageObject`/`schema:Image`.
@@ -277,7 +317,11 @@ pub fn analytical_outputs(output_entities: &[Value], proofs: &[Value]) -> Vec<An
             continue;
         }
         let kind = kind_for_path(&path, is_image);
-        let role = role_for_path(&path);
+        let role = if e.get("ecaax:supersededByProducer").is_some() {
+            OutputRole::Superseded
+        } else {
+            role_for_path(&path)
+        };
         let producer_task = producer_task_from_path(&path);
         by_path.entry(path.clone()).or_insert(AnalyticalOutput {
             path,
@@ -347,7 +391,10 @@ mod tests {
             "runtime/outputs/de/b.tsv"
         ));
         // Non-`runtime/outputs/` paths never resolve by basename fallback.
-        assert!(!same_task_basename_match("results/tables/de.csv", "results/other/de.csv"));
+        assert!(!same_task_basename_match(
+            "results/tables/de.csv",
+            "results/other/de.csv"
+        ));
     }
 
     #[test]
@@ -459,7 +506,7 @@ mod tests {
             ("runtime/outputs/de/de_results.tsv", true),
             ("runtime/outputs/de/figures/x.png", true),
             ("runtime/outputs/de/report.md", true),
-            ("runtime/outputs/de/result.json", true),
+            ("runtime/outputs/de/result.json", false),
             ("runtime/outputs/de/tables/counts.csv", true),
             // A `#fragment` must not change the answer either way.
             ("runtime/outputs/de/de_results.tsv#row-3", true),
@@ -505,7 +552,7 @@ mod tests {
         );
         let eligible: Vec<&str> = outs
             .iter()
-            .filter(|o| o.role == OutputRole::ClaimEligible)
+            .filter(|o| matches!(o.role, OutputRole::ClaimEligible | OutputRole::Presentation))
             .map(|o| o.path.as_str())
             .collect();
         assert_eq!(

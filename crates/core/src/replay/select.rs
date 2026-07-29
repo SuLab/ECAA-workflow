@@ -5,8 +5,8 @@
 // Given a package directory, identifies which tasks are deterministic compute
 // (eligible for re-execution) and which to skip with a reason.
 
-use std::path::{Path, PathBuf};
 use crate::replay::report::SkippedStage;
+use std::path::{Path, PathBuf};
 
 /// A task eligible for deterministic re-execution.
 pub struct ComputeTask {
@@ -57,7 +57,9 @@ fn is_excluded(pkg: &Path, id: &str, shim_excludes: &[String]) -> Option<&'stati
     }
     // PRIMARY capability check.
     if stage_requires_egress(pkg, id) {
-        return Some("network egress required by recorded safety policy (not offline-reproducible)");
+        return Some(
+            "network egress required by recorded safety policy (not offline-reproducible)",
+        );
     }
     // SECONDARY belt-and-suspenders net for literature fetchers whose recorded
     // task-spec is missing/malformed (rule 3 fails open there). Does not match
@@ -126,18 +128,15 @@ fn stage_requires_egress(pkg: &Path, id: &str) -> bool {
 /// NEVER skipped merely for lacking a result table.
 ///
 /// Results are returned in deterministic (lexicographic) order.
-pub fn select_compute_tasks(
-    pkg: &Path,
-) -> std::io::Result<(Vec<ComputeTask>, Vec<SkippedStage>)> {
+pub fn select_compute_tasks(pkg: &Path) -> std::io::Result<(Vec<ComputeTask>, Vec<SkippedStage>)> {
     // Read optional determinism shim.
-    let shim_excludes: Vec<String> = std::fs::read_to_string(
-        pkg.join("runtime/determinism-shim.json"),
-    )
-    .ok()
-    .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-    .and_then(|v| v.get("non_deterministic_stages").cloned())
-    .and_then(|v| serde_json::from_value(v).ok())
-    .unwrap_or_default();
+    let shim_excludes: Vec<String> =
+        std::fs::read_to_string(pkg.join("runtime/determinism-shim.json"))
+            .ok()
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+            .and_then(|v| v.get("non_deterministic_stages").cloned())
+            .and_then(|v| serde_json::from_value(v).ok())
+            .unwrap_or_default();
 
     let outputs = pkg.join("runtime/outputs");
     let mut sel: Vec<ComputeTask> = vec![];
@@ -162,7 +161,10 @@ pub fn select_compute_tasks(
         // Capability exclusion first, so an excluded stage always carries its
         // exclusion reason (independent of whether it happens to have a script).
         if let Some(reason) = is_excluded(pkg, &id, &shim_excludes) {
-            skipped.push(SkippedStage { task: id, reason: reason.into() });
+            skipped.push(SkippedStage {
+                task: id,
+                reason: reason.into(),
+            });
             continue;
         }
 
@@ -175,9 +177,7 @@ pub fn select_compute_tasks(
                             .map(|f| {
                                 let n = f.file_name();
                                 let n = n.to_string_lossy();
-                                n.ends_with(".R")
-                                    || n.ends_with(".py")
-                                    || n.ends_with(".sh")
+                                n.ends_with(".R") || n.ends_with(".py") || n.ends_with(".sh")
                             })
                             .unwrap_or(false)
                     })
@@ -321,7 +321,11 @@ mod tests {
         write_isolated_spec(root, "data_acquisition");
 
         // Literature stages carry a real 9-host allowlist → excluded (egress).
-        let hosts = ["eutils.ncbi.nlm.nih.gov", "api.openalex.org", "api.crossref.org"];
+        let hosts = [
+            "eutils.ncbi.nlm.nih.gov",
+            "api.openalex.org",
+            "api.crossref.org",
+        ];
         for id in [
             "review_prior_work",
             "survey_method_landscape",
@@ -376,11 +380,15 @@ mod tests {
         let (sel, skipped) = select_compute_tasks(root).unwrap();
         let sel_ids: Vec<_> = sel.iter().map(|t| t.task_id.as_str()).collect();
         assert_eq!(
-            sel_ids, ["compute_isolated"],
+            sel_ids,
+            ["compute_isolated"],
             "only the isolated stage runs; sel={sel_ids:?}"
         );
         let sk: Vec<_> = skipped.iter().map(|s| s.task.as_str()).collect();
-        assert!(sk.contains(&"compute_bridge"), "bridge stage must be excluded");
+        assert!(
+            sk.contains(&"compute_bridge"),
+            "bridge stage must be excluded"
+        );
         assert!(
             sk.contains(&"compute_allowlist"),
             "non-empty-allowlist stage must be excluded"
@@ -397,9 +405,24 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
         // Literature fetchers: script + table, but NO task-spec written.
-        mk(root, "review_prior_work", true, Some("prior_claims_matrix.csv"));
-        mk(root, "survey_method_landscape", true, Some("method_landscape.csv"));
-        mk(root, "contextualize_findings_with_literature", true, Some("claims.csv"));
+        mk(
+            root,
+            "review_prior_work",
+            true,
+            Some("prior_claims_matrix.csv"),
+        );
+        mk(
+            root,
+            "survey_method_landscape",
+            true,
+            Some("method_landscape.csv"),
+        );
+        mk(
+            root,
+            "contextualize_findings_with_literature",
+            true,
+            Some("claims.csv"),
+        );
         // Hermetic discover_ with no task-spec must still be selected.
         mk(root, "discover_normalisation", true, Some("score.tsv"));
 
@@ -437,7 +460,8 @@ mod tests {
         let (sel, skipped) = select_compute_tasks(root).unwrap();
         let sel_ids: Vec<_> = sel.iter().map(|t| t.task_id.as_str()).collect();
         assert_eq!(
-            sel_ids, ["compute_something"],
+            sel_ids,
+            ["compute_something"],
             "run-eligible zero-table stage must be selected, not skipped; skipped={skipped:?}"
         );
         assert!(
@@ -464,7 +488,12 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
         mk(root, "data_acquisition", true, Some("cohort_manifest.tsv"));
-        mk(root, "differential_expression", true, Some("de_results.tsv"));
+        mk(
+            root,
+            "differential_expression",
+            true,
+            Some("de_results.tsv"),
+        );
 
         let (sel, skipped) = select_compute_tasks(root).unwrap();
         assert_eq!(
@@ -492,9 +521,24 @@ mod tests {
     fn selects_compute_and_validate_and_reporting_excludes_literature() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
-        mk(root, "differential_expression", true, Some("de_results.tsv"));
-        mk(root, "validate_differential_expression", true, Some("checks.tsv"));
-        mk(root, "contextualize_findings_with_literature", true, Some("matrix.csv"));
+        mk(
+            root,
+            "differential_expression",
+            true,
+            Some("de_results.tsv"),
+        );
+        mk(
+            root,
+            "validate_differential_expression",
+            true,
+            Some("checks.tsv"),
+        );
+        mk(
+            root,
+            "contextualize_findings_with_literature",
+            true,
+            Some("matrix.csv"),
+        );
         // The literature stage is excluded by its egress allowlist, not its name.
         write_task_spec_net(
             root,
@@ -508,8 +552,14 @@ mod tests {
         let sel_ids: Vec<_> = sel.iter().map(|t| t.task_id.as_str()).collect();
         // differential_expression, reporting, validate_differential_expression
         // are all run-eligible; contextualize_* is excluded.
-        assert!(sel_ids.contains(&"differential_expression"), "sel={sel_ids:?}");
-        assert!(sel_ids.contains(&"validate_differential_expression"), "sel={sel_ids:?}");
+        assert!(
+            sel_ids.contains(&"differential_expression"),
+            "sel={sel_ids:?}"
+        );
+        assert!(
+            sel_ids.contains(&"validate_differential_expression"),
+            "sel={sel_ids:?}"
+        );
         assert!(sel_ids.contains(&"reporting"), "sel={sel_ids:?}");
         assert!(
             !sel_ids.contains(&"contextualize_findings_with_literature"),
@@ -539,7 +589,12 @@ mod tests {
     fn shim_exclusion_takes_priority() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
-        mk(root, "differential_expression", true, Some("de_results.tsv"));
+        mk(
+            root,
+            "differential_expression",
+            true,
+            Some("de_results.tsv"),
+        );
 
         // Write the shim declaring differential_expression non-deterministic.
         let shim_dir = root.join("runtime");

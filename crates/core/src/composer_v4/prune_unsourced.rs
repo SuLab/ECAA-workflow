@@ -155,8 +155,10 @@ pub fn rewire_or_drop(dag: &mut WorkflowDag, dropped: &BTreeSet<String>) {
     let effective_drop: BTreeSet<&str> = effective.iter().map(String::as_str).collect();
 
     // Drop edges referencing any dropped node, then drop the nodes.
-    dag.edges
-        .retain(|e| !effective_drop.contains(e.from_node.as_str()) && !effective_drop.contains(e.to_node.as_str()));
+    dag.edges.retain(|e| {
+        !effective_drop.contains(e.from_node.as_str())
+            && !effective_drop.contains(e.to_node.as_str())
+    });
     dag.nodes
         .retain(|n| !effective_drop.contains(n.id.as_str()));
 
@@ -337,7 +339,12 @@ pub fn prune_unsourced_atoms(dag: &mut WorkflowDag) {
     let ancestors: BTreeMap<&str, BTreeSet<&str>> = dag
         .nodes
         .iter()
-        .map(|n| (n.id.as_str(), transitive_ancestors(n.id.as_str(), &incoming)))
+        .map(|n| {
+            (
+                n.id.as_str(),
+                transitive_ancestors(n.id.as_str(), &incoming),
+            )
+        })
         .collect();
 
     let engine = DeterministicCompatibilityEngine::new();
@@ -369,7 +376,10 @@ pub fn prune_unsourced_atoms(dag: &mut WorkflowDag) {
             }
             // Source nodes (no incoming edges) are satisfied externally —
             // never prune them for lack of an upstream source.
-            let preds = incoming.get(node.id.as_str()).map(Vec::as_slice).unwrap_or(&[]);
+            let preds = incoming
+                .get(node.id.as_str())
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
             if preds.is_empty() {
                 continue;
             }
@@ -400,30 +410,34 @@ pub fn prune_unsourced_atoms(dag: &mut WorkflowDag) {
                 .flatten()
                 .any(|anc| *anc == DATA_ACQ_ID && !dropped.contains(DATA_ACQ_ID));
 
-            let unsourced = node.inputs.iter().filter(|p| is_prunable_required_input(p)).any(|input| {
-                if any_output_satisfies(&engine, &ctx, &producer_ports, input) {
-                    return false;
-                }
-                // No surviving upstream producer for this required input.
-                // Was it ever sourceable in the ORIGINAL DAG (i.e. by some
-                // ancestor, dropped or not)? If yes AND the node still
-                // reaches the anchor, leave it for `rewire_or_drop`.
-                // Otherwise it is intrinsically unsourced → prune.
-                if reaches_surviving_anchor {
-                    let original_ports: Vec<&PortContract> = ancestors
-                        .get(node.id.as_str())
-                        .into_iter()
-                        .flatten()
-                        .filter_map(|anc| by_id.get(anc))
-                        .flat_map(|anc| anc.outputs.iter())
-                        .collect();
-                    // Sourceable originally → rewire case (not unsourced).
-                    // Never sourceable → intrinsically unsourced (prune).
-                    !any_output_satisfies(&engine, &ctx, &original_ports, input)
-                } else {
-                    true
-                }
-            });
+            let unsourced = node
+                .inputs
+                .iter()
+                .filter(|p| is_prunable_required_input(p))
+                .any(|input| {
+                    if any_output_satisfies(&engine, &ctx, &producer_ports, input) {
+                        return false;
+                    }
+                    // No surviving upstream producer for this required input.
+                    // Was it ever sourceable in the ORIGINAL DAG (i.e. by some
+                    // ancestor, dropped or not)? If yes AND the node still
+                    // reaches the anchor, leave it for `rewire_or_drop`.
+                    // Otherwise it is intrinsically unsourced → prune.
+                    if reaches_surviving_anchor {
+                        let original_ports: Vec<&PortContract> = ancestors
+                            .get(node.id.as_str())
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|anc| by_id.get(anc))
+                            .flat_map(|anc| anc.outputs.iter())
+                            .collect();
+                        // Sourceable originally → rewire case (not unsourced).
+                        // Never sourceable → intrinsically unsourced (prune).
+                        !any_output_satisfies(&engine, &ctx, &original_ports, input)
+                    } else {
+                        true
+                    }
+                });
 
             if unsourced {
                 dropped.insert(node.id.clone());
@@ -440,9 +454,7 @@ pub fn prune_unsourced_atoms(dag: &mut WorkflowDag) {
     // (can't mutate `dropped` while iterating it).
     let companions: Vec<String> = dropped
         .iter()
-        .flat_map(|base| {
-            [format!("discover_{base}"), format!("validate_{base}")]
-        })
+        .flat_map(|base| [format!("discover_{base}"), format!("validate_{base}")])
         .filter(|cand| present.contains(cand.as_str()))
         .collect();
     dropped.extend(companions);
@@ -506,10 +518,7 @@ mod tests {
         let mut dag = WorkflowDag {
             id: "test".into(),
             nodes: vec![a.clone(), b.clone(), c.clone()],
-            edges: vec![
-                typed_edge("data_acquisition", "B"),
-                typed_edge("B", "C"),
-            ],
+            edges: vec![typed_edge("data_acquisition", "B"), typed_edge("B", "C")],
             ..Default::default()
         };
 
@@ -646,8 +655,8 @@ mod tests {
     // set (atoms with unsourceable required inputs) and then delegates to
     // `rewire_or_drop`.
 
-    use crate::workflow_contracts::semantic_type::SemanticType;
     use crate::composer_v4::source_typing::GENE_SET_SEMANTIC_IRI;
+    use crate::workflow_contracts::semantic_type::SemanticType;
     // `Cardinality` and `PortContract` come in via `super::*`.
 
     /// EDAM IRI used for the differential-expression results that flow
@@ -849,7 +858,10 @@ mod tests {
         prune_unsourced_atoms(&mut dag);
 
         let ids: Vec<&str> = dag.nodes.iter().map(|n| n.id.as_str()).collect();
-        assert!(!ids.contains(&"pathway"), "pathway must be dropped; nodes={ids:?}");
+        assert!(
+            !ids.contains(&"pathway"),
+            "pathway must be dropped; nodes={ids:?}"
+        );
         assert!(
             !ids.contains(&"discover_pathway"),
             "discover_pathway companion must be dropped; nodes={ids:?}"
@@ -995,7 +1007,10 @@ mod tests {
             nodes: vec![anchor, de, pathway],
             edges: vec![
                 typed_edge("rnaseq_data_acquisition", "rnaseq_differential_expression"),
-                typed_edge("rnaseq_differential_expression", "rnaseq_pathway_enrichment"),
+                typed_edge(
+                    "rnaseq_differential_expression",
+                    "rnaseq_pathway_enrichment",
+                ),
             ],
             ..Default::default()
         };
@@ -1023,10 +1038,7 @@ mod tests {
         let mut dag = WorkflowDag {
             id: "test".into(),
             nodes: vec![a, b, c],
-            edges: vec![
-                typed_edge("data_acquisition", "B"),
-                typed_edge("B", "C"),
-            ],
+            edges: vec![typed_edge("data_acquisition", "B"), typed_edge("B", "C")],
             ..Default::default()
         };
 
@@ -1041,6 +1053,9 @@ mod tests {
             .iter()
             .filter(|e| e.from_node == "data_acquisition" && e.to_node == "C")
             .count();
-        assert_eq!(rewire_count, 1, "exactly one rewire edge; got {rewire_count}");
+        assert_eq!(
+            rewire_count, 1,
+            "exactly one rewire edge; got {rewire_count}"
+        );
     }
 }

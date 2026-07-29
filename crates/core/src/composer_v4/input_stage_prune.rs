@@ -663,9 +663,21 @@ mod tests {
             id: "t".into(),
             nodes: vec![
                 node("data_acquisition", vec![], vec![out("staged", "data:2531")]),
-                node("raw_qc", vec![inp("reads", FASTQ)], vec![out("qc", "data:2914")]),
-                node("alignment", vec![inp("reads", FASTQ)], vec![out("bam", ALIGNED)]),
-                node("peak_calling", vec![inp("bam", ALIGNED)], vec![out("peaks", PEAKS)]),
+                node(
+                    "raw_qc",
+                    vec![inp("reads", FASTQ)],
+                    vec![out("qc", "data:2914")],
+                ),
+                node(
+                    "alignment",
+                    vec![inp("reads", FASTQ)],
+                    vec![out("bam", ALIGNED)],
+                ),
+                node(
+                    "peak_calling",
+                    vec![inp("bam", ALIGNED)],
+                    vec![out("peaks", PEAKS)],
+                ),
                 node(
                     "differential_accessibility",
                     vec![inp("peaks", PEAKS)],
@@ -680,27 +692,38 @@ mod tests {
             ],
             ..Default::default()
         };
-        let supplied =
-            DataProductContract::skeleton("intake_peaks_0", SemanticType::edam(PEAKS, "Called peaks"));
+        let supplied = DataProductContract::skeleton(
+            "intake_peaks_0",
+            SemanticType::edam(PEAKS, "Called peaks"),
+        );
         let removed = prune_supplied_upstream(&mut dag, &[supplied]);
         let ids: BTreeSet<&str> = dag.nodes.iter().map(|n| n.id.as_str()).collect();
         for gone in ["raw_qc", "alignment", "peak_calling"] {
             assert!(!ids.contains(gone), "{gone} must be pruned; got {ids:?}");
-            assert!(removed.iter().any(|r| r == gone), "removed should list {gone}");
+            assert!(
+                removed.iter().any(|r| r == gone),
+                "removed should list {gone}"
+            );
         }
         for kept in ["data_acquisition", "differential_accessibility"] {
             assert!(ids.contains(kept), "{kept} must survive; got {ids:?}");
         }
         assert!(
-            dag.edges.iter().any(|e| e.from_node == "data_acquisition"
-                && e.to_node == "differential_accessibility"),
+            dag.edges
+                .iter()
+                .any(|e| e.from_node == "data_acquisition"
+                    && e.to_node == "differential_accessibility"),
             "differential_accessibility must be rewired onto data_acquisition; edges={:?}",
             dag.edges
                 .iter()
                 .map(|e| (e.from_node.clone(), e.to_node.clone()))
                 .collect::<Vec<_>>()
         );
-        let da = dag.nodes.iter().find(|n| n.id == "data_acquisition").unwrap();
+        let da = dag
+            .nodes
+            .iter()
+            .find(|n| n.id == "data_acquisition")
+            .unwrap();
         assert!(
             node_produces(da, PEAKS),
             "data_acquisition must expose the supplied called-peaks type"
@@ -719,13 +742,21 @@ mod tests {
             id: "t".into(),
             nodes: vec![
                 node("data_acquisition", vec![], vec![out("staged", "data:2531")]),
-                node("raw_qc", vec![inp("reads", FASTQ)], vec![out("qc", "data:2914")]),
+                node(
+                    "raw_qc",
+                    vec![inp("reads", FASTQ)],
+                    vec![out("qc", "data:2914")],
+                ),
                 node(
                     "sequence_trimming",
                     vec![inp("reads", FASTQ)],
                     vec![out("trimmed", FASTQ)],
                 ),
-                node("alignment", vec![inp("reads", FASTQ)], vec![out("bam", ALIGNED)]),
+                node(
+                    "alignment",
+                    vec![inp("reads", FASTQ)],
+                    vec![out("bam", ALIGNED)],
+                ),
                 node(
                     "variant_calling",
                     vec![inp("bam", ALIGNED)],
@@ -748,7 +779,10 @@ mod tests {
         let ids: BTreeSet<&str> = dag.nodes.iter().map(|n| n.id.as_str()).collect();
         for gone in ["raw_qc", "sequence_trimming", "alignment"] {
             assert!(!ids.contains(gone), "{gone} must be pruned; got {ids:?}");
-            assert!(removed.iter().any(|r| r == gone), "removed should list {gone}");
+            assert!(
+                removed.iter().any(|r| r == gone),
+                "removed should list {gone}"
+            );
         }
         for kept in ["data_acquisition", "variant_calling"] {
             assert!(ids.contains(kept), "{kept} must survive; got {ids:?}");
@@ -763,7 +797,11 @@ mod tests {
                 .map(|e| (e.from_node.clone(), e.to_node.clone()))
                 .collect::<Vec<_>>()
         );
-        let da = dag.nodes.iter().find(|n| n.id == "data_acquisition").unwrap();
+        let da = dag
+            .nodes
+            .iter()
+            .find(|n| n.id == "data_acquisition")
+            .unwrap();
         assert!(
             node_produces(da, ALIGNED),
             "data_acquisition must expose the supplied alignment type"
@@ -859,8 +897,10 @@ mod tests {
                 .collect::<Vec<_>>()
         );
         assert!(
-            !dag.edges.iter().any(|e| e.from_node == "differential_expression"
-                || e.to_node == "differential_expression"),
+            !dag.edges
+                .iter()
+                .any(|e| e.from_node == "differential_expression"
+                    || e.to_node == "differential_expression"),
             "no edges may reference the pruned differential_expression node"
         );
         let da = dag
@@ -990,8 +1030,9 @@ mod tests {
             assert!(ids.contains(kept), "{kept} must survive; got {ids:?}");
         }
         assert!(
-            dag.edges.iter().any(|e| e.from_node == "data_acquisition"
-                && e.to_node == "differential_expression"),
+            dag.edges.iter().any(
+                |e| e.from_node == "data_acquisition" && e.to_node == "differential_expression"
+            ),
             "differential_expression must be rewired onto data_acquisition; edges={:?}",
             dag.edges
                 .iter()
@@ -999,8 +1040,10 @@ mod tests {
                 .collect::<Vec<_>>()
         );
         assert!(
-            !dag.edges.iter().any(|e| e.from_node == "protein_quantification"
-                || e.to_node == "protein_quantification"),
+            !dag.edges
+                .iter()
+                .any(|e| e.from_node == "protein_quantification"
+                    || e.to_node == "protein_quantification"),
             "no edges may reference the pruned protein_quantification node"
         );
         // data_acquisition now exposes the supplied local-extension product port

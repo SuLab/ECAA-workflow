@@ -65,7 +65,9 @@ pub enum ReconVerdict {
     /// directory. `authoritative_edge` is `(from_node, to_node)` of the
     /// declared edge that produced it — for a mutually-exclusive
     /// one-of group, this is the member the task actually consumed.
-    Match { authoritative_edge: (String, String) },
+    Match {
+        authoritative_edge: (String, String),
+    },
     /// The read path does not live under any declared producer's
     /// output directory for this task. `declared_producer` names the
     /// producer the declared graph attributes to the read's own
@@ -238,8 +240,7 @@ pub fn classify_reconciled_edges(
                         .iter()
                         .find(|s| {
                             s.mutually_exclusive_group.as_deref() == Some(g)
-                                && authoritative
-                                    .contains(&(s.from_node.clone(), s.to_node.clone()))
+                                && authoritative.contains(&(s.from_node.clone(), s.to_node.clone()))
                         })
                         .map(|s| s.from_node.clone())
                         .unwrap_or_default();
@@ -290,7 +291,10 @@ mod tests {
             ReconVerdict::Match { authoritative_edge } => {
                 assert_eq!(
                     authoritative_edge,
-                    &("quantification".to_string(), "differential_expression".to_string())
+                    &(
+                        "quantification".to_string(),
+                        "differential_expression".to_string()
+                    )
                 );
             }
             other => panic!("expected Match, got {other:?}"),
@@ -311,13 +315,18 @@ mod tests {
             path: "runtime/outputs/data_acquisition/data/himes-inputs/counts.tsv".into(),
         }];
         let v = reconcile(&edges, &reads, "differential_expression");
-        assert!(v.iter().any(|x| matches!(x, ReconVerdict::Divergent { .. })));
+        assert!(v
+            .iter()
+            .any(|x| matches!(x, ReconVerdict::Divergent { .. })));
         match &v[0] {
             ReconVerdict::Divergent {
                 read_path,
                 declared_producer,
             } => {
-                assert_eq!(read_path, "runtime/outputs/data_acquisition/data/himes-inputs/counts.tsv");
+                assert_eq!(
+                    read_path,
+                    "runtime/outputs/data_acquisition/data/himes-inputs/counts.tsv"
+                );
                 assert_eq!(declared_producer, &None);
             }
             other => panic!("expected Divergent, got {other:?}"),

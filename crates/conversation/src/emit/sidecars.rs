@@ -342,8 +342,8 @@ mod nondet_projection_tests {
     use super::{acks_for_task_ids, attach_declared_non_determinism, DeclaredNonDeterminism};
 
     fn registry() -> ecaa_workflow_core::atom_registry::AtomRegistry {
-        let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../config/stage-atoms");
+        let dir =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../config/stage-atoms");
         ecaa_workflow_core::atom_registry::AtomRegistry::load_from_dir(&dir)
             .expect("load stage-atoms registry")
     }

@@ -120,7 +120,10 @@ entity_column_aliases: [gene_id, gene_name, symbol]
 "#;
         let s: super::ResultSchema = serde_yaml_ng::from_str(y).unwrap();
         assert_eq!(s.entity_column, "gene");
-        assert_eq!(s.entity_column_aliases, vec!["gene_id", "gene_name", "symbol"]);
+        assert_eq!(
+            s.entity_column_aliases,
+            vec!["gene_id", "gene_name", "symbol"]
+        );
     }
 
     #[test]

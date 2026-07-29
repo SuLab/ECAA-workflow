@@ -244,7 +244,8 @@ mod tests {
     fn accepts_integer_value_for_integer_spec() {
         let mut ov = ParameterOverrides::default();
         ov.set("align", "min_mapq", json!(20), OverrideSource::Sme);
-        ov.validate_against("align", &[spec_int("min_mapq")]).unwrap();
+        ov.validate_against("align", &[spec_int("min_mapq")])
+            .unwrap();
         assert!(ov.for_task("align").is_some());
         assert!(ov.for_task("other").is_none());
     }

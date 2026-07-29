@@ -415,9 +415,20 @@ fn scenario_column_scoped_ack_fails_when_other_column_diverges() {
     let root = TempDir::new().unwrap();
     let parent = make_package_dirs(&root, "parent");
     let replay = make_package_dirs(&root, "replay");
-    write_table(&parent, "de.tsv", "gene\tlog2FoldChange\tstat\nGENE1\t1.0\t3.0\n");
-    write_table(&replay, "de.tsv", "gene\tlog2FoldChange\tstat\nGENE1\t1.0\t9.0\n");
-    write_shim(&parent, &shim_with_ack("de.tsv", Some(vec!["log2FoldChange"])));
+    write_table(
+        &parent,
+        "de.tsv",
+        "gene\tlog2FoldChange\tstat\nGENE1\t1.0\t3.0\n",
+    );
+    write_table(
+        &replay,
+        "de.tsv",
+        "gene\tlog2FoldChange\tstat\nGENE1\t1.0\t9.0\n",
+    );
+    write_shim(
+        &parent,
+        &shim_with_ack("de.tsv", Some(vec!["log2FoldChange"])),
+    );
 
     let report = classify_reexecution(
         &parent,

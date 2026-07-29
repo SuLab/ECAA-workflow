@@ -60,6 +60,25 @@
 //!   * **RC-SECTIONS** every `required_report_sections` id declared on the
 //!     `reporting`/`final_reporting` task specs must appear as a non-empty
 //!     section in the emitted report.
+//!   * **RC-ROW** every DATA ROW of a markdown table in the narrative must be
+//!     re-derivable from the source artifact the table transcribes: its
+//!     identifier must be a row of that artifact, and every cell whose column
+//!     resolved to a role (effect / significance, via the one
+//!     [`crate::report_contract::resolve_ranking_columns`] resolver) must match
+//!     the source cell within the transcription tolerance the package's own
+//!     `interpretation-policy.json` declares. A deposited report shipped a
+//!     "Top 10 depleted pathways" table in which three terms existed in no
+//!     source table at all and a fourth was reported at an INVERTED effect and
+//!     a significant adjusted p when its real row was the opposite sign and not
+//!     significant; RC-COUNT (JSON-only), RC-TABLE (presence-only) and
+//!     RC-SECTIONS (headings-only) all pass such a report, and the only thing
+//!     that caught it was a per-run agent-authored script that had
+//!     hand-transcribed the rows as literals. A table whose columns do not
+//!     resolve, or whose source artifact cannot be identified from the table's
+//!     own contents, is SKIPPED with a warning — never a required failure,
+//!     because a false positive here blocks a deposit. Ordering claims in a
+//!     caption ("Top 10 …") are disclosed as unverified rather than
+//!     re-derived; see [`check_rc_row`] for why.
 //!   * **RC-TABLE** every significant entity embedded in `report-data.json`
 //!     (for an artifact whose set is not `spilled_to_attachment_only`) must
 //!     be rendered in the terminal report — the deterministic backstop for
@@ -86,7 +105,10 @@
 //! * **Warn-only** — free-text prose invariants, so a brittle regex can
 //!   never block a scientifically-correct deposit:
 //!   * **RP-1** effect-abundance direction word (derived structurally from
-//!     the sign of `top_effect_abundance_ratio`), plus the prose that
+//!     the sign of `top_effect_abundance_ratio`, and ANCHORED to the clause
+//!     that actually describes that statistic so a stray direction word
+//!     elsewhere in the narrative — a sign-convention sentence, say — is not
+//!     read as an abundance claim), plus the prose that
 //!     DESCRIBES that statistic: it is a ratio of the MEDIAN abundance of the
 //!     top-K features over the median of the whole tested set, so narrating
 //!     it as a "mean"/"average" or attributing it to N *samples* (rather than
@@ -108,12 +130,15 @@ use std::path::Path;
 
 use regex::Regex;
 use serde_json::Value;
+use unicode_normalization::UnicodeNormalization;
 
 use crate::report_contract::provenance_section::{
-    DataProvenance, DataProvenanceRecord, collect_data_provenance, strip_provenance_section,
+    collect_data_provenance, strip_provenance_section, DataProvenance, DataProvenanceRecord,
 };
 use crate::report_contract::{
-    ReportData, ResultSchema, load_policy_column_synonyms, summarize_artifact,
+    load_policy_column_synonyms, resolve_ranking_columns, summarize_artifact, PathwayRanking,
+    PolicyColumnSynonyms, RankingColumns, ReportData, ResultSchema, FULL_TABLE_END,
+    FULL_TABLE_START,
 };
 
 /// Severity of a reporting-invariant finding.
@@ -205,6 +230,7 @@ pub fn check_reporting_invariants(package_root: &Path) -> ReportingInvariantsRep
     check_rc_identity(&outputs, &mut report);
     check_rc_sections(package_root, &outputs, &mut report);
     check_rc_table(&outputs, &mut report);
+    check_rc_row(package_root, &outputs, &mut report);
 
     report
 }
@@ -607,6 +633,19 @@ pub const EFFECT_ABUNDANCE_RATIO_DEFINITION: &str =
 /// exactly this at ratio 0.558). Left warn-only per §G-C1 so a prose
 /// mismatch cannot block an otherwise-correct deposit.
 ///
+/// The direction test is ANCHORED: a direction word only counts when it
+/// occurs in the same clause as a citation of the statistic or a mention of
+/// the abundance basis it is computed over ([`effect_abundance_anchors`],
+/// the same anchoring [`check_effect_ratio_prose`] uses). Unanchored, a
+/// bag-of-words scan of the whole narrative reads any stray "higher"
+/// anywhere in the text as an abundance claim: a deposited run tripped this
+/// on the sign-convention sentence "positive log2FC = higher in treated" —
+/// a statement about which direction a positive effect means, in a narrative
+/// that never mentions abundance at all — while the report it accompanied
+/// stated the direction correctly. Both surfaces are scanned (the stage
+/// narrative AND the emitted report), because the abundance sentence
+/// normally lives in the report, not in the stage's `result.json`.
+///
 /// The same check also guards how the statistic is DESCRIBED, in the stage
 /// narrative and in the emitted report: the deposited report called it an
 /// "average normalized count ratio" / a "mean baseMean" and attributed it to
@@ -628,38 +667,133 @@ fn check_rp1_effect_direction(
     report.checked.push("RP-1");
 
     if let Some(narrative) = de.get("narrative_text").and_then(Value::as_str) {
-        let lower = narrative.to_lowercase();
-        let says_above = ["above", "higher", "greater", "exceed"]
-            .iter()
-            .any(|w| lower.contains(w));
-        let says_below = ["below", "lower", "less than", "beneath"]
-            .iter()
-            .any(|w| lower.contains(w));
-        let finding = if ratio < 1.0 && says_above && !says_below {
-            Some(format!(
-                "narrative describes the top-effect abundance as ABOVE background, but \
-                 top_effect_abundance_ratio = {ratio:.4} (< 1) means the top effects sit BELOW \
-                 the whole-set median abundance"
-            ))
-        } else if ratio > 1.0 && says_below && !says_above {
-            Some(format!(
-                "narrative describes the top-effect abundance as BELOW background, but \
-                 top_effect_abundance_ratio = {ratio:.4} (> 1) means the top effects sit ABOVE \
-                 the whole-set median abundance"
-            ))
-        } else {
-            None
-        };
-        if let Some(detail) = finding {
-            report.findings.push(ReportingFinding {
-                invariant: "RP-1",
-                severity: Severity::Warn,
-                detail,
-            });
-        }
+        check_effect_direction_claim(
+            narrative,
+            ratio,
+            "the differential-expression stage narrative",
+            report,
+        );
+    }
+    if let Some(prose) = read_agent_report_prose(outputs) {
+        check_effect_direction_claim(&prose, ratio, "the emitted report", report);
     }
 
     check_effect_ratio_prose(package_root, outputs, ratio, report);
+}
+
+/// Direction words that place the top-effect abundance ABOVE the whole-set
+/// median, and their BELOW counterparts. Compared against a single clause, not
+/// the whole document (see [`check_effect_direction_claim`]).
+const EFFECT_DIRECTION_ABOVE: &[&str] = &["above", "higher", "greater", "exceed"];
+/// The BELOW counterparts of [`EFFECT_DIRECTION_ABOVE`].
+const EFFECT_DIRECTION_BELOW: &[&str] = &["below", "lower", "less than", "beneath"];
+
+/// Words that name the ABUNDANCE BASIS `top_effect_abundance_ratio` is computed
+/// over, so a direction word next to one of them is describing that statistic.
+/// Modality-neutral: this is the general abundance/information-basis vocabulary
+/// the validation contract itself enumerates for the recomputed ratio ("base
+/// mean / mean count / mean expression / logCPM"), not a per-modality result
+/// vocabulary — nothing here names a feature type, an effect column, or a
+/// statistical method.
+const EFFECT_ABUNDANCE_NOUNS: &[&str] = &[
+    "abundance",
+    "abundant",
+    "background",
+    "base mean",
+    "basemean",
+    "mean count",
+    "mean expression",
+    "expression level",
+    "logcpm",
+];
+
+/// The clause-terminating punctuation [`clause_around`] splits on. A `.` only
+/// terminates when the next byte is whitespace or the text ends, so a decimal
+/// point inside a cited value ("0.208") never splits a clause.
+fn is_clause_terminator(bytes: &[u8], at: usize) -> bool {
+    match bytes[at] {
+        b'\n' | b'\r' => true,
+        b'.' | b';' | b'!' | b'?' => bytes.get(at + 1).is_none_or(u8::is_ascii_whitespace),
+        _ => false,
+    }
+}
+
+/// The clause containing `byte_at`: the span between the nearest clause
+/// terminators either side. Every split point is an ASCII byte, so the returned
+/// slice can never straddle a char boundary.
+fn clause_around(text: &str, byte_at: usize) -> &str {
+    let at = byte_at.min(text.len());
+    let bytes = text.as_bytes();
+    let mut start = 0;
+    for i in (0..at).rev() {
+        if is_clause_terminator(bytes, i) {
+            start = i + 1;
+            break;
+        }
+    }
+    let mut end = text.len();
+    for i in at..bytes.len() {
+        if is_clause_terminator(bytes, i) {
+            end = i;
+            break;
+        }
+    }
+    text[start..end].trim()
+}
+
+/// Byte offsets at which the top-effect abundance statistic is being DESCRIBED:
+/// every [`effect_ratio_anchors`] citation site plus every mention of the
+/// abundance basis in [`EFFECT_ABUNDANCE_NOUNS`]. A direction word is only
+/// attributable to this statistic when it shares a clause with one of these.
+fn effect_abundance_anchors(text_lc: &str, ratio: f64) -> Vec<usize> {
+    let mut anchors = effect_ratio_anchors(text_lc, ratio);
+    for noun in EFFECT_ABUNDANCE_NOUNS {
+        anchors.extend(find_all(text_lc, noun));
+    }
+    anchors.sort_unstable();
+    anchors.dedup();
+    anchors
+}
+
+/// How much of the offending clause the finding quotes, so a reviewer can see
+/// exactly what was matched without the finding growing unbounded.
+const EFFECT_DIRECTION_QUOTE_BYTES: usize = 200;
+
+/// Warn when a clause that DESCRIBES the top-effect abundance states a
+/// direction contradicting the sign of the computed ratio. At most one finding
+/// per surface: the same sentence is normally cited several times over (the
+/// field name and the rendered value are both anchors), and one warning per
+/// document is the actionable unit.
+fn check_effect_direction_claim(
+    text: &str,
+    ratio: f64,
+    surface: &str,
+    report: &mut ReportingInvariantsReport,
+) {
+    let text_lc = text.to_lowercase();
+    for anchor in effect_abundance_anchors(&text_lc, ratio) {
+        let clause = clause_around(&text_lc, anchor);
+        let says_above = EFFECT_DIRECTION_ABOVE.iter().any(|w| clause.contains(w));
+        let says_below = EFFECT_DIRECTION_BELOW.iter().any(|w| clause.contains(w));
+        let (claimed, actual, comparator) = if ratio < 1.0 && says_above && !says_below {
+            ("ABOVE", "BELOW", "<")
+        } else if ratio > 1.0 && says_below && !says_above {
+            ("BELOW", "ABOVE", ">")
+        } else {
+            continue;
+        };
+        let quote = byte_window(clause, 0, 0, EFFECT_DIRECTION_QUOTE_BYTES);
+        report.findings.push(ReportingFinding {
+            invariant: "RP-1",
+            severity: Severity::Warn,
+            detail: format!(
+                "{surface} describes the top-effect abundance as {claimed} background, but \
+                 top_effect_abundance_ratio = {ratio:.4} ({comparator} 1) means the top effects \
+                 sit {actual} the whole-set median abundance — clause: \"{quote}\""
+            ),
+        });
+        return;
+    }
 }
 
 /// Byte offsets in `text_lc` at which the top-effect abundance ratio is being
@@ -701,13 +835,19 @@ fn check_effect_ratio_prose(
     }
     let mean_re = Regex::new(r"\b(?:mean|means|average|averaged|averages)\b")
         .expect("static RP-1 mean-word regex compiles");
-    let samples_re = Regex::new(r"\b(?:across|among|over|within|of)\s+(?:the\s+)?(\d[\d,]*)\s+samples?\b")
-        .expect("static RP-1 sample-attribution regex compiles");
+    let samples_re =
+        Regex::new(r"\b(?:across|among|over|within|of)\s+(?:the\s+)?(\d[\d,]*)\s+samples?\b")
+            .expect("static RP-1 sample-attribution regex compiles");
 
     let mut mean_word: Option<String> = None;
     let mut sample_claim: Option<String> = None;
     for anchor in anchors {
-        let win = byte_window(&text_lc, anchor, EFFECT_RATIO_WINDOW_BYTES, EFFECT_RATIO_WINDOW_BYTES);
+        let win = byte_window(
+            &text_lc,
+            anchor,
+            EFFECT_RATIO_WINDOW_BYTES,
+            EFFECT_RATIO_WINDOW_BYTES,
+        );
         if mean_word.is_none() {
             if let Some(m) = mean_re.find(win) {
                 mean_word = Some(m.as_str().to_string());
@@ -824,7 +964,14 @@ fn mentions_mixed_model_affirmatively(reports: &str) -> bool {
     // Negation cues that, within the short window immediately before a phrase,
     // mark the mention as a disavowal rather than a label.
     const NEGATION_CUES: &[&str] = &[
-        "not ", "n't ", "rather than", "instead of", "no ", "without", "isn't", "aren't",
+        "not ",
+        "n't ",
+        "rather than",
+        "instead of",
+        "no ",
+        "without",
+        "isn't",
+        "aren't",
     ];
     const WINDOW: usize = 24;
     let lower = reports.to_lowercase();
@@ -977,7 +1124,8 @@ fn journal_matches(claimed: &str, recorded: &str) -> bool {
     {
         return true;
     }
-    norm_alnum(claimed) == journal_initialism(&rt) || norm_alnum(recorded) == journal_initialism(&ct)
+    norm_alnum(claimed) == journal_initialism(&rt)
+        || norm_alnum(recorded) == journal_initialism(&ct)
 }
 
 /// The recorded first author's surname, lowercased, for anchoring a citation
@@ -1072,7 +1220,8 @@ fn check_prov_citation(text_lc: &str, prov: &DataProvenance, out: &mut Vec<Strin
     )
     .expect("static RP-PROV citation regex compiles");
     for record in &prov.records {
-        let (Some(surname), Some(journal)) = (first_author_surname(record), record.journal.as_ref())
+        let (Some(surname), Some(journal)) =
+            (first_author_surname(record), record.journal.as_ref())
         else {
             continue;
         };
@@ -1153,9 +1302,10 @@ fn check_prov_local_copy_claim(text_lc: &str, prov: &DataProvenance, out: &mut V
         return;
     }
     for phrase in SME_SUPPLIED_PHRASES {
-        let Some(at) = find_all(text_lc, phrase).into_iter().find(|at| {
-            !sme_phrase_is_inert(text_lc, *at)
-        }) else {
+        let Some(at) = find_all(text_lc, phrase)
+            .into_iter()
+            .find(|at| !sme_phrase_is_inert(text_lc, *at))
+        else {
             continue;
         };
         let actual = prov
@@ -1192,8 +1342,8 @@ fn check_prov_accession(prose: &str, prov: &DataProvenance, out: &mut Vec<String
     if recorded.is_empty() {
         return;
     }
-    let acc_re =
-        Regex::new(r"\b([A-Za-z]{2,6})[-_]?(\d{3,12})\b").expect("static RP-PROV accession regex compiles");
+    let acc_re = Regex::new(r"\b([A-Za-z]{2,6})[-_]?(\d{3,12})\b")
+        .expect("static RP-PROV accession regex compiles");
     let mut seen: BTreeSet<String> = BTreeSet::new();
     for line in prose.lines() {
         let line_lc = line.to_lowercase();
@@ -1262,7 +1412,10 @@ const QC_ARTIFACT_MARKERS: &[&str] = &[
 /// domain-specific entity.
 fn is_sample_qc_artifact(file_name: &str) -> bool {
     let lower = file_name.to_lowercase();
-    let squashed: String = lower.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+    let squashed: String = lower
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect();
     if QC_ARTIFACT_MARKERS.iter().any(|m| squashed.contains(m)) {
         return true;
     }
@@ -1535,8 +1688,7 @@ fn check_rc_count(package_root: &Path, outputs: &Path, report: &mut ReportingInv
         if !source_path.exists() {
             continue;
         }
-        let Ok((headers, rows)) = crate::report_contract::assemble::read_table(&source_path)
-        else {
+        let Ok((headers, rows)) = crate::report_contract::assemble::read_table(&source_path) else {
             continue;
         };
         ran = true;
@@ -1548,8 +1700,7 @@ fn check_rc_count(package_root: &Path, outputs: &Path, report: &mut ReportingInv
                 artifact.stage_id, artifact.n_significant, stats.n_significant, schema.artifact
             ));
         }
-        if let (Some(reported), Some(actual)) =
-            (&artifact.direction_split, &stats.direction_split)
+        if let (Some(reported), Some(actual)) = (&artifact.direction_split, &stats.direction_split)
         {
             if reported.up != actual.up || reported.down != actual.down {
                 mismatches.push(format!(
@@ -1848,9 +1999,926 @@ fn check_rc_table(outputs: &Path, report: &mut ReportingInvariantsReport) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// RC-ROW (Required) — a narrative table row must exist in its source table
+// ---------------------------------------------------------------------------
+
+/// One markdown table lifted out of a report, with the caption line above it.
+struct NarrativeTable {
+    /// 1-based line number of the header row, so a finding names its site.
+    line: usize,
+    /// Nearest preceding non-blank line — the table's caption.
+    heading: String,
+    /// Header cells, in column order.
+    header: Vec<String>,
+    /// Data rows (the `|---|` alignment row excluded), in table order.
+    rows: Vec<Vec<String>>,
+}
+
+/// Split one markdown table line into trimmed cells, dropping the leading and
+/// trailing pipe. A cell cannot itself contain a pipe in this syntax, so a
+/// header like `| |log2FC| range | Count |` splits into four cells — and then
+/// simply resolves to no entity role, which is the skip path.
+fn split_markdown_row(line: &str) -> Vec<String> {
+    let trimmed = line.trim();
+    let inner = trimmed
+        .strip_prefix('|')
+        .unwrap_or(trimmed)
+        .strip_suffix('|')
+        .unwrap_or_else(|| trimmed.strip_prefix('|').unwrap_or(trimmed));
+    inner.split('|').map(|c| c.trim().to_string()).collect()
+}
+
+/// `true` for a markdown alignment row (`|---|:--:|`): at least one non-empty
+/// cell, and every non-empty cell is dashes with optional bounding colons.
+fn is_markdown_alignment_row(cells: &[String]) -> bool {
+    let mut saw = false;
+    for cell in cells {
+        if cell.is_empty() {
+            continue;
+        }
+        saw = true;
+        let core = cell.trim_start_matches(':').trim_end_matches(':');
+        if core.is_empty() || !core.chars().all(|c| c == '-') {
+            return false;
+        }
+    }
+    saw
+}
+
+/// Every markdown table in `text`, in document order. A table is a pipe line
+/// followed by an alignment row followed by zero or more pipe lines.
+fn find_markdown_tables(text: &str) -> Vec<NarrativeTable> {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        let is_table_start = lines[i].trim_start().starts_with('|')
+            && lines
+                .get(i + 1)
+                .is_some_and(|next| next.trim_start().starts_with('|'))
+            && is_markdown_alignment_row(&split_markdown_row(lines[i + 1]));
+        if !is_table_start {
+            i += 1;
+            continue;
+        }
+        let header = split_markdown_row(lines[i]);
+        let heading = lines[..i]
+            .iter()
+            .rev()
+            .find(|l| !l.trim().is_empty())
+            .map(|l| l.trim().to_string())
+            .unwrap_or_default();
+        let mut rows = Vec::new();
+        let mut j = i + 2;
+        while j < lines.len() && lines[j].trim_start().starts_with('|') {
+            let cells = split_markdown_row(lines[j]);
+            if !is_markdown_alignment_row(&cells) {
+                rows.push(cells);
+            }
+            j += 1;
+        }
+        out.push(NarrativeTable {
+            line: i + 1,
+            heading,
+            header,
+            rows,
+        });
+        i = j;
+    }
+    out
+}
+
+/// Remove a `<!-- marker START -->…<!-- marker END -->` block, repeatedly.
+/// Mirrors [`strip_provenance_section`], which is hardcoded to the provenance
+/// marker pair and so cannot be reused for the full-table pair.
+fn strip_marked_block(text: &str, start: &str, end: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let (Some(s), Some(e)) = (rest.find(start), rest.find(end)) {
+        if e < s {
+            break;
+        }
+        out.push_str(&rest[..s]);
+        rest = &rest[e + end.len()..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The AGENT-authored tables of one report: the two SYSTEM-owned marker blocks
+/// (the deterministically rendered complete significant-entities tables and the
+/// data-provenance block) are excluded. Those are generated from
+/// `report-data.json`, which RC-COUNT and the report-data→source transcription
+/// check already gate — they are the reference, not an assertion under test.
+fn agent_authored_tables(report_text: &str) -> Vec<NarrativeTable> {
+    let text = strip_marked_block(
+        &strip_provenance_section(report_text),
+        FULL_TABLE_START,
+        FULL_TABLE_END,
+    );
+    find_markdown_tables(&text)
+}
+
+/// Canonical form for comparing a narrative cell against a source cell: NFC
+/// composition then ASCII casefold, mirroring the normalization
+/// [`crate::claim_verifier`] applies between narrative text and table cells.
+fn normalize_cell(s: &str) -> String {
+    s.trim().nfc().collect::<String>().to_ascii_lowercase()
+}
+
+/// Characters a renderer substitutes for ASCII hyphen-minus in a negative
+/// number: U+2212 MINUS SIGN, U+2010 HYPHEN, U+2011 NON-BREAKING HYPHEN. An
+/// en/em dash is deliberately NOT translated — those denote a range or an
+/// absent value, and neither is a point assertion.
+const MINUS_FORMS: &[char] = &['\u{2212}', '\u{2010}', '\u{2011}'];
+
+/// Parse a numeric assertion out of a markdown table cell: strips markdown
+/// emphasis/code markers and thousands separators, normalizes the minus forms
+/// above. Returns `None` — "no point assertion here", never a mismatch — for an
+/// empty/NA cell and for a bound or approximation (`< 0.001`, `~2`, `≥ 2`),
+/// which asserts a range rather than a value.
+fn parse_markdown_number(cell: &str) -> Option<f64> {
+    let cleaned: String = cell
+        .chars()
+        .filter(|c| !matches!(c, '*' | '`' | '_' | ','))
+        .map(|c| if MINUS_FORMS.contains(&c) { '-' } else { c })
+        .collect();
+    let s = cleaned.trim();
+    if matches!(
+        s.chars().next()?,
+        '<' | '>' | '=' | '~' | '\u{2264}' | '\u{2265}'
+    ) {
+        return None;
+    }
+    s.parse::<f64>().ok().filter(|v| v.is_finite())
+}
+
+/// A source result artifact indexed for narrative-row lookup.
+struct SourceRowIndex {
+    headers: csv::StringRecord,
+    rows: Vec<csv::StringRecord>,
+    /// Roles resolved by [`resolve_ranking_columns`] — the ONE column-role
+    /// resolver, shared with the report-data assembler and the ranking module,
+    /// so RC-ROW can never disagree with them about which column is which.
+    cols: RankingColumns,
+    /// Normalized cell value → the row indices carrying it, built over the
+    /// columns that can NAME a row. The resolved measurement columns are
+    /// excluded, and so is any other column's cell that parses as a number: a
+    /// bare measurement is not a row identifier, and indexing one would let a
+    /// narrative effect value resolve an unrelated row. The entity and declared
+    /// grouping columns are indexed unconditionally, so a modality whose row
+    /// identifier IS numeric (a taxon id, a genomic position) still resolves.
+    keys: BTreeMap<String, Vec<usize>>,
+}
+
+impl SourceRowIndex {
+    fn build(
+        headers: csv::StringRecord,
+        rows: Vec<csv::StringRecord>,
+        schema: &ResultSchema,
+        synonyms: &PolicyColumnSynonyms,
+    ) -> Option<Self> {
+        let cols = resolve_ranking_columns(&headers, schema, synonyms)?;
+        let grouping = schema.grouping_column.as_deref().and_then(|g| {
+            headers
+                .iter()
+                .position(|h| h.trim().eq_ignore_ascii_case(g.trim()))
+        });
+        let mut keys: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+        for (row_index, row) in rows.iter().enumerate() {
+            for (ci, cell) in row.iter().enumerate() {
+                if Some(ci) == cols.effect || Some(ci) == cols.significance {
+                    continue;
+                }
+                let identifier = ci == cols.entity || Some(ci) == grouping;
+                if !identifier && parse_markdown_number(cell).is_some() {
+                    continue;
+                }
+                let key = normalize_cell(cell);
+                if key.is_empty() {
+                    continue;
+                }
+                let bucket = keys.entry(key).or_default();
+                if bucket.last() != Some(&row_index) {
+                    bucket.push(row_index);
+                }
+            }
+        }
+        Some(Self {
+            headers,
+            rows,
+            cols,
+            keys,
+        })
+    }
+
+    /// Row indices whose cells include `value` — the same ANY-CELL resolution
+    /// `claim_verifier::verify_keyed_cell` performs, deliberately not an
+    /// entity-column-only lookup: a narrative table routinely names a row by a
+    /// column the schema does not declare as the entity (a bare term where the
+    /// entity column carries a `COLLECTION: term` composite, an accession where
+    /// the entity column carries a label, or the reverse).
+    fn lookup(&self, value: &str) -> &[usize] {
+        self.keys
+            .get(&normalize_cell(value))
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+    }
+
+    fn number(&self, row_index: usize, column: usize) -> Option<f64> {
+        let raw = self.rows.get(row_index)?.get(column)?;
+        raw.trim().parse::<f64>().ok().filter(|v| v.is_finite())
+    }
+}
+
+/// Every header spelling the schema + policy accept for a role, keyed by its
+/// casefolded form AND its space→underscore variant, so a markdown caption
+/// (`| Pathway | Collection | NES | padj |`) can be rewritten into the exact
+/// spellings [`resolve_ranking_columns`] matches on.
+///
+/// This is a case/space FOLDER feeding the one existing resolver, not a second
+/// resolver: which candidate wins which role still lives entirely in
+/// `resolve_ranking_columns`. Making `pathway_ranking::resolve_column`
+/// case-insensitive would delete this function outright.
+fn schema_header_spellings(
+    schema: &ResultSchema,
+    synonyms: &PolicyColumnSynonyms,
+) -> BTreeMap<String, String> {
+    let names = std::iter::once(schema.entity_column.as_str())
+        .chain(schema.entity_column_aliases.iter().map(String::as_str))
+        .chain(schema.signed_effect_column.as_deref())
+        .chain(schema.signed_effect_aliases.iter().map(String::as_str))
+        .chain(schema.significance.as_ref().map(|s| s.column.as_str()))
+        .chain(schema.grouping_column.as_deref())
+        .chain(synonyms.entity.iter().map(String::as_str))
+        .chain(synonyms.effect.iter().map(String::as_str))
+        .chain(synonyms.significance.iter().map(String::as_str));
+    let mut out: BTreeMap<String, String> = BTreeMap::new();
+    for name in names {
+        let lower = name.trim().to_ascii_lowercase();
+        out.entry(lower.replace(' ', "_"))
+            .or_insert_with(|| name.trim().to_string());
+        out.entry(lower).or_insert_with(|| name.trim().to_string());
+    }
+    out
+}
+
+/// Rewrite a markdown header row into the schema's own column spellings so the
+/// exact-match [`resolve_ranking_columns`] can read it. A cell matching no
+/// candidate is passed through unchanged (it resolves to no role).
+fn canonicalize_header(
+    header: &[String],
+    spellings: &BTreeMap<String, String>,
+) -> csv::StringRecord {
+    let cells: Vec<String> = header
+        .iter()
+        .map(|cell| {
+            let lower = cell.trim().to_ascii_lowercase();
+            spellings
+                .get(&lower)
+                .or_else(|| spellings.get(&lower.replace(' ', "_")))
+                .cloned()
+                .unwrap_or_else(|| cell.trim().to_string())
+        })
+        .collect();
+    csv::StringRecord::from(cells)
+}
+
+/// The transcription tolerances RC-ROW compares under, read from the package's
+/// own `interpretation-policy.json` through [`crate::claim_extractor::ExtractorConfig`]
+/// — the same two policy fields (`tolerance.log2FcAbsoluteDelta` and
+/// `tolerance.pvalueRelativeDelta`) `claim_verifier` compares a narrative number
+/// against a table cell with. RC-ROW cannot invent a tolerance of its own: a
+/// package whose policy declares none is skipped entirely.
+struct NarrativeTolerances {
+    effect_absolute: f64,
+    significance_relative: f64,
+}
+
+/// A claimed significance of exactly `0` is display rounding ("padj 0.000" in a
+/// narrative table rounds a true tiny positive p to zero): it agrees iff the
+/// observed value is itself under this reporting floor. Kept byte-identical to
+/// `claim_verifier`'s `PVALUE_ZERO_DISPLAY_FLOOR`.
+const SIGNIFICANCE_ZERO_DISPLAY_FLOOR: f64 = 1e-3;
+
+impl NarrativeTolerances {
+    fn load(package_root: &Path) -> Option<Self> {
+        for dir in [package_root.join("policies"), package_root.join("config")] {
+            let Some(path) =
+                crate::claim_extractor::resolve_policy_file(&dir, "interpretation-policy.json")
+            else {
+                continue;
+            };
+            let Ok(raw) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let Ok(policy) = serde_json::from_str::<Value>(&raw) else {
+                continue;
+            };
+            let Ok(cfg) = crate::claim_extractor::ExtractorConfig::from_policy(&policy) else {
+                continue;
+            };
+            return Some(Self {
+                effect_absolute: cfg.log2fc_tolerance,
+                significance_relative: cfg.pvalue_relative_tolerance,
+            });
+        }
+        None
+    }
+
+    /// `true` when a narrative cell agrees with its source cell for this role:
+    /// an absolute delta for an effect, and the same order-of-magnitude band
+    /// `|ln(claimed / observed)| <= ln(1 + rel)` for a significance value, so a
+    /// legitimately re-rendered `7.06e-132` still agrees with `7.05596e-132`.
+    ///
+    /// The significance branch MIRRORS `claim_verifier::pvalue_within_tolerance`
+    /// (private there) so one policy field cannot mean two things on two paths.
+    /// Making that function `pub(crate)` deletes this branch in favour of a
+    /// direct call.
+    fn agrees(&self, role: &RoleCell, claimed: f64, observed: f64) -> bool {
+        if !role.significance {
+            return (claimed - observed).abs() <= self.effect_absolute;
+        }
+        if claimed == observed {
+            return true;
+        }
+        if claimed == 0.0 {
+            return observed > 0.0 && observed <= SIGNIFICANCE_ZERO_DISPLAY_FLOOR;
+        }
+        if claimed <= 0.0 || observed <= 0.0 {
+            return false;
+        }
+        (claimed / observed).ln().abs() <= (1.0 + self.significance_relative).ln()
+    }
+}
+
+/// One numeric cell RC-ROW compares: its column in the narrative table, the
+/// same role's column in the source table, and which tolerance applies.
+#[derive(Clone, Copy)]
+struct RoleCell {
+    narrative: usize,
+    source: usize,
+    /// `true` → significance (relative band); `false` → effect (absolute delta).
+    significance: bool,
+}
+
+/// A narrative table bound to one stage's source artifact.
+struct TableBinding {
+    stage_id: String,
+    artifact: String,
+    /// Narrative column whose values resolve source rows.
+    lookup: usize,
+    roles: Vec<RoleCell>,
+    /// Rows whose lookup value resolved to EXACTLY ONE source row.
+    resolved: usize,
+    /// Of those, the rows whose every compared cell agreed.
+    agreeing: usize,
+}
+
+/// The outcome of trying to identify which source artifact a narrative table
+/// transcribes.
+enum TableBindingOutcome {
+    /// No declared schema exposes this table's roles — there is no numeric
+    /// assertion to re-derive.
+    Unresolved,
+    /// A schema's roles resolved, but too few rows corroborate the binding to
+    /// justify faulting the rest.
+    Uncorroborated {
+        stage_id: String,
+        resolved: usize,
+        agreeing: usize,
+    },
+    Bound(TableBinding),
+}
+
+/// Rows that must both RESOLVE and AGREE before RC-ROW trusts a binding enough
+/// to fault the remaining rows. Two independently corroborated rows is the
+/// floor: one accidental match is not evidence that a table transcribes an
+/// artifact.
+const RC_ROW_MIN_CORROBORATING_ROWS: usize = 2;
+
+/// Identify the source artifact a narrative table transcribes, from the table's
+/// OWN contents rather than from its caption.
+///
+/// A candidate (stage, schema) requires (1) the table's header to resolve the
+/// schema's entity role through [`resolve_ranking_columns`], and (2) at least
+/// one numeric role present on BOTH sides. Among candidates, the winner is the
+/// (stage, lookup-column) pair resolving the most rows uniquely AND agreeing on
+/// the most of them — ties broken by stage id then column index, so the choice
+/// is deterministic.
+///
+/// The agreement term is what keeps this from false-positive faulting: a table
+/// about something else entirely can coincidentally share a few identifiers with
+/// a result artifact, but its numbers will not agree with that artifact's, so it
+/// is reported as uncorroborated and skipped instead of having every row faulted.
+fn bind_narrative_table(
+    table: &NarrativeTable,
+    schemas: &BTreeMap<String, ResultSchema>,
+    sources: &BTreeMap<String, SourceRowIndex>,
+    synonyms: &PolicyColumnSynonyms,
+    tol: &NarrativeTolerances,
+) -> TableBindingOutcome {
+    let mut best: Option<TableBinding> = None;
+    for (stage_id, source) in sources {
+        let Some(schema) = schemas.get(stage_id) else {
+            continue;
+        };
+        let header = canonicalize_header(&table.header, &schema_header_spellings(schema, synonyms));
+        let Some(cols) = resolve_ranking_columns(&header, schema, synonyms) else {
+            continue;
+        };
+        let mut roles: Vec<RoleCell> = Vec::new();
+        if let (Some(narrative), Some(source_col)) = (cols.effect, source.cols.effect) {
+            roles.push(RoleCell {
+                narrative,
+                source: source_col,
+                significance: false,
+            });
+        }
+        if let (Some(narrative), Some(source_col)) = (cols.significance, source.cols.significance) {
+            roles.push(RoleCell {
+                narrative,
+                source: source_col,
+                significance: true,
+            });
+        }
+        if roles.is_empty() {
+            continue;
+        }
+        for lookup in 0..table.header.len() {
+            if roles.iter().any(|r| r.narrative == lookup) {
+                continue;
+            }
+            let mut resolved = 0usize;
+            let mut agreeing = 0usize;
+            for cells in &table.rows {
+                let Some(key) = cells.get(lookup) else {
+                    continue;
+                };
+                let hits = source.lookup(key);
+                if hits.len() != 1 {
+                    continue;
+                }
+                resolved += 1;
+                if roles.iter().all(|role| {
+                    match (
+                        cells
+                            .get(role.narrative)
+                            .and_then(|c| parse_markdown_number(c)),
+                        source.number(hits[0], role.source),
+                    ) {
+                        (Some(claimed), Some(observed)) => tol.agrees(role, claimed, observed),
+                        // Nothing comparable in this cell: it neither
+                        // corroborates nor contradicts the binding.
+                        _ => true,
+                    }
+                }) {
+                    agreeing += 1;
+                }
+            }
+            let better = best
+                .as_ref()
+                .is_none_or(|b| (agreeing, resolved) > (b.agreeing, b.resolved));
+            if better {
+                best = Some(TableBinding {
+                    stage_id: stage_id.clone(),
+                    artifact: schema.artifact.clone(),
+                    lookup,
+                    roles: roles.clone(),
+                    resolved,
+                    agreeing,
+                });
+            }
+        }
+    }
+    let Some(binding) = best else {
+        return TableBindingOutcome::Unresolved;
+    };
+    let n_rows = table.rows.len();
+    let corroborated = binding.agreeing >= RC_ROW_MIN_CORROBORATING_ROWS
+        && binding.resolved * 2 > n_rows
+        && binding.agreeing * 2 > binding.resolved;
+    if corroborated {
+        TableBindingOutcome::Bound(binding)
+    } else {
+        TableBindingOutcome::Uncorroborated {
+            stage_id: binding.stage_id,
+            resolved: binding.resolved,
+            agreeing: binding.agreeing,
+        }
+    }
+}
+
+/// Disambiguate a narrative row that matched SEVERAL source rows, using the
+/// row's other non-numeric cells as additional keys — the composite-key
+/// resolution `claim_verifier::verify_keyed_cell` performs (a collection cell
+/// plus a term cell), generalized to whatever extra columns the table carries.
+/// `None` when the extra cells do not single out exactly one row: an ambiguous
+/// row is skipped, never faulted.
+fn narrow_by_context(
+    cells: &[String],
+    binding: &TableBinding,
+    source: &SourceRowIndex,
+    hits: &[usize],
+) -> Option<usize> {
+    let context: Vec<&String> = cells
+        .iter()
+        .enumerate()
+        .filter(|(ci, cell)| {
+            *ci != binding.lookup
+                && !binding.roles.iter().any(|r| r.narrative == *ci)
+                && !cell.is_empty()
+                && parse_markdown_number(cell).is_none()
+        })
+        .map(|(_, cell)| cell)
+        .collect();
+    if context.is_empty() {
+        return None;
+    }
+    let mut narrowed = hits.iter().copied().filter(|row_index| {
+        source.rows.get(*row_index).is_some_and(|row| {
+            context.iter().all(|want| {
+                let want = normalize_cell(want);
+                row.iter().any(|v| normalize_cell(v) == want)
+            })
+        })
+    });
+    let first = narrowed.next()?;
+    narrowed.next().is_none().then_some(first)
+}
+
+/// Re-derive every data row of a BOUND narrative table against its source
+/// artifact, appending required failures and skip warnings.
+fn verify_bound_table(
+    site: &str,
+    table: &NarrativeTable,
+    binding: &TableBinding,
+    source: &SourceRowIndex,
+    tol: &NarrativeTolerances,
+    failures: &mut Vec<String>,
+    skipped: &mut Vec<String>,
+) {
+    let artifact = format!("runtime/outputs/{}/{}", binding.stage_id, binding.artifact);
+    for cells in &table.rows {
+        let key = cells
+            .get(binding.lookup)
+            .map(String::as_str)
+            .unwrap_or_default();
+        if key.is_empty() {
+            continue;
+        }
+        let hits = source.lookup(key);
+        if hits.is_empty() {
+            failures.push(format!("row `{key}` is not a row of `{artifact}`"));
+            continue;
+        }
+        let row_index = if hits.len() == 1 {
+            hits[0]
+        } else {
+            match narrow_by_context(cells, binding, source, hits) {
+                Some(row_index) => row_index,
+                None => {
+                    skipped.push(format!(
+                        "{site} row `{key}` matches {} rows of `{artifact}` — ambiguous, its \
+                         numeric cells were not checked",
+                        hits.len()
+                    ));
+                    continue;
+                }
+            }
+        };
+        for role in &binding.roles {
+            let Some(claimed) = cells
+                .get(role.narrative)
+                .and_then(|c| parse_markdown_number(c))
+            else {
+                continue;
+            };
+            let Some(observed) = source.number(row_index, role.source) else {
+                continue;
+            };
+            if !tol.agrees(role, claimed, observed) {
+                failures.push(format!(
+                    "row `{key}` states {} = {claimed} but `{artifact}` holds {observed}",
+                    source.headers.get(role.source).unwrap_or_default()
+                ));
+            }
+        }
+    }
+}
+
+enum RankedTableCheck {
+    Pass,
+    Failure(String),
+    Skipped(String),
+}
+
+/// Re-derive a narrative "Top N" table from the canonical ranking retained in
+/// `report-data.json`. Row keys are first resolved back to source rows, so a
+/// table that displays a term alias is compared through the source entity
+/// column rather than through presentation spelling.
+fn verify_ranked_table(
+    table: &NarrativeTable,
+    binding: &TableBinding,
+    source: &SourceRowIndex,
+    ranking: &PathwayRanking,
+    claimed_n: usize,
+) -> RankedTableCheck {
+    if claimed_n == 0 {
+        return RankedTableCheck::Failure(
+            "caption claims Top 0, which has no ranking meaning".into(),
+        );
+    }
+    let heading = table.heading.to_ascii_lowercase();
+    let positive = [
+        "enriched",
+        "positive",
+        "upregulated",
+        "up-associated",
+        "up associated",
+    ]
+    .iter()
+    .any(|cue| heading.contains(cue));
+    let negative = [
+        "depleted",
+        "negative",
+        "downregulated",
+        "down-associated",
+        "down associated",
+    ]
+    .iter()
+    .any(|cue| heading.contains(cue));
+
+    let (ranked, eligible, class) = if ranking.directional {
+        match (positive, negative) {
+            (true, false) => (
+                ranking.enriched.as_slice(),
+                ranking.eligible_enriched,
+                "enriched",
+            ),
+            (false, true) => (
+                ranking.depleted.as_slice(),
+                ranking.eligible_depleted,
+                "depleted",
+            ),
+            (false, false) => {
+                return RankedTableCheck::Skipped(
+                    "directional ranking caption does not identify the enriched or depleted class"
+                        .into(),
+                );
+            }
+            (true, true) => {
+                return RankedTableCheck::Failure(
+                    "ranking caption mixes positive and negative classes in one Top-N claim".into(),
+                );
+            }
+        }
+    } else {
+        if positive || negative {
+            return RankedTableCheck::Failure(
+                "caption asserts a direction but the source artifact has no resolved signed-effect column"
+                    .into(),
+            );
+        }
+        (
+            ranking.undirected.as_slice(),
+            ranking.eligible_undirected,
+            "undirected",
+        )
+    };
+
+    if claimed_n > ranking.retained_per_class && eligible > ranking.retained_per_class {
+        return RankedTableCheck::Failure(format!(
+            "caption requests Top {claimed_n} {class} rows but report-data.json retains only the \
+             canonical first {} of {eligible} eligible rows",
+            ranking.retained_per_class
+        ));
+    }
+
+    let mut actual: Vec<String> = Vec::new();
+    for cells in &table.rows {
+        let Some(key) = cells.get(binding.lookup) else {
+            return RankedTableCheck::Skipped("ranking row has no lookup cell".into());
+        };
+        let hits = source.lookup(key);
+        let row_index = if hits.len() == 1 {
+            hits[0]
+        } else if hits.len() > 1 {
+            let Some(index) = narrow_by_context(cells, binding, source, hits) else {
+                return RankedTableCheck::Skipped(format!(
+                    "ranking row `{key}` is ambiguous in the source artifact"
+                ));
+            };
+            index
+        } else {
+            return RankedTableCheck::Skipped(format!(
+                "ranking row `{key}` does not resolve in the source artifact"
+            ));
+        };
+        let Some(entity) = source
+            .rows
+            .get(row_index)
+            .and_then(|row| row.get(source.cols.entity))
+        else {
+            return RankedTableCheck::Skipped(format!(
+                "ranking row `{key}` has no resolved source entity"
+            ));
+        };
+        actual.push(entity.trim().to_string());
+    }
+
+    let expected_len = claimed_n.min(eligible);
+    let expected: Vec<String> = ranked
+        .iter()
+        .take(expected_len)
+        .map(|term| term.entity.clone())
+        .collect();
+    if actual == expected {
+        RankedTableCheck::Pass
+    } else {
+        RankedTableCheck::Failure(format!(
+            "Top {claimed_n} {class} rows disagree with the canonical ranking; expected [{}], \
+             observed [{}]",
+            expected.join(", "),
+            actual.join(", ")
+        ))
+    }
+}
+
+/// RC-ROW: every data row of an agent-authored markdown table in the narrative
+/// must be re-derivable from the source artifact the table transcribes.
+///
+/// A row whose identifier is absent from that artifact, or whose role-resolved
+/// numeric cell contradicts the source cell beyond the policy's transcription
+/// tolerance, is a REQUIRED failure — this is the gap RC-COUNT explicitly leaves
+/// open (it never parses the narrative), and the failure mode it lets through is
+/// the worst one a deposit can ship: a results table that reads as data and is
+/// not.
+///
+/// Every path that cannot establish what a table transcribes is a SKIP with a
+/// warning, never a failure: columns that resolve no role, a source artifact
+/// absent from disk, a policy declaring no tolerance, a row matching several
+/// source rows, a cell that is a bound rather than a value. A false positive
+/// here would block a scientifically-correct deposit, which is strictly worse
+/// than a miss that the surrounding checks may still catch.
+///
+/// ORDERING CLAIMS ARE RE-DERIVED from the canonical `ranking` object in
+/// `report-data.json`. The assembler owns eligibility and ordering under the
+/// declared result schema, so the validator need only resolve the caption's
+/// sign class and compare the source entities against the retained prefix.
+///
+/// Modality-agnostic: the entity / effect / significance roles are resolved by
+/// the single [`resolve_ranking_columns`] resolver from the atom's own
+/// `result_schema` plus the policy's column synonyms, and the tolerances come
+/// from the policy. Nothing here names a feature type, a column, or a method.
+fn check_rc_row(package_root: &Path, outputs: &Path, report: &mut ReportingInvariantsReport) {
+    let Some(schemas) = read_report_schemas(package_root) else {
+        return;
+    };
+    let Some(tol) = NarrativeTolerances::load(package_root) else {
+        return;
+    };
+    let synonyms = load_policy_column_synonyms(package_root);
+    let report_data = read_report_data(outputs);
+
+    let mut sources: BTreeMap<String, SourceRowIndex> = BTreeMap::new();
+    for (stage_id, schema) in &schemas {
+        let path = outputs.join(stage_id).join(&schema.artifact);
+        if !path.exists() {
+            continue;
+        }
+        let Ok((headers, rows)) = crate::report_contract::assemble::read_table(&path) else {
+            continue;
+        };
+        if let Some(index) = SourceRowIndex::build(headers, rows, schema, &synonyms) {
+            sources.insert(stage_id.clone(), index);
+        }
+    }
+    if sources.is_empty() {
+        return;
+    }
+
+    let ranked_caption = Regex::new(r"(?i)\btop[\s\-]+(\d+)\b")
+        .expect("static RC-ROW ranked-caption regex compiles");
+
+    let mut ran = false;
+    let mut offenders: Vec<String> = Vec::new();
+    let mut skipped: Vec<String> = Vec::new();
+    for rel in ["reporting/report.md", "final_reporting/final_report.md"] {
+        let (dir, file) = rel
+            .split_once('/')
+            .expect("static RC-ROW report path has a slash");
+        let Ok(text) = std::fs::read_to_string(outputs.join(dir).join(file)) else {
+            continue;
+        };
+        for table in agent_authored_tables(&text) {
+            if table.rows.is_empty() {
+                continue;
+            }
+            ran = true;
+            let site = format!("{rel}:{}", table.line);
+            match bind_narrative_table(&table, &schemas, &sources, &synonyms, &tol) {
+                TableBindingOutcome::Unresolved => skipped.push(format!(
+                    "{site} table columns resolve no declared result-schema role — its rows were \
+                     not checked"
+                )),
+                TableBindingOutcome::Uncorroborated {
+                    stage_id,
+                    resolved,
+                    agreeing,
+                } => skipped.push(format!(
+                    "{site} table could not be identified as a transcription of any declared \
+                     artifact (closest: {stage_id}, {resolved} of {} row(s) resolved uniquely, \
+                     {agreeing} agreeing) — its rows were not checked",
+                    table.rows.len()
+                )),
+                TableBindingOutcome::Bound(binding) => {
+                    let source = &sources[&binding.stage_id];
+                    if let Some(captures) = ranked_caption.captures(&table.heading) {
+                        let claimed_n = captures
+                            .get(1)
+                            .and_then(|capture| capture.as_str().parse::<usize>().ok());
+                        let ranking = report_data
+                            .as_ref()
+                            .and_then(|data| {
+                                data.artifacts
+                                    .iter()
+                                    .find(|artifact| artifact.stage_id == binding.stage_id)
+                            })
+                            .and_then(|artifact| artifact.ranking.as_ref());
+                        match (claimed_n, ranking) {
+                            (Some(n), Some(ranking)) => {
+                                match verify_ranked_table(&table, &binding, source, ranking, n) {
+                                    RankedTableCheck::Pass => {}
+                                    RankedTableCheck::Failure(detail) => {
+                                        offenders.push(format!("{site} — {detail}"));
+                                    }
+                                    RankedTableCheck::Skipped(detail) => skipped.push(format!(
+                                        "{site} ranking could not be re-derived — {detail}"
+                                    )),
+                                }
+                            }
+                            (None, _) => skipped.push(format!(
+                                "{site} ranking caption has no parseable Top-N count"
+                            )),
+                            (_, None) => skipped.push(format!(
+                                "{site} caption asserts a ranking but report-data.json has no \
+                                 canonical ranking for `{}`",
+                                binding.stage_id
+                            )),
+                        }
+                    }
+                    let mut failures: Vec<String> = Vec::new();
+                    verify_bound_table(
+                        &site,
+                        &table,
+                        &binding,
+                        source,
+                        &tol,
+                        &mut failures,
+                        &mut skipped,
+                    );
+                    if !failures.is_empty() {
+                        offenders.push(format!("{site} — {}", failures.join("; ")));
+                    }
+                }
+            }
+        }
+    }
+    if !ran {
+        return;
+    }
+    report.checked.push("RC-ROW");
+    if !offenders.is_empty() {
+        report.findings.push(ReportingFinding {
+            invariant: "RC-ROW",
+            severity: Severity::Required,
+            detail: format!(
+                "a narrative results table asserts row(s) that its own source artifact does not \
+                 support (absent identifier, or a cell contradicting the source beyond the \
+                 policy's transcription tolerance) — {}",
+                offenders.join(" | ")
+            ),
+        });
+    }
+    if !skipped.is_empty() {
+        report.findings.push(ReportingFinding {
+            invariant: "RC-ROW",
+            severity: Severity::Warn,
+            detail: format!(
+                "narrative table(s) RC-ROW could not fully re-derive, skipped rather than \
+                 faulted — {}",
+                skipped.join(" | ")
+            ),
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::report_contract::{rank_artifact, Comparator, Significance};
     use std::path::PathBuf;
     use tempfile::TempDir;
 
@@ -1865,6 +2933,88 @@ mod tests {
         let path = outputs.join(rel);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, body).unwrap();
+    }
+
+    #[test]
+    fn rc_row_ranked_table_must_match_canonical_prefix() {
+        let schema = ResultSchema {
+            artifact: "pathway_results.tsv".into(),
+            entity_column: "pathway".into(),
+            entity_column_aliases: Vec::new(),
+            significance: Some(Significance {
+                column: "padj".into(),
+                threshold: 0.05,
+                comparator: Comparator::Lt,
+            }),
+            signed_effect_column: Some("NES".into()),
+            signed_effect_aliases: Vec::new(),
+            grouping_column: None,
+        };
+        let headers = csv::StringRecord::from(vec!["pathway", "NES", "padj"]);
+        let rows = vec![
+            csv::StringRecord::from(vec!["A", "2.0", "0.01"]),
+            csv::StringRecord::from(vec!["B", "3.0", "0.02"]),
+            csv::StringRecord::from(vec!["C", "4.0", "0.03"]),
+        ];
+        let synonyms = PolicyColumnSynonyms::default();
+        let ranking =
+            rank_artifact(&rows, &headers, &schema, &synonyms, 25).expect("ranking resolves");
+        let source =
+            SourceRowIndex::build(headers, rows, &schema, &synonyms).expect("source index");
+        let binding = TableBinding {
+            stage_id: "pathway_enrichment".into(),
+            artifact: "pathway_results.tsv".into(),
+            lookup: 0,
+            roles: vec![
+                RoleCell {
+                    narrative: 1,
+                    source: source.cols.effect.expect("effect"),
+                    significance: false,
+                },
+                RoleCell {
+                    narrative: 2,
+                    source: source.cols.significance.expect("significance"),
+                    significance: true,
+                },
+            ],
+            resolved: 2,
+            agreeing: 2,
+        };
+        let table = |entities: &[(&str, &str, &str)]| NarrativeTable {
+            line: 1,
+            heading: "Top 2 enriched pathways by canonical ranking".into(),
+            header: vec!["Pathway".into(), "NES".into(), "padj".into()],
+            rows: entities
+                .iter()
+                .map(|(entity, effect, significance)| {
+                    vec![(*entity).into(), (*effect).into(), (*significance).into()]
+                })
+                .collect(),
+        };
+
+        assert!(matches!(
+            verify_ranked_table(
+                &table(&[("A", "2.0", "0.01"), ("B", "3.0", "0.02")]),
+                &binding,
+                &source,
+                &ranking,
+                2
+            ),
+            RankedTableCheck::Pass
+        ));
+        match verify_ranked_table(
+            &table(&[("B", "3.0", "0.02"), ("C", "4.0", "0.03")]),
+            &binding,
+            &source,
+            &ranking,
+            2,
+        ) {
+            RankedTableCheck::Failure(detail) => {
+                assert!(detail.contains("expected [A, B]"), "{detail}");
+                assert!(detail.contains("observed [B, C]"), "{detail}");
+            }
+            _ => panic!("a noncanonical Top-N prefix must fail"),
+        }
     }
 
     /// Write a path relative to the PACKAGE ROOT (rather than to
@@ -2722,7 +3872,14 @@ mod tests {
             Some(serde_json::json!({ "variant_calling": unsigned_schema })),
             None,
         );
-        write_report_data(&outputs, "variant_calling", "variants.tsv", 60, Some(50), None);
+        write_report_data(
+            &outputs,
+            "variant_calling",
+            "variants.tsv",
+            60,
+            Some(50),
+            None,
+        );
 
         let report = check_reporting_invariants(tmp.path());
         assert!(
@@ -3005,12 +4162,10 @@ mod tests {
             !report.checked.contains(&"RC-TABLE"),
             "RC-TABLE must be skipped when the only artifact's set is spilled: {report:?}"
         );
-        assert!(
-            report
-                .required_failures()
-                .iter()
-                .all(|f| !f.contains("RC-TABLE"))
-        );
+        assert!(report
+            .required_failures()
+            .iter()
+            .all(|f| !f.contains("RC-TABLE")));
     }
 
     #[test]
@@ -3079,7 +4234,9 @@ mod tests {
         );
         let failures = report.required_failures().join(" | ").to_lowercase();
         assert!(
-            failures.contains("rp-prov") && failures.contains("nejm") && failures.contains("plos one"),
+            failures.contains("rp-prov")
+                && failures.contains("nejm")
+                && failures.contains("plos one"),
             "RP-PROV must name BOTH the claimed (NEJM) and recorded (PLOS ONE) journal: {failures}"
         );
     }
@@ -3135,7 +4292,10 @@ mod tests {
         let report = check_reporting_invariants(tmp.path());
         assert!(report.checked.contains(&"RP-PROV"));
         assert!(
-            report.required_failures().iter().all(|f| !f.contains("RP-PROV")),
+            report
+                .required_failures()
+                .iter()
+                .all(|f| !f.contains("RP-PROV")),
             "a faithful provenance narrative must pass: {report:?}"
         );
     }
@@ -3171,7 +4331,10 @@ mod tests {
         );
         let report = check_reporting_invariants(tmp.path());
         assert!(
-            report.required_failures().iter().all(|f| !f.contains("RP-PROV")),
+            report
+                .required_failures()
+                .iter()
+                .all(|f| !f.contains("RP-PROV")),
             "an abbreviated journal and a REGISTERED local input must not block: {report:?}"
         );
     }
@@ -3220,7 +4383,10 @@ mod tests {
         );
         let report = check_reporting_invariants(tmp.path());
         assert!(
-            report.required_failures().iter().all(|f| !f.contains("RP-PROV")),
+            report
+                .required_failures()
+                .iter()
+                .all(|f| !f.contains("RP-PROV")),
             "the system's own block is the reference, never an assertion under test: {report:?}"
         );
     }
@@ -3268,7 +4434,10 @@ mod tests {
         let report = check_reporting_invariants(tmp.path());
         assert!(report.checked.contains(&"RP-QC"));
         assert!(
-            report.required_failures().iter().all(|f| !f.contains("RP-QC")),
+            report
+                .required_failures()
+                .iter()
+                .all(|f| !f.contains("RP-QC")),
             "a retained sample-PCA artifact corroborates the claim: {report:?}"
         );
 
@@ -3287,7 +4456,10 @@ mod tests {
         );
         let report = check_reporting_invariants(tmp.path());
         assert!(
-            report.required_failures().iter().all(|f| !f.contains("RP-QC")),
+            report
+                .required_failures()
+                .iter()
+                .all(|f| !f.contains("RP-QC")),
             "a recorded outlier verdict corroborates the claim: {report:?}"
         );
     }
@@ -3303,7 +4475,10 @@ mod tests {
         );
         let report = check_reporting_invariants(tmp.path());
         assert!(
-            report.required_failures().iter().all(|f| !f.contains("RP-QC")),
+            report
+                .required_failures()
+                .iter()
+                .all(|f| !f.contains("RP-QC")),
             "an honest 'we did not test' caveat is not a QC-negative assertion: {report:?}"
         );
     }
@@ -3344,7 +4519,10 @@ mod tests {
             "the sample attribution must warn and name the recorded sample count: {warnings}"
         );
         assert!(
-            report.required_failures().iter().all(|f| !f.contains("RP-1")),
+            report
+                .required_failures()
+                .iter()
+                .all(|f| !f.contains("RP-1")),
             "RP-1 stays warn-only and must never block: {report:?}"
         );
     }

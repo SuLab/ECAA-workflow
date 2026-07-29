@@ -221,9 +221,7 @@ fn insert_table(path: &Path, parent_pkg: &Path, out: &mut BTreeMap<String, std::
     let rel_path = path
         .strip_prefix(parent_pkg)
         .map(|p| p.to_path_buf())
-        .unwrap_or_else(|_| {
-            std::path::PathBuf::from(path.file_name().unwrap_or_default())
-        })
+        .unwrap_or_else(|_| std::path::PathBuf::from(path.file_name().unwrap_or_default()))
         .to_string_lossy()
         .to_string();
     out.insert(rel_path, path.to_path_buf());
@@ -597,7 +595,10 @@ mod tests {
         let bounds = ModalityBounds::default();
 
         let raw = check_semantic_equivalence(parent, replay, b',', &bounds).unwrap();
-        assert!(!raw.is_empty(), "raw absolute-path difference should diverge");
+        assert!(
+            !raw.is_empty(),
+            "raw absolute-path difference should diverge"
+        );
 
         let pn = normalize_root(parent, "/runs/orig");
         let rn = normalize_root(replay, "/scratch/xyz");
@@ -666,14 +667,8 @@ mod tests {
         let rel = "runtime/outputs/differential_expression/de_results.tsv";
         // Parent value 100.0; replay value 102.0 → 2% change, inside the
         // default ±5% relative band but not byte-identical.
-        write_file(
-            &parent.path().join(rel),
-            "gene\tlog2fc\nGENE1\t100.0\n",
-        );
-        write_file(
-            &replay.path().join(rel),
-            "gene\tlog2fc\nGENE1\t102.0\n",
-        );
+        write_file(&parent.path().join(rel), "gene\tlog2fc\nGENE1\t100.0\n");
+        write_file(&replay.path().join(rel), "gene\tlog2fc\nGENE1\t102.0\n");
 
         let report = classify_reexecution(
             parent.path(),
@@ -724,9 +719,13 @@ mod tests {
             ),
         );
 
-        let report =
-            classify_reexecution(parent.path(), replay.path(), None, ModalityBounds::default())
-                .expect("classify_reexecution must succeed");
+        let report = classify_reexecution(
+            parent.path(),
+            replay.path(),
+            None,
+            ModalityBounds::default(),
+        )
+        .expect("classify_reexecution must succeed");
         let ac = classification_for(&report, rel);
         assert_eq!(
             ac.bucket,
@@ -754,9 +753,13 @@ mod tests {
             ),
         );
 
-        let report =
-            classify_reexecution(parent.path(), replay.path(), None, ModalityBounds::default())
-                .expect("classify_reexecution must succeed");
+        let report = classify_reexecution(
+            parent.path(),
+            replay.path(),
+            None,
+            ModalityBounds::default(),
+        )
+        .expect("classify_reexecution must succeed");
         let ac = classification_for(&report, rel);
         assert_eq!(
             ac.bucket,
@@ -782,9 +785,13 @@ mod tests {
             &shim_json_with_acks("[]"),
         );
 
-        let report =
-            classify_reexecution(parent.path(), replay.path(), None, ModalityBounds::default())
-                .expect("classify_reexecution must succeed");
+        let report = classify_reexecution(
+            parent.path(),
+            replay.path(),
+            None,
+            ModalityBounds::default(),
+        )
+        .expect("classify_reexecution must succeed");
         let ac = classification_for(&report, rel);
         assert_eq!(
             ac.bucket,
@@ -820,9 +827,13 @@ mod tests {
             ),
         );
 
-        let report =
-            classify_reexecution(parent.path(), replay.path(), None, ModalityBounds::default())
-                .expect("classify_reexecution must succeed");
+        let report = classify_reexecution(
+            parent.path(),
+            replay.path(),
+            None,
+            ModalityBounds::default(),
+        )
+        .expect("classify_reexecution must succeed");
         let ac = classification_for(&report, rel);
         assert_eq!(
             ac.bucket,
@@ -856,9 +867,13 @@ mod tests {
             ),
         );
 
-        let report =
-            classify_reexecution(parent.path(), replay.path(), None, ModalityBounds::default())
-                .expect("classify_reexecution must succeed");
+        let report = classify_reexecution(
+            parent.path(),
+            replay.path(),
+            None,
+            ModalityBounds::default(),
+        )
+        .expect("classify_reexecution must succeed");
         let ac = classification_for(&report, rel);
         assert_eq!(
             ac.bucket,
@@ -880,9 +895,13 @@ mod tests {
         let rel = "runtime/outputs/differential_expression/de_results.csv";
         write_file(&parent.path().join(rel), "gene,log2FC\nGENE1,2.00\n");
         write_file(&replay.path().join(rel), "gene,log2FC\nGENE1,2.05\n"); // 2.5%, in band
-        let report =
-            classify_reexecution(parent.path(), replay.path(), None, ModalityBounds::default())
-                .expect("classify_reexecution must succeed");
+        let report = classify_reexecution(
+            parent.path(),
+            replay.path(),
+            None,
+            ModalityBounds::default(),
+        )
+        .expect("classify_reexecution must succeed");
         let ac = classification_for(&report, rel);
         assert_eq!(
             ac.bucket,
@@ -909,9 +928,13 @@ mod tests {
             &replay.path().join(rel),
             "gene,note,log2FC\nGENE1,\"hello, world\",2.05\n",
         );
-        let report =
-            classify_reexecution(parent.path(), replay.path(), None, ModalityBounds::default())
-                .expect("classify_reexecution must succeed");
+        let report = classify_reexecution(
+            parent.path(),
+            replay.path(),
+            None,
+            ModalityBounds::default(),
+        )
+        .expect("classify_reexecution must succeed");
         let ac = classification_for(&report, rel);
         assert_eq!(
             ac.bucket,
@@ -927,10 +950,7 @@ mod tests {
         let parent = tempfile::tempdir().expect("parent tempdir");
         let replay = tempfile::tempdir().expect("replay tempdir");
         let rel = "runtime/outputs/differential_expression/de_results.tsv";
-        write_file(
-            &parent.path().join(rel),
-            "gene\tlog2fc\nGENE1\t1.0\n",
-        );
+        write_file(&parent.path().join(rel), "gene\tlog2fc\nGENE1\t1.0\n");
         // Replay deliberately lacks the file.
 
         let report = classify_reexecution(
@@ -1059,9 +1079,13 @@ mod tests {
              ENSG00000000457,2.38560627359831,0.00311338100563055,TRUE\n",
         );
 
-        let report =
-            classify_reexecution(parent.path(), replay.path(), None, ModalityBounds::default())
-                .expect("classify_reexecution must succeed");
+        let report = classify_reexecution(
+            parent.path(),
+            replay.path(),
+            None,
+            ModalityBounds::default(),
+        )
+        .expect("classify_reexecution must succeed");
         let ac = classification_for(&report, rel);
         assert_eq!(
             ac.bucket,
@@ -1111,9 +1135,13 @@ mod tests {
             "category,count\nall_retained,22370\nhvg,2000\n",
         );
 
-        let report =
-            classify_reexecution(parent.path(), replay.path(), None, ModalityBounds::default())
-                .expect("classify_reexecution must succeed");
+        let report = classify_reexecution(
+            parent.path(),
+            replay.path(),
+            None,
+            ModalityBounds::default(),
+        )
+        .expect("classify_reexecution must succeed");
         let ac = classification_for(&report, rel);
         assert_eq!(
             ac.bucket,
@@ -1142,9 +1170,13 @@ mod tests {
             "gene\tlog2FC\tdetail\nGENE1\t2.05\thello, world\nGENE2\t1.00\ta, b, c\n",
         );
 
-        let report =
-            classify_reexecution(parent.path(), replay.path(), None, ModalityBounds::default())
-                .expect("classify_reexecution must succeed");
+        let report = classify_reexecution(
+            parent.path(),
+            replay.path(),
+            None,
+            ModalityBounds::default(),
+        )
+        .expect("classify_reexecution must succeed");
         let ac = classification_for(&report, rel);
         assert_eq!(
             ac.bucket,
@@ -1195,9 +1227,13 @@ mod tests {
         let rel = "runtime/outputs/x/ragged.tsv";
         write_file(&parent.path().join(rel), "a,b\nx\ny,z,w\n");
         write_file(&replay.path().join(rel), "a,b\nx\ny,z,q\n");
-        let report =
-            classify_reexecution(parent.path(), replay.path(), None, ModalityBounds::default())
-                .expect("classify_reexecution must succeed");
+        let report = classify_reexecution(
+            parent.path(),
+            replay.path(),
+            None,
+            ModalityBounds::default(),
+        )
+        .expect("classify_reexecution must succeed");
         let ac = classification_for(&report, rel);
         assert_eq!(ac.bucket, ReexecutionBucket::Failed);
         let reason = ac.reason.as_deref().unwrap_or("");

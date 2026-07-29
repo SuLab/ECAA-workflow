@@ -19,9 +19,9 @@
 //! can still truncate the WAL and exit `Ok(())`. Finalizing a package is a
 //! best-effort post-exec convenience, never a gate.
 
-use crate::env_snapshot::{self, SnapshotOpts, SnapshotOutcome};
 use crate::env_snapshot::cache_scan::resolve_cache_dir;
 use crate::env_snapshot::record::record_digest;
+use crate::env_snapshot::{self, SnapshotOpts, SnapshotOutcome};
 use ecaa_workflow_core::decision_log::DecisionRecord;
 use ecaa_workflow_core::finalize::{
     coverage_should_block, finalize_package, finalize_task, PackageFinalizeSummary,
@@ -201,11 +201,8 @@ pub fn derive_is_confirmatory(package_root: &Path) -> bool {
     let Some(tasks) = wf.get("tasks").and_then(|t| t.as_object()) else {
         return false;
     };
-    let is_confirmatory_stem = |s: &str| {
-        CONFIRMATORY_STAGE_STEMS
-            .iter()
-            .any(|stem| s.contains(stem))
-    };
+    let is_confirmatory_stem =
+        |s: &str| CONFIRMATORY_STAGE_STEMS.iter().any(|stem| s.contains(stem));
     tasks.iter().any(|(task_id, t)| {
         if is_confirmatory_stem(task_id) {
             return true;
@@ -297,7 +294,10 @@ fn build_snapshot_opts(package_root: &Path) -> Option<SnapshotOpts> {
         }
         source_date_epoch = val
             .get("source_date_epoch")
-            .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.trim().parse::<i64>().ok())))
+            .and_then(|v| {
+                v.as_i64()
+                    .or_else(|| v.as_str().and_then(|s| s.trim().parse::<i64>().ok()))
+            })
             .unwrap_or(0);
         found = true;
         break;
@@ -324,9 +324,7 @@ fn compute_task_ids(package_root: &Path) -> Vec<String> {
         .into_iter()
         .flatten()
         .flatten()
-        .filter(|e| {
-            e.path().is_dir() && e.path().join("determinism-env.json").exists()
-        })
+        .filter(|e| e.path().is_dir() && e.path().join("determinism-env.json").exists())
         .map(|e| e.file_name().to_string_lossy().into_owned())
         .collect();
     ids.sort();
@@ -411,17 +409,13 @@ where
 /// so the manifest is correct on BOTH run paths — not relying on a later
 /// `finalize_completed_package` or auto-repair pass.
 pub fn maybe_snapshot(package_root: &Path) {
-    maybe_snapshot_with(
-        package_root,
-        env_snapshot::snapshot_environment,
-        |p| {
-            ecaa_workflow_core::emitter::regenerate_bagit_manifest(
-                p,
-                &ecaa_workflow_core::clock::WallClock,
-            )
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
-        },
-    );
+    maybe_snapshot_with(package_root, env_snapshot::snapshot_environment, |p| {
+        ecaa_workflow_core::emitter::regenerate_bagit_manifest(
+            p,
+            &ecaa_workflow_core::clock::WallClock,
+        )
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
+    });
 }
 
 /// Capture a pinned determinism-env for the input-staging stage(s) at
@@ -589,7 +583,7 @@ pub fn finalize_completed_package(package_root: &Path, config_dir: &Path) {
 /// `report-data.json`, or nothing inlinable to render, is a silent no-op.
 pub fn ensure_full_significant_tables(package_root: &Path) -> bool {
     use ecaa_workflow_core::report_contract::{
-        ReportData, inject_full_tables, significant_entities_section,
+        inject_full_tables, significant_entities_section, ReportData,
     };
     let outputs = package_root.join("runtime").join("outputs");
     let rd_path = outputs.join("reporting").join("report-data.json");
@@ -1670,19 +1664,35 @@ mod tests {
         let pkg = make_snapshot_pkg(&tmp, &["task_a"], "sha256:base", 0);
 
         // JUSTIFICATION: safe under nextest (process-per-test isolation).
-        unsafe { std::env::set_var("ECAA_ENV_SNAPSHOT", "0"); }
+        unsafe {
+            std::env::set_var("ECAA_ENV_SNAPSHOT", "0");
+        }
         // Set ECAA_AGENT_CACHE_DIR so resolve_cache_dir() returns Some and
         // build_snapshot_opts reaches the enabled check rather than returning
         // None vacuously.
-        unsafe { std::env::set_var("ECAA_AGENT_CACHE_DIR", tmp.path()); }
-        unsafe { std::env::remove_var("ECAA_CHAT_SESSION_ID"); }
+        unsafe {
+            std::env::set_var("ECAA_AGENT_CACHE_DIR", tmp.path());
+        }
+        unsafe {
+            std::env::remove_var("ECAA_CHAT_SESSION_ID");
+        }
 
         let opts = build_snapshot_opts(&pkg);
-        assert!(opts.is_some(), "ECAA_AGENT_CACHE_DIR set + task present → opts must be Some");
-        assert!(!opts.unwrap().enabled, "ECAA_ENV_SNAPSHOT=0 must produce enabled=false");
+        assert!(
+            opts.is_some(),
+            "ECAA_AGENT_CACHE_DIR set + task present → opts must be Some"
+        );
+        assert!(
+            !opts.unwrap().enabled,
+            "ECAA_ENV_SNAPSHOT=0 must produce enabled=false"
+        );
 
-        unsafe { std::env::remove_var("ECAA_ENV_SNAPSHOT"); }
-        unsafe { std::env::remove_var("ECAA_AGENT_CACHE_DIR"); }
+        unsafe {
+            std::env::remove_var("ECAA_ENV_SNAPSHOT");
+        }
+        unsafe {
+            std::env::remove_var("ECAA_AGENT_CACHE_DIR");
+        }
     }
 
     #[allow(unsafe_code)]
@@ -1691,19 +1701,33 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let pkg = make_snapshot_pkg(&tmp, &["task_a"], "sha256:base", 123);
 
-        unsafe { std::env::remove_var("ECAA_ENV_SNAPSHOT"); }
+        unsafe {
+            std::env::remove_var("ECAA_ENV_SNAPSHOT");
+        }
         // Point agent cache into our tmp so resolve_cache_dir() returns Some.
-        unsafe { std::env::set_var("ECAA_AGENT_CACHE_DIR", tmp.path()); }
-        unsafe { std::env::remove_var("ECAA_CHAT_SESSION_ID"); }
+        unsafe {
+            std::env::set_var("ECAA_AGENT_CACHE_DIR", tmp.path());
+        }
+        unsafe {
+            std::env::remove_var("ECAA_CHAT_SESSION_ID");
+        }
 
         let opts = build_snapshot_opts(&pkg);
-        assert!(opts.is_some(), "should produce opts when cache_dir resolves");
+        assert!(
+            opts.is_some(),
+            "should produce opts when cache_dir resolves"
+        );
         let o = opts.unwrap();
-        assert!(o.enabled, "opts.enabled should be true when ECAA_ENV_SNAPSHOT unset");
+        assert!(
+            o.enabled,
+            "opts.enabled should be true when ECAA_ENV_SNAPSHOT unset"
+        );
         assert_eq!(o.base_digest, "sha256:base");
         assert_eq!(o.source_date_epoch, 123);
 
-        unsafe { std::env::remove_var("ECAA_AGENT_CACHE_DIR"); }
+        unsafe {
+            std::env::remove_var("ECAA_AGENT_CACHE_DIR");
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -1719,11 +1743,21 @@ mod tests {
         // JUSTIFICATION: safe under nextest (process-per-test isolation).
         // Set ECAA_AGENT_CACHE_DIR so build_snapshot_opts returns Some and the
         // SkippedNoInstalls arm is genuinely exercised (not short-circuited).
-        unsafe { std::env::set_var("ECAA_AGENT_CACHE_DIR", tmp.path()); }
-        unsafe { std::env::remove_var("ECAA_CHAT_SESSION_ID"); }
-        unsafe { std::env::remove_var("ECAA_ENV_SNAPSHOT"); }
+        unsafe {
+            std::env::set_var("ECAA_AGENT_CACHE_DIR", tmp.path());
+        }
+        unsafe {
+            std::env::remove_var("ECAA_CHAT_SESSION_ID");
+        }
+        unsafe {
+            std::env::remove_var("ECAA_ENV_SNAPSHOT");
+        }
 
-        maybe_snapshot_with(&pkg, |_opts| SnapshotOutcome::SkippedNoInstalls, |_p| Ok(()));
+        maybe_snapshot_with(
+            &pkg,
+            |_opts| SnapshotOutcome::SkippedNoInstalls,
+            |_p| Ok(()),
+        );
 
         let cj = read_container_json(&pkg);
         assert!(
@@ -1731,10 +1765,15 @@ mod tests {
             "digest must not be written on SkippedNoInstalls; got: {:?}",
             cj.get("digest")
         );
-        assert_eq!(cj["image"], serde_json::Value::Null,
-            "image must remain null on SkippedNoInstalls");
+        assert_eq!(
+            cj["image"],
+            serde_json::Value::Null,
+            "image must remain null on SkippedNoInstalls"
+        );
 
-        unsafe { std::env::remove_var("ECAA_AGENT_CACHE_DIR"); }
+        unsafe {
+            std::env::remove_var("ECAA_AGENT_CACHE_DIR");
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -1748,11 +1787,17 @@ mod tests {
         // Set ECAA_AGENT_CACHE_DIR so build_snapshot_opts returns Some.
         // JUSTIFICATION: safe under nextest (process-per-test isolation).
         #[allow(unsafe_code)]
-        unsafe { std::env::set_var("ECAA_AGENT_CACHE_DIR", tmp.path()); }
+        unsafe {
+            std::env::set_var("ECAA_AGENT_CACHE_DIR", tmp.path());
+        }
         #[allow(unsafe_code)]
-        unsafe { std::env::remove_var("ECAA_CHAT_SESSION_ID"); }
+        unsafe {
+            std::env::remove_var("ECAA_CHAT_SESSION_ID");
+        }
         #[allow(unsafe_code)]
-        unsafe { std::env::remove_var("ECAA_ENV_SNAPSHOT"); }
+        unsafe {
+            std::env::remove_var("ECAA_ENV_SNAPSHOT");
+        }
 
         maybe_snapshot_with(
             &pkg,
@@ -1765,15 +1810,25 @@ mod tests {
         );
 
         let cj = read_container_json(&pkg);
-        assert_eq!(cj["digest"], "sha256:new", "container.json digest must be updated");
-        assert_eq!(cj["image"], "sha256:new", "container.json image must be promoted from null");
+        assert_eq!(
+            cj["digest"], "sha256:new",
+            "container.json digest must be updated"
+        );
+        assert_eq!(
+            cj["image"], "sha256:new",
+            "container.json image must be promoted from null"
+        );
 
         let det = read_det_env(&pkg, "task_a");
-        assert_eq!(det["task_container_digest"], "sha256:new",
-            "task_a determinism-env.json must be updated");
+        assert_eq!(
+            det["task_container_digest"], "sha256:new",
+            "task_a determinism-env.json must be updated"
+        );
 
         #[allow(unsafe_code)]
-        unsafe { std::env::remove_var("ECAA_AGENT_CACHE_DIR"); }
+        unsafe {
+            std::env::remove_var("ECAA_AGENT_CACHE_DIR");
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -1790,35 +1845,53 @@ mod tests {
         // Set ECAA_AGENT_CACHE_DIR so build_snapshot_opts returns Some and the
         // Failed-returning stub is ACTUALLY invoked (not short-circuited at the
         // None-return from build_snapshot_opts).
-        unsafe { std::env::set_var("ECAA_AGENT_CACHE_DIR", tmp.path()); }
-        unsafe { std::env::remove_var("ECAA_CHAT_SESSION_ID"); }
-        unsafe { std::env::remove_var("ECAA_ENV_SNAPSHOT"); }
+        unsafe {
+            std::env::set_var("ECAA_AGENT_CACHE_DIR", tmp.path());
+        }
+        unsafe {
+            std::env::remove_var("ECAA_CHAT_SESSION_ID");
+        }
+        unsafe {
+            std::env::remove_var("ECAA_ENV_SNAPSHOT");
+        }
 
         let called = std::sync::atomic::AtomicBool::new(false);
         maybe_snapshot_with(
             &pkg,
             |_opts| {
                 called.store(true, std::sync::atomic::Ordering::Relaxed);
-                SnapshotOutcome::Failed { reason: "boom".to_owned() }
+                SnapshotOutcome::Failed {
+                    reason: "boom".to_owned(),
+                }
             },
             |_p| Ok(()),
         );
-        assert!(called.load(std::sync::atomic::Ordering::Relaxed),
-            "snapshot_fn must be invoked when ECAA_AGENT_CACHE_DIR is set and a task is present");
+        assert!(
+            called.load(std::sync::atomic::Ordering::Relaxed),
+            "snapshot_fn must be invoked when ECAA_AGENT_CACHE_DIR is set and a task is present"
+        );
 
         // container.json must be untouched — no digest written on Failed.
         let cj = read_container_json(&pkg);
         let digest_written = cj.get("digest").map(|v| !v.is_null()).unwrap_or(false);
-        assert!(!digest_written, "digest must not be written on Failed; got: {cj:?}");
+        assert!(
+            !digest_written,
+            "digest must not be written on Failed; got: {cj:?}"
+        );
 
-        unsafe { std::env::remove_var("ECAA_AGENT_CACHE_DIR"); }
+        unsafe {
+            std::env::remove_var("ECAA_AGENT_CACHE_DIR");
+        }
     }
 
     #[test]
     fn audit_secret_requires_exactly_64_hex_chars() {
         // 64 hex chars → 32 bytes → Some.
         std::env::set_var("ECAA_AUDIT_SECRET", "ab".repeat(32));
-        assert!(audit_secret_from_env().is_some(), "64 hex chars must decode");
+        assert!(
+            audit_secret_from_env().is_some(),
+            "64 hex chars must decode"
+        );
         // Wrong length (62 chars) → None, not a loose fallback.
         std::env::set_var("ECAA_AUDIT_SECRET", "ab".repeat(31));
         assert!(
@@ -1887,11 +1960,17 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let pkg = make_snapshot_pkg(&tmp, &["task_a"], "sha256:base", 0);
         #[allow(unsafe_code)]
-        unsafe { std::env::set_var("ECAA_AGENT_CACHE_DIR", tmp.path()); }
+        unsafe {
+            std::env::set_var("ECAA_AGENT_CACHE_DIR", tmp.path());
+        }
         #[allow(unsafe_code)]
-        unsafe { std::env::remove_var("ECAA_CHAT_SESSION_ID"); }
+        unsafe {
+            std::env::remove_var("ECAA_CHAT_SESSION_ID");
+        }
         #[allow(unsafe_code)]
-        unsafe { std::env::remove_var("ECAA_ENV_SNAPSHOT"); }
+        unsafe {
+            std::env::remove_var("ECAA_ENV_SNAPSHOT");
+        }
 
         let reseal_called = std::cell::Cell::new(0u32);
         maybe_snapshot_with(
@@ -1901,12 +1980,21 @@ mod tests {
                 location: StoreLocation::LocalCas(std::path::PathBuf::from("/tmp/snap.tar")),
                 note: None,
             },
-            |_p| { reseal_called.set(reseal_called.get() + 1); Ok(()) },
+            |_p| {
+                reseal_called.set(reseal_called.get() + 1);
+                Ok(())
+            },
         );
-        assert_eq!(reseal_called.get(), 1, "reseal_fn must be called exactly once on Captured");
+        assert_eq!(
+            reseal_called.get(),
+            1,
+            "reseal_fn must be called exactly once on Captured"
+        );
 
         #[allow(unsafe_code)]
-        unsafe { std::env::remove_var("ECAA_AGENT_CACHE_DIR"); }
+        unsafe {
+            std::env::remove_var("ECAA_AGENT_CACHE_DIR");
+        }
     }
 
     /// `reseal_fn` is NOT called on `SkippedNoInstalls` (no files mutated).
@@ -1915,22 +2003,37 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let pkg = make_snapshot_pkg(&tmp, &["task_a"], "sha256:base", 0);
         #[allow(unsafe_code)]
-        unsafe { std::env::set_var("ECAA_AGENT_CACHE_DIR", tmp.path()); }
+        unsafe {
+            std::env::set_var("ECAA_AGENT_CACHE_DIR", tmp.path());
+        }
         #[allow(unsafe_code)]
-        unsafe { std::env::remove_var("ECAA_CHAT_SESSION_ID"); }
+        unsafe {
+            std::env::remove_var("ECAA_CHAT_SESSION_ID");
+        }
         #[allow(unsafe_code)]
-        unsafe { std::env::remove_var("ECAA_ENV_SNAPSHOT"); }
+        unsafe {
+            std::env::remove_var("ECAA_ENV_SNAPSHOT");
+        }
 
         let reseal_called = std::cell::Cell::new(0u32);
         maybe_snapshot_with(
             &pkg,
             |_opts| SnapshotOutcome::SkippedNoInstalls,
-            |_p| { reseal_called.set(reseal_called.get() + 1); Ok(()) },
+            |_p| {
+                reseal_called.set(reseal_called.get() + 1);
+                Ok(())
+            },
         );
-        assert_eq!(reseal_called.get(), 0, "reseal_fn must NOT be called on SkippedNoInstalls");
+        assert_eq!(
+            reseal_called.get(),
+            0,
+            "reseal_fn must NOT be called on SkippedNoInstalls"
+        );
 
         #[allow(unsafe_code)]
-        unsafe { std::env::remove_var("ECAA_AGENT_CACHE_DIR"); }
+        unsafe {
+            std::env::remove_var("ECAA_AGENT_CACHE_DIR");
+        }
     }
 
     /// `reseal_fn` is NOT called on `Failed` (no files mutated).
@@ -1939,22 +2042,39 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let pkg = make_snapshot_pkg(&tmp, &["task_a"], "sha256:base", 0);
         #[allow(unsafe_code)]
-        unsafe { std::env::set_var("ECAA_AGENT_CACHE_DIR", tmp.path()); }
+        unsafe {
+            std::env::set_var("ECAA_AGENT_CACHE_DIR", tmp.path());
+        }
         #[allow(unsafe_code)]
-        unsafe { std::env::remove_var("ECAA_CHAT_SESSION_ID"); }
+        unsafe {
+            std::env::remove_var("ECAA_CHAT_SESSION_ID");
+        }
         #[allow(unsafe_code)]
-        unsafe { std::env::remove_var("ECAA_ENV_SNAPSHOT"); }
+        unsafe {
+            std::env::remove_var("ECAA_ENV_SNAPSHOT");
+        }
 
         let reseal_called = std::cell::Cell::new(0u32);
         maybe_snapshot_with(
             &pkg,
-            |_opts| SnapshotOutcome::Failed { reason: "boom".to_owned() },
-            |_p| { reseal_called.set(reseal_called.get() + 1); Ok(()) },
+            |_opts| SnapshotOutcome::Failed {
+                reason: "boom".to_owned(),
+            },
+            |_p| {
+                reseal_called.set(reseal_called.get() + 1);
+                Ok(())
+            },
         );
-        assert_eq!(reseal_called.get(), 0, "reseal_fn must NOT be called on Failed");
+        assert_eq!(
+            reseal_called.get(),
+            0,
+            "reseal_fn must NOT be called on Failed"
+        );
 
         #[allow(unsafe_code)]
-        unsafe { std::env::remove_var("ECAA_AGENT_CACHE_DIR"); }
+        unsafe {
+            std::env::remove_var("ECAA_AGENT_CACHE_DIR");
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -1989,9 +2109,15 @@ mod tests {
         .unwrap();
 
         // JUSTIFICATION: safe under nextest (process-per-test isolation).
-        unsafe { std::env::remove_var("ECAA_ENV_SNAPSHOT"); }
-        unsafe { std::env::set_var("ECAA_AGENT_CACHE_DIR", tmp.path()); }
-        unsafe { std::env::remove_var("ECAA_CHAT_SESSION_ID"); }
+        unsafe {
+            std::env::remove_var("ECAA_ENV_SNAPSHOT");
+        }
+        unsafe {
+            std::env::set_var("ECAA_AGENT_CACHE_DIR", tmp.path());
+        }
+        unsafe {
+            std::env::remove_var("ECAA_CHAT_SESSION_ID");
+        }
 
         let opts = build_snapshot_opts(&pkg);
         assert!(opts.is_some(), "opts must be Some when task+cache present");
@@ -2001,7 +2127,9 @@ mod tests {
             "string source_date_epoch '1700000000' must parse to i64 1700000000"
         );
 
-        unsafe { std::env::remove_var("ECAA_AGENT_CACHE_DIR"); }
+        unsafe {
+            std::env::remove_var("ECAA_AGENT_CACHE_DIR");
+        }
     }
 
     #[test]
@@ -2082,12 +2210,18 @@ mod tests {
         let text =
             std::fs::read_to_string(outputs.join("final_reporting/final_report.md")).unwrap();
         for e in ["ENSG_A", "ENSG_B", "ENSG_C"] {
-            assert!(text.contains(e), "entity {e} must be in the rewritten report");
+            assert!(
+                text.contains(e),
+                "entity {e} must be in the rewritten report"
+            );
         }
 
         // Idempotent: a second pass makes no change.
         let again = ensure_full_significant_tables(tmp.path());
-        assert!(!again, "re-running on an already-injected report is a no-op");
+        assert!(
+            !again,
+            "re-running on an already-injected report is a no-op"
+        );
     }
 
     // -----------------------------------------------------------------------

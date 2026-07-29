@@ -30,7 +30,10 @@ pub enum RepairClass {
 impl RepairClass {
     /// Deterministic classes apply mechanically without invoking an agent.
     pub fn is_deterministic(&self) -> bool {
-        matches!(self, RepairClass::NarrativeCorrection | RepairClass::ConformanceFix)
+        matches!(
+            self,
+            RepairClass::NarrativeCorrection | RepairClass::ConformanceFix
+        )
     }
 }
 
@@ -143,9 +146,7 @@ pub struct FailureSet(pub Vec<Failure>);
 impl FailureSet {
     /// True when no failure remains unresolved.
     pub fn all_resolved(&self) -> bool {
-        self.0
-            .iter()
-            .all(|f| f.status == FailureStatus::Resolved)
+        self.0.iter().all(|f| f.status == FailureStatus::Resolved)
     }
 
     /// Failures still open and under their per-class budget. `budget` maps a
@@ -284,7 +285,11 @@ mod tests {
 
         let fs = FailureSet(vec![open_under.clone(), open_exhausted, resolved]);
         let open = fs.open(default_budget);
-        assert_eq!(open.len(), 1, "only the under-budget open failure is eligible");
+        assert_eq!(
+            open.len(),
+            1,
+            "only the under-budget open failure is eligible"
+        );
         assert_eq!(open[0].subject, "s1", "wrong failure selected by open()");
     }
 
@@ -306,11 +311,17 @@ mod tests {
             "d",
         );
         let fs = FailureSet(vec![r.clone(), o]);
-        assert!(!fs.all_resolved(), "one open failure means not all resolved");
+        assert!(
+            !fs.all_resolved(),
+            "one open failure means not all resolved"
+        );
         assert_eq!(fs.unresolved().len(), 1, "exactly one unresolved failure");
 
         let only_resolved = FailureSet(vec![r]);
-        assert!(only_resolved.all_resolved(), "single resolved failure is all_resolved");
+        assert!(
+            only_resolved.all_resolved(),
+            "single resolved failure is all_resolved"
+        );
     }
 
     #[test]

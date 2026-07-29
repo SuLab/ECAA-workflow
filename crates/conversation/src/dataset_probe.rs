@@ -245,7 +245,10 @@ pub fn parse_geo_soft(accession: &str, soft: &str) -> ProbeResult {
 /// expression matrix (e.g. a ChIP-seq series with only peaks).
 fn best_expression_matrix(products: &[DepositedProduct]) -> Option<ProcessedMatrix> {
     let mut best: Option<&DepositedProduct> = None;
-    for p in products.iter().filter(|p| p.product_type == "expression_matrix") {
+    for p in products
+        .iter()
+        .filter(|p| p.product_type == "expression_matrix")
+    {
         let replace = match best {
             None => true,
             Some(b) => p.kind == "counts" && b.kind != "counts",
@@ -396,8 +399,7 @@ fn classify_product(filename: &str) -> Option<(&'static str, &'static str)> {
 fn extract_sra_study(s: &str) -> Option<String> {
     s.split(|c: char| !c.is_ascii_alphanumeric())
         .find(|t| {
-            t.len() >= 4
-                && (t.starts_with("SRP") || t.starts_with("ERP") || t.starts_with("DRP"))
+            t.len() >= 4 && (t.starts_with("SRP") || t.starts_with("ERP") || t.starts_with("DRP"))
         })
         .map(|t| t.to_string())
 }
@@ -508,10 +510,17 @@ mod tests {
         assert!(r.recognized);
         // RAW.tar of CEL files is not a tabular count/expression matrix.
         assert!(r.processed_matrix.is_none(), "got {:?}", r.processed_matrix);
-        assert!(r.deposited_products.is_empty(), "got {:?}", r.deposited_products);
+        assert!(
+            r.deposited_products.is_empty(),
+            "got {:?}",
+            r.deposited_products
+        );
         // Microarray series have no SRA raw reads.
         assert!(r.raw_reads_sra.is_none());
-        assert_eq!(r.series_type.as_deref(), Some("Expression profiling by array"));
+        assert_eq!(
+            r.series_type.as_deref(),
+            Some("Expression profiling by array")
+        );
     }
 
     #[test]
@@ -520,7 +529,7 @@ mod tests {
         let m = r.processed_matrix.expect("fpkm matrix present");
         assert_eq!(m.filename, "GSE52778_All_Sample_FPKM_Matrix.txt.gz");
         assert_eq!(m.kind, "fpkm"); // .diff.gz must not be picked
-        // Only the FPKM matrix is a recognized product; the .diff is ignored.
+                                    // Only the FPKM matrix is a recognized product; the .diff is ignored.
         assert_eq!(r.deposited_products.len(), 1);
         assert_eq!(r.deposited_products[0].kind, "fpkm");
         assert_eq!(r.raw_reads_sra.expect("sra").study, "SRP033351");
@@ -531,7 +540,12 @@ mod tests {
         let r = parse_geo_soft("GSE900001", CHIPSEQ);
         assert!(r.recognized);
         // README excluded; peaks + coverage track detected.
-        assert_eq!(r.deposited_products.len(), 2, "got {:?}", r.deposited_products);
+        assert_eq!(
+            r.deposited_products.len(),
+            2,
+            "got {:?}",
+            r.deposited_products
+        );
         let peaks = r
             .deposited_products
             .iter()
@@ -562,7 +576,12 @@ mod tests {
         assert_eq!(vcf.kind, "vcf");
         assert!(vcf.filename.ends_with("_variants.vcf.gz"));
         // sample_metadata.csv.gz is documentation, not a product.
-        assert_eq!(r.deposited_products.len(), 1, "got {:?}", r.deposited_products);
+        assert_eq!(
+            r.deposited_products.len(),
+            1,
+            "got {:?}",
+            r.deposited_products
+        );
         assert!(r.processed_matrix.is_none());
         assert!(r.raw_reads_sra.is_none());
     }
@@ -571,7 +590,12 @@ mod tests {
     fn proteomics_series_deposits_abundance_matrix() {
         let r = parse_geo_soft("GSE900003", PROTEOMICS);
         assert!(r.recognized);
-        assert_eq!(r.deposited_products.len(), 1, "got {:?}", r.deposited_products);
+        assert_eq!(
+            r.deposited_products.len(),
+            1,
+            "got {:?}",
+            r.deposited_products
+        );
         let p = &r.deposited_products[0];
         assert_eq!(p.product_type, "proteomics_abundance");
         assert_eq!(p.kind, "protein_groups");
@@ -600,10 +624,7 @@ mod tests {
             classify_product("X.broadPeak"),
             Some(("peaks", "broadpeak"))
         );
-        assert_eq!(
-            classify_product("X_regions.bed.gz"),
-            Some(("peaks", "bed"))
-        );
+        assert_eq!(classify_product("X_regions.bed.gz"), Some(("peaks", "bed")));
         // Variants.
         assert_eq!(classify_product("cohort.vcf.gz"), Some(("variants", "vcf")));
         // Alignments.

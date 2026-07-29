@@ -151,8 +151,9 @@ fn shacl_fails_on_unjustified_method_choice() {
 
 #[test]
 fn shacl_passes_on_justified_method_choice_with_focus_nodes() {
-    if !require_python_validators_or_skip("shacl_passes_on_justified_method_choice_with_focus_nodes")
-    {
+    if !require_python_validators_or_skip(
+        "shacl_passes_on_justified_method_choice_with_focus_nodes",
+    ) {
         return;
     }
 

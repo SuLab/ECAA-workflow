@@ -336,11 +336,7 @@ pub(crate) async fn get_deposit_package(
                 error = %e,
                 "reopening deposit zip tempfile failed"
             );
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "deposit zip read failed",
-            )
-                .into_response();
+            return (StatusCode::INTERNAL_SERVER_ERROR, "deposit zip read failed").into_response();
         }
     };
     drop(zip_tempfile);

@@ -1635,8 +1635,7 @@ mod tests {
             .await
             .unwrap();
 
-        let body =
-            std::fs::read_to_string(tmp.path().join("runtime/decisions.jsonl")).unwrap();
+        let body = std::fs::read_to_string(tmp.path().join("runtime/decisions.jsonl")).unwrap();
         assert!(
             !body.contains(absolute_output_dir),
             "absolute emit_package output_dir must be relativized out of decisions.jsonl; got: {body}"
@@ -2143,8 +2142,10 @@ mod tests {
         // §G-B1 — the unread normalized-counts sibling is GONE from the
         // standard graph; a generic consumer never reads it as a data flow.
         assert!(
-            graph.iter().all(|e| e["@id"]
-                != "#parameter-connection/normalisation__to__differential_expression"),
+            graph
+                .iter()
+                .all(|e| e["@id"]
+                    != "#parameter-connection/normalisation__to__differential_expression"),
             "the unread one-of sibling must be dropped from the standard graph"
         );
 
@@ -2811,10 +2812,7 @@ mod tests {
             .iter()
             .find(|(_, t)| {
                 !t.depends_on.is_empty()
-                    && t.spec
-                        .as_ref()
-                        .and_then(|s| s.get("condition"))
-                        .is_none()
+                    && t.spec.as_ref().and_then(|s| s.get("condition")).is_none()
             })
             .map(|(k, _)| k.to_string())
             .expect("a non-conditional task with dependencies");
@@ -2918,9 +2916,17 @@ mod tests {
 
         match &session.state {
             crate::session::SessionState::Blocked { blockers, .. } => {
-                assert_eq!(blockers.len(), 2, "expected both tasks blocked, got {blockers:?}");
-                assert!(blockers.iter().any(|b| b.task_id == "differential_expression"));
-                assert!(blockers.iter().any(|b| b.task_id == "biological_interpretation"));
+                assert_eq!(
+                    blockers.len(),
+                    2,
+                    "expected both tasks blocked, got {blockers:?}"
+                );
+                assert!(blockers
+                    .iter()
+                    .any(|b| b.task_id == "differential_expression"));
+                assert!(blockers
+                    .iter()
+                    .any(|b| b.task_id == "biological_interpretation"));
             }
             other => panic!("expected session to be Blocked, got {other:?}"),
         }

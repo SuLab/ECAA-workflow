@@ -2,7 +2,8 @@
 //!
 //! Reads a package's `DEPOSIT-READINESS.json` attestation and refuses (non-zero
 //! exit) any package that was not produced by a self-validating export, or whose
-//! RO-Crate / BagIt self-validation failed, or whose re-execution FAILED. Run
+//! RO-Crate / checksum-seal self-validation failed, or whose re-execution
+//! FAILED. Run
 //! this before trusting a package as deposit-grade (e.g. before copying a
 //! deposit into a paper/archive location).
 //!
@@ -67,7 +68,7 @@ pub(crate) fn run(args: DepositCheckArgs) -> Result<()> {
         .with_context(|| format!("deposit-check refused {}", args.package.display()))?;
 
     println!(
-        "deposit-check: PASS  package={}\n  profile={}  deposit_ready={}  ro_crate={:?}  bagit={:?}  domain_validation={:?}  reexecution={:?}",
+        "deposit-check: PASS  package={}\n  profile={}  deposit_ready={}  ro_crate={:?}  checksum_seal={:?}  domain_validation={:?}  reexecution={:?}",
         args.package.display(),
         dr.profile,
         dr.deposit_ready,

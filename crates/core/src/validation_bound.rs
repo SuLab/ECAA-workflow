@@ -405,7 +405,10 @@ mod tests {
         // Re-merge the same id into the prior result — must not duplicate.
         let twice = merge_into_contract(Some(once), &b);
         assert_eq!(
-            twice["stages"]["de"]["assertions"].as_array().unwrap().len(),
+            twice["stages"]["de"]["assertions"]
+                .as_array()
+                .unwrap()
+                .len(),
             1,
             "same id must replace, not append"
         );
@@ -442,7 +445,10 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.contains("op"), "error must name missing op: {err}");
-        assert!(err.contains("value"), "error must name missing value: {err}");
+        assert!(
+            err.contains("value"),
+            "error must name missing value: {err}"
+        );
         // Presence-style needs no check.
         assert!(validate_bound_check_shape("artifact_present", &serde_json::Value::Null).is_ok());
         // string_contains needs substrings or substrings_any.
@@ -473,7 +479,9 @@ mod tests {
             &serde_json::json!({ "json_pointer": "/converged" })
         )
         .is_ok());
-        assert!(validate_bound_check_shape("json_pointer_is_bool", &serde_json::json!({})).is_err());
+        assert!(
+            validate_bound_check_shape("json_pointer_is_bool", &serde_json::json!({})).is_err()
+        );
         // severity gate.
         assert!(is_valid_severity("required"));
         assert!(is_valid_severity("recommended"));

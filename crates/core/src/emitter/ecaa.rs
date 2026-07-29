@@ -578,7 +578,8 @@ fn run_python_validator(label: &str, script: &str, args: &[&str], scripts_dir: &
         });
     }
     let timeout = validator_timeout();
-    let (status, stdout_bytes, stderr_bytes) = match run_python_capped(&script_path, args, timeout) {
+    let (status, stdout_bytes, stderr_bytes) = match run_python_capped(&script_path, args, timeout)
+    {
         Ok(triple) => triple,
         Err(e) => {
             return json!({
@@ -637,7 +638,8 @@ fn run_external_validators(output_dir: &Path) -> Value {
             let shacl_handle = s.spawn(|| {
                 run_python_validator("shacl_projection", "project_package.py", &[pkg_arg], &dir)
             });
-            let owl = run_python_validator("owl_consistency", "owl_consistency.py", &[pkg_arg], &dir);
+            let owl =
+                run_python_validator("owl_consistency", "owl_consistency.py", &[pkg_arg], &dir);
             let shacl = shacl_handle.join().unwrap_or_else(|_| {
                 json!({ "status": "error", "reason": "shacl_projection validator thread panicked" })
             });
@@ -896,7 +898,10 @@ mod tests {
         let (status, _out, _err) =
             run_python_capped(&script, &[], std::time::Duration::from_millis(300)).unwrap();
         let elapsed = start.elapsed();
-        assert!(status.is_none(), "a hung validator must be killed (got {status:?})");
+        assert!(
+            status.is_none(),
+            "a hung validator must be killed (got {status:?})"
+        );
         assert!(
             elapsed < std::time::Duration::from_secs(10),
             "kill should be prompt, took {elapsed:?}"
@@ -906,7 +911,9 @@ mod tests {
     #[test]
     fn run_python_capped_captures_output_of_a_fast_script() {
         if !python3_available() {
-            eprintln!("SKIP run_python_capped_captures_output_of_a_fast_script: python3 not on PATH");
+            eprintln!(
+                "SKIP run_python_capped_captures_output_of_a_fast_script: python3 not on PATH"
+            );
             return;
         }
         let dir = tempfile::tempdir().unwrap();

@@ -322,7 +322,8 @@ pub use _client_ip::client_ip_from;
 // in `app_state.rs`.
 pub use app_state::{
     ArtifactCache, ChatAppState, ExecutionHandle, LlmRateBuckets, RateBucket, ReplayHandle,
-    ReplayJobStatus, ScorerCache, PROGRESS_RATE_BURST, PROGRESS_RATE_PER_SEC, SCORER_CACHE_TTL_SECS,
+    ReplayJobStatus, ScorerCache, PROGRESS_RATE_BURST, PROGRESS_RATE_PER_SEC,
+    SCORER_CACHE_TTL_SECS,
 };
 
 // Re-export wire types so the rest of the server crate (handlers in

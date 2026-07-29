@@ -64,6 +64,22 @@ fn loader_post_execution_evidence_coverage_flip_is_reachable() {
         "{\"from_node\":\"counts\",\"from_port\":\"out\",\"to_node\":\"de\",\"to_port\":\"in\",\"proof\":{}}\n",
     )
     .unwrap();
+    std::fs::write(
+        root.join("WORKFLOW.json"),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "tasks": {
+                "de": {
+                    "spec": {
+                        "result_schema": {
+                            "artifact": "volcano.png"
+                        }
+                    }
+                }
+            }
+        }))
+        .unwrap(),
+    )
+    .unwrap();
 
     // (1) Pre-execution / un-referenced: empty claims → the declared figure is
     //     uncovered → Warn (the output source is the RO-Crate entity).

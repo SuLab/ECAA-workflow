@@ -4,14 +4,14 @@
 //! (2026-06-22) and assert that the root `./` Dataset `dateCreated`:
 //!   1. parses to that calendar date (NOT a hash-projected far-future
 //!      value like 2061), and
-//!   2. is CONSISTENT with the BagIt `Bagging-Date` — both anchored to
+//!   2. is consistent with the checksum seal's `sealed_on` date, both anchored to
 //!      the same genuine run epoch, not to two different clocks.
 //!
 //! Before the fix, `dateCreated` came from `frozen_clock_from_intake`
 //! (the intake-hash projection, which can land in 2061) while
-//! `Bagging-Date` was pinned to 2026-01-01, so the two disagreed and the
+//! the seal date used an unrelated fixed value, so the two disagreed and the
 //! root date could be decades in the future. The fix anchors the root
-//! `dateCreated` to the same run epoch (`run_epoch_clock`) `Bagging-Date`
+//! `dateCreated` to the same run epoch (`run_epoch_clock`) the seal
 //! uses; this test guards that emit-path fix directly.
 //!
 //! This lives in an integration-test binary (not the lib unit tests)
@@ -75,7 +75,7 @@ fn one_task_dag() -> DAG {
 
 #[serial_test::serial(SOURCE_DATE_EPOCH)]
 #[test]
-fn root_date_created_anchored_to_run_epoch_and_matches_bagging_date() {
+fn root_date_created_anchored_to_run_epoch_and_matches_seal_date() {
     let policies_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
@@ -118,7 +118,7 @@ fn root_date_created_anchored_to_run_epoch_and_matches_bagging_date() {
     });
 
     let meta = std::fs::read_to_string(tmp.path().join("ro-crate-metadata.json"));
-    let bag_info = std::fs::read_to_string(tmp.path().join("bag-info.txt"));
+    let seal_info = std::fs::read_to_string(tmp.path().join("seal-info.json"));
 
     // Restore env BEFORE assertions so a panic can't leak the var.
     unsafe {
@@ -131,7 +131,8 @@ fn root_date_created_anchored_to_run_epoch_and_matches_bagging_date() {
     emit_result.expect("emit_package must succeed");
     let meta: serde_json::Value =
         serde_json::from_str(&meta.expect("ro-crate-metadata.json present")).unwrap();
-    let bag_info = bag_info.expect("bag-info.txt present");
+    let seal_info: serde_json::Value =
+        serde_json::from_str(&seal_info.expect("seal-info.json present")).unwrap();
 
     let root_date = meta
         .get("@graph")
@@ -155,9 +156,9 @@ fn root_date_created_anchored_to_run_epoch_and_matches_bagging_date() {
         "2026-06-22",
         "root dateCreated must anchor to the SOURCE_DATE_EPOCH run date, not a hash projection; got {root_date}"
     );
-    assert!(
-        bag_info.contains("Bagging-Date: 2026-06-22"),
-        "Bagging-Date must anchor to the same run epoch as dateCreated; got:\n{bag_info}"
+    assert_eq!(
+        seal_info["sealed_on"], "2026-06-22",
+        "seal date must anchor to the same run epoch as dateCreated"
     );
 }
 
@@ -222,7 +223,9 @@ fn root_has_datepublished_equal_to_datecreated() {
         .find(|e| e["@id"] == "./")
         .unwrap();
     let created = root["dateCreated"].as_str().expect("dateCreated present");
-    let published = root["datePublished"].as_str().expect("datePublished present");
+    let published = root["datePublished"]
+        .as_str()
+        .expect("datePublished present");
     assert_eq!(
         created, published,
         "datePublished must equal dateCreated (same run clock)"

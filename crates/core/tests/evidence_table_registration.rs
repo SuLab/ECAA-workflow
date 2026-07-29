@@ -72,14 +72,14 @@ fn persist_verified_table_claim(root: &Path, task: &str, table: &str, w: &AuditW
         literature_evidence: None,
         matched_pvalue_keyword: None,
         linear_fold: None,
-                aggregate_kind: None,
-                aggregate_column: None,
-                aggregate_rowset: None,
-                aggregate_value: None,
-                collection: None,
-                term: None,
-                keyed_column: None,
-                keyed_value: None,
+        aggregate_kind: None,
+        aggregate_column: None,
+        aggregate_rowset: None,
+        aggregate_value: None,
+        collection: None,
+        term: None,
+        keyed_column: None,
+        keyed_value: None,
     };
     let rep = ClaimVerificationReport {
         n_checked: 1,
@@ -431,14 +431,14 @@ fn backfilled_claim_supported_by_resolves_to_real_graph_node_and_text_populated(
         literature_evidence: None,
         matched_pvalue_keyword: None,
         linear_fold: None,
-                aggregate_kind: None,
-                aggregate_column: None,
-                aggregate_rowset: None,
-                aggregate_value: None,
-                collection: None,
-                term: None,
-                keyed_column: None,
-                keyed_value: None,
+        aggregate_kind: None,
+        aggregate_column: None,
+        aggregate_rowset: None,
+        aggregate_value: None,
+        collection: None,
+        term: None,
+        keyed_column: None,
+        keyed_value: None,
     };
     let rep = ClaimVerificationReport {
         n_checked: 1,
@@ -458,17 +458,19 @@ fn backfilled_claim_supported_by_resolves_to_real_graph_node_and_text_populated(
     persist_signed_verdicts(root, task, &rep, None, &w).unwrap();
 
     let clock = ecaa_workflow_core::clock::WallClock;
-    ecaa_workflow_core::ro_crate::finalize_evidence_registration_with_verifier(root, &clock, Some(&w))
-        .unwrap();
+    ecaa_workflow_core::ro_crate::finalize_evidence_registration_with_verifier(
+        root,
+        &clock,
+        Some(&w),
+    )
+    .unwrap();
 
     let doc: serde_json::Value =
         serde_json::from_slice(&fs::read(root.join("ro-crate-metadata.json")).unwrap()).unwrap();
     let graph = doc["@graph"].as_array().unwrap();
 
-    let node_ids: std::collections::BTreeSet<&str> = graph
-        .iter()
-        .filter_map(|e| e["@id"].as_str())
-        .collect();
+    let node_ids: std::collections::BTreeSet<&str> =
+        graph.iter().filter_map(|e| e["@id"].as_str()).collect();
 
     let claim_node = graph
         .iter()
@@ -484,10 +486,13 @@ fn backfilled_claim_supported_by_resolves_to_real_graph_node_and_text_populated(
 
     // Every supported_by @id resolves to a REAL @graph node (the registered
     // output File), so the embedded edge is not dangling.
-    let refs = claim_node["supported_by"]
-        .as_array()
-        .unwrap_or_else(|| panic!("Claim node must carry a supported_by array; node={claim_node:#?}"));
-    assert!(!refs.is_empty(), "supported_by must be non-empty for a verified claim");
+    let refs = claim_node["supported_by"].as_array().unwrap_or_else(|| {
+        panic!("Claim node must carry a supported_by array; node={claim_node:#?}")
+    });
+    assert!(
+        !refs.is_empty(),
+        "supported_by must be non-empty for a verified claim"
+    );
     for r in refs {
         let target = r["@id"]
             .as_str()

@@ -108,10 +108,8 @@ fn write_dependency_lock(root: &Path) {
 
 #[test]
 fn emitted_crate_closes_all_fair_gaps() {
-    let fixture =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/finalize-min-pkg");
-    let config_dir =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config");
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/finalize-min-pkg");
+    let config_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config");
 
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("pkg");
@@ -146,10 +144,8 @@ fn emitted_crate_closes_all_fair_gaps() {
     let graph = doc["@graph"].as_array().expect("@graph must be an array");
 
     // Collect all @id strings for presence checks.
-    let ids: std::collections::BTreeSet<&str> = graph
-        .iter()
-        .filter_map(|e| e["@id"].as_str())
-        .collect();
+    let ids: std::collections::BTreeSet<&str> =
+        graph.iter().filter_map(|e| e["@id"].as_str()).collect();
 
     // ── Gap 1: ro-crate-preview.html exists on disk AND is registered (Task 5) ─
     assert!(
@@ -186,12 +182,18 @@ fn emitted_crate_closes_all_fair_gaps() {
             panic!("produced output table {de_id} must be a @graph node after finalize")
         });
     assert!(
-        de_node.get("contentSize").and_then(|v| v.as_u64()).is_some(),
+        de_node
+            .get("contentSize")
+            .and_then(|v| v.as_u64())
+            .is_some(),
         "de_results.tsv must carry contentSize after finalize; node = {de_node:#?}"
     );
-    let sha = de_node.get("sha512").and_then(|v| v.as_str()).unwrap_or_else(|| {
-        panic!("de_results.tsv must carry sha512 after finalize; node = {de_node:#?}")
-    });
+    let sha = de_node
+        .get("sha512")
+        .and_then(|v| v.as_str())
+        .unwrap_or_else(|| {
+            panic!("de_results.tsv must carry sha512 after finalize; node = {de_node:#?}")
+        });
     assert_eq!(
         sha.len(),
         128,

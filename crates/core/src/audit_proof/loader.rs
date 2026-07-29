@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 
@@ -47,6 +47,13 @@ pub struct LoadedPackage {
     /// [`crate::audit_proof::output_source`]). Empty when
     /// `ro-crate-metadata.json` is absent.
     pub output_entities: Vec<Value>, // from ro-crate-metadata.json::@graph
+    /// Result artifacts explicitly declared as narrative evidence by a
+    /// task-level `result_schema` or by the report assembler's
+    /// `report_schemas`. Values are the artifact identifiers exactly as
+    /// recorded in `WORKFLOW.json` (usually basenames). Invariant 3 uses this
+    /// declaration, rather than every retained scientific file, as its
+    /// prospective evidence denominator.
+    pub declared_claim_evidence: BTreeSet<String>, // from WORKFLOW.json
     /// True iff a signed verdict sink was present but failed HMAC
     /// verification (tampered or written by an unauthorized writer).
     /// Inv 1 maps this to `Fail`.
@@ -72,6 +79,7 @@ impl LoadedPackage {
         let rt = root.join("runtime");
         let (claims, claims_tampered) = load_claims(&rt, verifier)?;
         let output_entities = load_output_entities(root)?;
+        let declared_claim_evidence = load_declared_claim_evidence(root)?;
         Ok(Self {
             intake: load_jsonl_opt(&rt.join("intake-conversation.jsonl"))?.unwrap_or_default(),
             decisions: load_jsonl_opt(&rt.join("decisions.jsonl"))?.unwrap_or_default(),
@@ -88,8 +96,53 @@ impl LoadedPackage {
             security_policy: load_json_opt(&rt.join("security-policy.json"))?,
             plot_affordances: load_jsonl_opt(&rt.join("plot_affordances.jsonl"))?,
             output_entities,
+            declared_claim_evidence,
         })
     }
+}
+
+/// Read artifacts explicitly selected for report verification.
+///
+/// A package may retain normalized matrices, plotting data, summaries,
+/// validation reports, copied inputs, and alternate table views. Their
+/// presence does not mean that every file was intended to support a narrative
+/// claim. The workflow contract makes that intent explicit in two places:
+/// stage-local `result_schema.artifact` and the assembler's
+/// `report_schemas.*.artifact`. Both are collected here without guessing from
+/// file extensions.
+fn load_declared_claim_evidence(root: &Path) -> Result<BTreeSet<String>> {
+    let Some(workflow) = load_json_opt(&root.join("WORKFLOW.json"))? else {
+        return Ok(BTreeSet::new());
+    };
+    let mut artifacts = BTreeSet::new();
+    let Some(tasks) = workflow.get("tasks").and_then(Value::as_object) else {
+        return Ok(artifacts);
+    };
+    for task in tasks.values() {
+        let Some(spec) = task.get("spec").and_then(Value::as_object) else {
+            continue;
+        };
+        if let Some(artifact) = spec
+            .get("result_schema")
+            .and_then(|schema| schema.get("artifact"))
+            .and_then(Value::as_str)
+            .filter(|artifact| !artifact.trim().is_empty())
+        {
+            artifacts.insert(artifact.to_string());
+        }
+        if let Some(schemas) = spec.get("report_schemas").and_then(Value::as_object) {
+            for schema in schemas.values() {
+                if let Some(artifact) = schema
+                    .get("artifact")
+                    .and_then(Value::as_str)
+                    .filter(|artifact| !artifact.trim().is_empty())
+                {
+                    artifacts.insert(artifact.to_string());
+                }
+            }
+        }
+    }
+    Ok(artifacts)
 }
 
 /// Read the analytical-output entities from `ro-crate-metadata.json::@graph`.

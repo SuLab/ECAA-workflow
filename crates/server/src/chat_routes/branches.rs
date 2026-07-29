@@ -496,7 +496,8 @@ pub(crate) async fn inherit_branch_artifacts(
         "parent session not loadable; skipping artifact inheritance",
         "parent has no emitted_package_path; nothing to inherit",
     )
-    .await else {
+    .await
+    else {
         return Vec::new();
     };
     let Some(child_session) = app.conversation.get_session(child_id).await else {

@@ -492,8 +492,7 @@ fn build_assumptions_jsonl(
         let line = if orphaned {
             let mut pruned = assumption.clone();
             pruned.resolution = AssumptionResolution::Rejected {
-                rationale: "atom pruned from workflow — excluded from the emitted plan"
-                    .to_string(),
+                rationale: "atom pruned from workflow — excluded from the emitted plan".to_string(),
             };
             serde_json::to_string(&pruned)
         } else {

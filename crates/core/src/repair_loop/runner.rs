@@ -34,8 +34,7 @@ impl TaskRunner for ReviewRoutingRunner {
         std::fs::create_dir_all(&runtime)
             .with_context(|| format!("creating runtime dir at {}", runtime.display()))?;
         let path = runtime.join("repair-requests.jsonl");
-        let mut line = serde_json::to_string(directive)
-            .context("serializing repair directive")?;
+        let mut line = serde_json::to_string(directive).context("serializing repair directive")?;
         line.push('\n');
         let mut file = OpenOptions::new()
             .create(true)
@@ -72,8 +71,7 @@ mod tests {
         let contents = std::fs::read_to_string(&path).expect("read jsonl");
         let lines: Vec<&str> = contents.lines().collect();
         assert_eq!(lines.len(), 2, "two directives must append two lines");
-        let parsed: RepairDirective =
-            serde_json::from_str(lines[0]).expect("first line parses");
+        let parsed: RepairDirective = serde_json::from_str(lines[0]).expect("first line parses");
         assert_eq!(parsed, d1, "first directive must round-trip from jsonl");
     }
 }

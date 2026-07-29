@@ -388,7 +388,10 @@ mod tests {
     fn digest_kind_labels_oci_vs_content_hash() {
         let sixty_four = "a".repeat(64);
         let sixteen = "b".repeat(16);
-        assert_eq!(classify_digest_kind(&format!("sha256:{sixty_four}")), "oci_digest");
+        assert_eq!(
+            classify_digest_kind(&format!("sha256:{sixty_four}")),
+            "oci_digest"
+        );
         assert_eq!(classify_digest_kind(&sixty_four), "oci_digest");
         assert_eq!(
             classify_digest_kind(&format!("content-hash:sha256:{sixteen}")),

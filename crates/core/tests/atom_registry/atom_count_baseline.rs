@@ -90,8 +90,8 @@ fn atom_schema_declares_interpretation_word_budget_flag() {
 #[test]
 fn biological_interpretation_atom_is_well_formed() {
     let path = repo_root().join("config/stage-atoms/biological_interpretation.yaml");
-    let raw = fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+    let raw =
+        fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
     let atom: serde_yaml_ng::Value = serde_yaml_ng::from_str(&raw).expect("atom YAML parses");
     assert_eq!(atom["id"], "biological_interpretation");
     assert_eq!(atom["role"], "operation");
@@ -121,7 +121,9 @@ fn biological_interpretation_atom_is_well_formed() {
     );
     assert!(names.contains(&"result.json"), "must emit result.json");
     // claim_boundary forbids method recommendation + requires evidence anchors.
-    let boundary = atom["claim_boundary"].as_str().expect("claim_boundary string");
+    let boundary = atom["claim_boundary"]
+        .as_str()
+        .expect("claim_boundary string");
     assert!(
         boundary.contains("result row") || boundary.contains("result-table row"),
         "claim_boundary must require every claim cite a result row"
@@ -142,15 +144,16 @@ fn biological_interpretation_atom_is_well_formed() {
 #[test]
 fn final_reporting_is_findings_first_and_word_budget_exempt() {
     let path = repo_root().join("config/stage-atoms/final_reporting.yaml");
-    let raw = fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
-    let atom: serde_yaml_ng::Value =
-        serde_yaml_ng::from_str(&raw).expect("final_reporting parses");
+    let raw =
+        fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+    let atom: serde_yaml_ng::Value = serde_yaml_ng::from_str(&raw).expect("final_reporting parses");
     assert_eq!(
         atom["interpretation_exempt_from_word_budget"], true,
         "final_reporting must be exempt from the narrative word cap"
     );
-    let boundary = atom["claim_boundary"].as_str().expect("claim_boundary string");
+    let boundary = atom["claim_boundary"]
+        .as_str()
+        .expect("claim_boundary string");
     assert!(
         boundary.to_lowercase().contains("findings first")
             || boundary.to_lowercase().contains("findings-first"),

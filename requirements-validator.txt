@@ -1,5 +1,9 @@
-# Pinned for grant v19 G1 WRROC v0.5 conformance validation.
-# runcrate ≥ 0.5.0 supports WRROC Tier-3 schema validation.
-runcrate>=0.5.0
-rocrate>=0.13.0
+# Pinned external toolchain for WRROC, SHACL, JSON-LD, and OWL validation.
+# runcrate 0.6.2 supports the WRROC Tier-3 schema-validation checks used here.
+runcrate==0.6.2
+rocrate==0.15.1
 roc-validator==0.11.0
+pyshacl==0.40.1
+PyLD==3.1.0
+owlready2==0.51
+rdflib==7.6.0

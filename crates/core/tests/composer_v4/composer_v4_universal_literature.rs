@@ -99,12 +99,12 @@ fn every_archetype_declares_literature_atoms() {
     let mut checked = 0usize;
     for (id, arch) in archetypes.iter() {
         checked += 1;
-        let has_ctx =
-            declares_or_inherits(arch, CONTEXTUALIZE, &archetypes, &mut BTreeSet::new());
-        let has_rpw =
-            declares_or_inherits(arch, REVIEW_PRIOR, &archetypes, &mut BTreeSet::new());
+        let has_ctx = declares_or_inherits(arch, CONTEXTUALIZE, &archetypes, &mut BTreeSet::new());
+        let has_rpw = declares_or_inherits(arch, REVIEW_PRIOR, &archetypes, &mut BTreeSet::new());
         if !has_ctx || !has_rpw {
-            missing.push(format!("{id} (contextualize={has_ctx}, review_prior_work={has_rpw})"));
+            missing.push(format!(
+                "{id} (contextualize={has_ctx}, review_prior_work={has_rpw})"
+            ));
         }
     }
 
@@ -125,11 +125,26 @@ fn representative_archetypes_compose_contextualize() {
     // (archetype-driving prose, modality slice). Picked across families:
     // peak-calling, DE, clinical, single-cell, cross-omics.
     let cases: &[(&str, &str, Option<&str>, &[&str])] = &[
-        ("data:0951", "format:3475", Some("bulk_rnaseq"), &["bulk_rnaseq"]),
+        (
+            "data:0951",
+            "format:3475",
+            Some("bulk_rnaseq"),
+            &["bulk_rnaseq"],
+        ),
         ("data:1255", "format:3003", Some("chip_seq"), &["chip_seq"]),
         ("data:1255", "format:3003", Some("atac_seq"), &["atac_seq"]),
-        ("data:3498", "format:3016", Some("variant_calling"), &["variant_calling"]),
-        ("data:0006", "format:3475", Some("generic_omics"), &["generic_omics"]),
+        (
+            "data:3498",
+            "format:3016",
+            Some("variant_calling"),
+            &["variant_calling"],
+        ),
+        (
+            "data:0006",
+            "format:3475",
+            Some("generic_omics"),
+            &["generic_omics"],
+        ),
     ];
 
     for (edam_data, edam_format, prose_modality, modalities) in cases {

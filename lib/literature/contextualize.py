@@ -325,6 +325,90 @@ def _counts(rows: Sequence[ClaimRow]) -> Dict[str, int]:
     return dict(sorted(out.items()))
 
 
+#: One quotable sentence per emitted count, so a narrative can state the count
+#: WITH its denominator instead of inferring one. A deposited report read the 9
+#: assessed evidence ROWS as "9 specific genes" when only 4 entities were ever
+#: searched, then contradicted itself 109 lines later with the correct 4 — the
+#: two numbers were conflatable because neither carried its own definition.
+COUNT_DEFINITIONS: Dict[str, str] = {
+    "n_entities_assessed": (
+        "distinct entities a prior-work query was actually issued for. This is the "
+        "only count that may be described as a number of entities searched."
+    ),
+    "n_entities_not_assessed": (
+        "distinct entities NO prior-work query was issued for. Not novel, and not "
+        "'no prior work' — their literature status is unknown."
+    ),
+    "n_evidence_rows_assessed": (
+        "rows of claims_evidence_matrix.csv with searched=true. One assessed entity "
+        "contributes one row PER cited source, so this is always >= "
+        "n_entities_assessed and is NEVER a count of entities."
+    ),
+    "n_evidence_rows_total": (
+        "total rows of claims_evidence_matrix.csv, assessed and not. A count of rows, "
+        "not of entities."
+    ),
+    "n_search_axes_total": (
+        "distinct query axes the upstream prior-work retrieval recorded, including "
+        "axes that name a method, a dataset, or a condition rather than an entity."
+    ),
+    "n_search_axes_naming_an_assessed_entity": (
+        "the subset of those axes that named one of the assessed entities. Only this "
+        "subset supports a statement about how many entities were searched."
+    ),
+}
+
+
+def assessment_counts(
+    rows: Sequence[ClaimRow],
+    prior_rows: Sequence[dict],
+    scope: Dict[str, List[str]],
+    *,
+    scope_source: str,
+) -> Dict[str, object]:
+    """Self-describing assessment counts, each with its own denominator named.
+
+    Entity counts and evidence-ROW counts are separate keys with separate names
+    because they differ whenever one entity cites more than one source, and a
+    narrative that reads a row count as an entity count states a false number of
+    searched entities. Axis counts are likewise split into the total the upstream
+    retrieval recorded and the subset that named an assessed entity, because a
+    retrieval axis may name a method or a dataset rather than an entity.
+
+    Every count is derived from the emitted artifacts — `rows` is what
+    `claims_evidence_matrix.csv` will contain, `prior_rows` is the upstream
+    prior-claims matrix — so a reader can reconcile each number against the file
+    it came from. `COUNT_DEFINITIONS` is emitted alongside so a report can quote
+    a count's definition rather than infer one.
+
+    Pure + deterministic; entity and axis lists are sorted.
+    """
+    assessed_entities = sorted({r.entity for r in rows if r.searched == "true" and r.entity})
+    not_assessed_entities = sorted(
+        {r.entity for r in rows if r.searched != "true" and r.entity} - set(assessed_entities)
+    )
+    axes_total = sorted({(row.get("axis") or "").strip() for row in prior_rows} - {""})
+    naming_axes = sorted(
+        {axis for entity in assessed_entities for axis in scope.get(entity, []) if axis}
+    )
+    return {
+        "n_entities_assessed": len(assessed_entities),
+        "n_entities_not_assessed": len(not_assessed_entities),
+        "n_evidence_rows_assessed": sum(1 for r in rows if r.searched == "true"),
+        "n_evidence_rows_total": len(rows),
+        "n_search_axes_total": len(axes_total),
+        "n_search_axes_naming_an_assessed_entity": len(naming_axes),
+        "entities_assessed": assessed_entities,
+        "search_axes_naming_an_assessed_entity": naming_axes,
+        # `explicit` means the retrieval step handed us its own scope list, so no
+        # axis named the entities and the axis-naming count is 0 by construction
+        # rather than by absence of a query. Recorded so a reader never reads
+        # that 0 as "nothing was searched".
+        "search_scope_source": scope_source,
+        "count_definitions": dict(COUNT_DEFINITIONS),
+    }
+
+
 def write_reports(
     rows: Sequence[ClaimRow],
     table: ResultTable,
@@ -480,7 +564,15 @@ def contextualize(
     mapping = symbol_map_pairs(results, id_column=id_column, symbol_column=symbol_column)
     write_symbol_map(mapping, out_dir / SYMBOL_MAP_RELPATH)
 
-    return {
+    # Same pure call `build_rows` makes, so the axis attribution the counts
+    # report is the one the rows were built from.
+    scope = searched_entities(
+        prior_rows,
+        (f.symbol for f in table.findings),
+        explicit=explicit_searched,
+    )
+
+    summary: Dict[str, object] = {
         "n_findings": len(table.findings),
         "n_rows": len(rows),
         "n_snapshots_available": len(evidence),
@@ -495,6 +587,18 @@ def contextualize(
         },
         "symbol_map": {"path": SYMBOL_MAP_RELPATH, "n_rows": len(mapping)},
     }
+    # Additive: the pre-existing keys above keep their exact meanings; these
+    # carry their own denominators so an entity count and a row count can no
+    # longer be read as the same number.
+    summary.update(
+        assessment_counts(
+            rows,
+            prior_rows,
+            scope,
+            scope_source="explicit" if explicit_searched is not None else "query_axes",
+        )
+    )
+    return summary
 
 
 def build_parser() -> argparse.ArgumentParser:

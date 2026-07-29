@@ -116,7 +116,12 @@ pub fn build_repair_plan(report: &ClaimVerificationReport) -> Vec<RepairItem> {
     report
         .verdicts
         .iter()
-        .filter(|v| matches!(v.status, ClaimStatus::Mismatch { .. } | ClaimStatus::Suspicious { .. }))
+        .filter(|v| {
+            matches!(
+                v.status,
+                ClaimStatus::Mismatch { .. } | ClaimStatus::Suspicious { .. }
+            )
+        })
         .map(|v| {
             let detail = match &v.status {
                 ClaimStatus::Mismatch { detail } => detail.clone(),
@@ -206,7 +211,9 @@ mod tests {
         assert_eq!(
             classify(&verdict(
                 ClaimContract::ThresholdedDeOrEnrichment,
-                ClaimStatus::Mismatch { detail: "count claim: narrative says 453, `t.tsv` has 334".into() },
+                ClaimStatus::Mismatch {
+                    detail: "count claim: narrative says 453, `t.tsv` has 334".into()
+                },
                 Some("t.tsv"),
             )),
             RepairAction::NarrativeCorrection
@@ -215,7 +222,9 @@ mod tests {
         assert_eq!(
             classify(&verdict(
                 ClaimContract::ThresholdedDeOrEnrichment,
-                ClaimStatus::Mismatch { detail: "claim cites evidence file `g.tsv` that does not exist anywhere".into() },
+                ClaimStatus::Mismatch {
+                    detail: "claim cites evidence file `g.tsv` that does not exist anywhere".into()
+                },
                 None,
             )),
             RepairAction::CitationFix
@@ -224,7 +233,9 @@ mod tests {
         assert_eq!(
             classify(&verdict(
                 ClaimContract::LiteratureGrounded,
-                ClaimStatus::Mismatch { detail: "narrative cites PMID 1 but the matrix has no supporting row".into() },
+                ClaimStatus::Mismatch {
+                    detail: "narrative cites PMID 1 but the matrix has no supporting row".into()
+                },
                 None,
             )),
             RepairAction::EvidenceCompletion
@@ -233,7 +244,9 @@ mod tests {
         assert_eq!(
             classify(&verdict(
                 ClaimContract::NumericTableLookup,
-                ClaimStatus::Suspicious { reason: "absent-entity quantitative claim".into() },
+                ClaimStatus::Suspicious {
+                    reason: "absent-entity quantitative claim".into()
+                },
                 Some("t.tsv"),
             )),
             RepairAction::ReviewRequired
@@ -243,15 +256,23 @@ mod tests {
     #[test]
     fn plan_skips_verified_and_unverifiable() {
         let mut report = ClaimVerificationReport::empty();
-        report.push(verdict(ClaimContract::NumericTableLookup, ClaimStatus::Verified, Some("t.tsv")));
         report.push(verdict(
             ClaimContract::NumericTableLookup,
-            ClaimStatus::Unverifiable { reason: "no table".into() },
+            ClaimStatus::Verified,
+            Some("t.tsv"),
+        ));
+        report.push(verdict(
+            ClaimContract::NumericTableLookup,
+            ClaimStatus::Unverifiable {
+                reason: "no table".into(),
+            },
             None,
         ));
         report.push(verdict(
             ClaimContract::ThresholdedDeOrEnrichment,
-            ClaimStatus::Mismatch { detail: "count claim: narrative says 5, `t.tsv` has 3".into() },
+            ClaimStatus::Mismatch {
+                detail: "count claim: narrative says 5, `t.tsv` has 3".into(),
+            },
             Some("t.tsv"),
         ));
         let plan = build_repair_plan(&report);

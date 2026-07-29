@@ -597,8 +597,16 @@ impl ExecEnv {
         let route_through_conda = interp == "Rscript";
 
         match self {
-            ExecEnv::Container { digest, conda_prefix, conda_mount_at }
-            | ExecEnv::RebuiltImage { tag: digest, conda_prefix, conda_mount_at } => {
+            ExecEnv::Container {
+                digest,
+                conda_prefix,
+                conda_mount_at,
+            }
+            | ExecEnv::RebuiltImage {
+                tag: digest,
+                conda_prefix,
+                conda_mount_at,
+            } => {
                 let mut args = vec![
                     "docker".to_string(),
                     "run".to_string(),
@@ -632,7 +640,11 @@ impl ExecEnv {
                 if route_through_conda {
                     if let Some(prefix) = conda_prefix {
                         let src = prefix.display().to_string();
-                        let dst = conda_mount_at.as_deref().unwrap_or(prefix).display().to_string();
+                        let dst = conda_mount_at
+                            .as_deref()
+                            .unwrap_or(prefix)
+                            .display()
+                            .to_string();
                         args.push("-v".to_string());
                         args.push(format!("{src}:{dst}"));
                     }
@@ -673,7 +685,11 @@ impl ExecEnv {
                 // (see `route_through_conda`).
                 if route_through_conda {
                     if let Some(prefix) = conda_prefix {
-                        let dst = conda_mount_at.as_deref().unwrap_or(prefix).display().to_string();
+                        let dst = conda_mount_at
+                            .as_deref()
+                            .unwrap_or(prefix)
+                            .display()
+                            .to_string();
                         args.push("conda".to_string());
                         args.push("run".to_string());
                         args.push("--no-capture-output".to_string());
@@ -732,7 +748,9 @@ impl ExecEnv {
     ) -> io::Result<Output> {
         let argv = self.build_command(script, env, cwd)?;
         // argv[0] is the program; argv[1..] are its arguments.
-        let (program, args) = argv.split_first().expect("build_command returns non-empty vec");
+        let (program, args) = argv
+            .split_first()
+            .expect("build_command returns non-empty vec");
         let mut cmd = Command::new(program);
         cmd.args(args);
         // The container tiers set the working directory inside the container via
@@ -1031,15 +1049,29 @@ mod tests {
     #[test]
     fn tier_name_all_variants() {
         assert_eq!(
-            ExecEnv::Container { digest: "d".into(), conda_prefix: None, conda_mount_at: None }.tier_name(),
+            ExecEnv::Container {
+                digest: "d".into(),
+                conda_prefix: None,
+                conda_mount_at: None
+            }
+            .tier_name(),
             "container"
         );
         assert_eq!(
-            ExecEnv::RebuiltImage { tag: "t".into(), conda_prefix: None, conda_mount_at: None }.tier_name(),
+            ExecEnv::RebuiltImage {
+                tag: "t".into(),
+                conda_prefix: None,
+                conda_mount_at: None
+            }
+            .tier_name(),
             "rebuilt"
         );
         assert_eq!(
-            ExecEnv::InstallFromLock { digest: "d".into(), lock: PathBuf::from("/l") }.tier_name(),
+            ExecEnv::InstallFromLock {
+                digest: "d".into(),
+                lock: PathBuf::from("/l")
+            }
+            .tier_name(),
             "install-from-lock"
         );
         assert_eq!(ExecEnv::None.tier_name(), "none");
@@ -1086,7 +1118,11 @@ mod tests {
         let md = std::fs::metadata(cwd).unwrap();
         let user = format!("{}:{}", md.uid(), md.gid());
 
-        let env_obj = ExecEnv::Container { digest: "sha256:abc123".to_string(), conda_prefix: None, conda_mount_at: None };
+        let env_obj = ExecEnv::Container {
+            digest: "sha256:abc123".to_string(),
+            conda_prefix: None,
+            conda_mount_at: None,
+        };
         let mut env = BTreeMap::new();
         env.insert("SOURCE_DATE_EPOCH".to_string(), "1000000".to_string());
         env.insert("PYTHONHASHSEED".to_string(), "0".to_string());
@@ -1126,18 +1162,24 @@ mod tests {
     fn build_command_container_is_hardened() {
         let tmp = tempfile::tempdir().unwrap();
         let cwd = tmp.path();
-        let env_obj = ExecEnv::Container { digest: "sha256:abc123".to_string(), conda_prefix: None, conda_mount_at: None };
+        let env_obj = ExecEnv::Container {
+            digest: "sha256:abc123".to_string(),
+            conda_prefix: None,
+            conda_mount_at: None,
+        };
         let env = BTreeMap::new();
         let script = cwd.join("run.py");
 
         let argv = env_obj.build_command(&script, &env, cwd).unwrap();
 
         assert!(
-            argv.windows(2).any(|w| w[0] == "--network" && w[1] == "none"),
+            argv.windows(2)
+                .any(|w| w[0] == "--network" && w[1] == "none"),
             "replay container must have no network egress: {argv:?}"
         );
         assert!(
-            argv.windows(2).any(|w| w[0] == "--cap-drop" && w[1] == "ALL"),
+            argv.windows(2)
+                .any(|w| w[0] == "--cap-drop" && w[1] == "ALL"),
             "replay container must drop all capabilities: {argv:?}"
         );
         assert!(
@@ -1146,14 +1188,18 @@ mod tests {
             "replay container must forbid privilege escalation: {argv:?}"
         );
         assert!(
-            argv.windows(2).any(|w| w[0] == "--pids-limit" && w[1] == "512"),
+            argv.windows(2)
+                .any(|w| w[0] == "--pids-limit" && w[1] == "512"),
             "replay container must bound its process table: {argv:?}"
         );
         // The hardening flags precede the image reference (argv[n-3] is the
         // digest for a python script with no conda env).
         let net = argv.iter().position(|a| a == "--network").unwrap();
         let img = argv.len() - 3;
-        assert!(net < img, "hardening flags must come before the image: {argv:?}");
+        assert!(
+            net < img,
+            "hardening flags must come before the image: {argv:?}"
+        );
         assert_eq!(argv[img], "sha256:abc123");
     }
 
@@ -1171,21 +1217,36 @@ mod tests {
         };
         let env = BTreeMap::new();
         let script = Path::new("/scratch/differential_expression/scripts/01_run_deseq2.R");
-        let argv = env_obj.build_command(script, &env, Path::new("/scratch")).unwrap();
+        let argv = env_obj
+            .build_command(script, &env, Path::new("/scratch"))
+            .unwrap();
         let joined = argv.join(" ");
         let p = prefix.display().to_string();
         assert!(
-            argv.windows(2).any(|w| w[0] == "-v" && w[1] == format!("{p}:{p}")),
+            argv.windows(2)
+                .any(|w| w[0] == "-v" && w[1] == format!("{p}:{p}")),
             "must bind-mount the conda prefix at its own path; got: {joined}"
         );
         assert!(
             joined.contains(&format!("conda run --no-capture-output -p {p}")),
             "must invoke the interpreter via `conda run -p <prefix>`; got: {joined}"
         );
-        let ci = argv.iter().position(|a| a == "conda").expect("conda present");
-        let ri = argv.iter().position(|a| a == "Rscript").expect("Rscript present");
-        let si = argv.iter().position(|a| a == script.display().to_string().as_str()).unwrap();
-        assert!(ci < ri && ri < si, "conda run must wrap the interpreter+script; got: {joined}");
+        let ci = argv
+            .iter()
+            .position(|a| a == "conda")
+            .expect("conda present");
+        let ri = argv
+            .iter()
+            .position(|a| a == "Rscript")
+            .expect("Rscript present");
+        let si = argv
+            .iter()
+            .position(|a| a == script.display().to_string().as_str())
+            .unwrap();
+        assert!(
+            ci < ri && ri < si,
+            "conda run must wrap the interpreter+script; got: {joined}"
+        );
     }
 
     /// A shipped conda env baked at a different absolute path (the recorded
@@ -1204,15 +1265,21 @@ mod tests {
         };
         let env = BTreeMap::new();
         let script = Path::new("/scratch/differential_expression/scripts/01_run_deseq2.R");
-        let argv = env_obj.build_command(script, &env, Path::new("/scratch")).unwrap();
+        let argv = env_obj
+            .build_command(script, &env, Path::new("/scratch"))
+            .unwrap();
         let joined = argv.join(" ");
         assert!(
-            argv.windows(2).any(|w| w[0] == "-v"
-                && w[1] == format!("{}:{}", on_disk.display(), recorded.display())),
+            argv.windows(2)
+                .any(|w| w[0] == "-v"
+                    && w[1] == format!("{}:{}", on_disk.display(), recorded.display())),
             "must bind-mount on-disk env at the RECORDED path; got: {joined}"
         );
         assert!(
-            joined.contains(&format!("conda run --no-capture-output -p {}", recorded.display())),
+            joined.contains(&format!(
+                "conda run --no-capture-output -p {}",
+                recorded.display()
+            )),
             "must `conda run -p` the RECORDED path, not the on-disk path; got: {joined}"
         );
         assert!(
@@ -1268,7 +1335,9 @@ mod tests {
         // The R env must not be bind-mounted into a Python container.
         let p = prefix.display().to_string();
         assert!(
-            !py_argv.windows(2).any(|w| w[0] == "-v" && w[1] == format!("{p}:{p}")),
+            !py_argv
+                .windows(2)
+                .any(|w| w[0] == "-v" && w[1] == format!("{p}:{p}")),
             "Python container must not mount the R conda env; got: {}",
             py_argv.join(" ")
         );
@@ -1284,7 +1353,11 @@ mod tests {
         // Package-level explicit lock, no shipped conda env dir.
         let rt = tmp.path().join("runtime");
         fs::create_dir_all(&rt).unwrap();
-        fs::write(rt.join("env.explicit.lock"), "@EXPLICIT\nhttps://x/p.tar.bz2#abc\n").unwrap();
+        fs::write(
+            rt.join("env.explicit.lock"),
+            "@EXPLICIT\nhttps://x/p.tar.bz2#abc\n",
+        )
+        .unwrap();
 
         let opts = ProvisionOpts {
             allow_rebuild: false,
@@ -1314,14 +1387,20 @@ mod tests {
             fallback_image: Some("bio-min:local".to_string()),
         };
         // Recorded present → unchanged (no drift).
-        assert_eq!(resolve_recorded_image("sha256:abc", &with_fb(|_| true)), "sha256:abc");
+        assert_eq!(
+            resolve_recorded_image("sha256:abc", &with_fb(|_| true)),
+            "sha256:abc"
+        );
         // Recorded absent, fallback present → fallback.
         assert_eq!(
             resolve_recorded_image("sha256:gone", &with_fb(|i| i == "bio-min:local")),
             "bio-min:local"
         );
         // Recorded absent, fallback ALSO absent → keep recorded.
-        assert_eq!(resolve_recorded_image("sha256:gone", &with_fb(|_| false)), "sha256:gone");
+        assert_eq!(
+            resolve_recorded_image("sha256:gone", &with_fb(|_| false)),
+            "sha256:gone"
+        );
         // Recorded absent, fallback disabled (None) → keep recorded.
         let no_fb = ProvisionOpts {
             allow_rebuild: false,
@@ -1340,7 +1419,11 @@ mod tests {
         write_det_env(tmp.path(), "differential_expression", "sha256:gone");
         let rt = tmp.path().join("runtime");
         fs::create_dir_all(&rt).unwrap();
-        fs::write(rt.join("env.explicit.lock"), "@EXPLICIT\nhttps://x/p.tar.bz2#abc\n").unwrap();
+        fs::write(
+            rt.join("env.explicit.lock"),
+            "@EXPLICIT\nhttps://x/p.tar.bz2#abc\n",
+        )
+        .unwrap();
         let opts = ProvisionOpts {
             allow_rebuild: false,
             docker_probe: || true,
@@ -1390,11 +1473,16 @@ mod tests {
         assert!(joined.contains("run --rm"), "got: {joined}");
         let parent = tmp.path().display().to_string();
         assert!(
-            argv.windows(2).any(|w| w[0] == "-v" && w[1] == format!("{parent}:{parent}")),
+            argv.windows(2)
+                .any(|w| w[0] == "-v" && w[1] == format!("{parent}:{parent}")),
             "must mount the scratch parent so the created env persists; got: {joined}"
         );
         assert!(
-            joined.contains(&format!("conda create -y -p {} --file {}", target.display(), lock.display())),
+            joined.contains(&format!(
+                "conda create -y -p {} --file {}",
+                target.display(),
+                lock.display()
+            )),
             "must be a pinned conda create from the lock; got: {joined}"
         );
         assert!(
@@ -1403,11 +1491,15 @@ mod tests {
             "must name the explicit env format (conda 26.x dropped --file auto-detection); got: {joined}"
         );
         // Network is NOT disabled for the install step (it must fetch packages).
-        assert!(!joined.contains("--network none"), "install step must reach registries; got: {joined}");
+        assert!(
+            !joined.contains("--network none"),
+            "install step must reach registries; got: {joined}"
+        );
         // ...but the install of an UNTRUSTED lock is still hardened: no caps,
         // no privilege escalation, a bounded process table, and a memory cap.
         assert!(
-            argv.windows(2).any(|w| w[0] == "--cap-drop" && w[1] == "ALL"),
+            argv.windows(2)
+                .any(|w| w[0] == "--cap-drop" && w[1] == "ALL"),
             "install step must drop all capabilities; got: {joined}"
         );
         assert!(
@@ -1416,7 +1508,8 @@ mod tests {
             "install step must forbid privilege escalation; got: {joined}"
         );
         assert!(
-            argv.windows(2).any(|w| w[0] == "--pids-limit" && w[1] == "512"),
+            argv.windows(2)
+                .any(|w| w[0] == "--pids-limit" && w[1] == "512"),
             "install step must bound its process table; got: {joined}"
         );
         assert!(
@@ -1452,7 +1545,11 @@ mod tests {
         };
         match provision(tmp.path(), &opts, "") {
             ExecEnv::Container { conda_prefix, .. } => {
-                assert_eq!(conda_prefix, Some(env_dir), "must detect the single shipped conda env");
+                assert_eq!(
+                    conda_prefix,
+                    Some(env_dir),
+                    "must detect the single shipped conda env"
+                );
             }
             other => panic!("expected Container tier, got {other:?}"),
         }
@@ -1469,7 +1566,11 @@ mod tests {
         let md = std::fs::metadata(cwd).unwrap();
         let user = format!("{}:{}", md.uid(), md.gid());
 
-        let env_obj = ExecEnv::RebuiltImage { tag: "ecaa-replay:mypkg".to_string(), conda_prefix: None, conda_mount_at: None };
+        let env_obj = ExecEnv::RebuiltImage {
+            tag: "ecaa-replay:mypkg".to_string(),
+            conda_prefix: None,
+            conda_mount_at: None,
+        };
         let env: BTreeMap<String, String> = BTreeMap::new();
         let script = cwd.join("setup.sh");
 

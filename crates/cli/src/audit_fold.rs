@@ -17,7 +17,9 @@ use ecaa_workflow_harness::wrroc_validator_impl::PythonRuncrateWrrocValidator;
 /// Truthy parse of `ECAA_CONFORMANCE_MODE`.
 pub(crate) fn conformance_mode() -> bool {
     matches!(
-        std::env::var("ECAA_CONFORMANCE_MODE").as_deref().unwrap_or("0"),
+        std::env::var("ECAA_CONFORMANCE_MODE")
+            .as_deref()
+            .unwrap_or("0"),
         "1" | "true" | "yes" | "on"
     )
 }
@@ -52,8 +54,7 @@ pub(crate) fn writer_from_hex(secret_hex: &str) -> Result<AuditWriter> {
 /// conformance-mode-only gate. Falls back to the no-op adapter (→ `Unverified`)
 /// when runcrate is absent, so a non-run is never recorded as a substrate pass.
 pub(crate) fn select_validator(prefer_runcrate_if_available: bool) -> Box<dyn WrrocValidator> {
-    let use_runcrate = conformance_mode()
-        || (prefer_runcrate_if_available && runcrate_available());
+    let use_runcrate = conformance_mode() || (prefer_runcrate_if_available && runcrate_available());
     if use_runcrate {
         Box::new(PythonRuncrateWrrocValidator)
     } else {
@@ -67,8 +68,7 @@ pub(crate) fn select_validator(prefer_runcrate_if_available: bool) -> Box<dyn Wr
 /// this file itself.
 pub(crate) fn write_reexecution_json(pkg: &Path, report: &ReexecutionReport) -> Result<()> {
     let runtime = pkg.join("runtime");
-    std::fs::create_dir_all(&runtime)
-        .with_context(|| format!("creating {}", runtime.display()))?;
+    std::fs::create_dir_all(&runtime).with_context(|| format!("creating {}", runtime.display()))?;
     let out = runtime.join("reexecution.json");
     let body = serde_json::to_vec_pretty(report).context("serializing runtime/reexecution.json")?;
     std::fs::write(&out, body).with_context(|| format!("writing {}", out.display()))?;
@@ -90,8 +90,13 @@ pub(crate) fn reseal_deferred(pkg: &Path, validator: &dyn WrrocValidator) -> Res
         InvariantId::EquivalenceFailure,
         InvariantId::SubstrateValidity,
     ];
-    ecaa_workflow_core::emitter::reseal_audit_report(pkg, validator, writer.as_ref(), Some(&refresh))
-        .context("resealing audit-proof report + AUDIT-REPORT.md")
+    ecaa_workflow_core::emitter::reseal_audit_report(
+        pkg,
+        validator,
+        writer.as_ref(),
+        Some(&refresh),
+    )
+    .context("resealing audit-proof report + AUDIT-REPORT.md")
 }
 
 #[cfg(test)]
@@ -103,17 +108,21 @@ mod tests {
     fn write_reexecution_json_roundtrips_into_runtime() {
         let tmp = tempfile::tempdir().unwrap();
         let mut rep = ReexecutionReport::empty("0.1");
-        rep.per_artifact.push(ecaa_workflow_core::reexecution::ArtifactClassification {
-            artifact_path: "runtime/outputs/differential_expression/de_results.tsv".into(),
-            bucket: ecaa_workflow_core::reexecution::ReexecutionBucket::SemanticEquivalent,
-            reason: None,
-        });
+        rep.per_artifact
+            .push(ecaa_workflow_core::reexecution::ArtifactClassification {
+                artifact_path: "runtime/outputs/differential_expression/de_results.tsv".into(),
+                bucket: ecaa_workflow_core::reexecution::ReexecutionBucket::SemanticEquivalent,
+                reason: None,
+            });
         write_reexecution_json(tmp.path(), &rep).unwrap();
         let raw = std::fs::read_to_string(tmp.path().join("runtime/reexecution.json")).unwrap();
         let back: serde_json::Value = serde_json::from_str(&raw).unwrap();
         let arr = back["per_artifact"].as_array().unwrap();
         assert_eq!(arr.len(), 1);
-        assert_eq!(arr[0]["artifact_path"], "runtime/outputs/differential_expression/de_results.tsv");
+        assert_eq!(
+            arr[0]["artifact_path"],
+            "runtime/outputs/differential_expression/de_results.tsv"
+        );
         assert_eq!(arr[0]["bucket"], "semantic_equivalent");
     }
 

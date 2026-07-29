@@ -32,13 +32,15 @@
 //! equivalence information at all (the comparator could not find the artifact on
 //! one side), and they require no acknowledgement — so a run whose rows are ALL
 //! `unavailable` has zero divergences and would otherwise land on the same
-//! `Pass`, with the same `n_inspected: 0, n_violations: 0`, as a flawless
-//! replay. A real deposit hit exactly that: 3 `byte_identical` +
-//! 1 `semantic_equivalent` + 23 `unavailable` reported a bare `pass` with no
-//! numbers attached. The verdict therefore requires at least one artifact to
-//! have actually been put through the comparator, and [`RerunTally`] is
-//! reported in the detail so "everything reproduced" and "almost nothing was
-//! comparable" are never the same string.
+//! `Pass`, with the same `n_violations: 0`, as a flawless replay. A real deposit
+//! hit exactly that: 3 `byte_identical` + 1 `semantic_equivalent` +
+//! 23 `unavailable` reported a bare `pass` with no numbers attached. The verdict
+//! therefore requires at least one artifact to have actually been put through
+//! the comparator, and [`RerunTally`] is reported in the detail so "everything
+//! reproduced" and "almost nothing was comparable" are never the same string.
+//! The two shapes are additionally separated by `n_inspected`, which counts the
+//! predicate's ∀-domain (see [`check_equivalence_failure`]) and is therefore 0
+//! for the nothing-comparable run and non-zero for the flawless one.
 
 use crate::audit_proof::loader::LoadedPackage;
 use crate::audit_proof::{InvariantId, InvariantStatus, InvariantVerdict};
@@ -63,10 +65,13 @@ const UNAVAILABLE_CLASS: &str = "unavailable";
 
 /// Census of the `reexecution.json::per_artifact[]` rows by outcome class.
 ///
-/// `n_compared` and the verdict's `n_inspected` answer DIFFERENT questions:
-/// `n_inspected` counts divergences that needed acknowledgement, `n_compared`
-/// counts artifacts that were actually reproduced. Reporting only the former
-/// makes a `0` ambiguous between "nothing diverged" and "nothing was compared".
+/// The census and the acknowledgement scan answer DIFFERENT questions:
+/// `n_diverged` counts the divergence CANDIDATES that needed an
+/// acknowledgement, `n_compared` counts the artifacts that were compared and
+/// reproduced. Reporting only the former makes a `0` ambiguous between "nothing
+/// diverged" and "nothing was compared", which is why the verdict's
+/// `n_inspected` sums both (see [`check_equivalence_failure`]) and the detail
+/// carries the full census.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RerunTally {
     /// Rows the comparator compared and found equivalent
@@ -224,19 +229,37 @@ pub fn check_equivalence_failure(pkg: &LoadedPackage) -> InvariantVerdict {
         .iter()
         .filter(|(e, shim_eligible)| {
             let acked_by_blocker = ack.iter().any(|a| a == e || a.contains(e.as_str()));
-            let acked_by_shim = *shim_eligible
-                && shim.as_ref().and_then(|s| ack_for(s, e)).is_some();
+            let acked_by_shim =
+                *shim_eligible && shim.as_ref().and_then(|s| ack_for(s, e)).is_some();
             !(acked_by_blocker || acked_by_shim)
         })
         .map(|(e, _)| e.clone())
         .collect();
-    let n_inspected = needs_ack.len();
     let n_violations = violators.len();
     // Census of the Q rows, independent of the acknowledgement scan: it counts
     // what the COMPARATOR did, while `needs_ack`/`violators` count what still
     // needs a human declaration (and additionally fold in compile-time
     // prove-failures, which are not re-execution rows at all).
     let tally = tally_rerun_outcomes(outcomes);
+    // `n_inspected` is the predicate's ∀-domain: every item this invariant
+    // actually put under inspection. That is each artifact the comparator
+    // compared — reproduced (`tally.n_compared`) or diverged — plus each
+    // compile-time prove-failure that required an acknowledgement
+    // (`needs_ack`, which holds the diverged rows and the prove-failures and is
+    // disjoint from `n_compared`). `unavailable`/unclassified rows are excluded:
+    // nothing about them was inspected.
+    //
+    // Reporting the divergence-CANDIDATE count here instead (`needs_ack.len()`
+    // alone) understated a clean replay as `n_inspected: 0` — a deposit whose 6
+    // artifacts all reproduced published `pass, n_inspected: 0`, which the wire
+    // contract defines as "Items inspected" and which this repo's own
+    // benchmark-readiness gate equates with vacuity. Every sibling invariant
+    // reports the same ∀-domain shape (`claim_completeness` → `verdicts.len()`,
+    // `evidence_coverage` → `outputs.len()`). Summing rather than reporting
+    // `n_compared` alone also keeps `n_violations <= n_inspected`: a run of
+    // nothing but unacknowledged divergences compares zero artifacts yet
+    // inspects — and violates — every one of them.
+    let n_inspected = tally.n_compared + needs_ack.len();
     let census = format!(
         "{} of {} artifact(s) reproduced ({} unavailable, {} acknowledged divergence(s), \
          {} unclassified)",
@@ -343,10 +366,82 @@ mod tests {
             v.detail
         );
         assert_eq!(v.n_violations, 0, "an unavailable row is not a divergence");
+        assert_eq!(
+            v.n_inspected, 0,
+            "nothing reached the comparator, so nothing was inspected — this is \
+             the one shape in which a 0 is the honest answer"
+        );
         let detail = v.detail.expect("Unverified must explain itself");
         assert!(
             detail.contains("0 of 3 artifact(s) reproduced"),
             "the census must make the emptiness legible: {detail}"
+        );
+    }
+
+    /// The reference deposit's exact shape: 2 `byte_identical` +
+    /// 4 `semantic_equivalent` + 22 `unavailable` = 6 of 28 compared, nothing
+    /// diverged. Six artifacts went through the comparator, so `n_inspected` is
+    /// 6 — not the divergence-candidate count of 0 that made a clean replay
+    /// publish `pass, n_inspected: 0` and read as vacuous.
+    #[test]
+    fn compared_artifacts_are_counted_as_inspected() {
+        let mut rows: Vec<Value> = (0..2)
+            .map(|i| {
+                row(
+                    &format!("runtime/outputs/normalisation/b{i}.tsv"),
+                    "byte_identical",
+                )
+            })
+            .collect();
+        rows.extend((0..4).map(|i| {
+            row(
+                &format!("runtime/outputs/normalisation/s{i}.tsv"),
+                "semantic_equivalent",
+            )
+        }));
+        rows.extend((0..22).map(|i| row(&format!("runtime/outputs/de/u{i}.tsv"), "unavailable")));
+
+        let v = check_equivalence_failure(&pkg_with_rows(rows));
+        assert_eq!(
+            v.status,
+            InvariantStatus::Pass,
+            "6 reproduced / 0 diverged is a Pass: {:?}",
+            v.detail
+        );
+        assert_eq!(
+            v.n_inspected, 6,
+            "both reproduced classes are inspections: byte_identical and \
+             semantic_equivalent each went through the comparator"
+        );
+        assert_eq!(
+            v.n_violations, 0,
+            "nothing diverged, so nothing is unacknowledged"
+        );
+        let detail = v.detail.expect("a Pass must report how much reproduced");
+        assert!(
+            detail.contains("6 of 28 artifact(s) reproduced"),
+            "the census must agree with n_inspected: {detail}"
+        );
+    }
+
+    /// `n_violations` can never exceed `n_inspected`: an item that violates the
+    /// predicate was, by definition, inspected. A run of nothing but
+    /// unacknowledged divergences compares zero artifacts, so a `n_compared`-only
+    /// `n_inspected` would report 0 inspected / 2 violating.
+    #[test]
+    fn violations_are_a_subset_of_inspected() {
+        let pkg = pkg_with_rows(vec![
+            row("runtime/outputs/de/de_results.tsv", "failed"),
+            row("runtime/outputs/de/normalized_counts.tsv", "failed"),
+        ]);
+        let v = check_equivalence_failure(&pkg);
+        assert_eq!(v.status, InvariantStatus::Fail, "{:?}", v.detail);
+        assert_eq!(v.n_violations, 2, "both divergences are unacknowledged");
+        assert!(
+            v.n_inspected >= v.n_violations,
+            "a violating item was inspected: n_inspected={} < n_violations={}",
+            v.n_inspected,
+            v.n_violations
         );
     }
 
@@ -372,8 +467,9 @@ mod tests {
             v.detail
         );
         assert_eq!(
-            v.n_inspected, 0,
-            "n_inspected counts divergences needing acknowledgement, of which there are none"
+            v.n_inspected, 4,
+            "the four compared artifacts are what was inspected; the 17 \
+             unavailable rows are not"
         );
         assert_eq!(v.n_violations, 0, "nothing unacknowledged");
         let detail = v.detail.expect("a Pass must report how much reproduced");
@@ -399,8 +495,15 @@ mod tests {
             "an unacknowledged divergence must still Fail: {:?}",
             v.detail
         );
-        assert_eq!(v.n_inspected, 1, "one divergence required acknowledgement");
-        assert_eq!(v.n_violations, 1, "and it had none");
+        assert_eq!(
+            v.n_inspected, 2,
+            "two artifacts reached the comparator — the `failed` divergence and \
+             the `byte_identical` reproduction; the `unavailable` row did not"
+        );
+        assert_eq!(
+            v.n_violations, 1,
+            "and the divergence had no acknowledgement"
+        );
     }
 
     /// An `unavailable`-only run whose rows are ALSO all unacknowledged-free

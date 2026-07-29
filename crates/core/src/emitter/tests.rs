@@ -36,10 +36,19 @@ fn readme_is_human_landing_page() {
         readme.starts_with("# computational biology — ECAA analysis package"),
         "title from domain"
     );
-    assert!(readme.contains("Find DE genes: treated vs control"), "objective verbatim");
+    assert!(
+        readme.contains("Find DE genes: treated vs control"),
+        "objective verbatim"
+    );
     assert!(readme.contains("## 1. The answer"));
-    assert!(readme.contains("runtime/EXECUTION-ORDER.md"), "points at the order index");
-    assert!(readme.contains("ro-crate-metadata.json"), "names the front-door metadata");
+    assert!(
+        readme.contains("runtime/EXECUTION-ORDER.md"),
+        "points at the order index"
+    );
+    assert!(
+        readme.contains("ro-crate-metadata.json"),
+        "names the front-door metadata"
+    );
     assert!(
         readme.contains("ecaa-workflow-harness --package ."),
         "gives the re-run command"
@@ -48,7 +57,11 @@ fn readme_is_human_landing_page() {
     assert!(readme.contains(&format!("the {} steps in dependency", dag.tasks.len())));
     // The "answer" section points only at true report terminals — NOT the
     // self-describing validate_*/discover_* companions.
-    if dag.tasks.keys().any(|t| t.as_str().starts_with("validate_")) {
+    if dag
+        .tasks
+        .keys()
+        .any(|t| t.as_str().starts_with("validate_"))
+    {
         assert!(
             !readme.contains("runtime/outputs/validate_"),
             "validate_* companions must not appear in the answer section"
@@ -1637,7 +1650,10 @@ fn ro_crate_is_valid_json_ld() {
         .iter()
         .find(|e| e.get("@id").and_then(|v| v.as_str()) == Some("DEPOSIT-READINESS.json"))
         .unwrap();
-    assert_eq!(dr.get("@type").and_then(|v| v.as_str()), Some("CreativeWork"));
+    assert_eq!(
+        dr.get("@type").and_then(|v| v.as_str()),
+        Some("CreativeWork")
+    );
 
     // RP-10 — every EDAM reference uses the https scheme (no mixed http/https).
     assert!(
@@ -2714,16 +2730,29 @@ fn root_dataset(meta: &serde_json::Value) -> &serde_json::Value {
 /// Whether the root Dataset carries the experimental-archetype maturity
 /// stamp as an `additionalProperty` PropertyValue.
 fn has_experimental_stamp(meta: &serde_json::Value) -> bool {
-    root_dataset(meta)
+    let Some(stamp_id) = root_dataset(meta)
         .get("additionalProperty")
         .and_then(|p| p.as_array())
-        .map(|props| {
-            props.iter().any(|p| {
-                p.get("name").and_then(|v| v.as_str()) == Some("archetypeMaturity")
-                    && p.get("value").and_then(|v| v.as_str()) == Some("experimental")
-            })
+        .and_then(|props| {
+            props
+                .iter()
+                .filter_map(|property| property.get("@id").and_then(|id| id.as_str()))
+                .find(|id| *id == "#archetype-maturity")
         })
-        .unwrap_or(false)
+    else {
+        return false;
+    };
+    meta.get("@graph")
+        .and_then(|graph| graph.as_array())
+        .and_then(|graph| {
+            graph
+                .iter()
+                .find(|entity| entity.get("@id").and_then(|id| id.as_str()) == Some(stamp_id))
+        })
+        .is_some_and(|entity| {
+            entity.get("name").and_then(|value| value.as_str()) == Some("archetypeMaturity")
+                && entity.get("value").and_then(|value| value.as_str()) == Some("experimental")
+        })
 }
 
 /// When the chosen archetype is experimental (scaffolded /
@@ -3161,6 +3190,8 @@ fn is_excluded_from_baseline(rel: &std::path::Path) -> bool {
     if rel == std::path::Path::new("manifest-sha512.txt")
         || rel == std::path::Path::new("bagit.txt")
         || rel == std::path::Path::new("bag-info.txt")
+        || rel == std::path::Path::new("seal-info.json")
+        || rel == std::path::Path::new("seal-tagmanifest-sha512.txt")
         || rel == std::path::Path::new("tagmanifest-sha512.txt")
     {
         return true;

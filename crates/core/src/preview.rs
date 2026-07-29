@@ -167,10 +167,7 @@ a {{ color: #1a6fce; }}\n\
 /// Callers should pass the FINAL metadata value (after all `@graph` mutations
 /// have been applied) so the embedded JSON-LD reflects the canonical
 /// `ro-crate-metadata.json`.
-pub fn write_ro_crate_preview(
-    package_root: &Path,
-    metadata: &Value,
-) -> std::io::Result<()> {
+pub fn write_ro_crate_preview(package_root: &Path, metadata: &Value) -> std::io::Result<()> {
     let html = render_ro_crate_preview(metadata);
     crate::fs_helpers::atomic_write_bytes_sync(
         &package_root.join("ro-crate-preview.html"),
@@ -211,10 +208,7 @@ mod tests {
         let a = render_ro_crate_preview(&meta);
         let b = render_ro_crate_preview(&meta);
         assert_eq!(a, b, "byte-deterministic for fixed metadata");
-        assert!(
-            a.starts_with("<!DOCTYPE html>"),
-            "must start with DOCTYPE"
-        );
+        assert!(a.starts_with("<!DOCTYPE html>"), "must start with DOCTYPE");
         assert!(
             a.contains("<script type=\"application/ld+json\">"),
             "head JSON-LD embed (spec MUST)"
@@ -261,7 +255,10 @@ mod tests {
             !body.contains("<b>bold</b>"),
             "raw HTML <b> tags must not appear in body"
         );
-        assert!(body.contains("&lt;b&gt;"), "< must be escaped as &lt; in body");
+        assert!(
+            body.contains("&lt;b&gt;"),
+            "< must be escaped as &lt; in body"
+        );
         // A <script>alert injection must not appear in the body.
         assert!(
             !body.contains("<script>alert"),
@@ -278,7 +275,10 @@ mod tests {
         let lower = html.to_lowercase();
         let script_count = lower.matches("<script").count();
         // There should be exactly ONE <script tag (the ld+json one).
-        assert_eq!(script_count, 1, "exactly one <script> tag (the ld+json one), got {script_count}");
+        assert_eq!(
+            script_count, 1,
+            "exactly one <script> tag (the ld+json one), got {script_count}"
+        );
         // And it must be typed.
         assert!(
             lower.contains("<script type=\"application/ld+json\">"),

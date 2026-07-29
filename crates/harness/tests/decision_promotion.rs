@@ -39,8 +39,7 @@ fn copy_tree(src: &Path, dst: &Path) {
 }
 
 fn stage_auto_advance_pkg() -> (tempfile::TempDir, std::path::PathBuf) {
-    let fixture =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/auto-advance-pkg");
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/auto-advance-pkg");
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("pkg");
     copy_tree(&fixture, &root);
@@ -99,14 +98,16 @@ fn idempotent_on_second_call_with_same_guard_set() {
     // First call writes 1 record.
     promote_auto_advance_decisions(&root, "test-session-id", &mut already_recorded);
     let count_after_first = read_decision_records(&root).len();
-    assert!(count_after_first >= 1, "first call must write at least 1 record");
+    assert!(
+        count_after_first >= 1,
+        "first call must write at least 1 record"
+    );
 
     // Second call with the SAME guard set must not append any new lines.
     promote_auto_advance_decisions(&root, "test-session-id", &mut already_recorded);
     let count_after_second = read_decision_records(&root).len();
     assert_eq!(
-        count_after_second,
-        count_after_first,
+        count_after_second, count_after_first,
         "second call with same already_recorded must not append duplicates; \
          first={count_after_first} second={count_after_second}"
     );

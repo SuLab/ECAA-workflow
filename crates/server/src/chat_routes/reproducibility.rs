@@ -91,10 +91,8 @@ pub(super) async fn get_audit_proof(
             Ok(report) => Json(report).into_response(),
             Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
         },
-        Err(_) => {
-            crate::error::ApiError::NotFound("audit-proof report not yet produced".into())
-                .into_response()
-        }
+        Err(_) => crate::error::ApiError::NotFound("audit-proof report not yet produced".into())
+            .into_response(),
     }
 }
 
@@ -255,8 +253,7 @@ pub(super) async fn start_replay(
         match app.replays.entry(session_id) {
             Entry::Occupied(mut o) => {
                 if o.get().is_running() {
-                    return (StatusCode::CONFLICT, "a replay is already running")
-                        .into_response();
+                    return (StatusCode::CONFLICT, "a replay is already running").into_response();
                 }
                 o.insert(ReplayHandle {
                     started_at: chrono::Utc::now(),
@@ -354,7 +351,12 @@ pub(super) async fn get_replay(
     match app.replays.get(&session_id) {
         None => Json(serde_json::json!({ "status": "idle" })).into_response(),
         Some(h) => {
-            let s = h.value().status.lock().unwrap_or_else(|p| p.into_inner()).clone();
+            let s = h
+                .value()
+                .status
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .clone();
             match s {
                 ReplayJobStatus::Running => {
                     Json(serde_json::json!({ "status": "running" })).into_response()
@@ -449,7 +451,11 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(resp.status(), StatusCode::NOT_FOUND, "absent report must 404");
+        assert_eq!(
+            resp.status(),
+            StatusCode::NOT_FOUND,
+            "absent report must 404"
+        );
     }
 
     /// GET audit-proof returns the on-disk report when it exists.
@@ -484,7 +490,11 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(resp.status(), StatusCode::OK, "written report must be served");
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "written report must be served"
+        );
         let bytes = to_bytes(resp.into_body(), 1 << 20).await.unwrap();
         let got: ecaa_workflow_core::audit_proof::AuditProofReport =
             serde_json::from_slice(&bytes).unwrap();
@@ -509,10 +519,13 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(resp.status(), StatusCode::OK, "replay verify must return 200");
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "replay verify must return 200"
+        );
         let bytes = to_bytes(resp.into_body(), 1 << 20).await.unwrap();
-        let _r: ecaa_workflow_core::replay::ReplayReport =
-            serde_json::from_slice(&bytes).unwrap();
+        let _r: ecaa_workflow_core::replay::ReplayReport = serde_json::from_slice(&bytes).unwrap();
     }
 
     /// An unknown tier string is rejected with 400.
@@ -533,7 +546,11 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "unknown tier must 400");
+        assert_eq!(
+            resp.status(),
+            StatusCode::BAD_REQUEST,
+            "unknown tier must 400"
+        );
     }
 
     /// Tier-2 replay (execute) is backgrounded: POST returns 202 and the
@@ -559,7 +576,11 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(start.status(), StatusCode::ACCEPTED, "backgrounded replay must 202");
+        assert_eq!(
+            start.status(),
+            StatusCode::ACCEPTED,
+            "backgrounded replay must 202"
+        );
 
         let mut terminal = false;
         for _ in 0..100 {
@@ -608,7 +629,11 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(resp.status(), StatusCode::CONFLICT, "replay refused while execution runs");
+        assert_eq!(
+            resp.status(),
+            StatusCode::CONFLICT,
+            "replay refused while execution runs"
+        );
     }
 
     /// A replay is refused with 409 during the execution SPAWN WINDOW: the

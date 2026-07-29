@@ -27,7 +27,6 @@ use ecaa_workflow_harness::executor::stall_monitor::{StallSignal, StallThreshold
 use ecaa_workflow_harness::executor::{self, Executor, ExecutorArgs};
 use ecaa_workflow_harness::finalize_probe::{probe_one_task, ProbeOutcome};
 use ecaa_workflow_harness::multiprocess_lock::SessionLock;
-use ecaa_workflow_harness::status_reconciliation;
 use ecaa_workflow_harness::scheduler::{
     count_concurrent_peers_by_class, dag_with_ready_tasks_limited_to, lane_mode_from_env,
     pause_dependent_tasks, pick_ready_respecting_budgets, pick_ready_with_lanes,
@@ -37,6 +36,7 @@ use ecaa_workflow_harness::scheduler::{
 use ecaa_workflow_harness::scratch_cleanup::cleanup_task_scratch;
 use ecaa_workflow_harness::sme_skip;
 use ecaa_workflow_harness::stall_relay;
+use ecaa_workflow_harness::status_reconciliation;
 use ecaa_workflow_harness::validation_recovery;
 use ecaa_workflow_harness::watchdog::{Watchdog, WatchdogConfig, WatchdogEvent};
 use progress_client::ProgressClient;
@@ -573,7 +573,10 @@ mod provenance_env_tests {
             package_id: "workflow-xyz".into(),
         };
         stamp_provenance_env(&mut env, &prov);
-        assert_eq!(env.get("ECAA_GIT_SHA").map(String::as_str), Some("abc1234def"));
+        assert_eq!(
+            env.get("ECAA_GIT_SHA").map(String::as_str),
+            Some("abc1234def")
+        );
         assert_eq!(
             env.get("ECAA_PACKAGE_ID").map(String::as_str),
             Some("workflow-xyz")
@@ -589,7 +592,10 @@ mod provenance_env_tests {
             package_id: "pkg".into(),
         };
         stamp_provenance_env(&mut env, &prov);
-        assert_eq!(env.get("ECAA_GIT_SHA").map(String::as_str), Some("operator-set"));
+        assert_eq!(
+            env.get("ECAA_GIT_SHA").map(String::as_str),
+            Some("operator-set")
+        );
         assert_eq!(env.get("ECAA_PACKAGE_ID").map(String::as_str), Some("pkg"));
     }
 
@@ -847,11 +853,7 @@ fn resolve_provenance_env(package: &Path) -> ProvenanceEnv {
     let package_id = nonempty(std::env::var("ECAA_PACKAGE_ID").ok())
         .or_else(|| read_dag(package).ok().map(|d| d.workflow_id))
         .filter(|s| !s.is_empty())
-        .or_else(|| {
-            package
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-        })
+        .or_else(|| package.file_name().map(|n| n.to_string_lossy().to_string()))
         .unwrap_or_default();
     ProvenanceEnv {
         git_sha: sha,
@@ -2233,8 +2235,7 @@ fn run_loop(
     // `after.is_complete()` block below). Points at the emitted package's OWN
     // copied `policies/` so finalization is self-contained regardless of where
     // the harness was launched (ECAA_CONFIG_DIR overrides for an operator).
-    let finalize_config_dir =
-        ecaa_workflow_harness::end_of_run_finalize::resolve_config_dir(path);
+    let finalize_config_dir = ecaa_workflow_harness::end_of_run_finalize::resolve_config_dir(path);
     // Run-stable workspace SHA + package id, resolved once here and
     // stamped onto every per-task envelope so the plotting subprocess
     // stamps a real footer (RP-7) instead of `git@unknown`.
@@ -2846,7 +2847,10 @@ fn run_loop(
         let (picks, picked_dispatches, invocation_by_task): (
             Vec<String>,
             Vec<PickedDispatch>,
-            std::collections::BTreeMap<String, ecaa_workflow_harness::invocation_log::InvocationRecord>,
+            std::collections::BTreeMap<
+                String,
+                ecaa_workflow_harness::invocation_log::InvocationRecord,
+            >,
         ) = {
             let mut dag_mut = read_dag(path)?;
             let mut picked_dispatches = Vec::new();
@@ -2867,10 +2871,7 @@ fn run_loop(
             // record is traceable. Best-effort; errors are logged and
             // dispatch continues.
             {
-                let sid = args
-                    .session_id
-                    .as_deref()
-                    .unwrap_or(harness_run_id);
+                let sid = args.session_id.as_deref().unwrap_or(harness_run_id);
                 ecaa_workflow_harness::scheduler::promote_auto_advance_decisions(
                     path,
                     sid,
@@ -4298,9 +4299,7 @@ fn run_loop(
                                 target: "contract-advisory",
                                 "[contract-advisory] {reason} (advisory, not blocking)"
                             );
-                            if let Err(e) =
-                                validation_recovery::append_warnings(path, &warnings)
-                            {
+                            if let Err(e) = validation_recovery::append_warnings(path, &warnings) {
                                 tracing::warn!(
                                     target: "contract-advisory",
                                     error = format!("{:#}", e),
@@ -5671,8 +5670,8 @@ fn input_form_mismatch_reason(
 mod input_form_guard_tests {
     use super::{
         deposited_downstream_product, input_form_mismatch_reason, matrices_index_has_counts,
-        result_artifacts_have_fastq, result_artifacts_have_raw_ms,
-        workflow_has_ms_search_stage, workflow_has_read_processing_stages,
+        result_artifacts_have_fastq, result_artifacts_have_raw_ms, workflow_has_ms_search_stage,
+        workflow_has_read_processing_stages,
     };
     use serde_json::json;
 
@@ -5709,14 +5708,20 @@ mod input_form_guard_tests {
         let has_raw_ms = result_artifacts_have_raw_ms(&faulty_result());
         let dag_expects_reads = workflow_has_read_processing_stages(&fastq_workflow());
         let dag_expects_ms = workflow_has_ms_search_stage(&fastq_workflow());
-        assert!(matrices_index_has_counts(&mi), "raw_counts matrix must read as counts");
+        assert!(
+            matrices_index_has_counts(&mi),
+            "raw_counts matrix must read as counts"
+        );
         assert_eq!(
             product.as_ref().map(|p| p.label),
             Some("processed count matrix"),
             "count matrix must classify as the count-matrix product"
         );
         assert!(!has_fastq, "count-matrix-only run has no FASTQ artifact");
-        assert!(dag_expects_reads, "FASTQ DAG carries read-processing stages");
+        assert!(
+            dag_expects_reads,
+            "FASTQ DAG carries read-processing stages"
+        );
 
         let reason = input_form_mismatch_reason(
             product.as_ref(),
@@ -5726,10 +5731,22 @@ mod input_form_guard_tests {
             dag_expects_ms,
         )
         .expect("guard MUST block the counts-into-FASTQ-DAG mismatch");
-        assert!(reason.starts_with("[data_shape_mismatch]"), "typed marker: {reason}");
-        assert!(reason.contains("expected=raw sequence reads (data:2044)"), "expected side: {reason}");
-        assert!(reason.contains("processed count matrix (data:3917)"), "actual side: {reason}");
-        assert!(reason.contains("Recovery: recompose downstream-first"), "actionable: {reason}");
+        assert!(
+            reason.starts_with("[data_shape_mismatch]"),
+            "typed marker: {reason}"
+        );
+        assert!(
+            reason.contains("expected=raw sequence reads (data:2044)"),
+            "expected side: {reason}"
+        );
+        assert!(
+            reason.contains("processed count matrix (data:3917)"),
+            "actual side: {reason}"
+        );
+        assert!(
+            reason.contains("Recovery: recompose downstream-first"),
+            "actionable: {reason}"
+        );
     }
 
     #[test]
@@ -5745,17 +5762,18 @@ mod input_form_guard_tests {
         assert!(!dag_expects_ms);
         let mi = faulty_matrices_index();
         let product = deposited_downstream_product(&faulty_result(), Some(&mi));
-        assert!(product.is_some(), "product is still present, but no raw stage remains");
         assert!(
-            input_form_mismatch_reason(
-                product.as_ref(),
-                false,
-                false,
-                dag_expects_reads,
-                dag_expects_ms
-            )
-            .is_none()
+            product.is_some(),
+            "product is still present, but no raw stage remains"
         );
+        assert!(input_form_mismatch_reason(
+            product.as_ref(),
+            false,
+            false,
+            dag_expects_reads,
+            dag_expects_ms
+        )
+        .is_none());
     }
 
     #[test]
@@ -5794,7 +5812,9 @@ mod input_form_guard_tests {
                 "matrix_type {t:?} should read as counts"
             );
         }
-        assert!(!matrices_index_has_counts(&json!({"matrices": [{"matrix_type": "fpkm"}]})));
+        assert!(!matrices_index_has_counts(
+            &json!({"matrices": [{"matrix_type": "fpkm"}]})
+        ));
     }
 
     // ── Generalized modality coverage ────────────────────────────────
@@ -5811,7 +5831,10 @@ mod input_form_guard_tests {
     fn chip_atac_deposited_peaks_into_alignment_dag_blocks() {
         // ChIP-seq / ATAC-seq: accession deposits called peaks
         // (.narrowPeak/.bed) but the composed DAG still aligns raw reads.
-        for peak_file in ["results/peaks/consensus.narrowPeak", "results/peaks/regions.bed"] {
+        for peak_file in [
+            "results/peaks/consensus.narrowPeak",
+            "results/peaks/regions.bed",
+        ] {
             let result = json!({"artifacts": [
                 "cohort_manifest.tsv", "manifest.json", "result.json", peak_file
             ]});
@@ -5821,12 +5844,20 @@ mod input_form_guard_tests {
             assert_eq!(product.iri, "data:1255");
             assert!(!result_artifacts_have_fastq(&result));
             let dag_reads = workflow_has_read_processing_stages(&seq_workflow());
-            let reason =
-                input_form_mismatch_reason(Some(&product), false, false, dag_reads, false)
-                    .expect("deposited peaks + alignment DAG (no FASTQ) MUST block");
-            assert!(reason.starts_with("[data_shape_mismatch]"), "typed: {reason}");
-            assert!(reason.contains("called peaks (data:1255)"), "product side: {reason}");
-            assert!(reason.contains("expected=raw sequence reads"), "expected side: {reason}");
+            let reason = input_form_mismatch_reason(Some(&product), false, false, dag_reads, false)
+                .expect("deposited peaks + alignment DAG (no FASTQ) MUST block");
+            assert!(
+                reason.starts_with("[data_shape_mismatch]"),
+                "typed: {reason}"
+            );
+            assert!(
+                reason.contains("called peaks (data:1255)"),
+                "product side: {reason}"
+            );
+            assert!(
+                reason.contains("expected=raw sequence reads"),
+                "expected side: {reason}"
+            );
         }
     }
 
@@ -5849,8 +5880,14 @@ mod input_form_guard_tests {
         let dag_reads = workflow_has_read_processing_stages(&wf);
         let reason = input_form_mismatch_reason(Some(&product), false, false, dag_reads, false)
             .expect("deposited VCF + alignment DAG (no FASTQ) MUST block");
-        assert!(reason.starts_with("[data_shape_mismatch]"), "typed: {reason}");
-        assert!(reason.contains("called variants (VCF) (data:3498)"), "product side: {reason}");
+        assert!(
+            reason.starts_with("[data_shape_mismatch]"),
+            "typed: {reason}"
+        );
+        assert!(
+            reason.contains("called variants (VCF) (data:3498)"),
+            "product side: {reason}"
+        );
     }
 
     #[test]
@@ -5873,10 +5910,12 @@ mod input_form_guard_tests {
             assert_eq!(product.iri, "data:3917");
             assert!(!result_artifacts_have_fastq(&result));
             let dag_reads = workflow_has_read_processing_stages(&fastq_workflow());
-            let reason =
-                input_form_mismatch_reason(Some(&product), false, false, dag_reads, false)
-                    .expect("deposited 10x counts + alignment DAG (no FASTQ) MUST block");
-            assert!(reason.starts_with("[data_shape_mismatch]"), "typed: {reason}");
+            let reason = input_form_mismatch_reason(Some(&product), false, false, dag_reads, false)
+                .expect("deposited 10x counts + alignment DAG (no FASTQ) MUST block");
+            assert!(
+                reason.starts_with("[data_shape_mismatch]"),
+                "typed: {reason}"
+            );
         }
     }
 
@@ -5896,21 +5935,36 @@ mod input_form_guard_tests {
             .expect("protein_abundance.tsv must classify as a deposited product");
         assert_eq!(product.label, "protein-abundance matrix");
         assert_eq!(product.iri, "data:2976");
-        assert!(!result_artifacts_have_raw_ms(&result), "no raw MS file present");
-        assert!(!result_artifacts_have_fastq(&result), "not a sequencing run");
+        assert!(
+            !result_artifacts_have_raw_ms(&result),
+            "no raw MS file present"
+        );
+        assert!(
+            !result_artifacts_have_fastq(&result),
+            "not a sequencing run"
+        );
         let dag_reads = workflow_has_read_processing_stages(&wf);
         let dag_ms = workflow_has_ms_search_stage(&wf);
         assert!(!dag_reads, "proteomics DAG has no read-processing stage");
         assert!(dag_ms, "proteomics DAG carries peptide_search");
         let reason = input_form_mismatch_reason(Some(&product), false, false, dag_reads, dag_ms)
             .expect("deposited abundance + peptide_search DAG (no raw MS) MUST block");
-        assert!(reason.starts_with("[data_shape_mismatch]"), "typed: {reason}");
+        assert!(
+            reason.starts_with("[data_shape_mismatch]"),
+            "typed: {reason}"
+        );
         assert!(
             reason.contains("expected=raw mass-spectrometry data (data:2536)"),
             "expected side: {reason}"
         );
-        assert!(reason.contains("protein-abundance matrix (data:2976)"), "product side: {reason}");
-        assert!(reason.contains("peptide_search"), "actionable names the stage: {reason}");
+        assert!(
+            reason.contains("protein-abundance matrix (data:2976)"),
+            "product side: {reason}"
+        );
+        assert!(
+            reason.contains("peptide_search"),
+            "actionable names the stage: {reason}"
+        );
     }
 
     #[test]
@@ -5931,8 +5985,7 @@ mod input_form_guard_tests {
         let dag_ms = workflow_has_ms_search_stage(&wf);
         assert!(!dag_reads && !dag_ms, "no raw-consuming stage survives");
         assert!(
-            input_form_mismatch_reason(product.as_ref(), false, false, dag_reads, dag_ms)
-                .is_none()
+            input_form_mismatch_reason(product.as_ref(), false, false, dag_reads, dag_ms).is_none()
         );
     }
 
@@ -5973,7 +6026,10 @@ mod input_form_guard_tests {
         ]});
         let mi = faulty_matrices_index();
         let product = deposited_downstream_product(&result, Some(&mi)).unwrap();
-        assert_eq!(product.label, "called peaks", "peaks take precedence over counts");
+        assert_eq!(
+            product.label, "called peaks",
+            "peaks take precedence over counts"
+        );
     }
 }
 
@@ -6347,7 +6403,8 @@ fn collect_validation_failure_signals(
     dag: &DAG,
 ) -> std::collections::BTreeMap<String, Vec<validation_recovery::FailedAssertionSignal>> {
     use std::collections::BTreeMap;
-    let mut out: BTreeMap<String, Vec<validation_recovery::FailedAssertionSignal>> = BTreeMap::new();
+    let mut out: BTreeMap<String, Vec<validation_recovery::FailedAssertionSignal>> =
+        BTreeMap::new();
 
     let contract_path = pkg_dir.join("policies").join("validation-contract.json");
     if !contract_path.exists() {
@@ -6699,15 +6756,13 @@ fn run_assertion(
                 .and_then(|c| c.get("substrings"))
                 .and_then(|v| v.as_array())
             {
-                req.iter()
-                    .all(|s| s.as_str().map(matches).unwrap_or(false))
+                req.iter().all(|s| s.as_str().map(matches).unwrap_or(false))
             } else if let Some(any) = assertion
                 .get("check")
                 .and_then(|c| c.get("substrings_any"))
                 .and_then(|v| v.as_array())
             {
-                any.iter()
-                    .any(|s| s.as_str().map(matches).unwrap_or(false))
+                any.iter().any(|s| s.as_str().map(matches).unwrap_or(false))
             } else {
                 false
             }
@@ -7316,7 +7371,9 @@ fn run_container_probes(
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
 
-    let child = cmd.spawn().map_err(|e| format!("docker spawn failed: {e}"))?;
+    let child = cmd
+        .spawn()
+        .map_err(|e| format!("docker spawn failed: {e}"))?;
 
     // Enforce a hard timeout to avoid hanging the harness indefinitely.
     use std::time::{Duration, Instant};
@@ -7410,9 +7467,18 @@ fn write_env_capability(pkg_dir: &Path) -> Result<()> {
     // Build the full list of probe specs (capabilities + per-method).
     // Order: capabilities first, then METHOD_PROBES entries.
     let mut specs: Vec<ProbeSpec> = vec![
-        ProbeSpec { key: "r_seurat".to_string(),   kind: ProbeKind::R("Seurat".to_string()) },
-        ProbeSpec { key: "r_cellchat".to_string(),  kind: ProbeKind::R("CellChat".to_string()) },
-        ProbeSpec { key: "pyscenic".to_string(),    kind: ProbeKind::Python("pyscenic".to_string()) },
+        ProbeSpec {
+            key: "r_seurat".to_string(),
+            kind: ProbeKind::R("Seurat".to_string()),
+        },
+        ProbeSpec {
+            key: "r_cellchat".to_string(),
+            kind: ProbeKind::R("CellChat".to_string()),
+        },
+        ProbeSpec {
+            key: "pyscenic".to_string(),
+            kind: ProbeKind::Python("pyscenic".to_string()),
+        },
         ProbeSpec {
             key: "python_lisi".to_string(),
             kind: ProbeKind::PythonAny(vec![
@@ -7421,14 +7487,20 @@ fn write_env_capability(pkg_dir: &Path) -> Result<()> {
                 "scanpy.external.pp.lisi".to_string(),
             ]),
         },
-        ProbeSpec { key: "CELLRANGER".to_string(), kind: ProbeKind::Cellranger },
+        ProbeSpec {
+            key: "CELLRANGER".to_string(),
+            kind: ProbeKind::Cellranger,
+        },
     ];
     for (name, probe) in METHOD_PROBES.iter() {
         let kind = match probe {
             MethodProbe::Python(m) => ProbeKind::Python(m.to_string()),
-            MethodProbe::R(pkg)    => ProbeKind::R(pkg.to_string()),
+            MethodProbe::R(pkg) => ProbeKind::R(pkg.to_string()),
         };
-        specs.push(ProbeSpec { key: (*name).to_string(), kind });
+        specs.push(ProbeSpec {
+            key: (*name).to_string(),
+            kind,
+        });
     }
 
     // Attempt to probe inside the resolved execution container image.
@@ -7436,26 +7508,24 @@ fn write_env_capability(pkg_dir: &Path) -> Result<()> {
     // docker not available, container exits non-zero, etc.).
     let probe_image = resolve_probe_image(pkg_dir);
     let (probe_results, cellranger_version, probe_site) = match &probe_image {
-        Some(image) => {
-            match run_container_probes(&specs, image, r_libs_user) {
-                Ok((bools, cr)) => {
-                    tracing::info!(
-                        image = %image,
-                        "env_capability: probed inside container image"
-                    );
-                    (bools, cr, format!("container:{image}"))
-                }
-                Err(e) => {
-                    tracing::debug!(
-                        error = %e,
-                        image = %image,
-                        "env_capability: container probe failed, falling back to host"
-                    );
-                    let (bools, cr) = run_host_probes(&specs, r_libs_user);
-                    (bools, cr, "host-fallback".to_string())
-                }
+        Some(image) => match run_container_probes(&specs, image, r_libs_user) {
+            Ok((bools, cr)) => {
+                tracing::info!(
+                    image = %image,
+                    "env_capability: probed inside container image"
+                );
+                (bools, cr, format!("container:{image}"))
             }
-        }
+            Err(e) => {
+                tracing::debug!(
+                    error = %e,
+                    image = %image,
+                    "env_capability: container probe failed, falling back to host"
+                );
+                let (bools, cr) = run_host_probes(&specs, r_libs_user);
+                (bools, cr, "host-fallback".to_string())
+            }
+        },
         None => {
             tracing::debug!("env_capability: no container image configured, using host probes");
             let (bools, cr) = run_host_probes(&specs, r_libs_user);
@@ -7465,9 +7535,9 @@ fn write_env_capability(pkg_dir: &Path) -> Result<()> {
 
     // Extract capability booleans (default false if a probe line was missing).
     let get = |key: &str| probe_results.get(key).copied().unwrap_or(false);
-    let r_seurat    = get("r_seurat");
-    let r_cellchat  = get("r_cellchat");
-    let pyscenic    = get("pyscenic");
+    let r_seurat = get("r_seurat");
+    let r_cellchat = get("r_cellchat");
+    let pyscenic = get("pyscenic");
     let python_lisi = get("python_lisi");
 
     // Per-method results. BTreeMap so the on-disk JSON is byte-stable.
@@ -7477,7 +7547,7 @@ fn write_env_capability(pkg_dir: &Path) -> Result<()> {
         let available = probe_results.get(*name).copied().unwrap_or(false);
         let (language, probe_target) = match probe {
             MethodProbe::Python(m) => ("python", *m),
-            MethodProbe::R(pkg)    => ("r",      *pkg),
+            MethodProbe::R(pkg) => ("r", *pkg),
         };
         if available {
             available_count += 1;
@@ -8170,16 +8240,34 @@ mod read_dag_tests {
         assert_eq!(vc[0].assertion_id, "variant_calling.het_tail_band_nonempty");
         let s = &vc[0].statement;
         // Restates the design bound + the agent's own number; says revisit.
-        assert!(s.contains("at least 1"), "must restate the design bound: {s}");
-        assert!(s.contains("recomputes 0"), "must restate the agent's own number: {s}");
+        assert!(
+            s.contains("at least 1"),
+            "must restate the design bound: {s}"
+        );
+        assert!(
+            s.contains("recomputes 0"),
+            "must restate the agent's own number: {s}"
+        );
         assert!(s.contains("revisit"), "must say revisit, not how: {s}");
         // NEUTRALITY: names no tool / flag / threshold-to-set / caller.
         let lower = s.to_ascii_lowercase();
         for token in [
-            "lofreq", "gatk", "mutect", "bcftools", "samtools", "freebayes", "--",
-            "set the threshold", "use the tool", "aligner", "caller ",
+            "lofreq",
+            "gatk",
+            "mutect",
+            "bcftools",
+            "samtools",
+            "freebayes",
+            "--",
+            "set the threshold",
+            "use the tool",
+            "aligner",
+            "caller ",
         ] {
-            assert!(!lower.contains(token), "neutral statement leaked {token:?}: {s}");
+            assert!(
+                !lower.contains(token),
+                "neutral statement leaked {token:?}: {s}"
+            );
         }
     }
 
@@ -8722,17 +8810,17 @@ mod read_dag_tests {
         // recovery gate is suppressed) ---
         std::env::set_var(validation_recovery::ENV_VALIDATION_RECOVERY, "1");
         assert!(
-            validation_recovery::advisory_enabled()
-                && validation_recovery::recovery_enabled(),
+            validation_recovery::advisory_enabled() && validation_recovery::recovery_enabled(),
             "both flags must be live for the precedence check"
         );
         let (_tmp2, pkg2, mut dag2) = advisory_failing_fixture();
         let violations2 = enforce_validation_contract(&pkg2, &mut dag2).unwrap();
         assert!(
-            violations2.is_empty() && matches!(
-                dag2.tasks.get("variant_calling").unwrap().state,
-                TaskState::Completed { .. }
-            ),
+            violations2.is_empty()
+                && matches!(
+                    dag2.tasks.get("variant_calling").unwrap().state,
+                    TaskState::Completed { .. }
+                ),
             "with both flags set, advisory must win (no block, no recovery re-dispatch)"
         );
 
@@ -8970,7 +9058,11 @@ mod read_dag_tests {
             execution_order: Vec::new(),
         };
         let violations = enforce_validation_contract(pkg, &mut dag).unwrap();
-        assert_eq!(violations.len(), 1, "parent stage must be enforced before validator completes");
+        assert_eq!(
+            violations.len(),
+            1,
+            "parent stage must be enforced before validator completes"
+        );
         assert_eq!(violations[0].0, "qc");
         assert!(matches!(
             dag.tasks.get("qc").unwrap().state,
@@ -9123,31 +9215,41 @@ mod read_dag_tests {
             "check": { "json_pointer": "/is_mtdna" }
         });
         let write = |body: serde_json::Value| {
-            std::fs::write(
-                pkg.join("runtime/outputs/vc/result.json"),
-                body.to_string(),
-            )
-            .unwrap();
+            std::fs::write(pkg.join("runtime/outputs/vc/result.json"), body.to_string()).unwrap();
         };
         // A typed boolean (true OR false) passes.
         write(serde_json::json!({ "is_mtdna": true }));
-        assert!(run_assertion(pkg, &guard, &empty), "/is_mtdna=true must pass");
+        assert!(
+            run_assertion(pkg, &guard, &empty),
+            "/is_mtdna=true must pass"
+        );
         write(serde_json::json!({ "is_mtdna": false }));
-        assert!(run_assertion(pkg, &guard, &empty), "/is_mtdna=false must pass");
+        assert!(
+            run_assertion(pkg, &guard, &empty),
+            "/is_mtdna=false must pass"
+        );
         // The fail-open a substring match would have allowed: the field NAME
         // occurs incidentally in a note string, but /is_mtdna never resolves to
         // a bool — must fail closed.
-        write(serde_json::json!({ "is_mtdna_note": "computed is_mtdna from contigs", "low_af_band_count": 0 }));
+        write(
+            serde_json::json!({ "is_mtdna_note": "computed is_mtdna from contigs", "low_af_band_count": 0 }),
+        );
         assert!(
             !run_assertion(pkg, &guard, &empty),
             "an incidental 'is_mtdna' substring with no typed /is_mtdna must fail (the closed fail-open)"
         );
         // A non-bool value at the pointer fails closed.
         write(serde_json::json!({ "is_mtdna": "true" }));
-        assert!(!run_assertion(pkg, &guard, &empty), "/is_mtdna as a string must fail");
+        assert!(
+            !run_assertion(pkg, &guard, &empty),
+            "/is_mtdna as a string must fail"
+        );
         // Absent pointer fails closed.
         write(serde_json::json!({ "something_else": 1 }));
-        assert!(!run_assertion(pkg, &guard, &empty), "absent /is_mtdna must fail");
+        assert!(
+            !run_assertion(pkg, &guard, &empty),
+            "absent /is_mtdna must fail"
+        );
     }
 
     #[test]
@@ -9168,9 +9270,15 @@ mod read_dag_tests {
         // A populated array passes; an EMPTY array also passes (covariate-free
         // run — the adjustment check's own when-gate then self-skips).
         write(serde_json::json!({ "available_covariates": ["age", "sex"] }));
-        assert!(run_assertion(pkg, &guard, &empty), "non-empty array must pass");
+        assert!(
+            run_assertion(pkg, &guard, &empty),
+            "non-empty array must pass"
+        );
         write(serde_json::json!({ "available_covariates": [] }));
-        assert!(run_assertion(pkg, &guard, &empty), "empty array must pass (covariate-free)");
+        assert!(
+            run_assertion(pkg, &guard, &empty),
+            "empty array must pass (covariate-free)"
+        );
         // The fail-open a substring would have allowed: the field name appears in
         // a note / at a nested key, but the top-level pointer is not an array.
         write(serde_json::json!({ "notes": "recorded available_covariates in the model" }));
@@ -9205,7 +9313,10 @@ mod read_dag_tests {
             "target": "runtime/outputs/variant_filtering/result.json",
             "check": { "json_pointer": "/low_af_band_count", "op": "gte", "value": 1.0 }
         });
-        assert!(!run_assertion(pkg, &a, &empty), "empty het band must fail (dropped het)");
+        assert!(
+            !run_assertion(pkg, &a, &empty),
+            "empty het band must fail (dropped het)"
+        );
     }
 
     #[test]
@@ -9225,7 +9336,10 @@ mod read_dag_tests {
             "target": "runtime/outputs/variant_filtering/result.json",
             "check": { "json_pointer": "/low_af_band_count", "op": "gte", "value": 1.0 }
         });
-        assert!(run_assertion(pkg, &a, &empty), "non-empty het band must pass");
+        assert!(
+            run_assertion(pkg, &a, &empty),
+            "non-empty het band must pass"
+        );
     }
 
     /// The DE effect-size-reliability assertion (C5, da-15-1) is a
@@ -9341,9 +9455,18 @@ mod read_dag_tests {
         );
         // Restates the design's bound + the agent's own recomputed number, says
         // "revisit", and carries the load-bearing neutrality coda.
-        assert!(s.contains("differential_expression.top_effect_reliability"), "{s}");
-        assert!(s.contains("at least 0.2"), "must restate the design bound: {s}");
-        assert!(s.contains("recomputes 0.09"), "must restate the agent's own number: {s}");
+        assert!(
+            s.contains("differential_expression.top_effect_reliability"),
+            "{s}"
+        );
+        assert!(
+            s.contains("at least 0.2"),
+            "must restate the design bound: {s}"
+        );
+        assert!(
+            s.contains("recomputes 0.09"),
+            "must restate the agent's own number: {s}"
+        );
         assert!(
             s.contains("no method, tool, or threshold value is prescribed"),
             "must carry the neutrality coda: {s}"
@@ -9351,8 +9474,19 @@ mod read_dag_tests {
         // No method/estimator/filter token may leak into the neutral signal.
         let lower = s.to_ascii_lowercase();
         for token in [
-            "deseq", "edger", "limma", "shrink", "apeglm", "ashr", "wilcoxon", "t-test",
-            "low-count", "filter low", "unshrunken", "normalization method", "set the threshold",
+            "deseq",
+            "edger",
+            "limma",
+            "shrink",
+            "apeglm",
+            "ashr",
+            "wilcoxon",
+            "t-test",
+            "low-count",
+            "filter low",
+            "unshrunken",
+            "normalization method",
+            "set the threshold",
         ] {
             assert!(
                 !lower.contains(token),
@@ -9378,7 +9512,10 @@ mod read_dag_tests {
             "target": "runtime/outputs/variant_filtering/result.json",
             "check": { "json_pointer": "/sub_noise_floor_count", "op": "lte", "value": 0.0 }
         });
-        assert!(!run_assertion(pkg, &a, &empty), "any sub-noise-floor call must fail (over-call)");
+        assert!(
+            !run_assertion(pkg, &a, &empty),
+            "any sub-noise-floor call must fail (over-call)"
+        );
     }
 
     #[test]
@@ -9393,7 +9530,10 @@ mod read_dag_tests {
             "target": "runtime/outputs/variant_filtering/result.json",
             "check": { "json_pointer": "/low_af_band_count", "op": "gte", "value": 1.0 }
         });
-        assert!(!run_assertion(pkg, &a, &empty), "missing metric must fail closed (pessimistic)");
+        assert!(
+            !run_assertion(pkg, &a, &empty),
+            "missing metric must fail closed (pessimistic)"
+        );
     }
 
     #[test]
@@ -10027,9 +10167,10 @@ mod read_dag_tests {
     fn env_capability_compute_language_is_neutral() {
         let tmp = tempfile::tempdir().unwrap();
         write_env_capability(tmp.path()).unwrap();
-        let body: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(tmp.path().join("runtime/env_capability.json")).unwrap())
-                .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(tmp.path().join("runtime/env_capability.json")).unwrap(),
+        )
+        .unwrap();
         let env = body.get("environment").unwrap();
         // The outer environment note must not single out "the canonical
         // interpreter" (which reads as Python-primary); it describes interpreter
@@ -10039,10 +10180,21 @@ mod read_dag_tests {
             !outer_note.contains("the canonical interpreter"),
             "environment.note must not frame a single 'canonical interpreter' (Python-primary reading)"
         );
-        let py_note = env.get("python").unwrap().get("note").unwrap().as_str().unwrap();
+        let py_note = env
+            .get("python")
+            .unwrap()
+            .get("note")
+            .unwrap()
+            .as_str()
+            .unwrap();
         // The python note must NOT cite the renderer substrate as why python is
         // canonical for general compute.
-        for needle in ["scientific-python substrate", "numpy/pandas/matplotlib", "renderers use", "canonical interpreter"] {
+        for needle in [
+            "scientific-python substrate",
+            "numpy/pandas/matplotlib",
+            "renderers use",
+            "canonical interpreter",
+        ] {
             assert!(
                 !py_note.contains(needle),
                 "env_capability python.note must not justify python via the renderer substrate: found {needle:?}"
@@ -10054,7 +10206,9 @@ mod read_dag_tests {
             .and_then(|v| v.as_str())
             .expect("environment.compute_language neutrality statement must be present");
         assert!(
-            neutral.contains("Python") && neutral.contains("R") && neutral.to_lowercase().contains("neither is privileged"),
+            neutral.contains("Python")
+                && neutral.contains("R")
+                && neutral.to_lowercase().contains("neither is privileged"),
             "compute_language statement must present Python and R as un-privileged peers"
         );
     }
@@ -10373,7 +10527,11 @@ mod read_dag_tests {
         }];
         let script = build_probe_script(&specs, None);
         // All three imports must appear.
-        for needle in ["import lisi", "import harmonypy", "import scanpy.external.pp.lisi"] {
+        for needle in [
+            "import lisi",
+            "import harmonypy",
+            "import scanpy.external.pp.lisi",
+        ] {
             assert!(
                 script.contains(needle),
                 "PythonAny script must contain '{needle}': {script}"
@@ -10410,7 +10568,7 @@ mod read_dag_tests {
         let stdout = "deseq2=1\nedger=0\nCELLRANGER=cellranger-7.2.0\npyscenic=1\n";
         let (bools, cr) = parse_probe_output(stdout);
         assert_eq!(bools.get("deseq2"), Some(&true));
-        assert_eq!(bools.get("edger"),  Some(&false));
+        assert_eq!(bools.get("edger"), Some(&false));
         assert_eq!(bools.get("pyscenic"), Some(&true));
         // CELLRANGER should NOT appear in the bool map.
         assert!(!bools.contains_key("CELLRANGER"));
@@ -10433,7 +10591,7 @@ mod read_dag_tests {
         let stdout = "\n\ndeseq2=1\n# some unexpected comment\ngarbage line\nedger=0\n";
         let (bools, cr) = parse_probe_output(stdout);
         assert_eq!(bools.get("deseq2"), Some(&true));
-        assert_eq!(bools.get("edger"),  Some(&false));
+        assert_eq!(bools.get("edger"), Some(&false));
         assert_eq!(cr, None);
         // Unexpected lines must not panic, and must not appear in bools.
         assert!(!bools.contains_key("# some unexpected comment"));
@@ -10470,10 +10628,7 @@ mod read_dag_tests {
             r#"{"image": "ghcr.io/ecaa/bio-min:latest"}"#,
         )
         .unwrap();
-        let _guard = EnvVarGuard::set(
-            "ECAA_DEFAULT_CONTAINER_IMAGE",
-            "ghcr.io/ecaa/bio-min:other",
-        );
+        let _guard = EnvVarGuard::set("ECAA_DEFAULT_CONTAINER_IMAGE", "ghcr.io/ecaa/bio-min:other");
         let result = resolve_probe_image(tmp.path());
         assert_eq!(result.as_deref(), Some("ghcr.io/ecaa/bio-min:latest"));
     }
@@ -10536,7 +10691,7 @@ mod read_dag_tests {
         fn drop(&mut self) {
             match &self.original {
                 Some(v) => std::env::set_var(self.key, v),
-                None    => std::env::remove_var(self.key),
+                None => std::env::remove_var(self.key),
             }
         }
     }

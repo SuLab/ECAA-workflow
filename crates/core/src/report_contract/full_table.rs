@@ -124,7 +124,11 @@ mod tests {
     use super::*;
     use crate::report_contract::{EntityRow, LiteratureStatus, ReportData, ResultArtifactSummary};
 
-    fn artifact(stage: &str, entities: &[(&str, f64, f64)], spilled: bool) -> ResultArtifactSummary {
+    fn artifact(
+        stage: &str,
+        entities: &[(&str, f64, f64)],
+        spilled: bool,
+    ) -> ResultArtifactSummary {
         ResultArtifactSummary {
             stage_id: stage.into(),
             artifact: "result.tsv".into(),
@@ -133,6 +137,7 @@ mod tests {
             direction_split: None,
             effect_distribution: None,
             grouped_significant: None,
+            ranking: None,
             significant_entities: entities
                 .iter()
                 .map(|(e, ef, s)| EntityRow {
@@ -153,13 +158,20 @@ mod tests {
         let rd = ReportData {
             artifacts: vec![artifact(
                 "differential_expression",
-                &[("ENSG_A", 1.5, 0.001), ("ENSG_B", -2.0, 0.0004), ("ENSG_C", 0.8, 0.02)],
+                &[
+                    ("ENSG_A", 1.5, 0.001),
+                    ("ENSG_B", -2.0, 0.0004),
+                    ("ENSG_C", 0.8, 0.02),
+                ],
                 false,
             )],
             literature: None,
         };
         let s = significant_entities_section(&rd).expect("section rendered");
-        assert!(s.starts_with(FULL_TABLE_START), "block is marker-wrapped: {s}");
+        assert!(
+            s.starts_with(FULL_TABLE_START),
+            "block is marker-wrapped: {s}"
+        );
         assert!(s.trim_end().ends_with(FULL_TABLE_END));
         for e in ["ENSG_A", "ENSG_B", "ENSG_C"] {
             assert!(s.contains(e), "entity {e} must be a rendered row: {s}");
@@ -225,7 +237,11 @@ mod tests {
         let rd = ReportData {
             artifacts: vec![
                 artifact("differential_expression", &[("ENSG_A", 1.0, 0.01)], false),
-                artifact("pathway_enrichment", &[("HALLMARK_HYPOXIA", 2.1, 0.001)], false),
+                artifact(
+                    "pathway_enrichment",
+                    &[("HALLMARK_HYPOXIA", 2.1, 0.001)],
+                    false,
+                ),
             ],
             literature: None,
         };
@@ -239,15 +255,19 @@ mod tests {
         let report = "# Report\n\nSome narrative.\n";
         let block = format!("{FULL_TABLE_START}\ncontent A\n{FULL_TABLE_END}\n");
         let out = inject_full_tables(report, &block);
-        assert!(out.starts_with("# Report"), "keeps original narrative: {out}");
+        assert!(
+            out.starts_with("# Report"),
+            "keeps original narrative: {out}"
+        );
         assert!(out.contains("content A"), "appends the block: {out}");
         assert_eq!(out.matches(FULL_TABLE_START).count(), 1);
     }
 
     #[test]
     fn inject_replaces_existing_marker_block_and_is_idempotent() {
-        let report =
-            format!("# Report\n\nNarrative.\n\n{FULL_TABLE_START}\nOLD\n{FULL_TABLE_END}\n\nTail.\n");
+        let report = format!(
+            "# Report\n\nNarrative.\n\n{FULL_TABLE_START}\nOLD\n{FULL_TABLE_END}\n\nTail.\n"
+        );
         let block = format!("{FULL_TABLE_START}\nNEW\n{FULL_TABLE_END}\n");
         let once = inject_full_tables(&report, &block);
         assert!(
@@ -264,6 +284,9 @@ mod tests {
             "exactly one block"
         );
         let twice = inject_full_tables(&once, &block);
-        assert_eq!(twice, once, "idempotent: re-injecting the same block is a no-op");
+        assert_eq!(
+            twice, once,
+            "idempotent: re-injecting the same block is a no-op"
+        );
     }
 }

@@ -258,7 +258,10 @@ mod tests {
         let outcome = NarrativeCorrection.repair(&f, dir.path(), dir.path(), &NoRunner);
 
         match outcome {
-            RepairOutcome::Applied { deterministic, note } => {
+            RepairOutcome::Applied {
+                deterministic,
+                note,
+            } => {
                 assert!(deterministic, "narrative correction must be deterministic");
                 assert!(
                     note.contains("9->3"),
@@ -290,12 +293,8 @@ mod tests {
         // A correct, well-formed narrative that must NOT be touched because the
         // failure is an effect-size mismatch, not a count mismatch.
         let body = "The effect size was 9.0 log2FC for the top gene.\n";
-        let (dir, report, _table) = build_pkg(
-            "report.md",
-            body,
-            "de.tsv",
-            b"gene\tlog2fc\nA\t9.0\n",
-        );
+        let (dir, report, _table) =
+            build_pkg("report.md", body, "de.tsv", b"gene\tlog2fc\nA\t9.0\n");
 
         let f = failure_with_detail(
             "effect size: narrative says 9.0000, table has 2.5000 (tolerance ±0.0500)",
@@ -315,12 +314,8 @@ mod tests {
         // Narrative never mentions the standalone number 9 — only 19 and 90,
         // which must NOT be matched (word-boundary safety).
         let body = "19 modules survived, covering 90 percent of variance.\n";
-        let (dir, report, _table) = build_pkg(
-            "report.md",
-            body,
-            "mod.tsv",
-            b"module\nm1\nm2\nm3\n",
-        );
+        let (dir, report, _table) =
+            build_pkg("report.md", body, "mod.tsv", b"module\nm1\nm2\nm3\n");
 
         let f = failure_with_detail(
             "count claim: narrative says 9, `mod.tsv` has 3 (rows below threshold)",
@@ -357,6 +352,10 @@ mod tests {
             "count claim: narrative says 12, `pw.tsv` has 4 (rows below the cited threshold)",
         )
         .expect("count detail must parse");
-        assert_eq!((n, m), (12, 4), "N and M must come straight from the detail");
+        assert_eq!(
+            (n, m),
+            (12, 4),
+            "N and M must come straight from the detail"
+        );
     }
 }

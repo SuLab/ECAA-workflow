@@ -363,9 +363,10 @@ impl AtomRegistry {
                     // closure borrows only an owned String and discards the
                     // compiled Program, so no broken invariant can leak out.
                     let cel_src_owned = cel_src.to_string();
-                    let compile_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
-                        || cel_interpreter::Program::compile(&cel_src_owned),
-                    ));
+                    let compile_result =
+                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            cel_interpreter::Program::compile(&cel_src_owned)
+                        }));
                     match compile_result {
                         Ok(Ok(_program)) => {}
                         Ok(Err(e)) => {

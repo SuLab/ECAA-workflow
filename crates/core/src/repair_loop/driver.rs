@@ -11,11 +11,9 @@ use std::path::Path;
 
 use super::assess::assess_package;
 use super::executor::ExecutorRegistry;
-use super::executors;
-use super::failure::{
-    default_budget, FailureSet, FailureStatus, GLOBAL_ROUND_CAP,
-};
 use super::executor::RepairOutcome;
+use super::executors;
+use super::failure::{default_budget, FailureSet, FailureStatus, GLOBAL_ROUND_CAP};
 use super::provenance::{append_repair_log, RepairLogEntry};
 use super::runner::TaskRunner;
 use super::snapshot::Snapshotter;
@@ -67,17 +65,9 @@ pub fn run_loop(
             if let Some(&rc) = retry_count.get(&f.id) {
                 f.retry_count = rc;
             }
-            if f.status == FailureStatus::Open
-                && f.retry_count >= default_budget(f.class)
-            {
+            if f.status == FailureStatus::Open && f.retry_count >= default_budget(f.class) {
                 f.status = FailureStatus::InReview;
-                log_routed_to_review(
-                    root,
-                    rounds,
-                    f,
-                    &mut review_logged,
-                    "over budget" ,
-                );
+                log_routed_to_review(root, rounds, f, &mut review_logged, "over budget");
             }
         }
 
@@ -90,8 +80,11 @@ pub fn run_loop(
         }
 
         // Eligible-for-repair failures this round.
-        let open_ids: Vec<String> =
-            fs.open(default_budget).iter().map(|f| f.id.clone()).collect();
+        let open_ids: Vec<String> = fs
+            .open(default_budget)
+            .iter()
+            .map(|f| f.id.clone())
+            .collect();
         if open_ids.is_empty() {
             break;
         }
@@ -115,17 +108,16 @@ pub fn run_loop(
         for f in fs.open(default_budget) {
             let outcome = match registry.for_class(f.class) {
                 Some(exec) => exec.repair(f, root, config_dir, runner),
-                None => RepairOutcome::Unrepairable(format!(
-                    "no executor registered for {:?}",
-                    f.class
-                )),
+                None => {
+                    RepairOutcome::Unrepairable(format!("no executor registered for {:?}", f.class))
+                }
             };
 
             let (outcome_tag, note) = match &outcome {
-                RepairOutcome::Applied { deterministic, note } => (
-                    "applied",
-                    format!("deterministic={deterministic}: {note}"),
-                ),
+                RepairOutcome::Applied {
+                    deterministic,
+                    note,
+                } => ("applied", format!("deterministic={deterministic}: {note}")),
                 RepairOutcome::PartiallyApplied {
                     deterministic,
                     note,
@@ -136,9 +128,7 @@ pub fn run_loop(
                     // to review. Log the partial outcome and its residual here.
                     (
                         "partial",
-                        format!(
-                            "deterministic={deterministic}: {note}; residual: {residual}"
-                        ),
+                        format!("deterministic={deterministic}: {note}; residual: {residual}"),
                     )
                 }
                 RepairOutcome::NeedsAgent(directive) => {
@@ -150,9 +140,7 @@ pub fn run_loop(
                     };
                     ("needs_agent", note)
                 }
-                RepairOutcome::Unrepairable(reason) => {
-                    ("unrepairable", reason.clone())
-                }
+                RepairOutcome::Unrepairable(reason) => ("unrepairable", reason.clone()),
             };
 
             // Spend one attempt against this failure id.
@@ -590,10 +578,7 @@ mod tests {
 
         // A must be routed to review (forced over budget by the regression guard).
         assert!(
-            status
-                .review
-                .iter()
-                .any(|r| r.failure.subject == "A"),
+            status.review.iter().any(|r| r.failure.subject == "A"),
             "target A must be routed to review after regression, got {:?}",
             status.review
         );
@@ -684,9 +669,17 @@ mod tests {
         let mut assess = || {
             FailureSet(vec![
                 // ReviewRequired: budget 0, never attempted by any executor.
-                mk(RepairClass::ReviewRequired, "needs_human", FailureStatus::Open),
+                mk(
+                    RepairClass::ReviewRequired,
+                    "needs_human",
+                    FailureStatus::Open,
+                ),
                 // PartiallyApplied: attempted, real work, never closes.
-                mk(RepairClass::ConformanceFix, "substrate_validity", FailureStatus::Open),
+                mk(
+                    RepairClass::ConformanceFix,
+                    "substrate_validity",
+                    FailureStatus::Open,
+                ),
             ])
         };
         let reg = registry_with(vec![Box::new(PartialExec {
@@ -726,7 +719,11 @@ mod tests {
 
         // The PartiallyApplied failure must ALSO have produced a `partial` line
         // recording the real work that was attempted (not only the review line).
-        let partial = mk(RepairClass::ConformanceFix, "substrate_validity", FailureStatus::Open);
+        let partial = mk(
+            RepairClass::ConformanceFix,
+            "substrate_validity",
+            FailureStatus::Open,
+        );
         assert!(
             log.iter()
                 .any(|e| e.outcome == "partial" && e.failure_id == partial.id),

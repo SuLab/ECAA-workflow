@@ -441,11 +441,10 @@ pub(crate) fn compose_v4_dispatch_full(
                     "data:2976" => "Protein abundance matrix",
                     _ => "Sequence alignment",
                 };
-                let mut dp =
-                    crate::workflow_contracts::data_product::DataProductContract::skeleton(
-                        format!("intake_supplied_{}", iri.replace(':', "_")),
-                        crate::workflow_contracts::semantic_type::SemanticType::edam(iri, label),
-                    );
+                let mut dp = crate::workflow_contracts::data_product::DataProductContract::skeleton(
+                    format!("intake_supplied_{}", iri.replace(':', "_")),
+                    crate::workflow_contracts::semantic_type::SemanticType::edam(iri, label),
+                );
                 dp.description_only = false;
                 vec![dp]
             }

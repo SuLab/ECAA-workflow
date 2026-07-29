@@ -17,9 +17,8 @@
 #      workflow-run-crate-0.5, provenance-run-crate-0.5.
 #    This proves the emitter CAN produce a fully-conformant executed crate.
 #
-# 3. "Gate bites" proof: mutate the fresh executed crate's conformsTo to drop
-#    provenance-run-crate-0.5, assert roc-validate-strict.py exits non-zero,
-#    then restore the original crate (the mutation is on a temp copy).
+# 3. "Gate bites" proof: remove each executed action's recorded instrument,
+#    assert roc-validate-strict.py exits non-zero, then discard the temp copy.
 #
 # HONEST RESIDUAL
 # ===============
@@ -79,7 +78,7 @@ fi
 
 bash "$SCRIPT_DIR/build-fixture-packages.sh" \
     "$REPO_ROOT/testdata/wrroc-fixtures" \
-    "$PLAN_OUT" 2>&1 | grep -E "^(Building|Done|FAILED)" || true
+    "$PLAN_OUT" 2>&1 | tee "$TMP_DIR/plan-build.log" | grep -E "^(Building|Done|FAILED)"
 
 # Validate ONE representative plan crate (faster; they are all structurally
 # identical — same emitter, same profile set).
@@ -107,7 +106,7 @@ ECAA_FRESH_EXECUTED_CRATE_OUT="$EXEC_OUT" \
     cargo test \
     -p ecaa-workflow-core \
     fresh_executed_crate_satisfies_provenance_shape \
-    -- --nocapture 2>&1 | grep -E "(test .* ok|FAILED|dumped|error)" || true
+    -- --nocapture 2>&1 | tee "$TMP_DIR/executed-build.log" | grep -E "^(test .* ok|dumped |error:|.*FAILED.*)"
 
 echo ""
 echo "[roc-gate] Executed crate output: $EXEC_OUT"
@@ -132,7 +131,7 @@ echo ""
 
 # ── Step 3: Prove the gate bites ─────────────────────────────────────────────
 echo "[roc-gate] Step 3: prove the gate bites (inject a break → expect FAIL)"
-echo "  Mutation: drop provenance-run-crate-0.5 from conformsTo in a temp copy"
+echo "  Mutation: remove instrument from executed CreateActions in a temp copy"
 
 BROKEN_OUT="$TMP_DIR/broken-executed-crate"
 cp -r "$EXEC_OUT" "$BROKEN_OUT"

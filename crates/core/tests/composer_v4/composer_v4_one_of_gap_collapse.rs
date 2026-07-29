@@ -72,7 +72,12 @@ fn missing_producer_gap(id: &str, consumer_port: &str) -> RepairGap {
 
 /// One member (`raw_counts`) bound, the other (`normalized_counts`)
 /// recorded a `MissingProducer` gap by the per-input-port loop.
-fn fixture_one_bound() -> (AtomDefinition, Vec<EdgeContract>, Vec<String>, Vec<RepairGap>) {
+fn fixture_one_bound() -> (
+    AtomDefinition,
+    Vec<EdgeContract>,
+    Vec<String>,
+    Vec<RepairGap>,
+) {
     let consumer = consumer_with_counts_one_of();
     let edges = vec![bound_edge("raw_counts")];
     let gap_id = format!("{CONSUMER_ID}:1");
@@ -82,7 +87,12 @@ fn fixture_one_bound() -> (AtomDefinition, Vec<EdgeContract>, Vec<String>, Vec<R
 }
 
 /// Neither member bound — both recorded a `MissingProducer` gap.
-fn fixture_zero_bound() -> (AtomDefinition, Vec<EdgeContract>, Vec<String>, Vec<RepairGap>) {
+fn fixture_zero_bound() -> (
+    AtomDefinition,
+    Vec<EdgeContract>,
+    Vec<String>,
+    Vec<RepairGap>,
+) {
     let consumer = consumer_with_counts_one_of();
     let edges: Vec<EdgeContract> = vec![];
     let raw_id = format!("{CONSUMER_ID}:0");
@@ -101,7 +111,9 @@ fn one_of_with_one_bound_member_drops_sibling_gap_and_tags_edge() {
     collapse_one_of_gaps(&consumer, &mut edges, &mut gaps, &mut repair, CONSUMER_ID);
 
     assert!(
-        repair.iter().all(|g| g.consumer_port != "normalized_counts"),
+        repair
+            .iter()
+            .all(|g| g.consumer_port != "normalized_counts"),
         "unbound sibling gap must be collapsed, got {repair:?}"
     );
     assert!(

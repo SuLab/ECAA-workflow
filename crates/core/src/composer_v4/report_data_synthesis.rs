@@ -142,7 +142,12 @@ pub fn synthesize_report_data_companion(dag: &mut WorkflowDag, atom_reg: &AtomRe
 
     // Schema-bearing stage -> assemble_report_data.
     for stage_id in schemas.keys() {
-        new_edges.push(ordering_edge(stage_id, "report", NODE_ID, "analysis_result"));
+        new_edges.push(ordering_edge(
+            stage_id,
+            "report",
+            NODE_ID,
+            "analysis_result",
+        ));
     }
 
     // contextualize_findings_with_literature -> assemble_report_data. The
@@ -172,7 +177,12 @@ pub fn synthesize_report_data_companion(dag: &mut WorkflowDag, atom_reg: &AtomRe
     // terminals that already exist as node ids in the dag.
     for terminal_id in REPORTING_TERMINAL_IDS {
         if dag.nodes.iter().any(|n| n.id == terminal_id) {
-            new_edges.push(ordering_edge(NODE_ID, "report_data", terminal_id, "tributaries"));
+            new_edges.push(ordering_edge(
+                NODE_ID,
+                "report_data",
+                terminal_id,
+                "tributaries",
+            ));
         }
     }
 
@@ -280,7 +290,11 @@ mod tests {
         let de_node = TaskNode::from_atom(de_atom);
 
         let mut dag = dag_with(
-            vec![de_node, plain_node("reporting"), plain_node("final_reporting")],
+            vec![
+                de_node,
+                plain_node("reporting"),
+                plain_node("final_reporting"),
+            ],
             vec![simple_edge("reporting", "final_reporting")],
         );
 
@@ -365,9 +379,10 @@ mod tests {
         synthesize_report_data_companion(&mut dag, &reg);
 
         assert!(
-            dag.edges.iter().any(|e| e.from_node
-                == crate::report_contract::CONTEXTUALIZE_STAGE_ID
-                && e.to_node == "assemble_report_data"),
+            dag.edges.iter().any(
+                |e| e.from_node == crate::report_contract::CONTEXTUALIZE_STAGE_ID
+                    && e.to_node == "assemble_report_data"
+            ),
             "contextualize -> assemble_report_data ordering edge missing; edges={:?}",
             dag.edges
                 .iter()
@@ -386,10 +401,8 @@ mod tests {
         let mut dag = dag_with(vec![de_node, plain_node("reporting")], vec![]);
         synthesize_report_data_companion(&mut dag, &reg);
         assert!(
-            !dag.edges
-                .iter()
-                .any(|e| e.to_node == "assemble_report_data"
-                    && e.from_node == crate::report_contract::CONTEXTUALIZE_STAGE_ID),
+            !dag.edges.iter().any(|e| e.to_node == "assemble_report_data"
+                && e.from_node == crate::report_contract::CONTEXTUALIZE_STAGE_ID),
             "no contextualize edge should exist when the stage is absent"
         );
     }
@@ -401,7 +414,11 @@ mod tests {
         let reg = atom_registry();
         let de_node = TaskNode::from_atom(reg.get("differential_expression").expect("atom"));
         let mut dag = dag_with(
-            vec![de_node, plain_node("reporting"), plain_node("final_reporting")],
+            vec![
+                de_node,
+                plain_node("reporting"),
+                plain_node("final_reporting"),
+            ],
             vec![simple_edge("reporting", "final_reporting")],
         );
 
@@ -417,8 +434,16 @@ mod tests {
             1,
             "second pass duplicated the assemble_report_data node"
         );
-        assert_eq!(dag.nodes.len(), n0, "second pass added nodes (not idempotent)");
-        assert_eq!(dag.edges.len(), e0, "second pass added edges (not idempotent)");
+        assert_eq!(
+            dag.nodes.len(),
+            n0,
+            "second pass added nodes (not idempotent)"
+        );
+        assert_eq!(
+            dag.edges.len(),
+            e0,
+            "second pass added edges (not idempotent)"
+        );
     }
 
     /// Skip rule: a DAG whose nodes declare NO result_schema gets no
@@ -470,7 +495,11 @@ mod tests {
         let reg = atom_registry();
         let de_node = TaskNode::from_atom(reg.get("differential_expression").expect("atom"));
         let mut dag = dag_with(
-            vec![de_node, plain_node("reporting"), plain_node("final_reporting")],
+            vec![
+                de_node,
+                plain_node("reporting"),
+                plain_node("final_reporting"),
+            ],
             vec![simple_edge("reporting", "final_reporting")],
         );
         synthesize_report_data_companion(&mut dag, &reg);

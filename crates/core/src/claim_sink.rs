@@ -1,6 +1,6 @@
 //! Projects live `ClaimVerificationReport` verdicts into the audit-proof
-//! C-graph shape (`{claim_id, status, supported_by}`) and persists them as
-//! an HMAC-signed, agent-unforgeable sink the loader verifies.
+//! C-graph shape and persists them as an HMAC-signed, agent-unforgeable sink
+//! the loader verifies.
 
 use crate::audit_writer::AuditWriter;
 use crate::claim_verifier::{
@@ -16,8 +16,7 @@ use std::path::{Path, PathBuf};
 /// readers MUST parse line-by-line, never as a single JSON document (see
 /// [`persist_signed_verdicts`]). Single source for the loader's
 /// runtime-relative join so the writer and reader paths cannot drift.
-pub const SIGNED_SINK_UNDER_RUNTIME: &str =
-    "verification-reports/claim-verification.signed.json";
+pub const SIGNED_SINK_UNDER_RUNTIME: &str = "verification-reports/claim-verification.signed.json";
 
 /// Sink path under the BagIt-excluded, never-agent-trusted reports dir,
 /// relative to the PACKAGE ROOT. Kept in lockstep with
@@ -74,15 +73,58 @@ fn unique_output_bearing(package_root: &Path, basename: &str) -> Option<String> 
             if hit.is_some() {
                 return None; // ambiguous: same basename in >1 producer dir
             }
-            hit = Some(format!("runtime/outputs/{}/{}", d.to_string_lossy(), basename));
+            hit = Some(format!(
+                "runtime/outputs/{}/{}",
+                d.to_string_lossy(),
+                basename
+            ));
         }
     }
     hit
 }
 
+/// Resolve and de-duplicate every evidence table recorded for a verdict.
+///
+/// The numeric gate's audit tuple is authoritative because it records the
+/// table that was actually opened. The extracted claim's source table is kept
+/// as a fallback for non-numeric and pre-audit verdicts. Both may name the same
+/// file, so the result is de-duplicated without changing first-seen order.
+fn evidence_refs_for(v: &ClaimVerdict, package_root: &Path, task_id: &str) -> Vec<String> {
+    let mut refs = Vec::new();
+    let mut push = |raw: &str| {
+        let resolved = evidence_ref_for(package_root, task_id, raw);
+        if !refs.contains(&resolved) {
+            refs.push(resolved);
+        }
+    };
+    if let Some(source) = v
+        .audit
+        .as_ref()
+        .and_then(|audit| audit.source_table.as_deref())
+    {
+        push(source);
+    }
+    if let Some(source) = v.claim.source_table.as_deref() {
+        push(source);
+    }
+    refs
+}
+
+/// Human-readable explanation carried by every non-verified verdict.
+fn verdict_detail(status: &ClaimStatus) -> Option<&str> {
+    match status {
+        ClaimStatus::Verified => None,
+        ClaimStatus::Mismatch { detail } => Some(detail),
+        ClaimStatus::Unverifiable { reason }
+        | ClaimStatus::Pending { reason }
+        | ClaimStatus::Suspicious { reason } => Some(reason),
+    }
+}
+
 /// Project live verdicts into the audit-proof C-graph row shape
-/// (`{claim_id, status, supported_by}`). Deterministic; `claim_id` is
-/// positional (`<task_id>#claim-<i>`) so it is collision-free within a task.
+/// (`{claim_id, status, supported_by, checked_against, contradicts,
+/// attempted_sources}`). Deterministic; `claim_id` is positional
+/// (`<task_id>#claim-<i>`) so it is collision-free within a task.
 pub fn project_verdict_rows(
     report: &ClaimVerificationReport,
     task_id: &str,
@@ -93,38 +135,77 @@ pub fn project_verdict_rows(
         .iter()
         .enumerate()
         .map(|(i, v)| {
-            let (status, supported_by): (&str, Vec<String>) = match &v.status {
-                ClaimStatus::Verified => {
-                    let supported = v
-                        .claim
-                        .source_table
-                        .iter()
-                        .map(|t| evidence_ref_for(package_root, task_id, t))
-                        .collect();
-                    ("verified", supported)
-                }
+            let evidence_refs = evidence_refs_for(v, package_root, task_id);
+            let (status, supported_by, checked_against, contradicts, attempted_sources): (
+                &str,
+                Vec<String>,
+                Vec<String>,
+                Vec<String>,
+                Vec<String>,
+            ) = match &v.status {
+                ClaimStatus::Verified => (
+                    "verified",
+                    evidence_refs.clone(),
+                    evidence_refs,
+                    Vec::new(),
+                    Vec::new(),
+                ),
+                ClaimStatus::Mismatch { .. } => (
+                    "mismatch",
+                    // The evidence supports the verifier's adjudication while
+                    // `contradicts` states its relationship to the claim text.
+                    // Keeping both preserves the closed C-graph contract and
+                    // removes the old verdict-without-evidence ambiguity.
+                    evidence_refs.clone(),
+                    evidence_refs.clone(),
+                    evidence_refs,
+                    Vec::new(),
+                ),
                 // A table WAS loaded and checked but yielded nothing
                 // determinable (no effect/p column, entity not in any
                 // configured entity column, etc.). Externally distinct from
                 // never-adjudicated `Pending` so the two coverage buckets stay
                 // honest on the wire.
-                ClaimStatus::Unverifiable { .. } => ("unverifiable", Vec::new()),
+                ClaimStatus::Unverifiable { .. } => {
+                    let loaded = v
+                        .audit
+                        .as_ref()
+                        .and_then(|audit| audit.source_table.as_ref())
+                        .is_some();
+                    if loaded {
+                        (
+                            "unverifiable",
+                            Vec::new(),
+                            evidence_refs,
+                            Vec::new(),
+                            Vec::new(),
+                        )
+                    } else {
+                        (
+                            "unverifiable",
+                            Vec::new(),
+                            Vec::new(),
+                            Vec::new(),
+                            evidence_refs,
+                        )
+                    }
+                }
                 // Never-adjudicated claims: a non-verified, non-blocking
-                // "pending" audit-proof row carrying no supported_by evidence.
-                ClaimStatus::Pending { .. } => ("pending", Vec::new()),
-                ClaimStatus::Mismatch { .. } => ("mismatch", Vec::new()),
+                // "pending" audit-proof row. A declared but unresolved source
+                // is an attempted route, never evidence that was checked.
+                ClaimStatus::Pending { .. } => {
+                    ("pending", Vec::new(), Vec::new(), Vec::new(), evidence_refs)
+                }
                 // Soft/review-required: carries the cited table it was checked
                 // against (the entity was absent from it), so the audit-proof
                 // supported_by floor is satisfied without a separate exemption.
-                ClaimStatus::Suspicious { .. } => {
-                    let supported = v
-                        .claim
-                        .source_table
-                        .iter()
-                        .map(|t| evidence_ref_for(package_root, task_id, t))
-                        .collect();
-                    ("suspicious", supported)
-                }
+                ClaimStatus::Suspicious { .. } => (
+                    "suspicious",
+                    evidence_refs.clone(),
+                    evidence_refs,
+                    Vec::new(),
+                    Vec::new(),
+                ),
             };
             // Carry the claim's human-readable text (`excerpt`, falling back to
             // the matched `entity` when the excerpt is empty) and the matched
@@ -142,6 +223,10 @@ pub fn project_verdict_rows(
                 "claim_id": format!("{task_id}#claim-{i}"),
                 "status": status,
                 "supported_by": supported_by,
+                "checked_against": checked_against,
+                "contradicts": contradicts,
+                "attempted_sources": attempted_sources,
+                "verdict_detail": verdict_detail(&v.status),
                 "text": text,
                 "entity": v.claim.entity,
                 "class": serde_json::to_value(class).unwrap_or(Value::Null),
@@ -469,14 +554,14 @@ mod tests {
             literature_evidence: None,
             matched_pvalue_keyword: None,
             linear_fold: None,
-                aggregate_kind: None,
-                aggregate_column: None,
-                aggregate_rowset: None,
-                aggregate_value: None,
-                collection: None,
-                term: None,
-                keyed_column: None,
-                keyed_value: None,
+            aggregate_kind: None,
+            aggregate_column: None,
+            aggregate_rowset: None,
+            aggregate_value: None,
+            collection: None,
+            term: None,
+            keyed_column: None,
+            keyed_value: None,
         }
     }
 
@@ -515,7 +600,10 @@ mod tests {
             },
         ));
         assert_eq!(report.n_suspicious, 1);
-        assert_eq!(report.n_mismatch, 0, "Suspicious must NOT count as mismatch");
+        assert_eq!(
+            report.n_mismatch, 0,
+            "Suspicious must NOT count as mismatch"
+        );
         assert_eq!(report.n_verified, 0);
         assert_eq!(report.n_unverifiable, 0);
         assert!(report.has_suspicious());
@@ -530,6 +618,11 @@ mod tests {
             json!(["results/tables/de.csv"]),
             "Suspicious carries its cited table (a `/`-bearing ref is kept verbatim) \
              so the supported_by floor passes"
+        );
+        assert_eq!(rows[0]["checked_against"], json!(["results/tables/de.csv"]));
+        assert_eq!(
+            rows[0]["verdict_detail"],
+            json!("entity absent from cited table; fabricated/untested")
         );
     }
 
@@ -553,6 +646,9 @@ mod tests {
         assert_eq!(rows[0]["claim_id"], json!("diff_expr#claim-0"));
         assert_eq!(rows[0]["status"], json!("verified"));
         assert_eq!(rows[0]["supported_by"], json!(["results/tables/de.csv"]));
+        assert_eq!(rows[0]["checked_against"], json!(["results/tables/de.csv"]));
+        assert_eq!(rows[0]["contradicts"], json!([]));
+        assert_eq!(rows[0]["attempted_sources"], json!([]));
     }
 
     #[test]
@@ -577,6 +673,9 @@ mod tests {
         // never-adjudicated `Pending` → "pending"); it stays evidence-free.
         assert_eq!(rows[0]["status"], json!("unverifiable"));
         assert_eq!(rows[0]["supported_by"], json!([]));
+        assert_eq!(rows[0]["checked_against"], json!([]));
+        assert_eq!(rows[0]["attempted_sources"], json!([]));
+        assert_eq!(rows[0]["verdict_detail"], json!("no table"));
     }
 
     #[test]
@@ -599,10 +698,13 @@ mod tests {
         let rows = project_verdict_rows(&report, "diff_expr", std::path::Path::new("."));
         assert_eq!(rows[0]["status"], json!("pending"));
         assert_eq!(rows[0]["supported_by"], json!([]));
+        assert_eq!(rows[0]["checked_against"], json!([]));
+        assert_eq!(rows[0]["attempted_sources"], json!([]));
+        assert_eq!(rows[0]["verdict_detail"], json!("no adjudication site"));
     }
 
     #[test]
-    fn mismatch_projects_nonpending_empty() {
+    fn mismatch_projects_comparison_and_contradiction_links() {
         let report = ClaimVerificationReport {
             n_checked: 1,
             n_verified: 0,
@@ -620,7 +722,10 @@ mod tests {
         };
         let rows = project_verdict_rows(&report, "diff_expr", std::path::Path::new("."));
         assert_eq!(rows[0]["status"], json!("mismatch"));
-        assert_eq!(rows[0]["supported_by"], json!([]));
+        assert_eq!(rows[0]["supported_by"], json!(["results/tables/de.csv"]));
+        assert_eq!(rows[0]["checked_against"], json!(["results/tables/de.csv"]));
+        assert_eq!(rows[0]["contradicts"], json!(["results/tables/de.csv"]));
+        assert_eq!(rows[0]["verdict_detail"], json!("sign flip"));
     }
 
     #[test]
@@ -678,19 +783,22 @@ mod tests {
             n_unverifiable: 0,
             n_pending: 0,
             n_suspicious: 0,
-            verdicts: vec![verdict(
-                claim("G", Some(basename)),
-                ClaimStatus::Verified,
-            )],
+            verdicts: vec![verdict(claim("G", Some(basename)), ClaimStatus::Verified)],
             runtime_decision_log_path: None,
         };
         // same-task wins even though nothing else has summary.tsv
         let same = project_verdict_rows(&mk("summary.tsv"), "reporting", root);
-        assert_eq!(same[0]["supported_by"], json!(["runtime/outputs/reporting/summary.tsv"]));
+        assert_eq!(
+            same[0]["supported_by"],
+            json!(["runtime/outputs/reporting/summary.tsv"])
+        );
         // ambiguous basename (two producers, none is the claimer) → stable
         // claiming-task fallback rather than an arbitrary guess.
         let ambiguous = project_verdict_rows(&mk("dup.tsv"), "reporting", root);
-        assert_eq!(ambiguous[0]["supported_by"], json!(["runtime/outputs/reporting/dup.tsv"]));
+        assert_eq!(
+            ambiguous[0]["supported_by"],
+            json!(["runtime/outputs/reporting/dup.tsv"])
+        );
     }
 
     #[test]
@@ -809,7 +917,10 @@ mod tests {
             n_unverifiable: matches!(status, ClaimStatus::Unverifiable { .. }) as usize,
             n_pending: matches!(status, ClaimStatus::Pending { .. }) as usize,
             n_suspicious: matches!(status, ClaimStatus::Suspicious { .. }) as usize,
-            verdicts: vec![verdict(claim(entity, Some("results/tables/de.csv")), status)],
+            verdicts: vec![verdict(
+                claim(entity, Some("results/tables/de.csv")),
+                status,
+            )],
             runtime_decision_log_path: None,
         };
 
@@ -823,8 +934,22 @@ mod tests {
             &writer,
         )
         .unwrap();
-        persist_signed_verdicts(dir.path(), "task_b", &mk("TP53", ClaimStatus::Verified), None, &writer).unwrap();
-        persist_signed_verdicts(dir.path(), "task_a", &mk("IL6", ClaimStatus::Verified), None, &writer).unwrap();
+        persist_signed_verdicts(
+            dir.path(),
+            "task_b",
+            &mk("TP53", ClaimStatus::Verified),
+            None,
+            &writer,
+        )
+        .unwrap();
+        persist_signed_verdicts(
+            dir.path(),
+            "task_a",
+            &mk("IL6", ClaimStatus::Verified),
+            None,
+            &writer,
+        )
+        .unwrap();
 
         let body = std::fs::read_to_string(&path).unwrap();
         let lines: Vec<&str> = body.lines().filter(|l| !l.trim().is_empty()).collect();
@@ -834,7 +959,9 @@ mod tests {
         for l in &lines {
             let parsed: Value = serde_json::from_str(l).unwrap();
             // Every surviving row must still carry a valid HMAC.
-            let inner = writer.verify_row(&parsed).expect("valid HMAC after rewrite");
+            let inner = writer
+                .verify_row(&parsed)
+                .expect("valid HMAC after rewrite");
             by_task.insert(inner["task_id"].as_str().unwrap().to_string(), inner);
         }
         // task_a's surviving row is the LATEST (verified), not the stale mismatch.

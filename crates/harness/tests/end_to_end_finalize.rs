@@ -46,8 +46,7 @@ fn copy_tree(src: &Path, dst: &Path) {
 
 #[test]
 fn standalone_run_self_finalizes_the_package() {
-    let fixture =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/finalize-min-pkg");
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/finalize-min-pkg");
 
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("pkg");
@@ -106,8 +105,8 @@ fn standalone_run_self_finalizes_the_package() {
     // 4. The BagIt manifest must have been re-sealed over the produced outputs:
     //    it exists and references a `runtime/outputs/` path.
     let manifest = root.join("manifest-sha512.txt");
-    let manifest_body = std::fs::read_to_string(&manifest)
-        .expect("manifest-sha512.txt must exist after reseal");
+    let manifest_body =
+        std::fs::read_to_string(&manifest).expect("manifest-sha512.txt must exist after reseal");
     assert!(
         manifest_body.contains("runtime/outputs/"),
         "reseal must cover a runtime/outputs/ path; manifest:\n{}",
@@ -202,8 +201,7 @@ fn auto_repair_unset_does_not_run_repair_loop() {
     let _flag = EnvVarGuard::unset("ECAA_AUTO_REPAIR");
 
     let tmp = tempfile::tempdir().unwrap();
-    let fixture =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/finalize-min-pkg");
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/finalize-min-pkg");
     let root = tmp.path().join("pkg");
     copy_tree(&fixture, &root);
 
@@ -231,8 +229,7 @@ fn auto_repair_truthy_writes_status_without_mutating_results() {
     let _flag = EnvVarGuard::set("ECAA_AUTO_REPAIR", "1");
 
     let tmp = tempfile::tempdir().unwrap();
-    let fixture =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/finalize-min-pkg");
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/finalize-min-pkg");
     let root = tmp.path().join("pkg");
     copy_tree(&fixture, &root);
     let config_dir = root.join("policies");
@@ -327,8 +324,7 @@ fn auto_repair_runs_on_session_path_without_standalone_finalize() {
     let _flag = EnvVarGuard::set("ECAA_AUTO_REPAIR", "1");
 
     let tmp = tempfile::tempdir().unwrap();
-    let fixture =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/finalize-min-pkg");
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/finalize-min-pkg");
     let root = tmp.path().join("pkg");
     copy_tree(&fixture, &root);
 

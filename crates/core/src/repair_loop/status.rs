@@ -48,10 +48,9 @@ impl RepairStatus {
         std::fs::create_dir_all(&runtime)
             .with_context(|| format!("creating runtime dir at {}", runtime.display()))?;
         let path = runtime.join("repair-status.json");
-        let json = serde_json::to_string_pretty(self)
-            .context("serializing repair status")?;
-        let mut file = File::create(&path)
-            .with_context(|| format!("creating {}", path.display()))?;
+        let json = serde_json::to_string_pretty(self).context("serializing repair status")?;
+        let mut file =
+            File::create(&path).with_context(|| format!("creating {}", path.display()))?;
         file.write_all(json.as_bytes())
             .with_context(|| format!("writing {}", path.display()))?;
         Ok(())
@@ -105,7 +104,11 @@ mod tests {
     fn fully_passing_when_no_unresolved() {
         let fs = FailureSet(vec![mk("a", FailureStatus::Resolved)]);
         let st = from_final(&fs, 3, 2);
-        assert_eq!(st.verdict, RepairVerdict::FullyPassing, "all resolved => fully passing");
+        assert_eq!(
+            st.verdict,
+            RepairVerdict::FullyPassing,
+            "all resolved => fully passing"
+        );
         assert!(st.review.is_empty(), "no review items expected");
         assert_eq!(st.rounds, 3, "rounds must be carried through");
     }
@@ -123,7 +126,10 @@ mod tests {
             "one unresolved with threshold 2 => mostly passing"
         );
         assert_eq!(st.review.len(), 1, "exactly one review item");
-        assert_eq!(st.review[0].failure.subject, "a", "open failure must be the review item");
+        assert_eq!(
+            st.review[0].failure.subject, "a",
+            "open failure must be the review item"
+        );
     }
 
     #[test]

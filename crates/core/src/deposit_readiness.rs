@@ -21,19 +21,34 @@
 //!
 //! Layer 1 also rolls up per-task domain-correctness validation
 //! (`domain_validation`, via [`scan_domain_validation`] — RCA I-10): a
-//! `validate_*` companion task's own `result.json` may self-report a failing
+//! `validate_*` companion task's own self-report may record a failing
 //! verdict, which is a SEPARATE axis from computational completion (whether
 //! the stage ran and produced output at all). The rollup reads three
-//! independent evidence surfaces — each `validate_*` task's `result.json`
-//! verdict (in whichever of the observed spellings the agent wrote; see
-//! [`task_validation_verdict`]), the package's contract-obligation records in
+//! independent evidence surfaces — each `validate_*` task's self-report
+//! verdict (in whichever of the observed FILENAMES and KEY SPELLINGS the agent
+//! wrote; see [`VALIDATE_SELF_REPORT_FILES`] and [`task_validation_verdict`]),
+//! the package's contract-obligation records in
 //! `runtime/validation-reports.jsonl` (see [`scan_contract_obligations`]), and
 //! the source-owned reporting-correctness checklist — and reports
 //! `CheckStatus::Unverified`, never `Pass`, when NONE of them had anything to
 //! inspect. The headline `deposit_ready` bool folds `ro_crate` + `bagit` +
 //! `domain_validation` + `provenance_divergence` + `substrate_validity` +
-//! `reexecution` so a run can be computationally complete while
-//! `deposit_ready` reads `false`.
+//! `repair_status` + `reexecution` so a run can be computationally complete
+//! while `deposit_ready` reads `false`.
+//!
+//! A gate that cannot read its own evidence is worse than no gate: it attests
+//! `pass` over a validator that self-reported FAIL. Every widening in
+//! [`task_validation_verdict`] exists because a REAL package on disk spelled
+//! its verdict a way this module could not see — the spellings are surveyed,
+//! never guessed, and the numeric check-count path
+//! (`FAILED_COUNT_KEYS`) is the spelling-proof floor underneath them.
+//!
+//! Layer 1 also READS the repair loop's own terminal verdict
+//! (`repair_status`, via [`scan_repair_status`]) from
+//! `runtime/repair-status.json`. A package whose own iterative repair loop
+//! concluded `RepairVerdict::Failing` — too many unresolved failures remain —
+//! is not deposit-ready by its own account, so a recorded `failing` BLOCKS.
+//! `mostly_passing` / `fully_passing` are surfaced but never block.
 //!
 //! Layer 1 also runs the §G-B2 observed-read provenance-divergence backstop
 //! (`provenance_divergence`, via [`scan_provenance_divergence`]): a genuine
@@ -97,9 +112,10 @@ pub const DEPOSIT_READINESS_FILE: &str = "DEPOSIT-READINESS.json";
 /// health), and it must never be reported as `Fail` (nothing was found
 /// wrong). It is surfaced in the attestation and, like
 /// `ReexecStatus::NotVerified` outside the `re-executable` profile, does not
-/// block `deposit_ready`. Currently produced only by the `domain_validation`
-/// axis; `ro_crate` / `bagit` / `provenance_divergence` / `substrate_validity`
-/// are always able to reach a concrete verdict.
+/// block `deposit_ready`. Produced by the `domain_validation` axis (nothing
+/// recorded a verdict) and by the `repair_status` axis (no repair loop ever
+/// ran over this package); `ro_crate` / `bagit` / `provenance_divergence` /
+/// `substrate_validity` are always able to reach a concrete verdict.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -157,8 +173,9 @@ pub struct DepositReadiness {
     /// `re-executable` / `minimal`).
     pub profile: String,
     /// Headline signal: `true` iff `ro_crate`, `bagit`,
-    /// `domain_validation`, `provenance_divergence`, and `substrate_validity`
-    /// all `Pass` AND `reexecution != Fail` (RCA I-10, §G-B2).
+    /// `domain_validation`, `provenance_divergence`, `substrate_validity`, and
+    /// `repair_status` all non-`Fail` (with `ro_crate`/`bagit` required to be
+    /// an outright `Pass`) AND `reexecution != Fail` (RCA I-10, §G-B2).
     /// Computed once at attestation-write time by [`compute_deposit_ready`]
     /// and re-derived whenever a component field changes (e.g. the Layer-2
     /// re-execution update). Deliberately SEPARATE from computational
@@ -171,7 +188,10 @@ pub struct DepositReadiness {
     pub deposit_ready: bool,
     /// RO-Crate / recorded-verdict self-validation outcome.
     pub ro_crate: CheckStatus,
-    /// BagIt manifest checksum-integrity outcome.
+    /// Flat-layout SHA-512 checksum-seal outcome. The Rust field name remains
+    /// for source compatibility; new attestations serialize it as
+    /// `checksum_seal`, while `bagit` is accepted only as a legacy alias.
+    #[serde(rename = "checksum_seal", alias = "bagit")]
     pub bagit: CheckStatus,
     /// Per-task domain-correctness validation rollup (RCA I-10): `Fail` when
     /// any `validate_*` task's own `result.json` recorded a failing verdict or
@@ -211,6 +231,20 @@ pub struct DepositReadiness {
     /// substrate failure).
     #[serde(default)]
     pub substrate_validity: CheckStatus,
+    /// The repair loop's own terminal verdict, READ (never re-run) from
+    /// `runtime/repair-status.json` — see [`scan_repair_status`]. `Fail` when
+    /// the recorded verdict is `RepairVerdict::Failing`; `Pass` for
+    /// `mostly_passing` / `fully_passing`; `Unverified` when no repair status
+    /// was ever written (the common case — the iterative repair loop is
+    /// operator-triggered, not part of every run) or the record is
+    /// unparseable. A concrete `failing` BLOCKS `deposit_ready`: a package
+    /// whose OWN repair loop concluded that too many failures remain
+    /// unresolved is not deposit-ready by its own account, and the deposit
+    /// boundary must not be the one consumer that reads that record as
+    /// nothing. `#[serde(default)]` → `Pass` for attestations predating this
+    /// field (absence never fabricates a repair failure).
+    #[serde(default)]
+    pub repair_status: CheckStatus,
     /// DR-8 portability advisory: residual absolute host paths (`/home/…`) and
     /// bare session-id occurrences found in the sealed deposit OUTSIDE the one
     /// declared identity field ([`DECLARED_IDENTITY_FIELD`]). WARN-ONLY —
@@ -250,6 +284,15 @@ pub struct DepositReadiness {
 /// profile that does not claim the property: absence of evidence is recorded
 /// honestly rather than converted into a failure. `ro_crate` and `bagit`
 /// never produce `Unverified`, so their `== Pass` test is unchanged.
+///
+/// This function folds the FIVE arguments it is given. The axes that are
+/// scanned from the package tree rather than passed in —
+/// `provenance_divergence`, `substrate_validity`, and `repair_status` — are
+/// folded by the two call sites ([`write_deposit_readiness`] and
+/// [`update_deposit_readiness_reexecution`]) as `&& axis != CheckStatus::Fail`,
+/// the same shape used for every non-argument axis since the §G-B2 backstop
+/// landed. The signature is deliberately left alone so out-of-crate callers
+/// that pass the five headline signals keep compiling.
 pub fn compute_deposit_ready(
     profile: &str,
     ro_crate: CheckStatus,
@@ -258,8 +301,7 @@ pub fn compute_deposit_ready(
     reexecution: ReexecStatus,
 ) -> bool {
     let reexec_blocks = reexecution == ReexecStatus::Fail
-        || (profile_claims_reexecutability(profile)
-            && reexecution == ReexecStatus::NotVerified);
+        || (profile_claims_reexecutability(profile) && reexecution == ReexecStatus::NotVerified);
     ro_crate == CheckStatus::Pass
         && bagit == CheckStatus::Pass
         && domain_validation != CheckStatus::Fail
@@ -345,21 +387,24 @@ pub fn assert_ro_crate_hashes_match_payload(package_root: &Path) -> Result<()> {
 /// Aggregated per-task domain-correctness validation signal (RCA I-10).
 ///
 /// A `validate_<stage>` companion task may record its own domain-correctness
-/// self-report in `runtime/outputs/validate_<stage>/result.json`
-/// (`validation_passed: bool`, and on failure `required_failures: [String]`
-/// naming the failed `policies/validation-contract.json` assertion ids) —
+/// self-report in any of [`VALIDATE_SELF_REPORT_FILES`] under
+/// `runtime/outputs/validate_<stage>/` (a pass/fail verdict in one of the
+/// surveyed spellings and/or numeric check counts, plus on failure a
+/// `required_failures` / `failed_checks` array naming the failed assertions) —
 /// this is a DIFFERENT signal than whether the stage ran at all
 /// (computational completion): the deposited `611cf5ee` package had
 /// `validate_differential_expression/result.json` recording
 /// `validation_passed: false` while every top-level summary layer
 /// (`DEPOSIT-READINESS.json`, RO-Crate, BagIt) read as passing, because
 /// nothing rolled the per-task self-report up into the deposit-level
-/// attestation.
+/// attestation. The `eda58089` deposit was the same bug one layer down: the
+/// rollup EXISTED but could not read the spelling
+/// (`verdict: "FAIL 130/135 checks (5 failed)"`) the validator had used.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DomainValidationSummary {
     /// Task ids that recorded a RECOGNIZED verdict, in scan order:
-    /// `validate_*` tasks whose `result.json` yielded a verdict via
-    /// [`task_validation_verdict`], then the synthetic
+    /// `validate_*` tasks whose self-reports yielded a verdict via
+    /// `validate_task_verdict`, then the synthetic
     /// [`CONTRACT_OBLIGATIONS_TASK_ID`] when the package carries contract
     /// obligation records, then the synthetic `reporting_invariants` id when
     /// that checklist ran. EMPTY means the axis inspected nothing — see
@@ -368,8 +413,10 @@ pub struct DomainValidationSummary {
     /// The subset of [`Self::checked_tasks`] whose recorded verdict was a
     /// failure, in scan order.
     pub failed_tasks: Vec<String>,
-    /// `"<task_id>: <assertion_id>"` for every entry in a failed task's
-    /// `required_failures` array, in scan order. Also carries the
+    /// `"<task_id>: <assertion_id>"` for every named failure a failed task's
+    /// self-reports carry (the sorted, de-duplicated union over
+    /// `REQUIRED_FAILURE_KEYS` across those files — see
+    /// `named_required_failures`), in task scan order. Also carries the
     /// source-owned reporting-correctness validator's REQUIRED failures
     /// (RP-2/RP-4/RP-5) under the synthetic `reporting_invariants` task id
     /// (see [`crate::reporting_invariants`]) and the contract-obligation
@@ -450,60 +497,263 @@ pub const CONTRACT_OBLIGATIONS_TASK_ID: &str = "contract_obligations";
 /// the harness appends one record to per checked obligation.
 const VALIDATION_REPORTS_SIDECAR: &str = "validation-reports.jsonl";
 
-/// Keys whose BOOLEAN value is a task's domain-correctness verdict, in
-/// precedence order. `validation_passed` is the canonical spelling the
-/// deposit rollup was originally written against.
-const VERDICT_BOOL_KEYS: [&str; 3] = ["validation_passed", "overall_pass", "all_pass"];
-
-/// Keys whose STRING value is a task's domain-correctness verdict, in
-/// precedence order.
+/// Per-task report basenames a `validate_*` task writes its own
+/// domain-correctness self-report into, in read order.
 ///
-/// Agent-authored `validate_*` `result.json` files do NOT converge on one
-/// spelling: a survey of the on-disk package corpus found `validation_result`,
-/// `overall`, `overall_validation_status`, `validation_status`,
-/// `validation_outcome` and the boolean `overall_pass` / `all_pass` all in
-/// use, with `validation_passed` a MINORITY spelling. Reading only
-/// `validation_passed` made the whole axis vacuous on real packages, so every
-/// observed spelling is accepted. The first four entries are the contract
-/// order; `validation_outcome` is the empirically-observed tail.
-const VERDICT_STRING_KEYS: [&str; 5] = [
+/// Agent-authored validators do not converge on one FILENAME any more than
+/// they converge on one key spelling. A survey of the on-disk package corpus
+/// found `result.json` (85 files), `validation_report.json` (65) and
+/// `validation_results.json` — PLURAL, a different file from the singular one
+/// — all carrying a top-level verdict, and 12 `validate_*` tasks whose
+/// `result.json` carries NO verdict while its sibling `validation_report.json`
+/// does. Reading only `result.json` therefore skipped tasks that had in fact
+/// reported. All three are read and their verdicts folded FAIL-DOMINANTLY (see
+/// `validate_task_verdict`).
+pub const VALIDATE_SELF_REPORT_FILES: [&str; 3] = [
+    "result.json",
+    "validation_report.json",
+    "validation_results.json",
+];
+
+/// Keys whose BOOLEAN value is a task's domain-correctness verdict, in
+/// contract order. `validation_passed` is the canonical spelling the
+/// deposit rollup was originally written against; `passed` / `pass` are the
+/// empirically-observed tail. Selection is by `.as_bool()`, so a report that
+/// spells `passed` as a check COUNT (`"passed": 42`) is not mis-read here — it
+/// is read by the numeric path ([`PASSED_COUNT_KEYS`]) instead.
+const VERDICT_BOOL_KEYS: [&str; 5] = [
+    "validation_passed",
+    "overall_pass",
+    "all_pass",
+    "passed",
+    "pass",
+];
+
+/// Keys whose STRING value is a task's domain-correctness verdict.
+///
+/// Agent-authored `validate_*` self-reports do NOT converge on one spelling. A
+/// survey of the on-disk package corpus found, by descending frequency:
+/// `overall` (32), `overall_status` (13), `overall_validation_status` (12),
+/// `validation_overall` (11), `verdict` (6), `validation_outcome` (6),
+/// `validation_result` (5), `validation_status` (5), `outcome` (3) — plus the
+/// booleans above, with `validation_passed` a MINORITY spelling. Reading only
+/// a subset of these made the whole axis vacuous on real packages: on one
+/// real 8-`validate_*`-task deposit, ZERO tasks used a recognized key, so the
+/// gate attested `domain_validation: pass` over a validator whose own report
+/// said `FAIL 130/135 checks (5 failed)`.
+///
+/// Order: the first five entries are the original contract order, preserved;
+/// the last four are the later-surveyed tail. Since the fold is FAIL-DOMINANT
+/// (see [`task_validation_verdict`]) the order no longer decides the verdict —
+/// it only fixes a deterministic scan sequence.
+///
+/// `status` is deliberately EXCLUDED. It is the TASK-LIFECYCLE field
+/// (`"completed"` on 85 of 90 occurrences) and is legitimately independent of
+/// the domain verdict: a `validate_*` task that crashed reached NO domain
+/// verdict, which is `Unverified`, not `Fail`. The 5 corpus files that do put a
+/// verdict under `status` are each redundantly covered — 4 by their numeric
+/// check counts or a sibling report, and the 1 `status: "failed"` by its own
+/// `verdict` string AND `checks_failed: 5`.
+const VERDICT_STRING_KEYS: [&str; 9] = [
     "validation_result",
     "overall",
     "overall_validation_status",
     "validation_status",
     "validation_outcome",
+    "overall_status",
+    "validation_overall",
+    "verdict",
+    "outcome",
+];
+
+/// Keys whose NUMERIC value counts a task's FAILED checks. Surveyed spellings,
+/// by descending on-disk frequency: `n_fail` (85), `checks_failed` (15),
+/// `n_failed` (13), `failed` (9), `n_checks_fail` (3), `n_checks_failed` (3),
+/// `n_required_fail` (4), `checks_fail` (2), `n_blocking_fail` (1),
+/// `failed_checks` (1, when written as a count rather than an array).
+/// (`failed_checks_count` was NOT found on disk and is not invented here.)
+///
+/// Deliberately EXCLUDED, because they are not failed REQUIRED checks:
+/// `n_advisory_fail` (advisory by name), `n_warn` / `n_warnings` /
+/// `checks_warn` / `warnings` / `warned` (warnings never block — the same
+/// policy [`DomainValidationSummary::reporting_warnings`] applies),
+/// `errors` / `n_errors` (a checker that ERRORED reached no verdict — the same
+/// policy [`ObligationClass::Unverified`] applies to `errored:`), and
+/// `n_skip` / `n_skipped` (a gated-out check is not a failed one).
+const FAILED_COUNT_KEYS: [&str; 10] = [
+    "n_fail",
+    "n_failed",
+    "checks_failed",
+    "checks_fail",
+    "n_checks_fail",
+    "n_checks_failed",
+    "failed",
+    "failed_checks",
+    "n_required_fail",
+    "n_blocking_fail",
+];
+
+/// Keys whose NUMERIC value counts a task's PASSED checks, surveyed the same
+/// way. Used ONLY to distinguish "zero failures because checks ran and all
+/// passed" from "zero failures because nothing ran" — a zero failure count on
+/// its own is not evidence of a pass.
+const PASSED_COUNT_KEYS: [&str; 8] = [
+    "n_pass",
+    "n_passed",
+    "checks_passed",
+    "checks_pass",
+    "n_checks_pass",
+    "n_checks_passed",
+    "passed",
+    "passed_checks",
 ];
 
 /// Keys carrying an array of named required-check failures on a failing
-/// self-report, in precedence order.
+/// self-report. Every one present is unioned (not just the first), so a report
+/// that leaves `required_failures` empty while naming its failures under
+/// `failed_checks` still reaches the attestation detail.
 const REQUIRED_FAILURE_KEYS: [&str; 3] = ["required_failures", "failed_checks", "failures"];
 
-/// Map a verdict STRING onto a pass/fail bool. Case-insensitive; `None` for a
-/// value that is not a recognized verdict token (so a key like `overall`
-/// carrying unrelated prose falls through to the next candidate key rather
-/// than fabricating a verdict).
-fn verdict_from_str(raw: &str) -> Option<bool> {
-    match raw.trim().to_ascii_lowercase().as_str() {
+/// Fields, in order, an OBJECT-shaped entry in a [`REQUIRED_FAILURE_KEYS`]
+/// array names itself with. Real validators write both shapes: a bare string
+/// (`["contract.assertion_a"]`) and an object — the observed object shape is
+/// `{id, category, description, passed, expected, observed}`. Without this, a
+/// failing report whose `failed_checks` holds objects yielded an EMPTY name
+/// list and the `Fail` axis reached the attestation with no explanation of
+/// what failed.
+const FAILURE_OBJECT_ID_KEYS: [&str; 5] = ["id", "check", "assertion", "name", "description"];
+
+/// Map ONE whitespace-delimited token onto a pass/fail bool. Case-insensitive
+/// and tolerant of edge punctuation (`PASS:` / `(FAIL)`), but never of interior
+/// punctuation — `n/a` must stay unrecognized, so `/` is not stripped.
+fn verdict_token(token: &str) -> Option<bool> {
+    match token
+        .trim_matches(|c: char| c.is_ascii_punctuation() && c != '/')
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "pass" | "passed" => Some(true),
         "fail" | "failed" | "error" | "errored" => Some(false),
         _ => None,
     }
 }
 
-/// Extract a `validate_*` task's self-reported domain-correctness verdict
-/// from its parsed `result.json`.
+/// Map a verdict STRING onto a pass/fail bool. `None` for a value that is not
+/// a recognized verdict (so a key like `overall` carrying unrelated prose
+/// yields no verdict rather than fabricating one).
+///
+/// Two accepted forms:
+///
+/// 1. the whole trimmed value is a bare verdict token (`"PASS"`, `"failed"`) —
+///    the original contract;
+/// 2. a SUMMARY string whose FIRST whitespace-delimited token is a verdict
+///    token: `"FAIL 130/135 checks (5 failed)"` → `Some(false)`,
+///    `"PASS 42/42 checks"` → `Some(true)`.
+///
+/// Form 2 exists because requiring the WHOLE string to be a bare token is the
+/// second half of the real defect this module had: `validate_reporting`
+/// recorded `verdict: "FAIL 130/135 checks (5 failed)"` and the gate resolved
+/// it to `None` — no verdict — even though it starts with FAIL.
+///
+/// Anchoring on the FIRST token is what keeps this from over-matching: a value
+/// that merely MENTIONS a verdict word later on (`"validation was
+/// inconclusive; 2 checks fail to apply"`) still yields `None`, and so do the
+/// real non-verdict values under these keys (`"n/a"`, `"ok"`). Compound
+/// verdicts that are not whitespace-delimited (the observed
+/// `"PASS-WITH-WARN"`) are deliberately NOT split further — hyphen-splitting
+/// would read `"error-free"` as a failure. Those are covered by the numeric
+/// path instead ([`numeric_check_verdict`]), which is exactly why the numeric
+/// path exists.
+fn verdict_from_str(raw: &str) -> Option<bool> {
+    let trimmed = raw.trim();
+    if let Some(v) = verdict_token(trimmed) {
+        return Some(v);
+    }
+    verdict_token(trimmed.split_whitespace().next()?)
+}
+
+/// Read a non-negative integer check count out of `v[key]`.
+///
+/// `serde_json` yields `None` from `as_u64()` for a `Bool`, so a boolean
+/// verdict spelling can never be mis-read as a count. Floats are accepted
+/// (some validators write `0.0`) and clamped at zero.
+fn json_count(v: &serde_json::Value, key: &str) -> Option<u64> {
+    let n = v.get(key)?;
+    n.as_u64()
+        .or_else(|| n.as_f64().map(|f| if f > 0.0 { f as u64 } else { 0 }))
+}
+
+/// The GREATEST count recorded under any of `keys`, or `None` when the document
+/// records none of them. Max (not first-present) so a document carrying two
+/// spellings of the failure count cannot hide a positive one behind a zero.
+fn max_count(v: &serde_json::Value, keys: &[&str]) -> Option<u64> {
+    keys.iter().filter_map(|k| json_count(v, *k)).max()
+}
+
+/// A task's verdict as derived from its NUMERIC check counts alone.
+///
+/// * a failure count > 0 → `Some(false)`;
+/// * a failure count == 0 alongside a positive PASSED count → `Some(true)`;
+/// * anything else (no counts, or zero failures with nothing recorded as
+///   having passed) → `None`, so the string/bool keys still get their say.
+///
+/// This is the spelling-proof floor under the verdict keys, and
+/// [`task_validation_verdict`] gives a positive failure count precedence over
+/// every string: a number cannot be phrased three ways. `checks_failed: 5` has
+/// exactly one reading, whereas the accompanying prose has been observed as
+/// `FAIL`, `fail`, `"FAIL 130/135 checks (5 failed)"`, `PASS-WITH-WARN`, and
+/// under nine different key names — every one of which is a chance for the
+/// gate to see nothing. A count also cannot be defeated by a NEW spelling
+/// nobody has surveyed yet, which is the failure mode that made this axis
+/// vacuous in the first place.
+///
+/// The asymmetry is deliberate: a positive failure count is authoritative over
+/// everything, but a ZERO failure count never overrides an explicit failing
+/// bool/string. Numeric evidence is used to STRENGTHEN the gate, never to
+/// weaken it.
+fn numeric_check_verdict(v: &serde_json::Value) -> Option<bool> {
+    match max_count(v, &FAILED_COUNT_KEYS)? {
+        0 => match max_count(v, &PASSED_COUNT_KEYS) {
+            Some(p) if p > 0 => Some(true),
+            _ => None,
+        },
+        _ => Some(false),
+    }
+}
+
+/// Extract a `validate_*` task's self-reported domain-correctness verdict from
+/// ONE parsed self-report document (see [`VALIDATE_SELF_REPORT_FILES`] for the
+/// files that carry one).
 ///
 /// Returns `Some(true)` / `Some(false)` for a recognized verdict and `None`
-/// when the document carries no recognized verdict key at all — the latter is
-/// a task that must be SKIPPED (most `validate_*` companions are pure
-/// artifact-presence checks and record no domain verdict), never a failure.
-/// A recognized key whose value is not a recognized verdict token is also
+/// when the document records no recognized verdict at all — the latter is a
+/// task that must be SKIPPED (most `validate_*` companions are pure
+/// artifact-presence checks and record no domain verdict), never a failure. A
+/// recognized key whose value is not a recognized verdict token is likewise
 /// skipped, so unrelated prose under a generic key (`"outcome": "ok"`) cannot
 /// fabricate a verdict.
+///
+/// FAIL-DOMINANT across the three evidence classes it reads (numeric check
+/// counts, boolean keys, string keys): any one of them recording a failure
+/// makes the document's verdict a failure. A report that contradicts itself
+/// (`validation_passed: true` beside `checks_failed: 5`) is a defective report,
+/// and the safe reading of a defective validator report at a deposit boundary
+/// is the failing one.
 pub fn task_validation_verdict(v: &serde_json::Value) -> Option<bool> {
+    let mut saw_pass = false;
+    // Numeric counts first — see `numeric_check_verdict` for why a positive
+    // failure count outranks any string.
+    match numeric_check_verdict(v) {
+        Some(false) => return Some(false),
+        Some(true) => saw_pass = true,
+        None => {}
+    }
     for key in VERDICT_BOOL_KEYS {
         if let Some(b) = v.get(key).and_then(|x| x.as_bool()) {
-            return Some(b);
+            if !b {
+                return Some(false);
+            }
+            saw_pass = true;
         }
     }
     for key in VERDICT_STRING_KEYS {
@@ -512,10 +762,74 @@ pub fn task_validation_verdict(v: &serde_json::Value) -> Option<bool> {
             .and_then(|x| x.as_str())
             .and_then(verdict_from_str)
         {
-            return Some(verdict);
+            if !verdict {
+                return Some(false);
+            }
+            saw_pass = true;
         }
     }
-    None
+    saw_pass.then_some(true)
+}
+
+/// Parse every self-report [`VALIDATE_SELF_REPORT_FILES`] file present in one
+/// `validate_*` task's output directory, in that fixed order. A missing or
+/// unparseable file is skipped individually — one malformed sibling must not
+/// hide a verdict the others recorded.
+fn validate_task_self_reports(task_dir: &Path) -> Vec<serde_json::Value> {
+    VALIDATE_SELF_REPORT_FILES
+        .iter()
+        .filter_map(|name| std::fs::read_to_string(task_dir.join(name)).ok())
+        .filter_map(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .collect()
+}
+
+/// Fold one task's self-report documents into a single verdict.
+///
+/// FAIL-DOMINANT: if the files DISAGREE, the failing one wins. The two are not
+/// symmetric pieces of evidence — a validator that recorded a failure anywhere
+/// found a real defect, whereas a sibling document reporting a pass only means
+/// that document did not record that defect (it may summarize a different
+/// check set, or predate the failing write). Letting a passing sibling cancel a
+/// recorded failure would reintroduce exactly the vacuity this scan exists to
+/// prevent. `None` only when NO document recorded a verdict.
+fn validate_task_verdict(reports: &[serde_json::Value]) -> Option<bool> {
+    let mut saw_pass = false;
+    for report in reports {
+        match task_validation_verdict(report) {
+            Some(false) => return Some(false),
+            Some(true) => saw_pass = true,
+            None => {}
+        }
+    }
+    saw_pass.then_some(true)
+}
+
+/// Union the named required-check failures across one task's self-report
+/// documents, sorted + de-duplicated (the two documents commonly carry the
+/// same list). Handles both observed element shapes: a bare string, and an
+/// object naming itself under one of [`FAILURE_OBJECT_ID_KEYS`].
+fn named_required_failures(reports: &[serde_json::Value]) -> Vec<String> {
+    let mut out: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for report in reports {
+        for key in REQUIRED_FAILURE_KEYS {
+            let Some(arr) = report.get(key).and_then(|x| x.as_array()) else {
+                continue;
+            };
+            for entry in arr {
+                if let Some(s) = entry.as_str() {
+                    out.insert(s.to_string());
+                    continue;
+                }
+                if let Some(label) = FAILURE_OBJECT_ID_KEYS
+                    .iter()
+                    .find_map(|k| entry.get(*k).and_then(|x| x.as_str()))
+                {
+                    out.insert(label.to_string());
+                }
+            }
+        }
+    }
+    out.into_iter().collect()
 }
 
 /// Read + de-duplicate the contract-obligation records in
@@ -648,18 +962,20 @@ pub fn scan_contract_obligations(package_root: &Path) -> Vec<String> {
     out
 }
 
-/// Scan every `validate_*` task's `runtime/outputs/<task_id>/result.json`
-/// under `package_root` for a self-reported domain-correctness verdict (via
-/// [`task_validation_verdict`], which accepts every spelling the agent-authored
-/// reports actually use), fold in the package's contract-obligation records
-/// (`runtime/validation-reports.jsonl`, via [`scan_contract_obligations`]) and
-/// the source-owned reporting-correctness checklist, and roll the whole lot
-/// into one [`DomainValidationSummary`] (RCA I-10).
+/// Scan every `validate_*` task's self-reports under
+/// `runtime/outputs/<task_id>/` — each of [`VALIDATE_SELF_REPORT_FILES`] — for
+/// a self-reported domain-correctness verdict (via [`task_validation_verdict`],
+/// which accepts every key spelling the agent-authored reports actually use,
+/// and folds them fail-dominantly per `validate_task_verdict`), fold in the
+/// package's contract-obligation records (`runtime/validation-reports.jsonl`,
+/// via [`scan_contract_obligations`]) and the source-owned
+/// reporting-correctness checklist, and roll the whole lot into one
+/// [`DomainValidationSummary`] (RCA I-10).
 ///
-/// A `result.json` that is missing, unparseable, or carries no recognized
-/// verdict key is silently skipped — not every `validate_*` companion emits a
-/// domain-correctness self-report (most are pure artifact-presence checks),
-/// and absence must never read as a failure. When NOTHING at all was
+/// A task whose self-report files are all missing, unparseable, or carry no
+/// recognized verdict is silently skipped — not every `validate_*` companion
+/// emits a domain-correctness self-report (most are pure artifact-presence
+/// checks), and absence must never read as a failure. When NOTHING at all was
 /// inspected, [`DomainValidationSummary::status`] reports `Unverified` rather
 /// than `Pass`.
 ///
@@ -677,29 +993,14 @@ pub fn scan_domain_validation(package_root: &Path) -> DomainValidationSummary {
             .collect();
         task_ids.sort();
         for task_id in task_ids {
-            let result_path = outputs_dir.join(&task_id).join("result.json");
-            let Ok(raw) = std::fs::read_to_string(&result_path) else {
-                continue;
-            };
-            let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else {
-                continue;
-            };
-            let Some(passed) = task_validation_verdict(&v) else {
+            let reports = validate_task_self_reports(&outputs_dir.join(&task_id));
+            let Some(passed) = validate_task_verdict(&reports) else {
                 continue;
             };
             summary.checked_tasks.push(task_id.clone());
             if !passed {
                 summary.failed_tasks.push(task_id.clone());
-                let named: Vec<String> = REQUIRED_FAILURE_KEYS
-                    .iter()
-                    .find_map(|k| v.get(*k).and_then(|x| x.as_array()))
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|f| f.as_str())
-                            .map(|s| s.to_string())
-                            .collect()
-                    })
-                    .unwrap_or_default();
+                let named = named_required_failures(&reports);
                 if named.is_empty() {
                     // A failing self-report that names no assertion still has
                     // to reach the attestation detail — otherwise the axis
@@ -782,7 +1083,9 @@ pub fn scan_domain_validation(package_root: &Path) -> DomainValidationSummary {
         }
     } else if !ri.checked.is_empty() {
         // Ran, nothing REQUIRED failed — record it as a passing check.
-        summary.checked_tasks.push("reporting_invariants".to_string());
+        summary
+            .checked_tasks
+            .push("reporting_invariants".to_string());
     }
     summary.reporting_warnings = ri.warnings();
 
@@ -877,7 +1180,8 @@ pub fn scan_provenance_divergence(package_root: &Path) -> ProvenanceDivergenceSu
                     .iter()
                     .find(|e| e.get("@id").and_then(|v| v.as_str()) == Some("./"))
                 {
-                    if let Some(arr) = root.get(RO_CRATE_DIVERGENCE_KEY).and_then(|v| v.as_array()) {
+                    if let Some(arr) = root.get(RO_CRATE_DIVERGENCE_KEY).and_then(|v| v.as_array())
+                    {
                         for d in arr {
                             // Newer crates reference each divergence by `@id` (a
                             // flattened `@graph` node — RO-Crate/runcrate rejects
@@ -898,8 +1202,10 @@ pub fn scan_provenance_divergence(package_root: &Path) -> ProvenanceDivergenceSu
                             };
                             let task_id =
                                 node.get("task_id").and_then(|v| v.as_str()).unwrap_or("?");
-                            let read_path =
-                                node.get("read_path").and_then(|v| v.as_str()).unwrap_or("?");
+                            let read_path = node
+                                .get("read_path")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("?");
                             found.push(format!("{task_id}: undeclared read {read_path}"));
                         }
                     }
@@ -962,6 +1268,104 @@ pub fn scan_substrate_validity(package_root: &Path) -> SubstrateValiditySummary 
     }
 }
 
+/// Package-relative path of the repair loop's terminal status record
+/// (`crate::repair_loop::status::RepairStatus::persist`).
+const REPAIR_STATUS_SIDECAR: &str = "repair-status.json";
+
+/// Serialized `crate::repair_loop::status::RepairVerdict` spellings
+/// (`#[serde(rename_all = "snake_case")]`). Matched as strings rather than
+/// deserialized into `RepairStatus` because the `review` array is unbounded
+/// (one real record carries 3814 entries) and a strict typed parse of every
+/// `Failure` in it would make an unrelated field drift in that payload silently
+/// erase the verdict this axis exists to read.
+const REPAIR_VERDICT_FAILING: &str = "failing";
+const REPAIR_VERDICT_PASSING: [&str; 2] = ["fully_passing", "mostly_passing"];
+
+/// The repair loop's own terminal verdict, read back from
+/// `runtime/repair-status.json` — see [`scan_repair_status`].
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RepairStatusSummary {
+    /// The recorded `verdict` string, `None` when no parseable record exists.
+    pub verdict: Option<String>,
+    /// How many unresolved failures the record routed to human review
+    /// (`review.len()`), for the attestation detail.
+    pub unresolved: usize,
+}
+
+impl RepairStatusSummary {
+    /// The attestation axis for this rollup.
+    ///
+    /// * `Fail` — a recorded `failing` verdict.
+    /// * `Pass` — a recorded `fully_passing` / `mostly_passing` verdict.
+    /// * `Unverified` — no repair status was written at all (the iterative
+    ///   repair loop is operator-triggered, and only 10 of 322 local packages
+    ///   carry the record), the record is unparseable, or it carries a verdict
+    ///   spelling this gate does not know. Nothing was inspected, so this is
+    ///   neither a pass nor a failure and does not block — the same policy the
+    ///   `domain_validation` axis applies.
+    pub fn status(&self) -> CheckStatus {
+        match self.verdict.as_deref() {
+            Some(v) if v.eq_ignore_ascii_case(REPAIR_VERDICT_FAILING) => CheckStatus::Fail,
+            Some(v)
+                if REPAIR_VERDICT_PASSING
+                    .iter()
+                    .any(|p| v.eq_ignore_ascii_case(p)) =>
+            {
+                CheckStatus::Pass
+            }
+            _ => CheckStatus::Unverified,
+        }
+    }
+}
+
+/// Read (never re-run) the repair loop's terminal verdict from
+/// `runtime/repair-status.json`.
+///
+/// This record was written by the package's own iterative repair loop and, until
+/// now, was read by the emitter's audit report, the readability pass, the repair
+/// loop itself and `export` — but by NOTHING at the deposit boundary. The
+/// `eda58089` deposit recorded `verdict: "failing"` with 3814 unresolved review
+/// items and still attested `deposit_ready: true`.
+///
+/// A recorded `failing` BLOCKS the deposit (see
+/// [`RepairStatusSummary::status`]). The justification is that `Failing` is not
+/// an advisory tick-box and is not the routine outcome: `RepairVerdict` is
+/// three-valued, and `from_final` only reaches `Failing` when the unresolved
+/// count EXCEEDS the loop's own configured `failing_threshold` — the loop's own
+/// statement that the package is out of tolerance. A survey of the local
+/// package corpus bears that out: of the 10 packages carrying a repair status,
+/// 9 recorded `mostly_passing` (4–20 unresolved items) and exactly 1 recorded
+/// `failing` (3814). So blocking on `failing` refuses the one package whose own
+/// repair loop disowned it while leaving every healthy package untouched — the
+/// discrimination a gate needs. `mostly_passing` is explicitly documented as "a
+/// tolerable number of unresolved failures remain" and is therefore surfaced
+/// (its unresolved count reaches the attestation detail) but never blocking.
+///
+/// Best-effort and non-fabricating, mirroring [`scan_substrate_validity`]: a
+/// missing file (the overwhelmingly common case — the repair loop is
+/// operator-triggered), an unparseable one, or one carrying no `verdict` all
+/// yield `Unverified`, which does not block.
+pub fn scan_repair_status(package_root: &Path) -> RepairStatusSummary {
+    let path = package_root.join("runtime").join(REPAIR_STATUS_SIDECAR);
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return RepairStatusSummary::default();
+    };
+    let Ok(doc) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return RepairStatusSummary::default();
+    };
+    RepairStatusSummary {
+        verdict: doc
+            .get("verdict")
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim().to_string()),
+        unresolved: doc
+            .get("review")
+            .and_then(|v| v.as_array())
+            .map(|a| a.len())
+            .unwrap_or(0),
+    }
+}
+
 /// The single field in which a portable deposit is permitted to carry the
 /// session/package identity (§G exemption, DR-8). `WORKFLOW.json`'s
 /// `workflow_id` is the canonical, content-stable package/workflow id (the
@@ -982,9 +1386,9 @@ const HOST_PATH_ROOTS: &[&str] = &["/home/", "/Users/", "/root/"];
 /// `determinism-env.json` that REFERENCES its absolute path is not).
 const PORTABILITY_SKIP_EXTS: &[&str] = &[
     "so", "a", "o", "dylib", "dll", "zip", "gz", "bz2", "xz", "zst", "tar", "tgz", "pdf", "png",
-    "jpg", "jpeg", "gif", "bmp", "ico", "parquet", "feather", "arrow", "h5", "hdf5", "h5ad", "loom",
-    "bam", "sam", "cram", "bai", "crai", "npz", "npy", "pyc", "pyo", "whl", "rds", "rdata", "rda",
-    "bin", "pkl", "pickle", "db", "sqlite", "woff", "woff2", "ttf", "eot", "mp4", "mov",
+    "jpg", "jpeg", "gif", "bmp", "ico", "parquet", "feather", "arrow", "h5", "hdf5", "h5ad",
+    "loom", "bam", "sam", "cram", "bai", "crai", "npz", "npy", "pyc", "pyo", "whl", "rds", "rdata",
+    "rda", "bin", "pkl", "pickle", "db", "sqlite", "woff", "woff2", "ttf", "eot", "mp4", "mov",
 ];
 
 /// Files larger than this are skipped by the portability scan (host-path
@@ -1075,8 +1479,24 @@ fn find_host_paths(content: &str) -> Vec<(usize, usize, String)> {
         b.is_ascii_whitespace()
             || matches!(
                 b,
-                b'"' | b'\'' | b'`' | b',' | b'(' | b')' | b'[' | b']' | b'{' | b'}' | b'<' | b'>'
-                    | b';' | b':' | b'\\' | b'|' | b'*' | b'?' | b'='
+                b'"' | b'\''
+                    | b'`'
+                    | b','
+                    | b'('
+                    | b')'
+                    | b'['
+                    | b']'
+                    | b'{'
+                    | b'}'
+                    | b'<'
+                    | b'>'
+                    | b';'
+                    | b':'
+                    | b'\\'
+                    | b'|'
+                    | b'*'
+                    | b'?'
+                    | b'='
             )
     }
     // Scan on BYTES (not `str` slices) so a `/home/…` reference embedded in an
@@ -1201,7 +1621,8 @@ pub fn scan_portability(package_root: &Path) -> PortabilitySummary {
         let Ok(rd) = std::fs::read_dir(&cur) else {
             continue;
         };
-        let mut entries: Vec<std::path::PathBuf> = rd.filter_map(|e| e.ok().map(|e| e.path())).collect();
+        let mut entries: Vec<std::path::PathBuf> =
+            rd.filter_map(|e| e.ok().map(|e| e.path())).collect();
         entries.sort();
         // Push in reverse so the sorted order is preserved on the LIFO stack.
         for path in entries.into_iter().rev() {
@@ -1251,9 +1672,9 @@ pub fn scan_portability(package_root: &Path) -> PortabilitySummary {
             // The `workflow-<uuid>` declared identity never matches (it carries
             // the simple, hyphen-free form), so it is exempt by construction.
             if let Some(sid) = sid {
-                let leaked_outside_path = content.match_indices(sid).any(|(idx, _)| {
-                    !spans.iter().any(|(s, e, _)| idx >= *s && idx < *e)
-                });
+                let leaked_outside_path = content
+                    .match_indices(sid)
+                    .any(|(idx, _)| !spans.iter().any(|(s, e, _)| idx >= *s && idx < *e));
                 if leaked_outside_path {
                     session_id_leaks.push(format!("{rel}: {sid}"));
                 }
@@ -1292,7 +1713,7 @@ impl Tier1Validation {
 }
 
 /// Layer 1: re-verify recorded verdicts against a fresh recomputation and check
-/// the BagIt manifest checksums over the freshly-sealed deposit.
+/// the flat-layout SHA-512 manifest checksums over the freshly sealed deposit.
 ///
 /// * `ro_crate` = `Pass` unless EITHER the re-verify saw a genuine divergence
 ///   (a recorded verdict that a fresh recomputation contradicts) while the
@@ -1301,8 +1722,8 @@ impl Tier1Validation {
 ///   `reader == writer`, so any divergence is real and fails the check — OR
 ///   the post-seal recheck (RCA I-2) finds an embedded content hash that
 ///   disagrees with the sealed payload.
-/// * `bagit` = `Pass` iff every file listed in `manifest-sha512.txt` is present
-///   and its SHA-512 matches.
+/// * `checksum_seal` = `Pass` iff every file listed in
+///   `manifest-sha512.txt` is present and its SHA-512 matches.
 pub fn validate_deposit_tier1(dst: &Path, reader_version: &str) -> Result<Tier1Validation> {
     let rv = reverify(dst, reader_version).context("re-verifying deposit for readiness")?;
 
@@ -1326,8 +1747,12 @@ pub fn validate_deposit_tier1(dst: &Path, reader_version: &str) -> Result<Tier1V
     };
 
     let bagit_ok = crate::emitter::bagit::verify_manifest(dst)
-        .context("verifying BagIt manifest for readiness")?;
-    let bagit = if bagit_ok { CheckStatus::Pass } else { CheckStatus::Fail };
+        .context("verifying SHA-512 checksum seal for readiness")?;
+    let bagit = if bagit_ok {
+        CheckStatus::Pass
+    } else {
+        CheckStatus::Fail
+    };
 
     let mut notes: Vec<String> = Vec::new();
     if recorded_verdict_diverged {
@@ -1344,7 +1769,7 @@ pub fn validate_deposit_tier1(dst: &Path, reader_version: &str) -> Result<Tier1V
         ));
     }
     if bagit == CheckStatus::Fail {
-        notes.push("BagIt manifest checksum mismatch or missing manifested file".to_string());
+        notes.push("SHA-512 checksum mismatch or missing manifested file".to_string());
     }
     let detail = (!notes.is_empty()).then(|| notes.join("; "));
 
@@ -1422,6 +1847,30 @@ pub fn write_deposit_readiness(
         )
     });
 
+    // The repair loop's own terminal verdict — READ from
+    // `runtime/repair-status.json`, never re-run. A recorded `failing` blocks:
+    // a package whose own repair loop concluded that too many failures remain
+    // unresolved is not deposit-ready by its own account. `mostly_passing` is
+    // surfaced with its unresolved count but never blocks. See
+    // `scan_repair_status`.
+    let repair = scan_repair_status(dst);
+    let repair_status = repair.status();
+    let repair_detail = repair.verdict.as_deref().and_then(|verdict| {
+        match repair_status {
+            CheckStatus::Fail => Some(format!(
+                "repair-loop verdict {verdict}: {} unresolved failure(s) remain",
+                repair.unresolved
+            )),
+            // Surfaced-but-non-blocking: an operator can see the residual
+            // review queue without the deposit being refused over it.
+            CheckStatus::Pass if repair.unresolved > 0 => Some(format!(
+                "repair-loop verdict {verdict} (non-blocking): {} unresolved failure(s) left for review",
+                repair.unresolved
+            )),
+            _ => None,
+        }
+    });
+
     // Contract obligations that reached NO verdict (`errored:` /
     // `unimplemented:`): named in the attestation so an operator can see WHICH
     // obligations went unchecked, but deliberately NOT folded into
@@ -1467,6 +1916,7 @@ pub fn write_deposit_readiness(
         unverified_obligations_detail,
         divergence_detail,
         substrate_detail,
+        repair_detail,
         reporting_warnings_detail,
         portability_detail,
         reexec_detail,
@@ -1479,6 +1929,10 @@ pub fn write_deposit_readiness(
     // `portability_warnings` is intentionally ABSENT from this fold: a residual
     // host path is advisory (a re-executable deposit may need it to replay),
     // so it must never flip `deposit_ready` false.
+    //
+    // `repair_status` uses `!= Fail`, not `== Pass`, so the common
+    // `Unverified` (no repair loop ever ran) stays non-blocking — the same
+    // shape the `domain_validation` axis uses.
     let deposit_ready = compute_deposit_ready(
         profile,
         tier1.ro_crate,
@@ -1486,7 +1940,8 @@ pub fn write_deposit_readiness(
         domain_validation,
         reexecution,
     ) && provenance_divergence == CheckStatus::Pass
-        && substrate_validity == CheckStatus::Pass;
+        && substrate_validity == CheckStatus::Pass
+        && repair_status != CheckStatus::Fail;
 
     let att = DepositReadiness {
         schema_version: "0.1".to_string(),
@@ -1497,6 +1952,7 @@ pub fn write_deposit_readiness(
         domain_validation,
         provenance_divergence,
         substrate_validity,
+        repair_status,
         portability_warnings,
         reexecution,
         detail,
@@ -1578,7 +2034,10 @@ pub fn update_deposit_readiness_reexecution(
         att.domain_validation,
         att.reexecution,
     ) && att.provenance_divergence == CheckStatus::Pass
-        && att.substrate_validity == CheckStatus::Pass;
+        && att.substrate_validity == CheckStatus::Pass
+        // Carried from the Layer-1 attestation rather than re-scanned: a
+        // Layer-2 re-execution cannot change what the repair loop concluded.
+        && att.repair_status != CheckStatus::Fail;
     att.verified_at = clock.now_rfc3339();
     let body = serde_json::to_vec_pretty(&att).context("serializing DEPOSIT-READINESS.json")?;
     let path = dst.join(DEPOSIT_READINESS_FILE);
@@ -1601,7 +2060,8 @@ pub fn read_deposit_readiness(pkg: &Path) -> Result<Option<DepositReadiness>> {
 /// Layer 3: the downstream deposit gate. Refuses a package that was not produced
 /// by a self-validating export (no attestation), or whose RO-Crate / BagIt
 /// self-validation failed, or whose re-execution FAILED, or whose recorded
-/// `substrate_validity` verdict is a concrete FAIL. A `NotVerified`
+/// `substrate_validity` verdict is a concrete FAIL, or whose recorded
+/// `repair_status` is a concrete FAIL. A `NotVerified`
 /// re-execution is a hard block (DR-1) when EITHER `strict` is set OR the
 /// attestation's `profile` claims re-executability (`re-executable`) — a
 /// deposit marketing replayability that was never re-executed must not pass;
@@ -1620,14 +2080,20 @@ pub fn check_deposit_readiness(pkg: &Path, strict: bool) -> Result<DepositReadin
         bail!(
             "deposit gate: RO-Crate self-validation did not pass ({:?}){}",
             dr.ro_crate,
-            dr.detail.as_deref().map(|d| format!(" — {d}")).unwrap_or_default()
+            dr.detail
+                .as_deref()
+                .map(|d| format!(" — {d}"))
+                .unwrap_or_default()
         );
     }
     if dr.bagit != CheckStatus::Pass {
         bail!(
-            "deposit gate: BagIt integrity did not pass ({:?}){}",
+            "deposit gate: checksum-seal integrity did not pass ({:?}){}",
             dr.bagit,
-            dr.detail.as_deref().map(|d| format!(" — {d}")).unwrap_or_default()
+            dr.detail
+                .as_deref()
+                .map(|d| format!(" — {d}"))
+                .unwrap_or_default()
         );
     }
     // `Unverified` (the axis inspected nothing) is surfaced in the
@@ -1639,7 +2105,10 @@ pub fn check_deposit_readiness(pkg: &Path, strict: bool) -> Result<DepositReadin
              a required validate_* check failed even though the run may be computationally \
              complete; remediate and re-export",
             dr.domain_validation,
-            dr.detail.as_deref().map(|d| format!(" — {d}")).unwrap_or_default()
+            dr.detail
+                .as_deref()
+                .map(|d| format!(" — {d}"))
+                .unwrap_or_default()
         );
     }
     // §G-B2 backstop: refuse a deposit that recorded a genuine observed-read
@@ -1653,7 +2122,10 @@ pub fn check_deposit_readiness(pkg: &Path, strict: bool) -> Result<DepositReadin
              provenance is unsound, so the deposit is refused. Reconcile the read/declared edge \
              (or record a sanctioned read-allowance) and re-export",
             dr.provenance_divergence,
-            dr.detail.as_deref().map(|d| format!(" — {d}")).unwrap_or_default()
+            dr.detail
+                .as_deref()
+                .map(|d| format!(" — {d}"))
+                .unwrap_or_default()
         );
     }
     // Substrate-validity axis (Invariant 6): refuse a deposit whose recorded
@@ -1666,7 +2138,27 @@ pub fn check_deposit_readiness(pkg: &Path, strict: bool) -> Result<DepositReadin
              the WRROC/runcrate substrate audit (Invariant 6) recorded a FAIL; remediate \
              and re-export (or re-run `ecaa-workflow reexec --reseal`)",
             dr.substrate_validity,
-            dr.detail.as_deref().map(|d| format!(" — {d}")).unwrap_or_default()
+            dr.detail
+                .as_deref()
+                .map(|d| format!(" — {d}"))
+                .unwrap_or_default()
+        );
+    }
+    // Repair-loop axis: refuse a deposit whose OWN repair loop recorded
+    // `RepairVerdict::Failing` — the loop's statement that the unresolved
+    // failure count exceeded its tolerance. `Unverified` (no repair loop ran,
+    // the common case) and `Pass` (`fully_passing`/`mostly_passing`) are not
+    // blocked here.
+    if dr.repair_status == CheckStatus::Fail {
+        bail!(
+            "deposit gate: the package's own repair loop recorded a FAILING verdict{} — \
+             `runtime/repair-status.json` reports more unresolved failures than its \
+             threshold tolerates, so the package is not deposit-ready by its own account; \
+             resolve the review queue (`ecaa-workflow repair`) and re-export",
+            dr.detail
+                .as_deref()
+                .map(|d| format!(" — {d}"))
+                .unwrap_or_default()
         );
     }
     match dr.reexecution {
@@ -1800,7 +2292,11 @@ fn export_dropped_paths(doc: &serde_json::Value) -> std::collections::BTreeSet<S
         .map(|entries| {
             entries
                 .iter()
-                .filter(|e| e.get("dropped_at_export").and_then(serde_json::Value::as_bool) == Some(true))
+                .filter(|e| {
+                    e.get("dropped_at_export")
+                        .and_then(serde_json::Value::as_bool)
+                        == Some(true)
+                })
                 .filter_map(|e| e.get("path").and_then(serde_json::Value::as_str))
                 .map(str::to_string)
                 .collect()
@@ -2280,7 +2776,12 @@ mod tests {
             &WallClock,
         )
         .unwrap();
-        assert!(read_deposit_readiness(tmp.path()).unwrap().unwrap().deposit_ready);
+        assert!(
+            read_deposit_readiness(tmp.path())
+                .unwrap()
+                .unwrap()
+                .deposit_ready
+        );
         assert!(check_deposit_readiness(tmp.path(), false).is_ok());
         assert!(check_deposit_readiness(tmp.path(), true).is_err());
 
@@ -2297,7 +2798,10 @@ mod tests {
         )
         .unwrap();
         assert!(
-            !read_deposit_readiness(tmp.path()).unwrap().unwrap().deposit_ready,
+            !read_deposit_readiness(tmp.path())
+                .unwrap()
+                .unwrap()
+                .deposit_ready,
             "re-executable + NotVerified must not read as deposit_ready"
         );
         let err = check_deposit_readiness(tmp.path(), false)
@@ -2337,9 +2841,18 @@ mod tests {
 
     #[test]
     fn reexec_status_maps_from_verdict() {
-        assert_eq!(reexec_status_from_verdict(&ReplayVerdict::Pass), ReexecStatus::Pass);
-        assert_eq!(reexec_status_from_verdict(&ReplayVerdict::Partial), ReexecStatus::Partial);
-        assert_eq!(reexec_status_from_verdict(&ReplayVerdict::Fail), ReexecStatus::Fail);
+        assert_eq!(
+            reexec_status_from_verdict(&ReplayVerdict::Pass),
+            ReexecStatus::Pass
+        );
+        assert_eq!(
+            reexec_status_from_verdict(&ReplayVerdict::Partial),
+            ReexecStatus::Partial
+        );
+        assert_eq!(
+            reexec_status_from_verdict(&ReplayVerdict::Fail),
+            ReexecStatus::Fail
+        );
     }
 
     #[test]
@@ -2403,7 +2916,10 @@ mod tests {
             summary.checked_tasks,
             vec!["validate_differential_expression", "validate_qc"]
         );
-        assert_eq!(summary.failed_tasks, vec!["validate_differential_expression"]);
+        assert_eq!(
+            summary.failed_tasks,
+            vec!["validate_differential_expression"]
+        );
         assert_eq!(
             summary.required_failures,
             vec!["validate_differential_expression: differential_expression.response_matches_stated_outcome"]
@@ -2512,6 +3028,617 @@ mod tests {
         );
         assert!(summary.failed_tasks.is_empty());
         assert_eq!(summary.status(), CheckStatus::Pass);
+    }
+
+    /// Write one named self-report file into a `validate_*` task's output dir.
+    fn write_validate_file(root: &Path, task_id: &str, file: &str, body: serde_json::Value) {
+        let dir = root.join("runtime/outputs").join(task_id);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join(file), body.to_string()).unwrap();
+    }
+
+    fn write_repair_status(root: &Path, verdict: &str, unresolved: usize) {
+        let dir = root.join("runtime");
+        fs::create_dir_all(&dir).unwrap();
+        let review: Vec<serde_json::Value> = (0..unresolved)
+            .map(|i| serde_json::json!({"failure": {"id": format!("f{i}")}, "why": "unresolved"}))
+            .collect();
+        fs::write(
+            dir.join("repair-status.json"),
+            serde_json::json!({"verdict": verdict, "rounds": 1, "review": review}).to_string(),
+        )
+        .unwrap();
+    }
+
+    /// (a) The exact defect: `validate_reporting` recorded its verdict under the
+    /// key `verdict` as a SUMMARY string. The old gate missed it twice — the key
+    /// was unrecognized, and the value was not a bare token — so a deposit
+    /// carrying a validator that self-reported FAIL attested
+    /// `domain_validation: pass`.
+    ///
+    /// Byte-identical to the `eda58089` deposit's real `result.json` fields.
+    #[test]
+    fn summary_verdict_string_under_verdict_key_is_a_failure() {
+        assert_eq!(
+            verdict_from_str("FAIL 130/135 checks (5 failed)"),
+            Some(false),
+            "a summary string whose first token is FAIL is a failing verdict"
+        );
+        assert_eq!(
+            verdict_from_str("PASS 42/42 checks"),
+            Some(true),
+            "…and the passing mirror must not be dragged along with it"
+        );
+
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write_validate_result(
+            root,
+            "validate_reporting",
+            serde_json::json!({
+                "task_id": "validate_reporting",
+                // The TASK LIFECYCLE state — legitimately independent of the
+                // domain verdict, and deliberately not read as one.
+                "status": "completed",
+                "verdict": "FAIL 130/135 checks (5 failed)",
+                "checks_total": 135,
+                "checks_passed": 130,
+                "checks_failed": 5,
+                "failed_checks": [
+                    {"id": "depleted_table.row07.found", "category": "pathway_depleted_table",
+                     "description": "Depleted pathway 7 found in pathway_results.tsv",
+                     "passed": false},
+                    {"id": "depleted_table.row09.nes", "category": "pathway_depleted_table",
+                     "description": "Depleted pathway 9 NES matches pathway_results.tsv",
+                     "passed": false},
+                ],
+            }),
+        );
+
+        let summary = scan_domain_validation(root);
+        assert_eq!(
+            summary.failed_tasks,
+            vec!["validate_reporting"],
+            "{summary:?}"
+        );
+        assert_eq!(summary.status(), CheckStatus::Fail, "{summary:?}");
+        // The named failures must reach the detail even though the array holds
+        // OBJECTS, not strings — otherwise the Fail axis is unexplained.
+        assert_eq!(
+            summary.required_failures,
+            vec![
+                "validate_reporting: depleted_table.row07.found",
+                "validate_reporting: depleted_table.row09.nes",
+            ],
+            "{summary:?}"
+        );
+    }
+
+    /// (b) `validation_overall` is the DOMINANT on-disk spelling (6 of the 8
+    /// `validate_*` tasks on the reference deposit, 11 across the corpus) and
+    /// was absent from the recognized key list, so the whole axis read as
+    /// vacuous on a package whose validators had all in fact reported.
+    #[test]
+    fn validation_overall_spelling_is_recognized() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write_validate_result(
+            root,
+            "validate_normalisation",
+            serde_json::json!({"validation_overall": "PASS", "n_checks": 79}),
+        );
+        // The other surveyed tail spellings, same treatment.
+        write_validate_result(
+            root,
+            "validate_pathway_enrichment",
+            serde_json::json!({"overall_status": "PASS"}),
+        );
+        write_validate_result(
+            root,
+            "validate_reporting",
+            serde_json::json!({"outcome": "PASS"}),
+        );
+
+        let summary = scan_domain_validation(root);
+        assert_eq!(
+            summary.checked_tasks,
+            vec![
+                "validate_normalisation",
+                "validate_pathway_enrichment",
+                "validate_reporting"
+            ],
+            "every surveyed spelling must count as an inspected check: {summary:?}"
+        );
+        assert_eq!(summary.status(), CheckStatus::Pass, "{summary:?}");
+    }
+
+    /// (c) The spelling-proof path: a positive failure COUNT is a failing
+    /// verdict on its own, with no recognizable verdict string anywhere in the
+    /// document. Covers the two real corpus reports whose `validate_reporting`
+    /// `result.json` carries `n_fail: 2` / `n_checks_fail: 1` and NO verdict
+    /// string at all — both invisible to the old gate.
+    #[test]
+    fn positive_failure_count_alone_is_a_failure() {
+        for key in ["checks_failed", "n_fail", "n_checks_fail", "n_failed"] {
+            let tmp = tempfile::tempdir().unwrap();
+            let root = tmp.path();
+            let mut body = serde_json::Map::new();
+            body.insert(
+                "task_id".to_string(),
+                serde_json::json!("validate_reporting"),
+            );
+            // The task LIFECYCLE state, which must not be read as a verdict.
+            body.insert("status".to_string(), serde_json::json!("completed"));
+            body.insert(key.to_string(), serde_json::json!(5));
+            write_validate_result(root, "validate_reporting", serde_json::Value::Object(body));
+            let summary = scan_domain_validation(root);
+            assert_eq!(
+                summary.failed_tasks,
+                vec!["validate_reporting"],
+                "a positive `{key}` must fail the axis with no verdict string: {summary:?}"
+            );
+            assert_eq!(summary.status(), CheckStatus::Fail);
+        }
+    }
+
+    /// (d) The mirror: zero failures alongside a positive PASSED count is a
+    /// pass. Zero failures ALONE is not — a document that recorded nothing as
+    /// having run is no evidence of a clean bill of health, so it stays
+    /// `Unverified`.
+    #[test]
+    fn zero_failures_with_passes_is_a_pass_but_zero_alone_is_not() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_validate_result(
+            tmp.path(),
+            "validate_normalisation",
+            serde_json::json!({"checks_failed": 0, "checks_passed": 79}),
+        );
+        let summary = scan_domain_validation(tmp.path());
+        assert_eq!(summary.checked_tasks, vec!["validate_normalisation"]);
+        assert_eq!(summary.status(), CheckStatus::Pass, "{summary:?}");
+
+        // Zero failures and nothing recorded as passing: no verdict.
+        let bare = tempfile::tempdir().unwrap();
+        write_validate_result(
+            bare.path(),
+            "validate_normalisation",
+            serde_json::json!({"checks_failed": 0}),
+        );
+        let bare_summary = scan_domain_validation(bare.path());
+        assert!(
+            bare_summary.checked_tasks.is_empty(),
+            "a zero failure count with no passes recorded is not evidence of a pass: \
+             {bare_summary:?}"
+        );
+        assert_eq!(bare_summary.status(), CheckStatus::Unverified);
+
+        // …and it must NOT be allowed to cancel an explicit failing bool.
+        let contra = tempfile::tempdir().unwrap();
+        write_validate_result(
+            contra.path(),
+            "validate_normalisation",
+            serde_json::json!({"validation_passed": false, "checks_failed": 0, "checks_passed": 9}),
+        );
+        assert_eq!(
+            scan_domain_validation(contra.path()).status(),
+            CheckStatus::Fail,
+            "numeric evidence may only strengthen the gate, never weaken it"
+        );
+    }
+
+    /// A positive failure count OUTRANKS a contradicting passing string/bool: a
+    /// report that contradicts itself is defective, and the safe reading of a
+    /// defective validator report at a deposit boundary is the failing one.
+    #[test]
+    fn numeric_failure_count_outranks_a_passing_string() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_validate_result(
+            tmp.path(),
+            "validate_reporting",
+            serde_json::json!({
+                "validation_overall": "PASS",
+                "validation_passed": true,
+                "checks_failed": 5,
+                "checks_passed": 130,
+            }),
+        );
+        let summary = scan_domain_validation(tmp.path());
+        assert_eq!(
+            summary.failed_tasks,
+            vec!["validate_reporting"],
+            "{summary:?}"
+        );
+        assert_eq!(summary.status(), CheckStatus::Fail);
+    }
+
+    /// (e) A verdict written ONLY into `validation_results.json` (PLURAL — a
+    /// different file from `validation_report.json`) must still be seen: that
+    /// filename was in none of the sources this module read. Same for the
+    /// singular `validation_report.json`, which 12 corpus tasks used as the
+    /// ONLY place they recorded a verdict.
+    #[test]
+    fn verdict_in_a_sibling_report_file_only_is_still_seen() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        // `result.json` records the lifecycle state and nothing else.
+        write_validate_file(
+            root,
+            "validate_reporting",
+            "result.json",
+            serde_json::json!({"task_id": "validate_reporting", "status": "completed"}),
+        );
+        write_validate_file(
+            root,
+            "validate_reporting",
+            "validation_results.json",
+            serde_json::json!({
+                "validator": "validate_reporting",
+                "verdict": "FAIL 130/135 checks (5 failed)",
+                "checks_failed": 5,
+            }),
+        );
+        // A second task that reports only in the SINGULAR filename.
+        write_validate_file(
+            root,
+            "validate_data_acquisition",
+            "validation_report.json",
+            serde_json::json!({"overall": "PASS", "n_pass": 34, "n_fail": 0}),
+        );
+
+        let summary = scan_domain_validation(root);
+        assert_eq!(
+            summary.checked_tasks,
+            vec!["validate_data_acquisition", "validate_reporting"],
+            "a verdict in any self-report file must be read: {summary:?}"
+        );
+        assert_eq!(
+            summary.failed_tasks,
+            vec!["validate_reporting"],
+            "{summary:?}"
+        );
+    }
+
+    /// (f) When a task's own files DISAGREE, the FAILING one wins.
+    #[test]
+    fn disagreeing_self_reports_resolve_to_the_failure() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write_validate_file(
+            root,
+            "validate_reporting",
+            "result.json",
+            serde_json::json!({"validation_overall": "PASS", "n_checks": 135}),
+        );
+        write_validate_file(
+            root,
+            "validate_reporting",
+            "validation_results.json",
+            serde_json::json!({
+                "verdict": "FAIL 130/135 checks (5 failed)",
+                "failed_checks": [{"id": "depleted_table.row07.found"}],
+            }),
+        );
+
+        let summary = scan_domain_validation(root);
+        assert_eq!(
+            summary.failed_tasks,
+            vec!["validate_reporting"],
+            "{summary:?}"
+        );
+        assert_eq!(summary.status(), CheckStatus::Fail);
+        assert_eq!(
+            summary.required_failures,
+            vec!["validate_reporting: depleted_table.row07.found"],
+            "the failing sibling's named failures must reach the detail: {summary:?}"
+        );
+
+        // Symmetric: order of the files must not matter.
+        let flipped = tempfile::tempdir().unwrap();
+        write_validate_file(
+            flipped.path(),
+            "validate_reporting",
+            "result.json",
+            serde_json::json!({"verdict": "FAIL 1/2 checks (1 failed)"}),
+        );
+        write_validate_file(
+            flipped.path(),
+            "validate_reporting",
+            "validation_results.json",
+            serde_json::json!({"verdict": "PASS 2/2 checks"}),
+        );
+        assert_eq!(
+            scan_domain_validation(flipped.path()).status(),
+            CheckStatus::Fail,
+            "fail-dominance must be order-independent"
+        );
+    }
+
+    /// (g) Widening must not become over-matching: unrelated prose under a
+    /// recognized-but-generic key still yields NO verdict, so it can neither
+    /// fabricate a failure nor fabricate a pass.
+    #[test]
+    fn unrelated_prose_under_a_generic_key_yields_no_verdict() {
+        for value in [
+            "n/a",
+            "ok",
+            "unknown",
+            "not applicable",
+            "validation was inconclusive; 2 checks fail to apply",
+            "error-free",
+            "no failures observed",
+            "",
+        ] {
+            assert_eq!(
+                verdict_from_str(value),
+                None,
+                "{value:?} must not resolve to a verdict"
+            );
+        }
+
+        let tmp = tempfile::tempdir().unwrap();
+        write_validate_result(
+            tmp.path(),
+            "validate_normalisation",
+            serde_json::json!({"overall": "n/a", "outcome": "ok", "verdict": "error-free"}),
+        );
+        let summary = scan_domain_validation(tmp.path());
+        assert!(
+            summary.checked_tasks.is_empty(),
+            "prose must not fabricate an inspected check: {summary:?}"
+        );
+        assert_eq!(summary.status(), CheckStatus::Unverified);
+    }
+
+    /// A compound verdict that is not whitespace-delimited (the observed
+    /// `PASS-WITH-WARN`) is deliberately NOT split on the hyphen — that would
+    /// read `error-free` as a failure. It resolves through the NUMERIC path
+    /// instead, which is precisely why the numeric path exists.
+    #[test]
+    fn hyphenated_compound_verdict_resolves_through_the_numeric_path() {
+        assert_eq!(
+            verdict_from_str("PASS-WITH-WARN"),
+            None,
+            "hyphen-splitting is not safe, so the string path abstains"
+        );
+        let tmp = tempfile::tempdir().unwrap();
+        write_validate_result(
+            tmp.path(),
+            "validate_review_prior_work",
+            // The real corpus shape for this verdict.
+            serde_json::json!({
+                "verdict": "PASS-WITH-WARN",
+                "checks_total": 19,
+                "checks_pass": 18,
+                "checks_warn": 1,
+                "checks_fail": 0,
+            }),
+        );
+        let summary = scan_domain_validation(tmp.path());
+        assert_eq!(
+            summary.checked_tasks,
+            vec!["validate_review_prior_work"],
+            "the numeric counts must rescue an unparseable verdict string: {summary:?}"
+        );
+        assert_eq!(summary.status(), CheckStatus::Pass, "{summary:?}");
+    }
+
+    /// (h) The repair loop's own terminal verdict reaches the deposit boundary.
+    /// `failing` BLOCKS: a package whose own repair loop concluded that more
+    /// failures remain unresolved than its threshold tolerates is not
+    /// deposit-ready by its own account. Reproduces the `eda58089` deposit,
+    /// which recorded `verdict: "failing"` with 3814 unresolved review items
+    /// and still attested `deposit_ready: true`.
+    #[test]
+    fn failing_repair_verdict_blocks_the_deposit() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write_repair_status(root, "failing", 7);
+        let repair = scan_repair_status(root);
+        assert_eq!(repair.verdict.as_deref(), Some("failing"));
+        assert_eq!(repair.unresolved, 7);
+        assert_eq!(repair.status(), CheckStatus::Fail);
+
+        write_deposit_readiness(
+            root,
+            "full",
+            &tier1(CheckStatus::Pass, CheckStatus::Pass, None),
+            ReexecStatus::Partial,
+            None,
+            None,
+            &WallClock,
+        )
+        .unwrap();
+        let dr = read_deposit_readiness(root).unwrap().unwrap();
+        assert_eq!(dr.repair_status, CheckStatus::Fail, "{dr:?}");
+        assert!(
+            !dr.deposit_ready,
+            "a failing repair verdict must block deposit-readiness: {dr:?}"
+        );
+        assert!(
+            dr.detail
+                .as_deref()
+                .unwrap_or_default()
+                .contains("7 unresolved"),
+            "the unresolved count must be surfaced: {dr:?}"
+        );
+        let err = check_deposit_readiness(root, false)
+            .expect_err("the Layer-3 gate must refuse a failing repair verdict");
+        assert!(
+            format!("{err:#}").contains("repair loop"),
+            "gate error must name the repair loop: {err:#}"
+        );
+    }
+
+    /// `mostly_passing` is documented as "a tolerable number of unresolved
+    /// failures remain" and is the routine outcome (9 of the 10 local packages
+    /// carrying a repair status). It is SURFACED with its unresolved count but
+    /// must never block. An absent record — the overwhelmingly common case,
+    /// since the repair loop is operator-triggered — is `Unverified`, likewise
+    /// non-blocking.
+    #[test]
+    fn mostly_passing_and_absent_repair_status_do_not_block() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write_repair_status(root, "mostly_passing", 4);
+        assert_eq!(scan_repair_status(root).status(), CheckStatus::Pass);
+        write_deposit_readiness(
+            root,
+            "full",
+            &tier1(CheckStatus::Pass, CheckStatus::Pass, None),
+            ReexecStatus::Partial,
+            None,
+            None,
+            &WallClock,
+        )
+        .unwrap();
+        let dr = read_deposit_readiness(root).unwrap().unwrap();
+        assert_eq!(dr.repair_status, CheckStatus::Pass, "{dr:?}");
+        assert!(dr.deposit_ready, "mostly_passing must not block: {dr:?}");
+        assert!(
+            dr.detail
+                .as_deref()
+                .unwrap_or_default()
+                .contains("4 unresolved failure(s) left for review"),
+            "a tolerated review queue must still be visible: {dr:?}"
+        );
+        assert!(check_deposit_readiness(root, false).is_ok());
+
+        // No repair status at all → Unverified, non-blocking, no detail noise.
+        let none = tempfile::tempdir().unwrap();
+        assert_eq!(
+            scan_repair_status(none.path()).status(),
+            CheckStatus::Unverified
+        );
+        write_deposit_readiness(
+            none.path(),
+            "full",
+            &tier1(CheckStatus::Pass, CheckStatus::Pass, None),
+            ReexecStatus::Partial,
+            None,
+            None,
+            &WallClock,
+        )
+        .unwrap();
+        let dr_none = read_deposit_readiness(none.path()).unwrap().unwrap();
+        assert_eq!(
+            dr_none.repair_status,
+            CheckStatus::Unverified,
+            "{dr_none:?}"
+        );
+        assert!(dr_none.deposit_ready, "{dr_none:?}");
+        assert!(check_deposit_readiness(none.path(), false).is_ok());
+    }
+
+    /// End-to-end over the reference deposit's real shape: 8 `validate_*` tasks
+    /// of which 7 self-reported PASS under `validation_overall` / `verdict` and
+    /// one (`validate_reporting`) self-reported
+    /// `verdict: "FAIL 130/135 checks (5 failed)"`. The old gate recognized a
+    /// verdict on ZERO of the eight and attested `domain_validation: pass` with
+    /// `deposit_ready: true`. It must now read all eight and refuse the deposit.
+    #[test]
+    fn reference_deposit_shape_flips_to_not_deposit_ready() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        for (task, checks) in [
+            ("validate_contextualize_findings_with_literature", 11),
+            ("validate_data_acquisition", 34),
+            ("validate_differential_expression", 40),
+            ("validate_final_reporting", 81),
+            ("validate_normalisation", 79),
+            ("validate_pathway_enrichment", 83),
+        ] {
+            write_validate_result(
+                root,
+                task,
+                serde_json::json!({
+                    "task_id": task,
+                    "status": "completed",
+                    "validation_overall": "PASS",
+                    "n_checks": checks,
+                    "n_passed": checks,
+                    "n_failed": 0,
+                }),
+            );
+        }
+        write_validate_result(
+            root,
+            "validate_review_prior_work",
+            serde_json::json!({
+                "task_id": "validate_review_prior_work",
+                "status": "completed",
+                "verdict": "PASS 42/42 checks",
+                "checks_total": 42,
+                "checks_passed": 42,
+                "checks_failed": 0,
+            }),
+        );
+        write_validate_file(
+            root,
+            "validate_reporting",
+            "result.json",
+            serde_json::json!({
+                "task_id": "validate_reporting",
+                "status": "completed",
+                "verdict": "FAIL 130/135 checks (5 failed)",
+                "checks_total": 135,
+                "checks_passed": 130,
+                "checks_failed": 5,
+                "failed_checks": [{"id": "depleted_table.row07.found"}],
+            }),
+        );
+        write_validate_file(
+            root,
+            "validate_reporting",
+            "validation_results.json",
+            serde_json::json!({
+                "task_id": "validate_reporting",
+                // The validator's own summary state, distinct from the task
+                // lifecycle `completed` in result.json.
+                "status": "failed",
+                "verdict": "FAIL 130/135 checks (5 failed)",
+                "checks_failed": 5,
+                "checks_passed": 130,
+            }),
+        );
+        write_repair_status(root, "failing", 3814);
+
+        let summary = scan_domain_validation(root);
+        let inspected: Vec<&String> = summary
+            .checked_tasks
+            .iter()
+            .filter(|t| t.starts_with("validate_"))
+            .collect();
+        assert_eq!(
+            inspected.len(),
+            8,
+            "all eight validate_* tasks must be recognized as inspected \
+             (the old gate recognized ZERO): {summary:?}"
+        );
+        assert_eq!(
+            summary.failed_tasks,
+            vec!["validate_reporting"],
+            "{summary:?}"
+        );
+        assert_eq!(summary.status(), CheckStatus::Fail);
+
+        write_deposit_readiness(
+            root,
+            "re-executable",
+            &tier1(CheckStatus::Pass, CheckStatus::Pass, None),
+            ReexecStatus::Partial,
+            None,
+            None,
+            &WallClock,
+        )
+        .unwrap();
+        let dr = read_deposit_readiness(root).unwrap().unwrap();
+        assert_eq!(dr.domain_validation, CheckStatus::Fail, "{dr:?}");
+        assert_eq!(dr.repair_status, CheckStatus::Fail, "{dr:?}");
+        assert!(
+            !dr.deposit_ready,
+            "the reference deposit shape must NOT read deposit-ready: {dr:?}"
+        );
+        assert!(check_deposit_readiness(root, false).is_err());
     }
 
     fn write_validation_reports(root: &Path, lines: &[serde_json::Value]) {
@@ -2969,7 +4096,11 @@ mod tests {
                 }
             }
         });
-        fs::write(root.join("WORKFLOW.json"), serde_json::to_vec_pretty(&wf).unwrap()).unwrap();
+        fs::write(
+            root.join("WORKFLOW.json"),
+            serde_json::to_vec_pretty(&wf).unwrap(),
+        )
+        .unwrap();
     }
 
     /// Plant an ro-crate-metadata.json with a non-empty
@@ -3007,14 +4138,20 @@ mod tests {
         let wf = tempfile::tempdir().unwrap();
         write_workflow_divergence_block(wf.path(), "differential_expression");
         let s = scan_provenance_divergence(wf.path());
-        assert!(!s.is_clean(), "a Blocked{{ProvenanceDivergence}} task is a divergence");
+        assert!(
+            !s.is_clean(),
+            "a Blocked{{ProvenanceDivergence}} task is a divergence"
+        );
         assert_eq!(s.divergences.len(), 1);
 
         // RO-Crate array source.
         let rc = tempfile::tempdir().unwrap();
         write_ro_crate_divergence(rc.path());
         let s = scan_provenance_divergence(rc.path());
-        assert!(!s.is_clean(), "a non-empty ecaax:provenanceDivergence is a divergence");
+        assert!(
+            !s.is_clean(),
+            "a non-empty ecaax:provenanceDivergence is a divergence"
+        );
         assert!(s.divergences[0].contains("data_acquisition/counts.tsv"));
 
         // A Blocked task for ANOTHER reason must NOT count.
@@ -3049,7 +4186,10 @@ mod tests {
         assert_eq!(dr.ro_crate, CheckStatus::Pass, "structurally sound");
         assert_eq!(dr.bagit, CheckStatus::Pass, "structurally sound");
         assert_eq!(dr.provenance_divergence, CheckStatus::Fail);
-        assert!(!dr.deposit_ready, "a recorded divergence must block deposit-readiness");
+        assert!(
+            !dr.deposit_ready,
+            "a recorded divergence must block deposit-readiness"
+        );
         assert!(dr.detail.as_deref().unwrap().contains("divergence"));
         let err = check_deposit_readiness(wf.path(), false)
             .expect_err("Layer-3 gate must refuse a recorded divergence even non-strict");
@@ -3187,7 +4327,10 @@ mod tests {
         .unwrap();
         let dr = read_deposit_readiness(tmp.path()).unwrap().unwrap();
         assert_eq!(dr.substrate_validity, CheckStatus::Fail);
-        assert!(!dr.deposit_ready, "a recorded substrate FAIL must block deposit-readiness");
+        assert!(
+            !dr.deposit_ready,
+            "a recorded substrate FAIL must block deposit-readiness"
+        );
         assert!(dr.detail.as_deref().unwrap().contains("substrate"));
         let err = check_deposit_readiness(tmp.path(), false)
             .expect_err("Layer-3 gate must refuse a recorded substrate FAIL even non-strict");
@@ -3264,7 +4407,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            read_deposit_readiness(tmp.path()).unwrap().unwrap().substrate_validity,
+            read_deposit_readiness(tmp.path())
+                .unwrap()
+                .unwrap()
+                .substrate_validity,
             CheckStatus::Pass
         );
 
@@ -3307,7 +4453,11 @@ mod tests {
 
     fn write_workflow_id(root: &Path) {
         let wf = serde_json::json!({ "workflow_id": FIX_WORKFLOW_ID, "tasks": {} });
-        fs::write(root.join("WORKFLOW.json"), serde_json::to_vec_pretty(&wf).unwrap()).unwrap();
+        fs::write(
+            root.join("WORKFLOW.json"),
+            serde_json::to_vec_pretty(&wf).unwrap(),
+        )
+        .unwrap();
     }
 
     /// The scan flags a residual absolute host path and the raw session id,
@@ -3341,17 +4491,24 @@ mod tests {
         .unwrap();
 
         let s = scan_portability(root);
-        assert!(!s.is_clean(), "residual host path + session id are non-portable");
+        assert!(
+            !s.is_clean(),
+            "residual host path + session id are non-portable"
+        );
 
         // Host paths surfaced for inputs.json and only-in-path.json.
         assert!(
-            s.host_paths.iter().any(|h| h.starts_with("runtime/inputs.json:")
-                && h.contains("/home/a/.ecaa-workflow/himes-inputs")),
+            s.host_paths
+                .iter()
+                .any(|h| h.starts_with("runtime/inputs.json:")
+                    && h.contains("/home/a/.ecaa-workflow/himes-inputs")),
             "expected the external SME data root as a host path; got {:?}",
             s.host_paths
         );
         assert!(
-            s.host_paths.iter().any(|h| h.starts_with("runtime/only-in-path.json:")),
+            s.host_paths
+                .iter()
+                .any(|h| h.starts_with("runtime/only-in-path.json:")),
             "expected the packages dir path as a host path; got {:?}",
             s.host_paths
         );
@@ -3375,7 +4532,9 @@ mod tests {
         // ... and NEVER for the declared identity field (WORKFLOW.json uses the
         // hyphen-free workflow-<32hex> form, so the raw UUID never matches).
         assert!(
-            !s.session_id_leaks.iter().any(|l| l.starts_with("WORKFLOW.json:")),
+            !s.session_id_leaks
+                .iter()
+                .any(|l| l.starts_with("WORKFLOW.json:")),
             "the declared workflow_id identity must be exempt; got {:?}",
             s.session_id_leaks
         );
@@ -3439,7 +4598,11 @@ mod tests {
             r#"{"order":["data_acquisition","differential_expression"]}"#,
         )
         .unwrap();
-        fs::write(root.join("CONTEXT.md"), "# Context\nRelative path: runtime/outputs/x\n").unwrap();
+        fs::write(
+            root.join("CONTEXT.md"),
+            "# Context\nRelative path: runtime/outputs/x\n",
+        )
+        .unwrap();
         let s = scan_portability(root);
         assert!(s.is_clean(), "no residuals expected; got {s:?}");
         assert!(s.warnings().is_empty());
@@ -3453,10 +4616,17 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
         let wf = serde_json::json!({ "workflow_id": "bulk-rnaseq-demo", "tasks": {} });
-        fs::write(root.join("WORKFLOW.json"), serde_json::to_vec_pretty(&wf).unwrap()).unwrap();
+        fs::write(
+            root.join("WORKFLOW.json"),
+            serde_json::to_vec_pretty(&wf).unwrap(),
+        )
+        .unwrap();
         fs::write(root.join("CONTEXT.md"), "root: /home/a/data\n").unwrap();
         let s = scan_portability(root);
-        assert!(s.session_id_leaks.is_empty(), "no derivable session id → no session axis");
+        assert!(
+            s.session_id_leaks.is_empty(),
+            "no derivable session id → no session axis"
+        );
         assert!(
             s.host_paths.iter().any(|h| h.contains("/home/a/data")),
             "host-path axis still applies; got {:?}",
@@ -3497,7 +4667,9 @@ mod tests {
             "residual host path must be surfaced as a portability warning"
         );
         assert!(
-            dr.portability_warnings.iter().any(|w| w.contains("/home/a/.ecaa-workflow/himes-inputs")),
+            dr.portability_warnings
+                .iter()
+                .any(|w| w.contains("/home/a/.ecaa-workflow/himes-inputs")),
             "the residual host path should appear in the warnings; got {:?}",
             dr.portability_warnings
         );
@@ -3506,7 +4678,10 @@ mod tests {
             "a portability WARN alone must NOT flip deposit_ready false"
         );
         assert!(
-            dr.detail.as_deref().unwrap_or_default().contains("portability warning"),
+            dr.detail
+                .as_deref()
+                .unwrap_or_default()
+                .contains("portability warning"),
             "the human detail should note the portability warning; got {:?}",
             dr.detail
         );
@@ -3534,7 +4709,10 @@ mod tests {
         )
         .unwrap();
         let dr = read_deposit_readiness(root).unwrap().unwrap();
-        assert!(dr.portability_warnings.is_empty(), "clean deposit has no portability warnings");
+        assert!(
+            dr.portability_warnings.is_empty(),
+            "clean deposit has no portability warnings"
+        );
         assert!(dr.deposit_ready);
     }
 }

@@ -3,6 +3,6 @@
   "CrossGraphIntegrity": "unverified",
   "DecisionJustification": "unverified",
   "EquivalenceFailure": "unverified",
-  "EvidenceCoverage": "warn",
+  "EvidenceCoverage": "unverified",
   "SubstrateValidity": "unverified"
 }

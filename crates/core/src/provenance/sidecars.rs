@@ -164,7 +164,10 @@ mod tests {
         );
         let reads = read_observed_reads(dir.path());
         assert_eq!(reads.len(), 1);
-        assert_eq!(reads[0].path, "runtime/outputs/quantification/count_matrix.tsv");
+        assert_eq!(
+            reads[0].path,
+            "runtime/outputs/quantification/count_matrix.tsv"
+        );
         assert_eq!(reads[0].declared_port.as_deref(), Some("raw_counts"));
     }
 

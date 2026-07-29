@@ -1,8 +1,8 @@
 //! Rust↔pyshacl per-invariant disagreement gate (design §6/§8).
 //!
-//! Runs BOTH implementations over the SAME freshly-emitted package — the Rust
-//! `audit_proof/` invariants and pyshacl over the projected ABox — and FAILS
-//! on any per-invariant disagreement. The existing
+//! Runs BOTH implementations over the SAME non-vacuous reference package —
+//! the Rust `audit_proof/` invariants and pyshacl over the projected ABox —
+//! and FAILS on any per-invariant disagreement. The existing
 //! `conformance_external_validators.rs` asserts pyshacl *passes*; this gate
 //! asserts the two *implementations agree*, so a future edit that makes one
 //! shape vacuous (or one Rust check over-strict) is caught.
@@ -54,6 +54,27 @@ fn project_script() -> PathBuf {
         .join("scripts")
         .join("spec-check")
         .join("project_package.py")
+}
+
+fn complete_fixture_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("complete-package")
+}
+
+fn copy_tree(src: &Path, dst: &Path) {
+    std::fs::create_dir_all(dst).expect("create fixture destination");
+    for entry in std::fs::read_dir(src).expect("read fixture directory") {
+        let entry = entry.expect("read fixture entry");
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if entry.file_type().expect("read fixture entry type").is_dir() {
+            copy_tree(&from, &to);
+        } else {
+            std::fs::copy(&from, &to).expect("copy fixture file");
+        }
+    }
 }
 
 fn minimal_dag() -> ecaa_workflow_core::dag::DAG {
@@ -226,16 +247,17 @@ fn rust_and_pyshacl_agree_per_invariant() {
         return;
     }
     let dir = tempfile::tempdir().expect("tempdir");
-    emit_into(dir.path());
+    let package = dir.path().join("package");
+    copy_tree(&complete_fixture_root(), &package);
 
     // Rust path.
-    let report = run_audit_proof(dir.path(), &NoopWrrocValidator, &FrozenClock::default())
+    let report = run_audit_proof(&package, &NoopWrrocValidator, &FrozenClock::default())
         .expect("run_audit_proof");
 
     // pyshacl path.
     let output = Command::new("python3")
         .arg(project_script())
-        .arg(dir.path())
+        .arg(&package)
         .output()
         .expect("spawn project_package.py");
     let stdout = String::from_utf8_lossy(&output.stdout);

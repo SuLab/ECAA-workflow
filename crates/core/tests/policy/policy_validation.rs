@@ -503,7 +503,15 @@ fn de_contracts_carry_method_neutral_top_effect_reliability_check() {
     // Method tokens that must NEVER appear in the agent-facing description: it
     // states a property of the agent's own ranking, never a remedy.
     const METHOD_TOKENS: [&str; 10] = [
-        "deseq", "edger", "limma", "voom", "apeglm", "ashr", "shrink", "wilcoxon", "mast",
+        "deseq",
+        "edger",
+        "limma",
+        "voom",
+        "apeglm",
+        "ashr",
+        "shrink",
+        "wilcoxon",
+        "mast",
         "set the threshold",
     ];
     for contract_file in [
@@ -608,12 +616,28 @@ fn de_contracts_carry_method_neutral_report_completeness_checks() {
     // or a benchmark value. "41" is the da-8-1 passing-set count the DECLINED
     // half (b) would have read; it must never appear in any shipped clause.
     const BANNED_TOKENS: [&str; 12] = [
-        "deseq", "edger", "limma", "voom", "wilcoxon", "mast", "shrink",
-        "set the threshold", "41", "metabolite ~", "repurposing", "tier",
+        "deseq",
+        "edger",
+        "limma",
+        "voom",
+        "wilcoxon",
+        "mast",
+        "shrink",
+        "set the threshold",
+        "41",
+        "metabolite ~",
+        "repurposing",
+        "tier",
     ];
     let expected: [(&str, &str); 2] = [
-        ("differential_expression.reports_model_fit", "/r_squared_column_recorded"),
-        ("differential_expression.reports_per_row_n", "/sample_size_column_recorded"),
+        (
+            "differential_expression.reports_model_fit",
+            "/r_squared_column_recorded",
+        ),
+        (
+            "differential_expression.reports_per_row_n",
+            "/sample_size_column_recorded",
+        ),
     ];
     for contract_file in [
         "validation-contract-association.json",
@@ -643,7 +667,10 @@ fn de_contracts_carry_method_neutral_report_completeness_checks() {
             );
             // (3) substrings_any (OR), never substrings (AND).
             assert!(
-                check.get("substrings_any").and_then(|v| v.as_array()).is_some(),
+                check
+                    .get("substrings_any")
+                    .and_then(|v| v.as_array())
+                    .is_some(),
                 "{contract_file}: {id} must use substrings_any (OR), not substrings (AND)"
             );
             assert!(

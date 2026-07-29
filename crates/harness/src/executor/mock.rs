@@ -118,14 +118,15 @@ impl Executor for MockExecutor {
         // "the fixture" is whatever `reads.jsonl` manifest the test wrote
         // under `package` before dispatch — there is no real agent
         // runbook to append one, so tests seed it directly.
-        self.last_observed_reads = match envelope.get(crate::executor::hardware_envelope::TASK_ID_ENV) {
-            Some(task_id) if !task_id.is_empty() => {
-                let (_status, reads) =
-                    crate::observed_reads::capture_reads(package, task_id, || old.agent_status);
-                reads
-            }
-            _ => Vec::new(),
-        };
+        self.last_observed_reads =
+            match envelope.get(crate::executor::hardware_envelope::TASK_ID_ENV) {
+                Some(task_id) if !task_id.is_empty() => {
+                    let (_status, reads) =
+                        crate::observed_reads::capture_reads(package, task_id, || old.agent_status);
+                    reads
+                }
+                _ => Vec::new(),
+            };
         Ok(IterationOutcome {
             agent_status: old.agent_status,
             remote: old.remote.clone(),

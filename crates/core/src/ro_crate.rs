@@ -48,7 +48,7 @@ fn profile_entity(iri: &str) -> Value {
 
 /// The `#ecaa-workflow` publisher Organization entity, recording the compiler
 /// revision that authored the crate. On a `-dirty` build (uncommitted tree at
-/// build time) it additionally carries a `source_tree_dirty` PropertyValue so a
+/// build time) it references a flattened `source_tree_dirty` PropertyValue so a
 /// reader never mistakes a dirty build for a clean tagged one.
 fn publisher_entity(source_commit: &str) -> Value {
     let mut publisher = json!({
@@ -64,27 +64,27 @@ fn publisher_entity(source_commit: &str) -> Value {
         if source_commit.ends_with("-dirty") {
             obj.insert(
                 "additionalProperty".to_string(),
-                json!([{
-                    // A stable `@id` keeps this a well-identified graph node so
-                    // the runcrate WRROC substrate validator can parse the crate
-                    // (a bare inline PropertyValue nested under the Organization
-                    // trips its "no @id in {…}" flattening — himes rerun audit).
-                    "@id": "#source-tree-dirty",
-                    "@type": "PropertyValue",
-                    "name": "source_tree_dirty",
-                    "value": true
-                }]),
+                json!([{"@id": "#source-tree-dirty"}]),
             );
         }
     }
     publisher
 }
 
+fn source_tree_dirty_entity() -> Value {
+    json!({
+        "@id": "#source-tree-dirty",
+        "@type": "PropertyValue",
+        "name": "source_tree_dirty",
+        "value": true
+    })
+}
+
 /// Build the complete ro-crate-metadata.json JSON-LD graph.
 ///
-/// When `dag.run_id` is `Some`, the root Dataset entity includes a
-/// `additionalProperty[{name:"package_run_id", value:<uuid>}]` entry so
-/// downstream RO-Crate consumers can correlate packages by id.
+/// When `dag.run_id` is `Some`, the root Dataset references a flattened
+/// `package_run_id` PropertyValue so downstream RO-Crate consumers can
+/// correlate packages by id.
 ///
 /// `clock` supplies the `dateCreated` value on the root `Dataset`.
 /// Emit-pipeline callers pass a `FrozenClock` derived from the intake
@@ -181,12 +181,8 @@ pub fn build_metadata(
                 // manifest, so `mentions` is the honest RO-Crate 1.1 edge.
                 "mentions": [{"@id": "DEPOSIT-READINESS.json"}]
             });
-            if let Some(run_id) = &dag.run_id {
-                let additional_property = serde_json::json!([{
-                    "@type": "PropertyValue",
-                    "name": "package_run_id",
-                    "value": run_id
-                }]);
+            if dag.run_id.is_some() {
+                let additional_property = serde_json::json!([{"@id": "#package-run-id"}]);
                 root.as_object_mut()
                     .expect("root is a JSON object literal above")
                     .insert("additionalProperty".to_string(), additional_property);
@@ -355,7 +351,7 @@ pub fn build_metadata(
             "@id": "DEPOSIT-READINESS.json",
             "@type": "CreativeWork",
             "name": "Deposit-readiness attestation",
-            "description": "Self-validation verdict written by `ecaa-workflow export`: RO-Crate re-verify + BagIt checksum integrity (Layer 1) and, for the re-executable profile, re-execution equivalence (Layer 2). Mutable meta file — excluded from the payload manifest by design.",
+            "description": "Self-validation verdict written by `ecaa-workflow export`: RO-Crate re-verify + flat-layout SHA-512 checksum integrity (Layer 1) and, for the re-executable profile, re-execution equivalence (Layer 2). Mutable meta file — excluded from the payload manifest by design.",
             "encodingFormat": "application/json"
         }),
         json!({
@@ -373,6 +369,18 @@ pub fn build_metadata(
             "encodingFormat": "application/json"
         }),
     ];
+
+    if env!("ECAA_SOURCE_COMMIT").ends_with("-dirty") {
+        graph.push(source_tree_dirty_entity());
+    }
+    if let Some(run_id) = &dag.run_id {
+        graph.push(json!({
+            "@id": "#package-run-id",
+            "@type": "PropertyValue",
+            "name": "package_run_id",
+            "value": run_id
+        }));
+    }
 
     // Profile entities. Each `conformsTo` IRI declared on `ro-crate-metadata.json`
     // and on the root `./` Dataset is emitted as a first-class `CreativeWork`
@@ -586,11 +594,10 @@ pub const ARCHETYPE_MATURITY_EXPERIMENTAL: &str = "experimental";
 /// (scaffolded / not-production-validated) archetype so a reviewer sees
 /// the maturity.
 ///
-/// Matches the `package_run_id` / `additionalProperty` shape in
-/// [`build_metadata`]: appends to the existing array (created by the
-/// `run_id` path) or inserts a fresh one. Idempotent — re-stamping a
-/// graph that already carries the marker is a no-op — and deterministic
-/// (no wall-clock), so re-emits of the same intake stay byte-identical.
+/// Matches the flattened `package_run_id` / `additionalProperty` shape in
+/// [`build_metadata`]: appends an `@id`-only reference and emits the
+/// PropertyValue as a top-level graph entity. Re-stamping a graph that already
+/// carries the marker is a no-op and re-emits remain byte-identical.
 ///
 /// Called only when the caller has determined the chosen archetype is
 /// experimental (`EmitConfig::experimental_archetype`); production
@@ -599,39 +606,48 @@ pub fn stamp_experimental_archetype(metadata: &mut Value) {
     let Some(graph) = metadata.get_mut("@graph").and_then(|g| g.as_array_mut()) else {
         return;
     };
-    let Some(root) = graph
-        .iter_mut()
-        .find(|e| e.get("@id").and_then(|v| v.as_str()) == Some("./"))
+    let stamp_id = "#archetype-maturity";
+    let already = graph
+        .iter()
+        .any(|entity| entity.get("@id").and_then(Value::as_str) == Some(stamp_id));
+    let Some(root_index) = graph
+        .iter()
+        .position(|e| e.get("@id").and_then(|v| v.as_str()) == Some("./"))
     else {
         return;
     };
+    let root = &mut graph[root_index];
     let Some(root_obj) = root.as_object_mut() else {
         return;
     };
 
-    let stamp = json!({
-        "@type": "PropertyValue",
-        "name": ARCHETYPE_MATURITY_PROPERTY,
-        "value": ARCHETYPE_MATURITY_EXPERIMENTAL
-    });
+    let stamp_ref = json!({"@id": stamp_id});
 
     match root_obj
         .entry("additionalProperty".to_string())
         .or_insert_with(|| Value::Array(Vec::new()))
     {
         Value::Array(props) => {
-            let already = props.iter().any(|p| {
-                p.get("name").and_then(|v| v.as_str()) == Some(ARCHETYPE_MATURITY_PROPERTY)
-            });
-            if !already {
-                props.push(stamp);
+            let linked = props
+                .iter()
+                .any(|p| p.get("@id").and_then(Value::as_str) == Some(stamp_id));
+            if !linked {
+                props.push(stamp_ref);
             }
         }
         // `additionalProperty` exists but isn't an array (shouldn't
         // happen given `build_metadata`'s shape); normalize to an array.
         other => {
-            *other = Value::Array(vec![stamp]);
+            *other = Value::Array(vec![stamp_ref]);
         }
+    }
+    if !already {
+        graph.push(json!({
+            "@id": stamp_id,
+            "@type": "PropertyValue",
+            "name": ARCHETYPE_MATURITY_PROPERTY,
+            "value": ARCHETYPE_MATURITY_EXPERIMENTAL
+        }));
     }
 }
 
@@ -719,10 +735,7 @@ pub fn append_prov_entities(metadata: &mut Value, prov_activities: Vec<Value>) -
 /// re-injection (replace-by-`@id`) reconciles them. No-op `Ok(())` when the
 /// descriptor is absent or the report carries no verdicts. The caller re-seals
 /// the BagIt manifest afterward (the descriptor is a manifested file).
-pub fn reinject_audit_proof_verdicts(
-    root: &std::path::Path,
-    report: &Value,
-) -> Result<()> {
+pub fn reinject_audit_proof_verdicts(root: &std::path::Path, report: &Value) -> Result<()> {
     let descriptor = root.join("ro-crate-metadata.json");
     let Ok(bytes) = std::fs::read(&descriptor) else {
         return Ok(());
@@ -953,7 +966,11 @@ pub fn reconcile_ro_crate_edges_with_allowances(
         for (edge, disposition) in edges_for_task.iter().zip(dispositions) {
             match disposition {
                 EdgeDisposition::Authoritative => {
-                    stamps.push((edge.from_node.clone(), edge.to_node.clone(), "authoritative"));
+                    stamps.push((
+                        edge.from_node.clone(),
+                        edge.to_node.clone(),
+                        "authoritative",
+                    ));
                 }
                 EdgeDisposition::UnusedCandidate { superseded_by } => {
                     let node_id = parameter_connection_node_id(&edge.from_node, &edge.to_node);
@@ -1018,11 +1035,8 @@ pub fn reconcile_ro_crate_edges_with_allowances(
     // output file. Gated on a resolved one-of (only `UnusedCandidate` populates
     // `object_prunes`) and idempotent (a re-run finds the entry already gone).
     for (consuming_task, producer_task, record_index) in &object_prunes {
-        let pruned = prune_unread_producer_from_create_action_objects(
-            graph,
-            consuming_task,
-            producer_task,
-        );
+        let pruned =
+            prune_unread_producer_from_create_action_objects(graph, consuming_task, producer_task);
         if !pruned.is_empty() {
             if let Some(obj) = unused_candidates[*record_index].as_object_mut() {
                 obj.insert("ecaax:prunedUsedObject".to_string(), json!(pruned));
@@ -1192,7 +1206,12 @@ fn upsert_side_channel_nodes(graph: &mut Vec<Value>, nodes: Vec<Value>) -> Vec<V
 /// scheme) with `"ecaax:provenanceStatus": status`. A no-op when no
 /// such node exists in the graph (e.g. a legacy crate emitted before
 /// Tier-3 `ParameterConnection` entities existed).
-fn stamp_parameter_connection_status(graph: &mut [Value], from_node: &str, to_node: &str, status: &str) {
+fn stamp_parameter_connection_status(
+    graph: &mut [Value],
+    from_node: &str,
+    to_node: &str,
+    status: &str,
+) {
     let node_id = parameter_connection_node_id(from_node, to_node);
     if let Some(node) = graph
         .iter_mut()
@@ -1227,7 +1246,8 @@ fn prune_unread_producer_from_create_action_objects(
     let result_prefix = format!("runtime/outputs/{consuming_task}/");
     let producer_step = format!("#step-{producer_task}");
     let producer_output_prefix = format!("runtime/outputs/{producer_task}/");
-    let refers_to_producer = |id: &str| id == producer_step || id.starts_with(&producer_output_prefix);
+    let refers_to_producer =
+        |id: &str| id == producer_step || id.starts_with(&producer_output_prefix);
     let mut pruned: Vec<String> = Vec::new();
     for node in graph.iter_mut() {
         let is_create_action = match node.get("@type") {
@@ -1611,11 +1631,14 @@ pub fn inject_audit_proof_verdict_nodes(metadata: &mut Value, report: &Value) ->
 /// same package produce byte-identical nodes. Only recorded values populate the
 /// entity — nothing is invented.
 ///
-/// Returns `None` when the sidecar carries NO executor identity at all (image,
+/// Returns the agent and its optional flattened backend `PropertyValue`.
+/// Returns `None` when the sidecar carries no executor identity at all (image,
 /// runtime, and backend all empty); the caller then omits the `agent` edge
-/// rather than attaching a placeholder. (A real `endTime` may still be emitted
-/// from `ended_at` in that case.)
-fn executor_agent_entity(state: &crate::container_state::ContainerState) -> Option<Value> {
+/// rather than attaching a placeholder. A real `endTime` may still be emitted
+/// from `ended_at` in that case.
+fn executor_agent_entities(
+    state: &crate::container_state::ContainerState,
+) -> Option<(Value, Option<Value>)> {
     let image = state.image.trim();
     let runtime = state.runtime.trim();
     let backend = state.backend.trim();
@@ -1642,8 +1665,9 @@ fn executor_agent_entity(state: &crate::container_state::ContainerState) -> Opti
             }
         })
         .collect();
+    let agent_id = format!("#executor/{local}");
     let mut agent = json!({
-        "@id": format!("#executor/{local}"),
+        "@id": agent_id.clone(),
         "@type": "SoftwareApplication",
         "name": if image.is_empty() {
             format!("Execution agent ({})", if runtime.is_empty() { backend } else { runtime })
@@ -1658,13 +1682,22 @@ fn executor_agent_entity(state: &crate::container_state::ContainerState) -> Opti
     if !runtime.is_empty() {
         obj.insert("runtimePlatform".to_string(), json!(runtime));
     }
-    if !backend.is_empty() {
+    let backend_entity = if backend.is_empty() {
+        None
+    } else {
+        let backend_id = format!("{agent_id}/backend");
         obj.insert(
             "additionalProperty".to_string(),
-            json!([{ "@type": "PropertyValue", "name": "backend", "value": backend }]),
+            json!([{"@id": backend_id}]),
         );
-    }
-    Some(agent)
+        Some(json!({
+            "@id": backend_id,
+            "@type": "PropertyValue",
+            "name": "backend",
+            "value": backend
+        }))
+    };
+    Some((agent, backend_entity))
 }
 
 /// Does the `@graph` carry at least one REAL executed run `CreateAction`?
@@ -1787,8 +1820,13 @@ fn upgrade_conforms_to_executed(graph: &mut Vec<Value>) {
 /// to detect that an agent-orchestrated stage actually RAN (so it earns a
 /// synthesized executor tool) and to pick the `result` of its production
 /// `CreateAction`. Every entry is retained by all deposit profiles.
-const PRIMARY_STAGE_OUTPUTS: [&str; 5] =
-    ["result.json", "decision.json", "final_report.md", "report.md", "manifest.json"];
+const PRIMARY_STAGE_OUTPUTS: [&str; 5] = [
+    "result.json",
+    "decision.json",
+    "final_report.md",
+    "report.md",
+    "manifest.json",
+];
 
 pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::io::Result<usize> {
     let descriptor = package_root.join("ro-crate-metadata.json");
@@ -1888,8 +1926,9 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
             .filter_map(|id| id.strip_prefix("#step-").map(str::to_string))
             .collect();
         for rel in &rels {
-            if let Some((task, _)) =
-                rel.strip_prefix("runtime/outputs/").and_then(|r| r.split_once('/'))
+            if let Some((task, _)) = rel
+                .strip_prefix("runtime/outputs/")
+                .and_then(|r| r.split_once('/'))
             {
                 s.insert(task.to_string());
             }
@@ -2096,7 +2135,7 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
             if !state.ended_at.is_empty() {
                 action["endTime"] = json!(state.ended_at);
             }
-            if let Some(agent) = executor_agent_entity(state) {
+            if let Some((agent, backend_entity)) = executor_agent_entities(state) {
                 let agent_id = agent
                     .get("@id")
                     .and_then(Value::as_str)
@@ -2109,6 +2148,9 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
                     .any(|e| e.get("@id").and_then(Value::as_str) == Some(agent_id.as_str()));
                 if !already {
                     new_agents.push(agent);
+                    if let Some(entity) = backend_entity {
+                        new_agents.push(entity);
+                    }
                 }
             }
         }
@@ -2136,7 +2178,11 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
             continue;
         };
         let task_dir = outputs_root.join(task);
-        let Some(file) = PRIMARY_STAGE_OUTPUTS.iter().copied().find(|f| task_dir.join(f).is_file()) else {
+        let Some(file) = PRIMARY_STAGE_OUTPUTS
+            .iter()
+            .copied()
+            .find(|f| task_dir.join(f).is_file())
+        else {
             // The stage recorded no primary output to attribute — never invent
             // one; its step keeps no production action (Provenance then flags it
             // honestly rather than fabricating).
@@ -2192,7 +2238,7 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
             if !state.ended_at.is_empty() {
                 action["endTime"] = json!(state.ended_at);
             }
-            if let Some(agent) = executor_agent_entity(state) {
+            if let Some((agent, backend_entity)) = executor_agent_entities(state) {
                 let agent_id = agent
                     .get("@id")
                     .and_then(Value::as_str)
@@ -2205,6 +2251,9 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
                     .any(|e| e.get("@id").and_then(Value::as_str) == Some(agent_id.as_str()));
                 if !already {
                     new_agents.push(agent);
+                    if let Some(entity) = backend_entity {
+                        new_agents.push(entity);
+                    }
                 }
             }
         }
@@ -2241,7 +2290,9 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
 
         if let Some(wf) = graph.iter_mut().find(|e| match e.get("@type") {
             Some(Value::String(s)) => s == "ComputationalWorkflow",
-            Some(Value::Array(a)) => a.iter().any(|v| v.as_str() == Some("ComputationalWorkflow")),
+            Some(Value::Array(a)) => a
+                .iter()
+                .any(|v| v.as_str() == Some("ComputationalWorkflow")),
             _ => false,
         }) {
             if let Some(obj) = wf.as_object_mut() {
@@ -2266,7 +2317,10 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
                     .or_insert_with(|| Value::Array(Vec::new()));
                 if let Some(arr) = parts.as_array_mut() {
                     for tid in &all_tool_ids {
-                        if !arr.iter().any(|p| p.get("@id").and_then(Value::as_str) == Some(tid)) {
+                        if !arr
+                            .iter()
+                            .any(|p| p.get("@id").and_then(Value::as_str) == Some(tid))
+                        {
                             arr.push(json!({"@id": tid}));
                         }
                     }
@@ -2422,13 +2476,8 @@ pub fn register_report_documents(package_root: &std::path::Path) -> std::io::Res
                 let mut names: Vec<String> = files
                     .flatten()
                     .map(|e| e.path())
-                    .filter(|p| {
-                        p.is_file()
-                            && p.extension().and_then(|s| s.to_str()) == Some("md")
-                    })
-                    .filter_map(|p| {
-                        p.file_name().and_then(|s| s.to_str()).map(String::from)
-                    })
+                    .filter(|p| p.is_file() && p.extension().and_then(|s| s.to_str()) == Some("md"))
+                    .filter_map(|p| p.file_name().and_then(|s| s.to_str()).map(String::from))
                     .collect();
                 names.sort();
                 for name in names {
@@ -2506,9 +2555,7 @@ pub fn register_report_documents(package_root: &std::path::Path) -> std::io::Res
 /// - `runtime/cost-ledger.jsonl` — per-step resource/cost accounting
 ///
 /// Returns the count of newly-added entities (0 on a second/idempotent call).
-pub fn register_reexecutability_sidecars(
-    package_root: &std::path::Path,
-) -> std::io::Result<usize> {
+pub fn register_reexecutability_sidecars(package_root: &std::path::Path) -> std::io::Result<usize> {
     // (rel_path, name, description, encodingFormat)
     const SIDECARS: &[(&str, &str, &str, &str)] = &[
         (
@@ -2652,10 +2699,7 @@ pub fn render_snapshots_md(package_root: &std::path::Path) -> std::io::Result<()
                     .and_then(Value::as_str)
                     .unwrap_or("");
                 let class = e.get("source_class").and_then(Value::as_str).unwrap_or("");
-                let role = e
-                    .get("evidence_role")
-                    .and_then(Value::as_str)
-                    .unwrap_or("");
+                let role = e.get("evidence_role").and_then(Value::as_str).unwrap_or("");
                 let source = if sref.is_empty() {
                     "—".to_string()
                 } else if sref_kind.is_empty() {
@@ -2774,7 +2818,11 @@ fn register_parameter_connection_endpoints(graph: &mut Vec<Value>) {
             continue;
         }
         for key in ["sourceParameter", "targetParameter"] {
-            if let Some(id) = node.get(key).and_then(|p| p.get("@id")).and_then(Value::as_str) {
+            if let Some(id) = node
+                .get(key)
+                .and_then(|p| p.get("@id"))
+                .and_then(Value::as_str)
+            {
                 endpoints.insert(id.to_string());
             }
         }
@@ -2910,9 +2958,7 @@ fn script_encoding_format(rel: &str) -> &'static str {
 /// Idempotent: skips any `@id` already present in the graph; returns 0 on the
 /// second run. No-op (Ok(0)) when the lock file or descriptor is absent/unparseable.
 /// Never fabricates a package not in the lock.
-pub fn register_software_dependencies(
-    package_root: &std::path::Path,
-) -> std::io::Result<usize> {
+pub fn register_software_dependencies(package_root: &std::path::Path) -> std::io::Result<usize> {
     let lock_path = package_root.join("runtime/dependency-lock.json");
     let Ok(lock_bytes) = std::fs::read(&lock_path) else {
         return Ok(0);
@@ -2980,12 +3026,12 @@ pub fn register_software_dependencies(
 
     // Link new nodes from the ComputationalWorkflow entity's softwareRequirements.
     // @type may be a plain string or an array — handle both.
-    if let Some(wf) = graph.iter_mut().find(|e| {
-        match e.get("@type") {
-            Some(Value::String(s)) => s == "ComputationalWorkflow",
-            Some(Value::Array(a)) => a.iter().any(|v| v.as_str() == Some("ComputationalWorkflow")),
-            _ => false,
-        }
+    if let Some(wf) = graph.iter_mut().find(|e| match e.get("@type") {
+        Some(Value::String(s)) => s == "ComputationalWorkflow",
+        Some(Value::Array(a)) => a
+            .iter()
+            .any(|v| v.as_str() == Some("ComputationalWorkflow")),
+        _ => false,
     }) {
         if let Some(obj) = wf.as_object_mut() {
             let slot = obj
@@ -3041,9 +3087,7 @@ pub fn register_software_dependencies(
 /// Returns the count of newly-added nodes. No-op `Ok(0)` when
 /// `runtime/outputs/` is absent, no task dir contains an `env.lock`, or
 /// the descriptor is missing/unparseable.
-pub fn register_software_from_env_locks(
-    package_root: &std::path::Path,
-) -> std::io::Result<usize> {
+pub fn register_software_from_env_locks(package_root: &std::path::Path) -> std::io::Result<usize> {
     let descriptor = package_root.join("ro-crate-metadata.json");
     let Ok(bytes) = std::fs::read(&descriptor) else {
         return Ok(0);
@@ -3121,12 +3165,12 @@ pub fn register_software_from_env_locks(
 
     // Link new nodes from the ComputationalWorkflow entity's softwareRequirements.
     // @type may be a plain string or an array — handle both (same as register_software_dependencies).
-    if let Some(wf) = graph.iter_mut().find(|e| {
-        match e.get("@type") {
-            Some(Value::String(s)) => s == "ComputationalWorkflow",
-            Some(Value::Array(a)) => a.iter().any(|v| v.as_str() == Some("ComputationalWorkflow")),
-            _ => false,
-        }
+    if let Some(wf) = graph.iter_mut().find(|e| match e.get("@type") {
+        Some(Value::String(s)) => s == "ComputationalWorkflow",
+        Some(Value::Array(a)) => a
+            .iter()
+            .any(|v| v.as_str() == Some("ComputationalWorkflow")),
+        _ => false,
     }) {
         if let Some(obj) = wf.as_object_mut() {
             let slot = obj
@@ -3154,10 +3198,7 @@ pub fn register_software_from_env_locks(
 /// 1. pip pin: `name==version`
 /// 2. conda pin: `name: version` where version starts with a digit
 /// 3. R sessionInfo "other attached packages" block: `Name_version` tokens
-fn parse_env_lock(
-    content: &str,
-    seen: &mut std::collections::BTreeMap<(String, String), String>,
-) {
+fn parse_env_lock(content: &str, seen: &mut std::collections::BTreeMap<(String, String), String>) {
     // Compile regexes once per call. The patterns are simple enough that
     // using regex is not required; we use hand-rolled matching to avoid
     // adding a dependency and to stay allocation-light.
@@ -3184,7 +3225,10 @@ fn parse_env_lock(
             // The header line itself may contain package tokens after the colon;
             // fall through so they are also parsed.
             // Extract the part after the colon for parsing.
-            if let Some(after) = trimmed.find("packages:").map(|i| &trimmed[i + "packages:".len()..]) {
+            if let Some(after) = trimmed
+                .find("packages:")
+                .map(|i| &trimmed[i + "packages:".len()..])
+            {
                 parse_r_session_tokens(after, seen);
             }
             continue;
@@ -3294,23 +3338,41 @@ fn is_valid_pkg_name(name: &str) -> bool {
 /// time (off the byte-repro baseline); deterministic given fixed payload bytes.
 pub fn register_content_integrity(package_root: &std::path::Path) -> std::io::Result<usize> {
     let hashes = crate::emitter::bagit::payload_hashes(
-        package_root, crate::emitter::bagit::SealMode::Reseal)?;
+        package_root,
+        crate::emitter::bagit::SealMode::Reseal,
+    )?;
     let descriptor = package_root.join("ro-crate-metadata.json");
-    let Ok(bytes) = std::fs::read(&descriptor) else { return Ok(0); };
-    let Ok(mut doc) = serde_json::from_slice::<Value>(&bytes) else { return Ok(0); };
-    let Some(graph) = doc.get_mut("@graph").and_then(Value::as_array_mut) else { return Ok(0); };
+    let Ok(bytes) = std::fs::read(&descriptor) else {
+        return Ok(0);
+    };
+    let Ok(mut doc) = serde_json::from_slice::<Value>(&bytes) else {
+        return Ok(0);
+    };
+    let Some(graph) = doc.get_mut("@graph").and_then(Value::as_array_mut) else {
+        return Ok(0);
+    };
     let mut annotated = 0usize;
     for e in graph.iter_mut() {
-        let Some(id) = e.get("@id").and_then(Value::as_str).map(String::from) else { continue };
-        if id == "ro-crate-metadata.json" || id == "ro-crate-preview.html"
+        let Some(id) = e.get("@id").and_then(Value::as_str).map(String::from) else {
+            continue;
+        };
+        if id == "ro-crate-metadata.json"
+            || id == "ro-crate-preview.html"
             || id.starts_with("manifest-")
-            || id == "bagit.txt" || id.starts_with('#') || id == "./" { continue; }
+            || id == "bagit.txt"
+            || id.starts_with('#')
+            || id == "./"
+        {
+            continue;
+        }
         let is_file = match e.get("@type") {
             Some(Value::String(s)) => s == "File",
             Some(Value::Array(a)) => a.iter().any(|v| v.as_str() == Some("File")),
             _ => false,
         };
-        if !is_file { continue; }
+        if !is_file {
+            continue;
+        }
         if let Some((hex, size)) = hashes.get(&id) {
             if let Some(obj) = e.as_object_mut() {
                 obj.insert("contentSize".into(), json!(size));
@@ -3417,10 +3479,7 @@ fn register_preview_entity(package_root: &std::path::Path) -> std::io::Result<us
         }
     }
 
-    crate::fs_helpers::atomic_write_bytes_sync(
-        &descriptor,
-        &serde_json::to_vec_pretty(&doc)?,
-    )?;
+    crate::fs_helpers::atomic_write_bytes_sync(&descriptor, &serde_json::to_vec_pretty(&doc)?)?;
     Ok(1)
 }
 
@@ -3936,11 +3995,6 @@ mod tests {
 
     #[test]
     fn publisher_dirty_build_property_value_carries_id() {
-        // Regression (himes rerun audit 2026-07-21): on a -dirty build the
-        // `source_tree_dirty` PropertyValue nested under the #ecaa-workflow
-        // Organization must carry an `@id`, or the runcrate WRROC substrate
-        // validator rejects the crate ("no @id in {PropertyValue …}"),
-        // failing the deposit's substrate_validity invariant.
         let dirty = publisher_entity("abc123def456-dirty");
         let props = dirty
             .get("additionalProperty")
@@ -3948,12 +4002,17 @@ mod tests {
             .expect("dirty build must carry additionalProperty");
         let pv = props
             .iter()
-            .find(|p| p.get("name").and_then(|n| n.as_str()) == Some("source_tree_dirty"))
-            .expect("source_tree_dirty PropertyValue present");
-        assert!(
-            pv.get("@id").and_then(|v| v.as_str()).is_some(),
-            "source_tree_dirty PropertyValue must carry an @id, got {pv:?}"
+            .find(|p| p.get("@id").and_then(Value::as_str) == Some("#source-tree-dirty"))
+            .expect("source_tree_dirty PropertyValue reference present");
+        assert_eq!(
+            pv.as_object().map(serde_json::Map::len),
+            Some(1),
+            "embedded JSON-LD node must be an @id-only reference"
         );
+        let entity = source_tree_dirty_entity();
+        assert_eq!(entity["@id"], "#source-tree-dirty");
+        assert_eq!(entity["name"], "source_tree_dirty");
+        assert_eq!(entity["value"], true);
         // A clean build emits no source_tree_dirty property at all.
         let clean = publisher_entity("abc123def456");
         assert!(
@@ -4200,10 +4259,7 @@ mod tests {
             ..Default::default()
         };
         let metadata = build_metadata(&dag, &classification, &FrozenClock::default());
-        let mut graph: Vec<Value> = metadata["@graph"]
-            .as_array()
-            .expect("@graph array")
-            .clone();
+        let mut graph: Vec<Value> = metadata["@graph"].as_array().expect("@graph array").clone();
 
         // Inject a REAL run CreateAction (an `instrument`-bearing CreateAction),
         // mirroring what `register_produced_output_tables` appends post-execution.
@@ -4294,12 +4350,13 @@ mod tests {
         // Its @type must include "File" (may be a string or an array).
         let types: Vec<&str> = match &readme["@type"] {
             serde_json::Value::String(s) => vec![s.as_str()],
-            serde_json::Value::Array(a) => {
-                a.iter().filter_map(|v| v.as_str()).collect()
-            }
+            serde_json::Value::Array(a) => a.iter().filter_map(|v| v.as_str()).collect(),
             _ => vec![],
         };
-        assert!(types.contains(&"File"), "README.md must be typed as File; got {types:?}");
+        assert!(
+            types.contains(&"File"),
+            "README.md must be typed as File; got {types:?}"
+        );
 
         // The root Dataset's hasPart must reference README.md.
         let root = graph
@@ -4332,7 +4389,8 @@ mod tests {
             backend: "aws".into(),
             ended_at: "2026-05-05T12:34:56Z".into(),
         };
-        let agent = executor_agent_entity(&state).expect("recorded executor yields an agent");
+        let (agent, backend_entity) =
+            executor_agent_entities(&state).expect("recorded executor yields an agent");
         assert_eq!(agent["@type"].as_str(), Some("SoftwareApplication"));
         assert_eq!(
             agent["softwareVersion"].as_str(),
@@ -4340,6 +4398,16 @@ mod tests {
             "softwareVersion must be the recorded image verbatim"
         );
         assert_eq!(agent["runtimePlatform"].as_str(), Some("docker"));
+        let backend_ref = &agent["additionalProperty"][0];
+        assert_eq!(
+            backend_ref.as_object().map(serde_json::Map::len),
+            Some(1),
+            "backend must be an @id-only reference"
+        );
+        let backend_entity = backend_entity.expect("recorded backend yields PropertyValue");
+        assert_eq!(backend_ref["@id"], backend_entity["@id"]);
+        assert_eq!(backend_entity["name"], "backend");
+        assert_eq!(backend_entity["value"], "aws");
 
         // No recorded identity at all → None (honest omission).
         let empty = crate::container_state::ContainerState {
@@ -4352,7 +4420,7 @@ mod tests {
             ended_at: String::new(),
         };
         assert!(
-            executor_agent_entity(&empty).is_none(),
+            executor_agent_entities(&empty).is_none(),
             "no recorded executor identity must yield None, not a placeholder agent"
         );
     }
@@ -4397,10 +4465,7 @@ mod tests {
             inline["evaluated_against"],
             "https://w3id.org/ecaa/ns/0.2#evaluated_against"
         );
-        assert_eq!(
-            inline["verdict"],
-            "https://w3id.org/ecaa/ns/0.2#verdict"
-        );
+        assert_eq!(inline["verdict"], "https://w3id.org/ecaa/ns/0.2#verdict");
         assert_eq!(
             inline["invariant_id"],
             "https://w3id.org/ecaa/ns/0.2#invariantId"
@@ -4511,7 +4576,10 @@ mod tests {
             run["endTime"], "2026-06-21T12:30:00Z",
             "run endTime = latest stage endTime"
         );
-        assert_eq!(run["agent"]["@id"], "#agent/claude", "single agent surfaced");
+        assert_eq!(
+            run["agent"]["@id"], "#agent/claude",
+            "single agent surfaced"
+        );
         assert_eq!(
             run["result"].as_array().unwrap().len(),
             2,
@@ -4576,8 +4644,7 @@ mod tests {
         .unwrap();
         let task = root.join("runtime/outputs/align");
         std::fs::create_dir_all(&task).unwrap();
-        let executed_digest =
-            "1111111111111111111111111111111111111111111111111111111111111111";
+        let executed_digest = "1111111111111111111111111111111111111111111111111111111111111111";
         std::fs::write(
             task.join(".container-state.json"),
             serde_json::to_vec(&json!({
@@ -4604,8 +4671,10 @@ mod tests {
             "emit-time content_hash entry must be preserved"
         );
         assert!(
-            digests.iter().any(|d| d["kind"] == "oci_digest"
-                && d["value"] == format!("sha256:{executed_digest}")),
+            digests
+                .iter()
+                .any(|d| d["kind"] == "oci_digest"
+                    && d["value"] == format!("sha256:{executed_digest}")),
             "run-time resolved OCI digest must be folded in as oci_digest: {digests:?}"
         );
     }
@@ -4630,7 +4699,12 @@ mod tests {
             .iter()
             .find(|e| e["@id"].as_str() == Some("runtime/outputs/final_reporting/final_report.md"))
             .expect("final_report.md registered");
-        let types: Vec<&str> = rep["@type"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+        let types: Vec<&str> = rep["@type"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
         assert!(types.contains(&"File") && types.contains(&"CreativeWork"));
         assert_eq!(rep["encodingFormat"].as_str(), Some("text/markdown"));
         assert_eq!(
@@ -4647,7 +4721,10 @@ mod tests {
         );
 
         // Linked from root hasPart (the canonical RO-Crate composition edge).
-        let root_node = graph.iter().find(|e| e["@id"].as_str() == Some("./")).unwrap();
+        let root_node = graph
+            .iter()
+            .find(|e| e["@id"].as_str() == Some("./"))
+            .unwrap();
         let part_ids: Vec<&str> = root_node["hasPart"]
             .as_array()
             .unwrap()
@@ -4698,7 +4775,11 @@ mod tests {
                 }
             ]
         });
-        std::fs::write(ev.join("manifest.json"), serde_json::to_vec(&manifest).unwrap()).unwrap();
+        std::fs::write(
+            ev.join("manifest.json"),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
 
         render_snapshots_md(root).unwrap();
         let md = std::fs::read_to_string(root.join("SNAPSHOTS.md")).unwrap();
@@ -4724,7 +4805,8 @@ mod tests {
     fn content_integrity_injects_contentsize_and_sha512_idempotently() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("WORKFLOW.json"), b"{\"x\":1}").unwrap();
-        std::fs::write(dir.path().join("ro-crate-metadata.json"),
+        std::fs::write(
+            dir.path().join("ro-crate-metadata.json"),
             serde_json::to_vec_pretty(&serde_json::json!({
                 "@context":"https://w3id.org/ro/crate/1.1/context",
                 "@graph":[
@@ -4732,25 +4814,44 @@ mod tests {
                   {"@id":"./","@type":"Dataset","hasPart":[{"@id":"WORKFLOW.json"}]},
                   {"@id":"WORKFLOW.json","@type":["File","ComputationalWorkflow"],"name":"wf"}
                 ]
-            })).unwrap()).unwrap();
+            }))
+            .unwrap(),
+        )
+        .unwrap();
         let n = register_content_integrity(dir.path()).unwrap();
-        assert_eq!(n, 1, "one payload File entity annotated (descriptor excluded)");
+        assert_eq!(
+            n, 1,
+            "one payload File entity annotated (descriptor excluded)"
+        );
         let doc: serde_json::Value = serde_json::from_slice(
-            &std::fs::read(dir.path().join("ro-crate-metadata.json")).unwrap()).unwrap();
-        let wf = doc["@graph"].as_array().unwrap().iter()
-            .find(|e| e["@id"]=="WORKFLOW.json").unwrap();
+            &std::fs::read(dir.path().join("ro-crate-metadata.json")).unwrap(),
+        )
+        .unwrap();
+        let wf = doc["@graph"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["@id"] == "WORKFLOW.json")
+            .unwrap();
         assert!(wf["contentSize"].as_u64().unwrap() >= 1);
         assert_eq!(wf["sha512"].as_str().unwrap().len(), 128);
         // descriptor must NOT carry its own hash (circular)
-        let desc = doc["@graph"].as_array().unwrap().iter()
-            .find(|e| e["@id"]=="ro-crate-metadata.json").unwrap();
+        let desc = doc["@graph"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["@id"] == "ro-crate-metadata.json")
+            .unwrap();
         assert!(desc.get("sha512").is_none());
         // idempotent: second call returns same count, descriptor bytes unchanged
         let bytes_before = std::fs::read(dir.path().join("ro-crate-metadata.json")).unwrap();
         let n2 = register_content_integrity(dir.path()).unwrap();
         assert_eq!(n2, n, "second run returns same annotated count");
         let bytes_after = std::fs::read(dir.path().join("ro-crate-metadata.json")).unwrap();
-        assert_eq!(bytes_before, bytes_after, "descriptor is byte-identical after second run");
+        assert_eq!(
+            bytes_before, bytes_after,
+            "descriptor is byte-identical after second run"
+        );
     }
 
     #[test]
@@ -4855,7 +4956,10 @@ mod tests {
             .find(|e| e.get("name").and_then(|v| v.as_str()) == Some("DESeq2"))
             .unwrap();
         assert_eq!(deseq["@type"], "SoftwareApplication");
-        assert_eq!(deseq["softwareVersion"], "1.40.2", "resolved preferred over requested");
+        assert_eq!(
+            deseq["softwareVersion"], "1.40.2",
+            "resolved preferred over requested"
+        );
         assert_eq!(deseq["applicationCategory"], "r");
 
         // scanpy has no requested/resolved — no softwareVersion field
@@ -4864,7 +4968,10 @@ mod tests {
             .find(|e| e.get("name").and_then(|v| v.as_str()) == Some("scanpy"))
             .unwrap();
         assert_eq!(scanpy["@type"], "SoftwareApplication");
-        assert!(scanpy.get("softwareVersion").is_none(), "no version when both absent");
+        assert!(
+            scanpy.get("softwareVersion").is_none(),
+            "no version when both absent"
+        );
 
         // workflow links them via softwareRequirements
         let wf = g.iter().find(|e| e["@id"] == "WORKFLOW.json").unwrap();
@@ -4930,7 +5037,10 @@ mod tests {
             .iter()
             .filter_map(|r| r["@id"].as_str())
             .collect();
-        assert!(reqs.contains(&"#dep/r/edgeR"), "edgeR linked via softwareRequirements");
+        assert!(
+            reqs.contains(&"#dep/r/edgeR"),
+            "edgeR linked via softwareRequirements"
+        );
     }
 
     /// Task 5: `finalize_evidence_registration_with_verifier` writes
@@ -4982,7 +5092,11 @@ mod tests {
 
         // Write the minimal BagIt tag files so regenerate_bagit_manifest has
         // something to work with.
-        std::fs::write(root.join("bagit.txt"), b"BagIt-Version: 1.0\nTag-File-Character-Encoding: UTF-8\n").unwrap();
+        std::fs::write(
+            root.join("bagit.txt"),
+            b"BagIt-Version: 1.0\nTag-File-Character-Encoding: UTF-8\n",
+        )
+        .unwrap();
         std::fs::write(root.join("manifest-sha512.txt"), b"").unwrap();
 
         let clock = crate::clock::FrozenClock::default();
@@ -4990,11 +5104,17 @@ mod tests {
 
         // 1. `ro-crate-preview.html` must exist on disk.
         let preview_path = root.join("ro-crate-preview.html");
-        assert!(preview_path.exists(), "ro-crate-preview.html must be written by finalize");
+        assert!(
+            preview_path.exists(),
+            "ro-crate-preview.html must be written by finalize"
+        );
 
         // 2. The preview must be valid HTML with the JSON-LD embed.
         let preview_html = std::fs::read_to_string(&preview_path).unwrap();
-        assert!(preview_html.starts_with("<!DOCTYPE html>"), "valid HTML5 doctype");
+        assert!(
+            preview_html.starts_with("<!DOCTYPE html>"),
+            "valid HTML5 doctype"
+        );
         assert!(
             preview_html.contains("<script type=\"application/ld+json\">"),
             "JSON-LD head embed (spec MUST)"
@@ -5009,10 +5129,9 @@ mod tests {
         );
 
         // 3. `ro-crate-preview.html` must be registered in the @graph.
-        let final_meta: serde_json::Value = serde_json::from_slice(
-            &std::fs::read(root.join("ro-crate-metadata.json")).unwrap(),
-        )
-        .unwrap();
+        let final_meta: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(root.join("ro-crate-metadata.json")).unwrap())
+                .unwrap();
         let graph = final_meta["@graph"].as_array().unwrap();
 
         let preview_entity = graph
@@ -5044,10 +5163,9 @@ mod tests {
 
         // 5. Idempotent: second call keeps the entity exactly once in @graph.
         finalize_evidence_registration_with_verifier(root, &clock, None).unwrap();
-        let final_meta2: serde_json::Value = serde_json::from_slice(
-            &std::fs::read(root.join("ro-crate-metadata.json")).unwrap(),
-        )
-        .unwrap();
+        let final_meta2: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(root.join("ro-crate-metadata.json")).unwrap())
+                .unwrap();
         let graph2 = final_meta2["@graph"].as_array().unwrap();
         let preview_count = graph2
             .iter()
@@ -5081,10 +5199,7 @@ mod tests {
         )
         .unwrap();
         for (task, content) in tasks {
-            let dir = root
-                .join("runtime")
-                .join("outputs")
-                .join(task);
+            let dir = root.join("runtime").join("outputs").join(task);
             std::fs::create_dir_all(&dir).unwrap();
             std::fs::write(dir.join("env.lock"), content).unwrap();
         }
@@ -5123,16 +5238,20 @@ loaded via a namespace (and not attached):
         write_env_lock_package(root, &[("task1", MIXED_ENV_LOCK)]);
 
         let n = register_software_from_env_locks(root).unwrap();
-        assert!(n >= 4, "at least pydeseq2, gseapy, bioconductor-deseq2, DESeq2 registered; got {n}");
+        assert!(
+            n >= 4,
+            "at least pydeseq2, gseapy, bioconductor-deseq2, DESeq2 registered; got {n}"
+        );
 
-        let doc: Value = serde_json::from_slice(
-            &std::fs::read(root.join("ro-crate-metadata.json")).unwrap(),
-        )
-        .unwrap();
+        let doc: Value =
+            serde_json::from_slice(&std::fs::read(root.join("ro-crate-metadata.json")).unwrap())
+                .unwrap();
         let g = doc["@graph"].as_array().unwrap();
 
         // pip: pydeseq2
-        let pydeseq = g.iter().find(|e| e["@id"] == "#dep/python/pydeseq2")
+        let pydeseq = g
+            .iter()
+            .find(|e| e["@id"] == "#dep/python/pydeseq2")
             .expect("pydeseq2 node present");
         assert_eq!(pydeseq["@type"].as_str(), Some("SoftwareApplication"));
         assert_eq!(pydeseq["applicationCategory"].as_str(), Some("python"));
@@ -5140,19 +5259,25 @@ loaded via a namespace (and not attached):
         assert_eq!(pydeseq["name"].as_str(), Some("pydeseq2"));
 
         // pip: gseapy
-        let gseapy = g.iter().find(|e| e["@id"] == "#dep/python/gseapy")
+        let gseapy = g
+            .iter()
+            .find(|e| e["@id"] == "#dep/python/gseapy")
             .expect("gseapy node present");
         assert_eq!(gseapy["applicationCategory"].as_str(), Some("python"));
         assert_eq!(gseapy["softwareVersion"].as_str(), Some("1.3.0"));
 
         // conda: bioconductor-deseq2
-        let bdeseq = g.iter().find(|e| e["@id"] == "#dep/conda/bioconductor-deseq2")
+        let bdeseq = g
+            .iter()
+            .find(|e| e["@id"] == "#dep/conda/bioconductor-deseq2")
             .expect("bioconductor-deseq2 node present");
         assert_eq!(bdeseq["applicationCategory"].as_str(), Some("conda"));
         assert_eq!(bdeseq["softwareVersion"].as_str(), Some("1.50.2"));
 
         // R sessionInfo: DESeq2
-        let rdeseq = g.iter().find(|e| e["@id"] == "#dep/r/DESeq2")
+        let rdeseq = g
+            .iter()
+            .find(|e| e["@id"] == "#dep/r/DESeq2")
             .expect("DESeq2 node present");
         assert_eq!(rdeseq["applicationCategory"].as_str(), Some("r"));
         assert_eq!(rdeseq["softwareVersion"].as_str(), Some("1.50.2"));
@@ -5167,10 +5292,9 @@ loaded via a namespace (and not attached):
         write_env_lock_package(root, &[("task1", MIXED_ENV_LOCK)]);
 
         register_software_from_env_locks(root).unwrap();
-        let doc: Value = serde_json::from_slice(
-            &std::fs::read(root.join("ro-crate-metadata.json")).unwrap(),
-        )
-        .unwrap();
+        let doc: Value =
+            serde_json::from_slice(&std::fs::read(root.join("ro-crate-metadata.json")).unwrap())
+                .unwrap();
         let g = doc["@graph"].as_array().unwrap();
 
         // pip-from-conda artifact must not appear
@@ -5198,7 +5322,8 @@ loaded via a namespace (and not attached):
         );
         // Loaded-via-namespace tools must not appear (they are in the filtered section)
         assert!(
-            !g.iter().any(|e| e["@id"].as_str() == Some("#dep/r/GenomicRanges")),
+            !g.iter()
+                .any(|e| e["@id"].as_str() == Some("#dep/r/GenomicRanges")),
             "`loaded via a namespace` tools must not be registered"
         );
     }
@@ -5211,18 +5336,14 @@ loaded via a namespace (and not attached):
 
         let tmp = tempfile::TempDir::new().unwrap();
         let root = tmp.path();
-        write_env_lock_package(
-            root,
-            &[("task_a", lock_a), ("task_b", lock_b)],
-        );
+        write_env_lock_package(root, &[("task_a", lock_a), ("task_b", lock_b)]);
 
         let n = register_software_from_env_locks(root).unwrap();
         assert_eq!(n, 3, "pydeseq2 + gseapy + matplotlib = 3, no duplicate");
 
-        let doc: Value = serde_json::from_slice(
-            &std::fs::read(root.join("ro-crate-metadata.json")).unwrap(),
-        )
-        .unwrap();
+        let doc: Value =
+            serde_json::from_slice(&std::fs::read(root.join("ro-crate-metadata.json")).unwrap())
+                .unwrap();
         let g = doc["@graph"].as_array().unwrap();
         let pydeseq_count = g
             .iter()
@@ -5241,10 +5362,9 @@ loaded via a namespace (and not attached):
         write_env_lock_package(root, &[("task1", lock)]);
 
         register_software_from_env_locks(root).unwrap();
-        let doc: Value = serde_json::from_slice(
-            &std::fs::read(root.join("ro-crate-metadata.json")).unwrap(),
-        )
-        .unwrap();
+        let doc: Value =
+            serde_json::from_slice(&std::fs::read(root.join("ro-crate-metadata.json")).unwrap())
+                .unwrap();
         let g = doc["@graph"].as_array().unwrap();
         let wf = g.iter().find(|e| e["@id"] == "WORKFLOW.json").unwrap();
         let reqs: Vec<&str> = wf["softwareRequirements"]
@@ -5272,10 +5392,9 @@ loaded via a namespace (and not attached):
         let n2 = register_software_from_env_locks(root).unwrap();
         assert_eq!(n2, 0, "second call must return 0 (idempotent)");
 
-        let doc: Value = serde_json::from_slice(
-            &std::fs::read(root.join("ro-crate-metadata.json")).unwrap(),
-        )
-        .unwrap();
+        let doc: Value =
+            serde_json::from_slice(&std::fs::read(root.join("ro-crate-metadata.json")).unwrap())
+                .unwrap();
         let count = doc["@graph"]
             .as_array()
             .unwrap()
@@ -5333,11 +5452,30 @@ loaded via a namespace (and not attached):
         parse_env_lock(content, &mut seen);
 
         // Expected registrations
-        assert_eq!(seen.get(&("conda".into(), "bioconductor-deseq2".into())).map(String::as_str), Some("1.50.2"));
-        assert_eq!(seen.get(&("conda".into(), "r-jsonlite".into())).map(String::as_str), Some("2.0.0"));
-        assert_eq!(seen.get(&("python".into(), "pydeseq2".into())).map(String::as_str), Some("0.5.4"));
-        assert_eq!(seen.get(&("r".into(), "DESeq2".into())).map(String::as_str), Some("1.50.2"));
-        assert_eq!(seen.get(&("r".into(), "SummarizedExperiment".into())).map(String::as_str), Some("1.40.0"));
+        assert_eq!(
+            seen.get(&("conda".into(), "bioconductor-deseq2".into()))
+                .map(String::as_str),
+            Some("1.50.2")
+        );
+        assert_eq!(
+            seen.get(&("conda".into(), "r-jsonlite".into()))
+                .map(String::as_str),
+            Some("2.0.0")
+        );
+        assert_eq!(
+            seen.get(&("python".into(), "pydeseq2".into()))
+                .map(String::as_str),
+            Some("0.5.4")
+        );
+        assert_eq!(
+            seen.get(&("r".into(), "DESeq2".into())).map(String::as_str),
+            Some("1.50.2")
+        );
+        assert_eq!(
+            seen.get(&("r".into(), "SummarizedExperiment".into()))
+                .map(String::as_str),
+            Some("1.40.0")
+        );
 
         // Must NOT be registered
         assert!(seen.get(&("conda".into(), "conda env".into())).is_none());
@@ -5360,11 +5498,22 @@ loaded via a namespace (and not attached):
             ..Default::default()
         };
         let meta = build_metadata(&dag, &classification, &FrozenClock::default());
-        let wf = meta["@graph"].as_array().unwrap().iter()
-            .find(|e| e["@type"].as_array().map_or(false, |a|
-                a.iter().any(|t| t == "ComputationalWorkflow"))).unwrap();
-        let types: Vec<&str> = wf["@type"].as_array().unwrap()
-            .iter().filter_map(|t| t.as_str()).collect();
+        let wf = meta["@graph"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| {
+                e["@type"]
+                    .as_array()
+                    .map_or(false, |a| a.iter().any(|t| t == "ComputationalWorkflow"))
+            })
+            .unwrap();
+        let types: Vec<&str> = wf["@type"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|t| t.as_str())
+            .collect();
         assert!(types.contains(&"File"));
         assert!(types.contains(&"SoftwareSourceCode"));
         assert!(types.contains(&"ComputationalWorkflow"));
@@ -5399,7 +5548,9 @@ loaded via a namespace (and not attached):
         ]
     }
 
-    fn graph_with_parameter_connections(edges: &[crate::workflow_contracts::edge::EdgeContract]) -> Value {
+    fn graph_with_parameter_connections(
+        edges: &[crate::workflow_contracts::edge::EdgeContract],
+    ) -> Value {
         let mut graph: Vec<Value> = vec![json!({"@id": "./", "@type": "Dataset", "hasPart": []})];
         for e in edges {
             graph.push(parameter_connection_entity(
@@ -5460,7 +5611,9 @@ loaded via a namespace (and not attached):
         // The authoritative raw-counts edge is KEPT and stamped.
         let raw_node = graph
             .iter()
-            .find(|e| e["@id"] == "#parameter-connection/quantification__to__differential_expression")
+            .find(|e| {
+                e["@id"] == "#parameter-connection/quantification__to__differential_expression"
+            })
             .expect("raw_counts ParameterConnection node present");
         assert_eq!(raw_node["ecaax:provenanceStatus"], "authoritative");
 
@@ -5495,7 +5648,10 @@ loaded via a namespace (and not attached):
         let root = graph.iter().find(|e| e["@id"] == "./").unwrap();
         let unused = resolve_side_channel(graph, root, "ecaax:unusedCandidateEdge");
         assert_eq!(unused.len(), 1);
-        assert!(unused[0]["@id"].as_str().unwrap().starts_with("#unused-candidate-edge/"));
+        assert!(unused[0]["@id"]
+            .as_str()
+            .unwrap()
+            .starts_with("#unused-candidate-edge/"));
         assert_eq!(unused[0]["from_node"], "normalisation");
         assert_eq!(unused[0]["to_node"], "differential_expression");
         assert_eq!(unused[0]["to_port"], "normalized_counts");
@@ -5521,7 +5677,9 @@ loaded via a namespace (and not attached):
         // Exactly one node per @id — no duplication from the second pass.
         let raw_matches = graph
             .iter()
-            .filter(|e| e["@id"] == "#parameter-connection/quantification__to__differential_expression")
+            .filter(|e| {
+                e["@id"] == "#parameter-connection/quantification__to__differential_expression"
+            })
             .count();
         assert_eq!(raw_matches, 1);
     }
@@ -5541,13 +5699,16 @@ loaded via a namespace (and not attached):
 
         let graph = metadata["@graph"].as_array().unwrap();
         let root = graph.iter().find(|e| e["@id"] == "./").unwrap();
-        let divergences = root["ecaax:provenanceDivergence"].as_array()
+        let divergences = root["ecaax:provenanceDivergence"]
+            .as_array()
             .expect("divergence array recorded on root Dataset");
         assert_eq!(divergences.len(), 1);
         // The root references the divergence by `@id` (a flattened `@graph`
         // node), NOT an inline value object — a strict runcrate/WRROC validator
         // rejects an inline object with no `@id` (the substrate_validity bug).
-        let div_id = divergences[0]["@id"].as_str().expect("divergence referenced by @id");
+        let div_id = divergences[0]["@id"]
+            .as_str()
+            .expect("divergence referenced by @id");
         assert_eq!(div_id, "#provenance-divergence/differential_expression/0");
         assert!(
             divergences[0].get("read_path").is_none(),
@@ -5557,7 +5718,10 @@ loaded via a namespace (and not attached):
             .iter()
             .find(|e| e["@id"] == div_id)
             .expect("divergence node flattened into @graph with its own @id");
-        assert_eq!(div_node["read_path"], "runtime/outputs/data_acquisition/counts.tsv");
+        assert_eq!(
+            div_node["read_path"],
+            "runtime/outputs/data_acquisition/counts.tsv"
+        );
         assert!(
             div_node["@type"]
                 .as_array()
@@ -5571,14 +5735,21 @@ loaded via a namespace (and not attached):
         // resolution and never drop a member we cannot rule out.
         let raw_node = graph
             .iter()
-            .find(|e| e["@id"] == "#parameter-connection/quantification__to__differential_expression")
+            .find(|e| {
+                e["@id"] == "#parameter-connection/quantification__to__differential_expression"
+            })
             .unwrap();
         assert_eq!(raw_node["ecaax:provenanceStatus"], "candidate_unused");
         let normalized_node = graph
             .iter()
-            .find(|e| e["@id"] == "#parameter-connection/normalisation__to__differential_expression")
+            .find(|e| {
+                e["@id"] == "#parameter-connection/normalisation__to__differential_expression"
+            })
             .expect("unresolved one-of members are both kept in the standard graph");
-        assert_eq!(normalized_node["ecaax:provenanceStatus"], "candidate_unused");
+        assert_eq!(
+            normalized_node["ecaax:provenanceStatus"],
+            "candidate_unused"
+        );
         // No candidate was dropped, so the side channel is absent.
         assert!(root.get("ecaax:unusedCandidateEdge").is_none());
     }
@@ -5623,10 +5794,19 @@ loaded via a namespace (and not attached):
         // @graph node carrying the fields (validator-acceptable `@id`).
         let allowed = resolve_side_channel(graph, root, "ecaax:provenanceReadAllowance");
         assert_eq!(allowed.len(), 1);
-        assert_eq!(allowed[0]["@id"], "#read-allowance/differential_expression/0");
+        assert_eq!(
+            allowed[0]["@id"],
+            "#read-allowance/differential_expression/0"
+        );
         assert_eq!(allowed[0]["task_id"], "differential_expression");
-        assert_eq!(allowed[0]["read_path"], "runtime/outputs/data_acquisition/counts.tsv");
-        assert_eq!(allowed[0]["rationale"], "test: aggregates any upstream stage");
+        assert_eq!(
+            allowed[0]["read_path"],
+            "runtime/outputs/data_acquisition/counts.tsv"
+        );
+        assert_eq!(
+            allowed[0]["rationale"],
+            "test: aggregates any upstream stage"
+        );
     }
 
     /// A task's `read_allowance` covers ONLY that task — a sibling task
@@ -5671,7 +5851,10 @@ loaded via a namespace (and not attached):
 
         reconcile_ro_crate_edges(&mut metadata, &edges, &[]);
 
-        assert_eq!(metadata, before, "empty observed reads must leave the graph untouched");
+        assert_eq!(
+            metadata, before,
+            "empty observed reads must leave the graph untouched"
+        );
     }
 
     /// A `Divergent` verdict must be surfaced to the caller as a typed
@@ -5793,8 +5976,10 @@ loaded via a namespace (and not attached):
         let graph = metadata["@graph"].as_array().unwrap();
         // (a) the unread ParameterConnection is dropped (existing behavior).
         assert!(
-            graph.iter().all(|e| e["@id"]
-                != "#parameter-connection/normalisation__to__differential_expression"),
+            graph
+                .iter()
+                .all(|e| e["@id"]
+                    != "#parameter-connection/normalisation__to__differential_expression"),
             "the unread one-of candidate must NOT remain as a standard ParameterConnection"
         );
 
@@ -5966,17 +6151,37 @@ loaded via a namespace (and not attached):
         // Each reference resolves to a @graph node carrying the fields + @type.
         let allowed = resolve_side_channel(graph, root, "ecaax:provenanceReadAllowance");
         assert_eq!(allowed.len(), 1);
-        let allow_types: Vec<&str> =
-            allowed[0]["@type"].as_array().unwrap().iter().filter_map(|t| t.as_str()).collect();
-        assert!(allow_types.contains(&"ecaax:ProvenanceReadAllowance"), "got {allow_types:?}");
-        assert_eq!(allowed[0]["read_path"], "runtime/outputs/data_acquisition/counts.tsv");
-        assert_eq!(allowed[0]["rationale"], "test: aggregates any upstream stage");
+        let allow_types: Vec<&str> = allowed[0]["@type"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|t| t.as_str())
+            .collect();
+        assert!(
+            allow_types.contains(&"ecaax:ProvenanceReadAllowance"),
+            "got {allow_types:?}"
+        );
+        assert_eq!(
+            allowed[0]["read_path"],
+            "runtime/outputs/data_acquisition/counts.tsv"
+        );
+        assert_eq!(
+            allowed[0]["rationale"],
+            "test: aggregates any upstream stage"
+        );
 
         let unused = resolve_side_channel(graph, root, "ecaax:unusedCandidateEdge");
         assert_eq!(unused.len(), 1);
-        let unused_types: Vec<&str> =
-            unused[0]["@type"].as_array().unwrap().iter().filter_map(|t| t.as_str()).collect();
-        assert!(unused_types.contains(&"ecaax:UnusedCandidateEdge"), "got {unused_types:?}");
+        let unused_types: Vec<&str> = unused[0]["@type"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|t| t.as_str())
+            .collect();
+        assert!(
+            unused_types.contains(&"ecaax:UnusedCandidateEdge"),
+            "got {unused_types:?}"
+        );
         assert_eq!(unused[0]["from_node"], "normalisation");
         assert_eq!(unused[0]["ecaax:supersededByProducer"], "quantification");
     }
@@ -6028,7 +6233,10 @@ loaded via a namespace (and not attached):
             "per-task read-allowance ids must be distinct and 0-based"
         );
         // All ids resolve to distinct @graph nodes.
-        assert_eq!(resolve_side_channel(graph, root, "ecaax:provenanceReadAllowance").len(), 2);
+        assert_eq!(
+            resolve_side_channel(graph, root, "ecaax:provenanceReadAllowance").len(),
+            2
+        );
     }
 
     // ── Fix 2: minimal port-alias map — every declared task input port maps

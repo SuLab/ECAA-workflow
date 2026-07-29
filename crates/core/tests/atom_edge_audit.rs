@@ -30,10 +30,10 @@ fn config_root() -> PathBuf {
 /// inputs. The strongest outcome across all port pairs wins.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum EdgeFlow {
-    Typed,        // some pair -> Compatible
-    Adapter,      // some pair -> CompatibleWithAdapters (none Compatible)
-    Unknown,      // some pair -> Unknown (opaque), none stronger
-    NoFlow,       // every pair Incompatible (or one side has no ports)
+    Typed,   // some pair -> Compatible
+    Adapter, // some pair -> CompatibleWithAdapters (none Compatible)
+    Unknown, // some pair -> Unknown (opaque), none stronger
+    NoFlow,  // every pair Incompatible (or one side has no ports)
 }
 
 fn classify_edge(
@@ -66,8 +66,10 @@ fn classify_edge(
                 CompatibilityResult::Incompatible(report) => {
                     reasons.push(format!(
                         "{}.{} -> {}.{}: {:?}",
-                        p.name, p.semantic_type.stable_id(),
-                        c.name, c.semantic_type.stable_id(),
+                        p.name,
+                        p.semantic_type.stable_id(),
+                        c.name,
+                        c.semantic_type.stable_id(),
                         report.reasons
                     ));
                 }
@@ -91,7 +93,9 @@ fn audit_all_atom_edges() {
     // method_choice.deferred_to (exists + is Discovery).
     reg.validate_consistency()
         .expect("validate_consistency: id-based edges must be referentially correct");
-    eprintln!("[OK] validate_consistency passed (depends_on / excludes / method_choice refs valid)");
+    eprintln!(
+        "[OK] validate_consistency passed (depends_on / excludes / method_choice refs valid)"
+    );
 
     // ---- 2. Acyclicity of the depends_on graph ----
     let mut graph: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -153,8 +157,7 @@ fn audit_all_atom_edges() {
         for producer_id in &consumer.depends_on {
             total += 1;
             let producer = reg.get(producer_id).expect("validated above");
-            let (flow, reasons) =
-                classify_edge(&engine, &producer.outputs, &consumer.inputs, &ctx);
+            let (flow, reasons) = classify_edge(&engine, &producer.outputs, &consumer.inputs, &ctx);
             match flow {
                 EdgeFlow::Typed => typed += 1,
                 EdgeFlow::Adapter => adapter += 1,
@@ -190,10 +193,7 @@ fn audit_all_atom_edges() {
             || prod.outputs.is_empty()
             || cons.inputs.is_empty();
         let tag = if ordering_ok { "ordering-ok" } else { "REVIEW" };
-        eprintln!(
-            "  [{tag}] {p}({:?}) -> {c}({:?})",
-            prod.role, cons.role
-        );
+        eprintln!("  [{tag}] {p}({:?}) -> {c}({:?})", prod.role, cons.role);
         for r in reasons.iter().take(3) {
             eprintln!("        {r}");
         }

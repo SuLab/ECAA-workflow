@@ -292,10 +292,7 @@ pub fn build_image(opts: &SnapshotOpts) -> io::Result<String> {
             cmd.arg("--cache-from")
                 .arg(format!("type=local,src={}", cache_dir.display()))
                 .arg("--cache-to")
-                .arg(format!(
-                    "type=local,dest={},mode=max",
-                    cache_dir.display()
-                ));
+                .arg(format!("type=local,dest={},mode=max", cache_dir.display()));
         }
     } else {
         cmd.arg("build");
@@ -553,7 +550,9 @@ mod tests {
     fn snapshot_image_tag_strips_prefix_and_takes_12_chars() {
         // Standard sha256: prefix — first 12 hex chars after the prefix.
         assert_eq!(
-            snapshot_image_tag("sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"),
+            snapshot_image_tag(
+                "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+            ),
             "ecaa-snapshot:abcdef012345"
         );
     }
@@ -638,11 +637,17 @@ mod tests {
                 std::fs::write(bin.join("Rscript"), "x").unwrap();
             }
         }
-        assert_eq!(find_r_env_bin(&envs), Some(envs.join("ecaa-bioc").join("bin")));
+        assert_eq!(
+            find_r_env_bin(&envs),
+            Some(envs.join("ecaa-bioc").join("bin"))
+        );
 
         // Without ecaa-bioc, take the lexicographically-first env with Rscript.
         std::fs::remove_dir_all(envs.join("ecaa-bioc")).unwrap();
-        assert_eq!(find_r_env_bin(&envs), Some(envs.join("aaa-env").join("bin")));
+        assert_eq!(
+            find_r_env_bin(&envs),
+            Some(envs.join("aaa-env").join("bin"))
+        );
 
         // Python-only run (no Rscript anywhere) → None.
         std::fs::remove_file(envs.join("aaa-env").join("bin").join("Rscript")).unwrap();

@@ -39,7 +39,10 @@ fn every_archetype_goal_iri_has_a_label() {
         }
     }
 
-    let unmapped: Vec<&String> = iris.iter().filter(|iri| edam_label(iri).is_none()).collect();
+    let unmapped: Vec<&String> = iris
+        .iter()
+        .filter(|iri| edam_label(iri).is_none())
+        .collect();
     assert!(
         unmapped.is_empty(),
         "archetype goal CURIEs with no edam_labels::edam_label entry: {unmapped:?}. \

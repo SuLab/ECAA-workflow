@@ -45,9 +45,11 @@ fn tiny_package_zip() -> Vec<u8> {
             .unwrap();
         zw.start_file("pkg/ro-crate-metadata.json", o).unwrap();
         zw.write_all(b"{}").unwrap();
-        zw.start_file("pkg/runtime/audit-proof-report.json", o).unwrap();
+        zw.start_file("pkg/runtime/audit-proof-report.json", o)
+            .unwrap();
         zw.write_all(b"{}").unwrap();
-        zw.start_file("pkg/runtime/claim-verification.json", o).unwrap();
+        zw.start_file("pkg/runtime/claim-verification.json", o)
+            .unwrap();
         zw.write_all(b"{}").unwrap();
         zw.finish().unwrap();
     }
@@ -84,7 +86,10 @@ async fn import_zip_creates_explorable_session() {
     let sid = body["session_id"].as_str().unwrap();
     assert_eq!(body["imported"], serde_json::json!(true));
     assert_eq!(body["capabilities"]["explore"], serde_json::json!(true));
-    assert_eq!(body["capabilities"]["replay_tier2"], serde_json::json!(false));
+    assert_eq!(
+        body["capabilities"]["replay_tier2"],
+        serde_json::json!(false)
+    );
 
     // Explorable: /dag returns the reconstructed graph.
     let dag_req = Request::builder()

@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from lib.literature.contextualize import build_rows, contextualize
+from lib.literature.contextualize import COUNT_DEFINITIONS, build_rows, contextualize
 from lib.literature.direction import CONCORDANCE_FLAGS
 from lib.literature.evidence import load_evidence
 from lib.literature.matrix import (
@@ -348,6 +348,143 @@ def test_summary_counts_match_the_matrix(workspace: dict) -> None:
     for row in rows:
         tally[row["concordance_flag"]] = tally.get(row["concordance_flag"], 0) + 1
     assert summary["concordance_counts"] == tally
+
+
+# --- self-describing assessment counts ------------------------------------
+#
+# The fixture is chosen so the entity count and the evidence-ROW count DIFFER:
+# DUSP1 is the single searched entity and it cites TWO snapshots, so 1 entity
+# yields 2 rows. That difference is the whole point — a deposited report read 9
+# assessed evidence rows as "9 specific genes" when only 4 entities were ever
+# searched, and contradicted itself with the correct 4 later in the same file.
+
+
+def test_entity_and_evidence_row_counts_are_separate_numbers(workspace: dict) -> None:
+    summary = _run(workspace)
+    rows = _matrix(workspace)
+    searched = [r for r in rows if r["searched"] == "true"]
+    assert summary["n_entities_assessed"] == 1
+    assert summary["n_evidence_rows_assessed"] == 2
+    # The two are distinct keys with distinct values, so neither can be quoted as
+    # the other. Both reconcile against the emitted CSV.
+    assert summary["n_evidence_rows_assessed"] != summary["n_entities_assessed"]
+    assert summary["n_evidence_rows_assessed"] == len(searched)
+    assert summary["n_entities_assessed"] == len({r["entity"] for r in searched})
+    assert summary["entities_assessed"] == ["DUSP1"]
+    # Only the entity count may be described as a number of entities searched.
+    assert summary["n_evidence_rows_total"] == len(rows) == summary["n_rows"]
+
+
+def test_not_assessed_entity_count_is_separate_from_the_assessed_one(
+    workspace: dict,
+) -> None:
+    summary = _run(workspace)
+    # SAA1 is significant but no query named it, so it is not_assessed — a
+    # distinct bucket from the assessed entities, never novel.
+    assert summary["n_entities_not_assessed"] == 1
+    assert summary["n_entities_assessed"] == 1
+    rows = _matrix(workspace)
+    unsearched = {r["entity"] for r in rows if r["searched"] != "true"}
+    assert unsearched == {"SAA1"}
+    assert set(summary["entities_assessed"]).isdisjoint(unsearched)
+
+
+def test_axis_total_is_separate_from_axes_naming_an_entity(workspace: dict) -> None:
+    """A retrieval axis may name a method or a dataset rather than an entity, so
+    the total axis count is NOT a count of entities searched. The deposited run
+    recorded 7 axes of which only 4 named an entity."""
+    prior_rows = read_prior_claims(workspace["prior"])
+    # Two more axes that name no finding entity at all.
+    for axis in ("deseq2_bulk_rnaseq_de", "dexamethasone_airway_smooth_muscle"):
+        prior_rows.append(
+            {"axis": axis, "pmid": "24926665", "source_hash": "", "evidence_quote": ""}
+        )
+    with workspace["prior"].open("w", encoding="utf-8", newline="") as fh:
+        writer = csv.DictWriter(
+            fh, fieldnames=["axis", "pmid", "source_hash", "evidence_quote"],
+            lineterminator="\n",
+        )
+        writer.writeheader()
+        writer.writerows(prior_rows)
+
+    summary = _run(workspace)
+    assert summary["n_search_axes_total"] == 3
+    assert summary["n_search_axes_naming_an_assessed_entity"] == 1
+    assert summary["search_axes_naming_an_assessed_entity"] == ["dusp1_dexamethasone_asm"]
+    assert summary["search_scope_source"] == "query_axes"
+
+
+#: The counts this change adds, spelled out so definition coverage is checked
+#: against a literal set rather than against COUNT_DEFINITIONS itself. The
+#: pre-existing `n_rows` / `n_findings` / `n_snapshots_available` are deliberately
+#: absent: their meanings are unchanged and undocumented-here by design.
+_NEW_COUNT_KEYS = {
+    "n_entities_assessed",
+    "n_entities_not_assessed",
+    "n_evidence_rows_assessed",
+    "n_evidence_rows_total",
+    "n_search_axes_total",
+    "n_search_axes_naming_an_assessed_entity",
+}
+
+
+def test_every_emitted_count_carries_its_own_definition(workspace: dict) -> None:
+    summary = _run(workspace)
+    definitions = summary["count_definitions"]
+    assert definitions == COUNT_DEFINITIONS
+    # Every new count is defined, and every definition names an emitted count —
+    # so a narrative can never quote one of these numbers with no denominator.
+    assert set(COUNT_DEFINITIONS) == _NEW_COUNT_KEYS, (
+        set(COUNT_DEFINITIONS) ^ _NEW_COUNT_KEYS
+    )
+    for key in _NEW_COUNT_KEYS:
+        assert key in summary, key
+        assert isinstance(summary[key], int), key
+        text = definitions[key]
+        assert text and text[0].islower(), key
+        # A definition that does not name what it counts is not a definition.
+        assert ("entit" in text) or ("row" in text) or ("axes" in text), key
+
+
+def test_explicit_scope_records_why_the_axis_count_is_zero(workspace: dict) -> None:
+    """An explicit scope list means the retrieval step handed us its own searched
+    set, so no axis named the entities. Recording the source stops a reader from
+    reading that 0 as 'nothing was searched'."""
+    summary = _run(workspace, explicit_searched=["DUSP1"])
+    assert summary["search_scope_source"] == "explicit"
+    assert summary["n_search_axes_naming_an_assessed_entity"] == 0
+    assert summary["n_entities_assessed"] == 1
+    assert summary["n_evidence_rows_assessed"] == 2
+
+
+def test_assessment_counts_are_deterministic(workspace: dict, tmp_path: Path) -> None:
+    first = _run(workspace)
+    workspace["out"] = tmp_path / "ctx_again"
+    second = _run(workspace)
+    for key in (
+        "n_entities_assessed",
+        "n_entities_not_assessed",
+        "n_evidence_rows_assessed",
+        "n_evidence_rows_total",
+        "n_search_axes_total",
+        "n_search_axes_naming_an_assessed_entity",
+        "entities_assessed",
+        "search_axes_naming_an_assessed_entity",
+        "search_scope_source",
+        "count_definitions",
+    ):
+        assert first[key] == second[key], key
+
+
+def test_pre_existing_summary_keys_keep_their_meanings(workspace: dict) -> None:
+    """The new counts are additive: nothing an existing reader binds to moved."""
+    summary = _run(workspace)
+    rows = _matrix(workspace)
+    assert summary["n_rows"] == len(rows)
+    assert summary["n_findings"] == 2  # DUSP1 + SAA1 pass the threshold
+    assert summary["n_snapshots_available"] == 3
+    assert summary["columns"]["symbol"] == "symbol"
+    assert summary["symbol_map"] == {"path": SYMBOL_MAP_RELPATH, "n_rows": len(DE_ROWS)}
 
 
 # --- guardrails -----------------------------------------------------------

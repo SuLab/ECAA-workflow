@@ -3418,7 +3418,10 @@ mod processed_only_confirmation_gate {
             r.content
         );
         let body = serde_json::to_string(&r.content).unwrap();
-        assert_eq!(r.content["error_kind"], "precondition_failure", "body={body}");
+        assert_eq!(
+            r.content["error_kind"], "precondition_failure",
+            "body={body}"
+        );
         // Names the offending raw-processing stage.
         assert!(
             body.contains("sequence_trimming"),
@@ -3526,7 +3529,10 @@ mod processed_only_confirmation_gate {
             r.content
         );
         let body = serde_json::to_string(&r.content).unwrap();
-        assert_eq!(r.content["error_kind"], "precondition_failure", "body={body}");
+        assert_eq!(
+            r.content["error_kind"], "precondition_failure",
+            "body={body}"
+        );
         assert!(
             body.contains("deposited count matrix"),
             "message must cite the deposited counts: {body}"
@@ -3552,7 +3558,10 @@ mod processed_only_confirmation_gate {
     fn allowed_when_counts_matrix_available_but_raw_explicitly_requested() {
         let mut s = Session::new(false);
         s.probed_counts_matrix_available = true;
-        seed_user_prose(&mut s, "reanalyze GSE164073, start from raw reads and re-align");
+        seed_user_prose(
+            &mut s,
+            "reanalyze GSE164073, start from raw reads and re-align",
+        );
         seed_raw_first_dag(&mut s);
         let r = super::conversational::propose_summary_confirmation(&mut s, "Here is the plan.");
         assert!(
@@ -3644,7 +3653,10 @@ mod processed_only_confirmation_gate {
             "standard pipeline",
             "reanalyze GSE164073 bulk rna-seq standard pipeline pull from metadata",
         ] {
-            assert!(!raw(p), "counts-first intent must NOT read as a raw request: {p:?}");
+            assert!(
+                !raw(p),
+                "counts-first intent must NOT read as a raw request: {p:?}"
+            );
         }
         for p in [
             "start from raw reads",
@@ -3755,7 +3767,10 @@ mod processed_only_confirmation_gate {
              !Series_relation = SRA: https://www.ncbi.nlm.nih.gov/sra?term=SRP299835\n",
         );
         assert!(both.raw_reads_sra.is_some(), "both-forms: SRA present");
-        assert!(has_counts(&both), "deposited count matrix ⇒ counts flag true");
+        assert!(
+            has_counts(&both),
+            "deposited count matrix ⇒ counts flag true"
+        );
 
         // fpkm-only deposit (no counts): flag FALSE — reads-first stays the
         // right default (fpkm is not a valid DE substrate).
@@ -3784,7 +3799,8 @@ mod processed_only_confirmation_gate {
         // must NOT erase a flag an earlier counts-bearing probe set. This is
         // the exact live bug that let a reads-first plan through: a subsequent
         // rate-limited probe reset the flag to false and the gate stopped firing.
-        let flake = crate::dataset_probe::ProbeResult::needs_manual("GSE164073", "GEO request failed");
+        let flake =
+            crate::dataset_probe::ProbeResult::needs_manual("GSE164073", "GEO request failed");
         assert!(!has_counts(&flake), "a flaked probe reports no counts");
         let sticky = |prev: bool, p: &crate::dataset_probe::ProbeResult| prev || has_counts(p);
         assert!(
@@ -4024,8 +4040,16 @@ fn restamp_required_input_stage_reflects_postprune_entry() {
         let mut n = TaskNode::skeleton(id, format!("intent {id}"));
         n.attributes
             .insert("stage_id".into(), serde_json::Value::String(id.into()));
-        n.inputs = vec![PortContract::from_edam("in", Some(in_iri), Some("format:3475"))];
-        n.outputs = vec![PortContract::from_edam("out", Some(out_iri), Some("format:3475"))];
+        n.inputs = vec![PortContract::from_edam(
+            "in",
+            Some(in_iri),
+            Some("format:3475"),
+        )];
+        n.outputs = vec![PortContract::from_edam(
+            "out",
+            Some(out_iri),
+            Some("format:3475"),
+        )];
         n
     }
     fn edge(from: &str, to: &str) -> EdgeContract {
@@ -4331,7 +4355,9 @@ fn auto_author_seeds_analysis_node_for_generic_scaffold() {
         .as_ref()
         .expect("auto-author must lower a DAG into s.dag");
     assert!(
-        dag.tasks.keys().any(|k| k.as_str() == "agent_generated_analysis"),
+        dag.tasks
+            .keys()
+            .any(|k| k.as_str() == "agent_generated_analysis"),
         "auto-author must splice agent_generated_analysis; tasks={:?}",
         dag.tasks.keys().map(|k| k.as_str()).collect::<Vec<_>>()
     );

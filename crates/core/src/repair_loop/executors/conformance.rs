@@ -64,12 +64,8 @@ impl Executor for ConformanceFix {
 
         // Step 2: re-seal the BagIt manifests so they cover the (possibly
         // changed) descriptor + the at-rest outputs surface.
-        if let Err(e) =
-            crate::emitter::regenerate_bagit_manifest(pkg, &crate::clock::WallClock)
-        {
-            return RepairOutcome::Unrepairable(format!(
-                "re-sealing BagIt manifest failed: {e:#}"
-            ));
+        if let Err(e) = crate::emitter::regenerate_bagit_manifest(pkg, &crate::clock::WallClock) {
+            return RepairOutcome::Unrepairable(format!("re-sealing BagIt manifest failed: {e:#}"));
         }
 
         let note = format!("re-registered {n} tables + re-sealed manifests");
@@ -159,7 +155,11 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let pkg = dir.path();
         let de_bytes = build_minimal_package(pkg);
-        let de_path = pkg.join("runtime").join("outputs").join("de").join("de.tsv");
+        let de_path = pkg
+            .join("runtime")
+            .join("outputs")
+            .join("de")
+            .join("de.tsv");
 
         let f = Failure::new(
             FailureSource::InvariantFailure("table_registration".to_string()),
@@ -179,7 +179,10 @@ mod tests {
         // Unrepairable with a non-empty reason. NeedsAgent is never correct for
         // a deterministic metadata repair.
         match &outcome {
-            RepairOutcome::Applied { deterministic, note } => {
+            RepairOutcome::Applied {
+                deterministic,
+                note,
+            } => {
                 assert!(
                     *deterministic,
                     "ConformanceFix Applied must be deterministic, got {outcome:?}"
@@ -235,7 +238,13 @@ mod tests {
 
         let outcome = ConformanceFix.repair(&f, pkg, pkg, &UnusedRunner);
         assert!(
-            matches!(outcome, RepairOutcome::Applied { deterministic: true, .. }),
+            matches!(
+                outcome,
+                RepairOutcome::Applied {
+                    deterministic: true,
+                    ..
+                }
+            ),
             "ordinary registration drift must resolve as deterministic Applied, got {outcome:?}"
         );
     }
@@ -250,7 +259,11 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let pkg = dir.path();
         let de_bytes = build_minimal_package(pkg);
-        let de_path = pkg.join("runtime").join("outputs").join("de").join("de.tsv");
+        let de_path = pkg
+            .join("runtime")
+            .join("outputs")
+            .join("de")
+            .join("de.tsv");
 
         let f = Failure::new(
             FailureSource::InvariantFailure("substrate_validity".to_string()),
@@ -280,9 +293,7 @@ mod tests {
                     "residual must name the unresolved substrate obstacle, got {residual:?}"
                 );
             }
-            other => panic!(
-                "substrate_validity must degrade to PartiallyApplied, got {other:?}"
-            ),
+            other => panic!("substrate_validity must degrade to PartiallyApplied, got {other:?}"),
         }
 
         // The real work must still not have touched the frozen result bytes.

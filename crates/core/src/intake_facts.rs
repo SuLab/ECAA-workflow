@@ -292,9 +292,15 @@ impl IntakeFacts {
         // Called peaks: gate on peak-calling modalities + a peak NOUN.
         // hi_chip carries a `peak_calling` atom (alongside its contact/loop
         // atoms), so a supplied-peaks declaration seeds the peaks entry.
-        const PEAK_MODALITIES: &[&str] = &["chip_seq", "atac_seq", "cut_tag", "chip_exo", "hi_chip"];
-        const PEAK_NOUNS: &[&str] =
-            &["called peaks", "peak calls", "narrowpeak", "peak set", "peaks"];
+        const PEAK_MODALITIES: &[&str] =
+            &["chip_seq", "atac_seq", "cut_tag", "chip_exo", "hi_chip"];
+        const PEAK_NOUNS: &[&str] = &[
+            "called peaks",
+            "peak calls",
+            "narrowpeak",
+            "peak set",
+            "peaks",
+        ];
         if PEAK_MODALITIES.contains(&modality) && bound(PEAK_NOUNS) {
             return Some(supplied_product(
                 "intake_called_peaks_0",
@@ -305,8 +311,7 @@ impl IntakeFacts {
 
         // Called variants / VCF: gate on variant modalities + a variant NOUN.
         const VARIANT_MODALITIES: &[&str] = &["variant_calling", "gwas"];
-        const VARIANT_NOUNS: &[&str] =
-            &["vcf", "called variants", "variant calls", "variant set"];
+        const VARIANT_NOUNS: &[&str] = &["vcf", "called variants", "variant calls", "variant set"];
         if VARIANT_MODALITIES.contains(&modality) && bound(VARIANT_NOUNS) {
             return Some(supplied_product(
                 "intake_called_variants_0",
@@ -483,8 +488,13 @@ impl IntakeFacts {
         // Alignments / BAM: modality-independent (read-based pipelines all have
         // an `alignment` producer) but still require a known modality + a BAM
         // NOUN + a possession marker.
-        const BAM_NOUNS: &[&str] =
-            &["bam file", "bam files", "aligned reads", "alignments", "bam"];
+        const BAM_NOUNS: &[&str] = &[
+            "bam file",
+            "bam files",
+            "aligned reads",
+            "alignments",
+            "bam",
+        ];
         if bound(BAM_NOUNS) {
             return Some(supplied_product(
                 "intake_alignment_0",
@@ -921,8 +931,10 @@ mod tests {
                 "immunopeptidomics",
             ),
         ] {
-            let p = IntakeFacts::detect_input_data_stage(prose, Some(modality))
-                .unwrap_or_else(|| panic!("expected a protein-abundance input stage for: {prose:?}"));
+            let p =
+                IntakeFacts::detect_input_data_stage(prose, Some(modality)).unwrap_or_else(|| {
+                    panic!("expected a protein-abundance input stage for: {prose:?}")
+                });
             match &p.semantic_type {
                 // `data:2976` is the proposed-parent ontology term of the
                 // `protein_quantification` LocalExtension output port.
@@ -970,7 +982,9 @@ mod tests {
             "methylation levels provided per probe; run DMR calling",
         ] {
             let p = IntakeFacts::detect_input_data_stage(prose, Some("methylation"))
-                .unwrap_or_else(|| panic!("expected a methylation-beta input stage for: {prose:?}"));
+                .unwrap_or_else(|| {
+                    panic!("expected a methylation-beta input stage for: {prose:?}")
+                });
             match &p.semantic_type {
                 SemanticType::OntologyTerm { iri, .. } => assert_eq!(iri, "data:3917"),
                 other => panic!("expected methylation-beta ontology term, got {other:?}"),
@@ -1023,9 +1037,8 @@ mod tests {
         // A metagenomics classification-pipeline description must NOT seed a
         // supplied taxonomy table (marker must bind a taxonomy NOUN, not the
         // classify verb).
-        for prose in [
-            "shotgun metagenomics: QC, trim, classify reads with Kraken2, then diversity",
-        ] {
+        for prose in ["shotgun metagenomics: QC, trim, classify reads with Kraken2, then diversity"]
+        {
             assert!(
                 IntakeFacts::detect_input_data_stage(prose, Some("metagenomics")).is_none(),
                 "a classify STEP must NOT seed a supplied taxonomy table: {prose:?}"

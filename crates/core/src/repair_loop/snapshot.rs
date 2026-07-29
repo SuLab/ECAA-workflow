@@ -3,7 +3,7 @@
 //!
 //! The snapshot captures ONLY files the repair loop is permitted to write:
 //! per-task narratives (`report.md` / `*.txt`), `claims_evidence_matrix.csv`,
-//! `ro-crate-metadata.json`, the BagIt manifests, and `decisions.jsonl` under
+//! `ro-crate-metadata.json`, the checksum-seal files, and `decisions.jsonl` under
 //! `runtime/`, plus the root-level `ro-crate-metadata.json` and
 //! `manifest-sha512.txt`. It NEVER captures or restores frozen result tables
 //! (`*.tsv` / arbitrary `*.csv` under `results/` or `runtime/outputs/`) — those
@@ -18,12 +18,19 @@ const RUNTIME_CAPTURE_NAMES: &[&str] = &[
     "claims_evidence_matrix.csv",
     "ro-crate-metadata.json",
     "manifest-sha512.txt",
+    "seal-info.json",
+    "seal-tagmanifest-sha512.txt",
     "tagmanifest-sha512.txt",
     "decisions.jsonl",
 ];
 
 /// Root-level files captured (the package-level RO-Crate + payload manifest).
-const ROOT_CAPTURE_NAMES: &[&str] = &["ro-crate-metadata.json", "manifest-sha512.txt"];
+const ROOT_CAPTURE_NAMES: &[&str] = &[
+    "ro-crate-metadata.json",
+    "manifest-sha512.txt",
+    "seal-info.json",
+    "seal-tagmanifest-sha512.txt",
+];
 
 /// True when `name` is a writable file the snapshot should capture under
 /// `runtime/`: one of the named artifacts OR any `.txt` narrative. Result

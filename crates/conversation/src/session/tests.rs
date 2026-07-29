@@ -338,7 +338,10 @@ fn branch_inherits_parameter_overrides() {
         ecaa_workflow_core::parameter_override::OverrideSource::Sme,
     );
     let child = Session::branch_from(&parent, false);
-    assert_eq!(child.sme_parameter_overrides, parent.sme_parameter_overrides);
+    assert_eq!(
+        child.sme_parameter_overrides,
+        parent.sme_parameter_overrides
+    );
     assert!(!child.sme_parameter_overrides.is_empty());
 }
 
@@ -408,7 +411,8 @@ fn branch_from_task_inherits_authoritative_workflow_dag_and_resets_target() {
         },
     );
 
-    let child = Session::branch_from_at_task(&parent, false, Some("data_acquisition".into())).expect("branch at task");
+    let child = Session::branch_from_at_task(&parent, false, Some("data_acquisition".into()))
+        .expect("branch at task");
 
     assert!(
         child.workflow_dag.is_some(),

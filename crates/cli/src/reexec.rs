@@ -76,13 +76,8 @@ pub(crate) fn run(args: ReexecArgs) -> Result<()> {
     // unconfigured modality (see crates/conversation/src/emit/sidecars.rs).
     let bounds = ModalityBounds::default();
 
-    let report = classify_reexecution(
-        &args.parent,
-        &args.replay,
-        args.policy.as_deref(),
-        bounds,
-    )
-    .context("reexecution::classify_reexecution")?;
+    let report = classify_reexecution(&args.parent, &args.replay, args.policy.as_deref(), bounds)
+        .context("reexecution::classify_reexecution")?;
 
     // Resolve the destination package dir: --into when given, else --replay.
     let dest_pkg = args.into.as_deref().unwrap_or(&args.replay);

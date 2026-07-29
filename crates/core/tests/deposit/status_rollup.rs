@@ -148,7 +148,11 @@ fn failed_domain_check_flips_run_to_not_deposit_ready() {
     let dr = deposit_readiness::read_deposit_readiness(dst.path())
         .expect("reading DEPOSIT-READINESS.json")
         .expect("export must have written an attestation");
-    assert_eq!(dr.ro_crate, CheckStatus::Pass, "package is structurally sound");
+    assert_eq!(
+        dr.ro_crate,
+        CheckStatus::Pass,
+        "package is structurally sound"
+    );
     assert_eq!(dr.bagit, CheckStatus::Pass, "package is structurally sound");
     assert_eq!(
         dr.domain_validation,
@@ -186,7 +190,10 @@ fn clean_export_with_no_domain_reports_is_deposit_ready() {
     // `Pass`. `Unverified` is surfaced but does not block, so the export is
     // still deposit-ready.
     assert_eq!(dr.domain_validation, CheckStatus::Unverified);
-    assert!(dr.deposit_ready, "a clean export must read deposit-ready: {dr:?}");
+    assert!(
+        dr.deposit_ready,
+        "a clean export must read deposit-ready: {dr:?}"
+    );
     assert!(deposit_readiness::check_deposit_readiness(dst.path(), false).is_ok());
 }
 
@@ -227,7 +234,10 @@ fn reexecutable_profile_notverified_is_not_deposit_ready() {
         .unwrap()
         .unwrap();
     assert_eq!(dr_re.profile, "re-executable");
-    assert_eq!(dr_re.reexecution, deposit_readiness::ReexecStatus::NotVerified);
+    assert_eq!(
+        dr_re.reexecution,
+        deposit_readiness::ReexecStatus::NotVerified
+    );
     assert!(
         !dr_re.deposit_ready,
         "re-executable + not_verified must NOT read deposit-ready (DR-1): {dr_re:?}"

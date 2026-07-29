@@ -101,8 +101,8 @@ pub mod env_validator;
 pub mod error_envelope;
 pub mod expression;
 pub mod external_registry;
-pub mod finalize;
 pub mod figure_diff;
+pub mod finalize;
 pub mod fs_helpers;
 pub mod gene_panel;
 pub mod gene_panel_registry;
@@ -142,13 +142,13 @@ pub mod ontology_scope;
 pub mod package_import;
 pub mod parameter_override;
 pub mod plot_affordance;
-/// Deterministic zero-JS `ro-crate-preview.html` renderer. Pure function of
-/// the `@graph`; no clock, no RNG, no HashMap, no host paths.
-pub mod preview;
 pub mod policy_context;
 pub mod policy_schema;
 pub mod population_coverage;
 pub mod preferred_methods;
+/// Deterministic zero-JS `ro-crate-preview.html` renderer. Pure function of
+/// the `@graph`; no clock, no RNG, no HashMap, no host paths.
+pub mod preview;
 pub mod project_class;
 pub mod project_class_registry;
 // V4 alignment validation × lifecycle promotion

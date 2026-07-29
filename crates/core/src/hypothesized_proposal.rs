@@ -413,16 +413,20 @@ pub fn proposal_to_transient_task_node(p: &HypothesizedProposal) -> TaskNode {
     // features). Only emitted when non-empty so a contract-less legacy proposal
     // keeps its prior shape.
     if !p.assumptions.is_empty() {
-        node.attributes
-            .insert("analytical_assumptions".into(), serde_json::json!(p.assumptions));
+        node.attributes.insert(
+            "analytical_assumptions".into(),
+            serde_json::json!(p.assumptions),
+        );
     }
     if !p.failure_modes.is_empty() {
         node.attributes
             .insert("failure_modes".into(), serde_json::json!(p.failure_modes));
     }
     if !p.validation_tests.is_empty() {
-        node.attributes
-            .insert("declared_validation_tests".into(), serde_json::json!(p.validation_tests));
+        node.attributes.insert(
+            "declared_validation_tests".into(),
+            serde_json::json!(p.validation_tests),
+        );
     }
     node
 }

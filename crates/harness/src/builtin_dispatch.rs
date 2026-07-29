@@ -113,7 +113,12 @@ pub fn run_assemble_report_data(
                     "n_artifacts": n,
                     "summary": format!("assembled report-data.json from {n} result artifact(s)"),
                 });
-                (TaskState::Completed { result: result.clone() }, result)
+                (
+                    TaskState::Completed {
+                        result: result.clone(),
+                    },
+                    result,
+                )
             } else {
                 let reason = "[builtin_assemble_report_data_failed] assembler returned Ok but \
                      runtime/outputs/reporting/report-data.json is missing or empty"
@@ -123,7 +128,12 @@ pub fn run_assemble_report_data(
                     "builtin": ASSEMBLE_REPORT_DATA,
                     "summary": reason,
                 });
-                (TaskState::Failed { reason: reason.clone() }, result)
+                (
+                    TaskState::Failed {
+                        reason: reason.clone(),
+                    },
+                    result,
+                )
             }
         }
         Err(e) => {
@@ -274,8 +284,7 @@ mod tests {
         let mut schemas = BTreeMap::new();
         schemas.insert("differential_expression".to_string(), de_schema());
         let task = builtin_task(TaskState::Ready, &schemas);
-        let got = assemble_report_data_request(&task)
-            .expect("builtin task must be detected");
+        let got = assemble_report_data_request(&task).expect("builtin task must be detected");
         assert!(got.contains_key("differential_expression"));
         assert_eq!(got["differential_expression"].artifact, "de_results.tsv");
     }
@@ -366,13 +375,20 @@ mod tests {
 
         // The core assembler produced the report.
         assert!(
-            root.join("runtime/outputs/reporting/report-data.json").is_file(),
+            root.join("runtime/outputs/reporting/report-data.json")
+                .is_file(),
             "report-data.json must exist after the in-process run"
         );
         // The same completion markers a normal agent writes.
-        assert!(root.join("runtime/outputs/assemble_report_data/result.json").is_file());
-        assert!(root.join("runtime/outputs/assemble_report_data/state.patch.json").is_file());
-        assert!(root.join("runtime/outputs/assemble_report_data/.heartbeat").is_file());
+        assert!(root
+            .join("runtime/outputs/assemble_report_data/result.json")
+            .is_file());
+        assert!(root
+            .join("runtime/outputs/assemble_report_data/state.patch.json")
+            .is_file());
+        assert!(root
+            .join("runtime/outputs/assemble_report_data/.heartbeat")
+            .is_file());
 
         // Drive completion through the EXACT strict merge the harness uses.
         let merged = apply_pending_patches_strict(root, &[dispatch]).unwrap();
@@ -405,10 +421,11 @@ mod tests {
             epoch: 1,
         };
         let clock = WallClock;
-        let state =
-            run_assemble_report_data(root, &dispatch, &BTreeMap::new(), &clock).unwrap();
+        let state = run_assemble_report_data(root, &dispatch, &BTreeMap::new(), &clock).unwrap();
         assert!(matches!(state, TaskState::Completed { .. }));
-        assert!(root.join("runtime/outputs/reporting/report-data.json").is_file());
+        assert!(root
+            .join("runtime/outputs/reporting/report-data.json")
+            .is_file());
     }
 
     /// F9 postcondition: the report-data.json existence/non-empty check that

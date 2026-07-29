@@ -848,8 +848,7 @@ fn finalize_primary_dag(
     goal: &GoalSpec,
     archetype_reg: &ArchetypeRegistry,
 ) {
-    let pruned =
-        super::input_stage_prune::prune_supplied_upstream(dag, &ctx.intent.available_data);
+    let pruned = super::input_stage_prune::prune_supplied_upstream(dag, &ctx.intent.available_data);
     if !pruned.is_empty() {
         tracing::info!(
             target: "composer",
@@ -1003,7 +1002,8 @@ pub fn derive_required_input_stage(dag: &WorkflowDag, declared: Option<&str>) ->
     // non-manifest ontology input port (e.g. `count_matrix` => `data:3917`).
     for prefer_bridge in [true, false] {
         for edge in &dag.edges {
-            if !anchor_ids.contains(edge.from_node.as_str()) || edge.to_node.starts_with("validate_")
+            if !anchor_ids.contains(edge.from_node.as_str())
+                || edge.to_node.starts_with("validate_")
             {
                 continue;
             }
@@ -1032,7 +1032,9 @@ fn stamp_required_input_stage(dag: &mut WorkflowDag, goal: &GoalSpec) {
     // supplied product) as the preferred non-raw source.
     let iri = derive_required_input_stage(
         dag,
-        goal.modifiers.get("available_input_stage").map(String::as_str),
+        goal.modifiers
+            .get("available_input_stage")
+            .map(String::as_str),
     );
     const ANCHOR: &str = "data_acquisition";
     for node in dag.nodes.iter_mut() {
@@ -3887,19 +3889,34 @@ mod tests {
         let ont = |iri: &str| SemanticType::edam(iri, "");
         let wf = |consumer: SemanticType| WorkflowDag {
             id: "t".into(),
-            nodes: vec![node("data_acquisition", ont("data:2531")), node("downstream", consumer)],
+            nodes: vec![
+                node("data_acquisition", ont("data:2531")),
+                node("downstream", consumer),
+            ],
             edges: vec![edge("data_acquisition", "downstream")],
             assumptions: AssumptionLedger::default(),
             source_template: None,
         };
 
         // Declared peaks / VCF win even when the consumer port is generic.
-        assert_eq!(derive_required_input_stage(&wf(ont("data:0006")), Some("data:1255")), "data:1255");
-        assert_eq!(derive_required_input_stage(&wf(ont("data:0006")), Some("data:3498")), "data:3498");
+        assert_eq!(
+            derive_required_input_stage(&wf(ont("data:0006")), Some("data:1255")),
+            "data:1255"
+        );
+        assert_eq!(
+            derive_required_input_stage(&wf(ont("data:0006")), Some("data:3498")),
+            "data:3498"
+        );
         // Declared raw default is ignored -> structural consumer lookup (counts).
-        assert_eq!(derive_required_input_stage(&wf(ont("data:3917")), Some("data:2044")), "data:3917");
+        assert_eq!(
+            derive_required_input_stage(&wf(ont("data:3917")), Some("data:2044")),
+            "data:3917"
+        );
         // No declaration -> the consumer's ontology input port.
-        assert_eq!(derive_required_input_stage(&wf(ont("data:3498")), None), "data:3498");
+        assert_eq!(
+            derive_required_input_stage(&wf(ont("data:3498")), None),
+            "data:3498"
+        );
         // local_extension consumer (proteomics abundance) -> proposed parent IRI.
         let le = SemanticType::LocalExtension {
             namespace: "ecaax".into(),
@@ -3912,7 +3929,10 @@ mod tests {
         // A surviving raw stage pins raw regardless of a declared product.
         let mut w = wf(ont("data:3917"));
         w.nodes.push(node("alignment", ont("data:2044")));
-        assert_eq!(derive_required_input_stage(&w, Some("data:1255")), "data:2044");
+        assert_eq!(
+            derive_required_input_stage(&w, Some("data:1255")),
+            "data:2044"
+        );
     }
 
     /// Pillar B (Task 3.3) — a node whose backing atom is affiliated

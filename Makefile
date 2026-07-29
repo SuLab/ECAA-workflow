@@ -121,8 +121,8 @@ relocation-test: ## Deposit relocation replay: export a fixture, MOVE it, assert
 
 conformance: ## ECAA conformance suite (block-on-fail; ECAA_CONFORMANCE_MODE=1 + ECAA_VALIDATION_BLOCK_ON_FAIL=1)
 	ECAA_CONFORMANCE_MODE=1 ECAA_VALIDATION_BLOCK_ON_FAIL=1 cargo test -p ecaa-workflow-conformance
-	@command -v runcrate >/dev/null 2>&1 && $(MAKE) test-substrate-utility || echo "[conformance] runcrate absent — substrate-utility row skipped (non-blocking)"
-	@test -x .venv-validator/bin/python && PATH="$$(pwd)/target/debug:$$PATH" $(MAKE) roc-gate || echo "[conformance] .venv-validator absent — roc-gate skipped (run: python3 -m venv .venv-validator && .venv-validator/bin/pip install -r requirements-validator.txt)"
+	@if command -v runcrate >/dev/null 2>&1; then $(MAKE) test-substrate-utility; else echo "[conformance] runcrate absent — substrate-utility row skipped (non-blocking)"; fi
+	@if test -x .venv-validator/bin/python; then PATH="$${CARGO_TARGET_DIR:-$$(pwd)/target}/debug:$$PATH" $(MAKE) roc-gate; else echo "[conformance] .venv-validator absent — roc-gate skipped (run: python3 -m venv .venv-validator && .venv-validator/bin/pip install -r requirements-validator.txt)"; fi
 
 test-substrate-utility: ## Run the runcrate-gated substrate row of the invariant-utility matrix
 	@command -v runcrate >/dev/null 2>&1 || { echo "runcrate not on PATH — install the WRROC runcrate report wrapper first (see scripts/README.md)"; exit 1; }

@@ -126,11 +126,10 @@ fn conforms_to_declares_exactly_the_plan_profile_set() {
         .map(|c| c["@id"].as_str().expect("each conformsTo entry needs @id"))
         .collect();
 
-    let expected: std::collections::BTreeSet<&str> =
-        ecaa_workflow_types::consts::PLAN_PROFILE_IRIS
-            .iter()
-            .copied()
-            .collect();
+    let expected: std::collections::BTreeSet<&str> = ecaa_workflow_types::consts::PLAN_PROFILE_IRIS
+        .iter()
+        .copied()
+        .collect();
     assert_eq!(
         ids, expected,
         "plan descriptor must declare exactly the plan profile set; got {ids:?}"

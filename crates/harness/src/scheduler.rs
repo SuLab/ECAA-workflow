@@ -461,8 +461,8 @@ fn append_decision(
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let line = serde_json::to_string(record)
-        .expect("DecisionRecord always serializes to valid JSON");
+    let line =
+        serde_json::to_string(record).expect("DecisionRecord always serializes to valid JSON");
     let mut f = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -514,7 +514,9 @@ fn existing_intake_method_stages(pkg: &std::path::Path) -> std::collections::BTr
             continue;
         };
         let decision = v.get("decision");
-        let kind = decision.and_then(|d| d.get("kind")).and_then(|k| k.as_str());
+        let kind = decision
+            .and_then(|d| d.get("kind"))
+            .and_then(|k| k.as_str());
         if kind == Some("set_intake_method") {
             if let Some(stage) = decision
                 .and_then(|d| d.get("stage"))
@@ -572,9 +574,7 @@ pub fn promote_auto_advance_decisions(
         let Ok(decision_bytes) = std::fs::read(&decision_path) else {
             continue;
         };
-        let Ok(decision_json) =
-            serde_json::from_slice::<serde_json::Value>(&decision_bytes)
-        else {
+        let Ok(decision_json) = serde_json::from_slice::<serde_json::Value>(&decision_bytes) else {
             continue;
         };
 
@@ -629,9 +629,7 @@ pub fn promote_auto_advance_decisions(
                 already_recorded.insert(stage);
             }
             Err(e) => {
-                eprintln!(
-                    "[decision-promotion] append failed for stage {stage}: {e}"
-                );
+                eprintln!("[decision-promotion] append failed for stage {stage}: {e}");
             }
         }
     }
@@ -1002,7 +1000,10 @@ mod tests {
             .lines()
             .filter(|l| l.contains("set_intake_method") && l.contains("discover_normalisation"))
             .count();
-        assert_eq!(n, 1, "decision must record once across runs, got {n}:\n{log}");
+        assert_eq!(
+            n, 1,
+            "decision must record once across runs, got {n}:\n{log}"
+        );
     }
 
     #[test]

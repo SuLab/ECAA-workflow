@@ -11,42 +11,66 @@
       "entity": "PMC",
       "status": "pending",
       "supported_by": [],
-      "text": "- **Redistributable**: Yes (PMC Open Access, CC-licensed)"
+      "text": "- **Redistributable**: Yes (PMC Open Access, CC-licensed)",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "contextualize_findings_with_literature#claim-1",
       "entity": "CC",
       "status": "pending",
       "supported_by": [],
-      "text": "- **Redistributable**: Yes (PMC Open Access, CC-licensed)"
+      "text": "- **Redistributable**: Yes (PMC Open Access, CC-licensed)",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "contextualize_findings_with_literature#claim-2",
       "entity": "SERPINA3",
       "status": "pending",
       "supported_by": [],
-      "text": "| SERPINA3 | Our DESeq2 padj = 0.065 (above 0.05 threshold); directionally consistent (+0.58 LFC) but not significant |"
+      "text": "| SERPINA3 | Our DESeq2 padj = 0.065 (above 0.05 threshold); directionally consistent (+0.58 LFC) but not significant |",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "contextualize_findings_with_literature#claim-3",
       "entity": "count:genes",
       "status": "pending",
       "supported_by": [],
-      "text": "All 15 matched genes show **same_direction** concordance with our DESeq2 analysis"
+      "text": "All 15 matched genes show **same_direction** concordance with our DESeq2 analysis",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "contextualize_findings_with_literature#claim-4",
       "entity": "count:genes",
       "status": "pending",
       "supported_by": [],
-      "text": "## Himes 2014 Table 1 genes not matched in our significant set"
+      "text": "## Himes 2014 Table 1 genes not matched in our significant set",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "contextualize_findings_with_literature#claim-5",
       "entity": "count:genes",
       "status": "pending",
       "supported_by": [],
-      "text": "Two Table 1 genes did not receive a concordance row:"
+      "text": "Two Table 1 genes did not receive a concordance row:",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "differential_expression#claim-0",
@@ -55,42 +79,68 @@
       "supported_by": [
         "runtime/outputs/differential_expression/de_results.tsv"
       ],
-      "text": "The top gene by adjusted p-value and effect size is ENSG00000152583 (log2FC ≈ 4.56, padj ≈ 7.1e-132), associated with dexamethasone treatment in airway smooth-muscle cells"
+      "text": "The top gene by adjusted p-value and effect size is ENSG00000152583 (log2FC ≈ 4.56, padj ≈ 7.1e-132), associated with dexamethasone treatment in airway smooth-muscle cells",
+      "checked_against": [
+        "runtime/outputs/differential_expression/de_results.tsv"
+      ],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": null
     },
     {
       "claim_id": "differential_expression#claim-1",
       "entity": "count:samples",
       "status": "pending",
       "supported_by": [],
-      "text": "DESeq2 (v1.50.2) was applied to the raw count matrix from Himes et al. (GSE52778) comprising 8 samples across 4 human airway smooth-muscle cell lines (N61311, N052611, N080611, N061011), each with an untreated and dexamethasone-treated replicate"
+      "text": "DESeq2 (v1.50.2) was applied to the raw count matrix from Himes et al. (GSE52778) comprising 8 samples across 4 human airway smooth-muscle cell lines (N61311, N052611, N080611, N061011), each with an untreated and dexamethasone-treated replicate",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "differential_expression#claim-2",
       "entity": "count:samples",
       "status": "pending",
       "supported_by": [],
-      "text": "The `baseMean` column in `de_results.tsv` records the mean normalized count across all 8 samples for each tested gene"
+      "text": "The `baseMean` column in `de_results.tsv` records the mean normalized count across all 8 samples for each tested gene",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "differential_expression#claim-3",
       "entity": "count:genes",
       "status": "pending",
       "supported_by": [],
-      "text": "- Dexamethasone treatment is statistically **associated** with expression changes in 4,030 genes (padj < 0.05) in human airway smooth-muscle cells, controlling for cell-line effects"
+      "text": "- Dexamethasone treatment is statistically **associated** with expression changes in 4,030 genes (padj < 0.05) in human airway smooth-muscle cells, controlling for cell-line effects",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "final_reporting#claim-0",
       "entity": "TNF",
       "status": "pending",
       "supported_by": [],
-      "text": "- Top-ranked enriched pathways include adipogenesis (NES = 1.96), TNF-α/NF-κB signaling (NES = 1.82), and inflammatory response suppression - consistent with the well-characterized anti-inflammatory mechanism of glucocorticoid therapy"
+      "text": "- Top-ranked enriched pathways include adipogenesis (NES = 1.96), TNF-α/NF-κB signaling (NES = 1.82), and inflammatory response suppression - consistent with the well-characterized anti-inflammatory mechanism of glucocorticoid therapy",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "final_reporting#claim-1",
       "entity": "library",
       "status": "pending",
       "supported_by": [],
-      "text": "Median library size: 20,901,052 counts; median genes detected: 24,647"
+      "text": "Median library size: 20,901,052 counts; median genes detected: 24,647",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "final_reporting#claim-2",
@@ -99,7 +149,13 @@
       "supported_by": [
         "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
       ],
-      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1",
+      "checked_against": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": null
     },
     {
       "claim_id": "final_reporting#claim-3",
@@ -108,7 +164,13 @@
       "supported_by": [
         "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
       ],
-      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1",
+      "checked_against": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": null
     },
     {
       "claim_id": "final_reporting#claim-4",
@@ -117,7 +179,13 @@
       "supported_by": [
         "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
       ],
-      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1",
+      "checked_against": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": null
     },
     {
       "claim_id": "final_reporting#claim-5",
@@ -126,7 +194,13 @@
       "supported_by": [
         "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
       ],
-      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1",
+      "checked_against": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": null
     },
     {
       "claim_id": "final_reporting#claim-6",
@@ -135,7 +209,13 @@
       "supported_by": [
         "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
       ],
-      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1",
+      "checked_against": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": null
     },
     {
       "claim_id": "final_reporting#claim-7",
@@ -144,7 +224,13 @@
       "supported_by": [
         "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
       ],
-      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1",
+      "checked_against": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": null
     },
     {
       "claim_id": "final_reporting#claim-8",
@@ -153,7 +239,13 @@
       "supported_by": [
         "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
       ],
-      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1",
+      "checked_against": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": null
     },
     {
       "claim_id": "final_reporting#claim-9",
@@ -162,7 +254,13 @@
       "supported_by": [
         "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
       ],
-      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1",
+      "checked_against": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": null
     },
     {
       "claim_id": "final_reporting#claim-10",
@@ -171,7 +269,13 @@
       "supported_by": [
         "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
       ],
-      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1",
+      "checked_against": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": null
     },
     {
       "claim_id": "final_reporting#claim-11",
@@ -180,14 +284,24 @@
       "supported_by": [
         "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
       ],
-      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1",
+      "checked_against": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": null
     },
     {
       "claim_id": "final_reporting#claim-12",
       "entity": "TNF",
       "status": "pending",
       "supported_by": [],
-      "text": "adipogenesis signaling, TNF-α / NF-κB signaling (up), and nervous system development"
+      "text": "adipogenesis signaling, TNF-α / NF-κB signaling (up), and nervous system development",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "final_reporting#claim-13",
@@ -196,7 +310,13 @@
       "supported_by": [
         "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
       ],
-      "text": "- The top up-regulated gene by padj is **SPARCL1** (LFC ≈ 4.56), with **KLF15** also among"
+      "text": "- The top up-regulated gene by padj is **SPARCL1** (LFC ≈ 4.56), with **KLF15** also among",
+      "checked_against": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": null
     },
     {
       "claim_id": "final_reporting#claim-14",
@@ -205,154 +325,244 @@
       "supported_by": [
         "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
       ],
-      "text": "- The top up-regulated gene by padj is **SPARCL1** (LFC ≈ 4.56), with **KLF15** also among"
+      "text": "- The top up-regulated gene by padj is **SPARCL1** (LFC ≈ 4.56), with **KLF15** also among",
+      "checked_against": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": null
     },
     {
       "claim_id": "final_reporting#claim-15",
       "entity": "count:cell",
       "status": "pending",
       "supported_by": [],
-      "text": "**Dataset:** 4 human airway smooth-muscle cell lines * 2 conditions = 8 samples (GSE52778)"
+      "text": "**Dataset:** 4 human airway smooth-muscle cell lines * 2 conditions = 8 samples (GSE52778)",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "final_reporting#claim-16",
       "entity": "count:cell",
       "status": "pending",
       "supported_by": [],
-      "text": "The study used a paired design with 4 cell lines each measured under treated and untreated conditions (8 samples total)"
+      "text": "The study used a paired design with 4 cell lines each measured under treated and untreated conditions (8 samples total)",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "final_reporting#claim-17",
       "entity": "count:genes",
       "status": "pending",
       "supported_by": [],
-      "text": "- **4,030 genes** were differentially expressed at padj < 0.05 (2,208 up-regulated, 1,822 down-regulated in dex-treated vs. untreated)"
+      "text": "- **4,030 genes** were differentially expressed at padj < 0.05 (2,208 up-regulated, 1,822 down-regulated in dex-treated vs. untreated)",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "final_reporting#claim-18",
       "entity": "count:up gene sets",
       "status": "pending",
       "supported_by": [],
-      "text": "- **215 gene sets** were enriched at padj < 0.05 across Hallmark, KEGG, and GO:BP collections, with 146 enriched in the dex-up direction and 69 in the dex-down direction"
+      "text": "- **215 gene sets** were enriched at padj < 0.05 across Hallmark, KEGG, and GO:BP collections, with 146 enriched in the dex-up direction and 69 in the dex-down direction",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "final_reporting#claim-19",
       "entity": "count:genes",
       "status": "pending",
       "supported_by": [],
-      "text": "- **15/15 genes** with directional claims from the original Himes et al. 2014 publication (PMID 24926665) replicate in the same direction, and 0 replicate in the opposite direction - supporting full analytical concordance with the published findings"
+      "text": "- **15/15 genes** with directional claims from the original Himes et al. 2014 publication (PMID 24926665) replicate in the same direction, and 0 replicate in the opposite direction - supporting full analytical concordance with the published findings",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "final_reporting#claim-20",
       "entity": "count:samples",
       "status": "pending",
       "supported_by": [],
-      "text": "**Input:** SME-registered count matrix and sample metadata (himes-inputs, 8 samples)"
+      "text": "**Input:** SME-registered count matrix and sample metadata (himes-inputs, 8 samples)",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "final_reporting#claim-21",
       "entity": "count:genes",
       "status": "pending",
       "supported_by": [],
-      "text": "**Output:** Staged count matrix (63,677 genes * 8 samples) and sample metadata (sample, cell, dex columns)"
+      "text": "**Output:** Staged count matrix (63,677 genes * 8 samples) and sample metadata (sample, cell, dex columns)",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "final_reporting#claim-22",
       "entity": "count:cell",
       "status": "pending",
       "supported_by": [],
-      "text": "The sample layout: 4 HASM cell lines (N61311, N052611, N080611, N061011), each with one dex-treated (trt) and one untreated (untrt) replicate"
+      "text": "The sample layout: 4 HASM cell lines (N61311, N052611, N080611, N061011), each with one dex-treated (trt) and one untreated (untrt) replicate",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "final_reporting#claim-23",
       "entity": "count:samples",
       "status": "pending",
       "supported_by": [],
-      "text": "**Result:** 8/8 samples passed QC thresholds"
+      "text": "**Result:** 8/8 samples passed QC thresholds",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "final_reporting#claim-24",
       "entity": "count:genes",
       "status": "pending",
       "supported_by": [],
-      "text": "**Input:** 63,677 genes; **Retained after low-count filter:** 22,369 genes (rowSum ≥ 10)"
+      "text": "**Input:** 63,677 genes; **Retained after low-count filter:** 22,369 genes (rowSum ≥ 10)",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "final_reporting#claim-25",
       "entity": "count:genes",
       "status": "pending",
       "supported_by": [],
-      "text": "**Result:** Median-of-ratios size factors applied; VST normalization produced a normalized_counts.tsv (22,369 genes * 8 samples)"
+      "text": "**Result:** Median-of-ratios size factors applied; VST normalization produced a normalized_counts.tsv (22,369 genes * 8 samples)",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "final_reporting#claim-26",
       "entity": "count:genes",
       "status": "pending",
       "supported_by": [],
-      "text": "2,000 highly variable genes (HVGs) selected by post-VST variance"
+      "text": "2,000 highly variable genes (HVGs) selected by post-VST variance",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "final_reporting#claim-27",
       "entity": "count:genes",
       "status": "pending",
       "supported_by": [],
-      "text": "The low-count filter removed 41,308 genes (65% of the input) with negligible expression, retaining a high-confidence set of 22,369 expressed genes for downstream DE testing"
+      "text": "The low-count filter removed 41,308 genes (65% of the input) with negligible expression, retaining a high-confidence set of 22,369 expressed genes for downstream DE testing",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "final_reporting#claim-28",
       "entity": "count:genes",
       "status": "pending",
       "supported_by": [],
-      "text": "The DESeq2 model fit `~ cell + dex` on 22,369 genes, blocking for cell-line"
+      "text": "The DESeq2 model fit `~ cell + dex` on 22,369 genes, blocking for cell-line",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "final_reporting#claim-29",
       "entity": "count:cell",
       "status": "pending",
       "supported_by": [],
-      "text": "variation across the 4 HASM cell lines"
+      "text": "variation across the 4 HASM cell lines",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "final_reporting#claim-30",
       "entity": "count:genes",
       "status": "pending",
       "supported_by": [],
-      "text": "4,030 genes were associated with dexamethasone treatment at padj < 0.05"
+      "text": "4,030 genes were associated with dexamethasone treatment at padj < 0.05",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "final_reporting#claim-31",
       "entity": "count:cells",
       "status": "pending",
       "supported_by": [],
-      "text": "(2,208 up-regulated, 1,822 down-regulated relative to untreated cells)"
+      "text": "(2,208 up-regulated, 1,822 down-regulated relative to untreated cells)",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "final_reporting#claim-32",
       "entity": "count:up gene sets",
       "status": "pending",
       "supported_by": [],
-      "text": "215 gene sets were enriched at padj < 0.05 across Hallmark, KEGG, and GO BP"
+      "text": "215 gene sets were enriched at padj < 0.05 across Hallmark, KEGG, and GO BP",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "final_reporting#claim-33",
       "entity": "count:genes",
       "status": "pending",
       "supported_by": [],
-      "text": "Of 4,030 significant DE genes,"
+      "text": "Of 4,030 significant DE genes,",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "final_reporting#claim-34",
       "entity": "count:genes",
       "status": "pending",
       "supported_by": [],
-      "text": "- Dexamethasone treatment is associated with 4,030 differentially expressed genes"
+      "text": "- Dexamethasone treatment is associated with 4,030 differentially expressed genes",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "final_reporting#claim-35",
       "entity": "count:genes",
       "status": "pending",
       "supported_by": [],
-      "text": "- All 15 genes with directional claims in the original Himes et al. 2014 publication are"
+      "text": "- All 15 genes with directional claims in the original Himes et al. 2014 publication are",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "reporting#claim-0",
@@ -361,7 +571,13 @@
       "supported_by": [
         "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
       ],
-      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1",
+      "checked_against": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": null
     },
     {
       "claim_id": "reporting#claim-1",
@@ -370,7 +586,13 @@
       "supported_by": [
         "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
       ],
-      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1",
+      "checked_against": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": null
     },
     {
       "claim_id": "reporting#claim-2",
@@ -379,7 +601,13 @@
       "supported_by": [
         "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
       ],
-      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1",
+      "checked_against": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": null
     },
     {
       "claim_id": "reporting#claim-3",
@@ -388,7 +616,13 @@
       "supported_by": [
         "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
       ],
-      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1",
+      "checked_against": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": null
     },
     {
       "claim_id": "reporting#claim-4",
@@ -397,7 +631,13 @@
       "supported_by": [
         "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
       ],
-      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1",
+      "checked_against": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": null
     },
     {
       "claim_id": "reporting#claim-5",
@@ -406,7 +646,13 @@
       "supported_by": [
         "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
       ],
-      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1",
+      "checked_against": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": null
     },
     {
       "claim_id": "reporting#claim-6",
@@ -415,7 +661,13 @@
       "supported_by": [
         "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
       ],
-      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1",
+      "checked_against": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": null
     },
     {
       "claim_id": "reporting#claim-7",
@@ -424,7 +676,13 @@
       "supported_by": [
         "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
       ],
-      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1",
+      "checked_against": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": null
     },
     {
       "claim_id": "reporting#claim-8",
@@ -433,7 +691,13 @@
       "supported_by": [
         "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
       ],
-      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1",
+      "checked_against": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": null
     },
     {
       "claim_id": "reporting#claim-9",
@@ -442,14 +706,24 @@
       "supported_by": [
         "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
       ],
-      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1"
+      "text": "Concordant genes (first 10): SPARCL1, DUSP1, SAMHD1, MAOA, GPX3, PER1, KLF15, KCTD12, CCDC69, ERRFI1",
+      "checked_against": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": null
     },
     {
       "claim_id": "reporting#claim-10",
       "entity": "TNF",
       "status": "pending",
       "supported_by": [],
-      "text": "adipogenesis signaling, TNF-α / NF-κB signaling (up), and nervous system development"
+      "text": "adipogenesis signaling, TNF-α / NF-κB signaling (up), and nervous system development",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "reporting#claim-11",
@@ -458,7 +732,13 @@
       "supported_by": [
         "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
       ],
-      "text": "- The top up-regulated gene by padj is **SPARCL1** (LFC ≈ 4.56), with **KLF15** also among"
+      "text": "- The top up-regulated gene by padj is **SPARCL1** (LFC ≈ 4.56), with **KLF15** also among",
+      "checked_against": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": null
     },
     {
       "claim_id": "reporting#claim-12",
@@ -467,98 +747,156 @@
       "supported_by": [
         "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
       ],
-      "text": "- The top up-regulated gene by padj is **SPARCL1** (LFC ≈ 4.56), with **KLF15** also among"
+      "text": "- The top up-regulated gene by padj is **SPARCL1** (LFC ≈ 4.56), with **KLF15** also among",
+      "checked_against": [
+        "runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv"
+      ],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": null
     },
     {
       "claim_id": "reporting#claim-13",
       "entity": "count:cell",
       "status": "pending",
       "supported_by": [],
-      "text": "**Dataset:** 4 human airway smooth-muscle cell lines * 2 conditions = 8 samples"
+      "text": "**Dataset:** 4 human airway smooth-muscle cell lines * 2 conditions = 8 samples",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "reporting#claim-14",
       "entity": "count:genes",
       "status": "pending",
       "supported_by": [],
-      "text": "The DESeq2 model fit `~ cell + dex` on 22,369 genes, blocking for cell-line"
+      "text": "The DESeq2 model fit `~ cell + dex` on 22,369 genes, blocking for cell-line",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "reporting#claim-15",
       "entity": "count:cell",
       "status": "pending",
       "supported_by": [],
-      "text": "variation across the 4 HASM cell lines"
+      "text": "variation across the 4 HASM cell lines",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "reporting#claim-16",
       "entity": "count:genes",
       "status": "pending",
       "supported_by": [],
-      "text": "4,030 genes were associated with dexamethasone treatment at padj < 0.05"
+      "text": "4,030 genes were associated with dexamethasone treatment at padj < 0.05",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "reporting#claim-17",
       "entity": "count:cells",
       "status": "pending",
       "supported_by": [],
-      "text": "(2,208 up-regulated, 1,822 down-regulated relative to untreated cells)"
+      "text": "(2,208 up-regulated, 1,822 down-regulated relative to untreated cells)",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "reporting#claim-18",
       "entity": "count:up gene sets",
       "status": "pending",
       "supported_by": [],
-      "text": "215 gene sets were enriched at padj < 0.05 across Hallmark, KEGG, and GO BP"
+      "text": "215 gene sets were enriched at padj < 0.05 across Hallmark, KEGG, and GO BP",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "reporting#claim-19",
       "entity": "count:genes",
       "status": "pending",
       "supported_by": [],
-      "text": "Of 4,030 significant DE genes,"
+      "text": "Of 4,030 significant DE genes,",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "reporting#claim-20",
       "entity": "count:genes",
       "status": "pending",
       "supported_by": [],
-      "text": "- Dexamethasone treatment is associated with 4,030 differentially expressed genes"
+      "text": "- Dexamethasone treatment is associated with 4,030 differentially expressed genes",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "reporting#claim-21",
       "entity": "count:genes",
       "status": "pending",
       "supported_by": [],
-      "text": "- All 15 genes with directional claims in the original Himes et al. 2014 publication are"
+      "text": "- All 15 genes with directional claims in the original Himes et al. 2014 publication are",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "review_prior_work#claim-0",
       "entity": "PMC",
       "status": "pending",
       "supported_by": [],
-      "text": "Each row's `evidence_quote` was normalized with `collapse_whitespace_lowercase_v1` (collapse whitespace runs to single space, lowercase, strip) and tested for substring presence against the same-normalized source text (PubMed abstract XML batch or PMC full-text XML)"
+      "text": "Each row's `evidence_quote` was normalized with `collapse_whitespace_lowercase_v1` (collapse whitespace runs to single space, lowercase, strip) and tested for substring presence against the same-normalized source text (PubMed abstract XML batch or PMC full-text XML)",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "review_prior_work#claim-1",
       "entity": "PMC",
       "status": "pending",
       "supported_by": [],
-      "text": "All sources are PubMed/PMC (public domain US Gov work or PMC OA CC-licensed)"
+      "text": "All sources are PubMed/PMC (public domain US Gov work or PMC OA CC-licensed)",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "review_prior_work#claim-2",
       "entity": "OA",
       "status": "pending",
       "supported_by": [],
-      "text": "All sources are PubMed/PMC (public domain US Gov work or PMC OA CC-licensed)"
+      "text": "All sources are PubMed/PMC (public domain US Gov work or PMC OA CC-licensed)",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     },
     {
       "claim_id": "review_prior_work#claim-3",
       "entity": "CC",
       "status": "pending",
       "supported_by": [],
-      "text": "All sources are PubMed/PMC (public domain US Gov work or PMC OA CC-licensed)"
+      "text": "All sources are PubMed/PMC (public domain US Gov work or PMC OA CC-licensed)",
+      "checked_against": [],
+      "contradicts": [],
+      "attempted_sources": [],
+      "verdict_detail": "verification did not reach an adjudication in the retained replay fixture"
     }
   ]
 }

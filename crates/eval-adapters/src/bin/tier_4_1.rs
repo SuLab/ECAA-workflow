@@ -32,7 +32,8 @@ fn main() -> Result<()> {
     ) = (0usize, 0usize, 0usize, 0usize, 0usize);
 
     for s in &scenarios {
-        let r = tier41::run_one(s).with_context(|| format!("scoring scenario {}", s.scenario_id))?;
+        let r =
+            tier41::run_one(s).with_context(|| format!("scoring scenario {}", s.scenario_id))?;
         println!(
             "{:<28} checked={:>2} verified={:>2} mismatch={:>2} unverifiable={:>2} suspicious={:>2} planted={:>2} {}",
             r.scenario_id, r.n_checked, r.n_verified, r.n_mismatch, r.n_unverifiable,
@@ -65,7 +66,10 @@ fn main() -> Result<()> {
     println!("unverifiable:                     {unverifiable}");
     println!("suspicious (review-required):     {suspicious}");
     println!("expected_mismatch (authored):     {expected}");
-    println!("scenarios passing ground truth:   {passed}/{}", scenarios.len());
+    println!(
+        "scenarios passing ground truth:   {passed}/{}",
+        scenarios.len()
+    );
     // Planted-keyed metrics (the roadmap's G6 gate). Precision = caught hard
     // mismatches / total mismatches reported on planted scenarios (must be 1.0:
     // no false positive). Recall = caught (Mismatch) / planted; flagged-recall

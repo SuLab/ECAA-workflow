@@ -10,9 +10,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use crate::audit_proof::{
-    run_audit_proof_with_verifier, AuditProofReport, InvariantStatus,
-};
+use crate::audit_proof::{run_audit_proof_with_verifier, AuditProofReport, InvariantStatus};
 use crate::audit_writer::AuditWriter;
 use crate::claim_repair::{RepairAction, RepairItem};
 use crate::clock::WallClock;
@@ -201,12 +199,8 @@ pub fn assess_package(root: &Path, config_dir: &Path) -> anyhow::Result<FailureS
     // (c) Audit-proof → invariant failures.
     let secret = audit_secret_from_env();
     let writer = secret.map(AuditWriter::with_secret);
-    let report = run_audit_proof_with_verifier(
-        root,
-        &NoopWrrocValidator,
-        &WallClock,
-        writer.as_ref(),
-    )?;
+    let report =
+        run_audit_proof_with_verifier(root, &NoopWrrocValidator, &WallClock, writer.as_ref())?;
     failures.extend(invariant_failures(&report));
 
     Ok(FailureSet(failures))
@@ -223,7 +217,11 @@ mod tests {
             status,
             detail: Some(detail.to_string()),
             n_inspected: 1,
-            n_violations: if matches!(status, InvariantStatus::Pass) { 0 } else { 1 },
+            n_violations: if matches!(status, InvariantStatus::Pass) {
+                0
+            } else {
+                1
+            },
         }
     }
 
@@ -245,7 +243,11 @@ mod tests {
         let report = report_with(vec![
             // Pass — must be EXCLUDED (faithful twin).
             verdict(InvariantId::ClaimCompleteness, InvariantStatus::Pass, "ok"),
-            verdict(InvariantId::EquivalenceFailure, InvariantStatus::Fail, "drift"),
+            verdict(
+                InvariantId::EquivalenceFailure,
+                InvariantStatus::Fail,
+                "drift",
+            ),
             verdict(InvariantId::EvidenceCoverage, InvariantStatus::Warn, "gap"),
             verdict(
                 InvariantId::SubstrateValidity,
@@ -274,7 +276,10 @@ mod tests {
             RepairClass::EquivalenceRerun,
             "equivalence_failure invariant must map to EquivalenceRerun"
         );
-        assert_eq!(eq.task, "audit", "invariant failures live under the audit task");
+        assert_eq!(
+            eq.task, "audit",
+            "invariant failures live under the audit task"
+        );
         assert_eq!(eq.detail, "drift", "verdict detail must be carried through");
         // evidence_coverage Warn → CoverageGap, substrate_validity Unverified → ConformanceFix.
         assert_eq!(
@@ -379,7 +384,8 @@ mod tests {
         // (Unverified on a stub package) but the call itself must succeed and
         // carry no claim-mismatch failures.
         assert!(
-            fs.0.iter().all(|f| f.source != FailureSource::ClaimMismatch),
+            fs.0.iter()
+                .all(|f| f.source != FailureSource::ClaimMismatch),
             "no claim-repair-plan means no ClaimMismatch failures"
         );
     }

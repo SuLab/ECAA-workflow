@@ -72,7 +72,10 @@ async fn rebuild_dag_keeps_egress_pathway_enrichment_when_no_gene_set_registered
         &ctx(),
     )
     .await;
-    assert!(!res.is_error, "intake prose must classify + build a DAG: {res:?}");
+    assert!(
+        !res.is_error,
+        "intake prose must classify + build a DAG: {res:?}"
+    );
 
     // The exclusion list must STILL be empty — proving the prune below
     // is driven by the unsourced-input check, not by an SME exclusion.

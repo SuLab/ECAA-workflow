@@ -21,8 +21,9 @@
 //! is a bare `EdgeContract` with no `computed_from`.
 //!
 //! Two reference encodings are checked:
-//!   * the concrete forms emitted today — a Claim verdict's `supported_by`
-//!     output reference (C→V) resolved against the Evidence outputs, and a
+//!   * the concrete forms emitted today — a Claim verdict's `supported_by`,
+//!     `checked_against`, and `contradicts` output references (C→V) resolved
+//!     against the Evidence outputs, and a
 //!     Failure assumption's `edge_id` (F→ proof edge) resolved against the
 //!     proof-edge set; and
 //!   * the general spec form — any `<letter>:<id>` prefix-tagged value in a
@@ -43,6 +44,8 @@ use std::collections::{BTreeMap, BTreeSet};
 /// their un-prefixed encoding; their prefix-tagged form is caught here.
 const REFERENCE_FIELDS: &[&str] = &[
     "supported_by",
+    "checked_against",
+    "contradicts",
     "target",
     "target_id",
     "ref",
@@ -280,26 +283,33 @@ pub fn check_cross_graph_integrity(pkg: &LoadedPackage) -> InvariantVerdict {
     let mut violators = Vec::new();
     let mut n_inspected = 0;
 
-    // C → V: a Claim verdict's `supported_by` output reference (un-prefixed
-    // path form). The prefix-tagged form is handled by the general pass.
+    // C → V: a Claim verdict's concrete evidence references (un-prefixed path
+    // form). `attempted_sources` is intentionally absent: it can name a route
+    // that was requested but never produced, so dereference failure is the
+    // recorded condition rather than an integrity violation. Prefix-tagged
+    // forms are handled by the general pass.
     if let Some(claims) = &pkg.claims {
         if let Some(verdicts) = claims.get("verdicts").and_then(|v| v.as_array()) {
             for v in verdicts {
-                if let Some(refs) = v.get("supported_by").and_then(|s| s.as_array()) {
-                    for r in refs.iter().filter_map(|r| r.as_str()) {
-                        if is_prefix_tagged(r) {
-                            continue;
-                        }
-                        n_inspected += 1;
-                        let path = r.split('#').next().unwrap_or(r);
-                        // Exact path first; then the SAME-TASK basename fallback for
-                        // the nested-table / direct-child-reconstruction mismatch. A
-                        // basename that only matches an output under a DIFFERENT task
-                        // (a wrong-directory ref) is NOT accepted.
-                        if !known_outputs.contains(path)
-                            && !outputs.iter().any(|o| same_task_basename_match(path, &o.path))
-                        {
-                            violators.push(format!("supported_by: {r}"));
+                for field in ["supported_by", "checked_against", "contradicts"] {
+                    if let Some(refs) = v.get(field).and_then(|s| s.as_array()) {
+                        for r in refs.iter().filter_map(|r| r.as_str()) {
+                            if is_prefix_tagged(r) {
+                                continue;
+                            }
+                            n_inspected += 1;
+                            let path = r.split('#').next().unwrap_or(r);
+                            // Exact path first; then the SAME-TASK basename fallback for
+                            // the nested-table / direct-child-reconstruction mismatch. A
+                            // basename that only matches an output under a DIFFERENT task
+                            // (a wrong-directory ref) is NOT accepted.
+                            if !known_outputs.contains(path)
+                                && !outputs
+                                    .iter()
+                                    .any(|o| same_task_basename_match(path, &o.path))
+                            {
+                                violators.push(format!("{field}: {r}"));
+                            }
                         }
                     }
                 }
@@ -319,17 +329,13 @@ pub fn check_cross_graph_integrity(pkg: &LoadedPackage) -> InvariantVerdict {
         }
     }
 
-    // Embedded RO-Crate `@graph` referential integrity: every `supported_by`
-    // `@id` carried on an embedded `Claim` node MUST resolve to a real `@graph`
-    // node `@id`. This closes a real gap — the C→V pass above validates the
-    // SIDECAR verdict rows, but the injected `@graph` `Claim` nodes
-    // (`ecaa_projection::project_claim_jsonld`) carry their OWN folded
-    // `supported_by` references, and a dangling one (a `V:<basename>` handle with
-    // no matching node, or a path that names no registered output File) used to
-    // pass unchecked. `pkg.output_entities` is the full `@graph` (every entity
-    // with an `@id`), so we build the node-id set once and resolve each embedded
-    // Claim's `supported_by` against it. A reference resolving to no `@graph`
-    // node FAILS the invariant.
+    // Embedded RO-Crate `@graph` referential integrity: every evidence `@id`
+    // carried on an embedded `Claim` node MUST resolve to a real `@graph` node
+    // `@id`. This closes a real gap — the C→V pass above validates the SIDECAR
+    // verdict rows, but the injected `@graph` `Claim` nodes carry their OWN
+    // folded references. `pkg.output_entities` is the full `@graph`, so we
+    // build the node-id set once and resolve each `supported_by` and
+    // `contradicts` edge against it.
     let graph_ids: BTreeSet<&str> = pkg
         .output_entities
         .iter()
@@ -339,22 +345,21 @@ pub fn check_cross_graph_integrity(pkg: &LoadedPackage) -> InvariantVerdict {
         if !entity_is_claim(entity) {
             continue;
         }
-        let Some(refs) = entity.get("supported_by").and_then(Value::as_array) else {
-            continue;
-        };
-        for r in refs {
-            // Each fold is `{ "@id": "<ref>" }`; tolerate a bare string too.
-            let target = r
-                .get("@id")
-                .and_then(Value::as_str)
-                .or_else(|| r.as_str());
-            let Some(target) = target else { continue };
-            n_inspected += 1;
-            if !graph_ids.contains(target) {
-                let claim_id = entity.get("@id").and_then(Value::as_str).unwrap_or("?");
-                violators.push(format!(
-                    "embedded Claim {claim_id} supported_by dangling @id: {target}"
-                ));
+        for field in ["supported_by", "contradicts"] {
+            let Some(refs) = entity.get(field).and_then(Value::as_array) else {
+                continue;
+            };
+            for r in refs {
+                // Each fold is `{ "@id": "<ref>" }`; tolerate a bare string too.
+                let target = r.get("@id").and_then(Value::as_str).or_else(|| r.as_str());
+                let Some(target) = target else { continue };
+                n_inspected += 1;
+                if !graph_ids.contains(target) {
+                    let claim_id = entity.get("@id").and_then(Value::as_str).unwrap_or("?");
+                    violators.push(format!(
+                        "embedded Claim {claim_id} {field} dangling @id: {target}"
+                    ));
+                }
             }
         }
     }

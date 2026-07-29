@@ -73,12 +73,20 @@ pub(super) fn extract_archive(
 ) -> Result<(), (StatusCode, String)> {
     let mut head = [0u8; 4];
     {
-        let mut f = std::fs::File::open(archive)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("open archive: {e}")))?;
+        let mut f = std::fs::File::open(archive).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("open archive: {e}"),
+            )
+        })?;
         let _ = f.read(&mut head);
     }
-    std::fs::create_dir_all(dest)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("mkdir dest: {e}")))?;
+    std::fs::create_dir_all(dest).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("mkdir dest: {e}"),
+        )
+    })?;
 
     if head == MAGIC_ZIP {
         extract_zip(archive, dest, max_entries, max_extracted_bytes)
@@ -131,19 +139,31 @@ fn extract_zip(
             continue;
         }
         if let Some(parent) = out.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("mkdir parent: {e}")))?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("mkdir parent: {e}"),
+                )
+            })?;
         }
-        let mut w = std::fs::File::create(&out)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("create file: {e}")))?;
+        let mut w = std::fs::File::create(&out).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("create file: {e}"),
+            )
+        })?;
         // Bounded copy: cap the running decompressed total so a tiny archive
         // can't expand to terabytes and fill the host disk. The `+1` lets a
         // single over-cap entry push `total_extracted` past the cap so the
         // check below fires even on the last allowed byte.
         let remaining = max_extracted_bytes.saturating_sub(total_extracted);
         let mut limited = std::io::Read::take(&mut entry, remaining + 1);
-        let n = std::io::copy(&mut limited, &mut w)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("write file: {e}")))?;
+        let n = std::io::copy(&mut limited, &mut w).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("write file: {e}"),
+            )
+        })?;
         total_extracted += n;
         if total_extracted > max_extracted_bytes {
             return Err((
@@ -162,8 +182,12 @@ fn extract_targz(
     max_entries: usize,
     max_extracted_bytes: u64,
 ) -> Result<(), (StatusCode, String)> {
-    let file = std::fs::File::open(archive)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("open tar.gz: {e}")))?;
+    let file = std::fs::File::open(archive).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("open tar.gz: {e}"),
+        )
+    })?;
     let gz = flate2::read::GzDecoder::new(file);
     let mut tar = tar::Archive::new(gz);
     let mut count = 0usize;
@@ -193,17 +217,29 @@ fn extract_targz(
             continue;
         }
         if let Some(parent) = out.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("mkdir parent: {e}")))?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("mkdir parent: {e}"),
+                )
+            })?;
         }
-        let mut w = std::fs::File::create(&out)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("create file: {e}")))?;
+        let mut w = std::fs::File::create(&out).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("create file: {e}"),
+            )
+        })?;
         // Bounded copy: cap the running decompressed total (decompression-bomb
         // defense). See `extract_zip` for the `+1` rationale.
         let remaining = max_extracted_bytes.saturating_sub(total_extracted);
         let mut limited = std::io::Read::take(&mut entry, remaining + 1);
-        let n = std::io::copy(&mut limited, &mut w)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("write file: {e}")))?;
+        let n = std::io::copy(&mut limited, &mut w).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("write file: {e}"),
+            )
+        })?;
         total_extracted += n;
         if total_extracted > max_extracted_bytes {
             return Err((
@@ -313,13 +349,15 @@ async fn stream_body_to_file(
                     .into_response()
             })?;
     }
-    tokio::io::AsyncWriteExt::flush(&mut file).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("flush staging: {e}"),
-        )
-            .into_response()
-    })?;
+    tokio::io::AsyncWriteExt::flush(&mut file)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("flush staging: {e}"),
+            )
+                .into_response()
+        })?;
     Ok(())
 }
 
@@ -382,7 +420,12 @@ pub(super) async fn import_package(
 
     let joined = tokio::task::spawn_blocking(
         move || -> Result<(Session, PackageCapabilities), (StatusCode, String)> {
-            extract_archive(&staging_for_task, &dest_for_task, max_entries, max_extracted)?;
+            extract_archive(
+                &staging_for_task,
+                &dest_for_task,
+                max_entries,
+                max_extracted,
+            )?;
             let root = locate_package_root(&dest_for_task).ok_or_else(|| {
                 (
                     StatusCode::BAD_REQUEST,
@@ -396,8 +439,12 @@ pub(super) async fn import_package(
                 ));
             }
             let caps = probe_package_capabilities(&root);
-            let session = Session::from_imported_package(&root)
-                .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, format!("reconstruct: {e}")))?;
+            let session = Session::from_imported_package(&root).map_err(|e| {
+                (
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    format!("reconstruct: {e}"),
+                )
+            })?;
             Ok((session, caps))
         },
     )

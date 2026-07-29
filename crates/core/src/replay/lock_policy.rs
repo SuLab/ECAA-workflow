@@ -47,7 +47,10 @@ impl fmt::Display for LockPolicyError {
                  replay registry allowlist; refusing install-from-lock"
             ),
             LockPolicyError::Unreadable(msg) => {
-                write!(f, "could not read conda lock for registry validation: {msg}")
+                write!(
+                    f,
+                    "could not read conda lock for registry validation: {msg}"
+                )
             }
         }
     }
@@ -83,7 +86,10 @@ pub fn resolve_allowlist_from_env_value(raw: Option<&str>) -> Vec<String> {
             .map(|h| h.trim().to_string())
             .filter(|h| !h.is_empty())
             .collect(),
-        _ => DEFAULT_LOCK_ALLOWLIST.iter().map(|s| s.to_string()).collect(),
+        _ => DEFAULT_LOCK_ALLOWLIST
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
     }
 }
 
@@ -141,7 +147,10 @@ mod tests {
     }
 
     fn default_allowlist() -> Vec<String> {
-        DEFAULT_LOCK_ALLOWLIST.iter().map(|s| s.to_string()).collect()
+        DEFAULT_LOCK_ALLOWLIST
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
     }
 
     #[test]
@@ -171,7 +180,10 @@ mod tests {
         );
         match validate_lock_registries(&lock, &default_allowlist()) {
             Err(LockPolicyError::OffAllowlist { url }) => {
-                assert!(url.contains("evil.example"), "must name the offending URL: {url}");
+                assert!(
+                    url.contains("evil.example"),
+                    "must name the offending URL: {url}"
+                );
             }
             other => panic!("expected OffAllowlist, got {other:?}"),
         }
@@ -214,7 +226,10 @@ mod tests {
     #[test]
     fn resolve_allowlist_defaults_and_overrides() {
         assert_eq!(resolve_allowlist_from_env_value(None), default_allowlist());
-        assert_eq!(resolve_allowlist_from_env_value(Some("   ")), default_allowlist());
+        assert_eq!(
+            resolve_allowlist_from_env_value(Some("   ")),
+            default_allowlist()
+        );
         assert_eq!(
             resolve_allowlist_from_env_value(Some("a.example, b.example ,, c.example")),
             vec![

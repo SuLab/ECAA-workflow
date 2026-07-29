@@ -65,7 +65,10 @@ fn cell(v: &str, max: usize) -> String {
 /// invariants — the exact command that clears the "unverified" state. Keyed on
 /// the failure `source` (`"ClaimMismatch"` or `{"InvariantFailure": "<name>"}`).
 fn review_locus(f: &Value) -> String {
-    if let Some(name) = g(f, "source").get("InvariantFailure").and_then(Value::as_str) {
+    if let Some(name) = g(f, "source")
+        .get("InvariantFailure")
+        .and_then(Value::as_str)
+    {
         return match name {
             "equivalence_failure" => {
                 "offline step — run `ecaa-workflow replay --tier all <package>` to re-execute \
@@ -169,7 +172,11 @@ pub(super) fn write_audit_report(dst: &Path) -> Result<()> {
     if !iri.is_empty() {
         let _ = writeln!(m, "| Package IRI | `{}` |", cell(iri, 120));
     }
-    let _ = writeln!(m, "| ECAA spec version | {} |", cell(s(g(&ap, "ecaa_version")), 40));
+    let _ = writeln!(
+        m,
+        "| ECAA spec version | {} |",
+        cell(s(g(&ap, "ecaa_version")), 40)
+    );
     let _ = writeln!(
         m,
         "| Audit evaluated at | {} |",
@@ -199,7 +206,10 @@ pub(super) fn write_audit_report(dst: &Path) -> Result<()> {
             "Deterministic integrity checks over the package graph (warn-only \
              mode: warnings/failures are surfaced, not blocking).\n"
         );
-        let _ = writeln!(m, "| Invariant | Status | Violations / inspected | Detail |");
+        let _ = writeln!(
+            m,
+            "| Invariant | Status | Violations / inspected | Detail |"
+        );
         let _ = writeln!(m, "| :---- | :---- | :---- | :---- |");
         for v in verdicts {
             let _ = writeln!(
@@ -221,6 +231,54 @@ pub(super) fn write_audit_report(dst: &Path) -> Result<()> {
              status is an offline operator step, not a failure: `equivalence_failure` clears \
              after `ecaa-workflow replay --tier all <package>`, and `substrate_validity` after \
              installing runcrate and running `ecaa-workflow replay --tier verify <package>`._\n"
+        );
+    }
+
+    // ── Output accountability ────────────────────────────────────────────
+    if let Some(accountability) = read_json(&rt.join("output-accountability.json")) {
+        let _ = writeln!(m, "## Output accountability\n");
+        let _ = writeln!(
+            m,
+            "Every retained task output has one role and one disposition. The \
+             evidence-coverage denominator contains artifacts declared by a \
+             result or report schema plus artifacts resolved from claim links. \
+             Other retained outputs remain listed here without being \
+             misreported as missing claim evidence.\n"
+        );
+        let _ = writeln!(m, "| Role | Count |");
+        let _ = writeln!(m, "| :---- | ----: |");
+        if let Some(counts) = accountability
+            .get("counts_by_role")
+            .and_then(Value::as_object)
+        {
+            for (role, count) in counts {
+                let _ = writeln!(
+                    m,
+                    "| {} | {} |",
+                    cell(role, 40),
+                    count.as_u64().unwrap_or(0)
+                );
+            }
+        }
+        let _ = writeln!(m, "\n| Disposition | Count |");
+        let _ = writeln!(m, "| :---- | ----: |");
+        if let Some(counts) = accountability
+            .get("counts_by_disposition")
+            .and_then(Value::as_object)
+        {
+            for (disposition, count) in counts {
+                let _ = writeln!(
+                    m,
+                    "| {} | {} |",
+                    cell(disposition, 40),
+                    count.as_u64().unwrap_or(0)
+                );
+            }
+        }
+        let _ = writeln!(
+            m,
+            "\nThe per-path ledger, including resolved claim ids and declared \
+             evidence status, is in `runtime/output-accountability.json`.\n"
         );
     }
 
@@ -414,7 +472,10 @@ pub(super) fn write_audit_report(dst: &Path) -> Result<()> {
         // `errored:…`, `unimplemented:…`. Anything that is not `passed` is
         // review-worthy — count and list it, so `errored`/`unimplemented`
         // obligations are not hidden behind a clean "0 failed".
-        let passed = vrep.iter().filter(|v| s(g(v, "outcome")) == "passed").count();
+        let passed = vrep
+            .iter()
+            .filter(|v| s(g(v, "outcome")) == "passed")
+            .count();
         let not_passing: Vec<&Value> = vrep
             .iter()
             .copied()
@@ -497,8 +558,10 @@ pub(super) fn write_audit_report(dst: &Path) -> Result<()> {
                 // must be able to locate the full record and know how to act. The
                 // "Now (current invariant)" column reconciles this historical
                 // snapshot against the live (post-reseal) invariant verdicts.
-                let _ =
-                    writeln!(m, "| Failure | Detail | Now (current invariant) | Where to find & review |");
+                let _ = writeln!(
+                    m,
+                    "| Failure | Detail | Now (current invariant) | Where to find & review |"
+                );
                 let _ = writeln!(m, "| :---- | :---- | :---- | :---- |");
                 for r in review {
                     // `failure` is a structured object (task, subject, detail,
@@ -522,7 +585,8 @@ pub(super) fn write_audit_report(dst: &Path) -> Result<()> {
                     // Reconcile against the live verdict: an audit item whose
                     // invariant is now `pass` was an offline step this snapshot
                     // routed for later and which has since been performed.
-                    let now = match review_invariant_id(f).and_then(|id| invariant_status(&ap, id)) {
+                    let now = match review_invariant_id(f).and_then(|id| invariant_status(&ap, id))
+                    {
                         Some("pass") => "✅ cleared — now `pass`".to_string(),
                         Some(st) => format!("now `{st}`"),
                         None => "—".to_string(),
@@ -791,7 +855,10 @@ mod tests {
             eq.contains("cleared") && eq.contains("pass"),
             "equivalence_failure routed item must be annotated cleared/pass; got:\n{eq}"
         );
-        let sv = md.lines().find(|l| l.contains("runcrate not run")).unwrap_or("");
+        let sv = md
+            .lines()
+            .find(|l| l.contains("runcrate not run"))
+            .unwrap_or("");
         assert!(
             sv.contains("cleared"),
             "substrate_validity routed item must be annotated cleared; got:\n{sv}"

@@ -325,10 +325,17 @@ mod tests {
         let path = invocation_log_path(pkg);
         let body = std::fs::read_to_string(&path).unwrap();
         let lines: Vec<&str> = body.lines().collect();
-        assert_eq!(lines.len(), 2, "pre-dispatch line + completion-time follow-up");
+        assert_eq!(
+            lines.len(),
+            2,
+            "pre-dispatch line + completion-time follow-up"
+        );
 
         let first: InvocationRecord = serde_json::from_str(lines[0]).unwrap();
-        assert!(first.observed_reads.is_empty(), "pre-dispatch line carries no reads");
+        assert!(
+            first.observed_reads.is_empty(),
+            "pre-dispatch line carries no reads"
+        );
 
         let second: InvocationRecord = serde_json::from_str(lines[1]).unwrap();
         assert_eq!(second.task_id, "differential_expression");

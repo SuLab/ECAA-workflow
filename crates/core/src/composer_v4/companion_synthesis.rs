@@ -427,9 +427,10 @@ mod tests {
             .iter()
             .find(|n| n.id == "validate_normalisation")
             .expect("validator must be synthesized");
-        let raw = validator.attributes.get("read_allowance").expect(
-            "validator must carry a read_allowance even though its stage declares none",
-        );
+        let raw = validator
+            .attributes
+            .get("read_allowance")
+            .expect("validator must carry a read_allowance even though its stage declares none");
         let parsed: Vec<crate::atom::ReadAllowance> =
             serde_json::from_value(raw.clone()).expect("read_allowance deserializes");
         assert!(
@@ -480,8 +481,7 @@ mod tests {
     /// deterministic core builtin is a role-separation smell.
     #[test]
     fn synthesize_skips_builtin_nodes() {
-        let mut dag =
-            dummy_dag_with_node("assemble_report_data", crate::atom::AtomRole::Operation);
+        let mut dag = dummy_dag_with_node("assemble_report_data", crate::atom::AtomRole::Operation);
         dag.nodes[0].attributes.insert(
             "builtin".into(),
             serde_json::Value::String("assemble_report_data".into()),

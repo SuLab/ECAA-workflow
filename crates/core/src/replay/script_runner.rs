@@ -10,8 +10,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::replay::select::ComputeTask;
 use crate::replay::env_provision::ExecEnv;
+use crate::replay::select::ComputeTask;
 
 // ---------------------------------------------------------------------------
 // Agent-free guard: entrypoint names that must never be executed.
@@ -191,7 +191,15 @@ pub fn stage_and_run(
 
     for task in task_order {
         // Per-task errors do NOT abort the whole run — they become ok:false outcomes.
-        let outcome = run_task(task, pkg, scratch, &run_env, &scratch_root, env, recorded_root);
+        let outcome = run_task(
+            task,
+            pkg,
+            scratch,
+            &run_env,
+            &scratch_root,
+            env,
+            recorded_root,
+        );
         outcomes.push(outcome);
     }
 
@@ -287,7 +295,10 @@ fn run_task(
     // files) into the scratch so a script that writes into a pre-existing
     // subdir (e.g. `intermediates/`, `figures/`) without creating it first
     // behaves as it did on the recorded run. Best-effort; idempotent.
-    mirror_subdirs(&pkg.join("runtime/outputs").join(&task.task_id), &scratch_task_dir);
+    mirror_subdirs(
+        &pkg.join("runtime/outputs").join(&task.task_id),
+        &scratch_task_dir,
+    );
 
     // The deposit export drops the regenerable per-task output subdirs
     // (`view_data/` Tier C; `intermediates/` + `cache/` Tier E), so
@@ -324,10 +335,7 @@ fn run_task(
             Ok(c) => c,
             Err(e) => {
                 task_ok = false;
-                task_stderr.push_str(&format!(
-                    "could not read {}: {e}\n",
-                    src_script.display()
-                ));
+                task_stderr.push_str(&format!("could not read {}: {e}\n", src_script.display()));
                 continue;
             }
         };
@@ -500,8 +508,7 @@ mod tests {
     ///   - writes `$PKG_ROOT` into `$PKG_ROOT/runtime/outputs/differential_expression/out.tsv`
     ///   - contains a comment with the literal `recorded_root` so the rewrite test can verify it
     fn build_fake_pkg(pkg: &Path, recorded_root: &str) {
-        let scripts_dir = pkg
-            .join("runtime/outputs/differential_expression/scripts");
+        let scripts_dir = pkg.join("runtime/outputs/differential_expression/scripts");
         std::fs::create_dir_all(&scripts_dir).unwrap();
 
         // Create a result table so select_compute_tasks would include this task.
@@ -557,8 +564,7 @@ mod tests {
         );
 
         // (a) out.tsv exists under the scratch root
-        let out_tsv = scratch
-            .join("runtime/outputs/differential_expression/out.tsv");
+        let out_tsv = scratch.join("runtime/outputs/differential_expression/out.tsv");
         assert!(out_tsv.exists(), "out.tsv should exist under scratch root");
 
         // (b) its content equals the scratch root (PKG_ROOT was redirected)
@@ -571,8 +577,7 @@ mod tests {
         );
 
         // (c) the staged 01.sh no longer contains `recorded_root`
-        let staged = scratch
-            .join("runtime/outputs/differential_expression/scripts/01.sh");
+        let staged = scratch.join("runtime/outputs/differential_expression/scripts/01.sh");
         let staged_content = std::fs::read_to_string(&staged).unwrap();
         assert!(
             !staged_content.contains(recorded_root),
@@ -706,10 +711,7 @@ mod tests {
         assert_eq!(outcomes.len(), 1);
         let outcome = &outcomes[0];
         // Task must fail because the only script was refused.
-        assert!(
-            !outcome.ok,
-            "task with agent entrypoint should not be ok"
-        );
+        assert!(!outcome.ok, "task with agent entrypoint should not be ok");
         assert!(
             outcome.stderr.contains("SKIPPED (agent entrypoint)"),
             "stderr should explain refusal; got: {}",
@@ -739,9 +741,7 @@ mod tests {
             )
             .unwrap();
             let log_str = log.display().to_string();
-            let script = format!(
-                "#!/usr/bin/env bash\necho {id} >> \"{log_str}\"\n"
-            );
+            let script = format!("#!/usr/bin/env bash\necho {id} >> \"{log_str}\"\n");
             std::fs::write(scripts_dir.join("01.sh"), &script).unwrap();
         }
 
@@ -815,7 +815,7 @@ mod tests {
             &[task],
             &[],
             &shell_env(),
-            "",  // empty recorded_root
+            "", // empty recorded_root
             &BTreeMap::new(),
         )
         .unwrap();
@@ -823,11 +823,14 @@ mod tests {
         assert_eq!(outcomes.len(), 1);
         let outcome = &outcomes[0];
         // Script should execute successfully.
-        assert!(outcome.ok, "task should succeed; stderr: {}", outcome.stderr);
+        assert!(
+            outcome.ok,
+            "task should succeed; stderr: {}",
+            outcome.stderr
+        );
 
         // Staged content must be byte-for-byte identical to original.
-        let staged = scratch
-            .join("runtime/outputs/task_empty_root/scripts/run.sh");
+        let staged = scratch.join("runtime/outputs/task_empty_root/scripts/run.sh");
         let staged_content = std::fs::read_to_string(&staged).unwrap();
         assert_eq!(
             staged_content, original_content,
@@ -860,11 +863,7 @@ mod tests {
         // task_ok: has a valid script.
         let scripts_dir_ok = pkg.join("runtime/outputs/task_ok/scripts");
         std::fs::create_dir_all(&scripts_dir_ok).unwrap();
-        std::fs::write(
-            pkg.join("runtime/outputs/task_ok/results.tsv"),
-            "x\n",
-        )
-        .unwrap();
+        std::fs::write(pkg.join("runtime/outputs/task_ok/results.tsv"), "x\n").unwrap();
         std::fs::write(
             scripts_dir_ok.join("01.sh"),
             "#!/usr/bin/env bash\necho ok\n",
@@ -1057,19 +1056,17 @@ mod tests {
 
         let scratch_str = scratch.display().to_string();
 
-        let pkg_root_val = std::fs::read_to_string(
-            scratch.join("runtime/outputs/env_check_task/pkg_root.txt"),
-        )
-        .expect("pkg_root.txt must exist");
+        let pkg_root_val =
+            std::fs::read_to_string(scratch.join("runtime/outputs/env_check_task/pkg_root.txt"))
+                .expect("pkg_root.txt must exist");
         assert_eq!(
             pkg_root_val, scratch_str,
             "PKG_ROOT must equal scratch root; got: {pkg_root_val:?}"
         );
 
-        let package_val = std::fs::read_to_string(
-            scratch.join("runtime/outputs/env_check_task/package.txt"),
-        )
-        .expect("package.txt must exist");
+        let package_val =
+            std::fs::read_to_string(scratch.join("runtime/outputs/env_check_task/package.txt"))
+                .expect("package.txt must exist");
         assert_eq!(
             package_val, scratch_str,
             "PACKAGE must equal scratch root; got: {package_val:?}"
@@ -1135,8 +1132,8 @@ mod tests {
         );
         // The non-script files must NOT have been staged into scratch scripts/
         // as executable scripts (they are not scripts).
-        let staged_log = scratch
-            .join("runtime/outputs/differential_expression/scripts/deseq2_run.log");
+        let staged_log =
+            scratch.join("runtime/outputs/differential_expression/scripts/deseq2_run.log");
         assert!(
             !staged_log.exists(),
             "a co-located .log must not be staged/executed as a script"
@@ -1156,11 +1153,7 @@ mod tests {
         // Create the scripts dir but leave it empty.
         let scripts_dir = pkg.join("runtime/outputs/empty_task/scripts");
         std::fs::create_dir_all(&scripts_dir).unwrap();
-        std::fs::write(
-            pkg.join("runtime/outputs/empty_task/results.tsv"),
-            "x\n",
-        )
-        .unwrap();
+        std::fs::write(pkg.join("runtime/outputs/empty_task/results.tsv"), "x\n").unwrap();
 
         let task = ComputeTask {
             task_id: "empty_task".to_string(),
@@ -1208,11 +1201,7 @@ mod tests {
         // plus a scripts/ subdir that must NOT be copied into scratch.
         let up = pkg.join("runtime/outputs/contextualize_findings_with_literature");
         std::fs::create_dir_all(up.join("scripts")).unwrap();
-        std::fs::write(
-            up.join("claims_evidence_matrix.csv"),
-            "claim,pmid\nA,123\n",
-        )
-        .unwrap();
+        std::fs::write(up.join("claims_evidence_matrix.csv"), "claim,pmid\nA,123\n").unwrap();
         std::fs::write(
             up.join("scripts/agent-claude.sh"),
             "#!/bin/bash\nclaude go\n",
@@ -1265,9 +1254,8 @@ mod tests {
         );
 
         // The skipped stage's scripts/ subdir must NOT be copied.
-        let staged_script = scratch.join(
-            "runtime/outputs/contextualize_findings_with_literature/scripts/agent-claude.sh",
-        );
+        let staged_script = scratch
+            .join("runtime/outputs/contextualize_findings_with_literature/scripts/agent-claude.sh");
         assert!(
             !staged_script.exists(),
             "skipped stage's scripts/ subdir must be excluded from staging"

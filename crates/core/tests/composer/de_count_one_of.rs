@@ -257,8 +257,8 @@ mod archetype_emit {
         let dag = emit_validated("bulk_rnaseq_de", false);
         let de = sole_de_stage(&dag);
 
-        let raw = count_edge(&dag, &de, "raw_counts")
-            .expect("reads-first bulk must bind DE.raw_counts");
+        let raw =
+            count_edge(&dag, &de, "raw_counts").expect("reads-first bulk must bind DE.raw_counts");
         assert_eq!(
             raw.from_node, "quantification",
             "reads-first raw_counts must come from quantification"
@@ -288,8 +288,8 @@ mod archetype_emit {
     fn ac2_counts_first_bulk_binds_raw_to_data_acquisition_and_plans() {
         let dag = emit_validated("bulk_rnaseq_de", true);
         let de = sole_de_stage(&dag);
-        let raw = count_edge(&dag, &de, "raw_counts")
-            .expect("counts-first bulk must bind DE.raw_counts");
+        let raw =
+            count_edge(&dag, &de, "raw_counts").expect("counts-first bulk must bind DE.raw_counts");
         assert_eq!(
             raw.from_node, "data_acquisition",
             "counts-first raw_counts must rewire onto the data_acquisition anchor"

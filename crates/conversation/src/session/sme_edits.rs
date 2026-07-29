@@ -74,7 +74,11 @@ impl Session {
 
     /// The `source_atom_id` recorded on a DAG task, if any.
     pub fn task_source_atom_id(&self, task_id: &str) -> Option<String> {
-        self.current_dag()?.tasks.get(task_id)?.source_atom_id.clone()
+        self.current_dag()?
+            .tasks
+            .get(task_id)?
+            .source_atom_id
+            .clone()
     }
 
     /// The `stage_class` recorded on a DAG task's `spec` (the key the harness
@@ -135,7 +139,11 @@ impl Session {
     ) -> BTreeMap<String, serde_json::Value> {
         self.sme_parameter_overrides
             .for_task(task_id)
-            .map(|m| m.iter().map(|(k, v)| (k.clone(), v.value.clone())).collect())
+            .map(|m| {
+                m.iter()
+                    .map(|(k, v)| (k.clone(), v.value.clone()))
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -282,20 +290,26 @@ impl Session {
     /// (commit path) and `apply_branch_edits` (validate-all-before-mutate).
     pub fn validate_validation_bound(&self, b: &SmeValidationBound) -> Result<(), SmeEditError> {
         if !is_supported_assertion_type(&b.assertion_type) {
-            return Err(SmeEditError::UnsupportedAssertionType(b.assertion_type.clone()));
+            return Err(SmeEditError::UnsupportedAssertionType(
+                b.assertion_type.clone(),
+            ));
         }
         if !ecaa_workflow_core::validation_bound::is_valid_severity(&b.severity) {
             return Err(SmeEditError::InvalidSeverity(b.severity.clone()));
         }
-        ecaa_workflow_core::validation_bound::validate_bound_check_shape(&b.assertion_type, &b.check)
-            .map_err(SmeEditError::MalformedCheck)?;
+        ecaa_workflow_core::validation_bound::validate_bound_check_shape(
+            &b.assertion_type,
+            &b.check,
+        )
+        .map_err(SmeEditError::MalformedCheck)?;
         // The stage_class must key onto a real DAG stage or the harness
         // `enforce_validation_contract` never runs the bound. That harness
         // matches the contract block by a task's `spec.stage_class` OR, when a
         // task carries none (the common v4 case), by the bare task id
         // (`stage_class.unwrap_or(&task_id)`). Mirror BOTH here so a bound the
         // harness would evaluate is accepted and a typo/empty one is rejected.
-        let known = self.dag_has_stage_class(&b.stage_class) || self.dag_contains_task(&b.stage_class);
+        let known =
+            self.dag_has_stage_class(&b.stage_class) || self.dag_contains_task(&b.stage_class);
         if b.stage_class.trim().is_empty() || !known {
             return Err(SmeEditError::UnknownStageClass(b.stage_class.clone()));
         }
@@ -411,8 +425,12 @@ impl Session {
                 // apply_parameter_overrides folds in the value edits AND rebuilds
                 // the forward slice (which also re-derives the DAG so a method
                 // change above takes effect).
-                invalidated =
-                    self.apply_parameter_overrides(tid, parameters, config_dir, DecisionActor::Sme)?;
+                invalidated = self.apply_parameter_overrides(
+                    tid,
+                    parameters,
+                    config_dir,
+                    DecisionActor::Sme,
+                )?;
             } else if method_trimmed.is_some() {
                 // Method changed but no parameter edits: still rebuild so the
                 // new method reaches the child's emitted DAG.

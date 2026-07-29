@@ -180,7 +180,10 @@ pub fn signal_path(package: &Path, task_id: &str) -> PathBuf {
 /// Read the existing signal for a task. `Ok(None)` when absent (the
 /// common case — no prior recovery). `Err` only on a present-but-broken
 /// file, so the caller can fail closed (do not recover blindly).
-pub fn read_signal(package: &Path, task_id: &str) -> anyhow::Result<Option<DomainCorrectnessSignal>> {
+pub fn read_signal(
+    package: &Path,
+    task_id: &str,
+) -> anyhow::Result<Option<DomainCorrectnessSignal>> {
     use anyhow::Context as _;
     let path = signal_path(package, task_id);
     if !path.exists() {
@@ -204,8 +207,14 @@ pub fn write_signal(
     let path = signal_path(package, task_id);
     let raw =
         serde_json::to_string_pretty(signal).context("serialising domain-correctness signal")?;
-    ecaa_workflow_core::fs_helpers::atomic_write_bytes_sync(&path, raw.as_bytes())
-        .with_context(|| format!("atomic write domain-correctness signal at {}", path.display()))?;
+    ecaa_workflow_core::fs_helpers::atomic_write_bytes_sync(&path, raw.as_bytes()).with_context(
+        || {
+            format!(
+                "atomic write domain-correctness signal at {}",
+                path.display()
+            )
+        },
+    )?;
     Ok(())
 }
 
@@ -301,7 +310,12 @@ pub fn phase13_advisory_warnings(
     summary
         .rows
         .iter()
-        .filter(|r| matches!(r.outcome, crate::validators::ValidatorOutcome::Failed { .. }))
+        .filter(|r| {
+            matches!(
+                r.outcome,
+                crate::validators::ValidatorOutcome::Failed { .. }
+            )
+        })
         .map(|r| AdvisoryWarning {
             task_id: task_id.to_string(),
             assertion_id: r.obligation_id.clone(),
@@ -317,7 +331,8 @@ pub fn phase13_advisory_warnings(
 /// site renders as "not present"). Capped read, mirroring the binary's
 /// `read_json_pointer_f64`.
 fn pointer_f64(path: &Path, pointer: &str) -> Option<f64> {
-    let bytes = crate::ecaa_io::read_bytes_capped(path, crate::ecaa_io::resolve_max_bytes()).ok()?;
+    let bytes =
+        crate::ecaa_io::read_bytes_capped(path, crate::ecaa_io::resolve_max_bytes()).ok()?;
     let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
     v.pointer(pointer).and_then(|x| x.as_f64())
 }
@@ -326,7 +341,8 @@ fn pointer_f64(path: &Path, pointer: &str) -> Option<f64> {
 /// when the file/pointer is missing or the value is not an array;
 /// non-numeric elements are skipped. Capped read.
 fn pointer_f64_array(path: &Path, pointer: &str) -> Option<Vec<f64>> {
-    let bytes = crate::ecaa_io::read_bytes_capped(path, crate::ecaa_io::resolve_max_bytes()).ok()?;
+    let bytes =
+        crate::ecaa_io::read_bytes_capped(path, crate::ecaa_io::resolve_max_bytes()).ok()?;
     let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
     let arr = v.pointer(pointer)?.as_array()?;
     Some(arr.iter().filter_map(|x| x.as_f64()).collect())
@@ -391,7 +407,9 @@ pub fn build_statement(
 
     match atype {
         "numeric_threshold" => {
-            let ptr = check.and_then(|c| c.get("json_pointer")).and_then(|v| v.as_str());
+            let ptr = check
+                .and_then(|c| c.get("json_pointer"))
+                .and_then(|v| v.as_str());
             let op = check.and_then(|c| c.get("op")).and_then(|v| v.as_str());
             let bound = check.and_then(|c| c.get("value")).and_then(|v| v.as_f64());
             let observed = match (target, ptr) {
@@ -416,41 +434,41 @@ pub fn build_statement(
             }
         }
         "numeric_distribution" => {
-            let ptr = check.and_then(|c| c.get("json_pointer")).and_then(|v| v.as_str());
+            let ptr = check
+                .and_then(|c| c.get("json_pointer"))
+                .and_then(|v| v.as_str());
             let stat = check.and_then(|c| c.get("stat")).and_then(|v| v.as_str());
             let op = check.and_then(|c| c.get("op")).and_then(|v| v.as_str());
             let bound = check.and_then(|c| c.get("value")).and_then(|v| v.as_f64());
             let observed = match (target, ptr, stat) {
-                (Some(t), Some(p), Some(s)) => {
-                    pointer_f64_array(&resolve(t), p).and_then(|vals| {
-                        if vals.is_empty() {
-                            None
-                        } else {
-                            let dist =
-                                ecaa_workflow_core::statistical_helpers::compute_distribution_stats(
-                                    &vals,
-                                );
-                            match s {
-                                "mean" => Some(dist.mean),
-                                "stdev" => Some(dist.stdev),
-                                "skewness" => Some(dist.skewness),
-                                "kurtosis" => Some(dist.kurtosis),
-                                "p5" => Some(dist.p5),
-                                "p50" => Some(dist.p50),
-                                "p95" => Some(dist.p95),
-                                _ => None,
-                            }
+                (Some(t), Some(p), Some(s)) => pointer_f64_array(&resolve(t), p).and_then(|vals| {
+                    if vals.is_empty() {
+                        None
+                    } else {
+                        let dist =
+                            ecaa_workflow_core::statistical_helpers::compute_distribution_stats(
+                                &vals,
+                            );
+                        match s {
+                            "mean" => Some(dist.mean),
+                            "stdev" => Some(dist.stdev),
+                            "skewness" => Some(dist.skewness),
+                            "kurtosis" => Some(dist.kurtosis),
+                            "p5" => Some(dist.p5),
+                            "p50" => Some(dist.p50),
+                            "p95" => Some(dist.p95),
+                            _ => None,
                         }
-                    })
-                }
+                    }
+                }),
                 _ => None,
             };
             match (stat, op, bound) {
                 (Some(stat), Some(op), Some(bound)) => {
                     let req = op_requirement_phrase(op);
-                    let obs = observed
-                        .map(fmt_num)
-                        .unwrap_or_else(|| "could not be recomputed from your result.json".to_string());
+                    let obs = observed.map(fmt_num).unwrap_or_else(|| {
+                        "could not be recomputed from your result.json".to_string()
+                    });
                     format!(
                         "{id}: this design requires the {stat} of {field} to be {req} {bound}, but your result.json recomputes {obs}. \
                          The distribution your analysis produced is outside the design's expectation — revisit it. \
@@ -463,9 +481,15 @@ pub fn build_statement(
             }
         }
         "reference_range_outlier" => {
-            let ptr = check.and_then(|c| c.get("json_pointer")).and_then(|v| v.as_str());
-            let rmin = check.and_then(|c| c.get("reference_min")).and_then(|v| v.as_f64());
-            let rmax = check.and_then(|c| c.get("reference_max")).and_then(|v| v.as_f64());
+            let ptr = check
+                .and_then(|c| c.get("json_pointer"))
+                .and_then(|v| v.as_str());
+            let rmin = check
+                .and_then(|c| c.get("reference_min"))
+                .and_then(|v| v.as_f64());
+            let rmax = check
+                .and_then(|c| c.get("reference_max"))
+                .and_then(|v| v.as_f64());
             let observed = match (target, ptr) {
                 (Some(t), Some(p)) => pointer_f64_array(&resolve(t), p),
                 _ => None,
@@ -491,13 +515,19 @@ pub fn build_statement(
             }
         }
         "cross_stage_output_comparison" => {
-            let this_ptr = check.and_then(|c| c.get("this_pointer")).and_then(|v| v.as_str());
-            let up_task = check.and_then(|c| c.get("upstream_task")).and_then(|v| v.as_str());
+            let this_ptr = check
+                .and_then(|c| c.get("this_pointer"))
+                .and_then(|v| v.as_str());
+            let up_task = check
+                .and_then(|c| c.get("upstream_task"))
+                .and_then(|v| v.as_str());
             let up_file = check
                 .and_then(|c| c.get("upstream_file"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("result.json");
-            let up_ptr = check.and_then(|c| c.get("upstream_pointer")).and_then(|v| v.as_str());
+            let up_ptr = check
+                .and_then(|c| c.get("upstream_pointer"))
+                .and_then(|v| v.as_str());
             let op = check.and_then(|c| c.get("op")).and_then(|v| v.as_str());
             let this_val = match (target, this_ptr) {
                 (Some(t), Some(p)) => pointer_f64(&resolve(t), p),
@@ -623,17 +653,41 @@ mod tests {
     fn assert_method_neutral(s: &str) {
         let lower = s.to_ascii_lowercase();
         for token in [
-            "bwa", "bowtie", "minimap", "gatk", "lofreq", "mutect", "bcftools", "samtools",
-            "freebayes", "deseq", "edger", "limma", "salmon", "star", "hisat", "deseq2",
-            "--", "set the threshold", "set --", "use the tool", "aligner", "caller ",
-            "normalization method", "t-test", "wilcoxon",
+            "bwa",
+            "bowtie",
+            "minimap",
+            "gatk",
+            "lofreq",
+            "mutect",
+            "bcftools",
+            "samtools",
+            "freebayes",
+            "deseq",
+            "edger",
+            "limma",
+            "salmon",
+            "star",
+            "hisat",
+            "deseq2",
+            "--",
+            "set the threshold",
+            "set --",
+            "use the tool",
+            "aligner",
+            "caller ",
+            "normalization method",
+            "t-test",
+            "wilcoxon",
         ] {
             assert!(
                 !lower.contains(token),
                 "neutral signal leaked a method/tool/flag token {token:?}: {s}"
             );
         }
-        assert!(!s.contains(met_floor()), "leaked threshold-set instruction: {s}");
+        assert!(
+            !s.contains(met_floor()),
+            "leaked threshold-set instruction: {s}"
+        );
     }
 
     #[test]
@@ -685,7 +739,9 @@ mod tests {
         // The spec bounds N ≤ 2; pin it so a future bump is a conscious
         // change, not an accident.
         assert_eq!(MAX_VALIDATION_RECOVERY_ATTEMPTS_CEILING, 2);
-        assert!(DEFAULT_MAX_VALIDATION_RECOVERY_ATTEMPTS <= MAX_VALIDATION_RECOVERY_ATTEMPTS_CEILING);
+        assert!(
+            DEFAULT_MAX_VALIDATION_RECOVERY_ATTEMPTS <= MAX_VALIDATION_RECOVERY_ATTEMPTS_CEILING
+        );
     }
 
     #[test]
@@ -725,7 +781,10 @@ mod tests {
         // First attempt: prior None -> consumed 1.
         let d1 = plan_recovery("variant_calling", true, 2, None, failed());
         let s1 = match d1 {
-            RecoveryDecision::Redispatch { signal, attempt_number } => {
+            RecoveryDecision::Redispatch {
+                signal,
+                attempt_number,
+            } => {
                 assert_eq!(attempt_number, 1);
                 assert_eq!(signal.recovery_attempts_consumed, 1);
                 assert_eq!(signal.recovery_attempts_budget, 2);
@@ -737,7 +796,10 @@ mod tests {
         // Second attempt: prior = s1 (consumed 1) -> consumed 2.
         let d2 = plan_recovery("variant_calling", true, 2, Some(&s1), failed());
         let s2 = match d2 {
-            RecoveryDecision::Redispatch { signal, attempt_number } => {
+            RecoveryDecision::Redispatch {
+                signal,
+                attempt_number,
+            } => {
                 assert_eq!(attempt_number, 2);
                 assert_eq!(signal.recovery_attempts_consumed, 2);
                 signal
@@ -773,8 +835,14 @@ mod tests {
         assert_method_neutral(&s);
         // Names the assertion, the design's bound, and the agent's own number.
         assert!(s.contains("variant_calling.het_tail_band_nonempty"), "{s}");
-        assert!(s.contains("at least 1"), "must restate the design bound: {s}");
-        assert!(s.contains("recomputes 0"), "must restate the agent's own number: {s}");
+        assert!(
+            s.contains("at least 1"),
+            "must restate the design bound: {s}"
+        );
+        assert!(
+            s.contains("recomputes 0"),
+            "must restate the agent's own number: {s}"
+        );
         assert!(s.contains("revisit"), "must say revisit, not how: {s}");
     }
 
@@ -836,7 +904,10 @@ mod tests {
         assert_method_neutral(&s);
         assert!(s.contains("50"), "must restate this stage's number: {s}");
         assert!(s.contains("30"), "must restate the upstream number: {s}");
-        assert!(s.contains("at most"), "must restate the design requirement: {s}");
+        assert!(
+            s.contains("at most"),
+            "must restate the design requirement: {s}"
+        );
     }
 
     #[test]

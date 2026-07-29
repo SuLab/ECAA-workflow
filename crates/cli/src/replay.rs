@@ -59,9 +59,9 @@ enum TierArg {
 impl From<TierArg> for Tier {
     fn from(t: TierArg) -> Tier {
         match t {
-            TierArg::Verify  => Tier::Verify,
+            TierArg::Verify => Tier::Verify,
             TierArg::Execute => Tier::Execute,
-            TierArg::All     => Tier::All,
+            TierArg::All => Tier::All,
         }
     }
 }
@@ -109,9 +109,9 @@ pub(crate) fn run(args: ReplayArgs) -> Result<()> {
 
     // ── Human summary ────────────────────────────────────────────────────────
     let verdict_str = match report.verdict {
-        ReplayVerdict::Pass    => "PASS",
+        ReplayVerdict::Pass => "PASS",
         ReplayVerdict::Partial => "PARTIAL",
-        ReplayVerdict::Fail    => "FAIL",
+        ReplayVerdict::Fail => "FAIL",
     };
     println!("replay: {verdict_str}  package={}", args.package.display());
 
@@ -137,7 +137,11 @@ pub(crate) fn run(args: ReplayArgs) -> Result<()> {
             "  re-execute: env_tier={} {n_artifacts} artifact(s) [{}]{}",
             re.env_tier,
             counts.join(" "),
-            if re.unprovisionable { "  (unprovisionable)" } else { "" },
+            if re.unprovisionable {
+                "  (unprovisionable)"
+            } else {
+                ""
+            },
         );
     }
 
@@ -156,8 +160,8 @@ pub(crate) fn run(args: ReplayArgs) -> Result<()> {
                     .with_context(|| format!("creating parent dir {}", parent.display()))?;
             }
         }
-        let body = serde_json::to_vec_pretty(&report)
-            .context("serializing ReplayReport to JSON")?;
+        let body =
+            serde_json::to_vec_pretty(&report).context("serializing ReplayReport to JSON")?;
         std::fs::write(json_path, body)
             .with_context(|| format!("writing {}", json_path.display()))?;
         println!("  report written → {}", json_path.display());
@@ -178,7 +182,9 @@ pub(crate) fn run(args: ReplayArgs) -> Result<()> {
 mod tests {
     use super::*;
     use ecaa_workflow_core::deposit_readiness::REEXECUTABLE_PROFILE;
-    use ecaa_workflow_harness::sandbox_enforcer::{reexecutable_profile_active, ENV_DEPOSIT_PROFILE};
+    use ecaa_workflow_harness::sandbox_enforcer::{
+        reexecutable_profile_active, ENV_DEPOSIT_PROFILE,
+    };
 
     /// `--tier execute|all` marks the process as a re-executable deposit
     /// re-execution so the harness sandbox resolver defaults bwrap ON; the

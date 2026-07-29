@@ -3,7 +3,7 @@
 //! conformance suite over a *freshly-emitted* package rather than the
 //! `#[ignore]`d harness/core integration tests.
 //!
-//! Both tests are CAPABILITY-PROBED: if `runcrate --version` fails (the
+//! Both tests are CAPABILITY-PROBED: if `runcrate version` fails (the
 //! toolchain from `requirements-validator.txt` is not installed) the
 //! test prints a LOUD skip notice and returns. This keeps the gate runnable
 //! in `make wrroc-validate` (where the deps ARE present) without
@@ -49,11 +49,11 @@ fn config_root() -> PathBuf {
         .join("config")
 }
 
-/// Returns true when `runcrate --version` succeeds, i.e. the validator
+/// Returns true when `runcrate version` succeeds, i.e. the validator
 /// toolchain is installed and this gate can run for real.
 fn runcrate_available() -> bool {
     std::process::Command::new("runcrate")
-        .arg("--version")
+        .arg("version")
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
@@ -146,9 +146,7 @@ fn emit_real_descriptor(out_dir: &Path) {
     let graph = metadata["@graph"].as_array().expect("@graph array");
     let step_tasks: Vec<String> = graph
         .iter()
-        .filter(|e| {
-            matches!(e.get("@type").and_then(|t| t.as_str()), Some("HowToStep"))
-        })
+        .filter(|e| matches!(e.get("@type").and_then(|t| t.as_str()), Some("HowToStep")))
         .filter_map(|e| {
             e.get("@id")
                 .and_then(|v| v.as_str())
@@ -185,7 +183,7 @@ fn emit_real_descriptor(out_dir: &Path) {
 fn runcrate_validates_emitted_descriptor_with_all_six_iris() {
     if !runcrate_available() {
         eprintln!(
-            "\n>>> SKIP: `runcrate --version` failed (toolchain not installed) <<<\n\
+            "\n>>> SKIP: `runcrate version` failed (toolchain not installed) <<<\n\
              >>> runcrate_validates_emitted_descriptor_with_all_six_iris did NOT run \
              — this is NOT a runcrate-validation pass. <<<\n\
              >>> Install the validator toolchain to run this gate for real:\n\
@@ -246,7 +244,7 @@ fn runcrate_validates_emitted_descriptor_with_all_six_iris() {
 fn runcrate_rejects_deficient_four_iri_descriptor() {
     if !runcrate_available() {
         eprintln!(
-            "\n>>> SKIP: `runcrate --version` failed (toolchain not installed) <<<\n\
+            "\n>>> SKIP: `runcrate version` failed (toolchain not installed) <<<\n\
              >>> runcrate_rejects_deficient_four_iri_descriptor did NOT run \
              — this is NOT a runcrate-validation pass. <<<\n\
              >>> Install the validator toolchain to run this gate for real:\n\

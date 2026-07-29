@@ -13,6 +13,7 @@ end-to-end TSV path.
 """
 import importlib.util
 import json
+import re
 from pathlib import Path
 
 _SCRIPT = Path(__file__).resolve().parents[2] / "measure_de_effect_size.py"
@@ -315,3 +316,256 @@ def test_end_to_end_no_effect_column_still_records_completeness_flags(tmp_path):
     assert parsed["information_column_recorded"] is False  # no effect col to rank
     assert parsed["r_squared_column_recorded"] is True, parsed
     assert parsed["sample_size_column_recorded"] is True, parsed
+
+
+# ---------------------------------------------------------------------------
+# Self-describing metric: the ratio is emitted WITH the numerator/denominator
+# populations, their sizes, K, and the count of top-K features carrying no usable
+# significance value. A bare number let a deposited report invent a denominator
+# ("all 4,030 significant genes") for a whole-tested-set ratio, and let a sibling
+# report name BOTH populations inside one sentence.
+# ---------------------------------------------------------------------------
+
+#: Every key the basis block carries, in EVERY branch. A stable key set means a
+#: downstream reader never branches on presence.
+_BASIS_KEYS = {
+    "computed",
+    "denominator",
+    "denominator_population",
+    "denominator_population_size",
+    "denominator_statistic",
+    "effect_column",
+    "information_column",
+    "not_computed_reason",
+    "numerator",
+    "numerator_population",
+    "numerator_population_size",
+    "numerator_statistic",
+    "requested_top_k",
+    "significance_column",
+    "statistic",
+    "top_k_missing_significance_count",
+    "value",
+}
+
+
+def _sig_table(tmp_path, name="de_results.tsv", *, missing_significance=0):
+    """A table whose top-15-by-|effect| are the LOWEST-abundance features (so the
+    ratio is computed), with `missing_significance` of those top features
+    carrying an unusable significance cell."""
+    header = ["gene", "log2FoldChange", "baseMean", "padj"]
+    rows = []
+    # 40 modest-effect, well-supported features: the tested-set bulk.
+    for i in range(40):
+        rows.append([f"bulk{i}", f"{1.0 + 0.02 * i}", f"{100 + i}", "0.2"])
+    # 20 extreme-effect, near-absent features: the top-15 come from here.
+    for i in range(20):
+        padj = "NA" if i < missing_significance else "0.001"
+        rows.append([f"tail{i}", f"{-14.7 + i * 0.05}", f"{0.5 + i * 0.1}", padj])
+    table = tmp_path / name
+    table.write_text(
+        "\n".join(["\t".join(header)] + ["\t".join(r) for r in rows]) + "\n"
+    )
+    return table
+
+
+def test_metric_block_is_present_and_self_consistent(tmp_path):
+    mod = _load_module()
+    out = tmp_path / "result.json"
+    assert mod.main(["--table", str(_sig_table(tmp_path)), "--out", str(out)]) == 0
+    parsed = json.loads(out.read_text())
+    basis = parsed["top_effect_abundance_ratio_basis"]
+    # The block never disagrees with the bare number the contract reads.
+    assert basis["value"] == parsed["top_effect_abundance_ratio"]
+    assert basis["computed"] is True
+    assert basis["not_computed_reason"] is None
+    assert basis["requested_top_k"] == parsed["top_effect_k"]
+    # The DENOMINATOR population is the whole tested set — the exact fact a
+    # deposited report got wrong by naming the significant subset instead.
+    assert basis["denominator_population"] == mod.DENOMINATOR_POPULATION_ID
+    assert basis["denominator_population_size"] == parsed["tested_feature_count"]
+    assert basis["numerator_population"] == mod.NUMERATOR_POPULATION_ID
+    assert basis["numerator_population_size"] == mod.TOP_K
+    assert basis["numerator_statistic"] == basis["denominator_statistic"] == "median"
+    assert basis["statistic"] == mod.RATIO_STATISTIC_ID
+    # The run's OWN column names, so the description is never generic when the
+    # table names them.
+    assert basis["effect_column"] == "log2FoldChange"
+    assert basis["information_column"] == "baseMean"
+    assert basis["significance_column"] == "padj"
+    assert set(basis) == _BASIS_KEYS, set(basis) ^ _BASIS_KEYS
+
+
+def test_description_states_both_population_sizes_and_rules_out_substitutes(tmp_path):
+    mod = _load_module()
+    out = tmp_path / "result.json"
+    assert mod.main(["--table", str(_sig_table(tmp_path)), "--out", str(out)]) == 0
+    parsed = json.loads(out.read_text())
+    text = parsed["top_effect_abundance_ratio_description"]
+    basis = parsed["top_effect_abundance_ratio_basis"]
+    # Both population sizes are IN the sentence, so quoting it verbatim cannot
+    # lose the denominator.
+    assert str(basis["numerator_population_size"]) in text
+    assert str(basis["denominator_population_size"]) in text
+    # The value as a report renders it (the anchor the Rust prose check looks for).
+    assert f"{basis['value']:.4f}" in text
+    # And it names the columns it was computed over.
+    assert "`baseMean`" in text and "`log2FoldChange`" in text
+    # The substitutions real reports made are ruled out explicitly.
+    lower = text.lower()
+    assert "not a significant subset" in lower
+    assert "both terms are medians" in lower
+    assert "not a per-sample statistic" in lower
+    # The description is meant to be QUOTED verbatim into a report, and the
+    # in-tree prose check warns when "mean"/"average" appears near a ratio
+    # citation — so the description must not contain either word itself.
+    # `baseMean`/`base_mean`-style column names are word-internal and exempt.
+    assert not re.search(r"\b(?:mean|means|average|averaged|averages)\b", lower), text
+
+
+def test_description_is_deterministic_across_runs(tmp_path):
+    mod = _load_module()
+    table = _sig_table(tmp_path)
+    first, second = tmp_path / "a.json", tmp_path / "b.json"
+    assert mod.main(["--table", str(table), "--out", str(first)]) == 0
+    assert mod.main(["--table", str(table), "--out", str(second)]) == 0
+    a, b = json.loads(first.read_text()), json.loads(second.read_text())
+    for key in ("top_effect_abundance_ratio_basis", "top_effect_abundance_ratio_description"):
+        assert a[key] == b[key], key
+    # Byte-identical on disk too (sorted keys, no clock, no ordering nondeterminism).
+    assert first.read_text() == second.read_text()
+
+
+def test_top_k_missing_significance_count_is_over_the_top_set(tmp_path):
+    mod = _load_module()
+    # 4 of the tail features carry `padj = NA`, and the tail supplies the whole
+    # top-15 — the deposited run's exact shape (4 of the top 15 had padj = NA, so
+    # the top set was NOT a subset of the significant set the prose named).
+    for missing in (0, 1, 4, 15):
+        out = tmp_path / f"result_{missing}.json"
+        table = _sig_table(tmp_path, f"de_{missing}.tsv", missing_significance=missing)
+        assert mod.main(["--table", str(table), "--out", str(out)]) == 0
+        parsed = json.loads(out.read_text())
+        basis = parsed["top_effect_abundance_ratio_basis"]
+        assert basis["top_k_missing_significance_count"] == missing, (missing, basis)
+        text = parsed["top_effect_abundance_ratio_description"]
+        assert f"{missing} of those 15 top features carry no usable `padj`" in text
+        # The "not a subset of the significant set" clause is a consequence of a
+        # NONZERO missing count, so it appears exactly when it is true.
+        assert ("NOT a subset of the significant set" in text) is (missing > 0), text
+
+
+def test_missing_significance_count_is_null_when_no_significance_column(tmp_path):
+    mod = _load_module()
+    # No significance column at all: 0 would read as "every top feature has one",
+    # a different and unsupported claim, so the count is null and the description
+    # says the metric supports no statement about a significant subset.
+    header = ["feature", "log2fc", "base_mean"]
+    table = tmp_path / "nosig.tsv"
+    lines = ["\t".join(header)]
+    for row in _planted_artifact_rows():
+        lines.append("\t".join(row))
+    table.write_text("\n".join(lines) + "\n")
+    out = tmp_path / "result.json"
+    assert mod.main(["--table", str(table), "--out", str(out)]) == 0
+    parsed = json.loads(out.read_text())
+    basis = parsed["top_effect_abundance_ratio_basis"]
+    assert basis["top_k_missing_significance_count"] is None, basis
+    assert basis["significance_column"] is None, basis
+    assert "no statement about a significant subset" in (
+        parsed["top_effect_abundance_ratio_description"]
+    )
+
+
+def test_significance_column_does_not_change_the_ratio(tmp_path):
+    mod = _load_module()
+    # The significance role is COUNTED, never used to filter the tested set or
+    # rank the top-K: the same table with and without a padj column must yield
+    # the identical ratio (the deposited value's denominator is the tested set,
+    # not the significant set).
+    rows = _planted_artifact_rows()
+    eff, info = 1, 2
+    without = mod.compute_metrics(rows, eff, info)
+    with_sig = mod.compute_metrics(
+        [r + ["NA"] for r in rows], eff, info, sig_idx=3
+    )
+    assert without["top_effect_abundance_ratio"] == with_sig["top_effect_abundance_ratio"]
+    assert without["tested_feature_count"] == with_sig["tested_feature_count"]
+    # Only the new count differs: every top feature lacks a usable padj.
+    assert with_sig["top_effect_abundance_ratio_basis"]["top_k_missing_significance_count"] == 15
+    assert without["top_effect_abundance_ratio_basis"]["top_k_missing_significance_count"] is None
+
+
+def test_not_computed_paths_say_so_instead_of_naming_a_population(tmp_path):
+    mod = _load_module()
+    # Every gate-skip / degenerate branch must emit the block with computed=false,
+    # a null value, and a description that refuses to describe a population —
+    # otherwise the 1.0 sentinel becomes quotable as a measurement.
+    header = ["feature", "log2fc", "padj"]
+    cases = [
+        # (result, expected reason substring)
+        (
+            mod.compute_metrics([[f"g{i}", "5.0", "0.01"] for i in range(10)], 1, None),
+            "abundance/information column",
+        ),
+        (
+            mod.compute_metrics([[f"g{i}", f"{i}", "0"] for i in range(20)], 1, 2),
+            "median abundance over the tested set is 0",
+        ),
+    ]
+    assert mod._find_col(header, mod._BASEMEAN_COLS) is None  # case 1 precondition
+    for result, reason in cases:
+        basis = result["top_effect_abundance_ratio_basis"]
+        assert basis["computed"] is False, basis
+        assert basis["value"] is None, basis
+        assert reason in basis["not_computed_reason"], basis
+        assert set(basis) == _BASIS_KEYS, set(basis) ^ _BASIS_KEYS
+        text = result["top_effect_abundance_ratio_description"]
+        assert "was NOT computed" in text, text
+        assert "non-failing sentinel, not a measurement" in text, text
+        assert "do not describe a population for it" in text, text
+        # The sentinel is still recorded for the `when`-gated contract.
+        assert result["top_effect_abundance_ratio"] == 1.0
+
+
+def test_missing_table_and_no_effect_column_also_carry_the_block(tmp_path):
+    mod = _load_module()
+    out = tmp_path / "missing.json"
+    assert mod.main(["--table", str(tmp_path / "nope.tsv"), "--out", str(out)]) == 0
+    basis = json.loads(out.read_text())["top_effect_abundance_ratio_basis"]
+    assert basis["computed"] is False and basis["value"] is None
+    assert "no readable results table" in basis["not_computed_reason"]
+    assert set(basis) == _BASIS_KEYS
+
+    fit = tmp_path / "fit.tsv"
+    fit.write_text("feature\tr_squared\tn\nx\t0.7\t9\n")
+    out2 = tmp_path / "fit.json"
+    assert mod.main(["--table", str(fit), "--out", str(out2)]) == 0
+    basis2 = json.loads(out2.read_text())["top_effect_abundance_ratio_basis"]
+    assert basis2["computed"] is False and basis2["value"] is None
+    assert "no per-feature effect-size column" in basis2["not_computed_reason"]
+    assert set(basis2) == _BASIS_KEYS
+
+
+def test_description_falls_back_to_role_words_when_columns_are_unnamed():
+    mod = _load_module()
+    # compute_metrics called without column_names (the pure-core path a caller
+    # may use) must still describe the populations — with generic ROLE words, so
+    # the description is never silently modality-specific.
+    res = mod.compute_metrics(_planted_artifact_rows(), 1, 2)
+    text = res["top_effect_abundance_ratio_description"]
+    assert mod._GENERIC_INFORMATION_LABEL in text, text
+    assert mod._GENERIC_EFFECT_LABEL in text, text
+    assert "`" not in text, "no column was named, so nothing may be backticked"
+
+
+def test_pre_existing_keys_are_unchanged_by_the_additions():
+    mod = _load_module()
+    # Additive only: the keys existing readers bind to keep their exact names,
+    # types, and values.
+    res = mod.compute_metrics(_planted_artifact_rows(), 1, 2)
+    assert res["information_column_recorded"] is True
+    assert res["top_effect_k"] == mod.TOP_K
+    assert res["tested_feature_count"] == len(_planted_artifact_rows())
+    assert isinstance(res["top_effect_abundance_ratio"], float)
+    assert res["top_effect_abundance_ratio"] < mod.MIN_ABUNDANCE_RATIO

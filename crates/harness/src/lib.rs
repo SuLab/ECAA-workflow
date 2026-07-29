@@ -8,7 +8,6 @@
 pub mod _observability;
 pub mod agent_code_capture;
 pub mod builtin_dispatch;
-pub mod env_snapshot;
 pub mod cache_eviction;
 pub mod constants;
 pub mod dag_patch;
@@ -16,6 +15,7 @@ pub mod dispatch_guard;
 pub mod dispatch_wal;
 pub mod ecaa_io;
 pub mod end_of_run_finalize;
+pub mod env_snapshot;
 pub mod executor;
 pub mod finalize_probe;
 pub mod invocation_log;

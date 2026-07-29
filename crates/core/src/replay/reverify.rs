@@ -104,8 +104,8 @@ pub fn reverify(pkg: &Path, reader_version: &str) -> anyhow::Result<ReverifyResu
                 .and_then(|v| v.as_str().map(str::to_owned))
                 .unwrap_or_else(|| format!("{:?}", verdict.id).to_lowercase());
 
-            let fresh_status = serde_json::to_value(verdict.status)
-                .unwrap_or(serde_json::Value::Null);
+            let fresh_status =
+                serde_json::to_value(verdict.status).unwrap_or(serde_json::Value::Null);
 
             if let Some(rec_status) = recorded_verdicts.get(&id_str) {
                 let diverged = status_diverged(rec_status, &fresh_status);
@@ -190,13 +190,9 @@ pub fn reverify(pkg: &Path, reader_version: &str) -> anyhow::Result<ReverifyResu
             ("n_verified", fresh_verified),
             ("n_checked", fresh_checked),
         ] {
-            let recorded_count = cv
-                .get(field)
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
+            let recorded_count = cv.get(field).and_then(|v| v.as_u64()).unwrap_or(0);
             let fresh_val = serde_json::Value::Number(fresh_count.into());
-            let recorded_val =
-                serde_json::Value::Number(serde_json::Number::from(recorded_count));
+            let recorded_val = serde_json::Value::Number(serde_json::Number::from(recorded_count));
             let diverged = recorded_count != fresh_count;
             checks.push(VerifierDiff {
                 check: format!("claim_verification.{field}"),
@@ -295,10 +291,9 @@ mod tests {
 
     /// Copy a named conformance fixture into `dst`.
     fn copy_fixture(name: &str, dst: &Path) {
-        let fixtures_root =
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("../ecaa-conformance/tests/fixtures")
-                .join(name);
+        let fixtures_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../ecaa-conformance/tests/fixtures")
+            .join(name);
         copy_dir_all(&fixtures_root, dst).expect("copy_fixture");
     }
 
@@ -391,17 +386,39 @@ mod tests {
 
         let res = reverify(tmp.path(), "0.2").unwrap();
 
-        let audit_diff = res.checks.iter().find(|c| c.check == "audit_proof").unwrap();
-        assert_eq!(audit_diff.recorded, serde_json::Value::Null, "audit_proof recorded must be Null");
-        assert!(!audit_diff.diverged, "audit_proof must not diverge when file absent");
+        let audit_diff = res
+            .checks
+            .iter()
+            .find(|c| c.check == "audit_proof")
+            .unwrap();
+        assert_eq!(
+            audit_diff.recorded,
+            serde_json::Value::Null,
+            "audit_proof recorded must be Null"
+        );
+        assert!(
+            !audit_diff.diverged,
+            "audit_proof must not diverge when file absent"
+        );
         assert!(
             audit_diff.note.as_deref().unwrap_or("").contains("absent"),
             "audit_proof note must mention absent"
         );
 
-        let cv_diff = res.checks.iter().find(|c| c.check == "claim_verification").unwrap();
-        assert_eq!(cv_diff.recorded, serde_json::Value::Null, "claim_verification recorded must be Null");
-        assert!(!cv_diff.diverged, "claim_verification must not diverge when file absent");
+        let cv_diff = res
+            .checks
+            .iter()
+            .find(|c| c.check == "claim_verification")
+            .unwrap();
+        assert_eq!(
+            cv_diff.recorded,
+            serde_json::Value::Null,
+            "claim_verification recorded must be Null"
+        );
+        assert!(
+            !cv_diff.diverged,
+            "claim_verification must not diverge when file absent"
+        );
         assert!(
             cv_diff.note.as_deref().unwrap_or("").contains("absent"),
             "claim_verification note must mention absent"
@@ -418,10 +435,16 @@ mod tests {
 
         // Matching version — recorded ecaa_version is "0.2" (set by write_recorded_audit).
         let res_match = reverify(tmp.path(), "0.2").unwrap();
-        assert!(res_match.reader_matches_writer, "version 0.2 must match writer 0.2");
+        assert!(
+            res_match.reader_matches_writer,
+            "version 0.2 must match writer 0.2"
+        );
 
         // Mismatching version.
         let res_mismatch = reverify(tmp.path(), "0.3").unwrap();
-        assert!(!res_mismatch.reader_matches_writer, "version 0.3 must not match writer 0.2");
+        assert!(
+            !res_mismatch.reader_matches_writer,
+            "version 0.3 must not match writer 0.2"
+        );
     }
 }

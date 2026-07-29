@@ -605,7 +605,9 @@ mod tests {
                 id, stage
             ))
             .header("content-type", "application/json")
-            .body(Body::from(r#"{"method_prose":"star","rationale":"try STAR"}"#))
+            .body(Body::from(
+                r#"{"method_prose":"star","rationale":"try STAR"}"#,
+            ))
             .unwrap();
         let resp = router.oneshot(req).await.unwrap();
         assert_eq!(

@@ -63,8 +63,7 @@ mod tests {
         let contents = std::fs::read_to_string(&path).expect("read log");
         let lines: Vec<&str> = contents.lines().collect();
         assert_eq!(lines.len(), 3, "three appends must yield three lines");
-        let first: RepairLogEntry =
-            serde_json::from_str(lines[0]).expect("first line parses");
+        let first: RepairLogEntry = serde_json::from_str(lines[0]).expect("first line parses");
         assert_eq!(first.round, 0, "first entry round must be 0");
         assert_eq!(first.failure_id, "id0", "first entry id must round-trip");
     }

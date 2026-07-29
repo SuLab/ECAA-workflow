@@ -125,7 +125,12 @@ pub fn inject_biological_interpretation_before_reporting(dag: &mut WorkflowDag) 
     // keeps `wire_dangling` / `type_aggregator` invariants intact (the
     // sink's fan-in is a superset; no edge is removed).
     if let Some(sink) = &downstream_sink {
-        new_edges.push(ordering_edge(NODE_ID, "interpretation", sink, "tributaries"));
+        new_edges.push(ordering_edge(
+            NODE_ID,
+            "interpretation",
+            sink,
+            "tributaries",
+        ));
     }
 
     // Literature contextualization: optional edge when the upstream
@@ -310,8 +315,14 @@ mod tests {
             edge_pairs(&dag)
         );
 
-        let has_lit = dag.edges.iter().any(|e| e.to_port == "literature_concordance");
-        assert!(!has_lit, "no literature_concordance edge when the atom is absent");
+        let has_lit = dag
+            .edges
+            .iter()
+            .any(|e| e.to_port == "literature_concordance");
+        assert!(
+            !has_lit,
+            "no literature_concordance edge when the atom is absent"
+        );
     }
 
     /// Idempotency: a second pass adds nothing.
@@ -364,7 +375,9 @@ mod tests {
         let mut dag = dag_with(vec![node("differential_expression")], vec![]);
         inject_biological_interpretation_before_reporting(&mut dag);
         assert!(
-            !dag.nodes.iter().any(|n| n.id == "biological_interpretation"),
+            !dag.nodes
+                .iter()
+                .any(|n| n.id == "biological_interpretation"),
             "must not inject without a reporting terminal"
         );
     }

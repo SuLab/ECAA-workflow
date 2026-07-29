@@ -387,7 +387,10 @@ mod ed_cf_delta_tests {
 
         let cc1 = pkg.join("runtime/catalog-coverage-statement.json");
         let m5 = pkg.join("runtime/coverage-statement.json");
-        assert!(cc1.exists(), "CC1 must write catalog-coverage-statement.json");
+        assert!(
+            cc1.exists(),
+            "CC1 must write catalog-coverage-statement.json"
+        );
         assert!(m5.exists(), "M5 must write coverage-statement.json");
 
         // CC1's content survives — M5 did not clobber it on disk.

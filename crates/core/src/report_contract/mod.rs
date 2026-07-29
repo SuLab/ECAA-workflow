@@ -16,23 +16,23 @@ pub mod full_table;
 pub mod pathway_ranking;
 pub mod provenance_section;
 
-pub use assemble::{CONTEXTUALIZE_STAGE_ID, assemble_report_data};
+pub use assemble::{assemble_report_data, CONTEXTUALIZE_STAGE_ID};
 pub use full_table::{
-    FULL_TABLE_END, FULL_TABLE_START, inject_full_tables, significant_entities_section,
+    inject_full_tables, significant_entities_section, FULL_TABLE_END, FULL_TABLE_START,
 };
 pub use pathway_ranking::{
-    PathwayRanking, RankedTerm, RankingColumns, SignClass, SignificanceOrder, rank_artifact,
-    rank_terms, resolve_ranking_columns,
+    rank_artifact, rank_terms, resolve_ranking_columns, PathwayRanking, RankedTerm, RankingColumns,
+    SignClass, SignificanceOrder,
 };
 pub use provenance_section::{
-    DATA_PROVENANCE_END, DATA_PROVENANCE_START, DataProvenance, DataProvenanceRecord,
-    SmeRegisteredInput, SourceKind, collect_data_provenance, inject_provenance_section,
-    render_provenance_section, strip_provenance_section,
+    collect_data_provenance, inject_provenance_section, render_provenance_section,
+    strip_provenance_section, DataProvenance, DataProvenanceRecord, SmeRegisteredInput, SourceKind,
+    DATA_PROVENANCE_END, DATA_PROVENANCE_START,
 };
 pub use report_data::{
-    ArtifactStats, DirectionSplit, DistBin, EntityRow, GroupCount, LitFinding, LiteratureRollup,
-    LiteratureStatus, NonReplication, PolicyColumnSynonyms, ReportData, ResultArtifactSummary,
-    SPILL_THRESHOLD, join_literature, load_policy_column_synonyms, should_spill, summarize_artifact,
-    write_supplementary,
+    join_literature, load_policy_column_synonyms, should_spill, summarize_artifact,
+    write_supplementary, ArtifactStats, DirectionSplit, DistBin, EntityRow, GroupCount, LitFinding,
+    LiteratureRollup, LiteratureStatus, NonReplication, PolicyColumnSynonyms, ReportData,
+    ResultArtifactSummary, SPILL_THRESHOLD,
 };
 pub use result_schema::{Comparator, ResultSchema, Significance};

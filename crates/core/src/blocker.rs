@@ -1109,7 +1109,10 @@ mod tests {
                 assert_eq!(top_candidate, "deseq2");
                 assert_eq!(runner_ups, vec!["limma_voom", "edger"]);
             }
-            _ => panic!("expected AwaitingSmeApproval from PascalCase, got {:?}", out),
+            _ => panic!(
+                "expected AwaitingSmeApproval from PascalCase, got {:?}",
+                out
+            ),
         }
     }
 

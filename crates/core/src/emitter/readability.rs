@@ -104,7 +104,10 @@ pub(super) fn reorder_workflow_tasks(dst: &Path) -> Result<()> {
     // Ordered keys: execution order first (present tasks only), then any task
     // not named in execution_order, alphabetically (tasks is a BTreeMap-backed
     // object so its iteration is already sorted).
-    let mut ordered: Vec<&String> = exec_order.iter().filter(|k| tasks.contains_key(*k)).collect();
+    let mut ordered: Vec<&String> = exec_order
+        .iter()
+        .filter(|k| tasks.contains_key(*k))
+        .collect();
     for k in tasks.keys() {
         if !exec_order.contains(k) {
             ordered.push(k);
@@ -124,11 +127,12 @@ pub(super) fn reorder_workflow_tasks(dst: &Path) -> Result<()> {
     let reparsed: Value =
         serde_json::from_str(&out).context("re-parsing reordered WORKFLOW.json")?;
     if reparsed != root {
-        anyhow::bail!("reordered WORKFLOW.json is not value-equal to the original; refusing to write");
+        anyhow::bail!(
+            "reordered WORKFLOW.json is not value-equal to the original; refusing to write"
+        );
     }
 
-    std::fs::write(&path, out)
-        .with_context(|| format!("writing reordered {}", path.display()))?;
+    std::fs::write(&path, out).with_context(|| format!("writing reordered {}", path.display()))?;
     Ok(())
 }
 
@@ -186,13 +190,13 @@ pub(super) fn write_artifacts_manifest(dst: &Path) -> Result<()> {
         for step in &order {
             let idx = step.get("index").and_then(Value::as_u64).unwrap_or(0);
             let tid = step.get("task_id").and_then(Value::as_str).unwrap_or("");
-            let odir = step
-                .get("output_dir")
-                .and_then(Value::as_str)
-                .unwrap_or("");
+            let odir = step.get("output_dir").and_then(Value::as_str).unwrap_or("");
             let files = list_files(&dst.join(odir));
             if files.is_empty() {
-                let _ = writeln!(m, "### {idx:02} · `{tid}`\n\n_No output files retained in this profile._\n");
+                let _ = writeln!(
+                    m,
+                    "### {idx:02} · `{tid}`\n\n_No output files retained in this profile._\n"
+                );
                 continue;
             }
             let _ = writeln!(m, "### {idx:02} · `{tid}`\n");
@@ -244,7 +248,8 @@ fn list_files(dir: &Path) -> Vec<(String, u64)> {
     // not prefix (the step heading carries the dir). For the top-level listing
     // `dir` IS the package root, so relative == package-relative. To keep both
     // correct we always return package-relative by detecting the package root
-    // as the first ancestor containing `WORKFLOW.json` or `bagit.txt`.
+    // as the first ancestor containing `WORKFLOW.json` or the checksum
+    // manifest.
     let root = package_root(dir).unwrap_or_else(|| dir.to_path_buf());
     let mut out = Vec::new();
     for e in walkdir::WalkDir::new(dir).sort_by_file_name() {
@@ -269,7 +274,7 @@ fn list_files(dir: &Path) -> Vec<(String, u64)> {
 fn package_root(dir: &Path) -> Option<std::path::PathBuf> {
     let mut cur = Some(dir);
     while let Some(d) = cur {
-        if d.join("WORKFLOW.json").exists() || d.join("bagit.txt").exists() {
+        if d.join("WORKFLOW.json").exists() || d.join("manifest-sha512.txt").exists() {
             return Some(d.to_path_buf());
         }
         cur = d.parent();
@@ -305,18 +310,19 @@ pub(super) fn augment_readme(dst: &Path) -> Result<()> {
         }
         text.push_str(&nav);
     }
-    std::fs::write(&path, text)
-        .with_context(|| format!("writing augmented {}", path.display()))?;
+    std::fs::write(&path, text).with_context(|| format!("writing augmented {}", path.display()))?;
     Ok(())
 }
 
 // ── 4. Register kept-but-dark payload into the @graph (zero dark payload) ────
 
-/// BagIt / RO-Crate structural files that are not RO-Crate *data* entities and
+/// Checksum-seal / RO-Crate structural files that are not RO-Crate data entities and
 /// so are never registered in the `@graph`.
 const STRUCTURAL: &[&str] = &[
     "ro-crate-metadata.json",
     "ro-crate-preview.html",
+    "seal-info.json",
+    "seal-tagmanifest-sha512.txt",
     "bagit.txt",
     "bag-info.txt",
     "manifest-sha512.txt",
@@ -505,7 +511,8 @@ fn describe(rel: &str, existing: &HashSet<String>) -> (String, String, String) {
         ),
         _ if rel.contains("/evidence/snapshots/") => (
             "Literature evidence snapshot".into(),
-            "Content-addressed literature-evidence snapshot supporting the citation grounding.".into(),
+            "Content-addressed literature-evidence snapshot supporting the citation grounding."
+                .into(),
         ),
         _ => (base.to_string(), format!("Package file '{rel}'.")),
     };
@@ -527,16 +534,48 @@ fn build_nav_section(dst: &Path) -> String {
     };
     // Narrative report can live at the package root or under a reporting step.
     if dst.join("final_report.md").exists() {
-        link(&mut s, "final_report.md", "the scientific narrative — the answer");
+        link(
+            &mut s,
+            "final_report.md",
+            "the scientific narrative — the answer",
+        );
     }
     link(&mut s, "AUDIT-REPORT.md", "claim-verification verdicts, audit-proof invariants, decisions, assumptions, proofs, validation, cost — the accountability layer");
-    link(&mut s, "ARTIFACTS.md", "every file mapped to the step that produced it, with sizes");
-    link(&mut s, "runtime/EXECUTION-ORDER.md", "the steps in dependency order");
-    link(&mut s, "ro-crate-metadata.json", "RO-Crate / Workflow-Run-Crate provenance metadata");
-    link(&mut s, "runtime/claim-verification.json", "machine-readable claim verdicts (source of AUDIT-REPORT.md)");
-    link(&mut s, "runtime/audit-proof-report.json", "machine-readable audit-proof invariants");
-    link(&mut s, "runtime/decisions.jsonl", "the decision log with authorities");
-    link(&mut s, "runtime/proofs.jsonl", "typed data-flow proofs, one per graph edge");
+    link(
+        &mut s,
+        "ARTIFACTS.md",
+        "every file mapped to the step that produced it, with sizes",
+    );
+    link(
+        &mut s,
+        "runtime/EXECUTION-ORDER.md",
+        "the steps in dependency order",
+    );
+    link(
+        &mut s,
+        "ro-crate-metadata.json",
+        "RO-Crate / Workflow-Run-Crate provenance metadata",
+    );
+    link(
+        &mut s,
+        "runtime/claim-verification.json",
+        "machine-readable claim verdicts (source of AUDIT-REPORT.md)",
+    );
+    link(
+        &mut s,
+        "runtime/audit-proof-report.json",
+        "machine-readable audit-proof invariants",
+    );
+    link(
+        &mut s,
+        "runtime/decisions.jsonl",
+        "the decision log with authorities",
+    );
+    link(
+        &mut s,
+        "runtime/proofs.jsonl",
+        "typed data-flow proofs, one per graph edge",
+    );
     let _ = writeln!(s);
 
     // Inline execution-order table so the landing page itself shows the steps.

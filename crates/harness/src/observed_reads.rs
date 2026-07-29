@@ -158,7 +158,9 @@ mod tests {
         write_manifest(
             dir.path(),
             "differential_expression",
-            &[r#"{"path":"runtime/outputs/quantification/count_matrix.tsv","declared_port":"raw_counts"}"#],
+            &[
+                r#"{"path":"runtime/outputs/quantification/count_matrix.tsv","declared_port":"raw_counts"}"#,
+            ],
         );
         let (status, reads) = capture_reads(dir.path(), "differential_expression", || {
             ExitStatus::from_raw(0)
@@ -202,7 +204,10 @@ mod tests {
         let (_status, reads) =
             capture_reads(dir.path(), "quantification", || ExitStatus::from_raw(0));
         assert_eq!(reads.len(), 1);
-        assert_eq!(reads[0].path, "runtime/outputs/data_acquisition/reads.fastq.gz");
+        assert_eq!(
+            reads[0].path,
+            "runtime/outputs/data_acquisition/reads.fastq.gz"
+        );
     }
 
     #[test]
@@ -218,7 +223,10 @@ mod tests {
         );
         let (_status, reads) = capture_reads(dir.path(), "alignment", || ExitStatus::from_raw(0));
         assert_eq!(reads.len(), 1);
-        assert_eq!(reads[0].path, "runtime/outputs/data_acquisition/reads.fastq.gz");
+        assert_eq!(
+            reads[0].path,
+            "runtime/outputs/data_acquisition/reads.fastq.gz"
+        );
     }
 
     #[test]

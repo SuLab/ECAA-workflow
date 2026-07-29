@@ -122,9 +122,7 @@ where
                     Ok(location) => SnapshotOutcome::Captured {
                         digest,
                         location,
-                        note: Some(format!(
-                            "registry push failed ({store_err}); kept local"
-                        )),
+                        note: Some(format!("registry push failed ({store_err}); kept local")),
                     },
                     Err(cas_err) => SnapshotOutcome::Failed {
                         reason: format!(
@@ -196,13 +194,14 @@ mod tests {
                 build_called.set(true);
                 Ok("sha256:x".to_owned())
             },
-            |_tag, _digest, _plan| {
-                Ok(StoreLocation::LocalCas(PathBuf::from("/tmp/fake.tar")))
-            },
+            |_tag, _digest, _plan| Ok(StoreLocation::LocalCas(PathBuf::from("/tmp/fake.tar"))),
         );
 
         assert_eq!(outcome, SnapshotOutcome::SkippedNoInstalls);
-        assert!(!build_called.get(), "build_fn must not be called when disabled");
+        assert!(
+            !build_called.get(),
+            "build_fn must not be called when disabled"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -220,13 +219,14 @@ mod tests {
                 build_called.set(true);
                 Ok("sha256:x".to_owned())
             },
-            |_tag, _digest, _plan| {
-                Ok(StoreLocation::LocalCas(PathBuf::from("/tmp/fake.tar")))
-            },
+            |_tag, _digest, _plan| Ok(StoreLocation::LocalCas(PathBuf::from("/tmp/fake.tar"))),
         );
 
         assert_eq!(outcome, SnapshotOutcome::SkippedNoInstalls);
-        assert!(!build_called.get(), "build_fn must not be called when no installs present");
+        assert!(
+            !build_called.get(),
+            "build_fn must not be called when no installs present"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -270,9 +270,7 @@ mod tests {
                     "docker build exploded",
                 ))
             },
-            |_tag, _digest, _plan| {
-                Ok(StoreLocation::LocalCas(PathBuf::from("/tmp/fake.tar")))
-            },
+            |_tag, _digest, _plan| Ok(StoreLocation::LocalCas(PathBuf::from("/tmp/fake.tar"))),
         );
 
         assert!(
@@ -302,21 +300,23 @@ mod tests {
         let outcome = snapshot_environment_with(
             &opts,
             |_o| Ok("sha256:cafebabe5678".to_owned()),
-            move |_tag, _digest, plan| {
-                match plan {
-                    store::StorePlan::Push { .. } => Err(std::io::Error::new(
-                        std::io::ErrorKind::ConnectionRefused,
-                        "registry unreachable",
-                    )),
-                    store::StorePlan::LocalCas { .. } => {
-                        Ok(StoreLocation::LocalCas((*cas_path_clone).clone()))
-                    }
+            move |_tag, _digest, plan| match plan {
+                store::StorePlan::Push { .. } => Err(std::io::Error::new(
+                    std::io::ErrorKind::ConnectionRefused,
+                    "registry unreachable",
+                )),
+                store::StorePlan::LocalCas { .. } => {
+                    Ok(StoreLocation::LocalCas((*cas_path_clone).clone()))
                 }
             },
         );
 
         match &outcome {
-            SnapshotOutcome::Captured { digest, location, note } => {
+            SnapshotOutcome::Captured {
+                digest,
+                location,
+                note,
+            } => {
                 assert_eq!(digest, "sha256:cafebabe5678");
                 assert_eq!(*location, StoreLocation::LocalCas((*cas_path).clone()));
                 let note_text = note.as_deref().unwrap_or("");

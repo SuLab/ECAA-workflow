@@ -68,8 +68,12 @@ fn normalize(raw: &str, output_dir: &Path) -> String {
     // `dateCreated`. Normalize it, and strip the dirty-only PropertyValue, so
     // the golden reflects content + ordering rather than the build's commit.
     let commit = regex::Regex::new(r#""softwareVersion":\s*"[0-9a-f]{7,40}(?:-dirty)?""#).unwrap();
-    let dirty = regex::Regex::new(
-        r#",\s*"additionalProperty":\s*\[\s*\{[^}]*"source_tree_dirty"[^}]*\}\s*\]"#,
+    let dirty_ref = regex::Regex::new(
+        r##",\s*"additionalProperty":\s*\[\s*\{\s*"@id":\s*"#source-tree-dirty"\s*\}\s*\]"##,
+    )
+    .unwrap();
+    let dirty_entity = regex::Regex::new(
+        r##"\s*\{\s*"@id":\s*"#source-tree-dirty",\s*"@type":\s*"PropertyValue",\s*"name":\s*"source_tree_dirty",\s*"value":\s*true\s*\},?"##,
     )
     .unwrap();
     let stripped = raw.replace(&output_dir.display().to_string(), "<PKG>");
@@ -81,7 +85,8 @@ fn normalize(raw: &str, output_dir: &Path) -> String {
     let stripped = commit
         .replace_all(&stripped, r#""softwareVersion": "<COMMIT>""#)
         .into_owned();
-    dirty.replace_all(&stripped, "").into_owned()
+    let stripped = dirty_ref.replace_all(&stripped, "").into_owned();
+    dirty_entity.replace_all(&stripped, "").into_owned()
 }
 
 async fn emit_and_read_metadata(dir: &Path) -> String {

@@ -7,6 +7,8 @@ use ecaa_workflow_conformance::{run_audit_proof, InvariantId, NoopWrrocValidator
 use ecaa_workflow_core::audit_proof::bench_readiness::{
     benchmarkable, index_of, readiness_for, Readiness,
 };
+use ecaa_workflow_core::audit_proof::invariants::evidence_coverage::coverage_scope;
+use ecaa_workflow_core::audit_proof::loader::LoadedPackage;
 use ecaa_workflow_core::clock::WallClock;
 use std::path::PathBuf;
 
@@ -32,17 +34,13 @@ fn signed_sink_present(pkg: &std::path::Path) -> bool {
         .exists()
 }
 
-/// Structural probe of the 04-C2 de-vacuifier for Inv 3 (EvidenceCoverage):
-/// `evidence_coverage` derives outputs from `runtime/proofs.jsonl`, so the
-/// invariant is non-vacuous exactly when that sidecar is present and carries at
-/// least one proof row. Mirrors `signed_sink_present` — a disk probe, not a
-/// hardcoded phase boolean.
-fn evidence_from_proofs(pkg: &std::path::Path) -> bool {
-    let proofs = pkg.join("runtime/proofs.jsonl");
-    match std::fs::read_to_string(&proofs) {
-        Ok(contents) => contents.lines().any(|l| !l.trim().is_empty()),
-        Err(_) => false,
-    }
+/// Structural probe of the live Inv-3 denominator. A non-empty proofs sidecar
+/// alone is insufficient because `workflow:*` rows describe DAG dependencies,
+/// not claim-bearing files.
+fn claim_evidence_present(pkg: &std::path::Path) -> bool {
+    LoadedPackage::from_root(pkg)
+        .map(|loaded| !coverage_scope(&loaded).claim_evidence.is_empty())
+        .unwrap_or(false)
 }
 
 #[test]
@@ -60,7 +58,7 @@ fn no_vacuous_invariant_is_benchmarked() {
     // phase boolean — so a de-vacuified invariant cannot be silently dropped.
     let sink = signed_sink_present(&pkg);
     let refs = false; // honest: the corpus carries 0 ecaa:refs (Inv 4 still vacuous)
-    let evidence = evidence_from_proofs(&pkg); // 04-C2: derives outputs from proofs.jsonl
+    let evidence = claim_evidence_present(&pkg);
 
     let set = benchmarkable(&inspected, sink, refs, evidence);
 
@@ -92,10 +90,7 @@ fn no_vacuous_invariant_is_benchmarked() {
     }
 
     println!("readiness: benchmarkable today = {set:?}");
-    // Pre-Phase-1 sanity: with no signed sink, Inv1/5 are vacuous-pass and MUST
-    // be excluded. The corpus DOES ship runtime/proofs.jsonl (04-C2), so Inv 3
-    // (EvidenceCoverage) is non-vacuous and benchmarkable; the set today is
-    // {DecisionJustification, SubstrateValidity, EvidenceCoverage}.
+    // With no signed sink, Inv1/5 are vacuous and MUST be excluded.
     if !sink {
         assert!(!set.contains(&InvariantId::ClaimCompleteness));
         assert!(!set.contains(&InvariantId::CrossGraphIntegrity));
@@ -103,19 +98,16 @@ fn no_vacuous_invariant_is_benchmarked() {
         assert!(set.contains(&InvariantId::SubstrateValidity));
     }
 
-    // The 04-C2 de-vacuifier ships in the reference package: proofs.jsonl is
-    // present, so EvidenceCoverage MUST be benchmarkable. Asserting this
-    // explicitly prevents the F12 confound from regressing — a hardcoded
-    // `evidence = false` would silently drop the de-vacuified invariant.
+    // The reference package has dependency proofs but no declared or linked
+    // claim-evidence artifact. Inv 3 must remain explicitly excluded rather
+    // than being benchmarked over an empty denominator.
     assert!(
-        evidence,
-        "reference package {} is missing a non-empty runtime/proofs.jsonl; \
-         the evidence_from_proofs probe must see the 04-C2 de-vacuifier",
+        !evidence,
+        "reference package {} unexpectedly has a non-empty claim-evidence denominator",
         pkg.display()
     );
     assert!(
-        set.contains(&InvariantId::EvidenceCoverage),
-        "EvidenceCoverage (Inv 3) is de-vacuified by proofs.jsonl but absent \
-         from the benchmarkable set {set:?} — the F12 confound has regressed"
+        !set.contains(&InvariantId::EvidenceCoverage),
+        "EvidenceCoverage is vacuous but present in the benchmarkable set {set:?}"
     );
 }

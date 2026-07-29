@@ -399,7 +399,6 @@ pub struct Config {
     /// vars at runtime" invariant holds (was a per-call
     /// `std::env::var` read at `classify.rs:266`).
     pub modality_drift_mode: ModalityDriftMode,
-
 }
 
 // ----------------------------------------------------------------------------
@@ -501,8 +500,7 @@ impl Config {
         // gates (contract assertions, Phase-13 validators, server-side
         // claim_coverage) as non-blocking diagnostics. Off by default so the
         // SME human checkpoint is preserved. Takes precedence over recovery.
-        let harness_contract_advisory =
-            parse_bool(env, "ECAA_HARNESS_CONTRACT_ADVISORY", false);
+        let harness_contract_advisory = parse_bool(env, "ECAA_HARNESS_CONTRACT_ADVISORY", false);
 
         // -- Literature ------------------------------------------------
         let source_scope = match env.get("ECAA_LIT_SOURCE_SCOPE").copied() {

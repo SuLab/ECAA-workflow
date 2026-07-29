@@ -377,7 +377,9 @@ mod tests {
         // than mislabelled WallclockExceeded.
         let cls = classify_error(
             &["+ timeout 900 claude -p ..."],
-            &[r#"{"type":"result","is_error":true,"result":"You've hit your session limit (429)."}"#],
+            &[
+                r#"{"type":"result","is_error":true,"result":"You've hit your session limit (429)."}"#,
+            ],
             Some(1),
             Some("SIGTERM"),
             false,

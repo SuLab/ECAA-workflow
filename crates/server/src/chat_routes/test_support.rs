@@ -183,7 +183,8 @@ pub fn insert_running_execution(
     session_id: uuid::Uuid,
     package_dir: std::path::PathBuf,
 ) {
-    let handle = super::ExecutionHandle::for_running(1, 1, package_dir, "test-agent".into(), [0u8; 32]);
+    let handle =
+        super::ExecutionHandle::for_running(1, 1, package_dir, "test-agent".into(), [0u8; 32]);
     app.executions.insert(session_id, handle);
 }
 

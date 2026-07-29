@@ -278,18 +278,47 @@ real runs and are cheap to avoid:
   run the check, say so plainly ("no sample-outlier assessment was performed")
   rather than reporting its absence of findings; a source-level validator
   blocks the deposit on an unsupported QC-negative claim.
-- **Copy a statistic's definition verbatim; never paraphrase it.** When you
-  cite `top_effect_abundance_ratio`, state it as what it is: the MEDIAN
-  abundance of the top-K-by-|effect| features divided by the MEDIAN abundance
-  of the whole tested set — a median/median ratio computed over FEATURES. Do
-  not call it a "mean", an "average", an "average normalized count ratio", or
+- **Report a filter as the CRITERION it applied, never as a claim about what
+  the removed data could support.** State the rule and the count it removed,
+  and stop there. A count/abundance/quality pre-filter establishes only that
+  the removed rows failed that comparison — it is not a power analysis, a
+  dispersion estimate, or a detectability assessment, and the package contains
+  no such analysis unless this run actually produced one and left the artifact.
+  Correct: "the rowSums >= 10 pre-filter removed 41,308 of 63,677 genes,
+  retaining 22,369 for testing"; also correct, when you computed it, "30,183 of
+  the removed genes had zero counts in every sample". Incorrect: the removed
+  genes "carried too few total counts to support reliable statistical
+  inference", "were insufficiently expressed to be detectable", "lacked power",
+  or "would not have yielded reliable estimates" — each asserts a conclusion
+  about the removed data that no artifact in the package supports, and a
+  source-level validator flags it. The same rule covers every filter you apply
+  (significance, size, quality, coverage): name the threshold and the count,
+  not the inference.
+- **Copy a statistic's definition verbatim from the stage that computed it;
+  never paraphrase it.** A stage that emits a metric with a self-describing
+  denominator emits the definition alongside the number — e.g.
+  `top_effect_abundance_ratio` ships with a
+  `top_effect_abundance_ratio_description` sentence and a
+  `top_effect_abundance_ratio_basis` block naming the numerator population, the
+  denominator population, each population's size, and K. Use that description.
+  Naming a different population than the metric's own description names is a
+  reporting error, not a stylistic variant — a real run described a ratio whose
+  denominator is the whole TESTED set as being over "all 4,030 significant
+  genes", and a sibling report named BOTH populations inside a single sentence
+  ("below the median baseMean of all 4,030 significant genes … approximately 21%
+  of the median abundance of the whole tested set"). One number gets one
+  population; a sentence that names two is wrong however it is hedged. Do not
+  call the ratio a "mean", an "average", an "average normalized count ratio", or
   a "mean baseMean", and do not attribute it to samples ("across the N
   samples"): it says nothing about samples, and the top-K count K is not a
   sample count. Reusing the top-K variable in a sentence about samples has
   shipped in a real run (a report wrote "across the 15 samples" for an
-  8-sample study, where 15 was K). The same discipline applies to every other
-  derived statistic you cite — restate the definition the producing stage
-  recorded, don't re-describe it from intuition.
+  8-sample study, where 15 was K). Check the basis block before you call the
+  top-K set significant: it records how many of the top-K carry no usable
+  significance value, and when that count is nonzero the top set is NOT a subset
+  of the significant set. The same discipline applies to every other derived
+  statistic you cite — quote the definition the producing stage recorded, don't
+  re-describe it from intuition.
 
 These are the same pitfalls a source-level validator checks for in
 `validate_reporting`/`validate_final_reporting` when one is present for
@@ -326,8 +355,20 @@ defines them — never assume genes/log2FC.
   and a partial table is worse than none. Instead, analyze the FULL significant
   set (its `n_significant`, `direction_split`, and `effect_distribution` are in
   `report-data.json`), narrate the findings, and surface a short **top-hits**
-  table — the most extreme / most relevant `significant_entities` — in context.
-  The exhaustive table is the system's job; the interpretation is yours.
+  table only from that artifact's `ranking`. Treat each ranking list as an
+  ordered prefix: use `enriched` for positive effects, `depleted` for negative
+  effects, and `undirected` when `directional` is false. Do not choose,
+  re-sort, or substitute rows from `significant_entities`. The canonical order
+  is strongest declared significance, then larger absolute effect, then entity
+  name, then source row. State this rule accurately in the table caption. If
+  `ranking` is absent, make no “top”, “leading”, or superlative claim for that
+  artifact. The exhaustive table is the system's job; the interpretation is
+  yours.
+- **Do not make a secondary superlative over an anaphoric displayed subset.**
+  Phrases such as “the strongest within this tier” discard the subset
+  definition when the sentence is extracted for verification. State only the
+  canonical ranking represented in `report-data.json`, or state the observed
+  effect without a rank claim.
 - **Cover every declared section and table.** Your task spec's
   `required_report_sections` names every section id the report must contain
   (e.g. `provenance_method_rationale`, `qc_preprocessing`,
@@ -377,6 +418,22 @@ defines them — never assume genes/log2FC.
   count, name each denominator explicitly ("4 of 8 searched entities" vs
   "10 of 30 PMIDs", and separately "12 entities not assessed") so the counts
   are never conflated.
+- **Use the literature count whose NAME matches the claim you are making.** The
+  contextualization stage emits each count separately and defines each one:
+  `n_entities_assessed` (distinct entities a query was issued for),
+  `n_evidence_rows_assessed` (rows of the evidence matrix with `searched=true` —
+  one assessed entity contributes one row per cited source, so this is always
+  >= the entity count and is NEVER a count of entities),
+  `n_entities_not_assessed`, `n_evidence_rows_total`, `n_search_axes_total`
+  (which may include axes naming a method or a dataset rather than an entity),
+  and `n_search_axes_naming_an_assessed_entity`. Quote the definition the stage
+  emitted in `count_definitions` rather than restating the population yourself.
+  A real run read the 9 assessed evidence ROWS as "9 specific genes" when only 4
+  entities were ever searched, then stated the correct 4 later in the same
+  report — the same file gave two different answers for one quantity. Only
+  `n_entities_assessed` may be described as a number of entities searched, and
+  every count you state must be the one whose name matches the noun in your
+  sentence.
 - **Every count in a filtering funnel must be traceable to `report-data.json`.**
   If you describe an entity-count funnel (input → retained → tested →
   reported), each number must be one `report-data.json` provides (e.g.

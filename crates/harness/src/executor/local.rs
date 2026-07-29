@@ -1213,8 +1213,8 @@ impl Executor for LocalExecutor {
                 });
             let effective_deadline_secs =
                 effective_task_deadline_secs(self.task_timeout_secs, agent_wallclock_secs);
-            let deadline = std::time::Instant::now()
-                + std::time::Duration::from_secs(effective_deadline_secs);
+            let deadline =
+                std::time::Instant::now() + std::time::Duration::from_secs(effective_deadline_secs);
             let mut wall_clock_killed = false;
             let status = loop {
                 match child.try_wait().context("waiting on agent")? {
@@ -1290,11 +1290,8 @@ impl Executor for LocalExecutor {
             self.last_observed_reads = if task_id_for_sandbox.is_empty() {
                 Vec::new()
             } else {
-                let (_status, reads) = crate::observed_reads::capture_reads(
-                    package,
-                    &task_id_for_sandbox,
-                    || status,
-                );
+                let (_status, reads) =
+                    crate::observed_reads::capture_reads(package, &task_id_for_sandbox, || status);
                 reads
             };
             Ok(IterationOutcome {
@@ -1337,11 +1334,10 @@ impl Executor for LocalExecutor {
             self.last_observed_reads = if task_id_for_sandbox.is_empty() {
                 Vec::new()
             } else {
-                let (_status, reads) = crate::observed_reads::capture_reads(
-                    package,
-                    &task_id_for_sandbox,
-                    || output.status,
-                );
+                let (_status, reads) =
+                    crate::observed_reads::capture_reads(package, &task_id_for_sandbox, || {
+                        output.status
+                    });
                 reads
             };
             Ok(IterationOutcome {

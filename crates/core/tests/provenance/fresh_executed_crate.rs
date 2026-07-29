@@ -25,10 +25,10 @@
 //! the finalized crate to that directory so an out-of-process validator
 //! (`scripts/roc-validate-strict.py`) can be pointed at it.
 
+use ecaa_workflow_core::classify::ClassificationResult;
 use ecaa_workflow_core::clock::FrozenClock;
 use ecaa_workflow_core::dag::{Task, DAG};
 use ecaa_workflow_core::ids::TaskId;
-use ecaa_workflow_core::classify::ClassificationResult;
 use ecaa_workflow_core::ro_crate;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -51,7 +51,10 @@ fn chain_dag() -> DAG {
         .expect("task deserializes")
     };
     let mut tasks: BTreeMap<TaskId, Task> = BTreeMap::new();
-    tasks.insert(TaskId::from("data_acquisition"), mk("Acquire raw counts", vec![]));
+    tasks.insert(
+        TaskId::from("data_acquisition"),
+        mk("Acquire raw counts", vec![]),
+    );
     tasks.insert(
         TaskId::from("normalisation"),
         mk("Normalise counts", vec!["data_acquisition"]),
@@ -168,13 +171,18 @@ fn read_graph(root: &Path) -> Vec<Value> {
 fn types_of(e: &Value) -> Vec<String> {
     match e.get("@type") {
         Some(Value::String(s)) => vec![s.clone()],
-        Some(Value::Array(a)) => a.iter().filter_map(|v| v.as_str().map(String::from)).collect(),
+        Some(Value::Array(a)) => a
+            .iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect(),
         _ => vec![],
     }
 }
 
 fn find_by_id<'a>(graph: &'a [Value], id: &str) -> Option<&'a Value> {
-    graph.iter().find(|e| e.get("@id").and_then(Value::as_str) == Some(id))
+    graph
+        .iter()
+        .find(|e| e.get("@id").and_then(Value::as_str) == Some(id))
 }
 
 /// Drive the whole pipeline and (optionally) dump the finalized crate to
@@ -254,17 +262,28 @@ fn fresh_executed_crate_satisfies_provenance_shape() {
         .iter()
         .filter_map(|p| p.get("@id").and_then(Value::as_str))
         .collect();
-    assert!(!has_part.is_empty(), "workflow hasPart must reference tools");
+    assert!(
+        !has_part.is_empty(),
+        "workflow hasPart must reference tools"
+    );
 
     // Build the set of @ids that are an `instrument` of a real CreateAction.
     let create_action_instruments: std::collections::BTreeSet<String> = graph
         .iter()
         .filter(|e| types_of(e).iter().any(|t| t == "CreateAction"))
-        .filter_map(|a| a.get("instrument").and_then(|i| i.get("@id")).and_then(Value::as_str))
+        .filter_map(|a| {
+            a.get("instrument")
+                .and_then(|i| i.get("@id"))
+                .and_then(Value::as_str)
+        })
         .map(String::from)
         .collect();
 
-    let tool_types = ["SoftwareApplication", "SoftwareSourceCode", "ComputationalWorkflow"];
+    let tool_types = [
+        "SoftwareApplication",
+        "SoftwareSourceCode",
+        "ComputationalWorkflow",
+    ];
     let mut tool_haspart = 0usize;
     for part_id in &has_part {
         let Some(part) = find_by_id(&graph, part_id) else {
@@ -284,10 +303,11 @@ fn fresh_executed_crate_satisfies_provenance_shape() {
                 if let Some(arr) = part.get(slot).and_then(Value::as_array) {
                     for p in arr {
                         let id = p["@id"].as_str().expect("tool param @id");
-                        let referenced =
-                            find_by_id(&graph, id).expect("tool param resolves");
+                        let referenced = find_by_id(&graph, id).expect("tool param resolves");
                         assert!(
-                            types_of(&referenced.clone()).iter().any(|t| t == "FormalParameter"),
+                            types_of(&referenced.clone())
+                                .iter()
+                                .any(|t| t == "FormalParameter"),
                             "tool {slot} {id} must be a FormalParameter"
                         );
                     }
@@ -302,7 +322,10 @@ fn fresh_executed_crate_satisfies_provenance_shape() {
 
     // ── Every HowToStep refers to its tool via workExample, typed as a tool
     //    (provenance must/1_howtostep.ttl "HowToStep workExample") ────────────
-    for step in graph.iter().filter(|e| types_of(e).iter().any(|t| t == "HowToStep")) {
+    for step in graph
+        .iter()
+        .filter(|e| types_of(e).iter().any(|t| t == "HowToStep"))
+    {
         let we = step
             .get("workExample")
             .unwrap_or_else(|| panic!("HowToStep {:?} must have workExample", step.get("@id")));
@@ -310,12 +333,13 @@ fn fresh_executed_crate_satisfies_provenance_shape() {
         let referenced = find_by_id(&graph, we_id)
             .unwrap_or_else(|| panic!("workExample {we_id} must resolve to a graph entity"));
         assert!(
-            types_of(referenced).iter().any(|t| tool_types.contains(&t.as_str())),
+            types_of(referenced)
+                .iter()
+                .any(|t| tool_types.contains(&t.as_str())),
             "HowToStep workExample {we_id} must be a tool type; got {:?}",
             types_of(referenced)
         );
     }
-
 }
 
 /// A second finalize on an already-executed crate must be a no-op for the
@@ -333,7 +357,10 @@ fn second_finalize_is_idempotent() {
     // Re-finalize. Registration is idempotent (existing @ids are skipped).
     ro_crate::finalize_evidence_registration(&root, &FrozenClock::default()).unwrap();
     let second = std::fs::read(root.join("ro-crate-metadata.json")).unwrap();
-    assert_eq!(first, second, "second finalize must converge byte-identically");
+    assert_eq!(
+        first, second,
+        "second finalize must converge byte-identically"
+    );
 
     // No duplicate @ids anywhere.
     let mut seen = std::collections::BTreeSet::new();
@@ -348,7 +375,11 @@ fn second_finalize_is_idempotent() {
         .filter_map(|e| e.get("@id").and_then(Value::as_str))
         .filter(|id| id.starts_with("#tool/"))
         .collect();
-    assert_eq!(tools.len(), 3, "one tool per produced compute task; got {tools:?}");
+    assert_eq!(
+        tools.len(),
+        3,
+        "one tool per produced compute task; got {tools:?}"
+    );
 }
 
 fn copy_tree(src: &Path, dst: &Path) {

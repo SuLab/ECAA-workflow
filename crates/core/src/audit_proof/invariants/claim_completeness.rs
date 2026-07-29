@@ -1,6 +1,6 @@
 //! Invariant 1: claim-completeness.
-//! Every Claim in claim-verification.json must have non-empty
-//! `supported_by` OR be `status: pending`.
+//! Every adjudicated Claim in claim-verification.json must retain the evidence
+//! route and explanation appropriate to its verdict.
 
 use crate::audit_proof::loader::LoadedPackage;
 use crate::audit_proof::{InvariantId, InvariantStatus, InvariantVerdict};
@@ -44,20 +44,41 @@ pub fn check_claim_completeness(pkg: &LoadedPackage) -> InvariantVerdict {
             }
         }
     };
+    let has_refs = |v: &serde_json::Value, field: &str| {
+        v.get(field)
+            .and_then(|value| value.as_array())
+            .is_some_and(|refs| !refs.is_empty())
+    };
+    let has_detail = |v: &serde_json::Value| {
+        v.get("verdict_detail")
+            .and_then(|value| value.as_str())
+            .is_some_and(|detail| !detail.trim().is_empty())
+    };
     let mut violators = Vec::new();
     for v in verdicts {
         let status = v.get("status").and_then(|s| s.as_str()).unwrap_or("");
-        // `unverifiable` (checked but undeterminable), `pending` (never
-        // adjudicated), and `suspicious` (soft review-required) are all exempt
-        // from the supported_by floor: none asserts a grounded number, so
-        // requiring evidence backing would mis-flag them. Suspicious is
-        // surfaced through its own counter, not as a completeness violation.
-        if status == "unverifiable" || status == "pending" || status == "suspicious" {
-            continue;
-        }
-        let support = v.get("supported_by").and_then(|s| s.as_array());
-        let supported = support.map(|a| !a.is_empty()).unwrap_or(false);
-        if !supported {
+        let complete = match status {
+            "verified" => has_refs(v, "supported_by") && has_refs(v, "checked_against"),
+            "mismatch" | "contradicted" => {
+                has_refs(v, "supported_by")
+                    && has_refs(v, "checked_against")
+                    && has_refs(v, "contradicts")
+                    && has_detail(v)
+            }
+            // A loaded table can still yield no resolvable quantity. Its
+            // reason is mandatory; `checked_against` is retained when a table
+            // was opened, while a missing route can legitimately have none.
+            "unverifiable" => has_detail(v),
+            // No adjudication ran, so only the explicit reason is mandatory.
+            // A declared route, when present, lives in `attempted_sources`.
+            "pending" => has_detail(v),
+            // The verifier loaded evidence but asks for human review.
+            "suspicious" => {
+                has_refs(v, "supported_by") && has_refs(v, "checked_against") && has_detail(v)
+            }
+            _ => false,
+        };
+        if !complete {
             let id = v
                 .get("claim_id")
                 .and_then(|s| s.as_str())
@@ -116,7 +137,7 @@ pub fn check_claim_completeness(pkg: &LoadedPackage) -> InvariantVerdict {
         let mut parts = Vec::new();
         if support_violations > 0 {
             parts.push(format!(
-                "{} claim(s) with empty supported_by and not pending: {}",
+                "{} claim(s) missing verdict-appropriate evidence links or explanation: {}",
                 support_violations,
                 violators.join(", ")
             ));
@@ -135,5 +156,79 @@ pub fn check_claim_completeness(pkg: &LoadedPackage) -> InvariantVerdict {
         detail,
         n_inspected,
         n_violations,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn package(verdicts: Vec<serde_json::Value>) -> LoadedPackage {
+        LoadedPackage {
+            claims: Some(json!({"verdicts": verdicts})),
+            ..LoadedPackage::default()
+        }
+    }
+
+    #[test]
+    fn verdict_specific_evidence_routes_are_complete() {
+        let pkg = package(vec![
+            json!({
+                "claim_id": "verified",
+                "status": "verified",
+                "supported_by": ["runtime/outputs/de/de.tsv"],
+                "checked_against": ["runtime/outputs/de/de.tsv"]
+            }),
+            json!({
+                "claim_id": "mismatch",
+                "status": "mismatch",
+                "supported_by": ["runtime/outputs/de/de.tsv"],
+                "checked_against": ["runtime/outputs/de/de.tsv"],
+                "contradicts": ["runtime/outputs/de/de.tsv"],
+                "verdict_detail": "claimed 2.0, observed -2.0"
+            }),
+            json!({
+                "claim_id": "unverifiable",
+                "status": "unverifiable",
+                "checked_against": ["runtime/outputs/de/de.tsv"],
+                "verdict_detail": "measurement column absent"
+            }),
+            json!({
+                "claim_id": "pending",
+                "status": "pending",
+                "attempted_sources": ["runtime/outputs/de/missing.tsv"],
+                "verdict_detail": "source table was not produced"
+            }),
+            json!({
+                "claim_id": "suspicious",
+                "status": "suspicious",
+                "supported_by": ["runtime/outputs/de/de.tsv"],
+                "checked_against": ["runtime/outputs/de/de.tsv"],
+                "verdict_detail": "entity absent from a compatible table"
+            }),
+        ]);
+        let verdict = check_claim_completeness(&pkg);
+        assert_eq!(verdict.status, InvariantStatus::Pass, "{verdict:?}");
+        assert_eq!(verdict.n_violations, 0);
+    }
+
+    #[test]
+    fn mismatch_without_comparison_route_is_reported() {
+        let pkg = package(vec![json!({
+            "claim_id": "mismatch",
+            "status": "mismatch",
+            "supported_by": [],
+            "checked_against": [],
+            "contradicts": [],
+            "verdict_detail": "sign mismatch"
+        })]);
+        let verdict = check_claim_completeness(&pkg);
+        assert_eq!(verdict.status, InvariantStatus::Warn, "{verdict:?}");
+        assert_eq!(verdict.n_violations, 1);
+        assert!(verdict
+            .detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains("mismatch")));
     }
 }

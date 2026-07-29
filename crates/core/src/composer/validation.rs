@@ -522,7 +522,10 @@ mod tests {
         let dag = WorkflowDag {
             id: "test".into(),
             nodes: vec![data_acq, de, pathway],
-            edges: vec![typed_edge("data_acquisition", "de"), typed_edge("de", "pathway_enrichment")],
+            edges: vec![
+                typed_edge("data_acquisition", "de"),
+                typed_edge("de", "pathway_enrichment"),
+            ],
             ..Default::default()
         };
 
@@ -565,7 +568,10 @@ mod tests {
         let dag = WorkflowDag {
             id: "test".into(),
             nodes: vec![data_acq, de, pathway],
-            edges: vec![typed_edge("data_acquisition", "de"), typed_edge("de", "pathway_enrichment")],
+            edges: vec![
+                typed_edge("data_acquisition", "de"),
+                typed_edge("de", "pathway_enrichment"),
+            ],
             ..Default::default()
         };
 

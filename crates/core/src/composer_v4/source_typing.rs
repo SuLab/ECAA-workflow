@@ -130,9 +130,7 @@ pub fn infer_source_port(
     let mime_lc = mime.map(lc).unwrap_or_default();
 
     let has_ext = |ext: &str| name_lc.ends_with(ext);
-    let role_or_name_contains = |needle: &str| {
-        role_lc.contains(needle) || name_lc.contains(needle)
-    };
+    let role_or_name_contains = |needle: &str| role_lc.contains(needle) || name_lc.contains(needle);
 
     // --- Gene set (canonical) ----------------------------------------
     // `.gmt` is the unambiguous GSEA/MSigDB gene-set collection format;
@@ -203,11 +201,7 @@ pub fn infer_source_port(
     }
 
     // --- Raw reads ---------------------------------------------------
-    if has_ext(".fastq")
-        || has_ext(".fq")
-        || has_ext(".fastq.gz")
-        || has_ext(".fq.gz")
-    {
+    if has_ext(".fastq") || has_ext(".fq") || has_ext(".fastq.gz") || has_ext(".fq.gz") {
         return Some(source_port(
             "registered_reads",
             READS_SEMANTIC_IRI,
@@ -324,18 +318,14 @@ mod tests {
         let mut anchor = TaskNode::skeleton(anchor_id, "ingest root");
         // Mirror the real `data_acquisition` atom's authored outputs so
         // the de-dup behaviour is exercised against a realistic anchor.
-        anchor
-            .outputs
-            .push(PortContract::with_semantic_type(
-                "cohort_manifest",
-                SemanticType::edam("data:2531", "Experiment annotation"),
-            ));
-        anchor
-            .outputs
-            .push(PortContract::with_semantic_type(
-                "raw_reads",
-                SemanticType::edam("data:2044", "Sequence reads"),
-            ));
+        anchor.outputs.push(PortContract::with_semantic_type(
+            "cohort_manifest",
+            SemanticType::edam("data:2531", "Experiment annotation"),
+        ));
+        anchor.outputs.push(PortContract::with_semantic_type(
+            "raw_reads",
+            SemanticType::edam("data:2044", "Sequence reads"),
+        ));
         WorkflowDag {
             id: "test".into(),
             nodes: vec![anchor],
@@ -446,7 +436,10 @@ mod tests {
                 .iter()
                 .any(|p| p.semantic_type.stable_id() == GENE_SET_SEMANTIC_IRI),
             "data_acquisition must expose a gene-set source output port; outputs={:?}",
-            da.outputs.iter().map(|p| p.name.clone()).collect::<Vec<_>>()
+            da.outputs
+                .iter()
+                .map(|p| p.name.clone())
+                .collect::<Vec<_>>()
         );
     }
 
@@ -493,7 +486,11 @@ mod tests {
         let mut b = registered_gmt();
         b.id = "intake_gene_set_b".into();
         surface_registered_source_ports(&mut dag, &[a, b]);
-        let da = dag.nodes.iter().find(|n| n.id == "data_acquisition").unwrap();
+        let da = dag
+            .nodes
+            .iter()
+            .find(|n| n.id == "data_acquisition")
+            .unwrap();
         assert_eq!(
             da.outputs.len(),
             before + 1,
@@ -510,9 +507,6 @@ mod tests {
         };
         surface_registered_source_ports(&mut dag, &[registered_gmt()]);
         let de = &dag.nodes[0];
-        assert!(
-            de.outputs.is_empty(),
-            "no ingest anchor → nothing surfaced"
-        );
+        assert!(de.outputs.is_empty(), "no ingest anchor → nothing surfaced");
     }
 }

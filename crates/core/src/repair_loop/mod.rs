@@ -17,9 +17,7 @@ pub mod runner;
 pub mod snapshot;
 pub mod status;
 
-pub use assess::{
-    assess_package, claim_failures, invariant_failures, map_repair_action,
-};
+pub use assess::{assess_package, claim_failures, invariant_failures, map_repair_action};
 pub use driver::run_repair_loop;
 pub use executor::{Executor, ExecutorRegistry, RepairOutcome};
 pub use failure::{

@@ -28,7 +28,10 @@ fn supplied_counts_seeds_for_single_cell_rnaseq() {
         "start from the counts matrix already prepared",
         Some("single_cell_rnaseq"),
     );
-    assert!(got.is_some(), "scRNA-seq must honor a supplied counts matrix");
+    assert!(
+        got.is_some(),
+        "scRNA-seq must honor a supplied counts matrix"
+    );
 }
 
 #[test]
@@ -45,10 +48,8 @@ fn supplied_counts_ignored_for_chipseq() {
 
 #[test]
 fn supplied_counts_ignored_for_atacseq() {
-    let got = IntakeFacts::detect_input_data_stage(
-        "counts matrix already prepared",
-        Some("atac_seq"),
-    );
+    let got =
+        IntakeFacts::detect_input_data_stage("counts matrix already prepared", Some("atac_seq"));
     assert!(got.is_none(), "ATAC-seq must not seed counts");
 }
 
@@ -63,7 +64,10 @@ fn supplied_counts_ignored_when_modality_unknown() {
 
 #[test]
 fn bare_quantify_verb_does_not_seed() {
-    for prose in ["we already quantified the samples", "samples already counted"] {
+    for prose in [
+        "we already quantified the samples",
+        "samples already counted",
+    ] {
         assert!(
             IntakeFacts::detect_input_data_stage(prose, Some("bulk_rnaseq")).is_none(),
             "bare quantify/count verb must not seed: {prose:?}"
@@ -83,10 +87,8 @@ fn supplied_peaks_seed_for_chipseq() {
 
 #[test]
 fn supplied_peaks_ignored_for_bulk_rnaseq() {
-    let got = IntakeFacts::detect_input_data_stage(
-        "called peaks already prepared",
-        Some("bulk_rnaseq"),
-    );
+    let got =
+        IntakeFacts::detect_input_data_stage("called peaks already prepared", Some("bulk_rnaseq"));
     assert!(
         got.is_none(),
         "bulk RNA-seq has no peak consumer; a peak phrase must not seed data:1255"

@@ -10,6 +10,11 @@
   "n_mismatch": 0,
   "n_unverifiable": 0,
   "verdicts": [
-    {"claim_id":"claim_001","status":"verified","supported_by":["data/figures/fig_qc.png"]}
+    {
+      "claim_id":"claim_001",
+      "status":"verified",
+      "supported_by":["data/figures/fig_qc.png"],
+      "checked_against":["data/figures/fig_qc.png"]
+    }
   ]
 }

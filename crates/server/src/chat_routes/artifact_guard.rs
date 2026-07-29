@@ -180,7 +180,10 @@ mod tests {
         let pkg = tmp.path();
         write(pkg, "t1", "results/de.tsv", b"gene\tlog2fc\n");
         let missing = missing_under_root(pkg, "t1", &[req("results/de.tsv", None)]);
-        assert!(missing.is_empty(), "present non-empty artifact: {missing:?}");
+        assert!(
+            missing.is_empty(),
+            "present non-empty artifact: {missing:?}"
+        );
     }
 
     #[test]

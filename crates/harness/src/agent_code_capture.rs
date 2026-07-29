@@ -182,9 +182,12 @@ mod tests {
     }
 
     fn read_record(pkg: &Path, task: &str) -> AgentCodeRecord {
-        let raw =
-            std::fs::read_to_string(pkg.join("runtime/outputs").join(task).join("agent-code.json"))
-                .unwrap();
+        let raw = std::fs::read_to_string(
+            pkg.join("runtime/outputs")
+                .join(task)
+                .join("agent-code.json"),
+        )
+        .unwrap();
         serde_json::from_str(&raw).unwrap()
     }
 
@@ -204,7 +207,11 @@ mod tests {
         );
         assert!(backfill_executed_code(pkg, "differential_expression"));
         let rec = read_record(pkg, "differential_expression");
-        assert!(rec.executed_code.contains("library(DESeq2)"), "{}", rec.executed_code);
+        assert!(
+            rec.executed_code.contains("library(DESeq2)"),
+            "{}",
+            rec.executed_code
+        );
         assert!(rec.executed_code.contains("scripts/01_deseq2_de.R"));
         assert_eq!(rec.language, "R");
     }
@@ -231,15 +238,27 @@ mod tests {
         let pkg = tmp.path();
         let out = pkg.join("runtime/outputs/contextualize_findings_with_literature");
         write(&out.join("agent-code.json"), empty_agent_code_json());
-        write(&out.join("scripts/01_annotate_ensembl.R"), "library(biomaRt)\n");
-        write(&out.join("scripts/02_build_claims_matrix.py"), "import csv\n");
-        assert!(backfill_executed_code(pkg, "contextualize_findings_with_literature"));
+        write(
+            &out.join("scripts/01_annotate_ensembl.R"),
+            "library(biomaRt)\n",
+        );
+        write(
+            &out.join("scripts/02_build_claims_matrix.py"),
+            "import csv\n",
+        );
+        assert!(backfill_executed_code(
+            pkg,
+            "contextualize_findings_with_literature"
+        ));
         let rec = read_record(pkg, "contextualize_findings_with_literature");
         // Sorted file order → R first, then Python.
         assert_eq!(rec.language, "R, Python");
         let r_pos = rec.executed_code.find("biomaRt").unwrap();
         let py_pos = rec.executed_code.find("import csv").unwrap();
-        assert!(r_pos < py_pos, "scripts must be concatenated in sorted order");
+        assert!(
+            r_pos < py_pos,
+            "scripts must be concatenated in sorted order"
+        );
     }
 
     #[test]

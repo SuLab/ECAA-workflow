@@ -224,9 +224,10 @@ pub fn run_one(scenario: &Tier4_1Scenario) -> Result<Tier4_1Result> {
     // Per-claim status oracle: each listed entity must receive exactly the
     // expected status. Entities not listed are unconstrained.
     for exp in &scenario.expected_claims {
-        let got = report.verdicts.iter().find(|v| {
-            v.claim.entity.eq_ignore_ascii_case(&exp.entity)
-        });
+        let got = report
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity.eq_ignore_ascii_case(&exp.entity));
         let ok = match got {
             Some(v) => status_label(&v.status) == exp.status.to_ascii_lowercase(),
             None => false,
@@ -311,7 +312,8 @@ pub fn load_corpus(corpus_dir: &Path) -> Result<Vec<Tier4_1Scenario>> {
         .collect();
     paths.sort();
     for p in &paths {
-        let text = std::fs::read_to_string(p).with_context(|| format!("reading {}", p.display()))?;
+        let text =
+            std::fs::read_to_string(p).with_context(|| format!("reading {}", p.display()))?;
         let scenario: Tier4_1Scenario = serde_yaml_ng::from_str(&text)
             .with_context(|| format!("parsing scenario {}", p.display()))?;
         out.push(scenario);

@@ -101,10 +101,14 @@ pub(crate) fn render_readme(
     format!(
         "# {title} — ECAA analysis package\n\n\
 **What was asked:** {objective_line}\n\n\
-This is a self-contained, re-executable [RO-Crate](https://www.researchobject.org/ro-crate/) \
-+ [BagIt](https://www.rfc-editor.org/rfc/rfc8493) package emitted by the ECAA compiler. It \
+This is a self-describing [RO-Crate](https://www.researchobject.org/ro-crate/) \
+package emitted by the ECAA compiler with a flat-layout SHA-512 integrity seal. It \
 bundles the analysis plan, the agent-executed code, every result table and figure, and a \
 complete provenance trail. **You do not need to read every file** — start here.\n\n\
+How much of it re-executes offline is a measured property of this package, not a promise: \
+read `reexecution` in [`DEPOSIT-READINESS.json`](DEPOSIT-READINESS.json) and the per-artifact \
+verdicts in [`runtime/reexecution.json`](runtime/reexecution.json). Stages whose inputs are \
+not offline-reproducible are recorded there as `unavailable` rather than silently omitted.\n\n\
 ## 1. The answer\n\n\
 {answer_block}\n\
 ## 2. The order things ran\n\n\
@@ -119,7 +123,8 @@ name is the step id).\n\n\
 | `runtime/outputs/<step>/report.md` | Human narrative for reporting steps. |\n\
 | `ro-crate-metadata.json` | RO-Crate / Workflow-Run-Crate provenance metadata — the front door for RO-Crate tooling. |\n\
 {package_ttl_row}\
-| `manifest-sha512.txt`, `tagmanifest-sha512.txt` | BagIt checksums — verify integrity with `bagit.py --validate .`. |\n\
+| `manifest-sha512.txt`, `seal-info.json`, `seal-tagmanifest-sha512.txt` | Flat-layout SHA-512 integrity seal. This is not an RFC 8493 BagIt layout. |\n\
+| `runtime/output-accountability.json` | Per-output role, disposition, evidence declaration, and resolved claim links. |\n\
 | `runtime/proofs.jsonl`, `decisions.jsonl`, `assumptions.jsonl`, `verifier-decisions.jsonl` | Provenance sidecars: typed-edge proofs, SME/agent decisions, assumptions, and the verification trace. |\n\
 | `CONTEXT.md`, `PROMPT.md`, `AGENT-EXECUTOR.md` | The brief the execution agent ran against. |\n\
 | `SNAPSHOTS.md` | Index of the literature-evidence snapshots (written after execution, when any exist). |\n\
@@ -134,14 +139,15 @@ and reports referenced above are produced when the package is executed._\n",
 }
 
 mod amendment;
+mod audit_report;
 pub(crate) mod bagit;
 mod copy_libs;
-mod audit_report;
 mod ecaa;
-mod export;
-mod readability;
 pub mod ecaa_projection;
+mod export;
+mod output_accountability;
 mod policies;
+mod readability;
 use amendment::{
     emit_amendment_lineage_policy, patch_ro_crate_with_amendment, patch_ro_crate_with_branch,
     read_parent_link,
@@ -496,7 +502,11 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
             .sme_parameter_overrides
             .and_then(|o| o.for_task(task_id))
             .map(|m| {
-                serde_json::Value::Object(m.iter().map(|(k, v)| (k.clone(), v.value.clone())).collect())
+                serde_json::Value::Object(
+                    m.iter()
+                        .map(|(k, v)| (k.clone(), v.value.clone()))
+                        .collect(),
+                )
             })
     };
 
@@ -520,6 +530,25 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
             "source_atom_id": task.source_atom_id,
             "spec": task.spec,
         });
+        // Typed port names. The agent prompt directs the executor to take
+        // `reads.jsonl`'s `declared_port` from THIS file, so omitting them left
+        // that instruction pointing at nothing: agents that went off-script to
+        // WORKFLOW.json recorded the right port name, and those that did not
+        // invented a descriptive one. An invented name is not merely cosmetic —
+        // `declared_port` is the documented mechanism for recording WHICH member
+        // of a mutually-exclusive one-of input group was actually consumed.
+        //
+        // Inserted only when non-empty, matching `Task`'s own additive-field
+        // discipline, so a task with no typed ports emits byte-identically to
+        // before.
+        if let Some(obj) = task_spec.as_object_mut() {
+            if !task.inputs.is_empty() {
+                obj.insert("inputs".to_string(), serde_json::json!(task.inputs));
+            }
+            if !task.outputs.is_empty() {
+                obj.insert("outputs".to_string(), serde_json::json!(task.outputs));
+            }
+        }
         if let Some(ov) = sme_override_object(task_id.as_str()) {
             let spec_entry = task_spec
                 .get_mut("spec")
@@ -943,7 +972,7 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
     // is behaviour-neutral (a blocked emit returns `Err` regardless).
     ecaa::write_validation_summary(dir).context("emitting ECAA validation summary")?;
 
-    // BagIt 1.0-style manifest. Walks every file committed to the
+    // Flat-layout SHA-512 manifest. Walks every file committed to the
     // package's deterministic surface and writes <sha512>
     // <relative-path> per line. The substantive ECAA runtime evidence
     // sidecars ARE covered (DR-4); only non-integrity informational
@@ -955,18 +984,18 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
     // package is captured in manifest-sha512.txt; consumers
     // (verify-reproducibility, downstream FAIR consumers) can compare
     // the manifest to detect drift without re-hashing every file.
-    write_bagit_manifest(dir, &emit_clock).context("writing BagIt manifest")?;
+    write_bagit_manifest(dir, &emit_clock).context("writing SHA-512 checksum seal")?;
 
     Ok(())
 }
 
-/// Re-seal the BagIt payload manifest against the package's CURRENT on-disk
+/// Re-seal the flat-layout SHA-512 manifest against the package's current on-disk
 /// content. Intended for POST-EXECUTION reconciliation: `ro-crate-metadata.json`
 /// and `WORKFLOW.json` are both manifested files, and both are mutated past the
 /// emit-time seal (the conversation emit path patches the descriptor; the
 /// harness rewrites task states on every transition), so the emit manifest is
 /// stale-on-arrival for every live run. Re-sealing brings the at-rest package
-/// back to self-consistency (e.g. for an external `bagit.py --validate`).
+/// back to self-consistency.
 ///
 /// Runs the same manifest walk as emit but in [`bagit::SealMode::Reseal`],
 /// which EXTENDS the manifest to cover `runtime/outputs/` (the agent-written
@@ -1003,12 +1032,12 @@ pub fn regenerate_bagit_manifest(
     crate::ro_crate::register_content_integrity(dir)
         .context("refreshing RO-Crate content-integrity hashes before reseal")?;
     bagit::write_bagit_manifest_with_mode(dir, clock, bagit::SealMode::Reseal)
-        .context("re-sealing BagIt manifest post-execution")?;
+        .context("re-sealing SHA-512 manifest post-execution")?;
     crate::deposit_readiness::assert_ro_crate_hashes_match_payload(dir)
         .context("post-seal RO-Crate content-hash recheck after reseal")
 }
 
-/// Re-run the EMIT-mode BagIt manifest walk over the package's CURRENT
+/// Re-run the emit-mode SHA-512 manifest walk over the package's current
 /// on-disk content. Unlike [`regenerate_bagit_manifest`] (which switches to
 /// [`bagit::SealMode::Reseal`] for a post-execution package), this keeps
 /// [`bagit::SealMode::Emit`] semantics — `runtime/outputs/` stays excluded,
@@ -1027,7 +1056,7 @@ pub fn regenerate_bagit_manifest(
 /// held to.
 pub fn reseal_emit_manifest(dir: &std::path::Path, clock: &dyn crate::clock::Clock) -> Result<()> {
     bagit::write_bagit_manifest_with_mode(dir, clock, bagit::SealMode::Emit)
-        .context("re-sealing BagIt manifest over the final pre-execution payload")
+        .context("re-sealing SHA-512 manifest over the final pre-execution payload")
 }
 
 /// Re-seal a package's audit trail in place after a re-execution result has
@@ -1095,14 +1124,13 @@ pub fn reseal_audit_report(
     )
     .context("writing runtime/audit-proof-report.json")?;
     audit_report::write_audit_report(pkg).context("regenerating AUDIT-REPORT.md")?;
-    // AUDIT-REPORT.md is a BagIt payload file (the audit-proof/reexecution
+    // AUDIT-REPORT.md is a checksum-sealed payload file (the audit-proof/reexecution
     // sidecars are on the manifest exclusion list, but the human report is
     // not). Regenerating it invalidates the recorded checksum, so reseal the
-    // BagIt manifest when this package is a bag, keeping `bagit --validate`
-    // green after the fold-back.
-    if pkg.join("bagit.txt").exists() {
+    // checksum manifest when this package carries a seal.
+    if pkg.join("manifest-sha512.txt").exists() {
         regenerate_bagit_manifest(pkg, &crate::clock::WallClock)
-            .context("resealing BagIt manifest after AUDIT-REPORT.md regeneration")?;
+            .context("resealing checksum manifest after AUDIT-REPORT.md regeneration")?;
     }
     Ok(())
 }
@@ -1167,8 +1195,9 @@ mod reseal_tests {
         copy_dir_all(&fx, pkg).unwrap();
 
         let validator = crate::wrroc_validator::NoopWrrocValidator;
-        let mut seed = crate::audit_proof::run_audit_proof(pkg, &validator, &crate::clock::WallClock)
-            .expect("seed report");
+        let mut seed =
+            crate::audit_proof::run_audit_proof(pkg, &validator, &crate::clock::WallClock)
+                .expect("seed report");
         for v in &mut seed.verdicts {
             if v.id == InvariantId::ClaimCompleteness {
                 v.status = InvariantStatus::Pass;
@@ -1294,8 +1323,8 @@ fn copy_validation_contract(
     let dest_dir = package_dir.join("policies");
     std::fs::create_dir_all(&dest_dir).context("creating policies dir")?;
     let dest = dest_dir.join("validation-contract.json");
-    let bytes = serde_json::to_vec_pretty(&merged)
-        .context("serializing merged validation contract")?;
+    let bytes =
+        serde_json::to_vec_pretty(&merged).context("serializing merged validation contract")?;
     crate::fs_helpers::atomic_write_bytes_sync(&dest, &bytes)
         .context("writing merged validation contract")?;
     Ok(())
@@ -2041,7 +2070,11 @@ mod figure_contract_tests {
         //   prohibition legitimately names "matplotlib/ggplot" as forbidden-for-
         //   figures imports, so we forbid the SPECIFIC substrate-justification
         //   phrasings, not the word "matplotlib" outright.
-        for needle in ["scientific-python substrate", "numpy/pandas/matplotlib", "renderers use"] {
+        for needle in [
+            "scientific-python substrate",
+            "numpy/pandas/matplotlib",
+            "renderers use",
+        ] {
             assert!(
                 !prompt.contains(needle),
                 "PROMPT.md must not justify a compute language via the renderer substrate: found {needle:?}"

@@ -135,13 +135,14 @@ pub(super) fn propose_summary_confirmation(
                      (no raw reads are available), but the composed plan still contains the \
                      raw-read-processing stage `{stage}`, which can never run without raw reads"
                 ),
-                hint: "Start downstream-first: call set_intake_excluded_atoms to prune the \
+                hint:
+                    "Start downstream-first: call set_intake_excluded_atoms to prune the \
                        read-processing stages (e.g. \
                        [\"sequence_trimming\",\"alignment\",\"quantification\"] for an RNA-seq \
                        count matrix, or [\"peptide_search\"] for a proteomics abundance matrix) \
                        so the plan begins from the deposited product. Do not call \
                        propose_summary_confirmation again until those stages are gone from the DAG."
-                    .into(),
+                        .into(),
             });
         }
         // (2) Counts-first DEFAULT (both forms exist, no explicit raw

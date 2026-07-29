@@ -251,7 +251,11 @@ fn cohort_manifest_rows(stage_dir: &Path) -> Option<u64> {
 /// The stage's own recorded deviation from the requested source.
 fn recorded_deviation(stage_dir: &Path) -> Option<String> {
     let result = read_json(&stage_dir.join("result.json"))?;
-    for key in ["provenance_note", "source_deviation", "provenance_deviation"] {
+    for key in [
+        "provenance_note",
+        "source_deviation",
+        "provenance_deviation",
+    ] {
         if let Some(note) = str_field(&result, key) {
             return Some(note);
         }
@@ -559,8 +563,10 @@ pub fn inject_provenance_section(report_text: &str, block: &str) -> String {
 pub fn strip_provenance_section(report_text: &str) -> String {
     let mut out = String::with_capacity(report_text.len());
     let mut rest = report_text;
-    while let (Some(s), Some(e)) = (rest.find(DATA_PROVENANCE_START), rest.find(DATA_PROVENANCE_END))
-    {
+    while let (Some(s), Some(e)) = (
+        rest.find(DATA_PROVENANCE_START),
+        rest.find(DATA_PROVENANCE_END),
+    ) {
         if e < s {
             break;
         }
@@ -754,7 +760,10 @@ mod tests {
             .to_string(),
         );
         let s = provenance_section(tmp.path()).expect("section rendered");
-        assert!(s.contains("USGS-08155300") && s.contains("| Samples | 3650 |"), "{s}");
+        assert!(
+            s.contains("USGS-08155300") && s.contains("| Samples | 3650 |"),
+            "{s}"
+        );
     }
 
     #[test]
@@ -790,7 +799,10 @@ mod tests {
             s.find("GSE222").unwrap(),
             s.find("GSE999").unwrap(),
         );
-        assert!(i1 < i2 && i2 < i3, "sorted by stage, then document order: {s}");
+        assert!(
+            i1 < i2 && i2 < i3,
+            "sorted by stage, then document order: {s}"
+        );
     }
 
     #[test]
@@ -801,7 +813,10 @@ mod tests {
         assert!(once.starts_with("# Report") && once.contains("\nA\n"));
         assert_eq!(once.matches(DATA_PROVENANCE_START).count(), 1);
         let twice = inject_provenance_section(&once, &block);
-        assert_eq!(twice, once, "idempotent: re-injecting the same block is a no-op");
+        assert_eq!(
+            twice, once,
+            "idempotent: re-injecting the same block is a no-op"
+        );
         let replaced = inject_provenance_section(
             &once,
             &format!("{DATA_PROVENANCE_START}\nB\n{DATA_PROVENANCE_END}\n"),

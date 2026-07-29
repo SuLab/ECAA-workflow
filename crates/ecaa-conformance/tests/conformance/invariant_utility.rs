@@ -137,6 +137,38 @@ fn read_jsonl(root: &Path, name: &str) -> Vec<Value> {
         .collect()
 }
 
+/// Declare one output as prospective narrative evidence in the workflow
+/// contract. Invariant 3 ranges over these declarations plus actual claim
+/// links, not over every retained result or dependency proof.
+fn declare_claim_evidence(root: &Path, task_id: &str, artifact: &str) {
+    let path = root.join("WORKFLOW.json");
+    let mut workflow = if path.exists() {
+        serde_json::from_str(&std::fs::read_to_string(&path).expect("read WORKFLOW.json"))
+            .expect("parse WORKFLOW.json")
+    } else {
+        serde_json::json!({"tasks": {}})
+    };
+    let tasks = workflow
+        .get_mut("tasks")
+        .and_then(Value::as_object_mut)
+        .expect("WORKFLOW tasks object");
+    tasks.insert(
+        task_id.to_string(),
+        serde_json::json!({
+            "spec": {
+                "result_schema": {
+                    "artifact": artifact
+                }
+            }
+        }),
+    );
+    std::fs::write(
+        &path,
+        serde_json::to_string_pretty(&workflow).expect("serialize WORKFLOW.json"),
+    )
+    .expect("write WORKFLOW.json");
+}
+
 // ---------------------------------------------------------------------------
 // Verdict lookup helpers
 // ---------------------------------------------------------------------------
@@ -344,6 +376,7 @@ fn mutate_decision_justification(root: &Path) {
 /// path is the bare `o.id`) referenced by NO `C.supported_by` and marked by NO
 /// `F` `output_unused` blocker — falsifying both disjuncts.
 fn mutate_evidence_coverage(root: &Path) {
+    declare_claim_evidence(root, "orphan_evidence_a", "data/outputs/orphan_result.tsv");
     append_jsonl(
         root,
         "proofs.jsonl",
@@ -353,9 +386,8 @@ fn mutate_evidence_coverage(root: &Path) {
         }),
     );
 
-    // Spec-fidelity: the V sub-graph now declares an output via a
-    // `computed_from` row, and neither C nor F covers it — exactly the
-    // un-referenced OutputFile the §3 predicate ranges over.
+    // Spec-fidelity: the workflow contract selects the V output as claim
+    // evidence, and neither C nor F covers it.
     let proofs = read_jsonl(root, "proofs.jsonl");
     let declared = proofs.iter().any(|p| {
         p.get("computed_from")
@@ -458,7 +490,8 @@ fn mutate_cross_graph_integrity(root: &Path) {
     verdicts.push(serde_json::json!({
         "claim_id": "claim_dangling_001",
         "status": "verified",
-        "supported_by": ["data/outputs/ghost_node.tsv#row1"]
+        "supported_by": ["data/outputs/ghost_node.tsv#row1"],
+        "checked_against": ["data/outputs/ghost_node.tsv#row1"]
     }));
     write_json(root, "claim-verification.json", &claims);
 
@@ -571,6 +604,11 @@ fn mutate_decision_justification_b(root: &Path) {
 /// predicate reached via the V row's `produces` field (the impl's
 /// `computed_from`-OR-`produces` fallback), an output referenced by no C edge.
 fn mutate_evidence_coverage_b(root: &Path) {
+    declare_claim_evidence(
+        root,
+        "orphan_evidence_b",
+        "data/outputs/orphan_via_produces.tsv",
+    );
     append_jsonl(
         root,
         "proofs.jsonl",
@@ -580,7 +618,7 @@ fn mutate_evidence_coverage_b(root: &Path) {
         }),
     );
 
-    // Spec-fidelity: a `produces` OutputFile is declared and uncovered in C.
+    // Spec-fidelity: a declared `produces` OutputFile is uncovered in C.
     let proofs = read_jsonl(root, "proofs.jsonl");
     assert!(
         proofs
@@ -752,7 +790,8 @@ fn boundary_pending_claim(root: &Path) {
     verdicts.push(serde_json::json!({
         "claim_id": "claim_pending_001",
         "status": "pending",
-        "supported_by": []
+        "supported_by": [],
+        "verdict_detail": "verification has not run"
     }));
     write_json(root, "claim-verification.json", &claims);
 }
@@ -763,7 +802,7 @@ fn boundary_pending_claim(root: &Path) {
 
 fn runcrate_available() -> bool {
     std::process::Command::new("runcrate")
-        .arg("--version")
+        .arg("version")
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)

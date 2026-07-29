@@ -17,16 +17,15 @@
 //! Live correctness is validated in Task 9's acceptance run (the base image is
 //! 13 GB; we do NOT trigger it here).
 
-use ecaa_workflow_harness::env_snapshot::{snapshot_environment, SnapshotOpts, SnapshotOutcome};
-use ecaa_workflow_core::replay::{run_replay, ReplayOptions, Tier};
 use ecaa_workflow_core::reexecution::ReexecutionBucket;
+use ecaa_workflow_core::replay::{run_replay, ReplayOptions, Tier};
+use ecaa_workflow_harness::env_snapshot::{snapshot_environment, SnapshotOpts, SnapshotOutcome};
 
 use std::path::{Path, PathBuf};
 
 // ---------------------------------------------------------------------------
 // Helpers (inside the module — only called inside the gated branch)
 // ---------------------------------------------------------------------------
-
 
 /// Write `contents` to `path`, creating parent directories as needed.
 fn write_file(path: &Path, contents: &str) {
@@ -66,8 +65,7 @@ fn snapshot_build_then_replay_is_byte_identical() {
     // environment inside the snapshot image (COPY from the real cache dir is
     // what the Dockerfile does), so this stub merely satisfies cache_has_installs.
     // In a real session this directory is the actual installed env.
-    std::fs::write(env_bin.join("python"), b"#!/bin/sh\necho ok\n")
-        .expect("write stub python");
+    std::fs::write(env_bin.join("python"), b"#!/bin/sh\necho ok\n").expect("write stub python");
 
     // ── Step 2: snapshot_environment → Captured ─────────────────────────────
     let fixed_source_date_epoch: i64 = 1_700_000_000; // 2023-11-14 (fixed for reproducibility)
@@ -97,11 +95,16 @@ fn snapshot_build_then_replay_is_byte_identical() {
     // would fail if the env's shebangs were not rewritten during COPY.
     let smoke_status = std::process::Command::new("docker")
         .args([
-            "run", "--rm",
+            "run",
+            "--rm",
             &snapshot_digest,
-            "conda", "run",
-            "-n", env_name,
-            "python", "-c", "import sys; print(sys.version)",
+            "conda",
+            "run",
+            "-n",
+            env_name,
+            "python",
+            "-c",
+            "import sys; print(sys.version)",
         ])
         .status()
         .expect("docker smoke-check command failed to spawn");

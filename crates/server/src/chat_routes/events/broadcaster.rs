@@ -146,7 +146,10 @@ fn parse_harness_blocker_kind(detail: &str) -> ecaa_workflow_core::blocker::Bloc
         let (expected, actual) = match rest.strip_prefix("expected=") {
             Some(after_expected) => match after_expected.split_once(" actual=") {
                 Some((exp, act)) => (exp.trim().to_string(), act.trim().to_string()),
-                None => ("raw sequence reads".to_string(), after_expected.trim().to_string()),
+                None => (
+                    "raw sequence reads".to_string(),
+                    after_expected.trim().to_string(),
+                ),
             },
             None => ("raw sequence reads".to_string(), rest.to_string()),
         };
