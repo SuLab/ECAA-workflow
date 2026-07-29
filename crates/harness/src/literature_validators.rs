@@ -103,6 +103,93 @@ pub fn collapse_whitespace_lowercase_v1(s: &str) -> String {
     out.trim().to_string()
 }
 
+fn decode_xml_character_references(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(start) = rest.find('&') {
+        out.push_str(&rest[..start]);
+        rest = &rest[start..];
+        let Some(end) = rest.find(';') else {
+            out.push_str(rest);
+            return out;
+        };
+        let entity = &rest[1..end];
+        let decoded = match entity {
+            "amp" => Some('&'),
+            "lt" => Some('<'),
+            "gt" => Some('>'),
+            "quot" => Some('"'),
+            "apos" => Some('\''),
+            _ => entity
+                .strip_prefix("#x")
+                .or_else(|| entity.strip_prefix("#X"))
+                .and_then(|digits| u32::from_str_radix(digits, 16).ok())
+                .and_then(char::from_u32)
+                .or_else(|| {
+                    entity
+                        .strip_prefix('#')
+                        .and_then(|digits| digits.parse::<u32>().ok())
+                        .and_then(char::from_u32)
+                }),
+        };
+        if let Some(ch) = decoded {
+            out.push(ch);
+        } else {
+            out.push_str(&rest[..=end]);
+        }
+        rest = &rest[end + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+fn xml_visible_text(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut tag = String::new();
+    let mut in_tag = false;
+    let mut chars = s.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if in_tag {
+            tag.push(ch);
+            if ch == '>' {
+                out.push(' ');
+                tag.clear();
+                in_tag = false;
+            }
+            continue;
+        }
+        if ch == '<'
+            && chars
+                .peek()
+                .is_some_and(|next| next.is_ascii_alphabetic() || matches!(next, '/' | '!' | '?'))
+        {
+            tag.push(ch);
+            in_tag = true;
+        } else {
+            out.push(ch);
+        }
+    }
+    if in_tag {
+        out.push_str(&tag);
+    }
+    decode_xml_character_references(&out)
+}
+
+fn quote_matches_snapshot(raw: &str, quote: &str) -> bool {
+    let normalized_source = collapse_whitespace_lowercase_v1(raw);
+    let normalized_quote = collapse_whitespace_lowercase_v1(quote);
+    if normalized_quote.is_empty() {
+        return false;
+    }
+    if normalized_source.contains(&normalized_quote) {
+        return true;
+    }
+
+    let xml_source = collapse_whitespace_lowercase_v1(&xml_visible_text(raw));
+    let xml_quote = collapse_whitespace_lowercase_v1(&xml_visible_text(quote));
+    !xml_quote.is_empty() && xml_source.contains(&xml_quote)
+}
+
 // Serde deserialization target for `claims_matrix.csv`; many fields are read
 // only via reflection-style validators below and are flagged as dead by the
 // compiler. Preserve the full shape so the deserializer fails on schema drift.
@@ -1128,10 +1215,7 @@ pub fn run_evidence_quote_substring_match(
             )
         })?;
 
-        let normalized_source = collapse_whitespace_lowercase_v1(&raw);
-        let normalized_quote = collapse_whitespace_lowercase_v1(&row.evidence_quote);
-
-        if !normalized_source.contains(&normalized_quote) {
+        if !quote_matches_snapshot(&raw, &row.evidence_quote) {
             return Err((
                 i as u64,
                 ValidationFailureCause::LiteratureClaim {
@@ -3634,6 +3718,18 @@ mod tests {
     }
 
     #[test]
+    fn quote_match_does_not_discard_unclosed_comparison_text() {
+        assert!(
+            !quote_matches_snapshot("A real prefix was retained.", "A real prefix < fabricated"),
+            "an unmatched comparison token must remain part of the asserted quote"
+        );
+        assert!(
+            !quote_matches_snapshot("Any source text", ""),
+            "a verified quote cannot be empty"
+        );
+    }
+
+    #[test]
     fn pmid_resolves_passes_on_well_formed_rows() {
         let dir = TempDir::new().unwrap();
         let csv = dir.path().join("prior_claims_matrix.csv");
@@ -3680,6 +3776,24 @@ mod tests {
         write(
             &manifest.parent().unwrap().join("28123456.xml"),
             "ACAN reduction in disc tissue was observed",
+        );
+        assert!(run_evidence_quote_substring_match(&csv, &manifest).is_ok());
+    }
+
+    #[test]
+    fn evidence_quote_substring_match_extracts_structured_abstract_text() {
+        let dir = TempDir::new().unwrap();
+        let csv = dir.path().join("prior_claims_matrix.csv");
+        write(&csv, "entity,entity_kind,pmid,evidence_quote,evidence_quote_offset,source_kind,source_hash,retrieval_ts,redistributable,verified\nCASC7,gene,31412983,\"The mechanism remains unknown. Airway smooth muscle cells were used at 1 µM.\",0,pubmed_abstract_xml,sha256:abc,2026-05-14T00:00:00Z,true,true\n");
+        let manifest = dir.path().join("evidence/manifest.json");
+        fs::create_dir_all(manifest.parent().unwrap()).unwrap();
+        write(
+            &manifest,
+            r#"{"schema_version":2,"entries":[{"source_ref":"31412983","source_kind":"pubmed_abstract_xml","path":"pmid_31412983.xml","sha256_binary":"00","sha256_extracted_text":"00","extracted_text_normalization":"collapse_whitespace_lowercase_v1","bytes":0,"retrieval_ts":"2026-05-14T00:00:00Z","retrieval_query_id":"q001","redistributable":true,"license":"public_domain"}]}"#,
+        );
+        write(
+            &manifest.parent().unwrap().join("pmid_31412983.xml"),
+            r#"<PubmedArticle><Abstract><AbstractText Label="BACKGROUND">The mechanism remains unknown.</AbstractText><AbstractText Label="METHODS">Airway smooth muscle cells were used at 1 &#xb5;M.</AbstractText></Abstract></PubmedArticle>"#,
         );
         assert!(run_evidence_quote_substring_match(&csv, &manifest).is_ok());
     }
