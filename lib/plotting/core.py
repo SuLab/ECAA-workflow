@@ -1331,17 +1331,25 @@ def scatter(
     rasterize = (
         len(x) > THEME.get("output", {}).get("rasterize_threshold_n", 50000)
     )
+    color_values = np.asarray(color) if color is not None else None
+    numeric_color = color_values is not None and np.issubdtype(
+        color_values.dtype, np.number
+    )
+    color_args = {}
+    if color is not None:
+        color_args["c"] = color
+    if numeric_color:
+        color_args["cmap"] = cmap
     sc = ax.scatter(
         x,
         y,
-        c=color,
         s=point_size,
-        cmap=cmap,
         alpha=0.7,
         linewidths=0,
         rasterized=rasterize,
+        **color_args,
     )
-    if color is not None and np.issubdtype(np.asarray(color).dtype, np.number):
+    if numeric_color:
         fig.colorbar(sc, ax=ax, shrink=0.7)
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)

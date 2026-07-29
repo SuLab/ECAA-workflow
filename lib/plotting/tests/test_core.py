@@ -161,10 +161,40 @@ def test_multi_bar_fill_keeps_canonical_wong_ordering():
 
 
 def test_scatter_produces_figure(tmp_path):
+    import warnings
+
     rng = np.random.default_rng(0)
     x = rng.normal(size=200)
     y = rng.normal(size=200)
-    out = scatter(x=x, y=y, title="t", xlabel="x", ylabel="y", out=tmp_path / "s.png")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        out = scatter(
+            x=x,
+            y=y,
+            title="t",
+            xlabel="x",
+            ylabel="y",
+            out=tmp_path / "s.png",
+        )
+    assert out.exists() and out.stat().st_size > 0
+
+
+def test_scatter_continuous_color_keeps_colormap(tmp_path):
+    import warnings
+
+    x = np.linspace(0.0, 1.0, 20)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        out = scatter(
+            x=x,
+            y=x**2,
+            color=x,
+            cmap="viridis",
+            title="continuous color",
+            xlabel="x",
+            ylabel="y",
+            out=tmp_path / "continuous.png",
+        )
     assert out.exists() and out.stat().st_size > 0
 
 
