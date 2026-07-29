@@ -134,13 +134,18 @@ export default function App() {
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: '0.75rem',
+        alignContent: 'flex-start',
+        flexWrap: isDesktop ? 'nowrap' : 'wrap',
+        gap: isDesktop ? '0.75rem' : '0.45rem',
         padding: '0.5rem 1rem',
         background: 'var(--color-chrome-bg)',
         color: 'var(--color-chrome-fg)',
         flexShrink: 0,
+        minWidth: 0,
+        width: '100%',
         borderBottom: '1px solid var(--color-chrome-border)',
       }}
+      data-testid="app-title-bar"
     >
       <strong style={{ fontSize: '0.95rem', letterSpacing: '-0.01em' }}>
         ECAA-workflow
@@ -194,7 +199,14 @@ export default function App() {
         parentSessionId={conv.state?.parent_session_id ?? null}
         onSelectSession={conv.switchToSession}
       />
-      <div style={{ flex: 1 }} />
+      <div
+        aria-hidden="true"
+        style={
+          isDesktop
+            ? { flex: 1 }
+            : { flexBasis: '100%', height: 0, minWidth: 0 }
+        }
+      />
       <RecentSessionsDropdown
         currentSessionId={conv.sessionId}
         onSelect={(id) => {

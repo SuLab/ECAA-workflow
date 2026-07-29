@@ -65,7 +65,7 @@ test.describe('Responsive layout', () => {
       await expect(page.locator(sel.chatPaneWrapper)).toBeVisible()
       await expect(page.locator(sel.statePaneWrapper)).toBeHidden()
     })
-})
+  })
 
   test('mobile view switcher toggles chat ↔ state', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
@@ -84,7 +84,7 @@ test.describe('Responsive layout', () => {
       await expect(page.locator(sel.chatPaneWrapper)).toBeVisible()
       await expect(page.locator(sel.statePaneWrapper)).toBeHidden()
     })
-})
+  })
 
   test('desktop → mobile resize surfaces the tablist', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 })
@@ -105,7 +105,7 @@ test.describe('Responsive layout', () => {
         'true',
       )
     })
-})
+  })
 
   test('mobile → desktop resize hides the tablist and restores split pane', async ({
     page,
@@ -122,7 +122,7 @@ test.describe('Responsive layout', () => {
       await expect(page.locator(sel.chatLog)).toBeVisible()
       await expect(page.locator(sel.inspectorTablist)).toBeVisible()
     })
-})
+  })
 
   test('mobile view tab click moves focus into the newly-visible pane', async ({
     page,
@@ -141,5 +141,51 @@ test.describe('Responsive layout', () => {
       })
       expect(focusedLabel).toBe('State inspector pane')
     })
-})
+  })
+
+  test('mobile title-bar actions remain inside the viewport', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await withMockBackend(page, { beats: [beat] }, async () => {
+      await page.goto('/')
+      const chat = new Chat(page)
+      await chat.waitForAssistant()
+
+      const titleBar = page.getByTestId('app-title-bar')
+      const actions = [
+        { role: 'button' as const, name: 'Open recent sessions' },
+        { role: 'button' as const, name: 'Open a package' },
+        { role: 'button' as const, name: 'Share session' },
+        { role: 'button' as const, name: 'Accessibility settings' },
+        { role: 'button' as const, name: 'Switch to dark theme' },
+        { role: 'button' as const, name: 'Open Settings' },
+        { role: 'tab' as const, name: 'Chat' },
+        { role: 'tab' as const, name: 'View plan' },
+      ]
+
+      for (const { role, name } of actions) {
+        const action = titleBar.getByRole(role, { name })
+        await expect(action).toBeVisible()
+        const box = await action.boundingBox()
+        expect(box, `${name} should have a layout box`).not.toBeNull()
+        expect(
+          box!.x,
+          `${name} should not be clipped on the left`,
+        ).toBeGreaterThanOrEqual(0)
+        expect(
+          box!.x + box!.width,
+          `${name} should not be clipped on the right`,
+        ).toBeLessThanOrEqual(390)
+      }
+
+      const composer = page.getByRole('textbox', { name: 'Message' })
+      const composerBox = await composer.boundingBox()
+      expect(composerBox, 'Message composer should have a layout box').not.toBeNull()
+      expect(
+        composerBox!.y + composerBox!.height,
+        'Message composer should not be clipped below the viewport',
+      ).toBeLessThanOrEqual(844)
+    })
+  })
 })
