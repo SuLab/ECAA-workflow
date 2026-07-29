@@ -75,6 +75,13 @@ pub(super) fn classify_retriable(err: &str) -> bool {
     if err.contains(crate::anthropic::client::REQUEST_BODY_TIMEOUT_MARKER) {
         return false;
     }
+    // A schema-grammar timeout arrives as HTTP 400. Check the status
+    // before the generic network-timeout substrings below; otherwise the
+    // word "timed out" incorrectly turns this deterministic client error
+    // into two expensive retries.
+    if err.contains("HTTP 400") {
+        return false;
+    }
     // 429 rate-limited → retriable
     if err.contains("HTTP 429") || err.contains("rate-limited") {
         return true;
@@ -212,6 +219,16 @@ mod tests {
         for code in &["HTTP 400", "HTTP 401", "HTTP 403", "HTTP 404"] {
             assert!(!classify_retriable(code), "{} should be terminal", code);
         }
+    }
+
+    #[test]
+    fn classify_marks_grammar_compilation_timeout_terminal() {
+        let err = "anthropic API error (HTTP 400): \
+                   {\"error\":{\"message\":\"Grammar compilation timed out.\"}}";
+        assert!(
+            !classify_retriable(err),
+            "HTTP 400 grammar timeouts are deterministic request failures"
+        );
     }
 
     #[test]

@@ -650,6 +650,16 @@ fn capture_request_metadata(headers: &reqwest::header::HeaderMap) -> RequestMeta
 /// producer of these markers, so any regression is caught at test time.
 pub(super) const MAX_CACHE_BREAKPOINTS: usize = 4;
 
+/// Largest tool inventory sent with Anthropic strict schema enforcement.
+///
+/// Strict tool schemas are compiled into a constrained-decoding grammar.
+/// Anthropic has repeatedly timed out while compiling the larger intake
+/// and review inventories, even though each individual schema is valid.
+/// The dispatcher still deserializes every non-strict tool call into the
+/// closed `Tool` enum, so larger inventories retain server-side shape
+/// validation without depending on remote grammar compilation.
+const MAX_STRICT_TOOL_SCHEMAS: usize = 5;
+
 /// Build the Anthropic Messages `POST /v1/messages` payload from a
 /// `TurnRequest`. Promoted from `pub(super)` to `pub` so the
 /// cross-crate regression test
@@ -811,20 +821,23 @@ pub fn build_messages_payload(req: &TurnRequest) -> serde_json::Value {
     // ~5–6 KB of tool JSON bills at cache-read rate instead of full
     // input. Uses one of the 4 available breakpoints.
     //
-    // S2.15 — set `strict: true` on every tool definition. Per
-    // Anthropic's 2026 Messages API guidance, strict mode enforces
-    // schema compliance on tool_use inputs so a missing/malformed
-    // parameter returns a parse error rather than a silently truncated
-    // call we'd then try to dispatch. Cuts a class of "model invented
-    // a field that isn't in the schema" failures the closed 22-tool
-    // vocabulary already implicitly relies on.
+    // Enable constrained decoding for small tool inventories. Larger
+    // inventories remain schema-described but rely on the dispatcher's
+    // closed-enum deserialization for shape enforcement. Anthropic's
+    // grammar compiler has timed out consistently on the larger intake
+    // inventory; strict mode remains enabled where compilation is reliable.
+    let strict_tools = req.tool_schemas.len() <= MAX_STRICT_TOOL_SCHEMAS;
     let mut tools: Vec<serde_json::Value> = req
         .tool_schemas
         .iter()
         .cloned()
         .map(|mut t| {
             if let Some(obj) = t.as_object_mut() {
-                obj.insert("strict".into(), json!(true));
+                if strict_tools {
+                    obj.insert("strict".into(), json!(true));
+                } else {
+                    obj.remove("strict");
+                }
             }
             t
         })
@@ -1787,6 +1800,51 @@ mod tests {
         assert!(tools[0].get("cache_control").is_none());
         assert!(tools[1].get("cache_control").is_none());
         assert_eq!(tools[2]["cache_control"]["type"], "ephemeral");
+    }
+
+    #[test]
+    fn strict_tool_schemas_are_limited_to_small_inventories() {
+        let request_with_tools = |count: usize| TurnRequest {
+            system_prompt: vec![],
+            conversation: std::sync::Arc::new(vec![]),
+            tool_schemas: (0..count)
+                .map(|i| {
+                    serde_json::json!({
+                        "name": format!("tool_{i}"),
+                        "input_schema": {
+                            "type": "object",
+                            "properties": {},
+                            "additionalProperties": false
+                        }
+                    })
+                })
+                .collect(),
+            model: crate::model_policy::ModelId::Sonnet46,
+            temperature: 0.4,
+            max_tokens: 1024,
+            tool_exchange: vec![],
+            tool_choice: None,
+        };
+
+        let small = build_messages_payload(&request_with_tools(MAX_STRICT_TOOL_SCHEMAS));
+        assert!(
+            small["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|tool| tool["strict"] == true),
+            "small inventories should retain constrained decoding"
+        );
+
+        let large = build_messages_payload(&request_with_tools(MAX_STRICT_TOOL_SCHEMAS + 1));
+        assert!(
+            large["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|tool| tool.get("strict").is_none()),
+            "large inventories must avoid remote grammar compilation"
+        );
     }
 
     #[test]

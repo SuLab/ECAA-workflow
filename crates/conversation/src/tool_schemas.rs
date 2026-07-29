@@ -222,13 +222,19 @@ pub fn tool_schemas_for_state(state: &SessionState) -> Vec<serde_json::Value> {
             | SessionState::Emitted
             | SessionState::Amending { .. }
     );
-    // Root-cause: ReadyToEmit + Emitting must keep a tight
-    // tool surface — the LLM's only job is to call emit_package, and
-    // loading the 7 post-emit-review tool schemas alongside it tipped
-    // the cumulative tool-schema payload past Anthropic's compilation
-    // budget. The review tools come back as soon as the package
-    // exists (Emitted / Amending).
-    let pre_emit_or_emitting = matches!(state, SessionState::ReadyToEmit | SessionState::Emitting);
+    // Review tools require an emitted package. Hiding them throughout
+    // intake also keeps irrelevant, complex schemas out of the largest
+    // pre-emission vocabulary. They become visible only after a package
+    // exists, in Emitted or Amending.
+    let package_not_emitted = matches!(
+        state,
+        SessionState::Greeting
+            | SessionState::Intake
+            | SessionState::IntakeFollowup
+            | SessionState::PendingConfirmation { .. }
+            | SessionState::ReadyToEmit
+            | SessionState::Emitting
+    );
 
     all.into_iter()
         .filter(|s| {
@@ -247,7 +253,7 @@ pub fn tool_schemas_for_state(state: &SessionState) -> Vec<serde_json::Value> {
             if emit_allowed && INTAKE_ONLY_TOOLS.contains(&name) {
                 return false;
             }
-            if pre_emit_or_emitting && POST_EMIT_REVIEW_TOOLS.contains(&name) {
+            if package_not_emitted && POST_EMIT_REVIEW_TOOLS.contains(&name) {
                 return false;
             }
             true
@@ -818,10 +824,9 @@ mod tests {
 
     #[test]
     fn early_state_hides_post_emit_tools() {
-        // §3.1 — Greeting / Intake / IntakeFollowup sessions should
-        // not see amend / rerun / sensitivity / branch / start_execution
-        // nor emit_package. Regression guard for the progressive-
-        // disclosure filter.
+        // Greeting / Intake / IntakeFollowup sessions should not see
+        // package-review or execution tools. Regression guard for the
+        // progressive-disclosure filter.
         let early_states = [
             SessionState::Greeting,
             SessionState::Intake,
@@ -841,6 +846,14 @@ mod tests {
                     name
                 );
             }
+            for name in POST_EMIT_REVIEW_TOOLS {
+                assert!(
+                    !names.contains(name),
+                    "state {:?} must not carry post-emit review tool {}",
+                    state,
+                    name
+                );
+            }
             assert!(
                 !names.contains(&EMIT_ONLY_TOOL),
                 "state {:?} must not carry {} in its schema block",
@@ -851,6 +864,11 @@ mod tests {
             assert!(names.contains(&"classify_intake"));
             assert!(names.contains(&"append_intake_prose"));
             assert!(names.contains(&"propose_summary_confirmation"));
+            assert_eq!(
+                names.len(),
+                13,
+                "early states should expose only read-only and intake tools"
+            );
         }
     }
 
