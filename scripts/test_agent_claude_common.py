@@ -244,6 +244,17 @@ def test_docker_api_key_not_embedded_in_process_argv():
     assert '-e "ANTHROPIC_API_KEY=' not in script
 
 
+def test_uploaded_inputs_are_previewed_and_bound_for_ingestion():
+    script = Path("scripts/agent-claude.sh").read_text()
+    both_input_kinds = (
+        'select(.kind == "local_path" or .kind == "uploaded_files")'
+    )
+
+    assert script.count(both_input_kinds) == 2
+    assert "DOCKER_INPUT_BIND_ARGS" in script
+    assert "Registered input tables (header row = schema)" in script
+
+
 def test_render_container_uses_writable_plot_cache_paths():
     script = Path("scripts/agent-claude-common.sh").read_text()
 

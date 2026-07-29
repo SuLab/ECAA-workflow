@@ -77,6 +77,15 @@ def assert_structured_claim(pkg: Path, task_id: str, evidence_name: str) -> None
     assert (pkg / "runtime" / "outputs" / task_id / evidence_name).exists()
 
 
+def test_fixture_container_binds_uploaded_input_roots() -> None:
+    script = AGENT.read_text()
+
+    assert (
+        'select(.kind == "local_path" or .kind == "uploaded_files")'
+        in script
+    )
+
+
 def test_fixture_agent_executes_pasilla_plot_tasks(tmp_path: Path) -> None:
     pkg = tmp_path / "pkg"
     runtime = pkg / "runtime"

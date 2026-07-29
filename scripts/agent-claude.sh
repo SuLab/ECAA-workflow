@@ -188,7 +188,7 @@ $(printf '%s\n' "$__files" | sed 's|^|    - |')"
           [ -n "$__hdr" ] && __in_block="${__in_block}
     - \`${__staged}\` (package-internal staged copy — read THIS path, not the external root) columns: ${__hdr}" ;;
       esac
-    done < <(jq -r '.[]? | select(.kind=="local_path") | .root_path as $r | .label as $l | (.files[]? | [$r, $l, .relpath] | @tsv)' "$PACKAGE/runtime/inputs.json" 2>/dev/null || true)
+    done < <(jq -r '.[]? | select(.kind == "local_path" or .kind == "uploaded_files") | .root_path as $r | .label as $l | (.files[]? | [$r, $l, .relpath] | @tsv)' "$PACKAGE/runtime/inputs.json" 2>/dev/null || true)
   fi
   if [ -n "$__dep_block" ] || [ -n "$__in_block" ]; then
     RESOLVED_CONTEXT_BLOCK="
@@ -1293,14 +1293,12 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
     DOCKER_SCRATCH_ARGS+=(-e "ECAA_TASK_SCRATCH_DIR=$ECAA_TASK_SCRATCH_DIR")
   fi
 
-  # Bind-mount SME-registered local_path inputs into the container so
-  # the agent can read SME-cited files. runtime/inputs.json lists every
-  # registered input with `kind=local_path` and `root_path=<absolute
-  # host path>`. Without this loop the agent sees the manifest but the
-  # cited files resolve to ENOENT inside the container, forcing the
-  # task to block with `missing_input` even after the SME has
-  # registered the directory. read-only since the agent must not
-  # mutate SME-owned source data.
+  # Bind-mount SME-registered local-path and uploaded-file roots into the
+  # container so the ingestion agent can read them. Both registration kinds
+  # carry an absolute host `root_path` in runtime/inputs.json. Without this
+  # loop the agent sees the manifest but the cited files resolve to ENOENT
+  # inside the container. Read-only since the agent must not mutate source
+  # data.
   #
   # INGESTION-ONLY: the external registered root is mounted ONLY for the
   # ingestion stage(s) (data_acquisition / data_import), whose job is to READ
@@ -1322,7 +1320,7 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
             "$PACKAGE"/*) continue ;;  # already covered by the package bind
           esac
           DOCKER_INPUT_BIND_ARGS+=(-v "$__root_path":"$__root_path":ro)
-        done < <(jq -r '.[]? | select(.kind == "local_path") | .root_path // empty' "$PACKAGE/runtime/inputs.json" 2>/dev/null)
+        done < <(jq -r '.[]? | select(.kind == "local_path" or .kind == "uploaded_files") | .root_path // empty' "$PACKAGE/runtime/inputs.json" 2>/dev/null)
       fi
       ;;
   esac

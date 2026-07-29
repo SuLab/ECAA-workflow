@@ -75,7 +75,7 @@ if [ "${ECAA_FIXTURE_AGENT_CONTAINERIZED:-0}" != "1" ] \
           "$PACKAGE"/*) continue ;;
         esac
         DOCKER_INPUT_ARGS+=(-v "$root_path":"$root_path":ro)
-      done < <(jq -r '.[]? | select(.kind == "local_path") | .root_path // empty' "$PACKAGE/runtime/inputs.json" 2>/dev/null)
+      done < <(jq -r '.[]? | select(.kind == "local_path" or .kind == "uploaded_files") | .root_path // empty' "$PACKAGE/runtime/inputs.json" 2>/dev/null)
     fi
 
     DOCKER_ENV_ARGS=(
