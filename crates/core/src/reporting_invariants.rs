@@ -2510,6 +2510,18 @@ fn bind_narrative_table(
     }
 }
 
+fn narrative_table_declares_result_roles(
+    table: &NarrativeTable,
+    schemas: &BTreeMap<String, ResultSchema>,
+    synonyms: &PolicyColumnSynonyms,
+) -> bool {
+    schemas.values().any(|schema| {
+        let header = canonicalize_header(&table.header, &schema_header_spellings(schema, synonyms));
+        resolve_ranking_columns(&header, schema, synonyms)
+            .is_some_and(|columns| columns.effect.is_some() || columns.significance.is_some())
+    })
+}
+
 /// Disambiguate a narrative row that matched SEVERAL source rows, using the
 /// row's other non-numeric cells as additional keys — the composite-key
 /// resolution `claim_verifier::verify_keyed_cell` performs (a collection cell
@@ -2816,9 +2828,15 @@ fn check_rc_row(package_root: &Path, outputs: &Path, report: &mut ReportingInvar
             if table.rows.is_empty() {
                 continue;
             }
-            ran = true;
             let site = format!("{rel}:{}", table.line);
-            match bind_narrative_table(&table, &schemas, &sources, &synonyms, &tol) {
+            let outcome = bind_narrative_table(&table, &schemas, &sources, &synonyms, &tol);
+            if matches!(&outcome, TableBindingOutcome::Unresolved)
+                && !narrative_table_declares_result_roles(&table, &schemas, &synonyms)
+            {
+                continue;
+            }
+            ran = true;
+            match outcome {
                 TableBindingOutcome::Unresolved => skipped.push(format!(
                     "{site} table columns resolve no declared result-schema role — its rows were \
                      not checked"
@@ -3015,6 +3033,47 @@ mod tests {
             }
             _ => panic!("a noncanonical Top-N prefix must fail"),
         }
+    }
+
+    #[test]
+    fn rc_row_ignores_metadata_tables_but_keeps_result_tables_in_scope() {
+        let schema = ResultSchema {
+            artifact: "pathway_results.tsv".into(),
+            entity_column: "pathway".into(),
+            entity_column_aliases: Vec::new(),
+            significance: Some(Significance {
+                column: "padj".into(),
+                threshold: 0.25,
+                comparator: Comparator::Lt,
+            }),
+            signed_effect_column: Some("NES".into()),
+            signed_effect_aliases: Vec::new(),
+            grouping_column: Some("collection".into()),
+        };
+        let schemas = BTreeMap::from([("pathway_enrichment".to_string(), schema)]);
+        let synonyms = PolicyColumnSynonyms::default();
+        let table = |header: &[&str]| NarrativeTable {
+            line: 1,
+            heading: String::new(),
+            header: header.iter().map(|cell| (*cell).to_string()).collect(),
+            rows: vec![vec!["x".into(); header.len()]],
+        };
+
+        assert!(!narrative_table_declares_result_roles(
+            &table(&["Collection", "Total tested", "Significant"]),
+            &schemas,
+            &synonyms,
+        ));
+        assert!(!narrative_table_declares_result_roles(
+            &table(&["Absolute log2FC bin", "Count"]),
+            &schemas,
+            &synonyms,
+        ));
+        assert!(narrative_table_declares_result_roles(
+            &table(&["Pathway", "NES", "padj"]),
+            &schemas,
+            &synonyms,
+        ));
     }
 
     /// Write a path relative to the PACKAGE ROOT (rather than to

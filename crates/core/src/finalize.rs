@@ -1069,7 +1069,12 @@ fn finalize_task_deduped_inner(
         // stub after a standalone harness run. Best-effort: a write/serialize
         // failure warns and continues — never aborts finalize. Runs regardless
         // of `secret`, since the plaintext carries no HMAC.
-        if let Err(e) = crate::claim_sink::refresh_plaintext_sidecar(root, task_id, &v.report) {
+        if let Err(e) = crate::claim_sink::refresh_plaintext_sidecar_with_coverage(
+            root,
+            task_id,
+            &v.report,
+            coverage.as_ref(),
+        ) {
             tracing::warn!(
                 target: "ecaa::finalize",
                 error = %e,
@@ -1366,13 +1371,28 @@ fn synthesize_stage_count_claim(package_root: &Path, task_id: &str) -> Option<St
         "n_pathways_tested",
         "n_genes_tested",
         "n_features_tested",
+        "n_tested",
+        "tested_feature_count",
     ]
     .iter()
     .find_map(|key| {
         let value = obj.get(*key)?;
         let total = value
             .as_u64()
-            .or_else(|| value.get("total").and_then(serde_json::Value::as_u64))?;
+            .or_else(|| value.get("total").and_then(serde_json::Value::as_u64))
+            .or_else(|| {
+                let values = value.as_object()?.values();
+                let mut found = false;
+                let total = values.fold(0u64, |sum, value| {
+                    if let Some(value) = value.as_u64() {
+                        found = true;
+                        sum.saturating_add(value)
+                    } else {
+                        sum
+                    }
+                });
+                found.then_some(total)
+            })?;
         Some((*key, total))
     })?;
     if total == 0 {
@@ -1392,9 +1412,22 @@ fn synthesize_stage_count_claim(package_root: &Path, task_id: &str) -> Option<St
         Some((threshold, *label))
     });
 
-    let (count, threshold, label) = obj.iter().find_map(|(key, value)| {
+    let mut count_candidates: Vec<(&str, &serde_json::Value)> = Vec::new();
+    for preferred in ["n_significant_total", "n_significant"] {
+        if let Some(value) = obj.get(preferred) {
+            count_candidates.push((preferred, value));
+        }
+    }
+    count_candidates.extend(
+        obj.iter()
+            .filter(|(key, _)| !matches!(key.as_str(), "n_significant_total" | "n_significant"))
+            .map(|(key, value)| (key.as_str(), value)),
+    );
+
+    let (count, threshold, label) = count_candidates.into_iter().find_map(|(key, value)| {
         let key = key.to_ascii_lowercase();
         if key != "n_significant"
+            && key != "n_significant_total"
             && !key.starts_with("n_sig_")
             && !key.starts_with("n_significant_")
         {
@@ -1801,6 +1834,81 @@ mod tests {
         let claim = synthesize_stage_count_claim(tmp.path(), "pathway_enrichment")
             .expect("pathway floor claim synthesized");
         assert_eq!(claim.claim, "3 of 5 gene sets significant at FDR < 0.25");
+        assert_eq!(
+            claim.evidence.as_deref(),
+            Some("runtime/outputs/pathway_enrichment/pathway_results.tsv")
+        );
+        let verdicts =
+            verify_structured_claims(std::slice::from_ref(&claim), tmp.path(), &test_cfg());
+        assert!(matches!(
+            verdicts[0].status,
+            crate::claim_verifier::ClaimStatus::Verified
+        ));
+    }
+
+    #[test]
+    fn synthesize_stage_count_claim_accepts_himes_differential_expression_shape() {
+        let tmp = tempdir().unwrap();
+        let dir = tmp.path().join("runtime/outputs/differential_expression");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("result.json"),
+            r#"{
+                "task_id":"differential_expression",
+                "n_tested":4,
+                "tested_feature_count":4,
+                "n_significant":2,
+                "padj_threshold":0.05
+            }"#,
+        )
+        .unwrap();
+        fs::write(
+            dir.join("de_results.tsv"),
+            "gene\tlog2FoldChange\tpadj\nA\t1\t0.01\nB\t-1\t0.04\nC\t0\t0.2\nD\t0\tNA\n",
+        )
+        .unwrap();
+
+        let claim = synthesize_stage_count_claim(tmp.path(), "differential_expression")
+            .expect("Himes differential-expression floor claim synthesized");
+        assert_eq!(claim.claim, "2 of 4 features significant at padj < 0.05");
+        assert_eq!(
+            claim.evidence.as_deref(),
+            Some("runtime/outputs/differential_expression/de_results.tsv")
+        );
+        let verdicts =
+            verify_structured_claims(std::slice::from_ref(&claim), tmp.path(), &test_cfg());
+        assert!(matches!(
+            verdicts[0].status,
+            crate::claim_verifier::ClaimStatus::Verified
+        ));
+    }
+
+    #[test]
+    fn synthesize_stage_count_claim_sums_himes_pathway_collections() {
+        let tmp = tempdir().unwrap();
+        let dir = tmp.path().join("runtime/outputs/pathway_enrichment");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("result.json"),
+            r#"{
+                "task_id":"pathway_enrichment",
+                "n_pathways_tested":{"HALLMARK":2,"KEGG":1,"REACTOME":1},
+                "n_significant_total":2,
+                "n_enriched_total":1,
+                "n_depleted_total":1,
+                "fdr_threshold":0.25
+            }"#,
+        )
+        .unwrap();
+        fs::write(
+            dir.join("pathway_results.tsv"),
+            "term\tNES\tpadj\nA\t1\t0.01\nB\t-1\t0.10\nC\t1\t0.30\nD\t1\t0.90\n",
+        )
+        .unwrap();
+
+        let claim = synthesize_stage_count_claim(tmp.path(), "pathway_enrichment")
+            .expect("Himes pathway floor claim synthesized");
+        assert_eq!(claim.claim, "2 of 4 gene sets significant at FDR < 0.25");
         assert_eq!(
             claim.evidence.as_deref(),
             Some("runtime/outputs/pathway_enrichment/pathway_results.tsv")

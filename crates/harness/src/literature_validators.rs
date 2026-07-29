@@ -143,7 +143,7 @@ fn decode_xml_character_references(s: &str) -> String {
     out
 }
 
-fn xml_visible_text(s: &str) -> String {
+fn xml_visible_text(s: &str, include_abstract_labels: bool) -> String {
     let mut out = String::with_capacity(s.len());
     let mut tag = String::new();
     let mut in_tag = false;
@@ -152,6 +152,16 @@ fn xml_visible_text(s: &str) -> String {
         if in_tag {
             tag.push(ch);
             if ch == '>' {
+                if include_abstract_labels {
+                    if let Some(label) = abstract_text_label(&tag) {
+                        out.push(' ');
+                        out.push_str(&label);
+                        out.push(':');
+                    }
+                    if is_closing_title_tag(&tag) {
+                        out.push(':');
+                    }
+                }
                 out.push(' ');
                 tag.clear();
                 in_tag = false;
@@ -175,6 +185,59 @@ fn xml_visible_text(s: &str) -> String {
     decode_xml_character_references(&out)
 }
 
+fn is_closing_title_tag(tag: &str) -> bool {
+    tag.strip_prefix('<')
+        .and_then(|body| body.strip_suffix('>'))
+        .is_some_and(|body| body.trim().eq_ignore_ascii_case("/title"))
+}
+
+fn abstract_text_label(tag: &str) -> Option<String> {
+    let body = tag
+        .strip_prefix('<')?
+        .trim_start()
+        .strip_suffix('>')?
+        .trim_end();
+    if body.starts_with('/') || body.starts_with('!') || body.starts_with('?') {
+        return None;
+    }
+    let name_end = body
+        .find(|ch: char| ch.is_ascii_whitespace() || ch == '/')
+        .unwrap_or(body.len());
+    if !body[..name_end].eq_ignore_ascii_case("AbstractText") {
+        return None;
+    }
+
+    let attrs = &body[name_end..];
+    let lower = attrs.to_ascii_lowercase();
+    let mut offset = 0usize;
+    while let Some(found) = lower[offset..].find("label") {
+        let start = offset + found;
+        let before_ok = start == 0
+            || lower.as_bytes()[start - 1].is_ascii_whitespace()
+            || lower.as_bytes()[start - 1] == b'/';
+        let after_name = start + "label".len();
+        let after_ok = after_name == lower.len()
+            || lower.as_bytes()[after_name].is_ascii_whitespace()
+            || lower.as_bytes()[after_name] == b'=';
+        if before_ok && after_ok {
+            let mut rest = &attrs[after_name..];
+            rest = rest.trim_start();
+            rest = rest.strip_prefix('=')?.trim_start();
+            let quote = rest.chars().next()?;
+            if quote != '"' && quote != '\'' {
+                return None;
+            }
+            let value = &rest[quote.len_utf8()..];
+            let end = value.find(quote)?;
+            let decoded = decode_xml_character_references(&value[..end]);
+            let decoded = decoded.trim();
+            return (!decoded.is_empty()).then(|| decoded.to_string());
+        }
+        offset = after_name;
+    }
+    None
+}
+
 fn quote_matches_snapshot(raw: &str, quote: &str) -> bool {
     let normalized_source = collapse_whitespace_lowercase_v1(raw);
     let normalized_quote = collapse_whitespace_lowercase_v1(quote);
@@ -185,9 +248,15 @@ fn quote_matches_snapshot(raw: &str, quote: &str) -> bool {
         return true;
     }
 
-    let xml_source = collapse_whitespace_lowercase_v1(&xml_visible_text(raw));
-    let xml_quote = collapse_whitespace_lowercase_v1(&xml_visible_text(quote));
-    !xml_quote.is_empty() && xml_source.contains(&xml_quote)
+    let xml_quote = collapse_whitespace_lowercase_v1(&xml_visible_text(quote, true));
+    let labelled_source = collapse_whitespace_lowercase_v1(&xml_visible_text(raw, true));
+    if !xml_quote.is_empty() && labelled_source.contains(&xml_quote) {
+        return true;
+    }
+
+    let plain_source = collapse_whitespace_lowercase_v1(&xml_visible_text(raw, false));
+    let plain_quote = collapse_whitespace_lowercase_v1(&xml_visible_text(quote, false));
+    !plain_quote.is_empty() && plain_source.contains(&plain_quote)
 }
 
 // Serde deserialization target for `claims_matrix.csv`; many fields are read
@@ -3794,6 +3863,42 @@ mod tests {
         write(
             &manifest.parent().unwrap().join("pmid_31412983.xml"),
             r#"<PubmedArticle><Abstract><AbstractText Label="BACKGROUND">The mechanism remains unknown.</AbstractText><AbstractText Label="METHODS">Airway smooth muscle cells were used at 1 &#xb5;M.</AbstractText></Abstract></PubmedArticle>"#,
+        );
+        assert!(run_evidence_quote_substring_match(&csv, &manifest).is_ok());
+    }
+
+    #[test]
+    fn evidence_quote_substring_match_includes_structured_abstract_label() {
+        let dir = TempDir::new().unwrap();
+        let csv = dir.path().join("prior_claims_matrix.csv");
+        write(&csv, "entity,entity_kind,pmid,evidence_quote,evidence_quote_offset,source_kind,source_hash,retrieval_ts,redistributable,verified\nCRISPLD2,gene,42519304,\"BACKGROUND: Secondary spinal cord injury alters airway function.\",0,pubmed_abstract_xml,sha256:abc,2026-07-29T00:00:00Z,true,true\n");
+        let manifest = dir.path().join("evidence/manifest.json");
+        fs::create_dir_all(manifest.parent().unwrap()).unwrap();
+        write(
+            &manifest,
+            r#"{"schema_version":2,"entries":[{"source_ref":"42519304","source_kind":"pubmed_abstract_xml","path":"pmid_42519304.xml","sha256_binary":"00","sha256_extracted_text":"00","extracted_text_normalization":"collapse_whitespace_lowercase_v1","bytes":0,"retrieval_ts":"2026-07-29T00:00:00Z","retrieval_query_id":"q001","redistributable":true,"license":"public_domain"}]}"#,
+        );
+        write(
+            &manifest.parent().unwrap().join("pmid_42519304.xml"),
+            r#"<PubmedArticle><Abstract><AbstractText Label="BACKGROUND" NlmCategory="BACKGROUND">Secondary spinal cord injury alters airway function.</AbstractText></Abstract></PubmedArticle>"#,
+        );
+        assert!(run_evidence_quote_substring_match(&csv, &manifest).is_ok());
+    }
+
+    #[test]
+    fn evidence_quote_substring_match_includes_pmc_section_title() {
+        let dir = TempDir::new().unwrap();
+        let csv = dir.path().join("prior_claims_matrix.csv");
+        write(&csv, "entity,entity_kind,pmid,evidence_quote,evidence_quote_offset,source_kind,source_hash,retrieval_ts,redistributable,verified\nDESeq2,method,40098239,\"MOTIVATION: Biomarker discovery is important and offers insight into potential underlying mechanisms of disease.\",0,pmc_oa_xml,sha256:abc,2026-07-29T00:00:00Z,true,true\n");
+        let manifest = dir.path().join("evidence/manifest.json");
+        fs::create_dir_all(manifest.parent().unwrap()).unwrap();
+        write(
+            &manifest,
+            r#"{"schema_version":2,"entries":[{"source_ref":"40098239","source_kind":"pmc_oa_xml","path":"pmc_40098239.xml","sha256_binary":"00","sha256_extracted_text":"00","extracted_text_normalization":"collapse_whitespace_lowercase_v1","bytes":0,"retrieval_ts":"2026-07-29T00:00:00Z","retrieval_query_id":"q001","redistributable":true,"license":"pmc_oa_cc"}]}"#,
+        );
+        write(
+            &manifest.parent().unwrap().join("pmc_40098239.xml"),
+            r#"<article><abstract><title>Abstract</title><sec><title>Motivation</title><p>Biomarker discovery is important and offers insight into potential underlying mechanisms of disease.</p></sec></abstract></article>"#,
         );
         assert!(run_evidence_quote_substring_match(&csv, &manifest).is_ok());
     }

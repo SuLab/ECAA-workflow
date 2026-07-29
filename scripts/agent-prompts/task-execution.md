@@ -362,8 +362,10 @@ defines them — never assume genes/log2FC.
   is strongest declared significance, then larger absolute effect, then entity
   name, then source row. State this rule accurately in the table caption. If
   `ranking` is absent, make no “top”, “leading”, or superlative claim for that
-  artifact. The exhaustive table is the system's job; the interpretation is
-  yours.
+  artifact. In Markdown tables, do not place an unescaped `|` inside a cell:
+  write headers such as "Absolute effect-size bin" instead of `|effect| bin`,
+  or escape the character as `\|`. The exhaustive table is the system's job;
+  the interpretation is yours.
 - **Do not make a secondary superlative over an anaphoric displayed subset.**
   Phrases such as “the strongest within this tier” discard the subset
   definition when the sentence is extracted for verification. State only the

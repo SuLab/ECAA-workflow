@@ -20,7 +20,7 @@
 
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -4118,6 +4118,99 @@ fn parse_count(raw: &str) -> Option<f64> {
     raw.replace(',', "").parse::<f64>().ok()
 }
 
+#[derive(Debug)]
+struct TestedSummary {
+    total: usize,
+    significant: usize,
+    up: Option<usize>,
+    down: Option<usize>,
+}
+
+static TESTED_SIGNIFICANT_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r"(?is)\bof\s+(\d[\d,]*)\s+(?:[A-Za-z][\w-]*\s+){0,3}?(?:gene[\s-]?sets?|genes?|features?|transcripts?|proteins?|peaks?|sites?|probes?|pathways?|terms?|cpgs?|loci|locus|snps?|variants?|regions?)\s+tested\b.*?\b(\d[\d,]*)\s+(?:were\s+)?(?:statistically\s+)?significant\b",
+    )
+    .expect("static regex")
+});
+
+static UP_COUNT_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"(?i)\b(\d[\d,]*)\s+(?:were\s+)?(?:up[\s-]?regulated|enriched)\b")
+        .expect("static regex")
+});
+
+static DOWN_COUNT_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"(?i)\b(\d[\d,]*)\s+(?:were\s+)?(?:down[\s-]?regulated|depleted)\b")
+        .expect("static regex")
+});
+
+fn parse_tested_summary(text: &str) -> Option<TestedSummary> {
+    let text = text.replace('*', "");
+    let captures = TESTED_SIGNIFICANT_RE.captures(&text)?;
+    let parse = |index| {
+        captures
+            .get(index)
+            .and_then(|value| parse_count(value.as_str()))
+            .map(|value| value as usize)
+    };
+    let directional = |pattern: &regex::Regex| {
+        pattern
+            .captures(&text)
+            .and_then(|value| value.get(1))
+            .and_then(|value| parse_count(value.as_str()))
+            .map(|value| value as usize)
+    };
+    Some(TestedSummary {
+        total: parse(1)?,
+        significant: parse(2)?,
+        up: directional(&UP_COUNT_RE),
+        down: directional(&DOWN_COUNT_RE),
+    })
+}
+
+fn coalesce_wrapped_prose(narrative: &str) -> String {
+    fn is_structural(line: &str) -> bool {
+        let line = line.trim_start();
+        line.starts_with('#')
+            || line.starts_with('|')
+            || line.starts_with("- ")
+            || line.starts_with("* ")
+            || line.starts_with("+ ")
+            || line.starts_with("> ")
+            || line.starts_with("```")
+            || line.starts_with("~~~")
+            || line.starts_with("<!--")
+            || line.starts_with("**")
+    }
+
+    let mut out = String::with_capacity(narrative.len());
+    let mut prose = String::new();
+    let flush = |out: &mut String, prose: &mut String| {
+        if !prose.is_empty() {
+            out.push_str(prose.trim());
+            out.push('\n');
+            prose.clear();
+        }
+    };
+    for line in narrative.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            flush(&mut out, &mut prose);
+            out.push('\n');
+        } else if is_structural(trimmed) {
+            flush(&mut out, &mut prose);
+            out.push_str(trimmed);
+            out.push('\n');
+        } else {
+            if !prose.is_empty() {
+                prose.push(' ');
+            }
+            prose.push_str(trimmed);
+        }
+    }
+    flush(&mut out, &mut prose);
+    out
+}
+
 /// Attempt to verify `text` as an aggregate count claim against
 /// `table_path`. Returns `None` when the text is not count-shaped (no
 /// "N <noun>" + threshold), so the caller can fall back to per-entity
@@ -4336,7 +4429,15 @@ fn recompute_split(
     fdr: f64,
 ) -> Option<(usize, usize, usize)> {
     let cached = load_table_rows(table_path, &cfg.entity_columns).ok()?;
-    let sig_col = resolve_significance_column(&cached, cfg)?;
+    recompute_split_in_table(&cached, cfg, fdr)
+}
+
+fn recompute_split_in_table(
+    cached: &CachedTable,
+    cfg: &ExtractorConfig,
+    fdr: f64,
+) -> Option<(usize, usize, usize)> {
+    let sig_col = resolve_significance_column(cached, cfg)?;
     let sig_cols = [sig_col];
     let (mut sig, mut up, mut down) = (0usize, 0usize, 0usize);
     for row in &cached.rows {
@@ -4477,13 +4578,12 @@ fn is_round_count(n: f64) -> bool {
 /// uncited thresholded count.
 ///
 /// ABSTAIN-FIRST (false-positive safety is paramount — this runs over every
-/// production narrative): a count is checked ONLY when it (a) is not hedged
-/// ("~", "about", "at least"), (b) is not a round-number summary, (c) does not
-/// combine up+down in one sentence (which `verify_count_claim` cannot split),
-/// and (d) resolves to a table carrying the named significance column. A
-/// non-matching uncited table never produces a Mismatch. Only an exact,
-/// single-direction count that a resolved or inferred table can recompute is
-/// promoted.
+/// production narrative): an ordinary count is checked only when it is not
+/// hedged, is not a round-number summary, and resolves to a table carrying the
+/// named significance column. A tested/significant summary may include both
+/// directional counts because all four values are recomputed together. Other
+/// combined-direction prose still abstains. A non-matching uncited table never
+/// produces a Mismatch.
 pub fn verify_narrative_counts(
     narrative: &str,
     tables_root: &Path,
@@ -4494,6 +4594,7 @@ pub fn verify_narrative_counts(
     let mut out: Vec<ClaimVerdict> = Vec::new();
     let mut cache: BTreeMap<PathBuf, CachedTable> = BTreeMap::new();
     let narrative = crate::claim_extractor::strip_system_generated_blocks(narrative);
+    let narrative = coalesce_wrapped_prose(&narrative);
     for sentence in crate::claim_extractor::split_sentences(&narrative) {
         let s = sentence.trim();
         // Skip markdown table rows (mined structurally elsewhere).
@@ -4518,6 +4619,9 @@ pub fn verify_narrative_counts(
         {
             continue;
         }
+        if lower.contains("leading ") && lower.contains(" of ") {
+            continue;
+        }
         let has_up = cfg
             .up_words
             .iter()
@@ -4534,39 +4638,120 @@ pub fn verify_narrative_counts(
             ""
         };
         let entity = format!("count:{dir}{noun}");
-        let make = |status: ClaimStatus, source: Option<String>| ClaimVerdict {
-            claim: Claim {
-                entity: entity.clone(),
-                direction: None,
-                effect_size: None,
-                pvalue: None,
-                source_table: source,
-                excerpt: s.to_string(),
-                contract: crate::claim_contract::ClaimContract::ThresholdedDeOrEnrichment,
-                literature_evidence: None,
-                matched_pvalue_keyword: None,
-                linear_fold: None,
-                aggregate_kind: None,
-                aggregate_column: None,
-                aggregate_rowset: None,
-                aggregate_value: None,
-                collection: None,
-                term: None,
-                keyed_column: None,
-                keyed_value: None,
-            },
-            status,
-            strength: ClaimStrength::Exploratory,
-            audit: None,
-        };
+        let make =
+            |claim_entity: &str, status: ClaimStatus, source: Option<String>| -> ClaimVerdict {
+                ClaimVerdict {
+                    claim: Claim {
+                        entity: claim_entity.to_string(),
+                        direction: None,
+                        effect_size: None,
+                        pvalue: None,
+                        source_table: source,
+                        excerpt: s.to_string(),
+                        contract: crate::claim_contract::ClaimContract::ThresholdedDeOrEnrichment,
+                        literature_evidence: None,
+                        matched_pvalue_keyword: None,
+                        linear_fold: None,
+                        aggregate_kind: None,
+                        aggregate_column: None,
+                        aggregate_rowset: None,
+                        aggregate_value: None,
+                        collection: None,
+                        term: None,
+                        keyed_column: None,
+                        keyed_value: None,
+                    },
+                    status,
+                    strength: ClaimStrength::Exploratory,
+                    audit: None,
+                }
+            };
         let unverifiable = |reason: &str| {
             make(
+                &entity,
                 ClaimStatus::Unverifiable {
                     reason: reason.to_string(),
                 },
                 None,
             )
         };
+
+        if let Some(summary) = parse_tested_summary(s) {
+            let threshold = THRESH_RE
+                .captures(s)
+                .and_then(|captures| captures.get(2))
+                .and_then(|value| value.as_str().parse::<f64>().ok());
+            if let Some(threshold) = threshold {
+                let observe = |path: &Path,
+                               cache: &mut BTreeMap<PathBuf, CachedTable>|
+                 -> Option<(usize, usize, usize, usize)> {
+                    let cached = ensure_cached(cache, path, cfg)?;
+                    let (significant, up, down) = recompute_split_in_table(cached, cfg, threshold)?;
+                    Some((cached.rows.len(), significant, up, down))
+                };
+                let agrees = |observed: (usize, usize, usize, usize)| {
+                    observed.0 == summary.total
+                        && observed.1 == summary.significant
+                        && summary.up.is_none_or(|value| value == observed.2)
+                        && summary.down.is_none_or(|value| value == observed.3)
+                };
+
+                let resolved = if let Some(src) = crate::claim_extractor::scan_table_reference(s) {
+                    index.resolve(&src).map(Path::to_path_buf)
+                } else {
+                    let mut candidates = index.distinct_paths();
+                    candidates.extend(discovery_candidate_tables(package_root));
+                    candidates.sort();
+                    candidates.dedup();
+                    candidates
+                        .into_iter()
+                        .find(|path| observe(path, &mut cache).map(&agrees).unwrap_or(false))
+                };
+
+                if let Some(path) = resolved {
+                    if let Some((total, significant, up, down)) = observe(&path, &mut cache) {
+                        let source = package_relative_label(&path, package_root);
+                        let comparisons = [
+                            (format!("count:tested {noun}"), summary.total, total),
+                            (
+                                format!("count:significant {noun}"),
+                                summary.significant,
+                                significant,
+                            ),
+                        ];
+                        for (claim_entity, claimed, observed) in comparisons {
+                            out.push(make(
+                                &claim_entity,
+                                compare_count(
+                                    claimed as f64,
+                                    observed,
+                                    &path,
+                                    "tested/significant summary",
+                                ),
+                                Some(source.clone()),
+                            ));
+                        }
+                        for (direction, claimed, observed) in
+                            [("up", summary.up, up), ("down", summary.down, down)]
+                        {
+                            if let Some(claimed) = claimed {
+                                out.push(make(
+                                    &format!("count:{direction} {noun}"),
+                                    compare_count(
+                                        claimed as f64,
+                                        observed,
+                                        &path,
+                                        "directional significant summary",
+                                    ),
+                                    Some(source.clone()),
+                                ));
+                            }
+                        }
+                        continue;
+                    }
+                }
+            }
+        }
 
         // FP guard 1 — hedged/approximate count.
         let int_start = noun_caps.get(1).map(|m| m.start()).unwrap_or(0);
@@ -4606,7 +4791,7 @@ pub fn verify_narrative_counts(
             let status = ensure_cached(&mut cache, &path, cfg)
                 .and_then(|cached| verify_count_claim_in_table(s, &path, cfg, cached));
             match status {
-                Some(status) => out.push(make(status, Some(table_label(&path)))),
+                Some(status) => out.push(make(&entity, status, Some(table_label(&path)))),
                 None => out.push(unverifiable(
                     "cited table lacks the named significance column or the count is not recomputable",
                 )),
@@ -4633,6 +4818,7 @@ pub fn verify_narrative_counts(
         }
         if let Some(path) = inferred {
             out.push(make(
+                &entity,
                 ClaimStatus::Verified,
                 Some(package_relative_label(&path, package_root)),
             ));
@@ -5155,6 +5341,7 @@ pub fn verify_claims_with_discovery(
     let cited_index = TableIndex::scan(effective_root);
     let candidates = discovery_candidate_tables(package_root);
     let mut cache: BTreeMap<PathBuf, CachedTable> = BTreeMap::new();
+    let mut unusable_candidates: BTreeSet<PathBuf> = BTreeSet::new();
     let mut verdicts = Vec::new();
     for claim in claims {
         // Literature-grounded claims are verified against the package's
@@ -5215,12 +5402,16 @@ pub fn verify_claims_with_discovery(
         let containing: Vec<PathBuf> = candidates
             .iter()
             .filter(|cand| {
+                if unusable_candidates.contains(*cand) {
+                    return false;
+                }
                 if !cache.contains_key(*cand) {
                     match load_table_rows(cand, &cfg.entity_columns) {
                         Ok(t) => {
                             cache.insert((*cand).clone(), t);
                         }
                         Err(e) => {
+                            unusable_candidates.insert((*cand).clone());
                             tracing::warn!(
                                 target: "ecaa::claim_verifier",
                                 table = %cand.display(),
@@ -7126,10 +7317,31 @@ mod tests {
         );
         assert_eq!(inferred[0].claim.source_table.as_deref(), Some("de_c.tsv"));
 
+        let combined_summary = run(
+            "Of 5 genes tested, 5 were statistically significant at FDR\n\
+             < 0.05 (Table C): 3 were up-regulated and 2 were down-regulated.",
+        );
+        assert_eq!(
+            combined_summary.len(),
+            4,
+            "tested, significant, up, and down counts must each be retained"
+        );
+        assert!(
+            combined_summary
+                .iter()
+                .all(|verdict| matches!(verdict.status, ClaimStatus::Verified)),
+            "a wrapped combined summary must verify all four counts: {:?}",
+            combined_summary
+                .iter()
+                .map(|verdict| &verdict.status)
+                .collect::<Vec<_>>()
+        );
+
         for heading in [
             "# Top 10 genes",
             "**Top-hits table (top 10 genes):**",
             "The table below shows the 10 genes.",
+            "The table represents the leading 25 of 2,208 up-regulated significant genes.",
         ] {
             assert!(
                 run(heading).is_empty(),

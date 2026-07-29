@@ -464,6 +464,19 @@ pub fn refresh_plaintext_sidecar(
     task_id: &str,
     report: &ClaimVerificationReport,
 ) -> std::io::Result<PathBuf> {
+    refresh_plaintext_sidecar_with_coverage(package_root, task_id, report, None)
+}
+
+/// Refresh the plaintext claim-verification sidecar and retain this task's
+/// structured-claim coverage result. Coverage is stored per task so a later
+/// refresh can replace one task idempotently, then projected into the same
+/// best-outcome-per-entity aggregate used by the signed-sink loader.
+pub fn refresh_plaintext_sidecar_with_coverage(
+    package_root: &Path,
+    task_id: &str,
+    report: &ClaimVerificationReport,
+    coverage: Option<&CoverageResult>,
+) -> std::io::Result<PathBuf> {
     use crate::ablation::{AblationFlag, AblationFlagExt};
 
     let path = package_root.join(PLAINTEXT_SIDECAR_REL);
@@ -474,10 +487,19 @@ pub fn refresh_plaintext_sidecar(
     // Read the existing flat report (the emit-time stub, or a prior task's
     // refresh). Missing/unparsable → start from no rows; this is a best-effort
     // operator view, not the trust surface.
-    let prior_rows: Vec<Value> = std::fs::read_to_string(&path)
+    let prior_doc = std::fs::read_to_string(&path)
         .ok()
         .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
-        .and_then(|v| v.get("verdicts").and_then(Value::as_array).cloned())
+        .unwrap_or_else(|| json!({}));
+    let prior_rows: Vec<Value> = prior_doc
+        .get("verdicts")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut coverage_by_task: std::collections::BTreeMap<String, CoverageResult> = prior_doc
+        .get("coverage_by_task")
+        .cloned()
+        .and_then(|value| serde_json::from_value(value).ok())
         .unwrap_or_default();
 
     // Drop any verdict rows belonging to THIS task (idempotent replace), keying
@@ -496,6 +518,11 @@ pub fn refresh_plaintext_sidecar(
     // Append this task's fresh rows (suppressed under the ablation flag).
     if !AblationFlag::ClaimConsistency.is_active() {
         merged.extend(project_verdict_rows(report, task_id, package_root));
+        if let Some(coverage) = coverage {
+            coverage_by_task.insert(task_id.to_string(), coverage.clone());
+        }
+    } else {
+        coverage_by_task.remove(task_id);
     }
 
     // Recompute the counts from the merged row set so the counts always
@@ -519,7 +546,7 @@ pub fn refresh_plaintext_sidecar(
     let n_checked = merged.len() as u64;
     let class_counts = class_counts_from_rows(&merged);
 
-    let doc = json!({
+    let mut doc = json!({
         "schema_version": "1",
         "n_checked": n_checked,
         "n_verified": n_verified,
@@ -530,9 +557,53 @@ pub fn refresh_plaintext_sidecar(
         "verifier_version": crate::claim_verifier::CLAIM_VERIFIER_VERSION,
         "verdicts": merged,
     });
+    if !coverage_by_task.is_empty() {
+        doc["coverage"] = serde_json::to_value(merge_coverage(coverage_by_task.values()))
+            .map_err(std::io::Error::other)?;
+        doc["coverage_by_task"] =
+            serde_json::to_value(&coverage_by_task).map_err(std::io::Error::other)?;
+    }
     let body = serde_json::to_vec_pretty(&doc).map_err(std::io::Error::other)?;
     std::fs::write(&path, body)?;
     Ok(path)
+}
+
+fn merge_coverage<'a>(coverages: impl Iterator<Item = &'a CoverageResult>) -> CoverageResult {
+    use crate::coverage::EntityCoverage;
+
+    let mut per_entity = std::collections::BTreeMap::new();
+    for coverage in coverages {
+        for (entity, incoming) in &coverage.per_entity {
+            let current = per_entity
+                .entry(entity.clone())
+                .or_insert(EntityCoverage::Absent);
+            *current = match (*current, *incoming) {
+                (EntityCoverage::Addressed, _) | (_, EntityCoverage::Addressed) => {
+                    EntityCoverage::Addressed
+                }
+                (EntityCoverage::Unverifiable, _) | (_, EntityCoverage::Unverifiable) => {
+                    EntityCoverage::Unverifiable
+                }
+                _ => EntityCoverage::Absent,
+            };
+        }
+    }
+    CoverageResult {
+        required_total: per_entity.len(),
+        required_addressed: per_entity
+            .values()
+            .filter(|status| **status == EntityCoverage::Addressed)
+            .count(),
+        required_unverifiable: per_entity
+            .values()
+            .filter(|status| **status == EntityCoverage::Unverifiable)
+            .count(),
+        required_absent: per_entity
+            .values()
+            .filter(|status| **status == EntityCoverage::Absent)
+            .count(),
+        per_entity,
+    }
 }
 
 #[cfg(test)]
@@ -1057,6 +1128,18 @@ mod tests {
         serde_json::from_str(&raw).unwrap()
     }
 
+    fn coverage(entity: &str, status: crate::coverage::EntityCoverage) -> CoverageResult {
+        CoverageResult {
+            required_total: 1,
+            required_addressed: usize::from(status == crate::coverage::EntityCoverage::Addressed),
+            required_unverifiable: usize::from(
+                status == crate::coverage::EntityCoverage::Unverifiable,
+            ),
+            required_absent: usize::from(status == crate::coverage::EntityCoverage::Absent),
+            per_entity: std::collections::BTreeMap::from([(entity.to_string(), status)]),
+        }
+    }
+
     // These read the global ECAA_ABLATE_CLAIM_CONSISTENCY flag, so they must
     // serialize against the ablation test (and each other) to avoid observing
     // a mid-window flag flip from a parallel test in the same binary.
@@ -1107,6 +1190,51 @@ mod tests {
             "re-finalizing task_a must not double-count"
         );
         assert_eq!(doc["verdicts"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn refresh_plaintext_aggregates_and_replaces_coverage_by_task() {
+        use crate::coverage::EntityCoverage;
+
+        let dir = tempfile::tempdir().unwrap();
+        refresh_plaintext_sidecar_with_coverage(
+            dir.path(),
+            "task_a",
+            &verified_report("TP53"),
+            Some(&coverage("differential_expression", EntityCoverage::Absent)),
+        )
+        .unwrap();
+        refresh_plaintext_sidecar_with_coverage(
+            dir.path(),
+            "task_b",
+            &verified_report("IL6"),
+            Some(&coverage("pathway_enrichment", EntityCoverage::Addressed)),
+        )
+        .unwrap();
+        refresh_plaintext_sidecar_with_coverage(
+            dir.path(),
+            "task_a",
+            &verified_report("TP53"),
+            Some(&coverage(
+                "differential_expression",
+                EntityCoverage::Addressed,
+            )),
+        )
+        .unwrap();
+
+        let doc = read_plaintext(dir.path());
+        assert_eq!(doc["coverage"]["required_total"], json!(2));
+        assert_eq!(doc["coverage"]["required_addressed"], json!(2));
+        assert_eq!(doc["coverage"]["required_absent"], json!(0));
+        assert_eq!(
+            doc["coverage_by_task"]
+                .as_object()
+                .expect("coverage_by_task object")
+                .len(),
+            2,
+            "re-finalizing one task must replace, not duplicate, its coverage"
+        );
     }
 
     #[test]
