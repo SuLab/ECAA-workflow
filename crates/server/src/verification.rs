@@ -1,8 +1,7 @@
 //! Server-side glue around the core claim-verification + finalize modules.
 //!
-//! The reusable per-task finalize orchestration (verify FROM SOURCE →
-//! coverage → signed verdict sink → evidence registration + manifest re-seal
-//! → at-rest audit-proof regeneration) now lives in
+//! The reusable per-task completion orchestration (verify FROM SOURCE →
+//! coverage → signed verdict sink) lives in
 //! [`ecaa_workflow_core::finalize`] so the harness (which links only against
 //! `core`) shares one implementation. This module keeps only the server-only
 //! parts: the session-state transitions (`block_on_mismatch`, the recall-gap
@@ -15,8 +14,8 @@
 use ecaa_workflow_core::claim_verifier::ClaimVerificationReport;
 
 pub use ecaa_workflow_core::finalize::{
-    assert_default_policy_present, coverage_should_block, finalize_task, verify_task_with_context,
-    TaskFinalizeOutcome, TaskVerification, VerifyOutcome,
+    assert_default_policy_present, coverage_should_block, finalize_task, finalize_task_verdicts,
+    verify_task_with_context, TaskFinalizeOutcome, TaskVerification, VerifyOutcome,
 };
 
 /// Transition the session to `Blocked { ValidationFailed }` when a freshly
@@ -112,14 +111,12 @@ pub async fn reverify_and_block_on_mismatch(
     let root_c = root.clone();
     let task_c = task_id.to_string();
 
-    // The reusable verify → coverage → signed-sink → evidence-registration →
-    // audit-proof-regeneration sequence is owned by core's
-    // `finalize::finalize_task`, shared with the harness standalone path. The
-    // server keeps only the session-state transitions (telemetry, the Mismatch
-    // block, the recall-gap block) below, driven by the returned
-    // `TaskFinalizeOutcome`.
+    // Package-wide graph registration, audit generation, and manifest re-seal
+    // run once in the harness end-of-run finalizer. Keeping them out of this
+    // request prevents task-completion retries from repeating whole-package
+    // scans while preserving the synchronous mismatch and recall gates.
     let finalized = tokio::task::spawn_blocking(move || {
-        finalize_task(
+        finalize_task_verdicts(
             &root_c,
             &task_c,
             &config_dir,

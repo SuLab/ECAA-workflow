@@ -797,10 +797,9 @@ async fn handle_task_completed_extras(
     // sidecar — and transition the session to `Blocked { ValidationFailed }`
     // on mismatch, exactly the transition the manual `POST /verify`
     // endpoint performs. Awaited inline (not detached) so the completion
-    // POST observes the block deterministically: the verify is a bounded
-    // regex + fs walk (the same work the GET result handler runs today),
-    // so the added latency is small and the harness's terminal-event POST
-    // is the right place to make the anti-hallucination guarantee visible.
+    // POST observes the block deterministically. The callback persists only
+    // task-scoped verification state; package-wide evidence registration,
+    // audit generation, and manifest re-sealing run once at convergence.
     if !event.task_id.is_empty() {
         let _ =
             crate::verification::reverify_and_block_on_mismatch(app, session_id, &event.task_id)

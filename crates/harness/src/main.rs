@@ -4615,13 +4615,24 @@ fn run_loop(
                 i + 1
             );
 
+            // The server completion hook and the package finalizer both persist
+            // verification records. Drain queued progress events first so the
+            // final task callback cannot race the converged package rewrite.
+            if let Some(ref pc) = progress {
+                if !pc.flush(std::time::Duration::from_secs(60)) {
+                    tracing::warn!(
+                        target: "harness",
+                        "progress queue did not drain before package finalization"
+                    );
+                }
+            }
+
             // Capture the assembled compute environment into a content-addressed
             // image and record its digest into the package, on BOTH run paths:
             // the harness is the only component with the assembled conda-envs/
             // R-libs cache, so the server cannot do this. Re-seals the BagIt
             // manifest itself after recording the digest so the manifest is
-            // correct on both paths (session path never calls
-            // finalize_completed_package). Gated + non-fatal internally.
+            // correct before package convergence. Gated + non-fatal internally.
             ecaa_workflow_harness::end_of_run_finalize::maybe_snapshot(path);
 
             // T5.9 / DR-12 — backfill a pinned determinism-env for the
@@ -4634,10 +4645,9 @@ fn run_loop(
             // matches. Re-seals the BagIt manifest itself on a mutation.
             ecaa_workflow_harness::end_of_run_finalize::capture_staging_determinism_env(path);
 
-            // Fire observed-read reconciliation on BOTH run paths. The session
-            // (web-UI) path never calls finalize_completed_package — the server
-            // finalizes per-task but does not reconcile — so without this the
-            // observed-provenance stamps would never appear on a UI-driven run.
+            // Fire observed-read reconciliation on BOTH run paths before
+            // package finalization so every later audit sees the reconciled
+            // observed-provenance stamps.
             // Stamps the RO-Crate's ParameterConnection nodes
             // authoritative/candidate_unused (and records divergences /
             // read-allowances) from runtime/invocations.jsonl AND, on a genuine
@@ -4645,8 +4655,8 @@ fn run_loop(
             // WORKFLOW.json (§G-B2 — a divergence must not ship unblocked on the
             // deposit-minting session path, not just the standalone one).
             // Re-seals the BagIt manifest on a mutation (RO-Crate and/or
-            // WORKFLOW.json). Best-effort + idempotent (the standalone path's
-            // finalize_completed_package call below is then a no-op second pass).
+            // WORKFLOW.json). Best-effort + idempotent; package finalization
+            // below repeats the reconciliation safely.
             if ecaa_workflow_harness::end_of_run_finalize::reconcile_observed_reads_into_ro_crate(
                 path,
             ) {
@@ -4662,33 +4672,23 @@ fn run_loop(
                 }
             }
 
-            // Standalone self-finalization: the server normally finalizes
-            // per-task on `task_completed` events, but a no-session run sends
-            // none — so finalize the whole package here (verify+sign claims,
-            // refresh the plaintext sidecar, register evidence + reseal the
-            // BagIt manifest over outputs, regenerate the at-rest audit-proof).
-            // Best-effort: every failure inside is logged, never fatal, so the
-            // WAL truncate + `Ok(())` below always run. Skipped when bound to a
-            // session — the server owns finalization incrementally in that path.
-            if progress.is_none() {
-                ecaa_workflow_harness::end_of_run_finalize::finalize_completed_package(
-                    path,
-                    &finalize_config_dir,
-                );
-            }
+            // Finalize the converged package on both run paths. The server's
+            // task-completion hook persists task-scoped verification records
+            // and enforces blockers, while this end-of-run call registers all
+            // evidence, regenerates the audit proof, projects descriptor
+            // verdicts, and re-seals the manifest once.
+            ecaa_workflow_harness::end_of_run_finalize::finalize_completed_package(
+                path,
+                &finalize_config_dir,
+            );
 
-            // Offline end-of-run repair pass (default OFF; `ECAA_AUTO_REPAIR`).
+            // Offline end-of-run repair pass (`ECAA_AUTO_REPAIR`).
             // This is the loop-exit convergence point reached by BOTH run paths:
-            // the standalone/CLI run (`progress.is_none()`, just self-finalized
-            // above) AND the session/web-UI run where the server spawned this
-            // harness with `--session-id` (`progress.is_some()`, finalized
-            // incrementally server-side). The harness is the execution engine on
-            // both, and the repair loop re-runs `finalize_package` internally and
-            // is idempotent, so running it here once is correct regardless of
-            // session — gated solely by `ECAA_AUTO_REPAIR`, independent of the
-            // `progress` gate above. Strictly best-effort: every Err/panic inside
-            // is caught + logged, the run outcome is unchanged, and it fires
-            // exactly once (the standalone finalize above no longer triggers it).
+            // the standalone/CLI run and the session/web-UI run. The harness is
+            // the execution engine on both, and the repair loop re-runs the
+            // idempotent package finalizer before assessing repairs. It is gated
+            // solely by `ECAA_AUTO_REPAIR`. Every error is logged without
+            // changing the run outcome.
             if ecaa_workflow_harness::end_of_run_finalize::auto_repair_enabled() {
                 ecaa_workflow_harness::end_of_run_finalize::run_auto_repair_best_effort(
                     path,
@@ -4758,6 +4758,12 @@ fn run_loop(
 
             if let Some(ref pc) = progress {
                 pc.execution_finished();
+                if !pc.flush(std::time::Duration::from_secs(60)) {
+                    tracing::warn!(
+                        target: "harness",
+                        "progress queue did not drain after execution_finished"
+                    );
+                }
             }
             // Clean exit — empty the WAL so the next harness start (e.g.
             // a fresh one-shot run against the same package) doesn't

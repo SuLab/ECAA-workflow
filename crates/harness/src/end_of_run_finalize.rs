@@ -1,12 +1,10 @@
-//! Standalone end-of-run package finalization.
+//! End-of-run package finalization.
 //!
-//! The server finalizes per-task on each `task_completed` event
-//! (`core::finalize::finalize_task` via `verification::reverify_and_block_on_mismatch`).
-//! A standalone harness run (`--no-interactive`, no `--session-id`) sends no
-//! session events, so nothing finalizes the package: the signed verdict sink is
-//! never written, the plaintext `runtime/claim-verification.json` stays an empty
-//! emit-time stub, evidence is unregistered, and the at-rest audit-proof falls
-//! back to the vacuous emit stub.
+//! The server persists task-scoped verification state and enforces blockers on
+//! each `task_completed` event. Package-wide evidence registration, audit
+//! generation, descriptor projection, and manifest sealing run here after all
+//! tasks become terminal. The same convergence path serves standalone and
+//! session-backed runs.
 //!
 //! This module sources the finalize inputs from the SELF-CONTAINED emitted
 //! package (plus a host-resolved `config_dir` for the base interpretation
@@ -30,7 +28,7 @@ use ecaa_workflow_core::project_class::ProjectClass;
 use ecaa_workflow_core::provenance::DivergenceRecord;
 use std::path::{Path, PathBuf};
 
-/// Env var that turns the offline end-of-run repair loop ON. Default OFF.
+/// Env var that controls the default-on offline end-of-run repair loop.
 ///
 /// When truthy, [`run_auto_repair_best_effort`] runs the OFFLINE repair loop
 /// once at the harness loop-exit convergence point — on BOTH the standalone/CLI
@@ -979,8 +977,7 @@ fn reconcile_observed_reads_inner(package_root: &Path) -> (bool, Vec<DivergenceR
 /// and is idempotent, so it is correct to run here regardless of session. On the
 /// session path this only ADDS repair (the server's incremental finalize never
 /// repairs) and the idempotent re-finalize does not conflict with it. It is
-/// gated solely by [`auto_repair_enabled`] (default OFF), independent of the
-/// `progress` gate that scopes the standalone end-of-run finalize.
+/// gated solely by [`auto_repair_enabled`] (default ON).
 ///
 /// Uses [`ecaa_workflow_core::repair_loop::ReviewRoutingRunner`] — the offline
 /// default: it applies deterministic prose/manifest repairs (prose-vs-table
@@ -1528,11 +1525,9 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // §G-B2 — the SESSION/web-UI path (progress.is_some()) blocks a genuine
-    // divergence too. main.rs calls reconcile_observed_reads_into_ro_crate on
-    // BOTH paths, and the session path never reaches finalize_completed_package
-    // (that is progress.is_none()-gated), so this function is the ONLY blocking
-    // entry point on the deposit-minting path — it must block there.
+    // §G-B2 — the SESSION/web-UI path blocks a genuine divergence too.
+    // main.rs calls reconcile_observed_reads_into_ro_crate on both paths before
+    // package finalization, so this entry point must retain the blocker.
     // -----------------------------------------------------------------------
 
     /// A genuine `Divergent` observed read must flip the offending task to

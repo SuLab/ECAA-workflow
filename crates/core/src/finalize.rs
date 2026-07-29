@@ -1,19 +1,18 @@
-//! Package-finalize orchestration shared by the server's per-task
-//! re-verify hook and the harness's end-of-run standalone path.
+//! Claim-verification and package-finalize orchestration shared by the
+//! server's per-task re-verify hook and the harness's end-of-run path.
 //!
 //! Finalizing a completed task means: re-run claim verification FROM SOURCE
 //! (never trusting the agent-writable sidecar), compute structured-claims
 //! coverage against the per-package expected-claim manifest, persist the
-//! HMAC-signed verdict sink (de-vacuifies audit-proof Inv 1/5), register
-//! agent-produced evidence + re-seal the BagIt manifest, and regenerate the
-//! at-rest audit-proof report against the now-signed sink.
+//! HMAC-signed verdict sink (de-vacuifies audit-proof Inv 1/5), then refresh
+//! package-wide evidence and audit artifacts at the package convergence point.
 //!
 //! This module owns only the pure/sync orchestration: no session, no HTTP,
 //! no telemetry, no state transitions. Those stay in the server, which calls
-//! [`finalize_task`] and acts on the returned [`TaskFinalizeOutcome`]. The
-//! harness (which links only against `core`) calls [`finalize_package`] to
-//! produce the same finalized package a session-backed run produces
-//! incrementally.
+//! [`finalize_task_verdicts`] and acts on the returned
+//! [`TaskFinalizeOutcome`]. The harness (which links only against `core`) calls
+//! [`finalize_package`] to refresh package-wide artifacts once after all tasks
+//! are terminal.
 
 use crate::claim_contract::ClaimContract;
 use crate::claim_extractor::{
@@ -885,6 +884,59 @@ pub struct TaskFinalizeOutcome {
     pub coverage: Option<CoverageResult>,
 }
 
+/// Reconcile evidence entities, regenerate the audit proof, project its
+/// verdicts into the RO-Crate descriptor, and re-seal the manifest.
+///
+/// These operations scan and rewrite package-wide state. They must run once at
+/// package convergence, not once per task-completion callback.
+fn refresh_package_artifacts(
+    root: &Path,
+    writer: &crate::audit_writer::AuditWriter,
+    context: &str,
+) {
+    if let Err(e) = crate::ro_crate::finalize_evidence_registration_with_verifier(
+        root,
+        &WallClock,
+        Some(writer),
+    ) {
+        tracing::warn!(
+            target: "ecaa::finalize",
+            error = %e,
+            finalize_context = context,
+            "evidence registration / BagIt manifest reconcile failed"
+        );
+    }
+
+    let validator = crate::wrroc_validator::NoopWrrocValidator;
+    if let Ok(doc) = crate::audit_proof::run_audit_proof_with_verifier(
+        root,
+        &validator,
+        &WallClock,
+        Some(writer),
+    ) {
+        if let Ok(bytes) = serde_json::to_vec_pretty(&doc) {
+            let _ = std::fs::write(root.join("runtime/audit-proof-report.json"), bytes);
+        }
+
+        let report_value = serde_json::to_value(&doc).unwrap_or(serde_json::Value::Null);
+        if let Err(e) = crate::ro_crate::reinject_audit_proof_verdicts(root, &report_value) {
+            tracing::warn!(
+                target: "ecaa::finalize",
+                error = %e,
+                finalize_context = context,
+                "audit-proof verdict re-injection into descriptor failed"
+            );
+        } else if let Err(e) = crate::emitter::regenerate_bagit_manifest(root, &WallClock) {
+            tracing::warn!(
+                target: "ecaa::finalize",
+                error = %e,
+                finalize_context = context,
+                "BagIt manifest re-seal after verdict re-injection failed"
+            );
+        }
+    }
+}
+
 /// Verify one completed task FROM SOURCE, persist the HMAC-signed verdict
 /// sink, register produced evidence + re-seal the BagIt manifest, and
 /// regenerate the at-rest audit-proof report. Pure/sync; no session, no HTTP,
@@ -920,6 +972,35 @@ pub fn finalize_task(
     )
 }
 
+/// Verify one completed task FROM SOURCE and persist task-scoped verdict,
+/// coverage, and repair records without rewriting package-wide artifacts.
+///
+/// The server completion callback uses this bounded path so it can enforce
+/// mismatch and recall gates before acknowledging the event. The harness calls
+/// [`finalize_package`] at run convergence to register evidence, regenerate the
+/// audit proof, project descriptor verdicts, and re-seal the manifest once.
+pub fn finalize_task_verdicts(
+    root: &Path,
+    task_id: &str,
+    config_dir: &Path,
+    project_class: ProjectClass,
+    decisions: &[DecisionRecord],
+    is_confirmatory: bool,
+    secret: Option<&[u8; 32]>,
+) -> anyhow::Result<TaskFinalizeOutcome> {
+    finalize_task_deduped_inner(
+        root,
+        task_id,
+        config_dir,
+        project_class,
+        decisions,
+        is_confirmatory,
+        secret,
+        None,
+        false,
+    )
+}
+
 /// [`finalize_task`] with the package-wide [`CrossTaskClaimLedger`] threaded
 /// into verification, so an assertion repeated verbatim by several tasks is
 /// verified once. `None` reproduces [`finalize_task`] exactly.
@@ -933,6 +1014,31 @@ pub fn finalize_task_deduped(
     is_confirmatory: bool,
     secret: Option<&[u8; 32]>,
     ledger: Option<&CrossTaskClaimLedger>,
+) -> anyhow::Result<TaskFinalizeOutcome> {
+    finalize_task_deduped_inner(
+        root,
+        task_id,
+        config_dir,
+        project_class,
+        decisions,
+        is_confirmatory,
+        secret,
+        ledger,
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn finalize_task_deduped_inner(
+    root: &Path,
+    task_id: &str,
+    config_dir: &Path,
+    project_class: ProjectClass,
+    decisions: &[DecisionRecord],
+    is_confirmatory: bool,
+    secret: Option<&[u8; 32]>,
+    ledger: Option<&CrossTaskClaimLedger>,
+    refresh_package: bool,
 ) -> anyhow::Result<TaskFinalizeOutcome> {
     let outcome = verify_task_with_context_deduped(
         root,
@@ -1014,70 +1120,8 @@ pub fn finalize_task_deduped(
                 );
             }
 
-            // Register agent-produced result tables as V `@graph` Evidence
-            // entities, back-fill the C-subgraph `Claim` nodes from the just-
-            // written signed sink (passing the writer so the sink's HMAC
-            // verifies), and re-seal the BagIt manifest — BEFORE regenerating
-            // the at-rest audit-proof report below, so cross_graph_integrity
-            // (Inv 5) resolves the verified claim's C→V `supported_by` to the
-            // just-registered Evidence node. Runs on a post-exec package only,
-            // so the emit byte-reproducibility surface is untouched.
-            if let Err(e) = crate::ro_crate::finalize_evidence_registration_with_verifier(
-                root,
-                &WallClock,
-                Some(&writer),
-            ) {
-                tracing::warn!(
-                    target: "ecaa::finalize",
-                    error = %e,
-                    task_id,
-                    "evidence registration / BagIt manifest reconcile failed"
-                );
-            }
-
-            // Regenerate the at-rest audit-proof report so claim_completeness /
-            // cross_graph_integrity reflect the just-persisted verdicts +
-            // coverage. The report is BagIt-excluded (carries the spec-excluded
-            // `evaluated_at`), so rewriting it post-exec does not affect emit
-            // byte-reproducibility.
-            let validator = crate::wrroc_validator::NoopWrrocValidator;
-            if let Ok(doc) = crate::audit_proof::run_audit_proof_with_verifier(
-                root,
-                &validator,
-                &WallClock,
-                Some(&writer),
-            ) {
-                if let Ok(bytes) = serde_json::to_vec_pretty(&doc) {
-                    let _ = std::fs::write(root.join("runtime/audit-proof-report.json"), bytes);
-                }
-
-                // Re-inject the just-recomputed verdicts as embedded
-                // `InvariantVerdict` `@graph` nodes so the descriptor's embedded
-                // verdicts EQUAL the authoritative at-rest report. Without this,
-                // the embedded nodes stay frozen at their emit-time values
-                // (computed before execution, the signed sink, and table
-                // registration existed) and silently disagree with
-                // `runtime/audit-proof-report.json`. The descriptor is a
-                // manifested file, so the re-seal below covers the mutation.
-                // `project_audit_proof_jsonld` reads the report's JSON Value
-                // (`verdicts[]`), so serialize the typed report once.
-                let report_value = serde_json::to_value(&doc).unwrap_or(serde_json::Value::Null);
-                if let Err(e) = crate::ro_crate::reinject_audit_proof_verdicts(root, &report_value)
-                {
-                    tracing::warn!(
-                        target: "ecaa::finalize",
-                        error = %e,
-                        task_id,
-                        "audit-proof verdict re-injection into descriptor failed"
-                    );
-                } else if let Err(e) = crate::emitter::regenerate_bagit_manifest(root, &WallClock) {
-                    tracing::warn!(
-                        target: "ecaa::finalize",
-                        error = %e,
-                        task_id,
-                        "BagIt manifest re-seal after verdict re-injection failed"
-                    );
-                }
+            if refresh_package {
+                refresh_package_artifacts(root, &writer, task_id);
             }
         }
     }
@@ -1109,9 +1153,8 @@ fn build_cross_task_ledger(
 }
 
 /// Finalize every completed task in an emitted package. Reads completed task
-/// ids from `WORKFLOW.json`. Intended to be called once at harness
-/// end-of-run (standalone path) so a no-session run produces the same
-/// finalized package the server produces incrementally.
+/// ids from `WORKFLOW.json`. Intended to be called once at harness end-of-run
+/// on both standalone and session-backed paths.
 ///
 /// Cross-task claim dedupe applies here (and only here): a package-wide
 /// [`CrossTaskClaimLedger`] prepass assigns each distinct narrative assertion
@@ -1131,6 +1174,7 @@ pub fn finalize_package(
         tasks_finalized: 0,
         coverage_gaps: Vec::new(),
     };
+    let mut verified_any = false;
     if let Some(tasks) = wf.get("tasks").and_then(|t| t.as_object()) {
         // `tasks` is a JSON object keyed by task_id; serde_json preserves a
         // BTree-ordered map internally only with the `preserve_order` feature
@@ -1153,7 +1197,7 @@ pub fn finalize_package(
         let ledger = build_cross_task_ledger(root, config_dir, project_class, &completed);
 
         for task_id in &completed {
-            let res = finalize_task_deduped(
+            let res = finalize_task_deduped_inner(
                 root,
                 task_id,
                 config_dir,
@@ -1162,7 +1206,9 @@ pub fn finalize_package(
                 is_confirmatory,
                 secret,
                 ledger.as_ref(),
+                false,
             )?;
+            verified_any |= matches!(&res.outcome, VerifyOutcome::Verified(_));
             summary.tasks_finalized += 1;
             if let Some(cov) = res.coverage {
                 if coverage_should_block(&cov) {
@@ -1172,6 +1218,13 @@ pub fn finalize_package(
                     ));
                 }
             }
+        }
+    }
+
+    if verified_any {
+        if let Some(sec) = secret {
+            let writer = crate::audit_writer::AuditWriter::with_secret(*sec);
+            refresh_package_artifacts(root, &writer, "package");
         }
     }
 

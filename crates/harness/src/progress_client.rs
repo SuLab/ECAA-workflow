@@ -318,6 +318,9 @@ enum SenderJob {
         task_id: String,
         state: ecaa_workflow_core::dag::TaskState,
     },
+    /// Queue barrier used at package convergence. The sender acknowledges it
+    /// only after every earlier progress job has finished.
+    Flush(std::sync::mpsc::Sender<()>),
 }
 
 /// Sends structured harness progress events to the chat server.
@@ -643,6 +646,34 @@ impl ProgressClient {
                 event.kind, event.task_id, e
             );
         }
+    }
+
+    /// Wait until the sender has finished every job queued before this call.
+    ///
+    /// Package finalization uses this barrier to avoid racing the server's
+    /// task-completion verifier while both persist the signed verdict sink.
+    pub(crate) fn flush(&self, timeout: Duration) -> bool {
+        let Some(tx) = self.tx.as_ref() else {
+            return false;
+        };
+        let (ack_tx, ack_rx) = std::sync::mpsc::channel();
+        let deadline = std::time::Instant::now() + timeout;
+        let mut job = SenderJob::Flush(ack_tx);
+        loop {
+            match tx.try_send(job) {
+                Ok(()) => break,
+                Err(std::sync::mpsc::TrySendError::Full(returned)) => {
+                    if std::time::Instant::now() >= deadline {
+                        return false;
+                    }
+                    job = returned;
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(std::sync::mpsc::TrySendError::Disconnected(_)) => return false,
+            }
+        }
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        ack_rx.recv_timeout(remaining).is_ok()
     }
 
     /// Increment the dropped-event counters under the bounded-queue
@@ -1183,6 +1214,14 @@ fn sender_loop(
         Duration::from_millis(2000),
     ];
     while let Ok(job) = rx.recv() {
+        let job = match job {
+            SenderJob::Flush(ack) => {
+                let _ = ack.send(());
+                continue;
+            }
+            other => other,
+        };
+
         // On the first Progress POST per session, stamp `client_now`
         // with the harness clock (RFC 3339) so the server can echo
         // `X-Server-Now` in the response headers. We use a
@@ -1219,6 +1258,7 @@ fn sender_loop(
                 let b = serde_json::json!({ "state": state });
                 (u, b)
             }
+            SenderJob::Flush(_) => unreachable!("flush jobs are handled before HTTP encoding"),
         };
 
         // Inject `client_now` into the body on the first Progress POST.
@@ -1530,19 +1570,10 @@ mod tests {
         };
         pc.set_task_state("task_42", &state);
 
-        // `set_task_state` now enqueues into a bounded
-        // mpsc; the actual POST is performed by the sender thread.
-        // Wait for at least one captured request before signaling
-        // shutdown, otherwise we'd race the sender thread and assert
-        // before it has a chance to drain the queue.
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while Instant::now() < deadline {
-            let has_events = !captured.lock().unwrap().is_empty(); // lock-unwrap-allow: test
-            if has_events {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        }
+        assert!(
+            pc.flush(Duration::from_secs(5)),
+            "flush must wait for the queued state POST"
+        );
 
         *shutdown.lock().unwrap() = true; // lock-unwrap-allow: test
         let _ = handle.join();

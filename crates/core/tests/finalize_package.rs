@@ -130,6 +130,57 @@ fn finalize_package_populates_signed_sink_and_checks_claims() {
     );
 }
 
+#[test]
+fn task_completion_finalize_defers_package_wide_rewrites() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/finalize-min-pkg");
+    let config_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config");
+
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("pkg");
+    copy_tree(&fixture, &root);
+
+    let descriptor_path = root.join("ro-crate-metadata.json");
+    let descriptor_before = std::fs::read(&descriptor_path).unwrap();
+    let audit_path = root.join("runtime/audit-proof-report.json");
+    assert!(
+        !audit_path.exists(),
+        "fixture must start without a generated audit report"
+    );
+
+    let secret = [7u8; 32];
+    let result = ecaa_workflow_core::finalize::finalize_task_verdicts(
+        &root,
+        "differential_expression",
+        &config_dir,
+        ecaa_workflow_core::project_class::ProjectClass::default(),
+        &[],
+        true,
+        Some(&secret),
+    )
+    .expect("task-scoped finalize");
+
+    assert!(
+        matches!(
+            result.outcome,
+            ecaa_workflow_core::finalize::VerifyOutcome::Verified(_)
+        ),
+        "task-scoped verification must run"
+    );
+    assert!(
+        root.join(SIGNED_SINK_REL).exists(),
+        "task-scoped finalize must persist the signed verdict sink"
+    );
+    assert_eq!(
+        std::fs::read(&descriptor_path).unwrap(),
+        descriptor_before,
+        "task-completion finalize must not rewrite the package descriptor"
+    );
+    assert!(
+        !audit_path.exists(),
+        "task-completion finalize must defer audit generation to package convergence"
+    );
+}
+
 /// After finalize, every produced result table registered into the RO-Crate
 /// `@graph` must point back to its producing stage through standard PROV
 /// relations: the output File/Dataset node carries `wasGeneratedBy` referencing
