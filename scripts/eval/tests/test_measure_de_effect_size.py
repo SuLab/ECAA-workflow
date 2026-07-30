@@ -336,6 +336,7 @@ _BASIS_KEYS = {
     "denominator_statistic",
     "effect_column",
     "information_column",
+    "neutral_reference",
     "not_computed_reason",
     "numerator",
     "numerator_population",
@@ -388,6 +389,7 @@ def test_metric_block_is_present_and_self_consistent(tmp_path):
     assert basis["numerator_population_size"] == mod.TOP_K
     assert basis["numerator_statistic"] == basis["denominator_statistic"] == "median"
     assert basis["statistic"] == mod.RATIO_STATISTIC_ID
+    assert basis["neutral_reference"] == 1.0
     # The run's OWN column names, so the description is never generic when the
     # table names them.
     assert basis["effect_column"] == "log2FoldChange"

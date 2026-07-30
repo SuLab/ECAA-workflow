@@ -112,6 +112,17 @@ struct LedgerEntry {
 }
 
 impl CrossTaskClaimLedger {
+    fn record(&mut self, task_id: &str, claim: &Claim) {
+        let key = claim_dedupe_key(claim);
+        let entry = self.entries.entry(key).or_insert_with(|| LedgerEntry {
+            owner: task_id.to_string(),
+            asserters: Vec::new(),
+        });
+        if entry.asserters.last().map(String::as_str) != Some(task_id) {
+            entry.asserters.push(task_id.to_string());
+        }
+    }
+
     /// Build the ledger by extracting every listed task's narrative claims in
     /// the given order. `task_ids` must be in a deterministic order (the
     /// caller's `WORKFLOW.json` key order) — ownership is first-seen-wins, so
@@ -123,14 +134,23 @@ impl CrossTaskClaimLedger {
                 continue;
             };
             for claim in narrative_claims_from_text(&narrative, cfg) {
-                let key = claim_dedupe_key(&claim);
-                let entry = ledger.entries.entry(key).or_insert_with(|| LedgerEntry {
-                    owner: task_id.clone(),
-                    asserters: Vec::new(),
-                });
-                if entry.asserters.last().map(String::as_str) != Some(task_id.as_str()) {
-                    entry.asserters.push(task_id.clone());
-                }
+                ledger.record(task_id, &claim);
+            }
+
+            // Aggregate count claims are produced by the numeric verifier
+            // rather than the prose extractor. Record their assertion keys as
+            // well, otherwise a verbatim reporting → final_reporting copy
+            // duplicates every count verdict even though entity claims are
+            // correctly deduped.
+            let tables_root = package_root.join("results").join("tables");
+            let effective_root = if tables_root.is_dir() {
+                tables_root
+            } else {
+                resolve_task_runtime_dir_local(package_root, task_id)
+                    .unwrap_or_else(|| package_root.join("runtime").join(task_id))
+            };
+            for verdict in verify_narrative_counts(&narrative, &effective_root, package_root, cfg) {
+                ledger.record(task_id, &verdict.claim);
             }
         }
         ledger
@@ -260,6 +280,56 @@ fn read_task_result_schemas(
             Some((row.id, parsed))
         })
         .collect()
+}
+
+/// Extend the policy's global verifier vocabulary with every column role
+/// declared by the package's executable result schemas.
+///
+/// The interpretation policy provides useful cross-project defaults, but it
+/// cannot enumerate every header an arbitrary analytical atom may introduce.
+/// A retained `ResultSchema` is the authoritative, modality-neutral contract
+/// for those additional names. Adding its entity, effect, and significance
+/// columns lets narrative/count verification load and inspect such artifacts
+/// without teaching the verifier task ids, scientific nouns, or modality
+/// vocabularies.
+///
+/// Policy order stays intact and declared names are appended only when absent.
+/// Per-artifact cell verification still uses the producing schema directly
+/// through [`resolve_result_table_columns_with_schema`], so this package-wide
+/// vocabulary is a discovery fallback rather than a replacement for exact
+/// schema binding.
+fn extend_extractor_config_with_result_schemas(
+    package_root: &Path,
+    mut cfg: ExtractorConfig,
+) -> ExtractorConfig {
+    fn append_unique(columns: &mut Vec<String>, candidate: &str) {
+        let candidate = candidate.trim();
+        if candidate.is_empty()
+            || columns
+                .iter()
+                .any(|existing| existing.eq_ignore_ascii_case(candidate))
+        {
+            return;
+        }
+        columns.push(candidate.to_string());
+    }
+
+    for schema in read_task_result_schemas(package_root).into_values() {
+        append_unique(&mut cfg.entity_columns, &schema.entity_column);
+        for alias in &schema.entity_column_aliases {
+            append_unique(&mut cfg.entity_columns, alias);
+        }
+        if let Some(effect) = &schema.signed_effect_column {
+            append_unique(&mut cfg.effect_size_columns, effect);
+        }
+        for alias in &schema.signed_effect_aliases {
+            append_unique(&mut cfg.effect_size_columns, alias);
+        }
+        if let Some(significance) = &schema.significance {
+            append_unique(&mut cfg.pvalue_columns, &significance.column);
+        }
+    }
+    cfg
 }
 
 /// One cell-level comparison inside a report-data-derived verdict.
@@ -724,6 +794,7 @@ pub fn verify_task_with_context_deduped(
             };
         }
     };
+    let cfg = extend_extractor_config_with_result_schemas(package_root, cfg);
 
     let narrative_path = find_narrative_artifact(package_root, task_id);
     let mut report = ClaimVerificationReport::empty();
@@ -763,7 +834,14 @@ pub fn verify_task_with_context_deduped(
             // FDR<0.05 (Table N)") carry no per-entity Claim, so recompute them
             // from cited or matching emitted evidence and fold the verdicts in.
             // Hedged, rounded, or combined claims remain unverifiable.
-            for v in verify_narrative_counts(&narrative, &effective_root, package_root, &cfg) {
+            for mut v in verify_narrative_counts(&narrative, &effective_root, package_root, &cfg) {
+                if let Some(l) = ledger {
+                    if !l.owns(task_id, &v.claim) {
+                        continue;
+                    }
+                    let co_asserters = l.co_asserters(task_id, &v.claim);
+                    note_shared_assertion(&mut v, &co_asserters);
+                }
                 report.push(v);
             }
         }
@@ -1056,6 +1134,7 @@ fn finalize_task_deduped_inner(
         // `None` when the package carries no manifest (un-anchored task).
         if let PolicyLoad::Loaded(p) = load_interpretation_policy(config_dir) {
             if let Ok(cfg) = ExtractorConfig::from_policy_for_class(&p, config_dir, project_class) {
+                let cfg = extend_extractor_config_with_result_schemas(root, cfg);
                 coverage = compute_task_coverage(root, task_id, &cfg);
             }
         }
@@ -1153,6 +1232,7 @@ fn build_cross_task_ledger(
         return None;
     };
     let cfg = ExtractorConfig::from_policy_for_class(&policy, config_dir, project_class).ok()?;
+    let cfg = extend_extractor_config_with_result_schemas(root, cfg);
     Some(CrossTaskClaimLedger::build(root, completed, &cfg))
 }
 
@@ -1335,8 +1415,30 @@ fn compute_task_coverage(
     // fabricated or omitted a count cannot launder the floor shut — a recompute
     // mismatch yields no Verified claim and the gap stays an honest recall gap.
     if cov.required_absent > 0 {
-        if let Some(derived) = synthesize_stage_count_claim(package_root, task_id) {
-            let dv = verify_structured_claims(std::slice::from_ref(&derived), package_root, cfg);
+        let derived =
+            synthesize_declared_stage_count_claim(package_root, task_id).map(|(claim, schema)| {
+                let mut schema_cfg = cfg.clone();
+                if !schema_cfg.entity_columns.contains(&schema.entity_column) {
+                    schema_cfg.entity_columns.push(schema.entity_column);
+                }
+                if let Some(effect) = schema.signed_effect_column {
+                    if !schema_cfg.effect_size_columns.contains(&effect) {
+                        schema_cfg.effect_size_columns.push(effect);
+                    }
+                }
+                if let Some(significance) = schema.significance {
+                    if !schema_cfg.pvalue_columns.contains(&significance.column) {
+                        schema_cfg.pvalue_columns.push(significance.column);
+                    }
+                }
+                (claim, schema_cfg)
+            });
+        if let Some((derived, derived_cfg)) = derived {
+            let dv = verify_structured_claims(
+                std::slice::from_ref(&derived),
+                package_root,
+                &derived_cfg,
+            );
             if dv
                 .iter()
                 .any(|v| matches!(v.status, crate::claim_verifier::ClaimStatus::Verified))
@@ -1349,224 +1451,56 @@ fn compute_task_coverage(
     Some(cov)
 }
 
-/// Build a single significant-count `StructuredClaim` from a stage's
-/// `result.json` summary and produced table, so the recall floor can be
-/// re-verified by recompute when the agent shipped no `claims[]`.
+/// Build one significant-count claim directly from the terminal atom's declared
+/// [`crate::report_contract::ResultSchema`] and its primary result artifact.
 ///
-/// A declared total can be a scalar or an object with a `total` member.
-/// Significance can use a threshold-bearing key such as `n_sig_fdr_025` or
-/// `n_significant_fdr25`, or `n_significant` with a separate threshold field.
-/// The cited table is the one whose data-row count equals the declared total.
-/// [`verify_structured_claims`] recounts that table, so an inconsistent summary
-/// cannot close the coverage gap.
-fn synthesize_stage_count_claim(package_root: &Path, task_id: &str) -> Option<StructuredClaim> {
-    let dir = resolve_task_runtime_dir_local(package_root, task_id)?;
-    let raw = std::fs::read_to_string(dir.join("result.json")).ok()?;
-    let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
-    let obj = value.as_object()?;
+/// The result schema is the executable contract for the table: it names the
+/// artifact, significance column, comparator, and threshold. Recomputing the
+/// total and significant counts from that table avoids coupling the recall
+/// floor to an agent-authored `result.json` key vocabulary (`n_selected`,
+/// `qualifying_record_count`, and similar names can describe the same fact).
+/// The resulting structured claim is still passed through
+/// [`verify_structured_claims`], so the claim cannot close coverage unless the
+/// cited table independently supports it.
+fn synthesize_declared_stage_count_claim(
+    package_root: &Path,
+    task_id: &str,
+) -> Option<(StructuredClaim, crate::report_contract::ResultSchema)> {
+    let schema = read_task_result_schemas(package_root).remove(task_id)?;
+    let significance = schema.significance.as_ref()?;
+    if !significance.threshold.is_finite() {
+        return None;
+    }
 
-    let (total_key, total) = [
-        "n_terms_tested",
-        "n_gene_sets_tested",
-        "n_gene_sets_total",
-        "n_pathways_tested",
-        "n_pathways_total",
-        "n_sets_tested",
-        "n_sets_total",
-        "tested_feature_count",
-        "n_genes_in_matrix",
-        "n_genes_tested",
-        "n_features_tested",
-        "n_tested",
-    ]
-    .iter()
-    .find_map(|key| {
-        let value = obj.get(*key)?;
-        let total = value
-            .as_u64()
-            .or_else(|| value.get("total").and_then(serde_json::Value::as_u64))
-            .or_else(|| {
-                let values = value.as_object()?.values();
-                let mut found = false;
-                let total = values.fold(0u64, |sum, value| {
-                    if let Some(value) = value.as_u64() {
-                        found = true;
-                        sum.saturating_add(value)
-                    } else {
-                        sum
-                    }
-                });
-                found.then_some(total)
-            })?;
-        Some((*key, total))
-    })?;
+    let dir = resolve_task_runtime_dir_local(package_root, task_id)?;
+    let table = dir.join(&schema.artifact);
+    let (headers, rows) = crate::report_contract::assemble::read_table(&table).ok()?;
+    let synonyms = crate::report_contract::load_policy_column_synonyms(package_root);
+    let stats = crate::report_contract::summarize_artifact(&rows, &headers, &schema, &synonyms);
+    let count = stats.n_significant?;
+    let total = stats.n_total;
     if total == 0 {
         return None;
     }
 
-    let explicit_threshold = [
-        ("adjusted_pvalue_threshold", "padj"),
-        ("padj_threshold", "padj"),
-        ("fdr_threshold", "FDR"),
-        ("pathway_fdr_threshold_applied", "FDR"),
-        ("significance_threshold", "FDR"),
-        ("alpha", "FDR"),
-    ]
-    .iter()
-    .find_map(|(key, label)| {
-        let threshold = obj.get(*key)?.as_f64()?;
-        Some((threshold, *label))
-    })
-    .or_else(|| {
-        // `pathway_enrichment`'s authored parameter is historically named
-        // `pvalue_threshold`, but its contract explicitly defines it as the
-        // adjusted-p-value reporting cutoff and the emitted result table uses
-        // `padj`. Interpret that legacy field only for this source atom; a
-        // generic raw-p-value stage must not be silently relabelled.
-        (task_id == "pathway_enrichment")
-            .then(|| obj.get("pvalue_threshold")?.as_f64())
-            .flatten()
-            .map(|threshold| (threshold, "padj"))
-    });
-
-    let mut count_candidates: Vec<(&str, &serde_json::Value)> = Vec::new();
-    for preferred in ["n_significant_total", "n_significant"] {
-        if let Some(value) = obj.get(preferred) {
-            count_candidates.push((preferred, value));
-        }
-    }
-    count_candidates.extend(
-        obj.iter()
-            .filter(|(key, _)| !matches!(key.as_str(), "n_significant_total" | "n_significant"))
-            .map(|(key, value)| (key.as_str(), value)),
-    );
-
-    let resolved_candidates: Vec<(&str, u64, f64, &str)> = count_candidates
-        .into_iter()
-        .filter_map(|(key, value)| {
-            let normalized_key = key.to_ascii_lowercase();
-            if normalized_key != "n_significant"
-                && normalized_key != "n_significant_total"
-                && !normalized_key.starts_with("n_sig_")
-                && !normalized_key.starts_with("n_significant_")
-                && !normalized_key.starts_with("n_sets_significant_")
-                && !normalized_key.starts_with("n_gene_sets_significant_")
-                && !normalized_key.starts_with("n_pathways_significant_")
-            {
-                return None;
-            }
-            let count = value.as_u64()?;
-            let digits_reversed: String = normalized_key
-                .chars()
-                .rev()
-                .take_while(char::is_ascii_digit)
-                .collect();
-            let encoded_threshold = if digits_reversed.is_empty() {
-                None
-            } else {
-                let digits: String = digits_reversed.chars().rev().collect();
-                Some(digits.parse::<u32>().ok()? as f64 / 100.0)
-            };
-            let (threshold, label) = encoded_threshold
-                .map(|threshold| {
-                    let label = if normalized_key.contains("padj") || normalized_key.contains("adj")
-                    {
-                        "padj"
-                    } else if normalized_key.contains("pvalue") {
-                        "pvalue"
-                    } else {
-                        "FDR"
-                    };
-                    (threshold, label)
-                })
-                .or(explicit_threshold)?;
-            if !(threshold > 0.0 && threshold < 1.0) {
-                return None;
-            }
-            Some((key, count, threshold, label))
-        })
-        .collect();
-
-    // A generic count plus an explicit threshold is the strongest declaration.
-    // If a stage instead emits several threshold-encoded counts (the live
-    // pathway schema carries both padj05 and padj25), use the largest retained
-    // threshold. Picking the first lexicographic key silently selected padj05
-    // even though the stage's primary preranked-GSEA reporting boundary is
-    // padj25.
-    let selected = resolved_candidates
-        .iter()
-        .find(|(key, _, _, _)| matches!(*key, "n_significant" | "n_significant_total"))
-        .or_else(|| {
-            explicit_threshold.and_then(|(expected, _)| {
-                resolved_candidates
-                    .iter()
-                    .find(|(_, _, threshold, _)| (*threshold - expected).abs() <= f64::EPSILON)
-            })
-        })
-        .or_else(|| {
-            resolved_candidates
-                .iter()
-                .max_by(|left, right| left.2.total_cmp(&right.2).then_with(|| left.0.cmp(right.0)))
-        })?;
-    let (_, count, threshold, label) = *selected;
-
-    let table = stage_count_table(&dir, total)?;
     let rel = table
         .strip_prefix(package_root)
         .ok()?
         .to_string_lossy()
         .into_owned();
-    let noun_source = format!("{task_id}_{total_key}").to_ascii_lowercase();
-    let noun = if noun_source.contains("pathway")
-        || noun_source.contains("enrichment")
-        || noun_source.contains("term")
-        || noun_source.contains("gene_set")
-    {
-        "gene sets"
-    } else if noun_source.contains("gene") {
-        "genes"
-    } else {
-        "features"
+    let comparator = match significance.comparator {
+        crate::report_contract::Comparator::Lt => "<",
+        crate::report_contract::Comparator::Gt => ">",
     };
 
-    Some(StructuredClaim {
-        claim: format!("{count} of {total} {noun} significant at {label} < {threshold}"),
+    let claim = StructuredClaim {
+        claim: format!(
+            "{count} of {total} entities significant at `{}` {comparator} {}",
+            significance.column, significance.threshold
+        ),
         evidence: Some(rel),
-    })
-}
-
-/// Find a `.tsv`/`.csv` directly under `dir` whose data-row count (lines minus
-/// header) equals `total`. Top-level only (skips `figures/`, `intermediates/`).
-fn stage_count_table(dir: &Path, total: u64) -> Option<PathBuf> {
-    let mut candidates: Vec<PathBuf> = std::fs::read_dir(dir)
-        .ok()?
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.is_file()
-                && path
-                    .extension()
-                    .and_then(|extension| extension.to_str())
-                    .is_some_and(|extension| {
-                        extension.eq_ignore_ascii_case("tsv")
-                            || extension.eq_ignore_ascii_case("csv")
-                    })
-        })
-        .collect();
-    candidates.sort();
-    for path in candidates {
-        let Ok(content) = std::fs::read_to_string(&path) else {
-            continue;
-        };
-        let data_rows = content
-            .lines()
-            .filter(|line| !line.trim().is_empty())
-            .count();
-        if data_rows >= 1 && (data_rows - 1) as u64 == total {
-            return Some(path);
-        }
-    }
-    None
+    };
+    Some((claim, schema))
 }
 
 fn expected_claim_matches_task(
@@ -1789,359 +1723,115 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn synthesize_stage_count_claim_recomputes_enrichment_floor() {
-        // pathway_enrichment shipped an empty claims[]; the recall floor is
-        // recovered by synthesizing a count claim from result.json's summary +
-        // the produced table, pinned by the row-count==total match.
-        let tmp = tempdir().unwrap();
-        let dir = tmp.path().join("runtime/outputs/pathway_enrichment");
-        fs::create_dir_all(&dir).unwrap();
-        fs::write(
-            dir.join("result.json"),
-            r#"{"task_id":"pathway_enrichment","n_terms_tested":10,"n_sig_fdr_025":3}"#,
-        )
-        .unwrap();
-        // 10 data rows; exactly 3 with adj_p_value < 0.25. A 4-row decoy table
-        // with the same column must NOT be chosen (row count != total).
-        fs::write(
-            dir.join("pathway_results.tsv"),
-            "term\tnes\tadj_p_value\n\
-             A\t1\t0.01\nB\t1\t0.10\nC\t1\t0.24\nD\t1\t0.30\nE\t1\t0.40\n\
-             F\t1\t0.50\nG\t1\t0.60\nH\t1\t0.70\nI\t1\t0.80\nJ\t1\t0.90\n",
-        )
-        .unwrap();
-        fs::write(
-            dir.join("enrichment.tsv"),
-            "term\tadj_p_value\nA\t0.01\nB\t0.02\nC\t0.03\nD\t0.04\n",
-        )
-        .unwrap();
-
-        let claim = synthesize_stage_count_claim(tmp.path(), "pathway_enrichment")
-            .expect("enrichment floor claim synthesized");
-        assert_eq!(claim.claim, "3 of 10 gene sets significant at FDR < 0.25");
-        assert_eq!(
-            claim.evidence.as_deref(),
-            Some("runtime/outputs/pathway_enrichment/pathway_results.tsv"),
-            "must pin the 10-row table, not the 4-row enrichment.tsv decoy"
-        );
-    }
-
-    #[test]
-    fn synthesize_stage_count_claim_accepts_differential_expression_schema() {
-        let tmp = tempdir().unwrap();
-        let dir = tmp.path().join("runtime/outputs/differential_expression");
-        fs::create_dir_all(&dir).unwrap();
-        fs::write(
-            dir.join("result.json"),
-            r#"{
-                "task_id":"differential_expression",
-                "n_genes_tested":4,
-                "n_significant":2,
-                "adjusted_pvalue_threshold":0.05
-            }"#,
-        )
-        .unwrap();
-        fs::write(
-            dir.join("de_results.tsv"),
-            "gene\tlog2FoldChange\tpadj\nA\t1\t0.01\nB\t-1\t0.04\nC\t0\t0.2\nD\t0\tNA\n",
-        )
-        .unwrap();
-
-        let claim = synthesize_stage_count_claim(tmp.path(), "differential_expression")
-            .expect("differential-expression floor claim synthesized");
-        assert_eq!(claim.claim, "2 of 4 genes significant at padj < 0.05");
-        assert_eq!(
-            claim.evidence.as_deref(),
-            Some("runtime/outputs/differential_expression/de_results.tsv")
-        );
-        let verdicts =
-            verify_structured_claims(std::slice::from_ref(&claim), tmp.path(), &test_cfg());
-        assert!(matches!(
-            verdicts[0].status,
-            crate::claim_verifier::ClaimStatus::Verified
-        ));
-    }
-
-    #[test]
-    fn synthesize_stage_count_claim_accepts_nested_pathway_total() {
-        let tmp = tempdir().unwrap();
-        let dir = tmp.path().join("runtime/outputs/pathway_enrichment");
-        fs::create_dir_all(&dir).unwrap();
-        fs::write(
-            dir.join("result.json"),
-            r#"{
-                "task_id":"pathway_enrichment",
-                "n_pathways_tested":{"H":2,"C2_CP_REACTOME":1,"C5_GO_BP":2,"total":5},
-                "n_significant_fdr25":3
-            }"#,
-        )
-        .unwrap();
-        fs::write(
-            dir.join("pathway_results.tsv"),
-            "term\tNES\tpadj\nA\t1\t0.01\nB\t-1\t0.10\nC\t1\t0.24\nD\t1\t0.30\nE\t1\t0.90\n",
-        )
-        .unwrap();
-
-        let claim = synthesize_stage_count_claim(tmp.path(), "pathway_enrichment")
-            .expect("pathway floor claim synthesized");
-        assert_eq!(claim.claim, "3 of 5 gene sets significant at FDR < 0.25");
-        assert_eq!(
-            claim.evidence.as_deref(),
-            Some("runtime/outputs/pathway_enrichment/pathway_results.tsv")
-        );
-        let verdicts =
-            verify_structured_claims(std::slice::from_ref(&claim), tmp.path(), &test_cfg());
-        assert!(matches!(
-            verdicts[0].status,
-            crate::claim_verifier::ClaimStatus::Verified
-        ));
-    }
-
-    #[test]
-    fn synthesize_stage_count_claim_accepts_himes_differential_expression_shape() {
-        let tmp = tempdir().unwrap();
-        let dir = tmp.path().join("runtime/outputs/differential_expression");
-        fs::create_dir_all(&dir).unwrap();
-        fs::write(
-            dir.join("result.json"),
-            r#"{
-                "task_id":"differential_expression",
-                "n_tested":4,
-                "tested_feature_count":4,
-                "n_significant":2,
-                "padj_threshold":0.05
-            }"#,
-        )
-        .unwrap();
-        fs::write(
-            dir.join("de_results.tsv"),
-            "gene\tlog2FoldChange\tpadj\nA\t1\t0.01\nB\t-1\t0.04\nC\t0\t0.2\nD\t0\tNA\n",
-        )
-        .unwrap();
-
-        let claim = synthesize_stage_count_claim(tmp.path(), "differential_expression")
-            .expect("Himes differential-expression floor claim synthesized");
-        assert_eq!(claim.claim, "2 of 4 features significant at padj < 0.05");
-        assert_eq!(
-            claim.evidence.as_deref(),
-            Some("runtime/outputs/differential_expression/de_results.tsv")
-        );
-        let verdicts =
-            verify_structured_claims(std::slice::from_ref(&claim), tmp.path(), &test_cfg());
-        assert!(matches!(
-            verdicts[0].status,
-            crate::claim_verifier::ClaimStatus::Verified
-        ));
-    }
-
-    #[test]
-    fn synthesize_stage_count_claim_prefers_de_table_population_over_estimable_padj_count() {
-        let tmp = tempdir().unwrap();
-        let dir = tmp.path().join("runtime/outputs/differential_expression");
-        fs::create_dir_all(&dir).unwrap();
-        fs::write(
-            dir.join("result.json"),
-            r#"{
-                "task_id":"differential_expression",
-                "tested_feature_count":4,
-                "n_genes_in_matrix":4,
-                "n_genes_tested":3,
-                "n_significant":2,
-                "adjusted_pvalue_threshold":0.05
-            }"#,
-        )
-        .unwrap();
-        fs::write(
-            dir.join("de_results.tsv"),
-            "gene\tlog2FoldChange\tpadj\nA\t1\t0.01\nB\t-1\t0.04\nC\t0\t0.2\nD\t0\tNA\n",
-        )
-        .unwrap();
-
-        let claim = synthesize_stage_count_claim(tmp.path(), "differential_expression")
-            .expect("DE floor must use the four-row retained table population");
-        assert_eq!(claim.claim, "2 of 4 features significant at padj < 0.05");
-        let verdicts =
-            verify_structured_claims(std::slice::from_ref(&claim), tmp.path(), &test_cfg());
-        assert!(matches!(
-            verdicts[0].status,
-            crate::claim_verifier::ClaimStatus::Verified
-        ));
-    }
-
-    #[test]
-    fn synthesize_stage_count_claim_sums_himes_pathway_collections() {
-        let tmp = tempdir().unwrap();
-        let dir = tmp.path().join("runtime/outputs/pathway_enrichment");
-        fs::create_dir_all(&dir).unwrap();
-        fs::write(
-            dir.join("result.json"),
-            r#"{
-                "task_id":"pathway_enrichment",
-                "n_pathways_tested":{"HALLMARK":2,"KEGG":1,"REACTOME":1},
-                "n_significant_total":2,
-                "n_enriched_total":1,
-                "n_depleted_total":1,
-                "fdr_threshold":0.25
-            }"#,
-        )
-        .unwrap();
-        fs::write(
-            dir.join("pathway_results.tsv"),
-            "term\tNES\tpadj\nA\t1\t0.01\nB\t-1\t0.10\nC\t1\t0.30\nD\t1\t0.90\n",
-        )
-        .unwrap();
-
-        let claim = synthesize_stage_count_claim(tmp.path(), "pathway_enrichment")
-            .expect("Himes pathway floor claim synthesized");
-        assert_eq!(claim.claim, "2 of 4 gene sets significant at FDR < 0.25");
-        assert_eq!(
-            claim.evidence.as_deref(),
-            Some("runtime/outputs/pathway_enrichment/pathway_results.tsv")
-        );
-        let verdicts =
-            verify_structured_claims(std::slice::from_ref(&claim), tmp.path(), &test_cfg());
-        assert!(matches!(
-            verdicts[0].status,
-            crate::claim_verifier::ClaimStatus::Verified
-        ));
-    }
-
-    #[test]
-    fn synthesize_stage_count_claim_accepts_sets_total_schema() {
-        let tmp = tempdir().unwrap();
-        let dir = tmp.path().join("runtime/outputs/pathway_enrichment");
-        fs::create_dir_all(&dir).unwrap();
-        fs::write(
-            dir.join("result.json"),
-            r#"{
-                "task_id":"pathway_enrichment",
-                "n_sets_total":5,
-                "n_sets_significant_fdr025":3,
-                "pathway_fdr_threshold_applied":0.25
-            }"#,
-        )
-        .unwrap();
-        fs::write(
-            dir.join("pathway_results.tsv"),
-            "pathway\tNES\tpadj\nA\t1\t0.01\nB\t-1\t0.10\nC\t1\t0.24\nD\t1\t0.30\nE\t1\t0.90\n",
-        )
-        .unwrap();
-
-        let claim = synthesize_stage_count_claim(tmp.path(), "pathway_enrichment")
-            .expect("set-count pathway floor claim synthesized");
-        assert_eq!(claim.claim, "3 of 5 gene sets significant at FDR < 0.25");
-        assert_eq!(
-            claim.evidence.as_deref(),
-            Some("runtime/outputs/pathway_enrichment/pathway_results.tsv")
-        );
-        let verdicts =
-            verify_structured_claims(std::slice::from_ref(&claim), tmp.path(), &test_cfg());
-        assert!(matches!(
-            verdicts[0].status,
-            crate::claim_verifier::ClaimStatus::Verified
-        ));
-    }
-
-    #[test]
-    fn synthesize_stage_count_claim_accepts_live_pathway_schema() {
-        let tmp = tempdir().unwrap();
-        let dir = tmp.path().join("runtime/outputs/pathway_enrichment");
-        fs::create_dir_all(&dir).unwrap();
-        fs::write(
-            dir.join("result.json"),
-            r#"{
-                "task_id":"pathway_enrichment",
-                "method":"clusterProfiler::gseGO + gseKEGG",
-                "n_sets_tested":5,
-                "n_significant_padj25":3,
-                "n_significant_padj05":1
-            }"#,
-        )
-        .unwrap();
-        fs::write(
-            dir.join("pathway_results.tsv"),
-            "pathway\tNES\tpadj\nA\t1\t0.01\nB\t-1\t0.10\nC\t1\t0.24\nD\t1\t0.30\nE\t1\t0.90\n",
-        )
-        .unwrap();
-
-        let claim = synthesize_stage_count_claim(tmp.path(), "pathway_enrichment")
-            .expect("live pathway summary yields a floor claim");
-        assert_eq!(claim.claim, "3 of 5 gene sets significant at padj < 0.25");
-        assert_eq!(
-            claim.evidence.as_deref(),
-            Some("runtime/outputs/pathway_enrichment/pathway_results.tsv")
-        );
-        let verdicts =
-            verify_structured_claims(std::slice::from_ref(&claim), tmp.path(), &test_cfg());
-        assert!(matches!(
-            verdicts[0].status,
-            crate::claim_verifier::ClaimStatus::Verified
-        ));
-    }
-
-    #[test]
-    fn synthesize_stage_count_claim_accepts_himes_pathway_adjusted_cutoff_alias() {
-        let tmp = tempdir().unwrap();
-        let dir = tmp.path().join("runtime/outputs/pathway_enrichment");
-        fs::create_dir_all(&dir).unwrap();
-        fs::write(
-            dir.join("result.json"),
-            r#"{
-                "task_id":"pathway_enrichment",
-                "n_pathways_tested":4,
-                "n_significant":2,
-                "pvalue_threshold":0.25
-            }"#,
-        )
-        .unwrap();
-        fs::write(
-            dir.join("pathway_results.tsv"),
-            "pathway\tNES\tpadj\nA\t1\t0.01\nB\t-1\t0.10\nC\t1\t0.30\nD\t1\t0.90\n",
-        )
-        .unwrap();
-
-        let claim = synthesize_stage_count_claim(tmp.path(), "pathway_enrichment")
-            .expect("pathway floor must honor the atom-defined adjusted cutoff alias");
-        assert_eq!(claim.claim, "2 of 4 gene sets significant at padj < 0.25");
-        let verdicts =
-            verify_structured_claims(std::slice::from_ref(&claim), tmp.path(), &test_cfg());
-        assert!(matches!(
-            verdicts[0].status,
-            crate::claim_verifier::ClaimStatus::Verified
-        ));
-    }
-
-    #[test]
-    fn compute_task_coverage_addresses_himes_de_and_pathway_recall_floors() {
+    fn declared_schema_synthesizes_counts_for_unrelated_modalities_and_comparators() {
         let cases = [
             (
-                "differential_expression",
+                "feature_association",
                 serde_json::json!({
-                    "task_id": "differential_expression",
-                    "claims": [],
-                    "tested_feature_count": 4,
-                    "n_genes_tested": 3,
-                    "n_significant": 2,
-                    "adjusted_pvalue_threshold": 0.05
+                    "artifact": "association_estimates.tsv",
+                    "entity_column": "analyte",
+                    "signed_effect_column": "standardized_effect",
+                    "significance": {
+                        "column": "false_discovery_rate",
+                        "comparator": "lt",
+                        "threshold": 0.05
+                    }
                 }),
-                "de_results.tsv",
-                "gene\tlog2FoldChange\tpadj\nA\t1\t0.01\nB\t-1\t0.04\nC\t0\t0.2\nD\t0\tNA\n",
+                "association_estimates.tsv",
+                "analyte\tstandardized_effect\tfalse_discovery_rate\nA\t1\t0.01\nB\t-1\t0.04\nC\t0\t0.2\nD\t0\tNA\n",
+                serde_json::json!({"qualifying_record_count": 999}),
+                "2 of 4 entities significant at `false_discovery_rate` < 0.05",
             ),
             (
-                "pathway_enrichment",
+                "anomaly_screen",
                 serde_json::json!({
-                    "task_id": "pathway_enrichment",
-                    "claims": [],
-                    "n_pathways_tested": 4,
-                    "n_significant": 2,
-                    "pvalue_threshold": 0.25
+                    "artifact": "anomaly_scores.tsv",
+                    "entity_column": "event_id",
+                    "significance": {
+                        "column": "anomaly_score",
+                        "comparator": "gt",
+                        "threshold": 2.5
+                    }
                 }),
-                "pathway_results.tsv",
-                "pathway\tNES\tpadj\nA\t1\t0.01\nB\t-1\t0.10\nC\t1\t0.30\nD\t1\t0.90\n",
+                "anomaly_scores.tsv",
+                "event_id\tanomaly_score\nE1\t0.5\nE2\t2.6\nE3\t8.0\nE4\t2.5\n",
+                serde_json::json!({"n_selected": 999, "threshold": 999}),
+                "2 of 4 entities significant at `anomaly_score` > 2.5",
             ),
         ];
 
-        for (task_id, result, table_name, table) in cases {
+        for (task_id, schema, table_name, table, misleading_result, expected_claim) in cases {
+            let tmp = tempdir().unwrap();
+            let dir = tmp.path().join("runtime/outputs").join(task_id);
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(
+                dir.join("result.json"),
+                serde_json::to_vec_pretty(&misleading_result).unwrap(),
+            )
+            .unwrap();
+            fs::write(dir.join(table_name), table).unwrap();
+            write_task_nodes(tmp.path(), &[(task_id, schema)]);
+
+            let (claim, schema) = synthesize_declared_stage_count_claim(tmp.path(), task_id)
+                .unwrap_or_else(|| panic!("{task_id}: declared count claim missing"));
+            assert_eq!(claim.claim, expected_claim);
+            assert_eq!(
+                claim.evidence.as_deref(),
+                Some(format!("runtime/outputs/{task_id}/{table_name}").as_str())
+            );
+            let mut cfg = test_cfg();
+            cfg.entity_columns.push(schema.entity_column);
+            if let Some(significance) = schema.significance {
+                cfg.pvalue_columns.push(significance.column);
+            }
+            let verdicts = verify_structured_claims(std::slice::from_ref(&claim), tmp.path(), &cfg);
+            assert!(
+                matches!(
+                    verdicts[0].status,
+                    crate::claim_verifier::ClaimStatus::Verified
+                ),
+                "{task_id}: {:?}",
+                verdicts[0].status
+            );
+        }
+    }
+
+    #[test]
+    fn compute_task_coverage_uses_declared_schema_for_unrelated_modalities() {
+        let cases = [
+            (
+                "feature_association",
+                serde_json::json!({
+                    "artifact": "association_estimates.tsv",
+                    "entity_column": "analyte",
+                    "signed_effect_column": "standardized_effect",
+                    "significance": {
+                        "column": "false_discovery_rate",
+                        "comparator": "lt",
+                        "threshold": 0.05
+                    }
+                }),
+                "association_estimates.tsv",
+                "analyte\tstandardized_effect\tfalse_discovery_rate\n\
+                 A\t1\t0.01\nB\t-1\t0.04\nC\t0\t0.2\nD\t0\tNA\n",
+            ),
+            (
+                "anomaly_screen",
+                serde_json::json!({
+                    "artifact": "anomaly_scores.tsv",
+                    "entity_column": "event_id",
+                    "significance": {
+                        "column": "anomaly_score",
+                        "comparator": "gt",
+                        "threshold": 2.5
+                    }
+                }),
+                "anomaly_scores.tsv",
+                "event_id\tanomaly_score\nE1\t0.5\nE2\t2.6\nE3\t8.0\nE4\t2.5\n",
+            ),
+        ];
+
+        for (task_id, schema, table_name, table) in cases {
             let tmp = tempdir().unwrap();
             let policy_dir = tmp.path().join("policies");
             fs::create_dir_all(&policy_dir).unwrap();
@@ -2164,10 +1854,12 @@ mod tests {
             fs::create_dir_all(&output_dir).unwrap();
             fs::write(
                 output_dir.join("result.json"),
-                serde_json::to_vec_pretty(&result).unwrap(),
+                serde_json::to_vec_pretty(&serde_json::json!({"task_id": task_id, "claims": []}))
+                    .unwrap(),
             )
             .unwrap();
             fs::write(output_dir.join(table_name), table).unwrap();
+            write_task_nodes(tmp.path(), &[(task_id, schema)]);
 
             let coverage = compute_task_coverage(tmp.path(), task_id, &test_cfg())
                 .unwrap_or_else(|| panic!("{task_id} coverage was not computed"));
@@ -2182,18 +1874,117 @@ mod tests {
     }
 
     #[test]
-    fn synthesize_stage_count_claim_none_for_non_enrichment_stage() {
-        // A stage with no n_sig_*/total summary fields yields no derived claim,
-        // so ordinary stages are never touched by the floor mechanism.
+    fn coverage_does_not_guess_a_count_without_a_declared_result_schema() {
         let tmp = tempdir().unwrap();
-        let dir = tmp.path().join("runtime/outputs/qc_preprocessing");
+        let task_id = "untyped_screen";
+        let policy_dir = tmp.path().join("policies");
+        fs::create_dir_all(&policy_dir).unwrap();
+        fs::write(
+            policy_dir.join("interpretation-policy.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "verifiableEntities": {
+                    "enabled": true,
+                    "expected": [{
+                        "entity": task_id,
+                        "expected_output_table": task_id,
+                        "requirement": "required"
+                    }]
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let dir = tmp.path().join("runtime/outputs").join(task_id);
         fs::create_dir_all(&dir).unwrap();
         fs::write(
             dir.join("result.json"),
-            r#"{"task_id":"qc_preprocessing","n_samples":8}"#,
+            r#"{"task_id":"untyped_screen","claims":[],"n_selected":2}"#,
         )
         .unwrap();
-        assert!(synthesize_stage_count_claim(tmp.path(), "qc_preprocessing").is_none());
+        fs::write(
+            dir.join("scores.tsv"),
+            "entity\tuntyped_score\nA\t1\nB\t2\n",
+        )
+        .unwrap();
+
+        let coverage = compute_task_coverage(tmp.path(), task_id, &test_cfg()).unwrap();
+        assert_eq!(coverage.required_addressed, 0, "{coverage:?}");
+        assert_eq!(coverage.required_absent, 1, "{coverage:?}");
+    }
+
+    #[test]
+    fn package_verification_uses_unseen_schema_roles_without_modality_branches() {
+        let pkg = tempdir().unwrap();
+        let config = tempdir().unwrap();
+        scaffold_config_dir(config.path());
+
+        let schema = serde_json::json!({
+            "artifact": "risk_scores.tsv",
+            "entity_column": "record_key",
+            "entity_column_aliases": ["record_id"],
+            "signed_effect_column": "impact_delta",
+            "signed_effect_aliases": ["delta"],
+            "significance": {
+                "column": "alert_score",
+                "comparator": "gt",
+                "threshold": 7.5
+            }
+        });
+        write_task_nodes(pkg.path(), &[("risk_screen", schema)]);
+        let reporting = pkg.path().join("runtime/outputs/reporting");
+        fs::create_dir_all(&reporting).unwrap();
+        fs::write(
+            reporting.join("report.md"),
+            "Of 4 records tested, 2 were statistically significant at \
+             `alert_score` > 7.5 (Table risk_scores.tsv).\n",
+        )
+        .unwrap();
+        let tables = pkg.path().join("results/tables");
+        fs::create_dir_all(&tables).unwrap();
+        fs::write(
+            tables.join("risk_scores.tsv"),
+            "record_key\timpact_delta\talert_score\n\
+             R1\t1.2\t9.0\nR2\t-0.4\t7.6\nR3\t0.1\t7.5\nR4\t0.0\t2.0\n",
+        )
+        .unwrap();
+
+        let base = test_cfg();
+        assert!(!base.entity_columns.iter().any(|c| c == "record_key"));
+        let extended = extend_extractor_config_with_result_schemas(pkg.path(), base);
+        for (actual, expected) in [
+            (&extended.entity_columns, "record_key"),
+            (&extended.entity_columns, "record_id"),
+            (&extended.effect_size_columns, "impact_delta"),
+            (&extended.effect_size_columns, "delta"),
+            (&extended.pvalue_columns, "alert_score"),
+        ] {
+            assert!(
+                actual.iter().any(|column| column == expected),
+                "declared role `{expected}` was not added: {actual:?}"
+            );
+        }
+
+        let verified = expect_verified(verify_task_with_context(
+            pkg.path(),
+            "reporting",
+            config.path(),
+            ProjectClass::TimeSeriesForecast,
+            &[],
+            false,
+        ));
+        let counts: Vec<_> = verified
+            .report
+            .verdicts
+            .iter()
+            .filter(|verdict| verdict.claim.entity.starts_with("count:"))
+            .collect();
+        assert_eq!(counts.len(), 2, "{:#?}", verified.report.verdicts);
+        assert!(
+            counts
+                .iter()
+                .all(|verdict| matches!(verdict.status, ClaimStatus::Verified)),
+            "{counts:#?}"
+        );
     }
 
     /// Minimal enabled policy for the claim-extraction helpers under test.
@@ -2207,7 +1998,7 @@ mod tests {
                     "down": ["downregulated"]
                 },
                 "effectSizeColumns": ["log2FC"],
-                "entityColumns": ["gene", "term", "pathway"],
+                "entityColumns": ["gene", "term", "pathway", "analyte", "event_id", "compound"],
                 "pvalueColumns": ["padj"]
             }
         });
@@ -2277,6 +2068,44 @@ mod tests {
             ..claim.clone()
         };
         assert!(ledger.owns("reporting", &unseen));
+    }
+
+    #[test]
+    fn identical_aggregate_count_in_two_tasks_is_deduped_once() {
+        let cfg = test_cfg();
+        let tmp = tempdir().unwrap();
+        let root = tmp.path();
+        let narrative = "Of 4 plasma compounds tested, 2 were significant at `risk_score` > 2.5.\n";
+        for task in ["reporting", "final_reporting"] {
+            let dir = root.join("runtime/outputs").join(task);
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(dir.join("report.md"), narrative).unwrap();
+        }
+        let result_dir = root.join("runtime/outputs/risk_screen");
+        fs::create_dir_all(&result_dir).unwrap();
+        fs::write(
+            result_dir.join("risk_scores.tsv"),
+            "compound\trisk_score\nA\t0.2\nB\t2.6\nC\t9.1\nD\t2.5\n",
+        )
+        .unwrap();
+
+        let tasks = vec!["reporting".to_string(), "final_reporting".to_string()];
+        let ledger = CrossTaskClaimLedger::build(root, &tasks, &cfg);
+        let count_verdicts = verify_narrative_counts(narrative, &result_dir, root, &cfg);
+        assert_eq!(count_verdicts.len(), 2, "{count_verdicts:#?}");
+        assert_eq!(
+            ledger.len(),
+            1,
+            "tested and significant facts share one sentence-level assertion key"
+        );
+        for verdict in &count_verdicts {
+            assert!(ledger.owns("reporting", &verdict.claim));
+            assert!(!ledger.owns("final_reporting", &verdict.claim));
+            assert_eq!(
+                ledger.co_asserters("reporting", &verdict.claim),
+                vec!["final_reporting".to_string()]
+            );
+        }
     }
 
     /// The canonical claim set is derived from `report-data.json` and checked

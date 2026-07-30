@@ -261,70 +261,46 @@ real runs and are cheap to avoid:
   When you write "above"/"below", "higher"/"lower", "increased"/"decreased",
   or similar, derive the word from the actual sign or ratio you computed —
   do not describe direction from intuition or from what you expect the
-  result to look like. Example: if a ratio such as
-  `top_effect_abundance_ratio` computes to `< 1`, the correct word is
-  "below"/"lower" (e.g. 0.56 means the top effects sit at ~56% of the
-  reference — below it, not "substantially above" it).
-- **Report what was TESTED, not what was LOADED.** A gene-set /
-  pathway count (or any "N analyzed" figure) must be the post-filter row
-  count of the results table you actually computed (e.g. `nrow()` of the
-  enrichment result after `minSize`/`maxSize` filtering) — never the
-  pre-filter count of sets loaded from the collection file. If your script
-  prints both numbers, only the post-filter one belongs in the narrative
-  and in any `*_tested` field; record it in your JSON result too so a
-  downstream validator can check it against the table rowcount.
-- **Distinguish the source matrix from the matrix retained for testing.**
-  When QC records different pre-filter and retained row counts, call the
-  former the source or original input matrix and call the latter the
-  filtered, analysis-ready, or tested matrix. Never introduce the retained
-  row count as the unqualified "input count matrix" and then identify a
-  larger original input later in the same paragraph. Correct: "The source
-  count matrix contained 63,677 genes across 8 samples; the rowSums >= 10
-  pre-filter retained 22,369 genes for testing." It is also correct to call
-  22,369 the input to a specifically named downstream model, provided the
-  sentence explicitly says it is the filtered matrix.
+  result to look like. If a metric basis declares `neutral_reference`, compare
+  against that retained value rather than assuming one: 0.56 is below a
+  reference of 1 but above a reference of 0.5. In the same sentence that names
+  the metric field, state whether its retained value is above, below, or equal
+  to the retained reference. A definition without that direction does not
+  complete the interpretation.
+- **Report what was tested, not what was merely loaded.** Any "N analyzed"
+  figure must be the post-filter population actually supplied to the executed
+  method, never the source inventory before eligibility, size, quality, or
+  availability filters. If both populations are retained, label both and bind
+  every `*_tested` field to the executed result population so a validator can
+  check it against the result artifact.
+- **Distinguish a source population from the population retained for
+  analysis.** When preprocessing records different pre-filter and retained
+  dimensions, name the former as source or original and the latter as filtered,
+  analysis-ready, or tested. A retained population may be called an input only
+  when the sentence names the downstream stage that received it. Never use the
+  same unqualified population label for two different dimensions.
 - **A "Top" result table is always the canonical ordered prefix.** Read the
   relevant artifact's `ranking` object from `report-data.json` and copy its
-  first N enriched or depleted rows in order. This rule applies whether the
-  heading says "Top 10" or only "Top enriched pathways"; when no N is written,
-  N is the number of displayed data rows. Do not select one row per collection,
-  choose illustrative rows, or replace a numeric source value with `—`, `NA`,
-  or a blank. If the source row has a finite effect or significance value, the
-  report cell must contain that value at the retained display precision.
-- **Separate the pre-mapping gene count from the final enrichment ranking.**
-  The number of tested DE rows with a finite statistic is not necessarily the
-  number of unique gene labels supplied to enrichment. Identifier mapping and
-  duplicate-label resolution can reduce the vector. For pathway enrichment,
-  retain the exact final vector in the task's declared `ranked_genes.tsv`,
-  record its data-row count as `n_genes_ranked`, and use that count whenever
-  prose says genes were ranked, included in, or supplied to fgsea/GSEA. If you
-  also report the pre-mapping input count, name it as a separate population.
-- **Reconcile mapping loss separately from duplicate-label collapse.** For
-  pathway enrichment, write `n_genes_pre_mapping`, `n_genes_mapped`,
-  `n_genes_unmapped`, `n_genes_ranked`, and
-  `n_duplicate_gene_labels_removed` to `result.json`, deriving them from the
-  retained source table, `annotation/symbol_map.tsv`, and `ranked_genes.tsv`.
-  The identities are `unmapped = pre_mapping - mapped` and
-  `duplicate_gene_labels_removed = mapped - ranked`. Never call
-  `pre_mapping - ranked` "unmapped": that difference combines two distinct
-  causes. The mapping table must use the declared two-column header order
-  `symbol`, then `ensembl_gene_id`.
-- **Keep collection labels identical across retained outputs.** Values in
-  `result.json::gene_sets_collections` and
-  `pathway_summary.json::collections` must be the exact distinct values in
-  `pathway_results.tsv::collection`. A provider subcollection such as
-  `CP:KEGG_LEGACY` is provenance; record it in a separate source field or
-  describe it in prose instead of replacing a table label such as `KEGG`.
-- **Every "FDR" mention must name its family and threshold.** Gene-level
-  differential-expression FDR (`padj`) and pathway-level enrichment FDR
-  (`padj`) are different multiple-testing corrections over different
-  universes with different conventional thresholds (commonly 0.05 vs 0.25).
-  Never write a bare "FDR": write, every time it appears (not only in a
-  reproducibility appendix), "gene-level FDR (padj) < 0.05" or
-  "pathway-level adjusted p-value (padj) < 0.25", using the thresholds this
-  run actually applied. Do not put a hard-coded implementation name such as
-  `fgsea` in the pathway-level threshold label. If a sentence names the
-  implementation, copy it from the executed stage's `method` field.
+  first N rows in order. When no N is written, N is the number of displayed
+  data rows. Do not choose illustrative rows, sample one row per group, or
+  replace a finite source value with `—`, `NA`, or a blank. Preserve every
+  displayed source value at the retained precision.
+- **Keep every population transition in its own reconciliation bucket.**
+  Identifier mapping, eligibility filtering, deduplication, aggregation, and
+  ranking can each change a population. Retain the exact stage-declared
+  handoff artifact and its row count. Record each transition under the fields
+  declared by that stage, preserve its conservation identity, and never label
+  a combined loss as if one transition caused all of it.
+- **Keep grouping labels identical across retained outputs.** When a result
+  schema declares a grouping column, summary arrays and narrative labels must
+  use the exact distinct values retained in that column. Provider, database,
+  or source labels belong in separate provenance fields and must not replace a
+  result-group value.
+- **Every threshold mention must identify its scope, field, comparator, and
+  cutoff.** Two stages may use fields with the same display name over different
+  populations or may use different cutoffs and comparator directions. Copy all
+  four parts from the executed stage's result schema. If a sentence names the
+  implementation, copy that name from the stage's retained method field.
 - **Describe generated significant-result attachments by their actual
   filter.** A `<artifact>.significant.tsv` written by report-data assembly is
   filtered only by the atom's declared significance rule. Copy that rule from
@@ -344,11 +320,10 @@ real runs and are cheap to avoid:
 - **Keep every quantitative prose sentence atomic.** A sentence that states an
   entity-specific effect or significance value must quantify exactly one
   entity, with that entity's own values. Put a second quantified entity in a
-  separate sentence or in its own table row. Do not mention an incidental gene
-  in a pathway-NES sentence, and never put one entity's `padj` beside another
-  entity's effect. Likewise, a prose sentence that states a retained count must
-  assert exactly one named field and population; put assessed/not-assessed,
-  removed/ranked, and numerator/denominator counts in separate sentences.
+  separate sentence or in its own table row. Never place one entity's
+  significance beside another entity's effect. Likewise, a prose sentence that
+  states a retained count must assert exactly one named field and population;
+  put separate lifecycle populations in separate sentences.
   This is part of the machine-verification contract, not a style preference.
 - **Name the statistical model exactly as executed.** A fixed-effects
   design (e.g. a DESeq2/edgeR `~ covariate + condition` negative-binomial
@@ -415,41 +390,23 @@ real runs and are cheap to avoid:
   the removed rows failed that comparison — it is not a power analysis, a
   dispersion estimate, or a detectability assessment, and the package contains
   no such analysis unless this run actually produced one and left the artifact.
-  Correct: "the rowSums >= 10 pre-filter removed 41,308 of 63,677 genes,
-  retaining 22,369 for testing"; also correct, when you computed it, "30,183 of
-  the removed genes had zero counts in every sample". Incorrect: the removed
-  genes "carried too few total counts to support reliable statistical
-  inference", "were insufficiently expressed to be detectable", "lacked power",
-  or "would not have yielded reliable estimates" — each asserts a conclusion
-  about the removed data that no artifact in the package supports, and a
-  source-level validator flags it. The same rule covers every filter you apply
-  (significance, size, quality, coverage): name the threshold and the count,
-  not the inference.
-- **Copy a statistic's definition verbatim from the stage that computed it;
-  never paraphrase it.** A stage that emits a metric with a self-describing
-  denominator emits the definition alongside the number — e.g.
-  `top_effect_abundance_ratio` ships with a
-  `top_effect_abundance_ratio_description` sentence and a
-  `top_effect_abundance_ratio_basis` block naming the numerator population, the
-  denominator population, each population's size, and K. Use that description.
-  Naming a different population than the metric's own description names is a
-  reporting error, not a stylistic variant — a real run described a ratio whose
-  denominator is the whole TESTED set as being over "all 4,030 significant
-  genes", and a sibling report named BOTH populations inside a single sentence
-  ("below the median baseMean of all 4,030 significant genes … approximately 21%
-  of the median abundance of the whole tested set"). One number gets one
-  population; a sentence that names two is wrong however it is hedged. Do not
-  call the ratio a "mean", an "average", an "average normalized count ratio", or
-  a "mean baseMean", and do not attribute it to samples ("across the N
-  samples"): it says nothing about samples, and the top-K count K is not a
-  sample count. Reusing the top-K variable in a sentence about samples has
-  shipped in a real run (a report wrote "across the 15 samples" for an
-  8-sample study, where 15 was K). Check the basis block before you call the
-  top-K set significant: it records how many of the top-K carry no usable
-  significance value, and when that count is nonzero the top set is NOT a subset
-  of the significant set. The same discipline applies to every other derived
-  statistic you cite — quote the definition the producing stage recorded, don't
-  re-describe it from intuition.
+  Correct prose names the applied rule, source count, removed count, and retained
+  count. A separate observed property of the removed population may be reported
+  only when the run computed and retained that property. Claims that removed
+  observations lacked power, detectability, reliability, or another downstream
+  capability require a corresponding retained analysis. The same rule covers
+  every filter: name the criterion and the observed counts, not an inference.
+- **Copy a statistic's retained definition verbatim; never paraphrase it.**
+  When a stage emits `<metric>`, `<metric>_description`, and
+  `<metric>_basis`, quote the description exactly and use only the populations,
+  units, columns, and summary operations named by the basis. One value gets one
+  definition. Do not substitute a significant subset for a tested population,
+  change a median to a mean, convert a per-entity statistic into a per-sample
+  statement, or infer membership that the basis does not establish. When the
+  basis declares `neutral_reference`, state whether the retained value is
+  above, below, or equal to that exact reference in the same clause as the
+  metric key. A source-level invariant discovers this contract structurally for
+  every task and modality.
 
 These are the same pitfalls a source-level validator checks for in
 `validate_reporting`/`validate_final_reporting` when one is present for
@@ -492,6 +449,10 @@ defines them — never assume genes/log2FC.
   re-sort, or substitute rows from `significant_entities`. The canonical order
   is strongest declared significance, then larger absolute effect, then entity
   name, then source row. State this rule accurately in the table caption. If
+  significance is declared, never caption the same table "by effect size" or
+  describe it as effect-first: absolute effect is only the second ordering key.
+  Use an unambiguous caption such as "by canonical significance-first ranking
+  (absolute effect as the first tie-breaker)." If
   `ranking` is absent, make no “top”, “leading”, or superlative claim for that
   artifact. In Markdown tables, do not place an unescaped `|` inside a cell:
   write headers such as "Absolute effect-size bin" instead of `|effect| bin`,
@@ -534,6 +495,17 @@ defines them — never assume genes/log2FC.
   finding, use only that same finding object's `effect` and `significance`.
   If either field is absent, omit that measurement from prose. Never borrow a
   number from another finding, a nearby row, model memory, or a prior run.
+- **Render the literature-concordance table at evidence-row granularity.**
+  Write exactly one row for every object in `literature.concordant`,
+  `literature.discordant`, and `literature.unverifiable`, preserving that
+  object's entity, status, PMID, effect, and significance. Repeat an entity
+  when it has several retained sources or several statuses. Do not aggregate
+  PMIDs into one entity row, choose a priority status, or collapse the table to
+  distinct entities. Headline the separate denominators explicitly:
+  `n_entities_assessed` is a distinct-entity count, while
+  `n_evidence_rows_assessed` is an evidence-row count whose status split is the
+  three array lengths. Describe that split as evidence rows, never as a
+  mutually exclusive partition of entities.
 - **Never cite a PMID that is not in `retrieved_sources` / the evidence
   matrix — not even as background context.** Every PMID that appears anywhere
   in the report (including "Note", "Background", or discussion asides) MUST be
@@ -544,6 +516,13 @@ defines them — never assume genes/log2FC.
   blocks the deposit. If prior context is genuinely missing, say so
   ("no prior-work PMID was retrieved for gene X") rather than supplying one
   from recall.
+- **Do not add uncited scientific background from model memory.** A statement
+  that a result is "consistent with known" biology, suggests a mechanism, or
+  reflects an expected biological effect is an external claim. Make it only
+  when the same sentence is grounded in a retained, verified literature object
+  from this package. When no such object exists for the reported subject,
+  restrict the prose to the observed association, effect, significance, and
+  declared analysis context.
 - **Account for every entity, and label each count's denominator.**
   When you summarize the `literature` rollup (or any categorized set), the
   entity counts must account for every distinct entity.

@@ -172,6 +172,61 @@ fn verified_table_backed_claim_resolves_in_cross_graph_integrity() {
 }
 
 #[test]
+fn table_stage_primary_summary_is_registered_as_independent_evidence() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let task = "feature_association";
+    let table = "association_results.tsv";
+    write_production_shaped_package(root, table, task);
+    let task_dir = root.join(format!("runtime/outputs/{task}"));
+    fs::write(
+        task_dir.join("result.json"),
+        serde_json::to_vec_pretty(&json!({
+            "n_features_tested": 1,
+            "n_features_significant": 1
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let registered = ecaa_workflow_core::ro_crate::register_produced_output_tables(root).unwrap();
+    assert_eq!(
+        registered, 2,
+        "the row-level table and retained primary summary are separate evidence artifacts"
+    );
+
+    let doc: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("ro-crate-metadata.json")).unwrap()).unwrap();
+    let graph = doc["@graph"].as_array().unwrap();
+    let result_rel = format!("runtime/outputs/{task}/result.json");
+    for rel in [
+        format!("runtime/outputs/{task}/{table}"),
+        result_rel.clone(),
+    ] {
+        assert!(
+            graph.iter().any(|entity| entity["@id"] == rel),
+            "{rel} must be a resolvable RO-Crate evidence entity"
+        );
+        assert!(
+            graph
+                .iter()
+                .any(|entity| entity["@id"] == format!("#action/{rel}")
+                    && entity["result"]["@id"] == rel),
+            "{rel} must retain its truthful production action"
+        );
+    }
+    let root_entity = graph.iter().find(|entity| entity["@id"] == "./").unwrap();
+    assert!(
+        root_entity["hasPart"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|reference| reference["@id"] == result_rel),
+        "the primary summary must be discoverable from the root Dataset"
+    );
+}
+
+#[test]
 fn finalize_registers_tables_and_reseals_manifest() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();

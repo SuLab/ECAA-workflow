@@ -3956,6 +3956,14 @@ fn prune_workflow_dag_roots_with_companions(
         }
     }
     workflow_dag.edges.extend(spliced_edges);
+    // Topology pruning can remove the only edge that justified a
+    // composer-owned positional input (`companion_in_N` / `residual_in_N`).
+    // Clean those ports at this generic post-mutation boundary so task-spec,
+    // task-nodes, and the observed-read reconciler all advertise the same
+    // contract. Authored atom inputs are preserved by the core helper.
+    ecaa_workflow_core::composer_v4::discover_companion_synthesis::prune_orphan_synthetic_inputs(
+        workflow_dag,
+    );
     dropped
 }
 

@@ -3138,6 +3138,19 @@ mod state_machine_centralization {
         }
 
         let mut s = Session::new(false);
+        let mut qc_preprocessing = TaskNode::skeleton("qc_preprocessing", "count qc");
+        qc_preprocessing.inputs = vec![
+            ecaa_workflow_core::workflow_contracts::port::PortContract::from_edam(
+                "authored_counts",
+                Some("data:3917"),
+                Some("format:3475"),
+            ),
+            ecaa_workflow_core::workflow_contracts::port::PortContract::from_edam(
+                "companion_in_1",
+                Some("data:2914"),
+                Some("format:3475"),
+            ),
+        ];
         s.workflow_dag = Some(WorkflowDag {
             id: "wf-chain-splice".into(),
             nodes: vec![
@@ -3150,7 +3163,7 @@ mod state_machine_centralization {
                 TaskNode::skeleton("validate_alignment", "validate align"),
                 TaskNode::skeleton("quantification", "quant"),
                 TaskNode::skeleton("validate_quantification", "validate quant"),
-                TaskNode::skeleton("qc_preprocessing", "count qc"),
+                qc_preprocessing,
                 TaskNode::skeleton("normalisation", "norm"),
             ],
             edges: vec![
@@ -3194,6 +3207,21 @@ mod state_machine_centralization {
                 .iter()
                 .map(|e| (e.from_node.as_str(), e.to_node.as_str()))
                 .collect::<Vec<_>>(),
+        );
+        let qc_inputs: Vec<&str> = wf
+            .nodes
+            .iter()
+            .find(|node| node.id == "qc_preprocessing")
+            .expect("qc_preprocessing survives")
+            .inputs
+            .iter()
+            .map(|port| port.name.as_str())
+            .collect();
+        assert_eq!(
+            qc_inputs,
+            vec!["authored_counts"],
+            "post-composition pruning must remove an unbound synthetic input while preserving \
+             the authored task contract"
         );
         // No edge may target a validator that no longer exists in the
         // node set, and no validator may have been promoted to a

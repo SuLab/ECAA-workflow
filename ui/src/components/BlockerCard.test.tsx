@@ -1142,6 +1142,62 @@ describe('BlockerCard — structured-decision variant', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('routes a failed discovery validation to retry guidance instead of stale method approval', async () => {
+    const fetchMock = mockFetch([
+      jsonResponse(200, {
+        blocker: null,
+        attempts: [],
+      }),
+    ])
+    const onUnblock = vi.fn().mockResolvedValue(undefined)
+    render(
+      <BlockerCard
+        reason="[validation_failed] Phase 13 validator(s) reported failures."
+        recoveryHint="Review the failed evidence check and retry."
+        onUnblock={onUnblock}
+        sessionId="s1"
+        taskId="discover_primary_analysis"
+        blockerKind={{
+          kind: 'validation_failed',
+          check: 'phase_13',
+          message: 'discovery evidence validation failed',
+          cause: null,
+        }}
+      />,
+    )
+    await waitFor(() =>
+      expect(screen.getByTestId('structured-rationale')).toBeInTheDocument(),
+    )
+    expect(
+      screen.queryByLabelText(
+        'Candidates for discover_primary_analysis',
+      ),
+    ).toBeNull()
+    expect(
+      screen.getByText(/A validation check failed/i),
+    ).toBeInTheDocument()
+
+    const user = userEvent.setup()
+    await user.type(
+      screen.getByTestId('structured-rationale'),
+      'Recompute literature eligibility from the exact-axis evidence.',
+    )
+    await user.click(
+      screen.getByRole('button', { name: /Apply decision and continue/i }),
+    )
+    expect(onUnblock).toHaveBeenCalledWith(
+      undefined,
+      'Recompute literature eligibility from the exact-axis evidence.',
+      'discover_primary_analysis',
+    )
+    // The stale decision.json is not fetched for a validation blocker.
+    // An empty structured blocker also does not POST sme-decisions.
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0]![0]).toContain(
+      '/task/discover_primary_analysis/blocker',
+    )
+  })
+
   it('keeps the submit button anchored outside the scrollable body so a tall structured blocker stays clickable', async () => {
     mockFetch([
       jsonResponse(200, {

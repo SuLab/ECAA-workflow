@@ -853,9 +853,13 @@ export default function TaskDetailDrawer({
                 'This task is blocked. Choose how to proceed.'
               }
               recoveryHint=""
-              onUnblock={async () => {
+              onUnblock={async (resolution, rationale, unblockTaskId) => {
                 if (!sessionId) return
-                await unblockChatSession(sessionId)
+                await unblockChatSession(sessionId, {
+                  resolution,
+                  rationale,
+                  taskId: unblockTaskId,
+                })
               }}
               sessionId={sessionId}
               taskId={taskId}

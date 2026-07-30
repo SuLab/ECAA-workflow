@@ -645,6 +645,28 @@ function isStructuredDecisionKind(
   return extractBlockerTaskId(reason) !== null
 }
 
+/**
+ * A retained discovery decision is not sufficient to identify the current
+ * blocker as a method-approval checkpoint. Discovery tasks can fail a later
+ * validation pass while their prior decision.json remains on disk. In that
+ * case the structured retry card must win so the SME can retain task-scoped
+ * guidance for the re-dispatched agent.
+ */
+function isDiscoveryApprovalKind(
+  kind: BlockerKind | null | undefined,
+  reason: string,
+): boolean {
+  if (kind) {
+    return (
+      kind.kind === 'awaiting_sme_approval' ||
+      kind.kind === 'awaiting_sme_selection'
+    )
+  }
+  // Legacy sessions may not carry a typed blocker, but their approval
+  // reason names the authoritative discovery decision explicitly.
+  return extractDecisionTaskId(reason) !== null
+}
+
 export default function BlockerCard({
   reason,
   recoveryHint,
@@ -708,6 +730,7 @@ export default function BlockerCard({
   // regression observed in Run #7.
   useCancelableEffect(async ({ cancelled }) => {
     if (!taskId || !sessionId) return
+    if (!isDiscoveryApprovalKind(blockerKind, reason)) return
     // decision.json is a discovery-task artifact. Skip the fetch for
     // non-discover tasks — it produces a console-noisy 404 storm on
     // any compute-task blocker (e.g. TurnBudgetExceeded on normalisation)
@@ -746,7 +769,7 @@ export default function BlockerCard({
     } catch (e) {
       if (!cancelled()) setFetchErr((e as Error).message)
     }
-  }, [taskId, sessionId])
+  }, [taskId, sessionId, blockerKind, reason])
 
   // Structured-decision fetch: mirrors the discovery path but points
   // at runtime/outputs/<task>/blocker.json. Pre-populates `answers`
@@ -801,7 +824,7 @@ export default function BlockerCard({
     }
   }
 
-  const isDiscovery = !!decision
+  const isDiscovery = !!decision && isDiscoveryApprovalKind(blockerKind, reason)
   const title = titleFor(blockerKind, isDiscovery)
 
   const handleAccept = async () => {

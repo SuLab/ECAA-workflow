@@ -322,6 +322,48 @@ fn blocker_entry(
 }
 
 impl Session {
+    /// Remove the active blocker owned by `task_id` after the harness reports
+    /// that task running again or completed.
+    ///
+    /// Progress events and conversation state are persisted independently.
+    /// Without this reconciliation, a validation blocker can remain in the
+    /// session queue after the harness has retried and completed the task,
+    /// leaving the web UI in a stale `Blocked` state while execution proceeds.
+    /// When other task blockers remain, refresh the legacy single-blocker
+    /// fields from the newest remaining entry. When the queue drains, restore
+    /// the post-emission state used by normal harness execution.
+    pub fn resolve_harness_task_blocker(&mut self, task_id: &str) -> bool {
+        let SessionState::Blocked { blockers, .. } = &self.state else {
+            return false;
+        };
+        if !blockers.iter().any(|entry| entry.task_id == task_id) {
+            return false;
+        }
+
+        let mut remaining = blockers.clone();
+        remaining.retain(|entry| entry.task_id != task_id);
+        let latest = remaining.last().cloned();
+        self.state = if let Some(last) = latest {
+            let recovery_hint = last.recovery_hint.clone().unwrap_or_default();
+            SessionState::Blocked {
+                blockers: remaining,
+                reason: last.message.clone(),
+                recovery_hint: recovery_hint.clone(),
+                blocker_kind: Some(last.kind),
+                context: Some(BlockerContext {
+                    timestamp: last.at.to_rfc3339(),
+                    recovery_hints: (!recovery_hint.is_empty()).then_some(recovery_hint),
+                }),
+            }
+        } else if self.emitted_package_path.is_some() {
+            SessionState::Emitted
+        } else {
+            SessionState::Intake
+        };
+        self.last_activity = Utc::now();
+        true
+    }
+
     /// per-turn-end update of the IntakeFollowup streak counter. Called
     /// exactly once by `tool_loop::run_tool_loop` immediately before it
     /// commits a final `Turn` and returns. If the turn ends in

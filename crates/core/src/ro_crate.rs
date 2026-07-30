@@ -1829,9 +1829,11 @@ fn upgrade_conforms_to_executed(graph: &mut Vec<Value>) {
 ///
 /// Idempotent: an `@id` already present is left untouched, so re-running after
 /// further task completions never duplicates entities. Deterministic order
-/// (tasks then files sorted). Returns the number of newly-registered tables;
-/// a no-op `Ok(0)` when the package has no `ro-crate-metadata.json`, no
-/// `runtime/outputs/`, or every produced table is already registered.
+/// (tasks then files sorted). Returns the number of newly registered evidence
+/// artifacts: produced tables plus each executed stage's real primary recorded
+/// output. A no-op `Ok(0)` when the package has no
+/// `ro-crate-metadata.json`, no `runtime/outputs/`, or every evidence artifact
+/// is already registered.
 /// A stage's primary recorded output, in attribution-priority order. Used both
 /// to detect that an agent-orchestrated stage actually RAN (so it earns a
 /// synthesized executor tool) and to pick the `result` of its production
@@ -2174,22 +2176,18 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
         new_parts.push(json!({"@id": rel}));
     }
 
-    // ── Production CreateActions for the NON-TABLE (agent-orchestrated) stages ─
+    // ── Production CreateActions for every stage's primary recorded output ───
     //
-    // The loop above covers every stage that produced a V `Table`. The
-    // validation / discovery / reporting stages produce no table, so their
-    // executor tool would have no `instrument`-side action ("Tool inverse
-    // instrument" in `must/0_tool.ttl`). Each such stage DID record a real
-    // primary output — its `result.json` execution manifest (or, in priority
-    // order, `decision.json` / `final_report.md` / `report.md` / `manifest.json`)
-    // — every one retained by all deposit profiles. Register that output File +
-    // a `CreateAction` (`instrument` = the stage executor, `result` = that real
-    // file). Nothing is fabricated: the file exists on disk and the stage
-    // produced it. Skip stages that already have a table action.
+    // A stage's table and primary summary are distinct evidence surfaces. The
+    // table loop above registers recomputable row-level results; count claims,
+    // decisions, validation outcomes, and other operational claims can cite the
+    // stage's retained `result.json` (or, in priority order, `decision.json` /
+    // `final_report.md` / `report.md` / `manifest.json`). Register that real
+    // primary output even when the same stage also produced a table. Omitting
+    // it made a machine-verified `supported_by` reference dangle solely because
+    // another output happened to be tabular. This rule is output-contract
+    // based and applies to every task and modality.
     for task in &executed_tasks {
-        if task_outputs.contains_key(task) {
-            continue;
-        }
         let Some(tool_id) = tool_for_task.get(task) else {
             continue;
         };
@@ -2401,10 +2399,10 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
 
     let added = new_parts.len();
     if added == 0 {
-        // Even with no NEW tables this invocation, a prior finalize may have
-        // registered run actions and upgraded the descriptor — persist the
-        // (idempotent) upgrade so a re-run on an already-executed crate keeps
-        // the executed `conformsTo`. With neither new tables nor any run
+        // Even with no NEW evidence artifacts this invocation, a prior finalize
+        // may have registered run actions and upgraded the descriptor — persist
+        // the (idempotent) upgrade so a re-run on an already-executed crate keeps
+        // the executed `conformsTo`. With neither new artifacts nor any run
         // action, nothing changed and we skip the write.
         if has_run_action {
             let serialized = serde_json::to_vec_pretty(&doc)?;
@@ -2413,7 +2411,8 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
         return Ok(0);
     }
 
-    // Link new tables from the root Dataset's hasPart so walkers find them.
+    // Link new evidence artifacts from the root Dataset's hasPart so walkers
+    // find them.
     if let Some(root) = graph
         .iter_mut()
         .find(|e| e.get("@id").and_then(Value::as_str) == Some("./"))

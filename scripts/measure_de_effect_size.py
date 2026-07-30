@@ -303,6 +303,7 @@ def abundance_ratio_basis(
         "effect_column": names.get("effect"),
         "information_column": names.get("information"),
         "not_computed_reason": not_computed_reason,
+        "neutral_reference": 1.0,
         "numerator": None,
         "numerator_population": NUMERATOR_POPULATION_ID,
         "numerator_population_size": int(numerator_population_size),

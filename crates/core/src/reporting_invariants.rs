@@ -80,6 +80,12 @@
 //!     [`crate::report_contract::summarize_artifact`] — zero tolerance.
 //!     Unlike RP-2 (DE/pathway-shaped), this generalizes to every
 //!     modality's terminal result artifact.
+//!   * **RC-METRIC-DEFINITION** every reported stage metric that retains a
+//!     sibling definition and computation basis must preserve that definition,
+//!     agree with the basis value, and state the value's relation to any
+//!     explicitly retained neutral reference. Discovery is structural at any
+//!     JSON object depth and does not depend on a task id, modality, metric
+//!     name, or a hard-coded neutral value.
 //!   * **RC-LITERATURE** every literature entity count in `report-data.json`,
 //!     the contextualization result, and any explicitly named narrative claim
 //!     must equal a fresh recomputation from `claims_evidence_matrix.csv`.
@@ -259,6 +265,7 @@ pub fn check_reporting_invariants(package_root: &Path) -> ReportingInvariantsRep
     let mut report = ReportingInvariantsReport::default();
     let outputs = package_root.join("runtime").join("outputs");
 
+    check_rc_self_describing_metrics(&outputs, &mut report);
     check_rp1_effect_direction(package_root, &outputs, &mut report);
     check_rp2_gene_sets_tested(&outputs, &mut report);
     check_rc_pathway_collections(&outputs, &mut report);
@@ -276,7 +283,7 @@ pub fn check_reporting_invariants(package_root: &Path) -> ReportingInvariantsRep
     check_rp_qc_negative_claim(&outputs, &mut report);
     check_rc_attachment_filter_claim(package_root, &outputs, &mut report);
     check_rc_count(package_root, &outputs, &mut report);
-    check_rc_literature_counts(&outputs, &mut report);
+    check_rc_literature_counts(package_root, &outputs, &mut report);
     check_rc_identity(&outputs, &mut report);
     check_rc_sections(package_root, &outputs, &mut report);
     check_rc_table(&outputs, &mut report);
@@ -1256,6 +1263,228 @@ fn check_rp5_figure_caption_shape(outputs: &Path, report: &mut ReportingInvarian
              expression matrix"
         ),
     });
+}
+
+// ---------------------------------------------------------------------------
+// RC-METRIC-DEFINITION (Required) — self-describing metrics stay source-exact
+// ---------------------------------------------------------------------------
+
+#[derive(Debug)]
+struct SelfDescribingMetric {
+    key: String,
+    field_path: String,
+    value: f64,
+    description: String,
+    basis: serde_json::Map<String, Value>,
+}
+
+/// Discover self-describing metrics at any object depth. Sibling lookup stays
+/// local to each object, so an unrelated description or basis elsewhere in a
+/// stage result can never be attached to the numeric field.
+fn collect_self_describing_metrics(
+    value: &Value,
+    prefix: &mut Vec<String>,
+    out: &mut Vec<SelfDescribingMetric>,
+) {
+    match value {
+        Value::Object(object) => {
+            for (key, child) in object {
+                if let Some(metric_value) = child.as_f64().filter(|value| value.is_finite()) {
+                    let description = object
+                        .get(&format!("{key}_description"))
+                        .and_then(Value::as_str)
+                        .filter(|description| !description.trim().is_empty());
+                    let basis = object
+                        .get(&format!("{key}_basis"))
+                        .and_then(Value::as_object);
+                    if let (Some(description), Some(basis)) = (description, basis) {
+                        let mut field_path = prefix.clone();
+                        field_path.push(key.clone());
+                        out.push(SelfDescribingMetric {
+                            key: key.clone(),
+                            field_path: field_path.join("."),
+                            value: metric_value,
+                            description: description.to_string(),
+                            basis: basis.clone(),
+                        });
+                    }
+                }
+                prefix.push(key.clone());
+                collect_self_describing_metrics(child, prefix, out);
+                prefix.pop();
+            }
+        }
+        Value::Array(values) => {
+            for (index, child) in values.iter().enumerate() {
+                prefix.push(index.to_string());
+                collect_self_describing_metrics(child, prefix, out);
+                prefix.pop();
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Enforce the reporting contract for any stage metric that retains both a
+/// sibling `<metric>_description` string and `<metric>_basis` object.
+///
+/// The producing stage has already named the statistic, numerator,
+/// denominator, populations, and units. A report that cites the metric key must
+/// therefore carry that retained definition verbatim after whitespace
+/// normalization. This is discovered from result structure, not from task,
+/// modality, or column names. A metric whose basis explicitly declares a
+/// finite `neutral_reference` must also state whether its value is above,
+/// below, or equal to that reference.
+fn check_rc_self_describing_metrics(outputs: &Path, report: &mut ReportingInvariantsReport) {
+    let mut surfaces: Vec<(String, String)> = [
+        ("reporting/report.md", outputs.join("reporting/report.md")),
+        (
+            "final_reporting/final_report.md",
+            outputs.join("final_reporting/final_report.md"),
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(label, path)| {
+        std::fs::read_to_string(path)
+            .ok()
+            .map(|text| (label.to_string(), strip_provenance_section(&text)))
+    })
+    .collect();
+    if surfaces.is_empty() {
+        return;
+    }
+    surfaces.sort_by(|left, right| left.0.cmp(&right.0));
+
+    let Ok(entries) = std::fs::read_dir(outputs) else {
+        return;
+    };
+    let mut task_dirs: Vec<_> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .collect();
+    task_dirs.sort();
+
+    let normalize_whitespace = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut findings = BTreeSet::new();
+    let mut checked = false;
+    for task_dir in task_dirs {
+        let Some(task_id) = task_dir.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        let Some(result) = read_json(&task_dir.join("result.json")) else {
+            continue;
+        };
+        let mut metrics = Vec::new();
+        collect_self_describing_metrics(&result, &mut Vec::new(), &mut metrics);
+        metrics.sort_by(|left, right| left.field_path.cmp(&right.field_path));
+        for retained in metrics {
+            let SelfDescribingMetric {
+                key: metric,
+                field_path,
+                value,
+                description,
+                basis,
+            } = retained;
+            if basis.get("computed").and_then(Value::as_bool) == Some(false) {
+                continue;
+            }
+
+            if let Some(basis_value) = basis.get("value").and_then(Value::as_f64) {
+                if !basis_value.is_finite()
+                    || (basis_value - value).abs()
+                        > f64::EPSILON * value.abs().max(basis_value.abs()).max(1.0)
+                {
+                    checked = true;
+                    findings.insert(format!(
+                        "stage `{task_id}` metric `{field_path}` has value {value}, but its \
+                         retained basis records {basis_value}"
+                    ));
+                }
+            }
+
+            let normalized_description = normalize_whitespace(&description);
+            let neutral_reference = basis
+                .get("neutral_reference")
+                .and_then(Value::as_f64)
+                .filter(|reference| reference.is_finite());
+            for (surface, prose) in &surfaces {
+                let prose_lower = prose.to_ascii_lowercase();
+                let metric_lower = metric.to_ascii_lowercase();
+                let field_path_lower = field_path.to_ascii_lowercase();
+                let anchors = {
+                    let mut anchors = find_all(&prose_lower, &field_path_lower);
+                    if field_path_lower != metric_lower {
+                        anchors.extend(find_all(&prose_lower, &metric_lower));
+                    }
+                    anchors.sort_unstable();
+                    anchors.dedup();
+                    anchors
+                };
+                if anchors.is_empty() {
+                    continue;
+                }
+                checked = true;
+                let normalized_prose = normalize_whitespace(prose);
+                if !normalized_prose.contains(&normalized_description) {
+                    findings.insert(format!(
+                        "{surface} cites `{metric}` but does not preserve the producing stage's \
+                         retained definition verbatim"
+                    ));
+                }
+
+                if let Some(neutral_reference) = neutral_reference {
+                    let mut says_above = false;
+                    let mut says_below = false;
+                    let mut says_equal = false;
+                    for anchor in anchors {
+                        let window = clause_around(&prose_lower, anchor);
+                        says_above |= EFFECT_DIRECTION_ABOVE
+                            .iter()
+                            .any(|word| window.contains(word));
+                        says_below |= EFFECT_DIRECTION_BELOW
+                            .iter()
+                            .any(|word| window.contains(word));
+                        says_equal |= ["equal to", "equals", "the same as"]
+                            .iter()
+                            .any(|word| window.contains(word));
+                    }
+                    let relation_ok = if value < neutral_reference {
+                        says_below && !says_above
+                    } else if value > neutral_reference {
+                        says_above && !says_below
+                    } else {
+                        says_equal && !says_above && !says_below
+                    };
+                    if !relation_ok {
+                        let expected = if value < neutral_reference {
+                            "below"
+                        } else if value > neutral_reference {
+                            "above"
+                        } else {
+                            "equal to"
+                        };
+                        findings.insert(format!(
+                            "{surface} cites metric `{metric}` = {value} without an unambiguous \
+                             statement that it is {expected} its retained neutral reference \
+                             {neutral_reference}"
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    if checked {
+        report.checked.push("RC-METRIC-DEFINITION");
+    }
+    if !findings.is_empty() {
+        report.findings.push(ReportingFinding {
+            invariant: "RC-METRIC-DEFINITION",
+            severity: Severity::Required,
+            detail: findings.into_iter().collect::<Vec<_>>().join(" | "),
+        });
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2441,14 +2670,62 @@ fn is_sample_qc_artifact(file_name: &str) -> bool {
         .any(|t| matches!(t, "pca" | "mds"))
 }
 
-/// The first object key containing "outlier" anywhere in a JSON document — a
-/// recorded outlier verdict counts as a retained artifact even when no file is
-/// named for it.
+/// Whether a value explicitly records that an assessment was unavailable or
+/// never run. Such metadata documents the absence of a computation; it is not
+/// itself a retained assessment result.
+fn assessment_was_not_run(v: &Value) -> bool {
+    match v {
+        Value::Null => true,
+        Value::String(raw) => {
+            let token: String = raw
+                .chars()
+                .filter(|character| character.is_ascii_alphanumeric())
+                .flat_map(char::to_lowercase)
+                .collect();
+            matches!(
+                token.as_str(),
+                "" | "notperformed"
+                    | "notassessed"
+                    | "notcomputed"
+                    | "notrun"
+                    | "unavailable"
+                    | "notavailable"
+                    | "notapplicable"
+                    | "noassessment"
+                    | "skipped"
+                    | "omitted"
+                    | "unknown"
+            )
+        }
+        Value::Object(map) => map.iter().any(|(key, value)| {
+            let key: String = key
+                .chars()
+                .filter(|character| character.is_ascii_alphanumeric())
+                .flat_map(char::to_lowercase)
+                .collect();
+            (matches!(
+                key.as_str(),
+                "status" | "state" | "assessmentstatus" | "availability"
+            ) && assessment_was_not_run(value))
+                || (matches!(key.as_str(), "performed" | "available")
+                    && value.as_bool() == Some(false))
+        }),
+        // An empty result array is a valid negative assessment, for example
+        // `outlier_samples: []`. Booleans and numbers are likewise verdicts.
+        Value::Array(_) | Value::Bool(_) | Value::Number(_) => false,
+    }
+}
+
+/// The first object key containing "outlier" anywhere in a JSON document whose
+/// VALUE records a real assessment or verdict. A key such as
+/// `sample_outlier_assessment: "not_performed"` is absence metadata, not an
+/// outlier artifact. Conversely, `outlier_samples: []` is a retained negative
+/// verdict and therefore counts.
 fn find_outlier_key(v: &Value) -> Option<String> {
     match v {
         Value::Object(map) => {
             for (k, val) in map {
-                if k.to_lowercase().contains("outlier") {
+                if k.to_lowercase().contains("outlier") && !assessment_was_not_run(val) {
                     return Some(k.clone());
                 }
                 if let Some(hit) = find_outlier_key(val) {
@@ -2904,6 +3181,322 @@ fn json_named_u64(value: &Value, name: &str) -> Option<u64> {
     })
 }
 
+/// Require the declared `literature_concordance` table to preserve the
+/// evidence-row denominator represented by `LiteratureRollup::{concordant,
+/// discordant,unverifiable}`. One entity can occur under several PMIDs and
+/// even several statuses, so collapsing to one priority verdict per entity
+/// destroys retained evidence and makes category totals look mutually
+/// exclusive when they are not.
+fn check_literature_evidence_table(
+    package_root: &Path,
+    outputs: &Path,
+    literature: &crate::report_contract::LiteratureRollup,
+    mismatches: &mut Vec<String>,
+) {
+    type EvidenceKey = (String, String, String);
+    let mut expected: BTreeMap<EvidenceKey, usize> = BTreeMap::new();
+    let mut expected_measurements: BTreeMap<EvidenceKey, Vec<(Option<f64>, Option<f64>)>> =
+        BTreeMap::new();
+    for (status, findings) in [
+        ("concordant", literature.concordant.as_slice()),
+        ("discordant", literature.discordant.as_slice()),
+        ("unverifiable", literature.unverifiable.as_slice()),
+    ] {
+        for finding in findings {
+            let key = (
+                normalize_cell(&finding.entity),
+                status.to_string(),
+                finding.pmid.trim().to_string(),
+            );
+            *expected.entry(key.clone()).or_default() += 1;
+            expected_measurements
+                .entry(key)
+                .or_default()
+                .push((finding.effect, finding.significance));
+        }
+    }
+    if expected.is_empty() {
+        return;
+    }
+
+    let report_path = outputs.join("reporting").join("report.md");
+    let Ok(narrative) = std::fs::read_to_string(&report_path) else {
+        mismatches.push(
+            "reporting/report.md is absent, so the literature evidence table cannot be checked"
+                .into(),
+        );
+        return;
+    };
+    let tables = agent_authored_tables(&narrative);
+    let has_literature_columns = |table: &&NarrativeTable| {
+        let headers: Vec<String> = table
+            .header
+            .iter()
+            .map(|header| normalize_cell(header))
+            .collect();
+        headers.iter().any(|header| header == "entity")
+            && headers
+                .iter()
+                .any(|header| header.contains("verdict") || header == "status")
+            && headers.iter().any(|header| header.contains("pmid"))
+    };
+    let heading_names_literature = |table: &&NarrativeTable| {
+        let heading = normalize_cell(&table.heading);
+        heading.contains("literature")
+            && (heading.contains("concordance") || heading.contains("evidence"))
+    };
+    // A short explanatory paragraph commonly sits between a section heading
+    // and its table, so the nearest non-blank line is not necessarily the
+    // markdown heading. Prefer a heading-labelled structural match, then fall
+    // back to the table's modality-neutral Entity + Status + PMID signature.
+    let Some(table) = tables
+        .iter()
+        .find(|table| has_literature_columns(table) && heading_names_literature(table))
+        .or_else(|| tables.iter().find(has_literature_columns))
+    else {
+        mismatches.push(
+            "the report has assessed literature evidence but no literature concordance/evidence table"
+                .into(),
+        );
+        return;
+    };
+
+    let normalized_headers: Vec<String> = table
+        .header
+        .iter()
+        .map(|header| normalize_cell(header))
+        .collect();
+    let entity_col = normalized_headers
+        .iter()
+        .position(|header| header == "entity");
+    let status_col = normalized_headers
+        .iter()
+        .position(|header| header.contains("verdict") || header == "status");
+    let pmid_col = normalized_headers
+        .iter()
+        .position(|header| header.contains("pmid"));
+    let (Some(entity_col), Some(status_col), Some(pmid_col)) = (entity_col, status_col, pmid_col)
+    else {
+        mismatches.push(
+            "the literature evidence table must expose Entity, Verdict/Status, and PMID columns"
+                .into(),
+        );
+        return;
+    };
+
+    let compact = |text: &str| -> String {
+        text.chars()
+            .filter(|character| character.is_alphanumeric())
+            .flat_map(char::to_lowercase)
+            .collect()
+    };
+    let mut effect_names: BTreeSet<String> =
+        ["effect", "effect size"].into_iter().map(compact).collect();
+    let mut significance_names: BTreeSet<String> =
+        ["significance", "adjusted p value", "false discovery rate"]
+            .into_iter()
+            .map(compact)
+            .collect();
+    let policy_names = load_policy_column_synonyms(package_root);
+    effect_names.extend(policy_names.effect.iter().map(|name| compact(name)));
+    significance_names.extend(policy_names.significance.iter().map(|name| compact(name)));
+    if let Some(schemas) = read_report_schemas(package_root) {
+        for schema in schemas.values() {
+            if let Some(name) = &schema.signed_effect_column {
+                effect_names.insert(compact(name));
+            }
+            effect_names.extend(
+                schema
+                    .signed_effect_aliases
+                    .iter()
+                    .map(|name| compact(name)),
+            );
+            if let Some(significance) = &schema.significance {
+                significance_names.insert(compact(&significance.column));
+            }
+        }
+    }
+    let header_matches = |header: &str, names: &BTreeSet<String>| {
+        let header = compact(header);
+        names
+            .iter()
+            .filter(|name| !name.is_empty())
+            .any(|name| header == *name || (name.len() >= 3 && header.contains(name)))
+    };
+    let effect_col = table
+        .header
+        .iter()
+        .position(|header| header_matches(header, &effect_names));
+    let significance_col = table
+        .header
+        .iter()
+        .position(|header| header_matches(header, &significance_names));
+    let expects_effect = expected_measurements
+        .values()
+        .flatten()
+        .any(|(effect, _)| effect.is_some());
+    let expects_significance = expected_measurements
+        .values()
+        .flatten()
+        .any(|(_, significance)| significance.is_some());
+    if expects_effect && effect_col.is_none() {
+        mismatches.push(
+            "the literature evidence table omits the retained effect measurement column".into(),
+        );
+    }
+    if expects_significance && significance_col.is_none() {
+        mismatches.push(
+            "the literature evidence table omits the retained significance measurement column"
+                .into(),
+        );
+    }
+
+    let pmid_re = Regex::new(r"\b\d{4,9}\b").expect("static PMID cell regex compiles");
+    let mut actual: BTreeMap<EvidenceKey, usize> = BTreeMap::new();
+    let mut actual_measurements: BTreeMap<EvidenceKey, Vec<(Option<f64>, Option<f64>)>> =
+        BTreeMap::new();
+    let mut malformed_rows = 0usize;
+    let mut aggregated_rows = 0usize;
+    for row in &table.rows {
+        let entity = row.get(entity_col).map(|cell| normalize_cell(cell));
+        let status = row.get(status_col).map(|cell| normalize_cell(cell));
+        let pmid_cell = row.get(pmid_col).map(String::as_str).unwrap_or_default();
+        let pmids: Vec<&str> = pmid_re
+            .find_iter(pmid_cell)
+            .map(|matched| matched.as_str())
+            .collect();
+        let (Some(entity), Some(mut status)) = (entity, status) else {
+            malformed_rows += 1;
+            continue;
+        };
+        status = match status.as_str() {
+            "same direction" | "same_direction" => "concordant".into(),
+            "opposite direction" | "opposite_direction" => "discordant".into(),
+            _ => status,
+        };
+        if entity.is_empty() || pmids.is_empty() {
+            malformed_rows += 1;
+            continue;
+        }
+        if pmids.len() != 1 {
+            aggregated_rows += 1;
+        }
+        let measurements = (
+            effect_col
+                .and_then(|column| row.get(column))
+                .and_then(|cell| parse_markdown_number(cell)),
+            significance_col
+                .and_then(|column| row.get(column))
+                .and_then(|cell| parse_markdown_number(cell)),
+        );
+        for pmid in pmids {
+            let key = (entity.clone(), status.clone(), pmid.to_string());
+            *actual.entry(key.clone()).or_default() += 1;
+            actual_measurements
+                .entry(key)
+                .or_default()
+                .push(measurements);
+        }
+    }
+
+    if malformed_rows > 0 {
+        mismatches.push(format!(
+            "literature evidence table has {malformed_rows} row(s) without one resolvable entity, status, and PMID"
+        ));
+    }
+    if aggregated_rows > 0 {
+        mismatches.push(format!(
+            "literature evidence table aggregates multiple PMIDs in {aggregated_rows} row(s); it must retain one row per evidence record"
+        ));
+    }
+    if table.rows.len() != literature.n_evidence_rows_assessed as usize {
+        mismatches.push(format!(
+            "literature evidence table has {} row(s), but report-data.json declares {} assessed evidence rows",
+            table.rows.len(),
+            literature.n_evidence_rows_assessed
+        ));
+    }
+    if actual != expected {
+        let missing: usize = expected
+            .iter()
+            .map(|(key, count)| count.saturating_sub(actual.get(key).copied().unwrap_or(0)))
+            .sum();
+        let extra: usize = actual
+            .iter()
+            .map(|(key, count)| count.saturating_sub(expected.get(key).copied().unwrap_or(0)))
+            .sum();
+        mismatches.push(format!(
+            "literature evidence table differs from the report-data evidence-row multiset ({missing} missing, {extra} extra)"
+        ));
+    }
+
+    if (!expects_effect || effect_col.is_some())
+        && (!expects_significance || significance_col.is_some())
+    {
+        let tolerances = NarrativeTolerances::load(package_root);
+        let agrees = |expected: Option<f64>, actual: Option<f64>, significance: bool| match (
+            expected, actual,
+        ) {
+            (None, None) => true,
+            (Some(expected), Some(actual)) => tolerances.as_ref().map_or_else(
+                || expected == actual,
+                |tolerance| {
+                    tolerance.agrees(
+                        &RoleCell {
+                            narrative: 0,
+                            source: 0,
+                            significance,
+                        },
+                        actual,
+                        expected,
+                    )
+                },
+            ),
+            _ => false,
+        };
+        let mut measurement_mismatches = 0usize;
+        for (key, expected_values) in &expected_measurements {
+            let mut actual_values = actual_measurements.get(key).cloned().unwrap_or_default();
+            if actual_values.len() != expected_values.len() {
+                // Identity/multiplicity drift is already reported by the
+                // evidence-row multiset check above. Compare measurements only
+                // for keys whose rows align one-for-one, so a collapsed PMID or
+                // wrong status is not mislabeled as a numeric transcription
+                // error as well.
+                continue;
+            }
+            for expected_value in expected_values {
+                let matching = actual_values.iter().position(|actual_value| {
+                    agrees(expected_value.0, actual_value.0, false)
+                        && agrees(expected_value.1, actual_value.1, true)
+                });
+                if let Some(index) = matching {
+                    actual_values.remove(index);
+                } else {
+                    measurement_mismatches += 1;
+                }
+            }
+            measurement_mismatches += actual_values.len();
+        }
+        if measurement_mismatches > 0 {
+            mismatches.push(format!(
+                "literature evidence table has {measurement_mismatches} row(s) whose effect or significance does not match the retained evidence object"
+            ));
+        }
+    }
+
+    let entity_bucket_re = Regex::new(
+        r"(?is)summary\s+of\s+assessed\s+entities\b.{0,1200}?\b\d[\d,]*\s+concordant\b.{0,400}?\b\d[\d,]*\s+discordant\b.{0,400}?\b\d[\d,]*\s+unverifiable\b",
+    )
+    .expect("static literature entity-bucket regex compiles");
+    if entity_bucket_re.is_match(&narrative) {
+        mismatches.push(
+            "the narrative presents concordant, discordant, and unverifiable evidence-row statuses as a partition of assessed entities; entities may occur in more than one status"
+                .into(),
+        );
+    }
+}
+
 /// RC-LITERATURE: keep distinct-entity and evidence-row denominators aligned
 /// across the deterministic report contract, the contextualization summary,
 /// and narrative claims that explicitly name one of those machine fields.
@@ -2913,7 +3506,11 @@ fn json_named_u64(value: &Value, name: &str) -> Option<u64> {
 /// so 242 unresolved accessions cannot become one entity named `NA`. The
 /// narrative scan is deliberately limited to explicit field names; an
 /// unlabelled free-text number is too ambiguous to block a deposit.
-fn check_rc_literature_counts(outputs: &Path, report: &mut ReportingInvariantsReport) {
+fn check_rc_literature_counts(
+    package_root: &Path,
+    outputs: &Path,
+    report: &mut ReportingInvariantsReport,
+) {
     let matrix_path = outputs
         .join("contextualize_findings_with_literature")
         .join("claims_evidence_matrix.csv");
@@ -2948,6 +3545,7 @@ fn check_rc_literature_counts(outputs: &Path, report: &mut ReportingInvariantsRe
                     ));
                 }
             }
+            check_literature_evidence_table(package_root, outputs, &literature, &mut mismatches);
         }
     }
 
@@ -3114,13 +3712,32 @@ fn heading_matches_section(line: &str, words: &[String]) -> bool {
         return false;
     }
     let lc = trimmed.to_lowercase();
+    let compact: String = lc
+        .chars()
+        .filter(|character| character.is_alphanumeric())
+        .collect();
+    let contains_form = |form: &str| {
+        let form_lc = form.to_lowercase();
+        let form_compact: String = form_lc
+            .chars()
+            .filter(|character| character.is_alphanumeric())
+            .collect();
+        lc.contains(&form_lc)
+            || (!form_compact.is_empty() && compact.contains(form_compact.as_str()))
+    };
     // Each id-word must be present, either verbatim or via a universal
     // spelled-out alias. Keeping the "ALL words present" requirement preserves
     // the strictness that stops an unrelated heading from anchoring a section;
     // aliases only bridge abbreviation ↔ expansion, never widen the match.
-    words
-        .iter()
-        .all(|w| lc.contains(w.as_str()) || section_word_aliases(w).iter().any(|a| lc.contains(a)))
+    // Compact comparison also treats punctuation as presentation: a contract
+    // token such as `preprocessing` matches "Pre-processing" without adding a
+    // domain-specific heading synonym.
+    words.iter().all(|word| {
+        contains_form(word)
+            || section_word_aliases(word)
+                .iter()
+                .any(|alias| contains_form(alias))
+    })
 }
 
 /// Whether required section `id` is present as a matching markdown HEADING in
@@ -3969,6 +4586,33 @@ fn verify_ranked_table(
         );
     }
     let heading = table.heading.to_ascii_lowercase();
+    let generic_effect_order = [
+        "by effect size",
+        "by absolute effect",
+        "ranked by effect",
+        "ordered by effect",
+        "sorted by effect",
+    ]
+    .iter()
+    .any(|cue| heading.contains(cue));
+    let declared_effect_order = source
+        .cols
+        .effect
+        .and_then(|column| source.headers.get(column))
+        .map(normalize_cell)
+        .filter(|column| !column.is_empty())
+        .is_some_and(|column| {
+            ["by", "ranked by", "ordered by", "sorted by"]
+                .iter()
+                .any(|prefix| heading.contains(&format!("{prefix} {column}")))
+        });
+    if generic_effect_order || declared_effect_order {
+        return RankedTableCheck::Failure(
+            "caption says the table is ordered by effect size, but the canonical ranking is \
+             declared significance first, then absolute effect, entity, and source row"
+                .into(),
+        );
+    }
     let positive = [
         "enriched",
         "positive",
@@ -4443,6 +5087,125 @@ mod tests {
     }
 
     #[test]
+    fn rc_literature_requires_one_table_row_per_retained_evidence_record() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "contextualize_findings_with_literature/claims_evidence_matrix.csv",
+            "finding_id,entity,pmid,concordance_flag,searched\n\
+             F1,GENE1,11111111,same_direction,true\n\
+             F2,GENE1,22222222,opposite_direction,true\n",
+        );
+        write(
+            &outputs,
+            "contextualize_findings_with_literature/result.json",
+            r#"{
+                "n_entities_assessed": 1,
+                "n_entities_not_assessed": 0,
+                "n_evidence_rows_assessed": 2,
+                "n_evidence_rows_total": 2
+            }"#,
+        );
+        write(
+            &outputs,
+            "reporting/report-data.json",
+            &serde_json::json!({
+                "artifacts": [],
+                "literature": {
+                    "concordant": [{
+                        "entity": "GENE1",
+                        "pmid": "11111111",
+                        "evidence_quote": "up",
+                        "effect": 1.0,
+                        "significance": 0.01
+                    }],
+                    "discordant": [{
+                        "entity": "GENE1",
+                        "pmid": "22222222",
+                        "evidence_quote": "down",
+                        "effect": 1.0,
+                        "significance": 0.01
+                    }],
+                    "unverifiable": [],
+                    "non_replications": [],
+                    "novel_count": 0,
+                    "not_assessed_count": 0,
+                    "n_entities_assessed": 1,
+                    "n_entities_not_assessed": 0,
+                    "n_evidence_rows_assessed": 2,
+                    "n_evidence_rows_total": 2,
+                    "retrieved_sources": ["11111111", "22222222"]
+                }
+            })
+            .to_string(),
+        );
+        write(
+            &outputs,
+            "reporting/report.md",
+            "## Literature Contextualization\n\n\
+             Summary of assessed entities (1 total):\n\
+             - 1 concordant\n- 1 discordant\n- 0 unverifiable\n\n\
+             ### Literature concordance table\n\n\
+             | Entity | Verdict | PMIDs |\n\
+             |---|---|---|\n\
+             | GENE1 | concordant | 11111111; 22222222 |\n",
+        );
+
+        let collapsed = check_reporting_invariants(tmp.path());
+        let failures = collapsed.required_failures();
+        assert!(
+            failures.iter().any(|failure| {
+                failure.starts_with("RC-LITERATURE:")
+                    && failure.contains("one row per evidence record")
+                    && failure.contains("partition of assessed entities")
+            }),
+            "{failures:?}"
+        );
+
+        write(
+            &outputs,
+            "reporting/report.md",
+            "## Literature Contextualization\n\n\
+             One distinct entity was assessed. Two assessed evidence rows \
+             comprised 1 concordant and 1 discordant evidence row.\n\n\
+             ### Literature concordance evidence table\n\n\
+             | Entity | Verdict | PMID | Effect | Significance |\n\
+             |---|---|---|---:|---:|\n\
+             | GENE1 | concordant | 11111111 | 1.0 | 0.01 |\n\
+             | GENE1 | discordant | 22222222 | 1.0 | 0.01 |\n",
+        );
+        let corrected = check_reporting_invariants(tmp.path());
+        assert!(
+            corrected
+                .required_failures()
+                .iter()
+                .all(|failure| !failure.starts_with("RC-LITERATURE:")),
+            "{corrected:?}"
+        );
+
+        write(
+            &outputs,
+            "reporting/report.md",
+            "## Literature Contextualization\n\n\
+             One distinct entity was assessed. Two assessed evidence rows \
+             comprised 1 concordant and 1 discordant evidence row.\n\n\
+             ### Literature concordance evidence table\n\n\
+             | Entity | Verdict | PMID | Effect | Significance |\n\
+             |---|---|---|---:|---:|\n\
+             | GENE1 | concordant | 11111111 | -9.0 | 0.01 |\n\
+             | GENE1 | discordant | 22222222 | 1.0 | 0.01 |\n",
+        );
+        let wrong_measurement = check_reporting_invariants(tmp.path());
+        assert!(
+            wrong_measurement.required_failures().iter().any(|failure| {
+                failure.starts_with("RC-LITERATURE:") && failure.contains("effect or significance")
+            }),
+            "{wrong_measurement:?}"
+        );
+    }
+
+    #[test]
     fn rc_attachment_rejects_effect_cutoff_not_used_to_generate_attachment() {
         let tmp = TempDir::new().unwrap();
         let outputs = outputs_dir(&tmp);
@@ -4605,6 +5368,16 @@ mod tests {
             ),
             RankedTableCheck::Pass
         ));
+        let misleading_caption = NarrativeTable {
+            heading: "Top 2 enriched entities by effect size".into(),
+            ..table(&[("A", "2.0", "0.01"), ("B", "3.0", "0.02")])
+        };
+        match verify_ranked_table(&misleading_caption, &binding, &source, &ranking, 2) {
+            RankedTableCheck::Failure(detail) => {
+                assert!(detail.contains("significance first"), "{detail}");
+            }
+            _ => panic!("an effect-first caption must fail a significance-first ranking"),
+        }
         match verify_ranked_table(
             &table(&[("B", "3.0", "0.02"), ("C", "4.0", "0.03")]),
             &binding,
@@ -5521,6 +6294,92 @@ mod tests {
         );
     }
 
+    // -- RC-METRIC-DEFINITION (required, structure-driven) ---------------
+
+    #[test]
+    fn rc_metric_definition_rejects_definition_drift_and_reversed_reference_relation() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "association_scoring/result.json",
+            &serde_json::json!({
+                "signal_reference_ratio": 0.4,
+                "signal_reference_ratio_description":
+                    "signal_reference_ratio = 0.4 is the median signal in the selected \
+                     entities divided by the median signal in the complete source cohort.",
+                "signal_reference_ratio_basis": {
+                    "computed": true,
+                    "statistic": "ratio_of_medians",
+                    "neutral_reference": 0.5,
+                    "value": 0.4
+                }
+            })
+            .to_string(),
+        );
+        write(
+            &outputs,
+            "reporting/report.md",
+            "The `signal_reference_ratio` is 0.4: it is the median signal in the selected \
+             entities divided by the median signal in the retained cohort, placing the \
+             selected entities above the retained neutral reference 0.5.\n",
+        );
+
+        let report = check_reporting_invariants(tmp.path());
+        let failures = report.required_failures().join(" | ");
+        assert!(
+            failures.contains("RC-METRIC-DEFINITION")
+                && failures.contains("does not preserve")
+                && failures.contains("below"),
+            "{failures}"
+        );
+    }
+
+    #[test]
+    fn rc_metric_definition_accepts_retained_definition_and_ratio_relation() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        let description = "signal_reference_ratio = 0.4 is the median signal in the selected \
+                           entities divided by the median signal in the complete source cohort";
+        write(
+            &outputs,
+            "association_scoring/result.json",
+            &serde_json::json!({
+                "summaries": {
+                    "primary": {
+                        "signal_reference_ratio": 0.4,
+                        "signal_reference_ratio_description": description,
+                        "signal_reference_ratio_basis": {
+                            "computed": true,
+                            "statistic": "ratio_of_medians",
+                            "neutral_reference": 0.5,
+                            "value": 0.4
+                        }
+                    }
+                }
+            })
+            .to_string(),
+        );
+        write(
+            &outputs,
+            "reporting/report.md",
+            &format!(
+                "{description}; `signal_reference_ratio` is therefore below the retained \
+                 neutral reference 0.5.\n"
+            ),
+        );
+
+        let report = check_reporting_invariants(tmp.path());
+        assert!(report.checked.contains(&"RC-METRIC-DEFINITION"));
+        assert!(
+            report
+                .required_failures()
+                .iter()
+                .all(|failure| !failure.contains("RC-METRIC-DEFINITION")),
+            "{report:?}"
+        );
+    }
+
     // -- RP-1 (warn, structural) -----------------------------------------
 
     #[test]
@@ -6142,6 +7001,14 @@ mod tests {
             ),
             Some(true)
         );
+        assert_eq!(
+            section_has_content(
+                "## QC and Pre-processing\n\nFiltering details are retained here.\n",
+                "qc_preprocessing"
+            ),
+            Some(true),
+            "heading punctuation must not change a contract token"
+        );
     }
 
     #[test]
@@ -6681,6 +7548,37 @@ mod tests {
                 .iter()
                 .all(|f| !f.contains("RP-QC")),
             "a recorded outlier verdict corroborates the claim: {report:?}"
+        );
+    }
+
+    #[test]
+    fn rp_qc_accepts_explicit_unperformed_metadata_and_matching_report() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "reporting/report.md",
+            "### Sample-outlier assessment\n\nNo sample-outlier assessment was performed \
+             in this run. No PCA, sample-distance, or sample-correlation QC artifact was \
+             produced.\n",
+        );
+        write(
+            &outputs,
+            "quality_control/qc_summary.json",
+            &serde_json::json!({
+                "sample_outlier_assessment": "not_performed",
+                "sample_count": 12
+            })
+            .to_string(),
+        );
+
+        let report = check_reporting_invariants(tmp.path());
+        assert!(
+            report
+                .required_failures()
+                .iter()
+                .all(|failure| !failure.starts_with("RP-QC:")),
+            "absence metadata is not a retained outlier computation: {report:?}"
         );
     }
 

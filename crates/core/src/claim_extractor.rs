@@ -405,6 +405,14 @@ static SENTENCE_SPLITTER_RE: LazyLock<Regex> = LazyLock::new(|| {
 static TABLE_REF_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)Table\s+S?[0-9A-Za-z_\-]+").expect("static regex"));
 
+/// Explicit delimited-artifact path/name inside backticks. Reports use these
+/// references in attachment inventories (for example,
+/// `runtime/outputs/anomaly_screen/flagged_events.significant.tsv`).
+/// Treating the path as an evidence citation lets the verifier resolve the
+/// exact retained table instead of reporting an unlinked aggregate count.
+static BACKTICK_TABLE_PATH_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)`([^`\r\n]+\.(?:tsv|csv))`").expect("static regex"));
+
 /// A markdown bibliography/inventory bullet whose bold lead is only one or
 /// more numeric source locators. These rows describe what the retrieval stage
 /// fetched; author initials and query-axis labels in them are metadata, not
@@ -2343,6 +2351,25 @@ fn is_contextual_non_entity(sentence: &str, start: usize, end: usize, token: &st
     let upper = token.to_ascii_uppercase();
     let lower = sentence.to_ascii_lowercase();
 
+    // RO-Crate is a packaging format, not an analysis entity. Keep the
+    // suppression local to that compound so an identifier spelled `RO`
+    // remains eligible in every other modality and namespace.
+    if upper == "RO" {
+        let before = sentence[..start].trim_end();
+        let after = sentence[end..].trim_start();
+        if after
+            .trim_start_matches(['-', '_'])
+            .to_ascii_lowercase()
+            .starts_with("crate")
+            || before
+                .split_whitespace()
+                .next_back()
+                .is_some_and(|prefix| prefix.eq_ignore_ascii_case("crate"))
+        {
+            return true;
+        }
+    }
+
     // Donor/sample labels in a design sentence, e.g. "(N1, N61, N052611)".
     if upper.starts_with('N')
         && upper[1..].bytes().all(|byte| byte.is_ascii_digit())
@@ -2763,6 +2790,12 @@ pub(crate) fn scan_table_reference(sentence: &str) -> Option<String> {
             standalone && !deictic
         })
         .map(|m| m.as_str().to_string())
+        .or_else(|| {
+            BACKTICK_TABLE_PATH_RE
+                .captures(sentence)
+                .and_then(|captures| captures.get(1))
+                .map(|matched| matched.as_str().to_string())
+        })
 }
 
 /// Static regex collapsing `<num> × 10<exp>` (after Unicode→ASCII mapping)
@@ -3083,6 +3116,34 @@ mod tests {
             scan_table_reference("The table below shows the top 10 genes."),
             None,
             "a deictic display reference is not an evidence citation"
+        );
+        assert_eq!(
+            scan_table_reference(
+                "- `runtime/outputs/anomaly_screen/flagged_events.significant.tsv` - \
+                 7 significant events"
+            )
+            .as_deref(),
+            Some("runtime/outputs/anomaly_screen/flagged_events.significant.tsv"),
+            "a backticked delimited-artifact path is an exact evidence citation"
+        );
+    }
+
+    #[test]
+    fn ro_crate_format_name_is_not_extracted_as_a_biological_entity() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let claims = extract_claims(
+            "The analysis is recorded as a git-versioned RO-Crate package.",
+            &cfg,
+        );
+        assert!(
+            claims.is_empty(),
+            "the RO-Crate format token must not become an entity claim: {claims:?}"
+        );
+        let entity_claims = extract_claims("RO was upregulated (log2FC = 1.2).", &cfg);
+        assert!(
+            entity_claims.iter().any(|claim| claim.entity == "RO"),
+            "contextual format suppression must not reserve an identifier globally: \
+             {entity_claims:?}"
         );
     }
 

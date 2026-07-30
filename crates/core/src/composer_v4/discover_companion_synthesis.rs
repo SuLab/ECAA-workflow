@@ -647,7 +647,14 @@ pub(crate) fn type_residual_ordering_edges(dag: &mut WorkflowDag) {
 /// record a real read against an orphan `companion_in_N` port and the
 /// end-of-run provenance reconciler correctly blocks the otherwise-complete
 /// package. Authored atom inputs are never touched.
-pub(crate) fn prune_orphan_synthetic_inputs(dag: &mut WorkflowDag) {
+/// Remove every composer-owned positional input that no surviving edge binds.
+///
+/// This is public because topology can change after the planner returns. The
+/// conversation layer, for example, applies intake-driven pruning to the
+/// authoritative [`WorkflowDag`] before emission. Any caller that removes or
+/// rewires nodes after composition must re-establish this invariant before it
+/// serializes task contracts.
+pub fn prune_orphan_synthetic_inputs(dag: &mut WorkflowDag) {
     let wired_inputs: std::collections::BTreeSet<(String, String)> = dag
         .edges
         .iter()

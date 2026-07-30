@@ -356,6 +356,13 @@ fn apply_task_state_transition(
             s.set_task_state(task_id, state);
         }
     }
+    // A retry start or a genuine completion resolves any prior blocker for the
+    // same task. Keep a CV-4-demoted completion blocked: its required artifacts
+    // are still missing, so clearing that entry would hide the new blocker
+    // created below.
+    if kind == "task_started" || (kind == "task_completed" && demoted_missing.is_none()) {
+        s.resolve_harness_task_blocker(task_id);
+    }
     // Transition session state on task_blocked / heartbeat_stalled OR a
     // completion the CV-4 guard demoted (same txn so the blocker isn't lost
     // to a concurrent save).

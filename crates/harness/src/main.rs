@@ -4010,7 +4010,7 @@ fn run_loop(
         // entries re-block with a `[missing_artifact]` marker in
         // the reason string that the server promotes to
         // `BlockerKind::MissingArtifact` via the blocker mapper.
-        let mut guard_flipped: Vec<String> = Vec::new();
+        let mut guard_flipped: Vec<(String, &'static str)> = Vec::new();
 
         // (a-pre) Killed-completion status reconciliation for the case
         // the Completed-gated guard below misses: a task self-reports
@@ -4050,7 +4050,7 @@ fn run_loop(
                         attempts: vec![],
                     },
                 };
-                guard_flipped.push(tid.to_string());
+                guard_flipped.push((tid.to_string(), "killed completion status mismatch"));
             }
         }
 
@@ -4101,7 +4101,7 @@ fn run_loop(
                             attempts: vec![],
                         },
                     };
-                    guard_flipped.push(tid.to_string());
+                    guard_flipped.push((tid.to_string(), "empty-result sentinel detected"));
                     continue;
                 }
                 // (b) required-artifact verification + killed-completion
@@ -4127,7 +4127,10 @@ fn run_loop(
                                 attempts: vec![],
                             },
                         };
-                        guard_flipped.push(tid.to_string());
+                        guard_flipped.push((
+                            tid.to_string(),
+                            "required artifact or completion-status check failed",
+                        ));
                         continue;
                     }
                 }
@@ -4192,7 +4195,7 @@ fn run_loop(
                                 attempts: vec![],
                             },
                         };
-                        guard_flipped.push(tid.to_string());
+                        guard_flipped.push((tid.to_string(), "input-form mismatch detected"));
                         continue;
                     }
                 }
@@ -4322,7 +4325,7 @@ fn run_loop(
                                     attempts: vec![],
                                 },
                             };
-                            guard_flipped.push(tid.to_string());
+                            guard_flipped.push((tid.to_string(), "Phase 13 validation failed"));
                         }
                     }
                 }
@@ -4369,7 +4372,8 @@ fn run_loop(
                                     attempts: vec![],
                                 },
                             };
-                            guard_flipped.push(tid.to_string());
+                            guard_flipped
+                                .push((tid.to_string(), "claim-coverage validation failed"));
                         }
                         None => {
                             // No gap (or advisory mode): the task cleared the
@@ -4399,20 +4403,17 @@ fn run_loop(
             // blocks down still fires the user-facing progress event;
             // this call writes the state itself.
             if let Some(ref pc) = progress {
-                for tid in &guard_flipped {
+                for (tid, _) in &guard_flipped {
                     if let Some(t) = after.tasks.get(tid.as_str()) {
                         pc.set_task_state(tid, &t.state);
                     }
                 }
             }
-            for tid in &guard_flipped {
+            for (tid, cause) in &guard_flipped {
                 append_progress_log(
                     path,
                     tid,
-                    &format!(
-                        "harness-guard: flipped {} completed -> blocked (empty-result sentinel detected)",
-                        tid
-                    ),
+                    &format!("harness-guard: flipped {} to blocked ({})", tid, cause),
                 );
             }
         }

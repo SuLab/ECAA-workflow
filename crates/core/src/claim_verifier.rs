@@ -3666,6 +3666,16 @@ static COUNT_NOUN_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     .expect("static regex")
 });
 
+/// Open noun phrase used only inside an explicit tested-population statement
+/// that also carries a statistical threshold. The surrounding grammar keeps
+/// this narrow while avoiding a scientific-modality whitelist.
+static THRESHOLDED_COUNT_NOUN_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r"(?i)\b(\d[\d,]*)\s+((?:[A-Za-z][A-Za-z0-9_-]*\s+){0,5}[A-Za-z][A-Za-z0-9_-]*)\s+(?:were\s+)?tested\b",
+    )
+    .expect("static thresholded count-noun regex compiles")
+});
+
 /// Threshold parse: a p-value-family keyword followed by `<`/`≤` and a
 /// number. Tolerates `padj<0.05`, `BH adj_p < 0.01`, `adj.p<0.01`,
 /// `FDR < 0.05`, `q-value < 0.1`.
@@ -3678,6 +3688,43 @@ static THRESH_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     )
     .expect("static regex")
 });
+
+/// An exact result-column threshold. Backticks allow arbitrary retained
+/// headings; the bare form covers identifier-like headings. This grammar is
+/// deliberately independent of p-value vocabulary so a declared
+/// `ResultSchema` can use any finite score and either threshold direction.
+static EXACT_COLUMN_THRESHOLD_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r"(?i)(?:`([^`\r\n]+)`|\b([A-Za-z][A-Za-z0-9_.-]*))\s*(<=|>=|[<>≤≥])\s*(-?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)",
+    )
+    .expect("static exact-column threshold regex compiles")
+});
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ThresholdComparator {
+    Lt,
+    Le,
+    Gt,
+    Ge,
+}
+
+impl ThresholdComparator {
+    fn accepts(self, observed: f64, threshold: f64) -> bool {
+        match self {
+            Self::Lt => observed < threshold,
+            Self::Le => observed <= threshold,
+            Self::Gt => observed > threshold,
+            Self::Ge => observed >= threshold,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct ResolvedCountThreshold {
+    column: String,
+    comparator: ThresholdComparator,
+    value: f64,
+}
 
 /// True when a p-value-family keyword (or column name) denotes a
 /// *multiple-testing-adjusted* quantity rather than a raw p-value.
@@ -4265,18 +4312,18 @@ struct TestedSummary {
 
 static TESTED_SIGNIFICANT_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(
-        r"(?is)\bof\s+(\d[\d,]*)\s+(?:[A-Za-z][\w-]*\s+){0,3}?(?:gene[\s-]?sets?|genes?|features?|transcripts?|proteins?|peaks?|sites?|probes?|pathways?|terms?|cpgs?|loci|locus|snps?|variants?|regions?)\s+tested\b.*?\b(\d[\d,]*)\s+(?:were\s+)?(?:statistically\s+)?significant\b",
+        r"(?is)\b(?:out\s+)?of\s+(\d[\d,]*)\s+(?:[A-Za-z][A-Za-z0-9_-]*\s+){1,6}?(?:were\s+)?tested\b.*?\b(\d[\d,]*)\s+(?:were\s+)?(?:(?:statistically\s+)?significant|significantly\s+associated)\b",
     )
     .expect("static regex")
 });
 
 static UP_COUNT_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r"(?i)\b(\d[\d,]*)\s+(?:were\s+)?(?:up[\s-]?regulated|enriched)\b")
+    regex::Regex::new(r"(?i)\b(\d[\d,]*)\s+(?:(?:was|were)\s+)?(?:up[\s-]?regulated|enriched)\b")
         .expect("static regex")
 });
 
 static DOWN_COUNT_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r"(?i)\b(\d[\d,]*)\s+(?:were\s+)?(?:down[\s-]?regulated|depleted)\b")
+    regex::Regex::new(r"(?i)\b(\d[\d,]*)\s+(?:(?:was|were)\s+)?(?:down[\s-]?regulated|depleted)\b")
         .expect("static regex")
 });
 
@@ -4368,26 +4415,32 @@ fn verify_count_claim_in_table(
     cached: &CachedTable,
 ) -> Option<ClaimStatus> {
     // "N of M <noun> significant" — the verifiable count is N (how many
-    // passed), not M (the total tested). Prefer the leading number when
-    // the "X of Y" shape is present; otherwise take the number written
-    // directly before the noun.
+    // passed), not M (the total tested). This form is modality-neutral: the
+    // surrounding threshold and the cited table supply the scientific
+    // semantics, so the noun does not need to come from a closed vocabulary.
     static COUNT_OF_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
-        regex::Regex::new(r"(?i)\b(\d[\d,]*)\s+of\s+\d[\d,]*\s+(?:[A-Za-z][\w-]*\s+){0,5}?(?:genes?|features?|transcripts?|proteins?|peaks?|sites?|probes?|gene[\s-]?sets?|pathways?|terms?|cpgs?|loci|locus|snps?|variants?|regions?)\b").expect("static regex")
+        regex::Regex::new(r"(?i)\b(\d[\d,]*)\s+of\s+(?:(?:those|the)\s+)?\d[\d,]*\b")
+            .expect("static count-of-total regex compiles")
     });
-    let noun_caps = COUNT_NOUN_RE.captures(text)?;
-    let noun = noun_caps.get(2)?.as_str().to_lowercase();
-    let claimed_n = if let Some(c) = COUNT_OF_RE.captures(text) {
-        parse_count(c.get(1)?.as_str())?
-    } else {
-        parse_count(noun_caps.get(1)?.as_str())?
-    };
+    let noun_caps = COUNT_NOUN_RE.captures(text).or_else(|| {
+        THRESHOLDED_COUNT_NOUN_RE
+            .captures(text)
+            .filter(|_| has_count_threshold(text))
+    });
+    let noun = noun_caps
+        .as_ref()
+        .and_then(|captures| captures.get(2))
+        .map(|matched| matched.as_str().to_lowercase())
+        .unwrap_or_else(|| "entities".to_string());
 
-    // No p-value threshold in the claim: handle the "N <grouping> identified"
+    // No result threshold in the claim: handle the "N <grouping> identified"
     // shape ("6 clusters", "12 cell types", "8 taxa") by counting DISTINCT
     // values of the grouping column. Other threshold-less counts
     // ("8,766 genes tested") stay unverifiable — a raw row count would
     // false-mismatch NA-filtered tables.
-    let Some(thresh_caps) = THRESH_RE.captures(text) else {
+    let Some(thresholds) = resolve_count_thresholds(text, cached, cfg) else {
+        let noun_caps = noun_caps?;
+        let claimed_n = parse_count(noun_caps.get(1)?.as_str())?;
         if is_grouping_noun(&noun) {
             if let Some(col) = grouping_column(&cached, &noun) {
                 let mut seen: std::collections::BTreeSet<String> =
@@ -4410,50 +4463,20 @@ fn verify_count_claim_in_table(
         }
         return None;
     };
-    let threshold_kw = thresh_caps.get(1)?.as_str();
-    let threshold: f64 = thresh_caps.get(2)?.as_str().parse().ok()?;
-
-    // Count against the p-value column the claim *names*. A `padj<0.05`
-    // claim must be checked against the adjusted column, not the raw
-    // `pvalue` column that `lookup_numeric` would otherwise pick first
-    // (DESeq2 tables carry both, and raw-p row counts are far larger).
-    // Partition the configured columns into adjusted vs raw, then order
-    // them so the claimed class wins while the other stays as a fallback.
-    let want_adjusted = is_adjusted_pvalue_keyword(threshold_kw);
-    let (adjusted_cols, raw_cols): (Vec<String>, Vec<String>) = cfg
-        .pvalue_columns
-        .iter()
-        .cloned()
-        .partition(|c| is_adjusted_pvalue_keyword(c));
-    let ordered_cols: Vec<String> = if want_adjusted {
-        adjusted_cols.into_iter().chain(raw_cols).collect()
-    } else {
-        raw_cols.into_iter().chain(adjusted_cols).collect()
-    };
-
-    // Resolve ONE significance column for the whole table — the first
-    // configured column (claimed-class-first) that actually exists in this
-    // table's header. Counting must NOT fall through to the raw `pvalue`
-    // column on a per-row basis: a DESeq2 `padj` cell is NA exactly when
-    // independent filtering excluded that gene, and such a row is *not* below
-    // a `padj<0.05` threshold. A per-row `lookup_numeric` over an ordered list
-    // silently consulted `pvalue` for those NA-`padj` rows and over-counted by
-    // the number of independent-filtered-but-raw-significant genes (4017 →
-    // 4146 on the Himes airway DE table). Pinning the column once means an NA
-    // adjusted cell drops the row; the raw fallback applies only when the
-    // table carries no adjusted column at all.
-    let col_present = |col: &str| -> bool {
-        let needle = normalize(col);
-        cached
-            .rows
-            .first()
-            .is_some_and(|r| r.values.contains_key(&needle))
-    };
-    let Some(count_col) = ordered_cols.iter().find(|c| col_present(c)).cloned() else {
-        return None;
-    };
-    let count_cols = [count_col];
-
+    let claimed_n = parse_tested_summary(text)
+        .map(|summary| summary.significant as f64)
+        .or_else(|| {
+            COUNT_OF_RE
+                .captures(text)
+                .and_then(|captures| captures.get(1))
+                .and_then(|matched| parse_count(matched.as_str()))
+        })
+        .or_else(|| {
+            noun_caps
+                .as_ref()
+                .and_then(|captures| captures.get(1))
+                .and_then(|matched| parse_count(matched.as_str()))
+        })?;
     // Optional effect-magnitude constraint ("LFC>1").
     let effect_thresh: Option<(char, f64)> = EFFECT_THRESH_RE.captures(text).and_then(|c| {
         let op = c.get(1)?.as_str().chars().next()?;
@@ -4484,10 +4507,13 @@ fn verify_count_claim_in_table(
 
     let mut observed = 0usize;
     for row in &cached.rows {
-        let Some(p) = lookup_numeric(&row.values, &count_cols) else {
-            continue;
-        };
-        if !(p.is_finite() && p < threshold) {
+        let satisfies_all_thresholds = thresholds.iter().all(|threshold| {
+            let columns = [threshold.column.clone()];
+            lookup_numeric(&row.values, &columns).is_some_and(|value| {
+                value.is_finite() && threshold.comparator.accepts(value, threshold.value)
+            })
+        });
+        if !satisfies_all_thresholds {
             continue;
         }
         // Effect constraints, when the claim states one.
@@ -4525,8 +4551,156 @@ fn verify_count_claim_in_table(
         claimed_n,
         observed,
         table_path,
-        "rows below the cited threshold",
+        "rows satisfying the cited threshold",
     ))
+}
+
+/// True when text carries either the established p-value-family threshold or
+/// an exact result-column threshold.
+fn has_count_threshold(text: &str) -> bool {
+    THRESH_RE.is_match(text) || EXACT_COLUMN_THRESHOLD_RE.is_match(text)
+}
+
+/// Resolve every explicit result threshold to retained table columns.
+///
+/// Exact column references support arbitrary schema-declared scores and both
+/// comparator directions. When a sentence states more than one filter, the
+/// count is recomputed over their intersection instead of guessing which
+/// threshold the author intended. P-value aliases retain their configured
+/// adjusted/raw fallback for ordinary prose such as `FDR < 0.05`.
+fn resolve_count_thresholds(
+    text: &str,
+    cached: &CachedTable,
+    cfg: &ExtractorConfig,
+) -> Option<Vec<ResolvedCountThreshold>> {
+    let col_present = |column: &str| {
+        let needle = normalize(column);
+        cached
+            .rows
+            .first()
+            .is_some_and(|row| row.values.contains_key(&needle))
+    };
+
+    let mut resolved = Vec::new();
+    for captures in EXACT_COLUMN_THRESHOLD_RE.captures_iter(text) {
+        let Some(column) = captures
+            .get(1)
+            .or_else(|| captures.get(2))
+            .map(|matched| matched.as_str().trim())
+        else {
+            continue;
+        };
+        if !col_present(column) {
+            continue;
+        }
+        let comparator = match captures.get(3).map(|matched| matched.as_str()) {
+            Some("<") => ThresholdComparator::Lt,
+            Some("<=" | "≤") => ThresholdComparator::Le,
+            Some(">") => ThresholdComparator::Gt,
+            Some(">=" | "≥") => ThresholdComparator::Ge,
+            _ => continue,
+        };
+        let Some(value) = captures
+            .get(4)
+            .and_then(|matched| matched.as_str().parse::<f64>().ok())
+            .filter(|value| value.is_finite())
+        else {
+            continue;
+        };
+        resolved.push(ResolvedCountThreshold {
+            column: column.to_string(),
+            comparator,
+            value,
+        });
+    }
+
+    for captures in THRESH_RE.captures_iter(text) {
+        let Some(threshold_keyword) = captures.get(1).map(|matched| matched.as_str()) else {
+            continue;
+        };
+        let Some(value) = captures
+            .get(2)
+            .and_then(|matched| matched.as_str().parse::<f64>().ok())
+        else {
+            continue;
+        };
+        if !value.is_finite() {
+            continue;
+        }
+        let want_adjusted = is_adjusted_pvalue_keyword(threshold_keyword);
+        let (adjusted, raw): (Vec<String>, Vec<String>) = cfg
+            .pvalue_columns
+            .iter()
+            .cloned()
+            .partition(|column| is_adjusted_pvalue_keyword(column));
+        let ordered: Vec<String> = if want_adjusted {
+            adjusted.into_iter().chain(raw).collect()
+        } else {
+            raw.into_iter().chain(adjusted).collect()
+        };
+        if let Some(column) = ordered.into_iter().find(|column| col_present(column)) {
+            let normalized = normalize(&column);
+            if !resolved.iter().any(|threshold| {
+                normalize(&threshold.column) == normalized
+                    && threshold.comparator == ThresholdComparator::Lt
+                    && threshold.value.to_bits() == value.to_bits()
+            }) {
+                resolved.push(ResolvedCountThreshold {
+                    column,
+                    comparator: ThresholdComparator::Lt,
+                    value,
+                });
+            }
+        }
+    }
+
+    (!resolved.is_empty()).then_some(resolved)
+}
+
+/// Recompute a thresholded population and its signed split from the exact
+/// columns named by the prose. This is the modality-neutral counterpart to
+/// [`recompute_split_in_table`]: thresholds may use any retained result column,
+/// either comparator direction, and more than one conjunctive filter.
+fn recompute_thresholded_split_in_table(
+    text: &str,
+    cached: &CachedTable,
+    cfg: &ExtractorConfig,
+) -> Option<(usize, usize, usize)> {
+    let thresholds = resolve_count_thresholds(text, cached, cfg)?;
+    let effect_column = cfg.effect_size_columns.iter().find(|column| {
+        let needle = normalize(column);
+        cached
+            .rows
+            .first()
+            .is_some_and(|row| row.values.contains_key(&needle))
+    });
+    let effect_columns = effect_column.map(|column| [column.clone()]);
+
+    let (mut selected, mut positive, mut negative) = (0usize, 0usize, 0usize);
+    for row in &cached.rows {
+        let passes = thresholds.iter().all(|threshold| {
+            let columns = [threshold.column.clone()];
+            lookup_numeric(&row.values, &columns).is_some_and(|observed| {
+                observed.is_finite() && threshold.comparator.accepts(observed, threshold.value)
+            })
+        });
+        if !passes {
+            continue;
+        }
+        selected += 1;
+        if let Some(effect) = effect_columns
+            .as_ref()
+            .and_then(|columns| lookup_numeric(&row.values, columns))
+            .filter(|value| value.is_finite())
+        {
+            if effect > 0.0 {
+                positive += 1;
+            } else if effect < 0.0 {
+                negative += 1;
+            }
+        }
+    }
+    Some((selected, positive, negative))
 }
 
 /// Resolve the single significance (p-value) column to count against in
@@ -4717,14 +4891,30 @@ static ASSESSED_COUNTS_SUMMARY_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
 
 static INPUT_DIMENSION_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(
-        r"(?i)\b(\d[\d,]*)\s+genes?\s*(?:[×x*]|,\s*|\s+across\s+)\s*(\d[\d,]*)\s+samples?\b",
+        r"(?i)\b(\d[\d,]*)\s+([A-Za-z][A-Za-z0-9_-]*(?:\s+[A-Za-z][A-Za-z0-9_-]*){0,3}?)(?:\s*[×*]\s*|\s+x\s+|\s*,\s*|\s+across\s+)(\d[\d,]*)\s+([A-Za-z][A-Za-z0-9_-]*(?:\s+[A-Za-z][A-Za-z0-9_-]*){0,3}?)(?:\s*[\(\).,;:]|\s+(?:as|for|were|was|with|from|in|at|per)\b|$)",
     )
     .expect("static regex")
+});
+
+static INTEGER_COUNT_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"\b\d[\d,]*\b").expect("static integer count regex compiles")
+});
+
+static NUMBER_OF_NUMBER_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"(?i)\b\d[\d,]*\s+of\s+(?:(?:those|the)\s+)?\d[\d,]*\b")
+        .expect("static number-of-number regex compiles")
 });
 
 static PREFILTER_SUMMARY_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(
         r"(?i)\b(?:pre[\s-]?filter\s+)?removed\s+(\d[\d,]*)\s+of\s+(\d[\d,]*)\s+(?:input\s+)?genes?(?:\s*\([^)]{0,240}\))?\s*,\s+retaining\s+(\d[\d,]*)\b",
+    )
+    .expect("static regex")
+});
+
+static FILTER_FUNNEL_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r"(?i)\b(?:retained|kept)\s+(\d[\d,]*)\s+of\s+(\d[\d,]*)\s+(?:input\s+|source\s+)?([A-Za-z][A-Za-z0-9_-]*(?:\s+[A-Za-z][A-Za-z0-9_-]*){0,3}?)(?:\s*\(\s*(?:removed|excluded|discarded|filtered\s+out)\s+(\d[\d,]*)(?:\s*;\s*(\d[\d,]*)\s+of\s+the\s+(?:removed|excluded|discarded|filtered[\s-]+out)\s+(?:[A-Za-z][\w-]*\s+){0,2}?(?:had|have|were)\s+(?:all[\s-]+)?zero\b[^)]*)?\))?(?:\s*[.;]|$)",
     )
     .expect("static regex")
 });
@@ -4926,6 +5116,499 @@ fn is_round_count(n: f64) -> bool {
     format!("{}", n as i64).trim_end_matches('0').len() < 3
 }
 
+#[derive(Debug, Clone)]
+struct SemanticSummaryCount {
+    path: PathBuf,
+    field: String,
+    value: usize,
+    tokens: Vec<String>,
+}
+
+/// Modality-neutral index of integer summary fields retained by executed
+/// stages. Field names supply the semantics: for example
+/// `n_variants_retained`, `n_cells_removed`, `n_gene_sets_tested_total`, and
+/// `n_entities_assessed` all resolve through the same noun + lifecycle-role
+/// matcher. The resolver never matches on numeric equality alone.
+#[derive(Debug, Default)]
+struct SemanticSummaryIndex {
+    counts: Vec<SemanticSummaryCount>,
+}
+
+fn semantic_tokens(text: &str) -> Vec<String> {
+    fn singularize(token: &str) -> String {
+        // Normalize grammatical number rather than enumerating scientific
+        // modalities. Both narrative nouns and retained field paths pass
+        // through this function, so an unseen regular plural remains
+        // resolvable without a domain-specific alias.
+        match token {
+            "analyses" => return "analysis".to_string(),
+            "axes" => return "axis".to_string(),
+            "children" => return "child".to_string(),
+            "data" => return "datum".to_string(),
+            "feet" => return "foot".to_string(),
+            "geese" => return "goose".to_string(),
+            "genera" => return "genus".to_string(),
+            "indices" | "indexes" => return "index".to_string(),
+            "loci" => return "locus".to_string(),
+            "matrices" => return "matrix".to_string(),
+            "men" => return "man".to_string(),
+            "mice" => return "mouse".to_string(),
+            "people" => return "person".to_string(),
+            "phyla" => return "phylum".to_string(),
+            "series" | "species" => return token.to_string(),
+            "statuses" => return "status".to_string(),
+            "taxa" => return "taxon".to_string(),
+            "teeth" => return "tooth".to_string(),
+            "vertices" => return "vertex".to_string(),
+            "women" => return "woman".to_string(),
+            _ => {}
+        }
+
+        if token.len() > 4 && token.ends_with("ies") {
+            return format!("{}y", &token[..token.len() - 3]);
+        }
+        if token.len() > 4
+            && (token.ends_with("sses")
+                || token.ends_with("shes")
+                || token.ends_with("ches")
+                || token.ends_with("xes")
+                || token.ends_with("zes"))
+        {
+            return token[..token.len() - 2].to_string();
+        }
+        if token.len() > 3
+            && token.ends_with('s')
+            && !token.ends_with("ss")
+            && !token.ends_with("us")
+            && !token.ends_with("is")
+        {
+            return token[..token.len() - 1].to_string();
+        }
+        token.to_string()
+    }
+
+    let mut separated = String::with_capacity(text.len());
+    let mut previous_lower_or_digit = false;
+    for ch in text.chars() {
+        if ch.is_ascii_uppercase() && previous_lower_or_digit {
+            separated.push(' ');
+        }
+        if ch.is_ascii_alphanumeric() {
+            separated.push(ch.to_ascii_lowercase());
+            previous_lower_or_digit = ch.is_ascii_lowercase() || ch.is_ascii_digit();
+        } else {
+            separated.push(' ');
+            previous_lower_or_digit = false;
+        }
+    }
+    separated.split_whitespace().map(singularize).collect()
+}
+
+fn collect_semantic_summary_counts(
+    value: &serde_json::Value,
+    path: &Path,
+    counts: &mut Vec<SemanticSummaryCount>,
+) {
+    fn walk(
+        value: &serde_json::Value,
+        path: &Path,
+        field_path: &mut Vec<String>,
+        counts: &mut Vec<SemanticSummaryCount>,
+    ) {
+        match value {
+            serde_json::Value::Object(map) => {
+                for (field, child) in map {
+                    field_path.push(field.clone());
+                    let integer = child
+                        .as_u64()
+                        .and_then(|value| usize::try_from(value).ok())
+                        .or_else(|| {
+                            child
+                                .as_i64()
+                                .filter(|value| *value >= 0)
+                                .and_then(|value| usize::try_from(value).ok())
+                        })
+                        .or_else(|| {
+                            child
+                                .as_f64()
+                                .filter(|value| {
+                                    value.is_finite() && *value >= 0.0 && value.fract() == 0.0
+                                })
+                                .map(|value| value as usize)
+                        });
+                    if let Some(integer) = integer {
+                        let field = field_path.join(".");
+                        counts.push(SemanticSummaryCount {
+                            path: path.to_path_buf(),
+                            tokens: semantic_tokens(&field),
+                            field,
+                            value: integer,
+                        });
+                    }
+                    walk(child, path, field_path, counts);
+                    field_path.pop();
+                }
+            }
+            serde_json::Value::Array(values) => {
+                for child in values {
+                    walk(child, path, field_path, counts);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    walk(value, path, &mut Vec::new(), counts);
+}
+
+/// Return the punctuation-bounded clause surrounding one integer token.
+///
+/// Lifecycle words must be interpreted locally. In a sentence such as
+/// "Of 137 input items, 89 mapped", the later `mapped` verb does not describe
+/// the earlier input population. Byte offsets come from an ASCII-number regex,
+/// so slicing remains on UTF-8 boundaries even when the prose around it uses
+/// non-ASCII punctuation.
+fn count_clause_context(text: &str, start: usize, end: usize) -> &str {
+    let is_boundary = |character: char| {
+        matches!(
+            character,
+            ',' | ';' | ':' | '.' | '!' | '?' | '(' | ')' | '\n'
+        )
+    };
+    let left = text[..start]
+        .char_indices()
+        .rev()
+        .find(|(_, character)| is_boundary(*character))
+        .map(|(index, character)| index + character.len_utf8())
+        .unwrap_or(0);
+    let right = text[end..]
+        .char_indices()
+        .find(|(_, character)| is_boundary(*character))
+        .map(|(index, _)| end + index)
+        .unwrap_or(text.len());
+    text[left..right].trim()
+}
+
+/// Map a local narrative lifecycle cue to ordered aliases that a retained
+/// summary field may use. The cue vocabulary is operational English rather
+/// than a list of scientific entities, so the same resolution applies to any
+/// modality or analysis archetype.
+fn semantic_role_query(context: &str) -> Option<(&'static str, &'static [&'static str])> {
+    let normalized = context
+        .to_ascii_lowercase()
+        .replace(['-', '_'], " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    if normalized.contains("not assessed")
+        || normalized.contains("unassessed")
+        || normalized.contains("not searched")
+        || normalized.contains("not queried")
+    {
+        Some((
+            "not assessed",
+            &["not_assessed", "unassessed", "not_searched", "not_queried"],
+        ))
+    } else if normalized.contains("unmapped")
+        || normalized.contains("unresolved")
+        || normalized.contains("not mapped")
+        || normalized.contains("not resolved")
+    {
+        Some((
+            "unmapped",
+            &["unmapped", "unresolved", "not_mapped", "not_resolved"],
+        ))
+    } else if normalized.contains("mapped") || normalized.contains("resolved") {
+        Some(("mapped", &["mapped", "resolved"]))
+    } else if normalized.contains("removing")
+        || normalized.contains("removed")
+        || normalized.contains("excluding")
+        || normalized.contains("excluded")
+        || normalized.contains("discarding")
+        || normalized.contains("discarded")
+        || normalized.contains("filtered out")
+    {
+        Some((
+            "removed",
+            &["removed", "excluded", "discarded", "filtered_out"],
+        ))
+    } else if normalized.contains("retained")
+        || normalized.contains("keeping")
+        || normalized.contains("kept")
+        || normalized.contains("post filter")
+        || normalized.contains("filtered")
+    {
+        Some(("retained", &["retained", "kept", "post_filter", "filtered"]))
+    } else if normalized.contains("supplied")
+        || normalized.contains("provided to")
+        || normalized.contains("entered into")
+    {
+        // Prefer an explicitly retained supplied/provided count. A producing
+        // stage may instead call the same downstream-ready population
+        // `ranked` or `analysis_input`.
+        Some((
+            "supplied",
+            &["supplied", "provided", "ranked", "analysis_input"],
+        ))
+    } else if normalized.contains("ranked") || normalized.contains("ordered") {
+        Some(("ranked", &["ranked", "ordered"]))
+    } else if normalized.contains("tested")
+        || normalized.contains("analyzed")
+        || normalized.contains("analysed")
+        || normalized.contains("processed")
+    {
+        Some(("tested", &["tested", "analyzed", "analysed", "processed"]))
+    } else if normalized.contains("significant") {
+        Some(("significant", &["significant", "sig"]))
+    } else if normalized.contains("assessed")
+        || normalized.contains("searched")
+        || normalized.contains("queried")
+    {
+        Some(("assessed", &["assessed", "searched", "queried"]))
+    } else if normalized.contains("input") {
+        Some((
+            "input",
+            &[
+                "input",
+                "pre_mapping",
+                "pre_filter",
+                "prefilter",
+                "source",
+                "original",
+                "raw",
+            ],
+        ))
+    } else if normalized.contains("source") || normalized.contains("loaded") {
+        Some((
+            "source",
+            &[
+                "source",
+                "loaded",
+                "original",
+                "raw",
+                "input",
+                "pre_filter",
+                "prefilter",
+                "pre_mapping",
+            ],
+        ))
+    } else if normalized.contains("original") || normalized.contains("raw") {
+        Some((
+            "original",
+            &[
+                "original",
+                "raw",
+                "source",
+                "input",
+                "pre_filter",
+                "prefilter",
+                "pre_mapping",
+            ],
+        ))
+    } else if normalized.contains("total") {
+        Some(("total", &["total", "source", "input", "original"]))
+    } else {
+        None
+    }
+}
+
+impl SemanticSummaryIndex {
+    fn scan(package_root: &Path) -> Self {
+        let mut counts = Vec::new();
+        for path in discovery_candidate_summaries(package_root) {
+            let Ok(bytes) = std::fs::read(&path) else {
+                continue;
+            };
+            let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+                continue;
+            };
+            collect_semantic_summary_counts(&value, &path, &mut counts);
+        }
+        counts.sort_by(|left, right| {
+            left.path
+                .cmp(&right.path)
+                .then_with(|| left.field.cmp(&right.field))
+                .then_with(|| left.value.cmp(&right.value))
+        });
+        Self { counts }
+    }
+
+    /// Resolve `noun` through the first lifecycle-role alias that occurs in a
+    /// retained field name. Every noun token and every token of the chosen
+    /// alias must be present. Conflicting values under the same best semantic
+    /// match abstain.
+    fn resolve(
+        &self,
+        noun: &str,
+        ordered_role_aliases: &[&str],
+    ) -> Option<(PathBuf, String, usize)> {
+        let noun_tokens = semantic_tokens(noun);
+        if noun_tokens.is_empty() {
+            return None;
+        }
+        let role_tokens: Vec<Vec<String>> = ordered_role_aliases
+            .iter()
+            .map(|role| semantic_tokens(role))
+            .collect();
+
+        let mut best_rank: Option<(usize, usize)> = None;
+        let mut candidates: Vec<&SemanticSummaryCount> = Vec::new();
+        for count in &self.counts {
+            if !noun_tokens
+                .iter()
+                .all(|token| count.tokens.iter().any(|field| field == token))
+            {
+                continue;
+            }
+            let matched_role = if role_tokens.is_empty() {
+                Some(0)
+            } else {
+                role_tokens.iter().position(|role| {
+                    role.iter()
+                        .all(|token| count.tokens.iter().any(|field| field == token))
+                })
+            };
+            let Some(matched_role) = matched_role else {
+                continue;
+            };
+            let selected_role_tokens = role_tokens
+                .get(matched_role)
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+            let extra_tokens = count
+                .tokens
+                .iter()
+                .filter(|token| {
+                    !matches!(
+                        token.as_str(),
+                        "n" | "num" | "number" | "count" | "counts" | "total"
+                    ) && !noun_tokens.iter().any(|noun| noun == *token)
+                        && !selected_role_tokens.iter().any(|role| role == *token)
+                })
+                .count();
+            // Prefer the field whose tokens say only the requested noun and
+            // lifecycle role. Alias order breaks ties between equally precise
+            // spellings. Precision must rank first so a qualified field such
+            // as `n_features_prefilter_removed` cannot outrank exact
+            // `n_features_input` merely because `prefilter` appeared earlier
+            // in the source-role alias list.
+            let rank = (extra_tokens, matched_role);
+            match best_rank {
+                None => {
+                    best_rank = Some(rank);
+                    candidates.push(count);
+                }
+                Some(best) if rank < best => {
+                    best_rank = Some(rank);
+                    candidates.clear();
+                    candidates.push(count);
+                }
+                Some(best) if rank == best => candidates.push(count),
+                Some(_) => {}
+            }
+        }
+        let first = candidates.first()?;
+        if candidates
+            .iter()
+            .any(|candidate| candidate.value != first.value)
+        {
+            return None;
+        }
+        Some((first.path.clone(), first.field.clone(), first.value))
+    }
+
+    /// Resolve a count when its scientific noun is not known to the source.
+    ///
+    /// The retained field supplies the candidate noun tokens. At least one of
+    /// those tokens must occur in the local narrative clause, and the field
+    /// must carry one of the requested lifecycle roles. Alias order, noun-token
+    /// overlap, and unexplained field qualifiers determine the best match.
+    /// Equal best matches with conflicting values abstain. Claimed-number
+    /// equality is intentionally never part of selection.
+    fn resolve_context(
+        &self,
+        context: &str,
+        ordered_role_aliases: &[&str],
+    ) -> Option<(PathBuf, String, usize, String)> {
+        let context_tokens = semantic_tokens(context);
+        if context_tokens.is_empty() || ordered_role_aliases.is_empty() {
+            return None;
+        }
+        let role_tokens: Vec<Vec<String>> = ordered_role_aliases
+            .iter()
+            .map(|role| semantic_tokens(role))
+            .collect();
+        let all_role_tokens: BTreeSet<&str> = role_tokens
+            .iter()
+            .flat_map(|role| role.iter().map(String::as_str))
+            .collect();
+        let is_metadata = |token: &str| {
+            matches!(
+                token,
+                "n" | "num" | "number" | "count" | "total" | "value" | "size"
+            )
+        };
+
+        let mut best_rank: Option<(usize, std::cmp::Reverse<usize>, usize)> = None;
+        let mut candidates: Vec<(&SemanticSummaryCount, Vec<String>)> = Vec::new();
+        for count in &self.counts {
+            let matched_role = role_tokens.iter().position(|role| {
+                role.iter()
+                    .all(|token| count.tokens.iter().any(|field| field == token))
+            });
+            let Some(matched_role) = matched_role else {
+                continue;
+            };
+            let mut content_tokens = Vec::new();
+            for token in &count.tokens {
+                if is_metadata(token)
+                    || all_role_tokens.contains(token.as_str())
+                    || content_tokens.iter().any(|existing| existing == token)
+                {
+                    continue;
+                }
+                content_tokens.push(token.clone());
+            }
+            let overlap = content_tokens
+                .iter()
+                .filter(|token| context_tokens.iter().any(|context| context == *token))
+                .count();
+            if overlap == 0 {
+                continue;
+            }
+            let unexplained = content_tokens.len().saturating_sub(overlap);
+            let rank = (matched_role, std::cmp::Reverse(overlap), unexplained);
+            match best_rank {
+                None => {
+                    best_rank = Some(rank);
+                    candidates.push((count, content_tokens));
+                }
+                Some(best) if rank < best => {
+                    best_rank = Some(rank);
+                    candidates.clear();
+                    candidates.push((count, content_tokens));
+                }
+                Some(best) if rank == best => candidates.push((count, content_tokens)),
+                Some(_) => {}
+            }
+        }
+        let (first, noun_tokens) = candidates.first()?;
+        if candidates
+            .iter()
+            .any(|(candidate, _)| candidate.value != first.value)
+        {
+            return None;
+        }
+        Some((
+            first.path.clone(),
+            first.field.clone(),
+            first.value,
+            noun_tokens.join(" "),
+        ))
+    }
+}
+
 /// VF-16 — verify aggregate COUNT claims in a narrative ("2209 genes were
 /// upregulated at FDR < 0.05 (Table 1)"). Such sentences carry NO uppercase
 /// entity, so they produce no per-claim `Claim` and bypass the per-entity
@@ -4955,17 +5638,12 @@ pub fn verify_narrative_counts(
     let narrative = coalesce_wrapped_prose(&narrative);
     let mut candidate_paths = index.distinct_paths();
     candidate_paths.extend(discovery_candidate_tables(package_root));
-    candidate_paths.sort_by(|left, right| {
-        let priority = |path: &Path| match path.file_name().and_then(|name| name.to_str()) {
-            Some("de_results.tsv" | "pathway_results.tsv" | "ranked_genes.tsv") => 0,
-            Some(name) if name.contains("results") => 1,
-            _ => 2,
-        };
-        priority(left)
-            .cmp(&priority(right))
-            .then_with(|| left.cmp(right))
-    });
+    // A file name is not evidence of scientific authority. Sort only for
+    // determinism and require unambiguous discovery below.
+    candidate_paths.sort();
     candidate_paths.dedup();
+    let candidate_index = TableIndex::from_paths(&candidate_paths);
+    let semantic_summaries = SemanticSummaryIndex::scan(package_root);
 
     // A directional/significant bullet often inherits its threshold from the
     // preceding paragraph. Retain the adjusted thresholds declared anywhere in
@@ -4997,7 +5675,322 @@ pub fn verify_narrative_counts(
         {
             continue;
         }
-        let Some(noun_caps) = COUNT_NOUN_RE.captures(s) else {
+        let make =
+            |claim_entity: &str, status: ClaimStatus, source: Option<String>| -> ClaimVerdict {
+                ClaimVerdict {
+                    claim: Claim {
+                        entity: claim_entity.to_string(),
+                        direction: None,
+                        effect_size: None,
+                        pvalue: None,
+                        source_table: source,
+                        excerpt: s.to_string(),
+                        contract: crate::claim_contract::ClaimContract::ThresholdedDeOrEnrichment,
+                        literature_evidence: None,
+                        matched_pvalue_keyword: None,
+                        linear_fold: None,
+                        aggregate_kind: None,
+                        aggregate_column: None,
+                        aggregate_rowset: None,
+                        aggregate_value: None,
+                        collection: None,
+                        term: None,
+                        keyed_column: None,
+                        keyed_value: None,
+                    },
+                    status,
+                    strength: ClaimStrength::Exploratory,
+                    audit: None,
+                }
+            };
+        let semantic_summary_fact = |claim_entity: &str,
+                                     claimed: f64,
+                                     noun: &str,
+                                     role_aliases: &[&str]|
+         -> Option<ClaimVerdict> {
+            let (path, field, observed) = semantic_summaries.resolve(noun, role_aliases)?;
+            Some(make(
+                claim_entity,
+                compare_exact_count(
+                    claimed,
+                    observed,
+                    &path,
+                    &format!("stage-summary field `{field}`"),
+                ),
+                Some(package_relative_label(&path, package_root)),
+            ))
+        };
+
+        // Multi-axis dimensions and filter funnels are resolved from the
+        // retained summary field vocabulary itself. The noun grammar is open:
+        // a new modality can introduce an unseen entity or design-axis name
+        // without adding it to a scientific whitelist here.
+        if let Some(captures) = INPUT_DIMENSION_RE.captures(s) {
+            if let (Some(first_count), Some(first_noun), Some(second_count), Some(second_noun)) = (
+                captures
+                    .get(1)
+                    .and_then(|value| parse_count(value.as_str())),
+                captures.get(2).map(|value| value.as_str().trim()),
+                captures
+                    .get(3)
+                    .and_then(|value| parse_count(value.as_str())),
+                captures.get(4).map(|value| value.as_str().trim()),
+            ) {
+                let normalized = s.to_ascii_lowercase().replace(['-', '_'], " ");
+                let separator_is_comma = captures.get(2).zip(captures.get(3)).is_some_and(
+                    |(first_noun, second_count)| {
+                        s[first_noun.end()..second_count.start()].contains(',')
+                    },
+                );
+                let has_dimension_context = [
+                    "matrix",
+                    "table",
+                    "dataset",
+                    "data set",
+                    "array",
+                    "tensor",
+                    "cohort",
+                    "design",
+                    "shape",
+                    "dimension",
+                    "input",
+                    "source",
+                    "contained",
+                    "contains",
+                    "comprised",
+                    "consisted",
+                ]
+                .iter()
+                .any(|cue| normalized.contains(cue));
+                if !separator_is_comma || has_dimension_context {
+                    let first_roles: &[&str] = if normalized.contains("applied to")
+                        || normalized.contains("transformed")
+                        || normalized.contains("normalized")
+                        || normalized.contains("normalised")
+                        || normalized.contains("processed")
+                    {
+                        &[
+                            "normalized",
+                            "normalised",
+                            "transformed",
+                            "processed",
+                            "retained",
+                            "post_filter",
+                            "input",
+                            "tested",
+                        ]
+                    } else if normalized.contains("qc filtered")
+                        || normalized.contains("filtered")
+                        || normalized.contains("analysis ready")
+                    {
+                        &["retained", "kept", "post_filter", "filtered", "tested"]
+                    } else if normalized.contains("source")
+                        || normalized.contains("original")
+                        || normalized.contains("raw")
+                    {
+                        &["source", "original", "pre_filter", "prefilter", "input"]
+                    } else {
+                        &["source", "pre_filter", "prefilter", "input"]
+                    };
+                    let facts = [
+                        (first_noun, first_count, first_roles),
+                        (second_noun, second_count, &[][..]),
+                    ];
+                    let resolved: Vec<Option<ClaimVerdict>> = facts
+                        .iter()
+                        .map(|(noun, claimed, roles)| {
+                            semantic_summary_fact(
+                                &format!("count:input {noun}"),
+                                *claimed,
+                                noun,
+                                roles,
+                            )
+                        })
+                        .collect();
+                    if resolved.iter().all(Option::is_none) {
+                        // A delimiter can separate independent numerical
+                        // clauses. Treat it as a dimension sentence only when
+                        // at least one captured axis resolves semantically.
+                    } else {
+                        for ((noun, _, _), verdict) in facts.into_iter().zip(resolved) {
+                            let entity = format!("count:input {noun}");
+                            out.push(verdict.unwrap_or_else(|| {
+                                make(
+                                    &entity,
+                                    ClaimStatus::Unverifiable {
+                                        reason: format!(
+                                            "no unambiguous retained summary field matched the \
+                                             `{noun}` dimension"
+                                        ),
+                                    },
+                                    None,
+                                )
+                            }));
+                        }
+                        continue;
+                    }
+                }
+            }
+        }
+        if let Some(captures) = FILTER_FUNNEL_RE.captures(s) {
+            if let (Some(retained), Some(input), Some(noun)) = (
+                captures
+                    .get(1)
+                    .and_then(|value| parse_count(value.as_str())),
+                captures
+                    .get(2)
+                    .and_then(|value| parse_count(value.as_str())),
+                captures.get(3).map(|value| value.as_str().trim()),
+            ) {
+                for (entity, claimed, roles) in [
+                    (
+                        format!("count:retained {noun}"),
+                        retained,
+                        &["retained", "kept", "post_filter", "filtered"][..],
+                    ),
+                    (
+                        format!("count:source {noun}"),
+                        input,
+                        &["source", "original", "pre_filter", "prefilter", "input"][..],
+                    ),
+                ] {
+                    out.push(
+                        semantic_summary_fact(&entity, claimed, noun, roles).unwrap_or_else(|| {
+                            make(
+                                &entity,
+                                ClaimStatus::Unverifiable {
+                                    reason: format!(
+                                        "no unambiguous retained summary field matched \
+                                         `{noun}` with role `{}`",
+                                        roles.join("|")
+                                    ),
+                                },
+                                None,
+                            )
+                        }),
+                    );
+                }
+                if let Some(removed) = captures
+                    .get(4)
+                    .and_then(|value| parse_count(value.as_str()))
+                {
+                    let entity = format!("count:removed {noun}");
+                    out.push(
+                        semantic_summary_fact(
+                            &entity,
+                            removed,
+                            noun,
+                            &["removed", "excluded", "discarded", "filtered_out"],
+                        )
+                        .unwrap_or_else(|| {
+                            make(
+                                &entity,
+                                ClaimStatus::Unverifiable {
+                                    reason: format!(
+                                        "no unambiguous retained summary field matched \
+                                         removed `{noun}`"
+                                    ),
+                                },
+                                None,
+                            )
+                        }),
+                    );
+                }
+                if let Some(zero) = captures
+                    .get(5)
+                    .and_then(|value| parse_count(value.as_str()))
+                {
+                    let entity = format!("count:all-zero {noun}");
+                    out.push(
+                        semantic_summary_fact(
+                            &entity,
+                            zero,
+                            noun,
+                            &["all_zero", "zero_all", "zero"],
+                        )
+                        .unwrap_or_else(|| {
+                            make(
+                                &entity,
+                                ClaimStatus::Unverifiable {
+                                    reason: format!(
+                                        "no unambiguous retained summary field matched \
+                                         all-zero `{noun}`"
+                                    ),
+                                },
+                                None,
+                            )
+                        }),
+                    );
+                }
+                continue;
+            }
+        }
+
+        // A compound operational sentence can name several lifecycle
+        // populations whose scientific noun has never appeared in this
+        // source tree. Resolve each punctuation-bounded clause against the
+        // retained summary vocabulary before entering the legacy known-noun
+        // parser. Existing specialized compound grammars retain precedence,
+        // and subset forms such as "X of Y" stay with their denominator-aware
+        // parser rather than assigning one lifecycle verb to both integers.
+        let legacy_compound_shape = [
+            &*MISSING_SIGNIFICANCE_SUBSET_RE,
+            &*ASSESSED_COUNTS_SUMMARY_RE,
+            &*PREFILTER_SUMMARY_RE,
+            &*GENE_MAPPING_SUMMARY_RE,
+            &*DUPLICATE_RANKING_SUMMARY_RE,
+            &*ESTIMABLE_GENE_SUMMARY_RE,
+            &*RANKED_MAPPING_RE,
+        ]
+        .iter()
+        .any(|pattern| pattern.is_match(s));
+        if !has_count_threshold(s) && !NUMBER_OF_NUMBER_RE.is_match(s) && !legacy_compound_shape {
+            let mut compound_facts = Vec::new();
+            for count_match in INTEGER_COUNT_RE.find_iter(s) {
+                let preceding_decimal = count_match.start() >= 2
+                    && s.as_bytes()[count_match.start() - 1] == b'.'
+                    && s.as_bytes()[count_match.start() - 2].is_ascii_digit();
+                let following_decimal = count_match.end() + 1 < s.len()
+                    && s.as_bytes()[count_match.end()] == b'.'
+                    && s.as_bytes()[count_match.end() + 1].is_ascii_digit();
+                if preceding_decimal || following_decimal {
+                    continue;
+                }
+                let context = count_clause_context(s, count_match.start(), count_match.end());
+                let Some((role_label, roles)) = semantic_role_query(context) else {
+                    continue;
+                };
+                let Some(claimed) = parse_count(count_match.as_str()) else {
+                    continue;
+                };
+                let Some((path, field, observed, noun_label)) =
+                    semantic_summaries.resolve_context(context, roles)
+                else {
+                    continue;
+                };
+                compound_facts.push(make(
+                    &format!("count:{role_label} {noun_label}"),
+                    compare_exact_count(
+                        claimed,
+                        observed,
+                        &path,
+                        &format!("stage-summary field `{field}`"),
+                    ),
+                    Some(package_relative_label(&path, package_root)),
+                ));
+            }
+            if compound_facts.len() >= 2 {
+                out.extend(compound_facts);
+                continue;
+            }
+        }
+
+        let noun_caps = COUNT_NOUN_RE.captures(s).or_else(|| {
+            has_count_threshold(s)
+                .then(|| THRESHOLDED_COUNT_NOUN_RE.captures(s))
+                .flatten()
+        });
+        let Some(noun_caps) = noun_caps else {
             continue;
         };
         let Some(count_match) = noun_caps.get(1) else {
@@ -5040,34 +6033,6 @@ pub fn verify_narrative_counts(
             ""
         };
         let entity = format!("count:{dir}{noun}");
-        let make =
-            |claim_entity: &str, status: ClaimStatus, source: Option<String>| -> ClaimVerdict {
-                ClaimVerdict {
-                    claim: Claim {
-                        entity: claim_entity.to_string(),
-                        direction: None,
-                        effect_size: None,
-                        pvalue: None,
-                        source_table: source,
-                        excerpt: s.to_string(),
-                        contract: crate::claim_contract::ClaimContract::ThresholdedDeOrEnrichment,
-                        literature_evidence: None,
-                        matched_pvalue_keyword: None,
-                        linear_fold: None,
-                        aggregate_kind: None,
-                        aggregate_column: None,
-                        aggregate_rowset: None,
-                        aggregate_value: None,
-                        collection: None,
-                        term: None,
-                        keyed_column: None,
-                        keyed_value: None,
-                    },
-                    status,
-                    strength: ClaimStrength::Exploratory,
-                    audit: None,
-                }
-            };
         let unverifiable = |reason: &str| {
             make(
                 &entity,
@@ -5101,7 +6066,6 @@ pub fn verify_narrative_counts(
                 Some(package_relative_label(&path, package_root)),
             )
         };
-
         // Preserve every independently checkable axis in compact summary
         // sentences. The generic noun matcher retains only the first
         // "N noun" pair and would otherwise lose the sample dimension, the
@@ -5142,39 +6106,6 @@ pub fn verify_narrative_counts(
                     not_assessed,
                     &["n_entities_not_assessed"],
                 ));
-                continue;
-            }
-        }
-        if let Some(captures) = INPUT_DIMENSION_RE.captures(s) {
-            if let (Some(genes), Some(samples)) = (
-                captures
-                    .get(1)
-                    .and_then(|value| parse_count(value.as_str())),
-                captures
-                    .get(2)
-                    .and_then(|value| parse_count(value.as_str())),
-            ) {
-                let normalized = s.to_ascii_lowercase().replace(['-', '_'], " ");
-                let gene_fields: &[&str] = if normalized.contains("qc filtered")
-                    || normalized.contains("filtered count matrix")
-                    || normalized.contains("analysis ready")
-                {
-                    &[
-                        "n_genes_retained",
-                        "n_genes_in_matrix",
-                        "tested_feature_count",
-                        "n_genes_tested",
-                    ]
-                } else {
-                    &[
-                        "n_genes_pre_filter",
-                        "n_features_pre_filter",
-                        "n_genes_input",
-                        "n_genes",
-                    ]
-                };
-                out.push(summary_fact("count:input genes", genes, gene_fields));
-                out.push(summary_fact("count:input samples", samples, &["n_samples"]));
                 continue;
             }
         }
@@ -5320,75 +6251,74 @@ pub fn verify_narrative_counts(
         }
 
         if let Some(summary) = parse_tested_summary(s) {
-            let threshold = THRESH_RE
-                .captures(s)
-                .and_then(|captures| captures.get(2))
-                .and_then(|value| value.as_str().parse::<f64>().ok());
-            if let Some(threshold) = threshold {
-                let observe = |path: &Path,
-                               cache: &mut BTreeMap<PathBuf, CachedTable>|
-                 -> Option<(usize, usize, usize, usize)> {
-                    let cached = ensure_count_cached(cache, path, cfg, noun)?;
-                    let (significant, up, down) = recompute_split_in_table(cached, cfg, threshold)?;
-                    Some((cached.rows.len(), significant, up, down))
-                };
-                let agrees = |observed: (usize, usize, usize, usize)| {
-                    observed.0 == summary.total
-                        && observed.1 == summary.significant
-                        && summary.up.is_none_or(|value| value == observed.2)
-                        && summary.down.is_none_or(|value| value == observed.3)
-                };
+            let observe = |path: &Path,
+                           cache: &mut BTreeMap<PathBuf, CachedTable>|
+             -> Option<(usize, usize, usize, usize)> {
+                let cached = ensure_count_cached(cache, path, cfg, noun)?;
+                let (significant, up, down) = recompute_thresholded_split_in_table(s, cached, cfg)?;
+                Some((cached.rows.len(), significant, up, down))
+            };
+            let agrees = |observed: (usize, usize, usize, usize)| {
+                observed.0 == summary.total
+                    && observed.1 == summary.significant
+                    && summary.up.is_none_or(|value| value == observed.2)
+                    && summary.down.is_none_or(|value| value == observed.3)
+            };
 
-                let resolved = if let Some(src) = crate::claim_extractor::scan_table_reference(s) {
-                    index.resolve(&src).map(Path::to_path_buf)
-                } else {
-                    candidate_paths
-                        .iter()
-                        .find(|path| observe(path, &mut cache).map(&agrees).unwrap_or(false))
-                        .cloned()
-                };
+            let resolved = if let Some(src) = crate::claim_extractor::scan_table_reference(s) {
+                candidate_index.resolve(&src).map(Path::to_path_buf)
+            } else {
+                let mut matches = BTreeSet::new();
+                for path in &candidate_paths {
+                    if observe(path, &mut cache).map(&agrees).unwrap_or(false) {
+                        matches.insert(path.clone());
+                    }
+                }
+                (matches.len() == 1)
+                    .then(|| matches.into_iter().next())
+                    .flatten()
+            };
 
-                if let Some(path) = resolved {
-                    if let Some((total, significant, up, down)) = observe(&path, &mut cache) {
-                        let source = package_relative_label(&path, package_root);
-                        let comparisons = [
-                            (format!("count:tested {noun}"), summary.total, total),
-                            (
-                                format!("count:significant {noun}"),
-                                summary.significant,
-                                significant,
+            if let Some(path) = resolved {
+                if let Some((total, significant, up, down)) = observe(&path, &mut cache) {
+                    let source = package_relative_label(&path, package_root);
+                    let comparisons = [
+                        (format!("count:tested {noun}"), summary.total, total),
+                        (
+                            format!("count:significant {noun}"),
+                            summary.significant,
+                            significant,
+                        ),
+                    ];
+                    for (claim_entity, claimed, observed) in comparisons {
+                        out.push(make(
+                            &claim_entity,
+                            compare_count(
+                                claimed as f64,
+                                observed,
+                                &path,
+                                "tested/significant summary",
                             ),
-                        ];
-                        for (claim_entity, claimed, observed) in comparisons {
+                            Some(source.clone()),
+                        ));
+                    }
+                    for (direction, claimed, observed) in
+                        [("up", summary.up, up), ("down", summary.down, down)]
+                    {
+                        if let Some(claimed) = claimed {
                             out.push(make(
-                                &claim_entity,
+                                &format!("count:{direction} {noun}"),
                                 compare_count(
                                     claimed as f64,
                                     observed,
                                     &path,
-                                    "tested/significant summary",
+                                    "directional significant summary",
                                 ),
                                 Some(source.clone()),
                             ));
                         }
-                        for (direction, claimed, observed) in
-                            [("up", summary.up, up), ("down", summary.down, down)]
-                        {
-                            if let Some(claimed) = claimed {
-                                out.push(make(
-                                    &format!("count:{direction} {noun}"),
-                                    compare_count(
-                                        claimed as f64,
-                                        observed,
-                                        &path,
-                                        "directional significant summary",
-                                    ),
-                                    Some(source.clone()),
-                                ));
-                            }
-                        }
-                        continue;
                     }
+                    continue;
                 }
             }
         }
@@ -5424,7 +6354,24 @@ pub fn verify_narrative_counts(
         // named stage-summary fields. "X of Y" wording reports X as the
         // asserted subset (for example, 4,024 of 4,030 were not assessed), not
         // the denominator immediately preceding the noun.
-        if !THRESH_RE.is_match(s) {
+        if !has_count_threshold(s) {
+            let local_context = noun_caps
+                .get(0)
+                .map(|matched| count_clause_context(s, matched.start(), matched.end()))
+                .unwrap_or(s);
+            if let Some((_, roles)) = semantic_role_query(local_context) {
+                let claimed = COUNT_OF_NOUN_RE
+                    .captures(s)
+                    .and_then(|captures| captures.get(1))
+                    .or_else(|| noun_caps.get(1))
+                    .and_then(|value| parse_count(value.as_str()));
+                if let Some(claimed) = claimed {
+                    if let Some(verdict) = semantic_summary_fact(&entity, claimed, noun, roles) {
+                        out.push(verdict);
+                        continue;
+                    }
+                }
+            }
             if let Some(fields) = semantic_summary_fields(s, noun, has_up, has_down) {
                 let row_recompute_preferred = fields.first().is_some_and(|field| {
                     matches!(
@@ -5487,42 +6434,62 @@ pub fn verify_narrative_counts(
             continue;
         }
 
+        // A generated attachment whose exact cited basename is
+        // `*.significant.tsv`/`.csv` is itself the bounded significant set.
+        // Its inventory bullet states a display cardinality, so verify that
+        // count against the cited attachment's data-row population without
+        // requiring the bullet to repeat the threshold already declared in the
+        // report body.
+        if lower.contains("significant") {
+            if let Some(source_ref) = crate::claim_extractor::scan_table_reference(s) {
+                if let Some(path) = candidate_index.resolve(&source_ref).map(Path::to_path_buf) {
+                    let significant_attachment = path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(|name| name.to_ascii_lowercase().contains(".significant."));
+                    if significant_attachment {
+                        if let (Some(claimed), Some(cached)) = (
+                            noun_caps
+                                .get(1)
+                                .and_then(|matched| parse_count(matched.as_str())),
+                            ensure_count_cached(&mut cache, &path, cfg, noun),
+                        ) {
+                            out.push(make(
+                                &entity,
+                                compare_exact_count(
+                                    claimed,
+                                    cached.rows.len(),
+                                    &path,
+                                    "significant-attachment row count",
+                                ),
+                                Some(package_relative_label(&path, package_root)),
+                            ));
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+
         // A list bullet may state only the directional/significant count while
         // the immediately surrounding report declares the threshold. Infer
         // that evidence link only on a positive exact reproduction; a
         // non-matching table never becomes a Mismatch.
-        let threshold_in_sentence = THRESH_RE.is_match(s);
-        let gene_level_noun = {
-            let normalized = noun.to_ascii_lowercase().replace(['-', '_'], " ");
-            matches!(
-                normalized.trim(),
-                "gene"
-                    | "genes"
-                    | "feature"
-                    | "features"
-                    | "transcript"
-                    | "transcripts"
-                    | "protein"
-                    | "proteins"
-                    | "probe"
-                    | "probes"
-                    | "site"
-                    | "sites"
-                    | "region"
-                    | "regions"
-            )
-        };
+        let threshold_in_sentence = has_count_threshold(s);
+        // Inherited-threshold inference is about a directional entity
+        // population, not a fixed list of molecular feature types.
+        let directional_entity_noun = !is_set_level_noun(noun) && !is_grouping_noun(noun);
         if !threshold_in_sentence
-            && gene_level_noun
+            && directional_entity_noun
             && ((has_up ^ has_down) || lower.contains("significant"))
         {
             let claimed = noun_caps
                 .get(1)
                 .and_then(|matched| parse_count(matched.as_str()))
                 .map(|value| value as usize);
-            let mut inferred = None;
+            let mut inferred = BTreeSet::new();
             if let Some(claimed) = claimed {
-                'candidate: for path in &candidate_paths {
+                for path in &candidate_paths {
                     let Some(cached) = ensure_count_cached(&mut cache, path, cfg, noun) else {
                         continue;
                     };
@@ -5540,13 +6507,16 @@ pub fn verify_narrative_counts(
                             significant
                         };
                         if claimed == observed {
-                            inferred = Some(path.clone());
-                            break 'candidate;
+                            inferred.insert(path.clone());
                         }
                     }
                 }
             }
-            if let Some(path) = inferred {
+            if inferred.len() == 1 {
+                let path = inferred
+                    .into_iter()
+                    .next()
+                    .expect("one inferred evidence table");
                 out.push(make(
                     &entity,
                     ClaimStatus::Verified,
@@ -5558,7 +6528,7 @@ pub fn verify_narrative_counts(
 
         // Resolve a cited table before considering evidence discovery.
         if let Some(src) = crate::claim_extractor::scan_table_reference(s) {
-            let Some(path) = index.resolve(&src) else {
+            let Some(path) = candidate_index.resolve(&src) else {
                 out.push(unverifiable(
                     "cited table for the aggregate count did not resolve",
                 ));
@@ -5579,17 +6549,20 @@ pub fn verify_narrative_counts(
         // Infer an evidence link only when an emitted result table positively
         // reproduces the exact thresholded count. A non-matching uncited table
         // never creates a Mismatch.
-        let mut inferred = None;
+        let mut inferred = BTreeSet::new();
         for path in &candidate_paths {
             let verified = ensure_count_cached(&mut cache, &path, cfg, noun)
                 .and_then(|cached| verify_count_claim_in_table(s, &path, cfg, cached))
                 .is_some_and(|status| matches!(status, ClaimStatus::Verified));
             if verified {
-                inferred = Some(path.clone());
-                break;
+                inferred.insert(path.clone());
             }
         }
-        if let Some(path) = inferred {
+        if inferred.len() == 1 {
+            let path = inferred
+                .into_iter()
+                .next()
+                .expect("one inferred evidence table");
             out.push(make(
                 &entity,
                 ClaimStatus::Verified,
@@ -5597,7 +6570,7 @@ pub fn verify_narrative_counts(
             ));
         } else {
             out.push(unverifiable(
-                "no table cited and no emitted result table reproduced the aggregate count",
+                "no table cited and no unique emitted result table reproduced the aggregate count",
             ));
         }
     }
@@ -10458,6 +11431,341 @@ Of 22,369 input genes, 17,209 mapped to gene symbols; 5,160 were unmapped.";
                 .iter()
                 .all(|verdict| matches!(verdict.status, ClaimStatus::Verified)),
             "{verdicts:#?}"
+        );
+    }
+
+    #[test]
+    fn vf16_live_himes_report_shapes_bind_every_count_to_exact_evidence() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        let write_summary = |task: &str, value: serde_json::Value| {
+            let dir = tmp.path().join("runtime/outputs").join(task);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(
+                dir.join("result.json"),
+                serde_json::to_vec_pretty(&value).unwrap(),
+            )
+            .unwrap();
+        };
+        write_summary(
+            "data_acquisition",
+            serde_json::json!({"n_genes": 63677, "n_samples": 8}),
+        );
+        write_summary(
+            "qc_preprocessing",
+            serde_json::json!({
+                "n_genes_source": 63677,
+                "n_genes_retained": 22369,
+                "n_genes_removed": 41308,
+                "n_genes_zero_all_samples": 30208,
+                "n_samples": 8
+            }),
+        );
+        write_summary(
+            "pathway_enrichment",
+            serde_json::json!({"n_gene_sets_tested_total": 4}),
+        );
+        write_pkg_table(
+            tmp.path(),
+            "differential_expression",
+            "de_results.tsv",
+            "gene\tlog2FC\tpadj\nA\t1\t0.01\nB\t-1\t0.04\nC\t0\t0.2\nD\t0\tNA\n",
+        );
+        write_pkg_table(
+            tmp.path(),
+            "pathway_enrichment",
+            "pathway_results.tsv",
+            "pathway\tNES\tpadj\nP1\t1\t0.01\nP2\t-1\t0.10\nP3\t1\t0.30\nP4\t1\t0.90\n",
+        );
+        write_pkg_table(
+            tmp.path(),
+            "pathway_enrichment",
+            "pathway_results.significant.tsv",
+            "pathway\tNES\tpadj\nP1\t1\t0.01\nP2\t-1\t0.10\n",
+        );
+
+        let narrative = "\
+The source count matrix contained 63,677 genes across 8 samples.
+The rowSums >= 10 pre-filter retained 22,369 of 63,677 genes (removed 41,308; \
+30,208 of the removed genes had zero counts in every sample).
+Out of 4 genes tested, 2 were significantly associated with treatment at \
+gene-level FDR (padj) < 0.05: 1 was up-regulated and 1 was down-regulated.
+Four collections were tested; total 4 gene sets tested.
+- `runtime/outputs/pathway_enrichment/pathway_results.significant.tsv` - \
+2 significant pathways";
+        let verdicts = verify_narrative_counts(narrative, tmp.path(), tmp.path(), &cfg);
+        assert_eq!(verdicts.len(), 12, "{verdicts:#?}");
+        assert!(
+            verdicts
+                .iter()
+                .all(|verdict| matches!(verdict.status, ClaimStatus::Verified)),
+            "{verdicts:#?}"
+        );
+        assert!(
+            verdicts
+                .iter()
+                .any(|verdict| verdict.claim.entity == "count:source genes"
+                    && verdict.claim.source_table.as_deref()
+                        == Some("runtime/outputs/qc_preprocessing/result.json")),
+            "{verdicts:#?}"
+        );
+        assert!(
+            verdicts.iter().any(|verdict| {
+                verdict.claim.entity == "count:pathways"
+                    && verdict.claim.source_table.as_deref()
+                        == Some(
+                            "runtime/outputs/pathway_enrichment/pathway_results.significant.tsv",
+                        )
+            }),
+            "{verdicts:#?}"
+        );
+    }
+
+    #[test]
+    fn vf16_semantic_summary_resolution_is_modality_neutral() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        let write_summary = |task: &str, value: serde_json::Value| {
+            let dir = tmp.path().join("runtime/outputs").join(task);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(
+                dir.join("result.json"),
+                serde_json::to_vec_pretty(&value).unwrap(),
+            )
+            .unwrap();
+        };
+        write_summary(
+            "measurement_filtering",
+            serde_json::json!({
+                "metabolite_counts": {
+                    "source": 137,
+                    "retained": 89,
+                    "removed": 48
+                }
+            }),
+        );
+        write_summary(
+            "forecast_preparation",
+            serde_json::json!({
+                "feature_counts": {"source": 37},
+                "acquisition_cycle_counts": {"total": 24}
+            }),
+        );
+
+        let narrative = "\
+The quality filter retained 89 of 137 metabolites (removed 48).
+The source matrix contained 37 features across 24 acquisition cycles.";
+        let verdicts = verify_narrative_counts(narrative, tmp.path(), tmp.path(), &cfg);
+        assert_eq!(verdicts.len(), 5, "{verdicts:#?}");
+        assert!(
+            verdicts
+                .iter()
+                .all(|verdict| matches!(verdict.status, ClaimStatus::Verified)),
+            "{verdicts:#?}"
+        );
+        let entities: std::collections::BTreeSet<&str> = verdicts
+            .iter()
+            .map(|verdict| verdict.claim.entity.as_str())
+            .collect();
+        for expected in [
+            "count:retained metabolites",
+            "count:source metabolites",
+            "count:removed metabolites",
+            "count:input features",
+            "count:input acquisition cycles",
+        ] {
+            assert!(entities.contains(expected), "{entities:?}");
+        }
+    }
+
+    #[test]
+    fn vf16_dimension_sentence_accepts_a_following_parenthetical() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        let dir = tmp.path().join("runtime/outputs/transformation");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("result.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "feature_counts": {"transformed": 37},
+                "acquisition_cycle_counts": {"total": 24}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let verdicts = verify_narrative_counts(
+            "A transformation was applied to 37 features across 24 acquisition cycles \
+             (parameter-aware).",
+            tmp.path(),
+            tmp.path(),
+            &cfg,
+        );
+        assert_eq!(verdicts.len(), 2, "{verdicts:#?}");
+        assert!(
+            verdicts
+                .iter()
+                .all(|verdict| matches!(verdict.status, ClaimStatus::Verified)),
+            "{verdicts:#?}"
+        );
+    }
+
+    #[test]
+    fn vf16_compound_lifecycle_counts_are_phrase_local_and_modality_neutral() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        let dir = tmp.path().join("runtime/outputs/library_projection");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("result.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "n_metabolites_pre_mapping": 137,
+                "n_metabolites_mapped": 89,
+                "n_duplicate_metabolite_labels_removed": 4,
+                "n_metabolites_ranked": 85
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let verdicts = verify_narrative_counts(
+            "Of 137 input metabolites, 89 metabolite identifiers mapped to library labels; \
+             after removing 4 duplicate metabolite labels, 85 unique metabolite labels were \
+             supplied to scoring.",
+            tmp.path(),
+            tmp.path(),
+            &cfg,
+        );
+        assert_eq!(verdicts.len(), 4, "{verdicts:#?}");
+        assert!(
+            verdicts
+                .iter()
+                .all(|verdict| matches!(verdict.status, ClaimStatus::Verified)),
+            "{verdicts:#?}"
+        );
+        assert!(
+            verdicts.iter().all(|verdict| verdict
+                .claim
+                .source_table
+                .as_deref()
+                .is_some_and(|path| path.ends_with("library_projection/result.json"))),
+            "{verdicts:#?}"
+        );
+    }
+
+    #[test]
+    fn vf16_thresholded_tested_summary_accepts_an_unseen_modality_noun() {
+        let cfg = ExtractorConfig::from_policy(&serde_json::json!({
+            "verifiableEntities": {
+                "enabled": true,
+                "entityNamePatterns": ["[A-Z][A-Z0-9_]+"],
+                "entityNameExcludePatterns": [],
+                "directionVocab": {
+                    "up": ["up-regulated"],
+                    "down": ["down-regulated"]
+                },
+                "effectSizeColumns": ["coefficient"],
+                "entityColumns": ["metabolite"],
+                "pvalueColumns": ["q_value"]
+            }
+        }))
+        .unwrap();
+        let tmp = tempdir().unwrap();
+        write_pkg_table(
+            tmp.path(),
+            "association_testing",
+            "association_results.tsv",
+            "metabolite\tcoefficient\tq_value\n\
+             M1\t1.2\t0.01\nM2\t-0.8\t0.04\nM3\t0.3\t0.20\nM4\t-0.1\t0.90\n",
+        );
+
+        let verdicts = verify_narrative_counts(
+            "Out of 4 metabolites tested, 2 were significantly associated with exposure at \
+             q_value < 0.05: 1 was up-regulated and 1 was down-regulated.",
+            tmp.path(),
+            tmp.path(),
+            &cfg,
+        );
+        assert_eq!(verdicts.len(), 4, "{verdicts:#?}");
+        assert!(
+            verdicts
+                .iter()
+                .all(|verdict| matches!(verdict.status, ClaimStatus::Verified)),
+            "{verdicts:#?}"
+        );
+        assert!(
+            verdicts.iter().all(|verdict| verdict
+                .claim
+                .source_table
+                .as_deref()
+                .is_some_and(|path| path.ends_with("association_results.tsv"))),
+            "{verdicts:#?}"
+        );
+    }
+
+    #[test]
+    fn structured_count_uses_an_exact_unseen_score_column_and_greater_than_rule() {
+        let cfg = ExtractorConfig::from_policy(&serde_json::json!({
+            "verifiableEntities": {
+                "enabled": true,
+                "entityNamePatterns": ["[A-Z][A-Z0-9_]+"],
+                "entityNameExcludePatterns": [],
+                "directionVocab": {"up": ["higher"], "down": ["lower"]},
+                "effectSizeColumns": ["effect_score"],
+                "entityColumns": ["event_id"],
+                "pvalueColumns": ["anomaly_score"]
+            }
+        }))
+        .unwrap();
+        let tmp = tempdir().unwrap();
+        write_pkg_table(
+            tmp.path(),
+            "anomaly_screen",
+            "scores.tsv",
+            "event_id\teffect_score\tanomaly_score\n\
+             E1\t3.0\t0.5\nE2\t0.5\t2.6\nE3\t4.0\t8.0\nE4\t4.0\t2.5\n",
+        );
+        let evidence = "runtime/outputs/anomaly_screen/scores.tsv".to_string();
+
+        let verified = verify_structured_claims(
+            &[StructuredClaim {
+                claim: "2 of 4 telemetry events significant at `anomaly_score` > 2.5".into(),
+                evidence: Some(evidence.clone()),
+            }],
+            tmp.path(),
+            &cfg,
+        );
+        assert!(
+            matches!(verified[0].status, ClaimStatus::Verified),
+            "{verified:#?}"
+        );
+
+        let mismatch = verify_structured_claims(
+            &[StructuredClaim {
+                claim: "3 of 4 telemetry events significant at `anomaly_score` > 2.5".into(),
+                evidence: Some(evidence),
+            }],
+            tmp.path(),
+            &cfg,
+        );
+        assert!(
+            matches!(mismatch[0].status, ClaimStatus::Mismatch { .. }),
+            "{mismatch:#?}"
+        );
+
+        let intersected = verify_structured_claims(
+            &[StructuredClaim {
+                claim: "1 of 4 telemetry events selected at `effect_score` > 1 and \
+                        `anomaly_score` > 2.5"
+                    .into(),
+                evidence: Some("runtime/outputs/anomaly_screen/scores.tsv".to_string()),
+            }],
+            tmp.path(),
+            &cfg,
+        );
+        assert!(
+            matches!(intersected[0].status, ClaimStatus::Verified),
+            "{intersected:#?}"
         );
     }
 

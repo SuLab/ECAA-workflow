@@ -573,6 +573,59 @@ fn blocked_unblocks_to_emitted_when_package_emitted() {
 }
 
 #[test]
+fn terminal_progress_resolution_drains_only_the_matching_task_blocker() {
+    use ecaa_workflow_core::blocker::BlockerKind;
+
+    let mut s = Session::new(false);
+    s.try_transition(StateTrigger::AppendProse).unwrap();
+    s.try_transition(StateTrigger::ProposeSummaryConfirmation)
+        .unwrap();
+    s.try_transition(StateTrigger::UserClickedConfirm).unwrap();
+    s.try_transition(StateTrigger::EmitPackageStart).unwrap();
+    s.try_transition(StateTrigger::EmitPackageOk).unwrap();
+    s.emitted_package_path = Some(std::path::PathBuf::from("/tmp/pkg"));
+
+    for task_id in ["feature_screen", "model_diagnostics"] {
+        s.try_transition(StateTrigger::HarnessTaskBlocked {
+            task_id: task_id.into(),
+            detail: "required claim coverage absent".into(),
+            blocker_kind: BlockerKind::ValidationFailed {
+                check: "claim_coverage".into(),
+                message: "required claim coverage absent".into(),
+                cause: None,
+            },
+        })
+        .unwrap();
+    }
+
+    assert!(s.resolve_harness_task_blocker("feature_screen"));
+    match &s.state {
+        SessionState::Blocked {
+            blockers, reason, ..
+        } => {
+            assert_eq!(blockers.len(), 1);
+            assert_eq!(blockers[0].task_id, "model_diagnostics");
+            assert!(
+                reason.contains("model_diagnostics"),
+                "legacy fields must follow the remaining blocker: {reason}"
+            );
+        }
+        other => panic!("one remaining blocker must keep the session blocked: {other:?}"),
+    }
+
+    assert!(
+        !s.resolve_harness_task_blocker("unrelated_task"),
+        "an unrelated terminal event must not change the blocker queue"
+    );
+    assert!(s.resolve_harness_task_blocker("model_diagnostics"));
+    assert_eq!(
+        s.state,
+        SessionState::Emitted,
+        "draining the last post-emission blocker must restore Emitted"
+    );
+}
+
+#[test]
 fn emitted_still_absorbs_non_infra_triggers() {
     // The Emitted state must absorb non-infra triggers. Verify
     // AppendProse, DagBuiltWithUnresolvedDiscovery,

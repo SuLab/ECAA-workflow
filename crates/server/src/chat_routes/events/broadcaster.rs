@@ -155,6 +155,17 @@ fn parse_harness_blocker_kind(detail: &str) -> ecaa_workflow_core::blocker::Bloc
         };
         return BlockerKind::DataShapeMismatch { expected, actual };
     }
+    // Phase 13 validator failures are harness-authored and therefore do
+    // not have an agent-written blocker.json. Preserve their semantic type
+    // instead of degrading them to AwaitingStructuredDecision merely
+    // because that optional file is absent.
+    if let Some(rest) = detail.strip_prefix("[validation_failed]") {
+        return BlockerKind::ValidationFailed {
+            check: "phase_13".into(),
+            message: rest.trim().to_string(),
+            cause: None,
+        };
+    }
     // Case 1 (legacy happy path): detail is a serialized BlockerKind
     // JSON — deserialize directly.
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(detail) {
@@ -339,6 +350,27 @@ mod tests {
                 );
             }
             other => panic!("expected DataShapeMismatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn phase13_marker_types_as_validation_failed_without_blocker_file() {
+        use ecaa_workflow_core::blocker::BlockerKind;
+        let reason = "[validation_failed] task=discover_primary_analysis \
+                      task discover_primary_analysis: 0/1 passed, 1 failed, \
+                      0 errored, 0 unimplemented — Phase 13 validator(s) reported failures.";
+        match parse_harness_blocker_kind(reason) {
+            BlockerKind::ValidationFailed {
+                check,
+                message,
+                cause,
+            } => {
+                assert_eq!(check, "phase_13");
+                assert!(message.contains("discover_primary_analysis"));
+                assert!(!message.contains("[validation_failed]"));
+                assert!(cause.is_none());
+            }
+            other => panic!("expected ValidationFailed, got {other:?}"),
         }
     }
 }
