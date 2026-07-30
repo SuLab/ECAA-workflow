@@ -235,6 +235,14 @@ real runs and are cheap to avoid:
   prints both numbers, only the post-filter one belongs in the narrative
   and in any `*_tested` field; record it in your JSON result too so a
   downstream validator can check it against the table rowcount.
+- **A "Top" result table is always the canonical ordered prefix.** Read the
+  relevant artifact's `ranking` object from `report-data.json` and copy its
+  first N enriched or depleted rows in order. This rule applies whether the
+  heading says "Top 10" or only "Top enriched pathways"; when no N is written,
+  N is the number of displayed data rows. Do not select one row per collection,
+  choose illustrative rows, or replace a numeric source value with `—`, `NA`,
+  or a blank. If the source row has a finite effect or significance value, the
+  report cell must contain that value at the retained display precision.
 - **Separate the pre-mapping gene count from the final enrichment ranking.**
   The number of tested DE rows with a finite statistic is not necessarily the
   number of unique gene labels supplied to enrichment. Identifier mapping and
@@ -243,6 +251,16 @@ real runs and are cheap to avoid:
   record its data-row count as `n_genes_ranked`, and use that count whenever
   prose says genes were ranked, included in, or supplied to fgsea/GSEA. If you
   also report the pre-mapping input count, name it as a separate population.
+- **Reconcile mapping loss separately from duplicate-label collapse.** For
+  pathway enrichment, write `n_genes_pre_mapping`, `n_genes_mapped`,
+  `n_genes_unmapped`, `n_genes_ranked`, and
+  `n_duplicate_gene_labels_removed` to `result.json`, deriving them from the
+  retained source table, `annotation/symbol_map.tsv`, and `ranked_genes.tsv`.
+  The identities are `unmapped = pre_mapping - mapped` and
+  `duplicate_gene_labels_removed = mapped - ranked`. Never call
+  `pre_mapping - ranked` "unmapped": that difference combines two distinct
+  causes. The mapping table must use the declared two-column header order
+  `symbol`, then `ensembl_gene_id`.
 - **Keep collection labels identical across retained outputs.** Values in
   `result.json::gene_sets_collections` and
   `pathway_summary.json::collections` must be the exact distinct values in
@@ -259,6 +277,12 @@ real runs and are cheap to avoid:
   run actually applied. Do not put a hard-coded implementation name such as
   `fgsea` in the pathway-level threshold label. If a sentence names the
   implementation, copy it from the executed stage's `method` field.
+- **Describe generated significant-result attachments by their actual
+  filter.** A `<artifact>.significant.tsv` written by report-data assembly is
+  filtered only by the atom's declared significance rule. Copy that rule from
+  `report-data.json` / the result schema. Do not append a stage-internal
+  effect-size threshold unless that threshold actually selected the rows in
+  this attachment; inspect the attachment row count when in doubt.
 - **Quote p-values precisely enough to match the source table.** When you
   state a SPECIFIC p-value / padj / FDR in prose, copy it to at least TWO
   significant figures directly from the results table (e.g. "padj = 6.5e-05",
@@ -323,8 +347,11 @@ real runs and are cheap to avoid:
   a Cook's-distance output. A range of size factors, library sizes, or any
   other single summary statistic is NOT an outlier assessment. If you did not
   run the check, say so plainly ("no sample-outlier assessment was performed")
-  rather than reporting its absence of findings; a source-level validator
-  blocks the deposit on an unsupported QC-negative claim.
+  rather than reporting its absence of findings. Stop that sentence there:
+  first inspect every upstream output and do not say a PCA, sample-distance,
+  sample-correlation, or other QC artifact was not produced when the package
+  retains one. A source-level validator blocks both an unsupported QC-negative
+  claim and a false artifact-absence statement.
 - **Report a filter as the CRITERION it applied, never as a claim about what
   the removed data could support.** State the rule and the count it removed,
   and stop there. A count/abundance/quality pre-filter establishes only that

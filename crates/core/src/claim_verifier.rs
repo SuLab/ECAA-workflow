@@ -4708,7 +4708,7 @@ static INPUT_DIMENSION_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
 
 static PREFILTER_SUMMARY_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(
-        r"(?i)\b(?:pre[\s-]?filter\s+)?removed\s+(\d[\d,]*)\s+of\s+(\d[\d,]*)\s+genes?,\s+retaining\s+(\d[\d,]*)\b",
+        r"(?i)\b(?:pre[\s-]?filter\s+)?removed\s+(\d[\d,]*)\s+of\s+(\d[\d,]*)\s+(?:input\s+)?genes?,\s+retaining\s+(\d[\d,]*)\b",
     )
     .expect("static regex")
 });
@@ -4774,7 +4774,11 @@ fn semantic_summary_fields(
         return Some(&["n_genes_input", "n_genes"]);
     }
     if lower.contains("removed") && matches!(noun, "gene" | "genes") {
-        return Some(&["n_genes_prefiltered"]);
+        return Some(&[
+            "n_genes_prefilter_removed",
+            "n_genes_removed",
+            "n_genes_prefiltered",
+        ]);
     }
     if lower.contains("retained") && matches!(noun, "gene" | "genes") {
         return Some(&["n_genes_tested", "tested_feature_count"]);
@@ -5066,7 +5070,11 @@ pub fn verify_narrative_counts(
                 out.push(summary_fact(
                     "count:prefiltered genes",
                     removed,
-                    &["n_genes_prefiltered"],
+                    &[
+                        "n_genes_prefilter_removed",
+                        "n_genes_removed",
+                        "n_genes_prefiltered",
+                    ],
                 ));
                 out.push(summary_fact(
                     "count:input genes",
@@ -6446,13 +6454,17 @@ mod tests {
         json!({
             "verifiableEntities": {
                 "enabled": true,
-                "entityNamePatterns": ["[A-Z][A-Z0-9]{1,}"],
+                "entityNamePatterns": [
+                    "[A-Z][A-Z0-9]+(?:_[A-Z0-9]+)+",
+                    "[A-Z][A-Z0-9]{1,}"
+                ],
+                "entityNameExcludePatterns": ["^NES$"],
                 "directionVocab": {
                     "up": ["upregulated", "increased", "elevated"],
                     "down": ["downregulated", "decreased", "reduced"]
                 },
-                "effectSizeColumns": ["log2FC", "logFC"],
-                "entityColumns": ["gene", "symbol"],
+                "effectSizeColumns": ["log2FC", "logFC", "NES"],
+                "entityColumns": ["gene", "symbol", "pathway"],
                 "pvalueColumns": ["padj", "pvalue"]
             }
         })
@@ -6486,6 +6498,38 @@ mod tests {
             matches!(acan.status, ClaimStatus::Verified),
             "got {:?}",
             acan.status
+        );
+    }
+
+    #[test]
+    fn verifies_pathway_statistic_without_mining_leading_edge_members() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        let pathway_dir = tmp
+            .path()
+            .join("runtime")
+            .join("outputs")
+            .join("pathway_enrichment");
+        std::fs::create_dir_all(&pathway_dir).unwrap();
+        write_table(
+            &pathway_dir,
+            "pathway_results.tsv",
+            "collection\tpathway\tpval\tpadj\tES\tNES\tleadingEdge\n\
+             HALLMARK\tHALLMARK_ADIPOGENESIS\t1e-7\t4.68e-06\t0.8\t1.961\tSPARCL1;GPX3;STOM;COL4A1\n",
+        );
+        let claims = extract_claims(
+            "Notable among enriched pathways: HALLMARK_ADIPOGENESIS \
+             (NES=1.961, padj=4.68e-06); leading-edge genes include \
+             SPARCL1, GPX3, STOM, and COL4A1.",
+            &cfg,
+        );
+        let verdicts = verify_claims_with_discovery(&claims, tmp.path(), tmp.path(), &cfg);
+
+        assert_eq!(verdicts.len(), 1, "{verdicts:#?}");
+        assert_eq!(verdicts[0].claim.entity, "HALLMARK_ADIPOGENESIS");
+        assert!(
+            matches!(verdicts[0].status, ClaimStatus::Verified),
+            "{verdicts:#?}"
         );
     }
 
@@ -9952,7 +9996,7 @@ mod tests {
             "differential_expression",
             serde_json::json!({
                 "n_genes_input": 63677,
-                "n_genes_prefiltered": 41308,
+                "n_genes_prefilter_removed": 41308,
                 "n_genes_tested": 22369,
                 "n_significant": 4030,
                 "top_effect_abundance_ratio_basis": {
@@ -9974,7 +10018,7 @@ mod tests {
 
         let narrative = "\
 The input matrix contained 63,677 genes x 8 samples.
-The pre-filter removed 41,308 of 63,677 genes, retaining 22,369 for testing.
+The rowSums >=10 pre-filter removed 41,308 of 63,677 input genes, retaining 22,369 for testing.
 The 17,190 ranked genes were mapped from 22,369 tested genes.
 6 entities were searched.
 4,024 of 4,030 significant DE genes were not searched.

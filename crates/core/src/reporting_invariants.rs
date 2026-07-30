@@ -84,13 +84,17 @@
 //!   * **RC-SECTIONS** every `required_report_sections` id declared on the
 //!     `reporting`/`final_reporting` task specs must appear as a non-empty
 //!     section in the emitted report.
+//!   * **RC-ATTACHMENT** a generated `.significant.tsv` attachment must be
+//!     described with the `ResultSchema::significance` filter that actually
+//!     selected its rows, without an invented additional effect-size cutoff.
 //!   * **RC-ROW** every DATA ROW of a markdown table in the narrative must be
 //!     re-derivable from the source artifact the table transcribes: its
 //!     identifier must be a row of that artifact, and every cell whose column
 //!     resolved to a role (effect / significance, via the one
 //!     [`crate::report_contract::resolve_ranking_columns`] resolver) must match
 //!     the source cell within the transcription tolerance the package's own
-//!     `interpretation-policy.json` declares. A deposited report shipped a
+//!     `interpretation-policy.json` declares. A missing-value placeholder is a
+//!     failure when the source cell is finite. A deposited report shipped a
 //!     "Top 10 depleted pathways" table in which three terms existed in no
 //!     source table at all and a fourth was reported at an INVERTED effect and
 //!     a significant adjusted p when its real row was the opposite sign and not
@@ -101,8 +105,9 @@
 //!     resolve, or whose source artifact cannot be identified from the table's
 //!     own contents, is SKIPPED with a warning — never a required failure,
 //!     because a false positive here blocks a deposit. Ordering claims in a
-//!     caption ("Top 10 …") are disclosed as unverified rather than
-//!     re-derived; see [`check_rc_row`] for why.
+//!     caption ("Top 10 …" or "Top enriched …") are re-derived from the
+//!     canonical `report-data.json::ranking` prefix; without an explicit N,
+//!     the table's displayed row count supplies N.
 //!   * **RC-TABLE** every significant entity embedded in `report-data.json`
 //!     (for an artifact whose set is not `spilled_to_attachment_only`) must
 //!     be rendered in the terminal report — the deterministic backstop for
@@ -123,9 +128,11 @@
 //!     scan — it is the reference, not an assertion under test.
 //!   * **RP-QC** an unqualified QC-negative assertion ("no outlier samples
 //!     were identified") requires a RETAINED outlier / PCA / sample-distance
-//!     artifact in the package. The deposited report asserted the absence of
-//!     outliers while the package contained no sample-level QC artifact of
-//!     any kind — the only sample statistic was a size-factor range.
+//!     artifact in the package, and a report may not deny a particular QC
+//!     artifact that the package retains. The deposited report asserted the
+//!     absence of outliers while the package contained no sample-level QC
+//!     artifact of any kind — the only sample statistic was a size-factor
+//!     range.
 //! * **Warn-only** — free-text prose invariants, so a brittle regex can
 //!   never block a scientifically-correct deposit:
 //!   * **RP-1** effect-abundance direction word (derived structurally from
@@ -160,8 +167,8 @@ use crate::report_contract::provenance_section::{
     collect_data_provenance, strip_provenance_section, DataProvenance, DataProvenanceRecord,
 };
 use crate::report_contract::{
-    load_policy_column_synonyms, resolve_ranking_columns, summarize_artifact, PathwayRanking,
-    PolicyColumnSynonyms, RankingColumns, ReportData, ResultSchema, FULL_TABLE_END,
+    load_policy_column_synonyms, resolve_ranking_columns, summarize_artifact, Comparator,
+    PathwayRanking, PolicyColumnSynonyms, RankingColumns, ReportData, ResultSchema, FULL_TABLE_END,
     FULL_TABLE_START,
 };
 
@@ -255,6 +262,7 @@ pub fn check_reporting_invariants(package_root: &Path) -> ReportingInvariantsRep
     check_rp9_method_label(&outputs, &mut report);
     check_rp_prov_data_source(package_root, &outputs, &mut report);
     check_rp_qc_negative_claim(&outputs, &mut report);
+    check_rc_attachment_filter_claim(package_root, &outputs, &mut report);
     check_rc_count(package_root, &outputs, &mut report);
     check_rc_literature_counts(&outputs, &mut report);
     check_rc_identity(&outputs, &mut report);
@@ -263,6 +271,105 @@ pub fn check_reporting_invariants(package_root: &Path) -> ReportingInvariantsRep
     check_rc_row(package_root, &outputs, &mut report);
 
     report
+}
+
+// ---------------------------------------------------------------------------
+// RC-ATTACHMENT (Required) — attachment description matches its generator
+// ---------------------------------------------------------------------------
+
+/// RC-ATTACHMENT: a report may describe the deterministically generated
+/// `<artifact>.significant.tsv` only with the atom-declared significance
+/// filter. [`crate::report_contract::report_data::write_supplementary`] writes
+/// exactly the rows selected by `ResultSchema::significance`; it never adds an
+/// effect-size cutoff. A report that labels this attachment with an additional
+/// absolute-effect threshold therefore misdescribes the file even when some
+/// separate stage summary happens to use that stricter threshold.
+fn check_rc_attachment_filter_claim(
+    package_root: &Path,
+    outputs: &Path,
+    report: &mut ReportingInvariantsReport,
+) {
+    let Some(schemas) = read_report_schemas(package_root) else {
+        return;
+    };
+    let Some(report_data) = read_report_data(outputs) else {
+        return;
+    };
+    let Some(prose) = read_agent_report_prose(outputs) else {
+        return;
+    };
+    let synonyms = load_policy_column_synonyms(package_root);
+    let mut offenders = BTreeSet::new();
+
+    for artifact in &report_data.artifacts {
+        let Some(schema) = schemas.get(&artifact.stage_id) else {
+            continue;
+        };
+        let Some(significance) = schema.significance.as_ref() else {
+            continue;
+        };
+        let Some(file_name) = Path::new(&artifact.significant_table_path)
+            .file_name()
+            .and_then(|name| name.to_str())
+        else {
+            continue;
+        };
+        let mut effect_names = Vec::new();
+        if let Some(name) = schema.signed_effect_column.as_ref() {
+            effect_names.push(name.clone());
+        }
+        effect_names.extend(schema.signed_effect_aliases.iter().cloned());
+        effect_names.extend(synonyms.effect.iter().cloned());
+        effect_names.sort_by_key(|name| name.to_ascii_lowercase());
+        effect_names.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+        if effect_names.is_empty() {
+            continue;
+        }
+
+        for line in prose.lines().filter(|line| line.contains(file_name)) {
+            let asserts_effect_cutoff = effect_names.iter().any(|name| {
+                let escaped = regex::escape(name);
+                let pattern = format!(
+                    r"(?i)(?:\|\s*{escaped}\s*\||\babs(?:olute)?(?:\s+value\s+of)?\s+{escaped}\b)(?:\s+(?:magnitude|value))?\s*(?:<=|>=|<|>|≤|≥)"
+                );
+                Regex::new(&pattern)
+                    .expect("escaped effect name yields a valid regex")
+                    .is_match(line)
+            });
+            if asserts_effect_cutoff {
+                let comparator = match significance.comparator {
+                    Comparator::Lt => "<",
+                    Comparator::Gt => ">",
+                };
+                offenders.insert(format!(
+                    "`{}` is generated with {} {comparator} {} only, but the report adds an \
+                     effect-size cutoff in: {}",
+                    artifact.significant_table_path,
+                    significance.column,
+                    significance.threshold,
+                    line.trim()
+                ));
+            }
+        }
+    }
+
+    if report_data
+        .artifacts
+        .iter()
+        .any(|artifact| !artifact.significant_table_path.is_empty())
+    {
+        report.checked.push("RC-ATTACHMENT");
+    }
+    if !offenders.is_empty() {
+        report.findings.push(ReportingFinding {
+            invariant: "RC-ATTACHMENT",
+            severity: Severity::Required,
+            detail: format!(
+                "report misdescribes a generated significant-results attachment: {}",
+                offenders.into_iter().collect::<Vec<_>>().join(" | ")
+            ),
+        });
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -692,6 +799,112 @@ fn check_rc_pathway_rank(outputs: &Path, report: &mut ReportingInvariantsReport)
             "result.json n_genes_ranked={observed}, ranked_genes.tsv rows={expected_count}"
         )),
         None => structural.push("result.json n_genes_ranked is missing".to_string()),
+    }
+
+    let mapping_path = pathway_dir.join("annotation").join("symbol_map.tsv");
+    if mapping_path.exists() {
+        match crate::report_contract::assemble::read_table(&mapping_path) {
+            Err(error) => structural.push(format!(
+                "annotation/symbol_map.tsv cannot be parsed as a delimited table: {error}"
+            )),
+            Ok((mapping_headers, mapping_rows)) => {
+                let observed_headers: Vec<&str> = mapping_headers.iter().collect();
+                if observed_headers != ["symbol", "ensembl_gene_id"] {
+                    structural.push(format!(
+                        "annotation/symbol_map.tsv header is {:?}, expected [symbol, \
+                         ensembl_gene_id] in that order",
+                        observed_headers
+                    ));
+                }
+                let symbol_idx = mapping_headers.iter().position(|header| header == "symbol");
+                let accession_idx = mapping_headers
+                    .iter()
+                    .position(|header| header == "ensembl_gene_id");
+                if let (Some(symbol_idx), Some(accession_idx)) = (symbol_idx, accession_idx) {
+                    let mut previous_accession: Option<&str> = None;
+                    let mut mappings = BTreeSet::new();
+                    for (offset, row) in mapping_rows.iter().enumerate() {
+                        let symbol = row.get(symbol_idx).unwrap_or("").trim();
+                        let accession = row.get(accession_idx).unwrap_or("").trim();
+                        if symbol.is_empty() || accession.is_empty() {
+                            structural.push(format!(
+                                "annotation/symbol_map.tsv row {} has an empty symbol or \
+                                 ensembl_gene_id",
+                                offset + 2
+                            ));
+                        }
+                        if !mappings.insert((symbol.to_string(), accession.to_string())) {
+                            structural.push(format!(
+                                "annotation/symbol_map.tsv repeats mapping {symbol:?} -> \
+                                 {accession:?}"
+                            ));
+                        }
+                        if previous_accession.is_some_and(|previous| previous > accession) {
+                            structural.push(
+                                "annotation/symbol_map.tsv is not sorted by ensembl_gene_id"
+                                    .to_string(),
+                            );
+                        }
+                        previous_accession = Some(accession);
+                    }
+                }
+
+                let mapped = mapping_rows.len() as u64;
+                let pre_mapping = result
+                    .as_ref()
+                    .and_then(|value| json_named_u64(value, "n_genes_pre_mapping"));
+                match pre_mapping {
+                    None => {
+                        structural.push("result.json n_genes_pre_mapping is missing".to_string())
+                    }
+                    Some(pre_mapping) if pre_mapping < mapped => structural.push(format!(
+                        "result.json n_genes_pre_mapping={pre_mapping} is smaller than \
+                         annotation/symbol_map.tsv rows={mapped}"
+                    )),
+                    Some(pre_mapping) => {
+                        let expected_unmapped = pre_mapping - mapped;
+                        for (field, expected) in [
+                            ("n_genes_mapped", mapped),
+                            ("n_genes_unmapped", expected_unmapped),
+                        ] {
+                            match result
+                                .as_ref()
+                                .and_then(|value| json_named_u64(value, field))
+                            {
+                                Some(observed) if observed == expected => {}
+                                Some(observed) => structural.push(format!(
+                                    "result.json {field}={observed}, recomputed={expected}"
+                                )),
+                                None => {
+                                    structural.push(format!("result.json {field} is missing"));
+                                }
+                            }
+                        }
+                    }
+                }
+                if mapped < expected_count {
+                    structural.push(format!(
+                        "annotation/symbol_map.tsv rows={mapped} is smaller than \
+                         ranked_genes.tsv rows={expected_count}"
+                    ));
+                } else {
+                    let expected_duplicates = mapped - expected_count;
+                    match result
+                        .as_ref()
+                        .and_then(|value| json_named_u64(value, "n_duplicate_gene_labels_removed"))
+                    {
+                        Some(observed) if observed == expected_duplicates => {}
+                        Some(observed) => structural.push(format!(
+                            "result.json n_duplicate_gene_labels_removed={observed}, \
+                             recomputed={expected_duplicates}"
+                        )),
+                        None => structural.push(
+                            "result.json n_duplicate_gene_labels_removed is missing".to_string(),
+                        ),
+                    }
+                }
+            }
+        }
     }
 
     let mut narrative = read_reports(outputs).unwrap_or_default();
@@ -1974,25 +2187,23 @@ fn json_outlier_key(path: &Path) -> Option<String> {
     find_outlier_key(&read_json(path)?)
 }
 
-/// Depth-first, name-sorted scan for a retained sample-QC artifact. Returns
-/// the package-relative path of the first hit. Deterministic: entries are
-/// visited in sorted order, files before subdirectories.
-fn scan_for_qc_artifact(
-    root: &Path,
-    dir: &Path,
-    depth: usize,
-    budget: &mut usize,
-) -> Option<String> {
+/// Depth-first, name-sorted scan for retained sample-QC artifacts.
+/// Deterministic: entries are visited in sorted order, files before
+/// subdirectories.
+fn collect_qc_artifacts(root: &Path, dir: &Path, depth: usize, budget: &mut usize) -> Vec<String> {
     if depth > QC_SCAN_MAX_DEPTH || *budget == 0 {
-        return None;
+        return Vec::new();
     }
     let mut names: Vec<std::ffi::OsString> = std::fs::read_dir(dir)
-        .ok()?
+        .ok()
+        .into_iter()
+        .flatten()
         .flatten()
         .map(|e| e.file_name())
         .collect();
     names.sort();
     let mut subdirs: Vec<std::path::PathBuf> = Vec::new();
+    let mut found = Vec::new();
     for name in names {
         if *budget == 0 {
             break;
@@ -2011,20 +2222,72 @@ fn scan_for_qc_artifact(
                 .to_string()
         };
         if is_sample_qc_artifact(&file_name) {
-            return Some(rel());
+            found.push(rel());
+            continue;
         }
         if file_name.to_lowercase().ends_with(".json") {
             if let Some(key) = json_outlier_key(&path) {
-                return Some(format!("{} (key `{key}`)", rel()));
+                found.push(format!("{} (key `{key}`)", rel()));
             }
         }
     }
     for sub in subdirs {
-        if let Some(hit) = scan_for_qc_artifact(root, &sub, depth + 1, budget) {
-            return Some(hit);
-        }
+        found.extend(collect_qc_artifacts(root, &sub, depth + 1, budget));
     }
-    None
+    found
+}
+
+/// Artifact class expressed by a retained QC path, as a prose regex.
+fn qc_artifact_class(path: &str) -> Option<(&'static str, &'static str)> {
+    let lower = path.to_ascii_lowercase();
+    let squashed: String = lower
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect();
+    if squashed.contains("sampledistance")
+        || squashed.contains("sampledist")
+        || squashed.contains("distancematrix")
+    {
+        Some(("sample-distance", r"sample[-\s]+distance"))
+    } else if squashed.contains("samplecorrelation") {
+        Some(("sample-correlation", r"sample[-\s]+correlation"))
+    } else if squashed.contains("cooksdistance") || squashed.contains("cooksd") {
+        Some(("Cook's-distance", r"cook'?s[-\s]+distance"))
+    } else if squashed.contains("pcacoord") {
+        Some(("PCA coordinates", r"\bpca[-\s]+(?:coordinates?|coords?)\b"))
+    } else if squashed.contains("pcascores") {
+        Some(("PCA scores", r"\bpca[-\s]+scores?\b"))
+    } else if squashed.contains("pcaloadings") {
+        Some(("PCA loadings", r"\bpca[-\s]+loadings?\b"))
+    } else if squashed.contains("pcaplot") || squashed.contains("samplepca") {
+        Some(("PCA plot", r"\bpca(?:[-\s]+plot)?\b"))
+    } else if squashed.contains("mdsplot")
+        || lower
+            .split(|c: char| !c.is_ascii_alphanumeric())
+            .any(|token| token == "mds")
+    {
+        Some(("MDS", r"\bmds\b"))
+    } else if squashed.contains("outlier") {
+        Some(("outlier", r"\boutlier"))
+    } else {
+        None
+    }
+}
+
+/// Whether the report explicitly says an artifact class is absent. This is
+/// narrower than a bag-of-words test: either "no ... <class>" must occur in
+/// one clause, or "<class> ... not produced/retained/available" must occur.
+fn report_denies_qc_artifact(prose: &str, class_pattern: &str) -> Option<String> {
+    let before = Regex::new(&format!(r"(?i)\bno\b[^.;\n]{{0,180}}{class_pattern}"))
+        .expect("QC class patterns are static regex fragments");
+    let after = Regex::new(&format!(
+        r"(?i){class_pattern}[^.;\n]{{0,100}}\b(?:was|were|is|are)?\s*not\s+(?:produced|retained|generated|available|present|included)"
+    ))
+    .expect("QC class patterns are static regex fragments");
+    before
+        .find(prose)
+        .or_else(|| after.find(prose))
+        .map(|m| clause_around(prose, m.start()).to_string())
 }
 
 /// RP-QC: an unqualified QC-NEGATIVE assertion — "no outlier samples were
@@ -2048,6 +2311,28 @@ fn check_rp_qc_negative_claim(outputs: &Path, report: &mut ReportingInvariantsRe
     };
     report.checked.push("RP-QC");
 
+    let mut budget = QC_SCAN_MAX_ENTRIES;
+    let artifacts = collect_qc_artifacts(outputs, outputs, 0, &mut budget);
+    let mut contradicted = BTreeSet::new();
+    for artifact in &artifacts {
+        let Some((class, pattern)) = qc_artifact_class(artifact) else {
+            continue;
+        };
+        if let Some(claim) = report_denies_qc_artifact(&prose, pattern) {
+            if contradicted.insert(class) {
+                report.findings.push(ReportingFinding {
+                    invariant: "RP-QC",
+                    severity: Severity::Required,
+                    detail: format!(
+                        "report says the retained {class} artifact is absent (\"{claim}\"), but \
+                         `{artifact}` exists under runtime/outputs/. Describe only the assessment \
+                         that was not performed; do not deny an artifact the package retains"
+                    ),
+                });
+            }
+        }
+    }
+
     let patterns = [
         r"\bno\s+outlier\s+samples?\s+(?:were|was)\s+\w+",
         r"\bno\s+(?:sample\s+)?outliers?\s+(?:were|was)\s+(?:identified|detected|found|observed|flagged|apparent|present|evident|seen)\b",
@@ -2067,8 +2352,7 @@ fn check_rp_qc_negative_claim(outputs: &Path, report: &mut ReportingInvariantsRe
     let Some(claim) = claim else {
         return;
     };
-    let mut budget = QC_SCAN_MAX_ENTRIES;
-    if scan_for_qc_artifact(outputs, outputs, 0, &mut budget).is_some() {
+    if !artifacts.is_empty() {
         return;
     }
     report.findings.push(ReportingFinding {
@@ -2870,6 +3154,21 @@ fn parse_markdown_number(cell: &str) -> Option<f64> {
     s.parse::<f64>().ok().filter(|v| v.is_finite())
 }
 
+/// Whether a result-role cell explicitly states that no value is available.
+/// Bounds and approximations are deliberately excluded: they are assertions
+/// the point-value comparator abstains on, not missing-value placeholders.
+fn is_markdown_missing_value(cell: &str) -> bool {
+    let normalized = cell
+        .trim()
+        .trim_matches(|c| matches!(c, '*' | '`' | '_'))
+        .trim()
+        .to_ascii_lowercase();
+    matches!(
+        normalized.as_str(),
+        "" | "-" | "—" | "–" | "na" | "n/a" | "nan" | "null" | "."
+    )
+}
+
 /// A source result artifact indexed for narrative-row lookup.
 struct SourceRowIndex {
     headers: csv::StringRecord,
@@ -3185,9 +3484,11 @@ fn bind_narrative_table(
                         source.number(hits[0], role.source),
                     ) {
                         (Some(claimed), Some(observed)) => tol.agrees(role, claimed, observed),
-                        // Nothing comparable in this cell: it neither
-                        // corroborates nor contradicts the binding.
-                        _ => true,
+                        (None, Some(_)) => cells
+                            .get(role.narrative)
+                            .is_none_or(|cell| !is_markdown_missing_value(cell)),
+                        (Some(_), None) => false,
+                        (None, None) => true,
                     }
                 }) {
                     agreeing += 1;
@@ -3236,6 +3537,22 @@ fn narrative_table_declares_result_roles(
         resolve_ranking_columns(&header, schema, synonyms)
             .is_some_and(|columns| columns.effect.is_some() || columns.significance.is_some())
     })
+}
+
+/// Prefix length asserted by a table caption containing "Top". An explicit
+/// number wins; otherwise the number of displayed data rows is the asserted
+/// prefix length ("Top enriched pathways" means every displayed row is from
+/// the canonical leading prefix).
+fn ranked_caption_size(heading: &str, row_count: usize) -> Option<usize> {
+    let re = Regex::new(r"(?i)\btop\b(?:[\s\-]+(\d+)\b)?")
+        .expect("static RC-ROW ranked-caption regex compiles");
+    let captures = re.captures(heading)?;
+    Some(
+        captures
+            .get(1)
+            .and_then(|capture| capture.as_str().parse::<usize>().ok())
+            .unwrap_or(row_count),
+    )
 }
 
 /// Disambiguate a narrative row that matched SEVERAL source rows, using the
@@ -3317,20 +3634,30 @@ fn verify_bound_table(
             }
         };
         for role in &binding.roles {
-            let Some(claimed) = cells
+            let cell = cells
                 .get(role.narrative)
-                .and_then(|c| parse_markdown_number(c))
-            else {
-                continue;
-            };
-            let Some(observed) = source.number(row_index, role.source) else {
-                continue;
-            };
-            if !tol.agrees(role, claimed, observed) {
-                failures.push(format!(
-                    "row `{key}` states {} = {claimed} but `{artifact}` holds {observed}",
-                    source.headers.get(role.source).unwrap_or_default()
-                ));
+                .map(String::as_str)
+                .unwrap_or_default();
+            let claimed = parse_markdown_number(cell);
+            let observed = source.number(row_index, role.source);
+            let column = source.headers.get(role.source).unwrap_or_default();
+            match (claimed, observed) {
+                (Some(claimed), Some(observed)) if !tol.agrees(role, claimed, observed) => {
+                    failures.push(format!(
+                        "row `{key}` states {column} = {claimed} but `{artifact}` holds {observed}"
+                    ));
+                }
+                (None, Some(observed)) if is_markdown_missing_value(cell) => {
+                    failures.push(format!(
+                        "row `{key}` omits {column} as `{cell}` but `{artifact}` holds {observed}"
+                    ));
+                }
+                (Some(claimed), None) => {
+                    failures.push(format!(
+                        "row `{key}` states {column} = {claimed} but `{artifact}` has no finite value"
+                    ));
+                }
+                _ => {}
             }
         }
     }
@@ -3527,9 +3854,6 @@ fn check_rc_row(package_root: &Path, outputs: &Path, report: &mut ReportingInvar
         return;
     }
 
-    let ranked_caption = Regex::new(r"(?i)\btop[\s\-]+(\d+)\b")
-        .expect("static RC-ROW ranked-caption regex compiles");
-
     let mut ran = false;
     let mut offenders: Vec<String> = Vec::new();
     let mut skipped: Vec<String> = Vec::new();
@@ -3569,10 +3893,7 @@ fn check_rc_row(package_root: &Path, outputs: &Path, report: &mut ReportingInvar
                 )),
                 TableBindingOutcome::Bound(binding) => {
                     let source = &sources[&binding.stage_id];
-                    if let Some(captures) = ranked_caption.captures(&table.heading) {
-                        let claimed_n = captures
-                            .get(1)
-                            .and_then(|capture| capture.as_str().parse::<usize>().ok());
+                    if let Some(claimed_n) = ranked_caption_size(&table.heading, table.rows.len()) {
                         let ranking = report_data
                             .as_ref()
                             .and_then(|data| {
@@ -3581,9 +3902,11 @@ fn check_rc_row(package_root: &Path, outputs: &Path, report: &mut ReportingInvar
                                     .find(|artifact| artifact.stage_id == binding.stage_id)
                             })
                             .and_then(|artifact| artifact.ranking.as_ref());
-                        match (claimed_n, ranking) {
-                            (Some(n), Some(ranking)) => {
-                                match verify_ranked_table(&table, &binding, source, ranking, n) {
+                        match ranking {
+                            Some(ranking) => {
+                                match verify_ranked_table(
+                                    &table, &binding, source, ranking, claimed_n,
+                                ) {
                                     RankedTableCheck::Pass => {}
                                     RankedTableCheck::Failure(detail) => {
                                         offenders.push(format!("{site} — {detail}"));
@@ -3593,10 +3916,7 @@ fn check_rc_row(package_root: &Path, outputs: &Path, report: &mut ReportingInvar
                                     )),
                                 }
                             }
-                            (None, _) => skipped.push(format!(
-                                "{site} ranking caption has no parseable Top-N count"
-                            )),
-                            (_, None) => skipped.push(format!(
+                            None => skipped.push(format!(
                                 "{site} caption asserts a ranking but report-data.json has no \
                                  canonical ranking for `{}`",
                                 binding.stage_id
@@ -3761,7 +4081,103 @@ mod tests {
     }
 
     #[test]
+    fn rc_attachment_rejects_effect_cutoff_not_used_to_generate_attachment() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write_root(
+            tmp.path(),
+            "WORKFLOW.json",
+            &serde_json::json!({
+                "tasks": {
+                    "assemble_report_data": {
+                        "spec": {
+                            "report_schemas": {
+                                "differential_expression": {
+                                    "artifact": "de_results.tsv",
+                                    "entity_column": "gene",
+                                    "entity_column_aliases": ["gene_id"],
+                                    "significance": {
+                                        "column": "padj",
+                                        "threshold": 0.05,
+                                        "comparator": "lt"
+                                    },
+                                    "signed_effect_column": "log2FoldChange",
+                                    "signed_effect_aliases": ["log2FC"],
+                                    "grouping_column": null
+                                }
+                            }
+                        }
+                    }
+                }
+            })
+            .to_string(),
+        );
+        write(
+            &outputs,
+            "reporting/report-data.json",
+            &serde_json::json!({
+                "artifacts": [{
+                    "stage_id": "differential_expression",
+                    "artifact": "de_results.tsv",
+                    "n_total": 22369,
+                    "n_significant": 4030,
+                    "direction_split": null,
+                    "effect_distribution": null,
+                    "significant_entities": [],
+                    "significant_table_path":
+                        "runtime/outputs/differential_expression/de_results.significant.tsv",
+                    "full_table_path":
+                        "runtime/outputs/differential_expression/de_results.full.tsv",
+                    "spilled_to_attachment_only": true
+                }],
+                "literature": null
+            })
+            .to_string(),
+        );
+        write(
+            &outputs,
+            "reporting/report.md",
+            "| File | Description |\n\
+             | --- | --- |\n\
+             | `de_results.significant.tsv` | Significant DE genes \
+             (padj <= 0.05, |log2FC| >= 1.0) |\n",
+        );
+
+        let report = check_reporting_invariants(tmp.path());
+        let failures = report.required_failures().join("\n");
+        assert!(
+            failures.contains("RC-ATTACHMENT")
+                && failures.contains("generated with padj < 0.05 only"),
+            "{failures}"
+        );
+
+        write(
+            &outputs,
+            "reporting/report.md",
+            "| File | Description |\n\
+             | --- | --- |\n\
+             | `de_results.significant.tsv` | Significant DE genes \
+             (padj < 0.05; columns include log2FC and padj) |\n",
+        );
+        let corrected = check_reporting_invariants(tmp.path());
+        assert!(
+            corrected
+                .required_failures()
+                .iter()
+                .all(|failure| !failure.starts_with("RC-ATTACHMENT:")),
+            "{corrected:?}"
+        );
+    }
+
+    #[test]
     fn rc_row_ranked_table_must_match_canonical_prefix() {
+        assert_eq!(
+            ranked_caption_size("Top enriched pathways by canonical ranking", 6),
+            Some(6)
+        );
+        assert_eq!(ranked_caption_size("Top 2 enriched pathways", 6), Some(2));
+        assert_eq!(ranked_caption_size("Selected pathways", 6), None);
+
         let schema = ResultSchema {
             artifact: "pathway_results.tsv".into(),
             entity_column: "pathway".into(),
@@ -3840,6 +4256,80 @@ mod tests {
             }
             _ => panic!("a noncanonical Top-N prefix must fail"),
         }
+    }
+
+    #[test]
+    fn rc_row_rejects_missing_role_cell_when_source_has_value() {
+        let schema = ResultSchema {
+            artifact: "pathway_results.tsv".into(),
+            entity_column: "pathway".into(),
+            entity_column_aliases: Vec::new(),
+            significance: Some(Significance {
+                column: "padj".into(),
+                threshold: 0.25,
+                comparator: Comparator::Lt,
+            }),
+            signed_effect_column: Some("NES".into()),
+            signed_effect_aliases: Vec::new(),
+            grouping_column: None,
+        };
+        let headers = csv::StringRecord::from(vec!["pathway", "NES", "padj"]);
+        let rows = vec![csv::StringRecord::from(vec![
+            "KEGG_INSULIN_SIGNALING_PATHWAY",
+            "1.87248344882034",
+            "0.00116661740275901",
+        ])];
+        let source =
+            SourceRowIndex::build(headers, rows, &schema, &PolicyColumnSynonyms::default())
+                .expect("source index");
+        let binding = TableBinding {
+            stage_id: "pathway_enrichment".into(),
+            artifact: "pathway_results.tsv".into(),
+            lookup: 0,
+            roles: vec![
+                RoleCell {
+                    narrative: 1,
+                    source: source.cols.effect.expect("effect"),
+                    significance: false,
+                },
+                RoleCell {
+                    narrative: 2,
+                    source: source.cols.significance.expect("significance"),
+                    significance: true,
+                },
+            ],
+            resolved: 1,
+            agreeing: 0,
+        };
+        let table = NarrativeTable {
+            line: 1,
+            heading: "Selected pathway".into(),
+            header: vec!["Pathway".into(), "NES".into(), "padj".into()],
+            rows: vec![vec![
+                "KEGG_INSULIN_SIGNALING_PATHWAY".into(),
+                "—".into(),
+                "NA".into(),
+            ]],
+        };
+        let mut failures = Vec::new();
+        let mut skipped = Vec::new();
+        verify_bound_table(
+            "reporting/report.md:1",
+            &table,
+            &binding,
+            &source,
+            &NarrativeTolerances {
+                effect_absolute: 0.01,
+                significance_relative: 0.05,
+            },
+            &mut failures,
+            &mut skipped,
+        );
+
+        assert_eq!(failures.len(), 2, "{failures:?}");
+        assert!(failures.iter().any(|failure| failure.contains("NES")));
+        assert!(failures.iter().any(|failure| failure.contains("padj")));
+        assert!(skipped.is_empty(), "{skipped:?}");
     }
 
     #[test]
@@ -4120,6 +4610,64 @@ mod tests {
                 .iter()
                 .all(|failure| !failure.starts_with("RC-RANK:")),
             "{report:?}"
+        );
+    }
+
+    #[test]
+    fn rc_rank_reconciles_mapping_and_duplicate_label_losses() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        seed_ranked_genes(&outputs, 2);
+        write(
+            &outputs,
+            "pathway_enrichment/annotation/symbol_map.tsv",
+            "symbol\tensembl_gene_id\n\
+             GENE1\tENSG1\n\
+             GENE1\tENSG2\n\
+             GENE2\tENSG3\n",
+        );
+        write(
+            &outputs,
+            "pathway_enrichment/result.json",
+            &serde_json::json!({
+                "n_genes_pre_mapping": 4,
+                "n_genes_mapped": 3,
+                "n_genes_unmapped": 1,
+                "n_genes_ranked": 2,
+                "n_duplicate_gene_labels_removed": 1,
+                "narrative": "Preranked fgsea included 2 genes."
+            })
+            .to_string(),
+        );
+
+        let report = check_reporting_invariants(tmp.path());
+        assert!(
+            report
+                .required_failures()
+                .iter()
+                .all(|failure| !failure.starts_with("RC-RANK:")),
+            "{report:?}"
+        );
+
+        write(
+            &outputs,
+            "pathway_enrichment/result.json",
+            &serde_json::json!({
+                "n_genes_pre_mapping": 4,
+                "n_genes_mapped": 3,
+                "n_genes_unmapped": 2,
+                "n_genes_ranked": 2,
+                "n_duplicate_gene_labels_removed": 0,
+                "narrative": "Preranked fgsea included 2 genes."
+            })
+            .to_string(),
+        );
+        let wrong = check_reporting_invariants(tmp.path());
+        let failures = wrong.required_failures().join("\n");
+        assert!(
+            failures.contains("n_genes_unmapped=2, recomputed=1")
+                && failures.contains("n_duplicate_gene_labels_removed=0, recomputed=1"),
+            "{failures}"
         );
     }
 
@@ -5721,6 +6269,58 @@ mod tests {
                 .iter()
                 .all(|f| !f.contains("RP-QC")),
             "a recorded outlier verdict corroborates the claim: {report:?}"
+        );
+    }
+
+    #[test]
+    fn rp_qc_rejects_denial_of_retained_sample_distance_matrix() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "reporting/report.md",
+            "### QC\n\nNo sample-outlier assessment was performed; no outlier table, \
+             Cook's-distance output, PCA outlier score, or sample-distance matrix was \
+             produced and retained as a package artifact.\n",
+        );
+        write(
+            &outputs,
+            "normalisation/intermediates/sample_distances.tsv",
+            "sample\tS1\nS1\t0\n",
+        );
+
+        let report = check_reporting_invariants(tmp.path());
+        let failures = report.required_failures().join("\n");
+        assert!(
+            failures.contains("RP-QC")
+                && failures.contains("sample-distance")
+                && failures.contains("sample_distances.tsv"),
+            "{failures}"
+        );
+    }
+
+    #[test]
+    fn rp_qc_does_not_equate_pca_coordinates_with_outlier_scores() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "reporting/report.md",
+            "### QC\n\nNo PCA outlier score was produced.\n",
+        );
+        write(
+            &outputs,
+            "normalisation/intermediates/pca_coords.tsv",
+            "sample\tPC1\tPC2\nS1\t0\t0\n",
+        );
+
+        let report = check_reporting_invariants(tmp.path());
+        assert!(
+            report
+                .required_failures()
+                .iter()
+                .all(|failure| !failure.starts_with("RP-QC:")),
+            "{report:?}"
         );
     }
 

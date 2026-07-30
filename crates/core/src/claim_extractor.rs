@@ -412,6 +412,15 @@ static TABLE_REF_RE: LazyLock<Regex> =
 static BIBLIOGRAPHIC_INVENTORY_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\s*[-*+]\s+\*\*[\d,\s-]+\*\*\s*[-:]\s+").expect("static regex"));
 
+/// Start of a pathway's leading-edge membership list. Gene symbols after this
+/// cue are members of the named set, not independent DE assertions that own
+/// the sentence-wide NES/padj or superlative. The pathway entity before the
+/// cue remains extractable and verifiable against the enrichment table.
+static LEADING_EDGE_GENE_LIST_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\bleading[-\s]+edge\s+genes?\s+(?:include(?:s|d|ing)?|comprise(?:s|d)?|are)\b")
+        .expect("static leading-edge membership regex")
+});
+
 /// Uppercased tokens the broad `[A-Z][A-Z0-9]+` gene pattern captures but which
 /// are never gene symbols. Dropped alongside the policy's
 /// `entity_exclude_patterns` so prose abbreviations, format placeholders, and
@@ -1336,6 +1345,7 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
         // acronyms (RNA, PCR, DNA, WHO) that the broad gene-symbol regex
         // otherwise captures.
         let table_ref_spans = table_reference_spans(trimmed);
+        let leading_edge_members_start = LEADING_EDGE_GENE_LIST_RE.find(trimmed).map(|m| m.end());
         let mut raw_entity_hits: Vec<EntityHit> = Vec::new();
         for pat in &cfg.entity_patterns {
             for m in pat.find_iter(trimmed) {
@@ -1347,6 +1357,7 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
                     .any(|excl| excl.is_match(token))
                     || ENTITY_STOPLIST.contains(&tok_upper.as_str());
                 if excluded
+                    || leading_edge_members_start.is_some_and(|start| m.start() >= start)
                     || is_embedded_in_alnum_token(trimmed, m.start(), m.end())
                     || is_namespace_component(trimmed, m.start(), m.end())
                     || is_contextual_non_entity(trimmed, m.start(), m.end(), token)
@@ -2687,16 +2698,36 @@ mod tests {
         json!({
             "verifiableEntities": {
                 "enabled": true,
-                "entityNamePatterns": ["[A-Z][A-Z0-9]{1,}"],
+                "entityNamePatterns": [
+                    "[A-Z][A-Z0-9]+(?:_[A-Z0-9]+)+",
+                    "[A-Z][A-Z0-9]{1,}"
+                ],
+                "entityNameExcludePatterns": ["^NES$"],
                 "directionVocab": {
                     "up": ["upregulated", "increased", "elevated"],
                     "down": ["downregulated", "decreased", "reduced"]
                 },
-                "effectSizeColumns": ["log2FC", "logFC"],
+                "effectSizeColumns": ["log2FC", "logFC", "NES"],
                 "entityColumns": ["gene", "symbol"],
                 "pvalueColumns": ["pvalue", "padj"]
             }
         })
+    }
+
+    #[test]
+    fn leading_edge_members_do_not_inherit_pathway_statistics() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let claims = extract_claims(
+            "Notable among enriched pathways: HALLMARK_ADIPOGENESIS \
+             (NES=1.961, padj=4.68e-06); leading-edge genes include \
+             SPARCL1, GPX3, STOM, and COL4A1.",
+            &cfg,
+        );
+
+        assert_eq!(claims.len(), 1, "{claims:#?}");
+        assert_eq!(claims[0].entity, "HALLMARK_ADIPOGENESIS");
+        assert_eq!(claims[0].effect_size, Some(1.961));
+        assert_eq!(claims[0].pvalue, Some(4.68e-6));
     }
 
     #[test]
@@ -2807,7 +2838,7 @@ mod tests {
         .expect("bio class does not require an overlay");
         // There's no interpretation-policy.bioinformatics.json, so the
         // base policy carries through.
-        assert_eq!(cfg.effect_size_columns, vec!["log2FC", "logFC"]);
+        assert_eq!(cfg.effect_size_columns, vec!["log2FC", "logFC", "NES"]);
     }
 
     #[test]
