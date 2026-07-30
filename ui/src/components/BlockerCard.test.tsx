@@ -1093,7 +1093,7 @@ describe('BlockerCard — structured-decision variant', () => {
     )
   })
 
-  it('clicking Apply on an empty-decision-points blocker calls onUnblock without posting decisions', async () => {
+  it('forwards rationale when an empty-decision-points blocker is unblocked', async () => {
     // One fetch fires on mount for a non-discover taskId: blocker.json
     // → empty decision_points_for_sme. The decision.json fetch is gated
     // on a discover_* prefix (it's a discovery-task artifact, so issuing
@@ -1122,8 +1122,18 @@ describe('BlockerCard — structured-decision variant', () => {
     const button = screen.getByRole('button', {
       name: /apply decision and continue/i,
     })
+    await userEvent.type(
+      screen.getByTestId('structured-rationale'),
+      'Retry with two independently verified pathway sources.',
+    )
     await userEvent.click(button)
-    await waitFor(() => expect(onUnblock).toHaveBeenCalledTimes(1))
+    await waitFor(() =>
+      expect(onUnblock).toHaveBeenCalledWith(
+        undefined,
+        'Retry with two independently verified pathway sources.',
+        'clustering',
+      ),
+    )
     // No second fetch (sme-decisions POST) — only the single blocker.json
     // read on mount (decision.json is gated to discover_* tasks).
     expect(fetchMock).toHaveBeenCalledTimes(1)

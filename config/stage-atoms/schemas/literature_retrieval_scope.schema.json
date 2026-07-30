@@ -37,6 +37,10 @@
           "fallback_used": {
             "type": "boolean"
           },
+          "candidate_mismatch_filtered": {
+            "type": "integer",
+            "minimum": 0
+          },
           "truncated_at_storage_cap": {
             "type": "boolean"
           }

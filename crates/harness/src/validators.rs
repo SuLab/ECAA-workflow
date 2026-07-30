@@ -193,6 +193,205 @@ pub fn run_validators(
         .collect()
 }
 
+/// Harness-local obligation applied to completed `discover_*` tasks.
+/// Agent-authored evidence flags must agree with the exact
+/// `(axis, candidate_method)` rows retained in `method_landscape.csv`.
+pub const DISCOVERY_EVIDENCE_OBLIGATION: &str = "discovery_evidence_consistent";
+
+pub struct DiscoveryEvidenceConsistencyRunner;
+
+/// Whether a discovery artifact declares the method-landscape contract that
+/// [`DiscoveryEvidenceConsistencyRunner`] validates.
+///
+/// Some synthetic or legacy `discover_*` tasks are ordinary computation
+/// fixtures and carry neither a canonical `spec.stage_class` nor an upstream
+/// landscape. Their name alone is not enough to assert this obligation.
+pub fn discovery_evidence_is_applicable(artifact_path: &Path) -> bool {
+    if !artifact_path.join("decision.json").is_file() {
+        return false;
+    }
+    let has_stage_class = std::fs::read(artifact_path.join("task-spec.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .and_then(|spec| {
+            spec.pointer("/spec/stage_class")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        })
+        .is_some_and(|value| !value.is_empty());
+    if !has_stage_class {
+        return false;
+    }
+    artifact_path
+        .ancestors()
+        .find(|path| path.join("runtime").join("outputs").is_dir())
+        .is_some_and(|package_root| {
+            package_root
+                .join("runtime/outputs/survey_method_landscape/method_landscape.csv")
+                .is_file()
+        })
+}
+
+impl ValidatorRunner for DiscoveryEvidenceConsistencyRunner {
+    fn obligation_id(&self) -> &'static str {
+        DISCOVERY_EVIDENCE_OBLIGATION
+    }
+
+    fn run(&self, artifact_path: &Path) -> ValidatorOutcome {
+        let Some(task_id) = artifact_path.file_name().and_then(|n| n.to_str()) else {
+            return ValidatorOutcome::Failed {
+                message: "discovery artifact path has no UTF-8 task id".into(),
+            };
+        };
+        let Some(fallback_axis) = task_id.strip_prefix("discover_") else {
+            return ValidatorOutcome::Errored {
+                reason: format!("{task_id} is not a discover_* task"),
+            };
+        };
+        // Aliased tasks retain their canonical method-choice axis in
+        // task-spec.json::spec.stage_class. Prefer that value so a task such
+        // as discover_rnaseq_differential_expression is checked against the
+        // differential_expression landscape rows instead of an alias that
+        // does not exist in the matrix.
+        let task_spec_path = artifact_path.join("task-spec.json");
+        let axis = std::fs::read(&task_spec_path)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+            .and_then(|spec| {
+                spec.pointer("/spec/stage_class")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+            })
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| fallback_axis.to_string());
+        let decision_path = artifact_path.join("decision.json");
+        let decision: serde_json::Value = match std::fs::read(&decision_path)
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+        {
+            Some(v) => v,
+            None => {
+                return ValidatorOutcome::Failed {
+                    message: format!(
+                        "missing or malformed discovery decision at {}",
+                        decision_path.display()
+                    ),
+                };
+            }
+        };
+        let Some(package_root) = artifact_path
+            .ancestors()
+            .find(|p| p.join("runtime").join("outputs").is_dir())
+        else {
+            return ValidatorOutcome::Failed {
+                message: format!(
+                    "cannot locate package root from discovery artifact {}",
+                    artifact_path.display()
+                ),
+            };
+        };
+        let landscape_path =
+            package_root.join("runtime/outputs/survey_method_landscape/method_landscape.csv");
+        let landscape = match std::fs::read_to_string(&landscape_path) {
+            Ok(csv) => csv,
+            Err(e) => {
+                return ValidatorOutcome::Failed {
+                    message: format!(
+                        "cannot read method landscape at {}: {}",
+                        landscape_path.display(),
+                        e
+                    ),
+                };
+            }
+        };
+        let by_axis = match ecaa_workflow_core::method_landscape::load_candidate_metadata_from_str(
+            &landscape,
+        ) {
+            Ok(v) => v,
+            Err(e) => {
+                return ValidatorOutcome::Failed {
+                    message: format!("method landscape parse failed: {e}"),
+                };
+            }
+        };
+        let expected: std::collections::BTreeMap<
+            &str,
+            &ecaa_workflow_core::composite_score::CandidateMetadata,
+        > = by_axis
+            .get(&axis)
+            .into_iter()
+            .flatten()
+            .map(|(method, metadata)| (method.as_str(), metadata))
+            .collect();
+        let Some(candidates) = decision
+            .get("candidate_pool_full")
+            .and_then(serde_json::Value::as_array)
+        else {
+            return ValidatorOutcome::Failed {
+                message: "decision.json lacks candidate_pool_full".into(),
+            };
+        };
+
+        for candidate in candidates {
+            let method = candidate
+                .get("method_id")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            if method.is_empty() {
+                return ValidatorOutcome::Failed {
+                    message: "candidate_pool_full row lacks method_id".into(),
+                };
+            }
+            let expected_meta = expected.get(method).copied();
+            let expected_eligible = expected_meta
+                .map(|m| m.literature_eligible)
+                .unwrap_or(false);
+            let expected_support = expected_meta
+                .map(|m| m.supporting_evidence_count)
+                .unwrap_or(0);
+            let expected_high_quality = expected_meta
+                .map(|m| m.high_quality_evidence_count)
+                .unwrap_or(0);
+            let actual_eligible = candidate
+                .get("literature_eligible")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            let passes = candidate
+                .get("passes_default_eligibility_criteria")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            let tier = candidate
+                .get("recommended_tier")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+
+            if actual_eligible != expected_eligible {
+                return ValidatorOutcome::Failed {
+                    message: format!(
+                        "{axis}/{method}: literature_eligible={actual_eligible} but exact-axis evidence requires {expected_eligible}"
+                    ),
+                };
+            }
+            if passes && (!expected_eligible || expected_support == 0 || expected_high_quality == 0)
+            {
+                return ValidatorOutcome::Failed {
+                    message: format!(
+                        "{axis}/{method}: passes_default_eligibility_criteria=true with literature_eligible={expected_eligible}, supporting={expected_support}, high_quality={expected_high_quality}"
+                    ),
+                };
+            }
+            if tier == "defaultRecommended" && (!expected_eligible || !passes) {
+                return ValidatorOutcome::Failed {
+                    message: format!(
+                        "{axis}/{method}: defaultRecommended requires exact-axis literature eligibility and all default criteria"
+                    ),
+                };
+            }
+        }
+        ValidatorOutcome::Passed
+    }
+}
+
 /// `gene_id_in_annotation`. Reads
 /// `<artifact_path>/result.json::genes` (a JSON array of gene id
 /// strings) and `<artifact_path>/annotation_index.json` (the gene
@@ -1166,6 +1365,9 @@ pub fn default_runners() -> Vec<Box<dyn ValidatorRunner>> {
         // that task's result.json declares a source_deviation block, so
         // it holds for every ingestion atom without per-atom wiring.
         Box::new(SourceDeviationRecordedRunner),
+        // Discovery evidence flags are checked from retained artifacts rather
+        // than declared by any one atom.
+        Box::new(DiscoveryEvidenceConsistencyRunner),
     ];
     runners.extend(crate::literature_validators::literature_runners());
     runners
@@ -1191,6 +1393,8 @@ const HARNESS_LOCAL_VARIANT_OBLIGATIONS: &[&str] = &[
 /// same reason.
 const HARNESS_LOCAL_PROVENANCE_OBLIGATIONS: &[&str] = &[SOURCE_DEVIATION_OBLIGATION];
 
+const HARNESS_LOCAL_DISCOVERY_OBLIGATIONS: &[&str] = &[DISCOVERY_EVIDENCE_OBLIGATION];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1207,6 +1411,160 @@ mod tests {
         let runner = PValueInUnitIntervalRunner;
         let outcome = runner.run(tmp.path());
         assert!(matches!(outcome, ValidatorOutcome::Errored { .. }));
+    }
+
+    fn discovery_fixture(
+        landscape_rows: &str,
+        candidate: serde_json::Value,
+    ) -> (TempDir, std::path::PathBuf) {
+        let pkg = TempDir::new().unwrap();
+        let survey = pkg.path().join("runtime/outputs/survey_method_landscape");
+        let discover = pkg.path().join("runtime/outputs/discover_normalisation");
+        fs::create_dir_all(&survey).unwrap();
+        fs::create_dir_all(&discover).unwrap();
+        fs::write(
+            survey.join("method_landscape.csv"),
+            format!(
+                "axis,candidate_method,source_class,verified\n{}",
+                landscape_rows
+            ),
+        )
+        .unwrap();
+        fs::write(
+            discover.join("decision.json"),
+            serde_json::json!({"candidate_pool_full": [candidate]}).to_string(),
+        )
+        .unwrap();
+        (pkg, discover)
+    }
+
+    #[test]
+    fn discovery_evidence_rejects_cross_axis_borrowing() {
+        let (pkg, discover) = discovery_fixture(
+            "differential_expression,deseq2,primary_literature,true\n\
+             normalisation,deseq2_vst,curated_baseline,false\n",
+            serde_json::json!({
+                "method_id": "deseq2_vst",
+                "literature_eligible": true,
+                "passes_default_eligibility_criteria": true,
+                "recommended_tier": "defaultRecommended"
+            }),
+        );
+        let outcome = DiscoveryEvidenceConsistencyRunner.run(&discover);
+        assert!(matches!(outcome, ValidatorOutcome::Failed { .. }));
+        drop(pkg);
+    }
+
+    #[test]
+    fn discovery_evidence_allows_explicit_ineligible_alternative() {
+        let (pkg, discover) = discovery_fixture(
+            "normalisation,deseq2_vst,curated_baseline,false\n",
+            serde_json::json!({
+                "method_id": "deseq2_vst",
+                "literature_eligible": false,
+                "passes_default_eligibility_criteria": false,
+                "recommended_tier": "alternative"
+            }),
+        );
+        assert_eq!(
+            DiscoveryEvidenceConsistencyRunner.run(&discover),
+            ValidatorOutcome::Passed
+        );
+        drop(pkg);
+    }
+
+    #[test]
+    fn discovery_evidence_rejects_passing_ineligible_alternative() {
+        let (pkg, discover) = discovery_fixture(
+            "normalisation,deseq2_vst,curated_baseline,false\n",
+            serde_json::json!({
+                "method_id": "deseq2_vst",
+                "literature_eligible": false,
+                "passes_default_eligibility_criteria": true,
+                "recommended_tier": "alternative"
+            }),
+        );
+        let outcome = DiscoveryEvidenceConsistencyRunner.run(&discover);
+        assert!(matches!(outcome, ValidatorOutcome::Failed { .. }));
+        drop(pkg);
+    }
+
+    #[test]
+    fn discovery_evidence_accepts_supported_default() {
+        let (pkg, discover) = discovery_fixture(
+            "normalisation,deseq2_vst,primary_literature,true\n",
+            serde_json::json!({
+                "method_id": "deseq2_vst",
+                "literature_eligible": true,
+                "passes_default_eligibility_criteria": true,
+                "recommended_tier": "defaultRecommended"
+            }),
+        );
+        assert_eq!(
+            DiscoveryEvidenceConsistencyRunner.run(&discover),
+            ValidatorOutcome::Passed
+        );
+        drop(pkg);
+    }
+
+    #[test]
+    fn discovery_evidence_uses_canonical_stage_class_for_aliased_task() {
+        let pkg = TempDir::new().unwrap();
+        let survey = pkg.path().join("runtime/outputs/survey_method_landscape");
+        let discover = pkg
+            .path()
+            .join("runtime/outputs/discover_rnaseq_differential_expression");
+        fs::create_dir_all(&survey).unwrap();
+        fs::create_dir_all(&discover).unwrap();
+        fs::write(
+            survey.join("method_landscape.csv"),
+            "axis,candidate_method,source_class,verified\n\
+             differential_expression,deseq2,primary_literature,true\n",
+        )
+        .unwrap();
+        fs::write(
+            discover.join("task-spec.json"),
+            serde_json::json!({
+                "spec": {"stage_class": "differential_expression"}
+            })
+            .to_string(),
+        )
+        .unwrap();
+        fs::write(
+            discover.join("decision.json"),
+            serde_json::json!({
+                "candidate_pool_full": [{
+                    "method_id": "deseq2",
+                    "literature_eligible": true,
+                    "passes_default_eligibility_criteria": true,
+                    "recommended_tier": "defaultRecommended"
+                }]
+            })
+            .to_string(),
+        )
+        .unwrap();
+        assert_eq!(
+            DiscoveryEvidenceConsistencyRunner.run(&discover),
+            ValidatorOutcome::Passed
+        );
+        assert!(discovery_evidence_is_applicable(&discover));
+    }
+
+    #[test]
+    fn discovery_evidence_does_not_apply_by_task_name_alone() {
+        let pkg = TempDir::new().unwrap();
+        let survey = pkg.path().join("runtime/outputs/survey_method_landscape");
+        let discover = pkg.path().join("runtime/outputs/discover_fixture_method");
+        fs::create_dir_all(&survey).unwrap();
+        fs::create_dir_all(&discover).unwrap();
+        fs::write(
+            survey.join("method_landscape.csv"),
+            "axis,candidate_method,source_class,verified\n",
+        )
+        .unwrap();
+        fs::write(discover.join("decision.json"), "{}").unwrap();
+        fs::write(discover.join("task-spec.json"), r#"{"spec":{}}"#).unwrap();
+        assert!(!discovery_evidence_is_applicable(&discover));
     }
 
     #[test]
@@ -1423,6 +1781,9 @@ mod tests {
             // harness unions them in from the result.json shape, so they
             // have no atom-declared entry to mirror into core.
             .filter(|id| !HARNESS_LOCAL_PROVENANCE_OBLIGATIONS.contains(id))
+            // Discovery evidence consistency is likewise data-driven from
+            // discover_*/decision.json plus the retained method landscape.
+            .filter(|id| !HARNESS_LOCAL_DISCOVERY_OBLIGATIONS.contains(id))
             .collect();
         assert!(
             drifted.is_empty(),

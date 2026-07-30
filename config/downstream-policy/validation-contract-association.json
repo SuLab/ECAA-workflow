@@ -1,7 +1,7 @@
 {
   "contract_id": "validation-contract-association",
   "description": "Method-correctness assertions for differential-expression / regression stages — domain-correctness checks the structural validators (a non-empty DE table, an existing model artifact) passed silently in a live eval. AUTHORING NOTE (disclosure): the two error CLASSES below were IDENTIFIED from BiomniBench tasks da-15-1 + da-8-1 (benchmark-informed defect-finding). The executable assertions encode the GENERAL invariants — a model must adjust for the covariates the agent observed; the model's response must equal the task's stated outcome — and contain NO benchmark-specific value, column name, or task id in any check clause; they apply to any differential_expression stage. The two errors caught: (da-15-1) a DESeq2 design that OMITTED all covariates (`~ condition` only, no sex/age/RIN), and (da-8-1) an INVERTED regression (regressed the stated outcome as a predictor). METHOD NEUTRALITY (load-bearing): every assertion asserts a property of fields the AGENT recorded about ITS OWN model (`design_formula`, `response_variable`, `primary_variable`) compared against fields the agent ALSO recorded about the data/task (`available_covariates` — the agent's honest record of the covariate columns it observed in the metadata; `stated_outcome` — the agent's record of the SME's stated outcome when the task names one). It never recommends a model, test, or which covariates to include — the agent chose those; the contract only checks that the agent's own record is internally + task-consistent (record-what-you-did, the same shape as the variant contract asserting AF∈[0,1] on the agent's own VCF). `available_covariates`/`stated_outcome` are agent-recorded in v1; the `design_recorded` precondition REQUIRES `available_covariates` to be recorded so an agent cannot OMIT it to skip the covariate check (the omission false-negative). The residual self-report evasion — an agent recording an empty/under-counted `available_covariates` — is closed by hardening it to a pinned containerized metadata-column measurement script (documented follow-up, see docs/known-limitations.md). Thresholds/columns are never handed to the agent. Stages absent from a given DAG self-gate (enforcement fires only on a stage_class with a matching completed task).",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "stages": {
     "differential_expression": {
       "assertions": [
@@ -16,6 +16,23 @@
             "declared_port": "raw_counts",
             "alternative_ports": ["normalized_counts"],
             "header_rows": 1
+          },
+          "severity": "required"
+        },
+        {
+          "id": "differential_expression.results_retain_identifier_mapping",
+          "description": "When the result metadata names an Ensembl accession for a symbol-labelled top finding, the retained DE table must carry both an accession column and a symbol column. Otherwise the narrative's symbol-specific effect and adjusted p-value cannot be machine-linked to the accession-keyed result row. The check validates retained provenance only; it does not prescribe an annotation source or analysis method.",
+          "assertion_type": "table_header_has_all_groups",
+          "target": "runtime/outputs/differential_expression/de_results.tsv",
+          "check": {
+            "column_groups": [
+              ["gene", "gene_id", "ensembl_gene_id", "ensembl_id"],
+              ["gene_symbol", "symbol", "gene_name"]
+            ]
+          },
+          "when": {
+            "target": "runtime/outputs/differential_expression/result.json",
+            "json_pointer": "/top_gene_up_ensembl"
           },
           "severity": "required"
         },

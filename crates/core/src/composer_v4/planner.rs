@@ -418,6 +418,10 @@ pub fn plan(
         // unsourced-prune pass can treat a registered external input
         // (e.g. a gene-set / GMT collection) as a valid in-DAG source.
         super::source_typing::surface_registered_source_ports(&mut dag, &ctx.intent.available_data);
+        // Companion/residual edge typing may have introduced positional
+        // inputs whose edge was subsequently removed or reversed by DAG
+        // cleanup. Do not expose those orphan ports to execution.
+        super::discover_companion_synthesis::prune_orphan_synthetic_inputs(&mut dag);
         let score = score_dag(&dag, ctx, archetype_reg);
         let summary = summarize_dag(&dag, &score);
         alternatives.push(RankedAlternative {
@@ -564,6 +568,7 @@ pub fn plan(
                 &mut dag,
                 &ctx.intent.available_data,
             );
+            super::discover_companion_synthesis::prune_orphan_synthetic_inputs(&mut dag);
             let mut score = score_dag(&dag, ctx, archetype_reg);
             // When an archetype seed presents a
             // definitive canonical match (modality_hint + goal_data +
@@ -856,6 +861,10 @@ fn finalize_primary_dag(
             "finalize_primary_dag: pruned supplied upstream on the selected primary DAG"
         );
     }
+    // The selected-primary prune runs after companion/residual typing and can
+    // remove the edge that originally justified a synthesized positional
+    // input. Clean those ports again at the true final DAG boundary.
+    super::discover_companion_synthesis::prune_orphan_synthetic_inputs(dag);
     stamp_required_input_stage(dag, goal);
     let coherence = super::coherence_gate::evaluate(dag, ctx, archetype_reg);
     if !coherence.findings.is_empty() {

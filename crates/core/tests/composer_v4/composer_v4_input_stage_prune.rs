@@ -251,3 +251,52 @@ fn port_alias_maps_noncanonical_to_canonical() {
         "expected the quantification.count_matrix -> {ANCHOR}.raw_count_matrix alias; got {aliases:?}"
     );
 }
+
+/// Positional ports synthesized while typing companion edges must retain a
+/// real incoming edge. The counts-first Himes shape previously left
+/// `survey_method_landscape.companion_in_3` behind after its edge disappeared;
+/// execution then advertised the raw `samples.csv` through that orphan port,
+/// and end-of-run provenance reconciliation blocked the completed workflow.
+#[test]
+fn counts_first_survey_has_no_orphan_synthetic_inputs() {
+    let dag = run_v4_planner_counts_first("bulk_rnaseq", &bulk_rnaseq_de_goal());
+    let survey = dag
+        .nodes
+        .iter()
+        .find(|node| node.id == "survey_method_landscape")
+        .expect("method-landscape survey must be present");
+
+    let orphaned: Vec<&str> = survey
+        .inputs
+        .iter()
+        .filter(|input| {
+            input.name.starts_with("companion_in_") || input.name.starts_with("residual_in_")
+        })
+        .filter(|input| {
+            !dag.edges
+                .iter()
+                .any(|edge| edge.to_node == survey.id && edge.to_port == input.name)
+        })
+        .map(|input| input.name.as_str())
+        .collect();
+
+    assert!(
+        orphaned.is_empty(),
+        "every synthesized survey input must be backed by a surviving edge; \
+         orphaned={orphaned:?}; inputs={:?}; incoming={:?}",
+        survey
+            .inputs
+            .iter()
+            .map(|input| input.name.as_str())
+            .collect::<Vec<_>>(),
+        dag.edges
+            .iter()
+            .filter(|edge| edge.to_node == survey.id)
+            .map(|edge| (
+                edge.from_node.as_str(),
+                edge.from_port.as_str(),
+                edge.to_port.as_str()
+            ))
+            .collect::<Vec<_>>()
+    );
+}

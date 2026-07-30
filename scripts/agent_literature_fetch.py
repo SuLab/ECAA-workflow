@@ -106,7 +106,7 @@ class HostNotAllowedError(RuntimeError):
     """Raised when a fetch targets a host outside the route allowlist."""
 
 
-class EvidenceCapExceeded(RuntimeError):
+class EvidenceCapExceeded(RuntimeError):  # noqa: N818 - retained public exception name
     """Raised internally when the per-task evidence size cap is hit."""
 
 
@@ -195,11 +195,102 @@ def normalize_text(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip().lower()
 
 
+_CANDIDATE_ALIAS_OVERRIDES: Dict[str, Tuple[str, ...]] = {
+    "deseq2_vst": ("deseq2", "variance stabilizing transformation"),
+    "edger_tmm": ("edger", "tmm", "trimmed mean of m-values"),
+    "limma_voom": ("limma", "voom"),
+    "seurat_lognormalize": ("seurat", "lognormalize"),
+    "sctransform": ("sctransform",),
+    "clusterprofiler": ("clusterprofiler",),
+    "fgsea": ("fgsea",),
+    "gsea": ("gsea", "gene set enrichment analysis"),
+}
+
+_GENERIC_CANDIDATE_TOKENS = {
+    "analysis",
+    "filter",
+    "filtering",
+    "method",
+    "model",
+    "modeling",
+    "modelling",
+    "normalization",
+    "normalisation",
+}
+
+
+def candidate_aliases(candidate: str) -> Tuple[str, ...]:
+    """Return conservative source-text aliases for a candidate method.
+
+    Method-landscape retrieval must not treat a query hit as evidence for the
+    requested candidate unless the retained source text actually names it.
+    Curated compound ids use a small alias table; other ids retain their full
+    normalized form plus distinctive component tokens.
+    """
+    key = normalize_text(candidate).replace("-", "_").replace(" ", "_")
+    aliases = list(_CANDIDATE_ALIAS_OVERRIDES.get(key, ()))
+    full = re.sub(r"[_-]+", " ", key).strip()
+    if full:
+        aliases.append(full)
+    for token in re.findall(r"[a-z0-9]+", key):
+        if len(token) >= 4 and token not in _GENERIC_CANDIDATE_TOKENS:
+            aliases.append(token)
+    return tuple(dict.fromkeys(a for a in aliases if a))
+
+
+def _candidate_alias_match(text: str, candidate: str) -> Optional[re.Match[str]]:
+    key = normalize_text(candidate).replace("-", "_").replace(" ", "_")
+    # These canonical tool ids are ordinary English words when lower-cased.
+    # Require their conventional all-caps spelling so a MAST-cell paper or a
+    # generic "star" sentence cannot become method evidence.
+    if key in {"mast", "star"}:
+        return re.search(rf"(?<![A-Za-z0-9]){key.upper()}(?![A-Za-z0-9])", text)
+    for alias in sorted(candidate_aliases(candidate), key=len, reverse=True):
+        pattern = rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])"
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return match
+    return None
+
+
+def candidate_evidence_quote(source_text: str, candidate: str) -> str:
+    """Select a short verbatim source excerpt that names `candidate`.
+
+    The previous first-sentence extractor often retained a generic background
+    sentence while the method name appeared much later in the abstract. Such a
+    row passed quote-presence validation but did not link the quote to the
+    candidate. This selector fails closed when no candidate alias is present.
+    """
+    text = re.sub(r"\s+", " ", source_text or "").strip()
+    if not text:
+        return ""
+    for sentence in re.split(r"(?<=[.!?])\s+", text):
+        match = _candidate_alias_match(sentence, candidate)
+        if not match:
+            continue
+        if len(sentence) <= 320:
+            return sentence.strip()
+        start = max(0, match.start() - 140)
+        end = min(len(sentence), match.end() + 140)
+        if start > 0:
+            next_space = sentence.find(" ", start)
+            start = next_space + 1 if next_space >= 0 else start
+        if end < len(sentence):
+            prior_space = sentence.rfind(" ", 0, end)
+            end = prior_space if prior_space > start else end
+        return sentence[start:end].strip()
+    return ""
+
+
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _host_allowed(host: str, allowed_hosts: Iterable[str], domain_suffixes: Iterable[str] = ()) -> bool:
+def _host_allowed(
+    host: str,
+    allowed_hosts: Iterable[str],
+    domain_suffixes: Iterable[str] = (),
+) -> bool:
     host = (host or "").lower()
     for h in allowed_hosts:
         h = h.lower()
@@ -278,7 +369,6 @@ def enabled_classes(classes: Optional[List[str]]) -> List[str]:
     """
     if classes is not None:
         return list(classes)
-    scope = os.environ.get("ECAA_LIT_SOURCE_SCOPE", "").strip()
     # All current scope tiers (pmc_oa, pmc_oa_plus_abstracts,
     # all_sources_local_only) gate the primary-literature path; proceedings
     # and tool-docs are opt-in by the caller / a later authority knob.
@@ -583,7 +673,9 @@ def _fetch_primary_literature(query: str, route: Dict[str, Any]) -> List[Dict[st
 
 def _fetch_tool_documentation(query: str, route: Dict[str, Any]) -> List[Dict[str, Any]]:
     hosts = route.get("hosts") or DEFAULT_ROUTES["tool_documentation"]["hosts"]
-    suffixes = route.get("domain_suffixes") or DEFAULT_ROUTES["tool_documentation"].get("domain_suffixes", [])
+    suffixes = route.get("domain_suffixes") or DEFAULT_ROUTES["tool_documentation"].get(
+        "domain_suffixes", []
+    )
     doc_urls = route.get("doc_urls") or []
     candidate = route.get("candidate") or query
     findings: List[Dict[str, Any]] = []
@@ -595,7 +687,6 @@ def _fetch_tool_documentation(query: str, route: Dict[str, Any]) -> List[Dict[st
         host = urlparse(url).hostname or ""
         html = _http_get_text(url, host, allow)
         text = _strip_html(html)
-        quote_src = text
         version = _extract_version_context(text, candidate)
         # Build a concise verbatim quote: the sentence-ish window around the
         # candidate mention, falling back to the whole normalized text.
@@ -672,6 +763,7 @@ def fetch_for_axis(
     truncated = False
     rows_out: List[Dict[str, Any]] = []
     n_entries = 0
+    candidate_mismatch_filtered = 0
 
     for cls in active:
         route = routes.get(cls, {}) or DEFAULT_ROUTES.get(cls, {})
@@ -721,6 +813,14 @@ def fetch_for_axis(
             # corroboration validator (≥`min_sources` distinct verified PMIDs
             # per candidate) requires. Without it each paper becomes its own
             # single-PMID candidate and no axis ever carries a valid default.
+            if candidate and cls != "tool_documentation":
+                relevant_quote = candidate_evidence_quote(
+                    f.get("_extracted", f.get("quote", "")), candidate
+                )
+                if not relevant_quote:
+                    candidate_mismatch_filtered += 1
+                    continue
+                f["quote"] = relevant_quote
             if candidate:
                 f["candidate"] = candidate
             # Snapshot bytes: tool-doc keeps the raw HTML; index hits store the
@@ -832,7 +932,12 @@ def fetch_for_axis(
     if rows_out:
         _append_csv_rows(csv_path, rows_out)
     else:
-        fallback_rows = _curated_baseline_rows(axis, curated)
+        # A per-candidate survey call must only emit a fallback for that
+        # candidate. Emitting the full axis pool on every zero-result query
+        # duplicates unrelated curated rows and can inflate downstream support
+        # counts. The full pool is still retained in curated_pools.json below.
+        fallback_candidates = [candidate] if candidate else curated
+        fallback_rows = _curated_baseline_rows(axis, fallback_candidates)
         if fallback_rows:
             fallback_used = True
             _append_csv_rows(csv_path, fallback_rows)
@@ -849,13 +954,18 @@ def fetch_for_axis(
     # mark its curated candidates tentative). Persist per-axis pools in a small
     # sidecar and merge the current axis in before rebuilding.
     curated_by_axis = _merge_curated_pool(ev_dir / "curated_pools.json", axis, curated)
-    _write_method_landscape_json(out / "method_landscape.json", csv_path, curated_by_axis=curated_by_axis)
+    _write_method_landscape_json(
+        out / "method_landscape.json",
+        csv_path,
+        curated_by_axis=curated_by_axis,
+    )
 
     summary = {
         "axis": axis,
         "entries_written": n_entries,
         "rows_written": len(rows_out),
         "fallback_used": fallback_used,
+        "candidate_mismatch_filtered": candidate_mismatch_filtered,
         "truncated_at_storage_cap": truncated,
     }
     _record_retrieval_axis(
@@ -866,6 +976,7 @@ def fetch_for_axis(
         entries_written=n_entries,
         rows_written=len(rows_out),
         fallback_used=fallback_used,
+        candidate_mismatch_filtered=candidate_mismatch_filtered,
         truncated_at_storage_cap=truncated,
     )
     if fallback_used:

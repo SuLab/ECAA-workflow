@@ -421,6 +421,32 @@ pub async fn reject(
     }
 }
 
+fn write_operator_guidance(
+    package: &std::path::Path,
+    task_id: &str,
+    rationale: &str,
+) -> Result<(), String> {
+    let inputs_root = package.join("runtime").join("inputs");
+    let task_dir = super::_path_jail::safe_segment_join(&inputs_root, task_id)
+        .map_err(|e| format!("invalid task_id: {e}"))?;
+    super::assert_under_root(package, &task_dir)
+        .map_err(|e| format!("operator-guidance path escapes package: {e}"))?;
+    std::fs::create_dir_all(&task_dir)
+        .map_err(|e| format!("create operator-guidance directory failed: {e}"))?;
+    let body = serde_json::to_vec_pretty(&serde_json::json!({
+        "schema_version": 1,
+        "task_id": task_id,
+        "recorded_at": ecaa_workflow_core::time_helpers::now_rfc3339(),
+        "rationale": rationale,
+    }))
+    .map_err(|e| format!("serialize operator guidance failed: {e}"))?;
+    ecaa_workflow_core::fs_helpers::atomic_write_bytes_sync(
+        &task_dir.join("operator-guidance.json"),
+        &body,
+    )
+    .map_err(|e| format!("write operator guidance failed: {e}"))
+}
+
 /// `POST /api/chat/session/:id/unblock` — resolve a blocker and optionally auto-relaunch the harness.
 #[tracing::instrument(skip(app, headers, body), fields(session_id = %session_id))]
 pub async fn unblock(
@@ -437,9 +463,23 @@ pub async fn unblock(
             return super::precondition_failed_response(&server, &client);
         }
     }
-    let (rationale, resolution) = body
-        .map(|BoundedJson(b)| (b.rationale, b.resolution))
-        .unwrap_or((None, None));
+    let (rationale, resolution, task_id) = body
+        .map(|BoundedJson(b)| (b.rationale, b.resolution, b.task_id))
+        .unwrap_or((None, None, None));
+    if let Some(task_id) = task_id.as_deref() {
+        if let Err(e) =
+            super::_path_jail::safe_segment_join(std::path::Path::new("runtime/inputs"), task_id)
+        {
+            return (StatusCode::BAD_REQUEST, format!("invalid task_id: {e}")).into_response();
+        }
+    }
+    let operator_guidance = task_id.as_deref().and_then(|task_id| {
+        rationale
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(|text| (task_id.to_string(), text.to_string()))
+    });
     match app
         .conversation
         .unblock_with_rationale(session_id, rationale)
@@ -509,6 +549,15 @@ pub async fn unblock(
                         }
                     }
                     for pkg in &paths {
+                        if let Some((task_id, rationale)) = &operator_guidance {
+                            if let Err(e) = write_operator_guidance(pkg, task_id, rationale) {
+                                eprintln!(
+                                    "[unblock] operator guidance write failed for {}: {}",
+                                    pkg.display(),
+                                    e
+                                );
+                            }
+                        }
                         if let Err(e) = execution::resume_blocked_tasks_in_workflow(pkg).await {
                             eprintln!(
                                 "[unblock] WORKFLOW.json resume failed for {}: {}",
@@ -951,6 +1000,117 @@ mod tests {
             Some("ready"),
         );
         drop(pkg);
+    }
+
+    #[tokio::test]
+    async fn unblock_rationale_is_retained_as_task_scoped_operator_guidance() {
+        let pkg = tempfile::tempdir().unwrap();
+        let wf_path = pkg.path().join("WORKFLOW.json");
+        std::fs::write(
+            &wf_path,
+            r#"{
+                    "version": "1.0",
+                    "workflow_id": "w-1",
+                    "current_task": null,
+                    "tasks": {
+                        "survey_method_landscape": {
+                            "kind": "computation",
+                            "state": {"status":"blocked","record":{"reason":"validation","attempts":[]}},
+                            "depends_on": [],
+                            "assignee": "agent",
+                            "description": "survey"
+                        }
+                    }
+                }"#,
+        )
+        .unwrap();
+
+        let (router, app) = make_router(vec![]).await;
+        let id =
+            seed_session_with_completed_task(&app, "t_demo", Some(pkg.path().to_path_buf())).await;
+        app.conversation
+            .store_handle()
+            .update(id, |s| {
+                s.state = ecaa_workflow_conversation::SessionState::Blocked {
+                    blockers: vec![],
+                    reason: "validation failed".into(),
+                    recovery_hint: "supply retry guidance".into(),
+                    blocker_kind: None,
+                    context: None,
+                };
+                Ok(())
+            })
+            .await
+            .unwrap();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!("/api/chat/session/{}/unblock", id))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{
+                    "task_id":"survey_method_landscape",
+                    "rationale":"Retry with two independently verified pathway sources."
+                }"#,
+            ))
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+        let guidance_path = pkg
+            .path()
+            .join("runtime/inputs/survey_method_landscape/operator-guidance.json");
+        let guidance: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&guidance_path).unwrap()).unwrap();
+        assert_eq!(guidance["schema_version"], 1);
+        assert_eq!(guidance["task_id"], "survey_method_landscape");
+        assert_eq!(
+            guidance["rationale"],
+            "Retry with two independently verified pathway sources."
+        );
+        assert!(guidance["recorded_at"].is_string());
+
+        let decisions =
+            std::fs::read_to_string(pkg.path().join("runtime/decisions.jsonl")).unwrap();
+        let last: serde_json::Value =
+            serde_json::from_str(decisions.lines().last().unwrap()).unwrap();
+        assert_eq!(last["decision"]["kind"], "unblock");
+        assert_eq!(
+            last["rationale"],
+            "Retry with two independently verified pathway sources."
+        );
+        drop(pkg);
+    }
+
+    #[tokio::test]
+    async fn unblock_rejects_unsafe_operator_guidance_task_id() {
+        let (router, app) = make_router(vec![]).await;
+        let id = seed_session_with_completed_task(&app, "t_demo", None).await;
+        app.conversation
+            .store_handle()
+            .update(id, |s| {
+                s.state = ecaa_workflow_conversation::SessionState::Blocked {
+                    blockers: vec![],
+                    reason: "validation failed".into(),
+                    recovery_hint: "retry".into(),
+                    blocker_kind: None,
+                    context: None,
+                };
+                Ok(())
+            })
+            .await
+            .unwrap();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!("/api/chat/session/{}/unblock", id))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"task_id":"../../escape","rationale":"retry"}"#,
+            ))
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

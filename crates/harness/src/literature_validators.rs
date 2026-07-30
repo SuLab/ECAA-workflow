@@ -2013,7 +2013,86 @@ pub fn run_claim_support_satisfied(
 }
 
 // ============================================================================
-// Runner 7: doc_page_matches_tool (+ version_context guard)
+// Runner 7: method_quote_mentions_candidate
+// ============================================================================
+
+/// Require every paper-class method-landscape row to carry a retained quote
+/// that explicitly names the candidate method (or a canonical compound-method
+/// alias). A query hit plus a verbatim generic background sentence is not a
+/// machine-auditable evidence link for the candidate.
+pub fn run_method_quote_mentions_candidate(
+    csv_path: &Path,
+    _manifest_path: &Path,
+) -> Result<(), (u64, ValidationFailureCause)> {
+    let artifact = csv_path
+        .file_name()
+        .map(|f| f.to_string_lossy().to_string())
+        .unwrap_or_else(|| csv_path.to_string_lossy().to_string());
+    let mut rdr = csv::Reader::from_path(csv_path).map_err(|_| {
+        (
+            0,
+            lit_fail(
+                0,
+                &artifact,
+                LiteratureClaimFailureKind::EvidenceArtifactMissing,
+            ),
+        )
+    })?;
+    let headers = rdr.headers().cloned().map_err(|_| {
+        (
+            0,
+            lit_fail(
+                0,
+                &artifact,
+                LiteratureClaimFailureKind::EvidenceArtifactMissing,
+            ),
+        )
+    })?;
+    let idx = header_index(&headers);
+    let col = |rec: &csv::StringRecord, name: &str| -> String {
+        idx.get(name)
+            .and_then(|i| rec.get(*i))
+            .unwrap_or("")
+            .to_string()
+    };
+
+    for (i, rec) in rdr.records().enumerate() {
+        let rec = rec.map_err(|_| {
+            (
+                i as u64,
+                lit_fail(
+                    i as u64,
+                    &artifact,
+                    LiteratureClaimFailureKind::EvidenceArtifactMissing,
+                ),
+            )
+        })?;
+        let class = col(&rec, "source_class");
+        if !PAPER_CLASSES.contains(&class.as_str()) {
+            continue;
+        }
+        let candidate = col(&rec, "candidate_method");
+        let quote = col(&rec, "evidence_quote");
+        if candidate.is_empty()
+            || !ecaa_workflow_core::method_landscape::evidence_quote_mentions_candidate(
+                &quote, &candidate,
+            )
+        {
+            return Err((
+                i as u64,
+                lit_fail(
+                    i as u64,
+                    &artifact,
+                    LiteratureClaimFailureKind::CandidateNotInEvidenceQuote,
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
+// ============================================================================
+// Runner 8: doc_page_matches_tool (+ version_context guard)
 // ============================================================================
 
 /// Validates each `source_class == tool_documentation` row in
@@ -3167,6 +3246,22 @@ impl ValidatorRunner for DocPageMatchesToolRunner {
     }
 }
 
+/// `ValidatorRunner` wrapping `run_method_quote_mentions_candidate`.
+pub struct MethodQuoteMentionsCandidateRunner;
+impl ValidatorRunner for MethodQuoteMentionsCandidateRunner {
+    fn obligation_id(&self) -> &'static str {
+        "method_quote_mentions_candidate"
+    }
+    fn run(&self, artifact_path: &Path) -> ValidatorOutcome {
+        runner_dispatch(
+            artifact_path,
+            false,
+            false,
+            run_method_quote_mentions_candidate,
+        )
+    }
+}
+
 /// `ValidatorRunner` wrapping `run_concordance_flag_in_closed_set` for the `concordance_flag_in_closed_set` obligation.
 pub struct ConcordanceFlagInClosedSetRunner;
 impl ValidatorRunner for ConcordanceFlagInClosedSetRunner {
@@ -3239,6 +3334,7 @@ pub fn literature_runners() -> Vec<Box<dyn ValidatorRunner>> {
         Box::new(DirectionSupportedByQuoteRunner),
         Box::new(ClaimSupportSatisfiedRunner),
         Box::new(DocPageMatchesToolRunner),
+        Box::new(MethodQuoteMentionsCandidateRunner),
         Box::new(GeneSymbolEnsemblConsistentRunner),
     ]
 }
@@ -4365,6 +4461,54 @@ mod tests {
             run_claim_support_satisfied(&csv, &dir.path().join("ignored")).is_ok(),
             "axis grounded by 2 distinct papers passes despite thin per-method retrieval"
         );
+    }
+
+    // ====================================================================
+    // method_quote_mentions_candidate
+    // ====================================================================
+
+    #[test]
+    fn method_quote_accepts_canonical_compound_alias() {
+        let dir = TempDir::new().unwrap();
+        let csv = dir.path().join("method_landscape.csv");
+        write(
+            &csv,
+            "axis,candidate_method,source_class,evidence_quote\n\
+             normalisation,deseq2_vst,primary_literature,DESeq2 estimates sample-specific size factors.\n",
+        );
+        assert!(run_method_quote_mentions_candidate(&csv, &dir.path().join("ignored")).is_ok());
+    }
+
+    #[test]
+    fn method_quote_rejects_generic_query_hit_quote() {
+        let dir = TempDir::new().unwrap();
+        let csv = dir.path().join("method_landscape.csv");
+        write(
+            &csv,
+            "axis,candidate_method,source_class,evidence_quote\n\
+             normalisation,deseq2_vst,primary_literature,RNA sequencing is widely used in transcriptomics.\n",
+        );
+        let err =
+            run_method_quote_mentions_candidate(&csv, &dir.path().join("ignored")).unwrap_err();
+        assert!(matches!(
+            err.1,
+            ValidationFailureCause::LiteratureClaim {
+                kind: LiteratureClaimFailureKind::CandidateNotInEvidenceQuote,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn method_quote_skips_curated_baseline_rows() {
+        let dir = TempDir::new().unwrap();
+        let csv = dir.path().join("method_landscape.csv");
+        write(
+            &csv,
+            "axis,candidate_method,source_class,evidence_quote\n\
+             pathway_enrichment,fgsea,curated_baseline,\n",
+        );
+        assert!(run_method_quote_mentions_candidate(&csv, &dir.path().join("ignored")).is_ok());
     }
 
     // ====================================================================

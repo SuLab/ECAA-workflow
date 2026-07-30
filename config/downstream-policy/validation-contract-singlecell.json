@@ -1,7 +1,7 @@
 {
   "contract_id": "validation-contract-singlecell",
   "description": "Per-stage required assertions for the single-cell RNA-seq taxonomy, carried by the single_cell_de archetype. Stage keys match the archetype's task ids (the harness matches on task_id when spec.stage_class is absent); required-artifact filenames match the single_cell_de atoms' declared required_artifacts, so a free-choice agent that fulfils its task spec passes. Goal-agnostic: required assertions check only that each stage produced its declared output (recursive `**` glob, so flat OR compartment-partitioned layouts both match). Study-specific clinical covariates carried over from the original IVD derivation (a disease-grade column, a tissue-compartment column, an age column, a study column) were REMOVED from the required metadata-column check — they would false-fail a general single-cell study (tumour/immune atlas); only a sample-level join key is required. Stages absent from a given DAG self-gate (the harness only enforces a stage_class that has a matching completed task).",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "stages": {
     "data_acquisition": {
       "assertions": [
@@ -124,6 +124,23 @@
           "description": "de_results.tsv(.gz) must carry more than its header row — an empty DE table marks the stage as not actually run. Recursive glob handles flat or partitioned layouts.",
           "assertion_type": "artifact_non_empty_table",
           "target": "runtime/outputs/differential_expression/**/de_results.tsv*",
+          "severity": "required"
+        },
+        {
+          "id": "differential_expression.results_retain_identifier_mapping",
+          "description": "When the result metadata names an Ensembl accession for a symbol-labelled top finding, at least one retained DE table must carry both an accession column and a symbol column. Otherwise the narrative's symbol-specific measurements cannot be machine-linked to the accession-keyed row. The check validates retained provenance only and does not prescribe an annotation source or analysis method.",
+          "assertion_type": "table_header_has_all_groups",
+          "target": "runtime/outputs/differential_expression/**/de_results.tsv*",
+          "check": {
+            "column_groups": [
+              ["gene", "gene_id", "ensembl_gene_id", "ensembl_id"],
+              ["gene_symbol", "symbol", "gene_name"]
+            ]
+          },
+          "when": {
+            "target": "runtime/outputs/differential_expression/result.json",
+            "json_pointer": "/top_gene_up_ensembl"
+          },
           "severity": "required"
         },
         {

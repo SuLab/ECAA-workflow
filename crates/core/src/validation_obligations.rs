@@ -292,6 +292,15 @@ fn literature_obligations() -> Vec<ValidationObligation> {
             reference: Some("method_landscape.csv".into()),
         },
         ValidationObligation {
+            id: "method_quote_mentions_candidate".into(),
+            kind: "literature_integrity".into(),
+            statement: "Every paper-class method_landscape row carries a verbatim \
+                        evidence_quote that names its candidate method or a canonical \
+                        compound-method alias."
+                .into(),
+            reference: Some("method_landscape.csv".into()),
+        },
+        ValidationObligation {
             id: "gene_symbol_ensembl_consistent".into(),
             kind: "literature_integrity".into(),
             statement: "Every claims_evidence_matrix.csv row that carries an entity label binds it \
@@ -412,6 +421,7 @@ mod tests {
                 "direction_supported_by_quote",
                 "claim_support_satisfied",
                 "doc_page_matches_tool",
+                "method_quote_mentions_candidate",
                 "gene_symbol_ensembl_consistent",
             ]
         );

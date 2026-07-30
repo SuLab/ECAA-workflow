@@ -708,13 +708,18 @@ export async function rejectChatSession(sessionId: string): Promise<void> {
 
 export async function unblockChatSession(
   sessionId: string,
-  opts?: { resolution?: 'resize' | 'retry' | 'abort'; rationale?: string },
+  opts?: {
+    resolution?: 'resize' | 'retry' | 'abort'
+    rationale?: string
+    taskId?: string
+  },
 ): Promise<void> {
   const body =
-    opts && (opts.resolution || opts.rationale)
+    opts && (opts.resolution || opts.rationale || opts.taskId)
       ? JSON.stringify({
           resolution: opts.resolution ?? null,
           rationale: opts.rationale ?? null,
+          task_id: opts.taskId ?? null,
         })
       : undefined
   return voidFetch(sessionUrl(sessionId, 'unblock'), {

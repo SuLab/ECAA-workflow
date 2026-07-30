@@ -80,6 +80,7 @@ validators:
   - redistributable_or_marked
   - claim_support_satisfied
   - doc_page_matches_tool
+  - method_quote_mentions_candidate
 figure_exempt:
   reason: "Structured-text outputs only; no canonical plot affordance."
   category: non_plottable
@@ -101,6 +102,8 @@ safety:
 claim_boundary: |
   Every row in method_landscape.csv is a verbatim quote from one resolvable
   source (PMID/DOI/URL), with its locator, source_class, and evidence_role.
+  Every paper-class row's retained quote must name its candidate method or a
+  canonical compound-method alias; a query hit alone is not an evidence link.
   Do NOT rank, recommend, paraphrase, or synthesize. Ranking is the
   downstream discover_* atom's deterministic job. Rows whose evidence_quote
   does not substring-match the retrieved snapshot are emitted verified=false.

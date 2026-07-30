@@ -106,8 +106,6 @@ class OpenAlexFetchTest(unittest.TestCase):
             snap = (out / "evidence" / e["path"]).read_bytes()
             self.assertEqual(hashlib.sha256(snap).hexdigest(), e["sha256_binary"])
             # retrieval_query_id obeys the ^q[0-9]{3,}$ pattern.
-            import re
-
             self.assertRegex(e["retrieval_query_id"], r"^q[0-9]{3,}$")
 
             rows = _read_csv_rows(out)
@@ -357,6 +355,103 @@ class PrimaryLiteratureFetchTest(unittest.TestCase):
             pmids = {r["pmid"] for r in rows if r["verified"] == "true"}
             self.assertGreaterEqual(len(pmids), 2)
 
+    def test_candidate_override_selects_method_naming_quote(self):
+        import tempfile
+
+        alf._http_get_json = lambda url, host, allowed: {
+            "esearchresult": {"idlist": ["25217409"]}
+        }
+        abstract = (
+            "RNA sequencing is widely used in transcriptomics. "
+            "DESeq2 estimates sample-specific size factors and fits "
+            "negative-binomial generalized linear models."
+        )
+        alf._http_get_text = lambda url, host, allowed: (
+            "<PubmedArticleSet><PubmedArticle><MedlineCitation>"
+            "<PMID>25217409</PMID><Article><ArticleTitle>DESeq2 methods"
+            f"</ArticleTitle><Abstract><AbstractText>{abstract}</AbstractText>"
+            "</Abstract></Article></MedlineCitation></PubmedArticle>"
+            "</PubmedArticleSet>"
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            out.mkdir()
+            alf.fetch_for_axis(
+                out_dir=str(out),
+                axis="normalisation",
+                query="DESeq2 normalization RNA-seq",
+                classes=["primary_literature"],
+                routes={
+                    "primary_literature": {
+                        "hosts": ["eutils.ncbi.nlm.nih.gov"]
+                    }
+                },
+                curated=["deseq2_vst"],
+                candidate="deseq2_vst",
+            )
+            rows = _read_csv_rows(out)
+            self.assertEqual(len(rows), 1)
+            self.assertIn("DESeq2", rows[0]["evidence_quote"])
+            self.assertNotEqual(
+                rows[0]["evidence_quote"],
+                "RNA sequencing is widely used in transcriptomics.",
+            )
+            self.assertEqual(rows[0]["verified"], "true")
+
+    def test_candidate_override_rejects_unrelated_query_hits(self):
+        import tempfile
+
+        alf._http_get_json = lambda url, host, allowed: {
+            "esearchresult": {"idlist": ["25217409"]}
+        }
+        alf._http_get_text = lambda url, host, allowed: (
+            "<PubmedArticleSet><PubmedArticle><MedlineCitation>"
+            "<PMID>25217409</PMID><Article><ArticleTitle>Unrelated analysis"
+            "</ArticleTitle><Abstract><AbstractText>"
+            "A generic transcriptomics study compared two groups."
+            "</AbstractText></Abstract></Article></MedlineCitation>"
+            "</PubmedArticle></PubmedArticleSet>"
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            out.mkdir()
+            summary = alf.fetch_for_axis(
+                out_dir=str(out),
+                axis="normalisation",
+                query="DESeq2 normalization RNA-seq",
+                classes=["primary_literature"],
+                routes={
+                    "primary_literature": {
+                        "hosts": ["eutils.ncbi.nlm.nih.gov"]
+                    }
+                },
+                curated=["deseq2_vst", "edger_tmm"],
+                candidate="deseq2_vst",
+            )
+            self.assertEqual(summary["candidate_mismatch_filtered"], 1)
+            self.assertTrue(summary["fallback_used"])
+            rows = _read_csv_rows(out)
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["candidate_method"], "deseq2_vst")
+            self.assertEqual(rows[0]["source_class"], "curated_baseline")
+            self.assertEqual(_read_manifest(out)["entries"], [])
+
+    def test_ambiguous_method_name_requires_canonical_case(self):
+        self.assertEqual(
+            alf.candidate_evidence_quote(
+                "Mast cells were quantified in airway tissue.", "mast"
+            ),
+            "",
+        )
+        self.assertIn(
+            "MAST",
+            alf.candidate_evidence_quote(
+                "MAST fits hurdle models to single-cell expression.", "mast"
+            ),
+        )
+
 
 class RetrievalScopeTest(unittest.TestCase):
     def test_zero_result_axis_is_retained_without_a_csv_row(self):
@@ -387,6 +482,7 @@ class RetrievalScopeTest(unittest.TestCase):
                 [
                     {
                         "axis": "SPDEF",
+                        "candidate_mismatch_filtered": 0,
                         "entries_written": 0,
                         "fallback_used": False,
                         "query": "SPDEF dexamethasone airway smooth muscle",
@@ -659,6 +755,80 @@ class ManifestSchemaConformanceTest(unittest.TestCase):
             manifest = _read_manifest(out)
             jsonschema.validate(manifest, schema)
 
+    def test_primary_and_fallback_rows_validate_against_matrix_schema(self):
+        try:
+            import jsonschema  # type: ignore
+        except Exception:  # pragma: no cover - host without jsonschema
+            self.skipTest("jsonschema not installed")
+        import tempfile
+
+        schema_path = (
+            Path(__file__).resolve().parents[2]
+            / "config"
+            / "stage-atoms"
+            / "schemas"
+            / "method_landscape_matrix.schema.json"
+        )
+        schema = json.loads(schema_path.read_text())
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            out.mkdir()
+            alf._http_get_json = lambda url, host, allowed: {
+                "esearchresult": {"idlist": ["25217409"]}
+            }
+            alf._http_get_text = lambda url, host, allowed: (
+                "<PubmedArticleSet><PubmedArticle><MedlineCitation>"
+                "<PMID>25217409</PMID><Article><ArticleTitle>DESeq2 methods"
+                "</ArticleTitle><Abstract><AbstractText>"
+                "DESeq2 estimates size factors for RNA-seq count data."
+                "</AbstractText></Abstract></Article></MedlineCitation>"
+                "</PubmedArticle></PubmedArticleSet>"
+            )
+            alf.fetch_for_axis(
+                out_dir=str(out),
+                axis="normalisation",
+                query="DESeq2 normalization RNA-seq",
+                classes=["primary_literature"],
+                routes={
+                    "primary_literature": {
+                        "hosts": ["eutils.ncbi.nlm.nih.gov"]
+                    }
+                },
+                curated=["deseq2_vst"],
+                candidate="deseq2_vst",
+            )
+            alf._http_get_json = lambda url, host, allowed: {"results": []}
+            alf.fetch_for_axis(
+                out_dir=str(out),
+                axis="pathway_enrichment",
+                query="fgsea preranked enrichment",
+                classes=["conference_proceedings"],
+                routes={
+                    "conference_proceedings": {
+                        "hosts": ["api.openalex.org"]
+                    }
+                },
+                curated=["fgsea"],
+                candidate="fgsea",
+            )
+
+            rows = _read_csv_rows(out)
+            self.assertEqual(
+                {row["source_class"] for row in rows},
+                {"primary_literature", "curated_baseline"},
+            )
+            for row in rows:
+                typed = dict(row)
+                typed["evidence_quote_offset"] = int(
+                    typed["evidence_quote_offset"]
+                )
+                typed["redistributable"] = (
+                    typed["redistributable"].lower() == "true"
+                )
+                typed["verified"] = typed["verified"].lower() == "true"
+                jsonschema.validate(typed, schema)
+
 
 class DefaultClassesTest(unittest.TestCase):
     def test_default_class_is_primary_literature_when_scope_unset(self):
@@ -883,6 +1053,52 @@ class MethodLandscapeJsonRollupTest(unittest.TestCase):
             self.assertFalse(
                 star["tentative"], "axis-1 curated pool must survive axis-2 rebuild"
             )
+
+    def test_per_candidate_fallback_does_not_repeat_full_axis_pool(self):
+        import csv
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            out.mkdir()
+            alf._http_get_json = lambda url, host, allowed: {"results": []}
+            route = {
+                "conference_proceedings": {"hosts": ["api.openalex.org"]}
+            }
+            curated = ["fgsea", "clusterprofiler", "gsea", "enrichr"]
+
+            alf.fetch_for_axis(
+                out_dir=str(out),
+                axis="pathway_enrichment",
+                query="fgsea preranked",
+                classes=["conference_proceedings"],
+                routes=route,
+                curated=curated,
+                candidate="fgsea",
+            )
+            alf.fetch_for_axis(
+                out_dir=str(out),
+                axis="pathway_enrichment",
+                query="gsea preranked",
+                classes=["conference_proceedings"],
+                routes=route,
+                curated=curated,
+                candidate="gsea",
+            )
+
+            with (out / "method_landscape.csv").open(newline="") as handle:
+                rows = list(csv.DictReader(handle))
+            self.assertEqual(
+                [row["candidate_method"] for row in rows],
+                ["fgsea", "gsea"],
+            )
+            self.assertTrue(
+                all(row["source_class"] == "curated_baseline" for row in rows)
+            )
+            pools = json.loads(
+                (out / "evidence" / "curated_pools.json").read_text()
+            )
+            self.assertEqual(pools["pathway_enrichment"], curated)
 
     def test_candidates_sorted_by_support_score_then_name(self):
         import tempfile

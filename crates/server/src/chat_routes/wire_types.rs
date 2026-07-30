@@ -593,7 +593,8 @@ pub struct CheckpointDecisionRequest {
     pub checkpoint_mode: Option<ecaa_workflow_core::checkpoint_mode::CheckpointMode>,
     /// Task boundary for task-scoped branch (M1.3). When set, the child
     /// DAG is snapshotted with this task reset to Ready and its transitive
-    /// successors reset to Pending. Only consumed by the `/branch` endpoint.
+    /// successors reset to Pending. The `/unblock` endpoint also uses this
+    /// field to retain task-scoped operator guidance for the next dispatch.
     #[serde(default)]
     pub task_id: Option<String>,
     /// Staged branch-to-edit changes applied to the CHILD after the fork and

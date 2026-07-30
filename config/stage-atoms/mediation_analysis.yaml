@@ -43,6 +43,7 @@ expected_artifacts:
   - mediation_summary.json
   - manifest.json
   - result.json
+plot_stage_id: mediation_analysis
 required_figures:
   - forest
 attributes:

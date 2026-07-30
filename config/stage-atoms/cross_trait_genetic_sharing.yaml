@@ -47,6 +47,7 @@ expected_artifacts:
   - trait_pair_sharing_summary.json
   - manifest.json
   - result.json
+plot_stage_id: multi_omics_integration
 required_figures:
   - modality_concordance_heatmap
 attributes:

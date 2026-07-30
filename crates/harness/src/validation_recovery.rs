@@ -652,6 +652,31 @@ pub fn build_statement(
                  (How you achieve that is your choice; no method, tool, or threshold value is prescribed.)"
             )
         }
+        "table_header_has_all_groups" => {
+            let required = check
+                .and_then(|value| value.get("column_groups"))
+                .and_then(|value| value.as_array())
+                .map(|groups| {
+                    groups
+                        .iter()
+                        .filter_map(|group| group.as_array())
+                        .map(|group| {
+                            group
+                                .iter()
+                                .filter_map(|value| value.as_str())
+                                .collect::<Vec<_>>()
+                                .join(" or ")
+                        })
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                })
+                .unwrap_or_else(|| "the declared semantic column groups".to_string());
+            format!(
+                "{id}: the retained table header does not provide every required semantic column group ({required}). \
+                 Retain the identifiers your narrative uses in the analytical result table so each entity claim can be linked to its exact row. \
+                 (How you produce the mapping is your choice; no method, tool, or threshold value is prescribed.)"
+            )
+        }
         _ => generic_statement(id),
     }
 }

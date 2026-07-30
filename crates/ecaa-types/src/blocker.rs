@@ -70,6 +70,9 @@ pub enum LiteratureClaimFailureKind {
     InsufficientCorroboration,
     /// A tool-doc page snapshot does not reference the named tool.
     DocPageToolMismatch,
+    /// A method-landscape paper row's retained evidence quote does not name
+    /// the candidate method it is presented as supporting.
+    CandidateNotInEvidenceQuote,
     /// A tool-doc method claim row is missing its required `version_context`.
     VersionContextMissing,
 }
@@ -832,6 +835,10 @@ mod tests {
             (SourceUnresolvable, "source_unresolvable"),
             (InsufficientCorroboration, "insufficient_corroboration"),
             (DocPageToolMismatch, "doc_page_tool_mismatch"),
+            (
+                CandidateNotInEvidenceQuote,
+                "candidate_not_in_evidence_quote",
+            ),
             (VersionContextMissing, "version_context_missing"),
         ];
         for (variant, wire) in cases {

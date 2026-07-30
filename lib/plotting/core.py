@@ -2388,6 +2388,7 @@ def forest(
     out: Path,
     null_value: float = 0.0,
     xlabel: str = "effect size (95% CI)",
+    row_unit: str = "studies",
     figsize: Tuple[float, float] = (7.0, 6.0),
 ) -> Path:
     """Forest plot of point estimate ± 95% CI per study / contrast.
@@ -2441,7 +2442,7 @@ def forest(
     ax.set_yticklabels([str(s) for s in label])
     ax.invert_yaxis()
     ax.set_xlabel(xlabel)
-    ax.set_title(f"{title}\nn = {len(label)} studies")
+    ax.set_title(f"{title}\nn = {len(label)} {row_unit}")
     n_sig = int(sig_pos.sum() + sig_neg.sum())
     ax.text(0.99, 0.01, f"{n_sig} / {len(label)} CI excludes null",
             transform=ax.transAxes, ha="right", va="bottom",

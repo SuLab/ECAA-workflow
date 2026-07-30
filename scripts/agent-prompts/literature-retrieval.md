@@ -46,6 +46,18 @@ retrieve it and proceed; do not fabricate a second — the validator de-ranks an
 under-corroborated method rather than failing the axis, as long as some method
 on the axis is adequately corroborated.
 
+The helper retains a paper-class query hit only when the stored source text
+names the requested candidate (using the helper's conservative compound-method
+aliases), and it selects a verbatim quote that contains that name. A search hit
+is not evidence merely because the query returned it. Do not bypass this
+filter, retag an unrelated paper, or replace the selected quote with a generic
+background sentence.
+
+For these per-candidate calls, pass `curated=[candidate]`, not the full axis
+pool. The helper also enforces this scoping when `candidate` is set. Passing the
+full pool on every zero-result query would otherwise repeat unrelated
+`curated_baseline` rows and distort downstream candidate support.
+
 Your job on this task is to RETRIEVE and RECORD, not to rank, recommend,
 paraphrase, or synthesize. Honour the atom's `claim_boundary`: every row you
 write must be a verbatim quote from one resolvable source, tagged with its
@@ -126,10 +138,13 @@ scope, leave it out — do not reach for an un-allowlisted source.
 
 If a class is disabled, you are offline, every route fails, or an axis yields
 no usable rows, that is fine and must NOT block the task. The helper handles
-this for you: pass the axis's curated candidate pool (its task-spec
-`attributes.candidate_tools`) to `fetch_for_axis(..., curated=[...])`. When
-retrieval produces zero usable rows for the axis, the helper emits one
-fallback row per curated candidate with `source_class=curated_baseline`,
+this for you. For an axis-level call without `candidate`, pass the axis's
+curated candidate pool (its task-spec `attributes.candidate_tools`) to
+`fetch_for_axis(..., curated=[...])`. For the required per-candidate survey
+calls, pass only `curated=[candidate]`; the helper scopes it defensively when
+`candidate` is set. When retrieval produces zero usable rows, the helper emits
+one fallback row per applicable curated candidate with
+`source_class=curated_baseline`,
 `verified=false`, and no locator (empty `source_ref_kind`/`source_ref` and
 empty `evidence_quote`). These rows let the downstream `discover_*` task still
 offer the curated pool; the locator-resolution and corroboration validators

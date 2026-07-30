@@ -638,6 +638,32 @@ pub(crate) fn type_residual_ordering_edges(dag: &mut WorkflowDag) {
     });
 }
 
+/// Remove composer-synthesized consumer ports that no surviving edge binds.
+///
+/// Companion/residual typing adds positional inputs before later DAG cleanup
+/// has finished. If a cycle repair or pruning pass removes or reverses the
+/// corresponding edge, retaining that input makes the executor advertise an
+/// artifact that the declared graph does not authorize. An agent can then
+/// record a real read against an orphan `companion_in_N` port and the
+/// end-of-run provenance reconciler correctly blocks the otherwise-complete
+/// package. Authored atom inputs are never touched.
+pub(crate) fn prune_orphan_synthetic_inputs(dag: &mut WorkflowDag) {
+    let wired_inputs: std::collections::BTreeSet<(String, String)> = dag
+        .edges
+        .iter()
+        .filter(|edge| !edge.to_port.is_empty())
+        .map(|edge| (edge.to_node.clone(), edge.to_port.clone()))
+        .collect();
+
+    for node in &mut dag.nodes {
+        node.inputs.retain(|input| {
+            let synthesized =
+                input.name.starts_with("companion_in_") || input.name.starts_with("residual_in_");
+            !synthesized || wired_inputs.contains(&(node.id.clone(), input.name.clone()))
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

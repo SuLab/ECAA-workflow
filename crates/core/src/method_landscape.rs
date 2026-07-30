@@ -5,11 +5,12 @@
 //!
 //! # CSV shape
 //!
-//! Every method-landscape row carries the merged-foundation locator columns
-//! (`entity`, `entity_kind`, `evidence_quote`, `evidence_quote_offset`,
-//! `source_kind`, `source_hash`, `retrieval_ts`, `redistributable`,
-//! `verified`). This workstream's loader additionally reads `axis`,
-//! `candidate_method`, `source_class`, `tier`, and `verified`.
+//! Every method-landscape row carries the locator columns
+//! (`source_ref_kind`, `source_ref`, `evidence_quote`,
+//! `evidence_quote_offset`, `source_kind`, `source_hash`, `retrieval_ts`,
+//! `redistributable`, `verified`, `version_context`, and `pmid`). The
+//! reference loader reads `axis`, `candidate_method`, `source_class`, and
+//! `verified`.
 //!
 //! # Eligibility
 //!
@@ -26,6 +27,86 @@ use crate::composite_score::{CandidateMetadata, Confidence};
 /// Source classes that count as paper-class evidence for the
 /// `literature_eligible` predicate and `high_quality_evidence_count`.
 const PAPER_SOURCE_CLASSES: [&str; 2] = ["primary_literature", "conference_proceedings"];
+
+/// Conservative source-text aliases for compound curated method ids.
+///
+/// A method-landscape row must not gain literature eligibility merely because
+/// its query returned a paper. The retained quote has to name the candidate (or
+/// one of these canonical aliases) so the claim-to-source relationship is
+/// inspectable rather than inferred from search rank.
+pub fn candidate_aliases(candidate: &str) -> Vec<String> {
+    let key = normalize_candidate_text(candidate).replace(' ', "_");
+    let mut aliases: Vec<String> = match key.as_str() {
+        "deseq2_vst" => vec!["deseq2", "variance stabilizing transformation"],
+        "edger_tmm" => vec!["edger", "tmm", "trimmed mean of m values"],
+        "limma_voom" => vec!["limma", "voom"],
+        "seurat_lognormalize" => vec!["seurat", "lognormalize"],
+        "sctransform" => vec!["sctransform"],
+        "clusterprofiler" => vec!["clusterprofiler"],
+        "fgsea" => vec!["fgsea"],
+        "gsea" => vec!["gsea", "gene set enrichment analysis"],
+        _ => Vec::new(),
+    }
+    .into_iter()
+    .map(str::to_string)
+    .collect();
+
+    let full = key.replace('_', " ");
+    if !full.is_empty() {
+        aliases.push(full);
+    }
+    for token in key.split('_') {
+        let generic = matches!(
+            token,
+            "analysis"
+                | "filter"
+                | "filtering"
+                | "method"
+                | "model"
+                | "modeling"
+                | "modelling"
+                | "normalization"
+                | "normalisation"
+        );
+        if token.len() >= 4 && !generic {
+            aliases.push(token.to_string());
+        }
+    }
+    aliases.sort();
+    aliases.dedup();
+    aliases
+}
+
+fn normalize_candidate_text(text: &str) -> String {
+    text.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                ' '
+            }
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Whether a retained evidence quote explicitly names its candidate method.
+pub fn evidence_quote_mentions_candidate(quote: &str, candidate: &str) -> bool {
+    let key = normalize_candidate_text(candidate).replace(' ', "_");
+    if matches!(key.as_str(), "mast" | "star") {
+        let canonical = key.to_ascii_uppercase();
+        return quote
+            .split(|c: char| !c.is_ascii_alphanumeric())
+            .any(|token| token == canonical);
+    }
+    let quote = format!(" {} ", normalize_candidate_text(quote));
+    candidate_aliases(candidate).into_iter().any(|alias| {
+        let alias = normalize_candidate_text(&alias);
+        !alias.is_empty() && quote.contains(&format!(" {alias} "))
+    })
+}
 
 /// Per-axis map: `axis -> [(candidate_method, metadata)]`. The inner vec is
 /// sorted by candidate name (the accumulator is a [`BTreeMap`]) so the output
@@ -223,5 +304,29 @@ mod tests {
                 cand.method
             );
         }
+    }
+
+    #[test]
+    fn compound_candidate_aliases_match_method_naming_quotes() {
+        assert!(evidence_quote_mentions_candidate(
+            "DESeq2 estimates size factors before fitting its model.",
+            "deseq2_vst"
+        ));
+        assert!(evidence_quote_mentions_candidate(
+            "Gene set enrichment analysis (GSEA) evaluates ranked lists.",
+            "gsea"
+        ));
+        assert!(!evidence_quote_mentions_candidate(
+            "RNA sequencing is widely used in transcriptomics.",
+            "deseq2_vst"
+        ));
+        assert!(!evidence_quote_mentions_candidate(
+            "Mast cells were quantified in airway tissue.",
+            "mast"
+        ));
+        assert!(evidence_quote_mentions_candidate(
+            "MAST fits hurdle models to single-cell expression.",
+            "mast"
+        ));
     }
 }

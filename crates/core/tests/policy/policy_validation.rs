@@ -287,6 +287,7 @@ const HARNESS_IMPLEMENTED_ASSERTION_TYPES: &[&str] = &[
     "negative_control_present",
     "cross_stage_output_comparison",
     "cross_stage_table_handoff",
+    "table_header_has_all_groups",
     "cross_field_equals",
     "formula_references_covariates",
     "json_pointer_is_bool",

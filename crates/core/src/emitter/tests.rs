@@ -1806,6 +1806,19 @@ fn prompt_md_omits_sections_when_nothing_to_say() {
 }
 
 #[test]
+fn prompt_md_requires_task_scoped_operator_guidance_on_redispatch() {
+    let prompt = render_prompt(&rnaseq_dag(), &test_classification(), None, None);
+    assert!(
+        prompt.contains("runtime/inputs/$ECAA_TASK_ID/operator-guidance.json"),
+        "re-dispatched agents must inspect retained SME retry guidance"
+    );
+    assert!(
+        prompt.contains("without treating it as permission to fabricate evidence"),
+        "operator guidance must not weaken evidence or validation policy"
+    );
+}
+
+#[test]
 fn prompt_md_includes_auto_detect_compute_and_fanout_section() {
     // The agent prompt must instruct runtime detection (nproc /
     // os.cpu_count / detectCores), thread-budget math, and an

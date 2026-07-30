@@ -22,7 +22,7 @@
           "source_class": { "type": "string", "enum": ["primary_literature", "conference_proceedings", "tool_documentation"] },
           "evidence_role": { "type": "string", "enum": ["recommendation_or_benchmark", "capability_or_version"] },
           "version_context": { "type": "string" },
-          "source_kind": { "type": "string", "enum": ["pmc_oa_full_text", "abstract_only", "external_pdf_local_only", "openalex", "crossref", "doc_page"] },
+          "source_kind": { "type": "string", "enum": ["pmc_oa_full_text", "abstract_only", "pubmed_abstract", "pubmed_abstract_xml", "pubmed_efetch_xml_batch", "external_pdf_local_only", "openalex", "crossref", "doc_page"] },
           "path": { "type": "string", "not": { "pattern": "(^/|(^|/)\\.\\.(/|$))" } },
           "sha256_binary": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
           "sha256_extracted_text": { "type": "string", "pattern": "^[0-9a-f]{64}$" },

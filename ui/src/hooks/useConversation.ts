@@ -106,7 +106,11 @@ interface UseConversation {
   /// preserve the legacy zero-body POST.
   confirm: (opts?: { mode?: SessionMode; checkpointMode?: CheckpointMode }) => Promise<void>
   reject: () => Promise<void>
-  unblock: (resolution?: 'resize' | 'retry' | 'abort') => Promise<void>
+  unblock: (
+    resolution?: 'resize' | 'retry' | 'abort',
+    rationale?: string,
+    taskId?: string,
+  ) => Promise<void>
   reset: () => Promise<void>
   /// Drop the current session context and rehydrate from a different
   /// session id. Used by SessionTree when the user clicks a sibling /
@@ -567,12 +571,20 @@ export function useConversation(): UseConversation {
   }, [sessionId, refreshState])
 
   const unblock = useCallback(
-    async (resolution?: 'resize' | 'retry' | 'abort') => {
+    async (
+      resolution?: 'resize' | 'retry' | 'abort',
+      rationale?: string,
+      taskId?: string,
+    ) => {
       // Synchronous double-click gate — same shape as confirm.
       if (!sessionId || unblockingRef.current) return
       unblockingRef.current = true
       try {
-        await unblockChatSession(sessionId, resolution ? { resolution } : undefined)
+        const opts =
+          resolution || rationale || taskId
+            ? { resolution, rationale, taskId }
+            : undefined
+        await unblockChatSession(sessionId, opts)
         await refreshState(sessionId)
       } catch (e) {
         setError(String(e))

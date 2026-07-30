@@ -1469,6 +1469,10 @@ You are executing one harness-dispatched task from a {domain} workflow defined i
 - Never mark, patch, or edit any task other than `ECAA_TASK_ID`\n\
 - For discovery tasks, consult the policy file referenced in the task spec\n\
 - For blocked tasks, write a clear reason and what you tried\n\
+- On every re-dispatch, check `runtime/inputs/$ECAA_TASK_ID/operator-guidance.json`.\n\
+  When present, its `rationale` is task-scoped SME guidance for this retry.\n\
+  Address it explicitly without treating it as permission to fabricate evidence,\n\
+  bypass validation, or violate the task and policy contracts.\n\
 - All decisions go in runtime/LOG.jsonl as one JSON object per line\n\
 - DO NOT WRITE TO runtime/decisions.jsonl. That file is owned by the\n\
   conversation/server layer and holds only the typed DecisionRecord\n\
@@ -1511,6 +1515,7 @@ Before composite-scoring any `discover_*` candidate pool:\n\
       - `\"no_freshness_issues\"`: candidate claim freshness status is in `policy.freshness.acceptableStatuses`.\n\
       - `\"literature_eligibility_confirmed\"`: candidate's `literature_eligible` flag is `true`.\n\
       A candidate fails default-eligibility if it fails ANY criterion. If `defaultEligibilityCriteria` is absent from the policy, treat every candidate as eligible (backward-compat). Record `decision.json::candidate_pool_full[i].passes_default_eligibility_criteria = <bool>` and `failed_criteria = [<list of failed criterion names>]`.\n\
+      Compute every evidence count and `literature_eligible` value only from verified rows whose `axis` AND `candidate_method` exactly match the candidate being scored. `curated_baseline` rows contribute zero. Never borrow evidence from a different axis merely because it names the same software package or a related method.\n\
 \n\
     2b-3. Tier assignment respects the eligibility flag. The `defaultRecommended` tier requires the candidate to satisfy ALL criteria in `defaultEligibilityCriteria` (i.e. `passes_default_eligibility_criteria == true`). Candidates that fail eligibility may still appear as `tentative` or `alternative` but must NOT be selected as the `defaultRecommended` pick. When the top-composite candidate is ineligible, promote the highest-scoring eligible candidate to `defaultRecommended`; if no eligible candidate exists, block for SME review rather than recommending an ineligible default.\n\
 \n\

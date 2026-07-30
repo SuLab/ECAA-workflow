@@ -57,6 +57,7 @@ expected_artifacts:
   - group_association_summary.json
   - manifest.json
   - result.json
+plot_stage_id: differential_expression
 required_figures:
   - volcano
   - top_features_heatmap

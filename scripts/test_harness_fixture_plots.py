@@ -40,7 +40,11 @@ def write_json(path: Path, body: object) -> None:
     path.write_text(json.dumps(body, indent=2, sort_keys=True) + "\n")
 
 
-def run(cmd: list[str], cwd: Path, env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
+def run(
+    cmd: list[str],
+    cwd: Path,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess:
     return subprocess.run(
         cmd,
         cwd=cwd,
@@ -339,7 +343,11 @@ def build_aliased_data_acquisition_package(pkg: Path) -> None:
         "bulk_rnaseq_data_acquisition": workflow_task(
             "bulk_rnaseq_data_acquisition", "computation", []
         ),
-        "final_reporting": workflow_task("final_reporting", "computation", ["bulk_rnaseq_data_acquisition"]),
+        "final_reporting": workflow_task(
+            "final_reporting",
+            "computation",
+            ["bulk_rnaseq_data_acquisition"],
+        ),
     }
     write_json(
         pkg / "WORKFLOW.json",
@@ -359,7 +367,10 @@ def build_aliased_data_acquisition_package(pkg: Path) -> None:
             "data_acquisition",
         ),
     )
-    write_json(outputs / "final_reporting" / "task-spec.json", task_spec("final_reporting", "computation"))
+    write_json(
+        outputs / "final_reporting" / "task-spec.json",
+        task_spec("final_reporting", "computation"),
+    )
     assert_no_isolated_nodes({"tasks": tasks})
 
 
@@ -552,7 +563,7 @@ def test_local_harness_executes_every_atom_catalog_task_and_plot(tmp_path: Path)
         cwd=REPO,
         env=env,
     )
-    assert "All tasks complete" in result.stdout
+    assert "All tasks terminal (run done)" in result.stdout
 
     workflow = json.loads((pkg / "WORKFLOW.json").read_text())
     assert_no_isolated_nodes(workflow)
@@ -607,7 +618,7 @@ def test_local_harness_executes_aliased_data_acquisition_plot(tmp_path: Path) ->
         cwd=REPO,
         env=env,
     )
-    assert "All tasks complete" in result.stdout
+    assert "All tasks terminal (run done)" in result.stdout
 
     workflow = json.loads((pkg / "WORKFLOW.json").read_text())
     assert_no_isolated_nodes(workflow)
@@ -656,7 +667,7 @@ def test_local_harness_executes_containerized_pasilla_plot_dag(tmp_path: Path) -
         cwd=REPO,
         env=env,
     )
-    assert "All tasks complete" in result.stdout
+    assert "All tasks terminal (run done)" in result.stdout
 
     workflow = json.loads((pkg / "WORKFLOW.json").read_text())
     assert_no_isolated_nodes(workflow)

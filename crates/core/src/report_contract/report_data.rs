@@ -220,6 +220,11 @@ pub struct LitFinding {
     pub pmid: String,
     pub evidence_quote: String,
     pub effect: Option<f64>,
+    /// This run's significance for the same entity, joined from the canonical
+    /// schema-resolved result row when the literature matrix identifies it.
+    /// Older report-data files omit this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub significance: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -589,10 +594,12 @@ pub(crate) fn build_entity_rows(
 /// `entity` for per-`EntityRow` tagging (see [`join_literature`]).
 #[derive(Debug, Clone)]
 struct MatrixRow {
+    finding_id: String,
     entity: String,
     concordance_flag: String,
     pmid: String,
     effect: Option<f64>,
+    significance: Option<f64>,
     evidence_quote: String,
     searched: String,
 }
@@ -886,7 +893,38 @@ pub fn join_literature(
     ]
     .iter()
     .find_map(|name| resolve_column(&headers, name));
+    // Adjusted significance only. A raw p-value must never be surfaced in the
+    // report-data `significance` slot because the analytical schema and prose
+    // use the multiple-testing-adjusted value.
+    let significance_idx = [
+        "analysis_padj",
+        "padj",
+        "adj_p_value",
+        "adjusted_p_value",
+        "fdr",
+        "q_value",
+    ]
+    .iter()
+    .find_map(|name| resolve_column(&headers, name));
     let quote_idx = resolve_column(&headers, "evidence_quote");
+
+    // Canonical analysis measurements indexed by the schema-resolved entity
+    // key. Preserve only unambiguous keys: if two analytical artifacts reuse a
+    // label with different measurements, the literature rollup abstains rather
+    // than selecting one silently.
+    let mut canonical_by_key: BTreeMap<String, Option<(Option<f64>, Option<f64>)>> =
+        BTreeMap::new();
+    for entity in sig_entities.iter() {
+        let measurement = (entity.effect, entity.significance);
+        canonical_by_key
+            .entry(entity.entity.clone())
+            .and_modify(|existing| {
+                if existing.is_some_and(|value| value != measurement) {
+                    *existing = None;
+                }
+            })
+            .or_insert(Some(measurement));
+    }
 
     // File-order list of every matrix row (drives the authoritative rollup)
     // plus a finding_id/entity → row index for per-EntityRow tagging.
@@ -903,10 +941,14 @@ pub fn join_literature(
             &finding_id,
         );
         let row = MatrixRow {
+            finding_id: finding_id.clone(),
             entity: entity.clone(),
             concordance_flag: flag_idx.and_then(|i| rec.get(i)).unwrap_or("").to_string(),
             pmid: pmid_idx.and_then(|i| rec.get(i)).unwrap_or("").to_string(),
             effect: effect_idx
+                .and_then(|i| rec.get(i))
+                .and_then(|s| s.trim().parse::<f64>().ok()),
+            significance: significance_idx
                 .and_then(|i| rec.get(i))
                 .and_then(|s| s.trim().parse::<f64>().ok()),
             evidence_quote: quote_idx.and_then(|i| rec.get(i)).unwrap_or("").to_string(),
@@ -939,11 +981,16 @@ pub fn join_literature(
         if !row.pmid.is_empty() {
             sources.insert(row.pmid.clone());
         }
+        let canonical = canonical_by_key
+            .get(&row.finding_id)
+            .and_then(|value| *value)
+            .or_else(|| canonical_by_key.get(&row.entity).and_then(|value| *value));
         let finding = || LitFinding {
             entity: row.entity.clone(),
             pmid: row.pmid.clone(),
             evidence_quote: row.evidence_quote.clone(),
-            effect: row.effect,
+            effect: canonical.and_then(|value| value.0).or(row.effect),
+            significance: canonical.and_then(|value| value.1).or(row.significance),
         };
         if matrix_row_was_searched(row) {
             n_evidence_rows_assessed += 1;
@@ -1549,6 +1596,7 @@ mod tests {
         assert_eq!(rollup.concordant[0].pmid, "111");
         assert_eq!(rollup.concordant[0].evidence_quote, "quote1");
         assert_eq!(rollup.concordant[0].effect, Some(2.0));
+        assert_eq!(rollup.concordant[0].significance, Some(0.01));
 
         assert_eq!(rollup.discordant.len(), 1);
         assert_eq!(rollup.discordant[0].entity, "GDIS");
@@ -1737,6 +1785,7 @@ mod tests {
         assert_eq!(rollup.concordant.len(), 1);
         assert_eq!(rollup.concordant[0].pmid, "999");
         assert_eq!(rollup.concordant[0].effect, Some(2.61));
+        assert_eq!(rollup.concordant[0].significance, Some(0.001));
         assert_eq!(
             rollup.retrieved_sources,
             vec!["999".to_string()],
@@ -1746,6 +1795,40 @@ mod tests {
             entities[0].literature,
             LiteratureStatus::Concordant {
                 pmid: "999".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn join_literature_carries_canonical_significance_across_id_to_symbol_mapping() {
+        let tmp = tempfile::tempdir().unwrap();
+        let matrix_path = tmp.path().join("claims_evidence_matrix.csv");
+        std::fs::write(
+            &matrix_path,
+            "finding_id,entity,pmid,analysis_log2fc,concordance_flag,evidence_quote\n\
+             ENSG00000103196,CRISPLD2,24926665,2.606510,same_direction,prior quote\n",
+        )
+        .unwrap();
+        let mut entities = vec![EntityRow {
+            entity: "ENSG00000103196".to_string(),
+            effect: Some(2.60650981215032),
+            significance: Some(7.50451261186447e-46),
+            literature: LiteratureStatus::NotAssessed,
+        }];
+
+        let rollup = super::join_literature(
+            &mut entities,
+            &matrix_path,
+            std::path::Path::new("/nonexistent/result.json"),
+        );
+        let finding = &rollup.concordant[0];
+        assert_eq!(finding.entity, "CRISPLD2");
+        assert_eq!(finding.effect, Some(2.60650981215032));
+        assert_eq!(finding.significance, Some(7.50451261186447e-46));
+        assert_eq!(
+            entities[0].literature,
+            LiteratureStatus::Concordant {
+                pmid: "24926665".to_string()
             }
         );
     }

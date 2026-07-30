@@ -841,6 +841,22 @@ pub fn reconcile_ro_crate_edges_with_allowances(
     if declared_edges.is_empty() || observed_reads.is_empty() {
         return Vec::new();
     }
+    // Retries and re-executions can append the same read record more than
+    // once. Reconciliation is about the set of files a task consumed, not the
+    // number of times it opened them; duplicate observations must not mint
+    // duplicate divergence/allowance nodes or duplicate typed blockers.
+    let mut observed_keys: BTreeSet<(String, Option<String>, String)> = BTreeSet::new();
+    let unique_observed_reads: Vec<crate::provenance::ObservedRead> = observed_reads
+        .iter()
+        .filter(|read| {
+            observed_keys.insert((
+                read.task_id.clone(),
+                read.declared_port.clone(),
+                read.path.clone(),
+            ))
+        })
+        .cloned()
+        .collect();
     let Some(graph) = metadata.get_mut("@graph").and_then(Value::as_array_mut) else {
         return Vec::new();
     };
@@ -848,7 +864,7 @@ pub fn reconcile_ro_crate_edges_with_allowances(
     // Deterministic order (BTreeSet, not HashMap) so a rebuild of the
     // same on-disk inputs always stamps the graph identically.
     let mut task_ids: BTreeSet<&str> = BTreeSet::new();
-    for r in observed_reads {
+    for r in &unique_observed_reads {
         task_ids.insert(r.task_id.as_str());
     }
 
@@ -885,7 +901,7 @@ pub fn reconcile_ro_crate_edges_with_allowances(
     // declared graph says it consumes, each entry marked with its provenance
     // status (see [`rebuild_create_action_objects`]).
     let mut observed_by_task: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    for r in observed_reads {
+    for r in &unique_observed_reads {
         observed_by_task
             .entry(r.task_id.clone())
             .or_default()
@@ -902,7 +918,7 @@ pub fn reconcile_ro_crate_edges_with_allowances(
             continue;
         }
         let owned_edges: Vec<_> = edges_for_task.iter().map(|e| (*e).clone()).collect();
-        let verdicts = reconcile(&owned_edges, observed_reads, task_id);
+        let verdicts = reconcile(&owned_edges, &unique_observed_reads, task_id);
         let allowances = read_allowances.get(task_id);
 
         let mut authoritative: BTreeSet<(String, String)> = BTreeSet::new();
@@ -5752,6 +5768,33 @@ loaded via a namespace (and not attached):
         );
         // No candidate was dropped, so the side channel is absent.
         assert!(root.get("ecaax:unusedCandidateEdge").is_none());
+    }
+
+    #[test]
+    fn reconcile_deduplicates_retried_observed_reads() {
+        let edges = de_one_of_edges();
+        let mut metadata = graph_with_parameter_connections(&edges);
+        let read = crate::provenance::ObservedRead {
+            task_id: "differential_expression".into(),
+            declared_port: None,
+            path: "runtime/outputs/data_acquisition/counts.tsv".into(),
+        };
+
+        let returned =
+            reconcile_ro_crate_edges(&mut metadata, &edges, &[read.clone(), read.clone()]);
+
+        assert_eq!(
+            returned.len(),
+            1,
+            "one consumed path must yield one typed divergence even when retry epochs repeat it"
+        );
+        let graph = metadata["@graph"].as_array().unwrap();
+        let root = graph.iter().find(|entry| entry["@id"] == "./").unwrap();
+        assert_eq!(
+            root["ecaax:provenanceDivergence"].as_array().map(Vec::len),
+            Some(1),
+            "the RO-Crate side channel must also contain one divergence node"
+        );
     }
 
     /// RCA I-1 (Task 13) — a divergent read on a task carrying a

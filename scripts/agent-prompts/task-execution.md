@@ -341,6 +341,15 @@ real runs and are cheap to avoid:
   mismatch. If you only mean to convey the magnitude, write an inequality
   ("padj < 1e-04") instead of a rounded point value — an inequality carries no
   false precision to check.
+- **Keep every quantitative prose sentence atomic.** A sentence that states an
+  entity-specific effect or significance value must quantify exactly one
+  entity, with that entity's own values. Put a second quantified entity in a
+  separate sentence or in its own table row. Do not mention an incidental gene
+  in a pathway-NES sentence, and never put one entity's `padj` beside another
+  entity's effect. Likewise, a prose sentence that states a retained count must
+  assert exactly one named field and population; put assessed/not-assessed,
+  removed/ranked, and numerator/denominator counts in separate sentences.
+  This is part of the machine-verification contract, not a style preference.
 - **Name the statistical model exactly as executed.** A fixed-effects
   design (e.g. a DESeq2/edgeR `~ covariate + condition` negative-binomial
   GLM, with no random-effect term) is NOT a "linear mixed model" — a mixed
@@ -521,7 +530,10 @@ defines them — never assume genes/log2FC.
   assessed from `n_entities_not_assessed`, and list every
   `retrieved_sources` entry. The `concordant`, `discordant`, and `unverifiable`
   arrays retain evidence rows; one entity can contribute more than one row, so
-  their lengths must not be added to obtain an entity count.
+  their lengths must not be added to obtain an entity count. For a literature
+  finding, use only that same finding object's `effect` and `significance`.
+  If either field is absent, omit that measurement from prose. Never borrow a
+  number from another finding, a nearby row, model memory, or a prior run.
 - **Never cite a PMID that is not in `retrieved_sources` / the evidence
   matrix — not even as background context.** Every PMID that appears anywhere
   in the report (including "Note", "Background", or discussion asides) MUST be

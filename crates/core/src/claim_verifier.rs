@@ -4701,9 +4701,25 @@ static COUNT_OF_NOUN_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     .expect("static regex")
 });
 
+static MISSING_SIGNIFICANCE_SUBSET_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r"(?i)\b(one|none|zero|\d[\d,]*)\s+of\s+(?:the\s+|those\s+)?\d[\d,]*\s+(?:top\s+)?(?:entities?|genes?|features?)\b.{0,160}?\bno\s+usable\s+`?(?:padj|adjusted\s+p[\s-]?value|significance)`?",
+    )
+    .expect("static regex")
+});
+
+static ASSESSED_COUNTS_SUMMARY_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r"(?i)\b(\d[\d,]*)\s+entities?\s+(?:were\s+)?assessed\s*[,;]\s*(\d[\d,]*)\s+(?:entities?\s+)?(?:were\s+)?not[\s_-]+assessed\b",
+    )
+    .expect("static regex")
+});
+
 static INPUT_DIMENSION_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r"(?i)\b(\d[\d,]*)\s+genes?\s*[×x*]\s*(\d[\d,]*)\s+samples?\b")
-        .expect("static regex")
+    regex::Regex::new(
+        r"(?i)\b(\d[\d,]*)\s+genes?\s*(?:[×x*]|,\s*|\s+across\s+)\s*(\d[\d,]*)\s+samples?\b",
+    )
+    .expect("static regex")
 });
 
 static PREFILTER_SUMMARY_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
@@ -4715,14 +4731,14 @@ static PREFILTER_SUMMARY_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
 
 static GENE_MAPPING_SUMMARY_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(
-        r"(?i)\b(?:of\s+)?(\d[\d,]*)\s+genes?(?:\s+in\s+[^,;]{1,160})?\s*,\s+(\d[\d,]*)\s+(?:were\s+)?mapped\b.{0,320}?[;,]\s*(\d[\d,]*)\s+(?:genes?\s+)?(?:remained\s+)?unmapped\b",
+        r"(?i)\b(?:of\s+)?(\d[\d,]*)\s+(?:input\s+|tested\s+|filtered\s+)?genes?(?:\s+in\s+[^,;]{1,160})?\s*,\s+(\d[\d,]*)\s+(?:were\s+)?mapped\b.{0,320}?[;,]\s*(\d[\d,]*)\s+(?:genes?\s+)?(?:(?:were|remained)\s+)?unmapped\b",
     )
     .expect("static regex")
 });
 
 static DUPLICATE_RANKING_SUMMARY_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(
-        r"(?i)\bafter\s+(?:removing|removal\s+of)\s+(\d[\d,]*)\s+duplicate(?:\s+gene[\s-]?symbol)?\s+labels?\s*,\s+(\d[\d,]*)\s+genes?\s+(?:were\s+)?ranked\b",
+        r"(?i)\bafter\s+(?:removing|removal\s+of)\s+(\d[\d,]*)\s+duplicate(?:\s+gene(?:[\s-]?symbol)?)?\s+labels?\s*,\s+(\d[\d,]*)\s+genes?\s+(?:were\s+)?ranked\b",
     )
     .expect("static regex")
 });
@@ -4765,7 +4781,8 @@ fn semantic_summary_fields(
         return Some(&["n_entities_not_assessed"]);
     }
     if matches!(noun, "entity" | "entities")
-        && (lower.contains("were searched")
+        && ((lower.contains("assessed") && !normalized_lower.contains("not assessed"))
+            || lower.contains("were searched")
             || lower.contains("was searched")
             || lower.contains("were queried")
             || lower.contains("was queried")
@@ -4787,6 +4804,19 @@ fn semantic_summary_fields(
     {
         return Some(&["n_samples"]);
     }
+    if matches!(noun, "gene" | "genes")
+        && (normalized_lower.contains("qc filtered")
+            || normalized_lower.contains("filtered count matrix")
+            || normalized_lower.contains("analysis ready")
+            || normalized_lower.contains("retained matrix"))
+    {
+        return Some(&[
+            "n_genes_retained",
+            "n_genes_in_matrix",
+            "tested_feature_count",
+            "n_genes_tested",
+        ]);
+    }
     if lower.contains("removed") && matches!(noun, "gene" | "genes") {
         return Some(&[
             "n_genes_prefilter_removed",
@@ -4799,7 +4829,12 @@ fn semantic_summary_fields(
             || lower.contains("starting point")
             || lower.contains("matrix contained"))
     {
-        return Some(&["n_genes_input", "n_genes"]);
+        return Some(&[
+            "n_genes_pre_filter",
+            "n_features_pre_filter",
+            "n_genes_input",
+            "n_genes",
+        ]);
     }
     if lower.contains("retained") && matches!(noun, "gene" | "genes") {
         return Some(&[
@@ -5071,6 +5106,45 @@ pub fn verify_narrative_counts(
         // sentences. The generic noun matcher retains only the first
         // "N noun" pair and would otherwise lose the sample dimension, the
         // removed/starting/retained split, or the pre-/post-mapping pair.
+        if let Some(captures) = MISSING_SIGNIFICANCE_SUBSET_RE.captures(s) {
+            let claimed = captures.get(1).and_then(|value| {
+                match value.as_str().to_ascii_lowercase().as_str() {
+                    "one" => Some(1.0),
+                    "none" | "zero" => Some(0.0),
+                    _ => parse_count(value.as_str()),
+                }
+            });
+            if let Some(claimed) = claimed {
+                out.push(summary_fact(
+                    "count:top features missing usable significance",
+                    claimed,
+                    &["top_k_missing_significance_count"],
+                ));
+                continue;
+            }
+        }
+        if let Some(captures) = ASSESSED_COUNTS_SUMMARY_RE.captures(s) {
+            if let (Some(assessed), Some(not_assessed)) = (
+                captures
+                    .get(1)
+                    .and_then(|value| parse_count(value.as_str())),
+                captures
+                    .get(2)
+                    .and_then(|value| parse_count(value.as_str())),
+            ) {
+                out.push(summary_fact(
+                    "count:entities assessed",
+                    assessed,
+                    &["n_entities_assessed"],
+                ));
+                out.push(summary_fact(
+                    "count:entities not assessed",
+                    not_assessed,
+                    &["n_entities_not_assessed"],
+                ));
+                continue;
+            }
+        }
         if let Some(captures) = INPUT_DIMENSION_RE.captures(s) {
             if let (Some(genes), Some(samples)) = (
                 captures
@@ -5080,11 +5154,26 @@ pub fn verify_narrative_counts(
                     .get(2)
                     .and_then(|value| parse_count(value.as_str())),
             ) {
-                out.push(summary_fact(
-                    "count:input genes",
-                    genes,
-                    &["n_genes_input", "n_genes"],
-                ));
+                let normalized = s.to_ascii_lowercase().replace(['-', '_'], " ");
+                let gene_fields: &[&str] = if normalized.contains("qc filtered")
+                    || normalized.contains("filtered count matrix")
+                    || normalized.contains("analysis ready")
+                {
+                    &[
+                        "n_genes_retained",
+                        "n_genes_in_matrix",
+                        "tested_feature_count",
+                        "n_genes_tested",
+                    ]
+                } else {
+                    &[
+                        "n_genes_pre_filter",
+                        "n_features_pre_filter",
+                        "n_genes_input",
+                        "n_genes",
+                    ]
+                };
+                out.push(summary_fact("count:input genes", genes, gene_fields));
                 out.push(summary_fact("count:input samples", samples, &["n_samples"]));
                 continue;
             }
@@ -10257,6 +10346,117 @@ All 4,030 significant entities are `not_assessed`.";
         );
         assert!(
             matches!(verdicts[1].status, ClaimStatus::Verified),
+            "{verdicts:#?}"
+        );
+    }
+
+    #[test]
+    fn vf16_live_compound_counts_bind_each_local_population() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        let write_summary = |task: &str, value: serde_json::Value| {
+            let dir = tmp.path().join("runtime").join("outputs").join(task);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(
+                dir.join("result.json"),
+                serde_json::to_vec_pretty(&value).unwrap(),
+            )
+            .unwrap();
+        };
+        write_summary(
+            "differential_expression",
+            serde_json::json!({
+                "top_effect_abundance_ratio_basis": {
+                    "top_k_missing_significance_count": 1
+                }
+            }),
+        );
+        write_summary(
+            "pathway_enrichment",
+            serde_json::json!({
+                "n_duplicate_gene_labels_removed": 19,
+                "n_genes_ranked": 17190
+            }),
+        );
+        write_summary(
+            "contextualize_findings_with_literature",
+            serde_json::json!({
+                "n_entities_assessed": 12,
+                "n_entities_not_assessed": 4018
+            }),
+        );
+
+        let narrative = "\
+One of the 15 top features carries no usable `padj`.
+After removing 19 duplicate gene labels, 17,190 genes were ranked and supplied to GSEA.
+Assessed counts: 12 entities assessed; 4,018 not assessed.";
+        let verdicts = verify_narrative_counts(narrative, tmp.path(), tmp.path(), &cfg);
+        assert_eq!(verdicts.len(), 5, "{verdicts:#?}");
+        assert!(
+            verdicts
+                .iter()
+                .all(|verdict| matches!(verdict.status, ClaimStatus::Verified)),
+            "{verdicts:#?}"
+        );
+        let entities: Vec<&str> = verdicts
+            .iter()
+            .map(|verdict| verdict.claim.entity.as_str())
+            .collect();
+        assert_eq!(
+            entities,
+            vec![
+                "count:top features missing usable significance",
+                "count:duplicate gene labels removed",
+                "count:ranked genes",
+                "count:entities assessed",
+                "count:entities not assessed",
+            ]
+        );
+    }
+
+    #[test]
+    fn vf16_live_matrix_and_mapping_sentences_resolve_named_populations() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        let write_summary = |task: &str, value: serde_json::Value| {
+            let dir = tmp.path().join("runtime").join("outputs").join(task);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(
+                dir.join("result.json"),
+                serde_json::to_vec_pretty(&value).unwrap(),
+            )
+            .unwrap();
+        };
+        write_summary(
+            "data_acquisition",
+            serde_json::json!({"n_genes": 63677, "n_samples": 8}),
+        );
+        write_summary(
+            "qc_preprocessing",
+            serde_json::json!({
+                "n_genes_pre_filter": 63677,
+                "n_genes_retained": 22369
+            }),
+        );
+        write_summary(
+            "pathway_enrichment",
+            serde_json::json!({
+                "n_genes_pre_mapping": 22369,
+                "n_genes_mapped": 17209,
+                "n_genes_unmapped": 5160
+            }),
+        );
+
+        let narrative = "\
+The input count matrix contains 63,677 genes across 8 samples.
+The analysis used the QC-filtered count matrix (22,369 genes, 8 samples) as input.
+Of 22,369 input genes, 17,209 mapped to gene symbols; 5,160 were unmapped.";
+        let verdicts = verify_narrative_counts(narrative, tmp.path(), tmp.path(), &cfg);
+        assert_eq!(verdicts.len(), 7, "{verdicts:#?}");
+        assert!(
+            verdicts
+                .iter()
+                .all(|verdict| matches!(verdict.status, ClaimStatus::Verified)),
             "{verdicts:#?}"
         );
     }

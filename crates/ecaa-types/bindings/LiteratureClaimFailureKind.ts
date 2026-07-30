@@ -4,4 +4,4 @@
  * Closed set of literature-claim validator failure kinds. Maps 1:1 onto
  * the validator obligations in `validation_obligations.rs::literature_obligations`.
  */
-export type LiteratureClaimFailureKind = "pmid_malformed" | "pmid_not_found" | "evidence_artifact_missing" | "quote_not_in_source" | "quote_offset_wrong" | "redistributable_tag_inconsistent" | "finding_id_orphan" | "invalid_concordance_flag" | "direction_not_supported_by_quote" | "source_unresolvable" | "insufficient_corroboration" | "doc_page_tool_mismatch" | "version_context_missing";
+export type LiteratureClaimFailureKind = "pmid_malformed" | "pmid_not_found" | "evidence_artifact_missing" | "quote_not_in_source" | "quote_offset_wrong" | "redistributable_tag_inconsistent" | "finding_id_orphan" | "invalid_concordance_flag" | "direction_not_supported_by_quote" | "source_unresolvable" | "insufficient_corroboration" | "doc_page_tool_mismatch" | "candidate_not_in_evidence_quote" | "version_context_missing";

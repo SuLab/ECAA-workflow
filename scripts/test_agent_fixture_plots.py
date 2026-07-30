@@ -86,6 +86,50 @@ def test_fixture_container_binds_uploaded_input_roots() -> None:
     )
 
 
+def test_fixture_agent_renders_specialized_generic_stage_inputs(
+    tmp_path: Path,
+) -> None:
+    pkg = tmp_path / "pkg"
+    outputs = pkg / "runtime" / "outputs"
+    shutil.copytree(REPO / "lib" / "plotting", pkg / "runtime" / "plotting")
+    specs = {
+        "mediation_analysis": task_spec(
+            "mediation_analysis",
+            "computation",
+            ["forest"],
+            "mediation_analysis",
+        ),
+        "repair_scar_analysis": task_spec(
+            "repair_scar_analysis",
+            "computation",
+            ["scar_segment_map", "track_length_hist", "structural_event_bar"],
+        ),
+    }
+    write_json(
+        pkg / "WORKFLOW.json",
+        {
+            "version": "1",
+            "workflow_id": "fixture-specialized-generic-stages",
+            "tasks": {
+                task_id: {
+                    "state": {"status": "pending"},
+                    "kind": "computation",
+                    "depends_on": [],
+                }
+                for task_id in specs
+            },
+        },
+    )
+    for task_id, spec in specs.items():
+        write_json(outputs / task_id / "task-spec.json", spec)
+        run_task(pkg, task_id)
+
+    assert_figure(pkg, "mediation_analysis", "forest")
+    assert_figure(pkg, "repair_scar_analysis", "scar_segment_map")
+    assert_figure(pkg, "repair_scar_analysis", "track_length_hist")
+    assert_figure(pkg, "repair_scar_analysis", "structural_event_bar")
+
+
 def test_fixture_agent_executes_pasilla_plot_tasks(tmp_path: Path) -> None:
     pkg = tmp_path / "pkg"
     runtime = pkg / "runtime"

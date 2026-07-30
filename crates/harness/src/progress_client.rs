@@ -1133,11 +1133,8 @@ impl Drop for ProgressClient {
     ///    closes the channel. The sender thread's `rx.recv()` then
     ///    returns `Err(Disconnected)` once it finishes its current
     ///    iteration and the loop exits cleanly.
-    /// 2. Join the sender thread with a bounded timeout so the
-    ///    harness never hangs on shutdown — at most ~2.6s of
-    ///    in-flight retries plus a tiny buffer. We use a watchdog
-    ///    thread to ensure the join never blocks longer than the
-    ///    timeout regardless of how the sender thread behaves.
+    /// 2. Join the sender thread through a watchdog with a three-second
+    ///    bound so shutdown never waits for a slow in-flight request.
     ///
     /// Clean shutdown lets queued events
     /// drain before the harness exits; the bounded wait keeps the
@@ -1146,15 +1143,10 @@ impl Drop for ProgressClient {
         // Step 1 — close the channel.
         drop(self.tx.take());
 
-        // Step 2 — join with a bounded timeout. The sender's worst
-        // case for one in-flight job is ~2.6s of cumulative retry
-        // sleeps, so a 3s ceiling is just past that — enough to let
-        // the sender finish its current job in the happy case
-        // without pinning harness shutdown when the server is
-        // unreachable and dozens of queued jobs would otherwise
-        // multiply the retry cost. On timeout we leak the watchdog
-        // thread (it will reap at process exit) — the sender
-        // thread itself dies with the process.
+        // Step 2 — join with a bounded timeout. Three seconds lets a
+        // healthy request drain without pinning shutdown behind a slow
+        // server or a queued backlog. On timeout the watchdog continues
+        // until process exit and reaps the sender if it finishes first.
         if let Some(handle) = self.join_handle.take() {
             let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
             std::thread::Builder::new()
@@ -1186,11 +1178,13 @@ fn clock_skew_threshold_secs() -> u64 {
 /// see plan §19.3 caveat).
 ///
 /// Loops until the channel is closed (last `ProgressClient` dropped).
-/// Each drained job triggers the same 3-attempt retry dance the
-/// pre-19.3 sync path used (100ms / 500ms / 2000ms backoffs +
-/// timeout_connect=2s + timeout=5s per attempt) — the change is that
-/// these timeouts now burn on a background thread instead of the
-/// harness main loop.
+/// Each drained job triggers the same retry dance the pre-19.3 sync path
+/// used. Ordinary state calls retain the five-second request timeout.
+/// Progress calls allow thirty seconds because a `task_completed` response
+/// deliberately waits for source claim verification before acknowledging
+/// the event. The network wait remains isolated to this background thread.
+const PROGRESS_POST_TIMEOUT: Duration = Duration::from_secs(30);
+
 #[allow(clippy::too_many_arguments)]
 fn sender_loop(
     session_id: String,
@@ -1227,7 +1221,8 @@ fn sender_loop(
         // `X-Server-Now` in the response headers. We use a
         // compare-exchange so only the very first event carries the
         // field even if two events race into the queue simultaneously.
-        let is_first_progress_post = matches!(&job, SenderJob::Progress(_))
+        let is_progress_post = matches!(&job, SenderJob::Progress(_));
+        let is_first_progress_post = is_progress_post
             && first_post_sent
                 .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
                 .is_ok();
@@ -1282,6 +1277,9 @@ fn sender_loop(
         for attempt in 0..=backoffs.len() {
             attempts += 1;
             let mut req = agent.post(&url);
+            if is_progress_post {
+                req = req.timeout(PROGRESS_POST_TIMEOUT);
+            }
             if let Some(tok) = auth_token.as_deref() {
                 req = req.set("Authorization", &format!("Bearer {tok}"));
             }
@@ -1595,6 +1593,80 @@ mod tests {
             parsed["state"]["started_at"], "2026-05-14T00:00:00Z",
             "TaskState fields must serialize through with the default serde shape"
         );
+    }
+
+    /// Completion progress is an acknowledgement gate: the server may spend
+    /// more than five seconds re-verifying report claims from source before it
+    /// returns 204. The sender must wait for that response instead of timing
+    /// out and duplicating the same verification request.
+    #[test]
+    fn progress_post_waits_for_completion_verification_without_retry() {
+        use std::io::{BufRead, BufReader, Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind port 0");
+        let port = listener.local_addr().unwrap().port();
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept progress POST");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .expect("set read timeout");
+            let mut reader = BufReader::new(&mut stream);
+            let mut first_line = String::new();
+            reader
+                .read_line(&mut first_line)
+                .expect("read request line");
+            assert!(first_line.contains("/progress"));
+            let mut content_length = 0usize;
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).expect("read request header");
+                let trimmed = line.trim_end_matches(['\r', '\n']);
+                if trimmed.is_empty() {
+                    break;
+                }
+                if let Some(value) = trimmed
+                    .strip_prefix("Content-Length:")
+                    .or_else(|| trimmed.strip_prefix("content-length:"))
+                {
+                    content_length = value.trim().parse().expect("content length");
+                }
+            }
+            let mut body = vec![0u8; content_length];
+            reader.read_exact(&mut body).expect("read request body");
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(&body).expect("progress JSON")["kind"],
+                "task_completed"
+            );
+
+            // Longer than the ordinary five-second state-call timeout.
+            std::thread::sleep(Duration::from_millis(5_250));
+            stream
+                .write_all(
+                    b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .expect("write delayed response");
+        });
+
+        let pc = ProgressClient::new(
+            "session-delayed-verification",
+            format!("http://127.0.0.1:{port}"),
+        );
+        pc.post(&HarnessProgressEvent::bare(
+            "task_completed",
+            "final_reporting",
+            "completed",
+            "report complete",
+        ));
+        assert!(
+            pc.flush(Duration::from_secs(10)),
+            "completion response must arrive before the flush deadline"
+        );
+        let health = pc.health_snapshot();
+        assert_eq!(health.total_posts, 1);
+        assert_eq!(health.total_attempts, 1, "delayed response must not retry");
+        assert_eq!(health.failed_posts, 0);
+        handle.join().expect("join delayed-response server");
     }
 
     /// When the sender thread is stuck on a retried HTTP POST and

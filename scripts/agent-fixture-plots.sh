@@ -1122,6 +1122,30 @@ def _write_multi_omics_integration_fixture(out: Path) -> None:
     )
 
 
+def _write_mediation_analysis_fixture(out: Path) -> None:
+    _write_tsv(
+        out / "mediation_results.tsv",
+        [
+            "mediator",
+            "indirect_effect",
+            "indirect_ci_lower",
+            "indirect_ci_upper",
+            "direct_effect",
+            "proportion_mediated",
+            "p_value",
+        ],
+        [
+            ["mediator_A", "0.21", "0.08", "0.34", "0.42", "0.33", "0.004"],
+            ["mediator_B", "-0.12", "-0.25", "0.01", "0.56", "-0.27", "0.071"],
+            ["mediator_C", "0.08", "0.01", "0.15", "0.49", "0.14", "0.029"],
+        ],
+    )
+    write_json(
+        out / "manifest.json",
+        {"mediation_results": "mediation_results.tsv"},
+    )
+
+
 def _write_joint_wnn_fixture(out: Path) -> None:
     rows = []
     for i, row in enumerate(_embedding_rows(labels=("0", "1", "2"))):
@@ -1205,6 +1229,45 @@ def _write_quantification_fixture(out: Path) -> None:
             rows.append([sample, f"{20.0 + (i % 12) * 0.35 + (0.4 if sample == 'sample_B' else 0.0):.4f}"])
     _write_tsv(out / "intensity.tsv", ["group", "value"], rows)
     write_json(out / "manifest.json", {"coverage_table": "coverage.tsv", "intensity_table": "intensity.tsv"})
+
+
+def _write_repair_scar_analysis_fixture(out: Path) -> None:
+    _write_tsv(
+        out / "repair_scar_table.tsv",
+        [
+            "read_id",
+            "segment",
+            "segment_index",
+            "read_start",
+            "read_end",
+            "is_inverted",
+        ],
+        [
+            ["read_001", "EG", "1", "0", "420", "false"],
+            ["read_001", "FP_INV", "2", "440", "710", "true"],
+            ["read_002", "EG", "1", "0", "390", "false"],
+            ["read_002", "FP", "2", "415", "690", "false"],
+        ],
+    )
+    write_json(
+        out / "scar_summary.json",
+        {
+            "track_length_histogram": [
+                {"bin": "0-249", "count": 2},
+                {"bin": "250-499", "count": 7},
+                {"bin": "500-749", "count": 11},
+                {"bin": "750-999", "count": 4},
+            ],
+            "n_reads_with_inversion": 3,
+            "n_reads_with_deletion": 5,
+            "n_reads_with_duplication": 2,
+            "n_gaps_unresolved": 1,
+        },
+    )
+    write_json(
+        out / "manifest.json",
+        {"scar_table_path": "repair_scar_table.tsv"},
+    )
 
 
 def _write_ribo_seq_fixture(out: Path) -> None:
@@ -1314,6 +1377,8 @@ def _write_stage_fixture(task_id: str, spec: dict, note: str) -> None:
         _write_joint_wnn_fixture(out)
     elif stage_id == "methylation_expression":
         _write_methylation_expression_fixture(out)
+    elif stage_id == "mediation_analysis":
+        _write_mediation_analysis_fixture(out)
     elif stage_id == "motif_enrichment":
         _write_motif_enrichment_fixture(out)
     elif stage_id == "multi_omics_integration":
@@ -1336,6 +1401,8 @@ def _write_stage_fixture(task_id: str, spec: dict, note: str) -> None:
         _write_quantification_fixture(out)
     elif stage_id == "regulatory_variants":
         _write_regulatory_variants_fixture(out)
+    elif stage_id == "repair_scar_analysis":
+        _write_repair_scar_analysis_fixture(out)
     elif stage_id == "ribo_seq":
         _write_ribo_seq_fixture(out)
     elif stage_id == "spatial_clustering":

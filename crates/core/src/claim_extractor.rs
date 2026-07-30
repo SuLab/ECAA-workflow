@@ -339,7 +339,7 @@ static RANK_CLASSIFIER_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// checkable column stays in a lower-specificity class.
 static EXPLICIT_SUPERLATIVE_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"(?i)\b(highest|lowest|most|least|largest|smallest|strongest|weakest|maximal|minimal|greatest|maximum|minimum|top[\s-](?:ranked|scoring)|top-?1|#1|the most|the least|top-ranked)\b",
+        r"(?i)\b(?:highest|lowest|largest|smallest|strongest|weakest|maximal|minimal|greatest|maximum|minimum|top[\s-](?:ranked|scoring)|top-?1|#1|top-ranked)\b|\b(?:most|least)\s+(?:strongly\s+)?(?:upregulated|downregulated|increased|decreased|positive|negative|significant|extreme|enriched|depleted)\b",
     )
     .expect("static regex")
 });
@@ -411,6 +411,15 @@ static TABLE_REF_RE: LazyLock<Regex> =
 /// claims about the analysis result.
 static BIBLIOGRAPHIC_INVENTORY_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\s*[-*+]\s+\*\*[\d,\s-]+\*\*\s*[-:]\s+").expect("static regex"));
+
+/// A validator/report control line such as `**Status:** PASSED` is
+/// administrative state, not a scientific entity assertion.
+static ADMINISTRATIVE_STATUS_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)^\s*(?:[-*+]\s*)?\*{0,2}status\s*:\s*\*{0,2}\s*(?:passed|failed|pass|fail|ok)\s*\*{0,2}\s*$",
+    )
+    .expect("static regex")
+});
 
 /// Start of a pathway's leading-edge membership list. Gene symbols after this
 /// cue are members of the named set, not independent DE assertions that own
@@ -1280,6 +1289,9 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
         if BIBLIOGRAPHIC_INVENTORY_RE.is_match(trimmed) {
             continue;
         }
+        if ADMINISTRATIVE_STATUS_RE.is_match(trimmed) {
+            continue;
+        }
 
         // Phase C — derived-statistic claims (quantile-of-column, composite-key
         // enrichment cell) are SENTENCE-level: their subject is a column
@@ -1379,25 +1391,40 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
             continue;
         }
         entity_hits.sort_by_key(|(start, _)| *start);
+        // Repeated mentions of the same entity in one sentence describe one
+        // claim subject. Collapse them before clause boundaries are computed;
+        // otherwise the first mention can be left value-less while a later
+        // adjectival mention receives the sentence's direction, producing two
+        // contradictory-looking records for one assertion.
+        let mut unique_entities = std::collections::BTreeSet::new();
+        entity_hits.retain(|(_, entity)| unique_entities.insert(entity.clone()));
 
         // All direction-word positions.
         let lowered = trimmed.to_lowercase();
         let mut direction_hits: Vec<(usize, Direction)> = Vec::new();
         for w in &cfg.up_words {
-            for (pos, _) in lowered.match_indices(&w.to_lowercase()) {
-                direction_hits.push((pos, Direction::Up));
+            let needle = w.to_lowercase();
+            for (pos, _) in lowered.match_indices(&needle) {
+                if is_word_bounded_match(&lowered, pos, needle.len()) {
+                    direction_hits.push((pos, Direction::Up));
+                }
             }
         }
         for w in &cfg.down_words {
-            for (pos, _) in lowered.match_indices(&w.to_lowercase()) {
-                direction_hits.push((pos, Direction::Down));
+            let needle = w.to_lowercase();
+            for (pos, _) in lowered.match_indices(&needle) {
+                if is_word_bounded_match(&lowered, pos, needle.len()) {
+                    direction_hits.push((pos, Direction::Down));
+                }
             }
         }
+        direction_hits.sort_by_key(|(pos, _)| *pos);
 
         let effect_size_hits = scan_effect_size_positions(trimmed, &regex_cache);
         let pvalue_hits = scan_pvalue_positions(trimmed, &regex_cache);
         let linear_fold_hits = scan_linear_fold_positions(trimmed);
         let contract = classify_contract(trimmed);
+        let explicitly_shared_clause = EXPLICIT_SHARED_CLAUSE_RE.is_match(&lowered);
 
         // For a literature-grounded sentence, capture every cited PMID WITH its
         // byte position, so each entity can be bound only to the PMID(s) in its
@@ -1433,30 +1460,96 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
         let entity_positions: Vec<usize> = entity_hits.iter().map(|(p, _)| *p).collect();
         let effect_positions: Vec<usize> = effect_size_hits.iter().map(|(p, _)| *p).collect();
         let pvalue_positions: Vec<usize> = pvalue_hits.iter().map(|(p, _, _)| *p).collect();
+        // A trailing parenthetical can follow an incidental context entity:
+        // "ACAN was upregulated in NP cells (log2FC=..., padj=...)".
+        // When exactly one entity owns an explicit direction clause, that
+        // entity also owns a lone trailing quantitative slot. This preserves
+        // the grammatical subject without reviving sentence-wide borrowing.
+        let single_direction_owner = if explicitly_shared_clause {
+            None
+        } else {
+            let owners: Vec<usize> = entity_positions
+                .iter()
+                .enumerate()
+                .filter_map(|(index, position)| {
+                    let preceding_measurement_anchor = effect_positions
+                        .iter()
+                        .copied()
+                        .filter(|effect_pos| *effect_pos < *position)
+                        .max();
+                    bind_direction_for_entity(
+                        index,
+                        *position,
+                        entity_positions.get(index + 1).copied(),
+                        &direction_hits,
+                        None,
+                        preceding_measurement_anchor,
+                        false,
+                    )
+                    .map(|_| index)
+                })
+                .collect();
+            (owners.len() == 1).then(|| owners[0])
+        };
         for (entity_index, (ent_pos, ent_name)) in entity_hits.into_iter().enumerate() {
-            let direction = nearest_direction(ent_pos, &direction_hits);
-            let effect_size = bind_slot_index(
+            let next_entity_pos = entity_positions.get(entity_index + 1).copied();
+            let effect_idx = bind_slot_index(
                 entity_index,
                 n_entities,
                 last_entity_pos,
                 ent_pos,
+                next_entity_pos,
                 &effect_positions,
-            )
-            .map(|i| effect_size_hits[i].1);
+                explicitly_shared_clause,
+                single_direction_owner,
+            );
+            let effect_size = effect_idx.map(|i| effect_size_hits[i].1);
+            let direction = bind_direction_for_entity(
+                entity_index,
+                ent_pos,
+                next_entity_pos,
+                &direction_hits,
+                effect_idx.map(|i| effect_size_hits[i].0),
+                effect_positions
+                    .iter()
+                    .copied()
+                    .filter(|effect_pos| *effect_pos < ent_pos)
+                    .max(),
+                explicitly_shared_clause,
+            );
             let p_idx = bind_slot_index(
                 entity_index,
                 n_entities,
                 last_entity_pos,
                 ent_pos,
+                next_entity_pos,
                 &pvalue_positions,
+                explicitly_shared_clause,
+                single_direction_owner,
             );
             let pvalue = p_idx.map(|i| pvalue_hits[i].1);
             let matched_pvalue_keyword = p_idx.map(|i| pvalue_hits[i].2.clone());
-            let linear_fold = bind_fold_for_entity(
-                ent_pos,
-                entity_positions.get(entity_index + 1).copied(),
-                &linear_fold_hits,
-            );
+            let linear_fold = bind_fold_for_entity(ent_pos, next_entity_pos, &linear_fold_hits);
+            let cited_pmids = if contract == ClaimContract::LiteratureGrounded {
+                bind_pmids_for_entity(entity_index, &entity_positions, &pmid_hits)
+            } else {
+                Vec::new()
+            };
+            // When a literature sentence contains explicit citations, a later
+            // incidental entity with no locally attributable citation is not a
+            // separate literature claim. For example, the TSLP finding in
+            // "PMID ... under TWEAK+TGF co-stimulation" owns the PMID; TWEAK
+            // and TGF are experimental context. Keep the first entity so a
+            // leading-citation construction can still be adjudicated, and keep
+            // every entity when the sentence has no explicit PMID (discovery
+            // may resolve prior-work prose through the evidence matrix).
+            if contract == ClaimContract::LiteratureGrounded
+                && !pmid_hits.is_empty()
+                && cited_pmids.is_empty()
+                && entity_index > 0
+            {
+                continue;
+            }
             let key = (ent_name.clone(), direction);
             if seen.contains(&key) {
                 continue;
@@ -1472,7 +1565,7 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
             let literature_evidence = if contract == ClaimContract::LiteratureGrounded {
                 Some(LiteratureEvidence {
                     finding_id: ent_name.clone(),
-                    cited_pmids: bind_pmids_for_entity(entity_index, &entity_positions, &pmid_hits),
+                    cited_pmids,
                 })
             } else {
                 None
@@ -2295,6 +2388,16 @@ fn is_contextual_non_entity(sentence: &str, start: usize, end: usize, token: &st
         return true;
     }
 
+    // Basic Linear Algebra Subprograms in compute/provenance prose. `BLAS`
+    // is suppressed only in the recognizable threading/library context.
+    if upper == "BLAS"
+        && (lower.contains("blas thread")
+            || lower.contains("blas library")
+            || lower.contains("linear algebra"))
+    {
+        return true;
+    }
+
     // Gene-set collection metadata, not a row entity. GO namespace labels
     // contain underscores and match the broad all-caps identifier pattern, but
     // in an explicit collection/gene-set inventory they name a grouping axis.
@@ -2342,11 +2445,66 @@ fn spans_overlap(a_start: usize, a_end: usize, b_start: usize, b_end: usize) -> 
     a_start < b_end && b_start < a_end
 }
 
-fn nearest_direction(
+fn is_word_bounded_match(text: &str, start: usize, len: usize) -> bool {
+    let bytes = text.as_bytes();
+    let is_word = |byte: u8| byte.is_ascii_alphanumeric() || byte == b'_';
+    (start == 0 || !is_word(bytes[start - 1]))
+        && (start + len == bytes.len() || !is_word(bytes[start + len]))
+}
+
+static EXPLICIT_SHARED_CLAUSE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)\b(?:both|each)\b").expect("static regex"));
+
+/// Bind an explicit direction word to the entity whose own clause contains
+/// it. A sentence-wide nearest-word search lets an interpretive modifier in a
+/// later clause leak backwards onto every quantified entity: for example,
+/// negative pathway NES values followed by "dexamethasone-induced
+/// suppression" were all assigned the configured Up meaning of "induced".
+///
+/// When the entity has a bound signed effect, only direction words at or
+/// before that effect anchor are retained. A later interpretive word is not
+/// part of the quantitative assertion; the signed value remains independently
+/// verifiable. A later entity may use an adjective-first direction only when
+/// that direction follows the preceding entity's quantitative measurement;
+/// this supports paired clauses such as "A (...), and the strongest negative
+/// association was B (...)" without lending A's own direction to B. Explicit
+/// shared constructions ("A and B were both increased") retain their one
+/// shared direction.
+fn bind_direction_for_entity(
+    entity_index: usize,
     entity_pos: usize,
+    next_entity_pos: Option<usize>,
     direction_hits: &[(usize, Direction)],
+    effect_anchor: Option<usize>,
+    preceding_measurement_anchor: Option<usize>,
+    explicitly_shared_clause: bool,
 ) -> Option<Direction> {
-    direction_hits
+    if explicitly_shared_clause && direction_hits.len() == 1 {
+        return direction_hits.first().map(|(_, direction)| *direction);
+    }
+
+    let mut candidates: Vec<(usize, Direction)> = direction_hits
+        .iter()
+        .copied()
+        .filter(|(pos, _)| {
+            *pos >= entity_pos
+                && next_entity_pos.is_none_or(|next| *pos < next)
+                && effect_anchor.is_none_or(|anchor| *pos <= anchor)
+        })
+        .collect();
+
+    // Preserve the conventional adjective-first shape for the first entity
+    // ("upregulated ACAN ..."). For a later entity, admit a preceding
+    // direction only after the preceding entity's measurement anchor. A
+    // direction before that anchor still belongs to the preceding claim.
+    if candidates.is_empty() {
+        candidates.extend(direction_hits.iter().copied().filter(|(pos, _)| {
+            *pos < entity_pos
+                && (entity_index == 0
+                    || preceding_measurement_anchor.is_some_and(|anchor| *pos > anchor))
+        }));
+    }
+    candidates
         .iter()
         .min_by_key(|(pos, _)| pos.abs_diff(entity_pos))
         .map(|(_, d)| *d)
@@ -2359,10 +2517,12 @@ fn nearest_direction(
 /// read from the SAME hit.
 ///
 /// Reporting prose writes a number *after* the entity it describes ("ACAN was
-/// up (log2FC=2.1) and COL2A1 was down (log2FC=-1.5)"), so the default rule is
-/// the first value at or after `entity_pos`, falling back to the last value
-/// when the entity follows every number. A single value is shared by every
-/// entity ("A and B were both up (log2FC=2.0)"); no values yield `None`.
+/// up (log2FC=2.1) and COL2A1 was down (log2FC=-1.5)"), so a multi-entity
+/// sentence binds only a value inside the entity's local span. A single value
+/// is shared only when the prose explicitly says "both" or "each"; otherwise
+/// it belongs to the one local entity and every incidental entity abstains.
+/// This prevents a pathway NES from leaking onto a gene mentioned later in
+/// the interpretation clause.
 ///
 /// VF-12 ambiguity guard: when MULTIPLE values are listed in a trailing group
 /// AFTER all entities ("A and B were up (2.1, -3.4)"), the default
@@ -2449,17 +2609,50 @@ fn bind_slot_index(
     n_entities: usize,
     last_entity_pos: usize,
     entity_pos: usize,
+    next_entity_pos: Option<usize>,
     positions: &[usize],
+    explicitly_shared_clause: bool,
+    single_direction_owner: Option<usize>,
 ) -> Option<usize> {
     match positions.len() {
         0 => None,
-        1 => Some(0),
+        1 => {
+            if n_entities == 1 || explicitly_shared_clause {
+                return Some(0);
+            }
+            if let Some(owner) = single_direction_owner {
+                return (entity_index == owner).then_some(0);
+            }
+            let pos = positions[0];
+            if pos >= entity_pos && next_entity_pos.is_none_or(|next| pos < next) {
+                Some(0)
+            } else if entity_index == 0 && pos < entity_pos {
+                Some(0)
+            } else {
+                None
+            }
+        }
         _ => {
             if n_entities > 1 && positions[0] > last_entity_pos {
                 // Trailing value list after all entities: pair positionally or
                 // demote when the counts cannot be paired.
                 return if positions.len() == n_entities {
                     Some(entity_index)
+                } else {
+                    None
+                };
+            }
+            if n_entities > 1 {
+                let local: Vec<usize> = positions
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, pos)| {
+                        **pos >= entity_pos && next_entity_pos.is_none_or(|next| **pos < next)
+                    })
+                    .map(|(index, _)| index)
+                    .collect();
+                return if local.len() == 1 {
+                    local.first().copied()
                 } else {
                     None
                 };
@@ -2947,12 +3140,12 @@ mod tests {
         let claims = extract_claims(
             "Four donor cell lines (N1, N61) were paired. Prior literature \
              discussed dex/GC treatment. Figures used a seeded RNG. DESeq2 fit \
-             a fixed-effects NB GLM. Collections included Hallmark and GO_BP \
-             gene sets.",
+             a fixed-effects NB GLM. BLAS threading used 4 threads. Collections \
+             included Hallmark and GO_BP gene sets.",
             &cfg,
         );
         let entities: Vec<&str> = claims.iter().map(|claim| claim.entity.as_str()).collect();
-        for token in ["N1", "N61", "GC", "RNG", "NB", "GO_BP"] {
+        for token in ["N1", "N61", "GC", "RNG", "NB", "BLAS", "GO_BP"] {
             assert!(
                 !entities.contains(&token),
                 "{token} is metadata in this context, not an entity: {entities:?}"
@@ -2971,6 +3164,15 @@ mod tests {
                 "contextual guards must not globally deny-list {sentence}"
             );
         }
+    }
+
+    #[test]
+    fn administrative_status_line_is_not_a_scientific_claim() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        assert!(
+            extract_claims("**Status:** PASSED", &cfg).is_empty(),
+            "validator state must not become an entity-presence claim"
+        );
     }
 
     #[test]
@@ -3122,6 +3324,76 @@ mod tests {
         assert!((acan.pvalue.unwrap() - 0.001).abs() < 1e-9, "{:?}", acan);
         assert!((col.effect_size.unwrap() + 1.5).abs() < 1e-9, "{:?}", col);
         assert!((col.pvalue.unwrap() - 0.04).abs() < 1e-9, "{:?}", col);
+    }
+
+    #[test]
+    fn multi_entity_pathway_sentence_binds_each_local_effect_and_pvalue() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let claims = extract_claims(
+            "HALLMARK_ADIPOGENESIS (NES = 1.9792, padj = 2.14e-06) and \
+             KEGG_ADIPOCYTOKINE_SIGNALING_PATHWAY (NES = 1.9920, padj = 1.53e-03) \
+             reflect metabolic reprogramming.",
+            &cfg,
+        );
+        let hallmark = claims
+            .iter()
+            .find(|claim| claim.entity == "HALLMARK_ADIPOGENESIS")
+            .unwrap();
+        let kegg = claims
+            .iter()
+            .find(|claim| claim.entity == "KEGG_ADIPOCYTOKINE_SIGNALING_PATHWAY")
+            .unwrap();
+        assert_eq!(hallmark.effect_size, Some(1.9792));
+        assert_eq!(hallmark.pvalue, Some(2.14e-6));
+        assert_eq!(kegg.effect_size, Some(1.9920));
+        assert_eq!(kegg.pvalue, Some(1.53e-3));
+    }
+
+    #[test]
+    fn one_pathway_effect_is_not_borrowed_by_incidental_gene() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let claims = extract_claims(
+            "GOBP_RESPONSE_TO_OXIDATIVE_STRESS (NES = 1.7159) may reflect \
+             upregulation of glutathione peroxidase GPX3.",
+            &cfg,
+        );
+        let pathway = claims
+            .iter()
+            .find(|claim| claim.entity == "GOBP_RESPONSE_TO_OXIDATIVE_STRESS")
+            .unwrap();
+        let gene = claims.iter().find(|claim| claim.entity == "GPX3").unwrap();
+        assert_eq!(pathway.effect_size, Some(1.7159));
+        assert_eq!(
+            gene.effect_size, None,
+            "an incidental gene must not inherit the pathway's NES: {gene:?}"
+        );
+    }
+
+    #[test]
+    fn induced_modifier_after_negative_effects_is_not_an_up_direction() {
+        let mut policy = policy_json();
+        policy["verifiableEntities"]["directionVocab"]["up"] =
+            json!(["upregulated", "increased", "induced"]);
+        let cfg = ExtractorConfig::from_policy(&policy).unwrap();
+        let claims = extract_claims(
+            "REACTOME_CYTOSOLIC_TRNA_AMINOACYLATION (NES = -2.1956, padj = 2.69e-03) \
+             and REACTOME_TRNA_AMINOACYLATION (NES = -2.0171, padj = 1.08e-02) \
+             and KEGG_AMINOACYL_TRNA_BIOSYNTHESIS (NES = -1.9459, padj = 5.06e-03) \
+             may reflect dexamethasone-induced suppression.",
+            &cfg,
+        );
+        for entity in [
+            "REACTOME_CYTOSOLIC_TRNA_AMINOACYLATION",
+            "REACTOME_TRNA_AMINOACYLATION",
+            "KEGG_AMINOACYL_TRNA_BIOSYNTHESIS",
+        ] {
+            let claim = claims.iter().find(|claim| claim.entity == entity).unwrap();
+            assert_ne!(
+                claim.direction,
+                Some(Direction::Up),
+                "the modifier `induced` is outside {entity}'s quantitative clause: {claim:?}"
+            );
+        }
     }
 
     #[test]
@@ -3424,6 +3696,17 @@ mod tests {
     }
 
     #[test]
+    fn contextual_most_phrase_is_not_misclassified_as_numeric_extreme() {
+        let sentence = "CRISPLD2 (padj = 7.50e-46, log2FC = 2.6065) is the most \
+                        directly replicable finding in the retained literature.";
+        assert_ne!(
+            classify_contract(sentence),
+            ClaimContract::ExtremeValue,
+            "`most directly replicable` ranks evidential context, not the adjacent numeric column"
+        );
+    }
+
+    #[test]
     fn literature_evidence_round_trips_and_is_omitted_when_none() {
         // Present: serializes nested, deserializes back.
         let claim = Claim {
@@ -3563,6 +3846,22 @@ mod tests {
         assert_eq!(pmids("CRISPLD2"), vec![24926665]);
         assert_eq!(pmids("IRS2"), vec![28375666]);
         assert_eq!(pmids("MFGE8"), vec![28375666]);
+    }
+
+    #[test]
+    fn literature_context_entities_without_local_pmids_are_not_claims() {
+        let mut policy = policy_json();
+        policy["verifiableEntities"]["entityNameExcludePatterns"] = json!(["^PMID$"]);
+        let cfg = ExtractorConfig::from_policy(&policy).unwrap();
+        let claims = extract_claims(
+            "TSLP was lower here, while PMID 39519176 reports steroid-insensitive \
+             TSLP production under TWEAK+TGF co-stimulation.",
+            &cfg,
+        );
+        let entities: Vec<&str> = claims.iter().map(|claim| claim.entity.as_str()).collect();
+        assert!(entities.contains(&"TSLP"), "{claims:?}");
+        assert!(!entities.contains(&"TWEAK"), "{claims:?}");
+        assert!(!entities.contains(&"TGF"), "{claims:?}");
     }
 
     #[test]

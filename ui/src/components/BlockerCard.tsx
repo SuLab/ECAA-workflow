@@ -72,7 +72,11 @@ export type StallResolution = 'resize' | 'retry' | 'abort'
 interface Props {
   reason: string
   recoveryHint: string
-  onUnblock: (resolution?: StallResolution) => void | Promise<void>
+  onUnblock: (
+    resolution?: StallResolution,
+    rationale?: string,
+    taskId?: string,
+  ) => void | Promise<void>
   disabled?: boolean
   /**
    * Typed blocker taxonomy. When present the card renders a
@@ -839,10 +843,10 @@ export default function BlockerCard({
       // Empty-decision-points path: the agent hasn't recorded any
       // structured questions for this blocker (e.g. an explicit-taskId
       // render of a `missing_artifact` blocker, or a structured blocker
-      // whose blocker.json arrived without dps). The empty-state copy
-      // promises a clean unblock with no recorded answer, so skip the
-      // POST and fall straight through to onUnblock — matches the
-      // discovery-less branch of handleAccept.
+      // whose blocker.json arrived without dps). There is no answer to
+      // POST, but any rationale still has to reach the checkpoint
+      // endpoint. The server records it on the Unblock decision and
+      // writes task-scoped operator guidance for the re-dispatched agent.
       if (dps.length > 0) {
         const payload = dps
           .map((dp) => ({
@@ -862,8 +866,14 @@ export default function BlockerCard({
           payload,
           structuredRationale.trim() || undefined,
         )
+        await onUnblock()
+      } else {
+        await onUnblock(
+          undefined,
+          structuredRationale.trim() || undefined,
+          structuredTaskId,
+        )
       }
-      await onUnblock()
     })
   }
 

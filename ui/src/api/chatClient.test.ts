@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { postBranch } from './chatClient'
+import { postBranch, unblockChatSession } from './chatClient'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -26,6 +26,26 @@ describe('postBranch', () => {
     expect(JSON.parse(call[1].body)).toEqual({
       rationale: 'try downstream branch',
       task_id: 'normalisation',
+    })
+  })
+})
+
+describe('unblockChatSession', () => {
+  it('sends task-scoped retry guidance to the unblock endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await unblockChatSession('session-123', {
+      rationale: 'Retry with two independently verified pathway sources.',
+      taskId: 'survey_method_landscape',
+    })
+
+    const call = fetchMock.mock.calls[0]!
+    expect(call[0]).toBe('/api/v1/chat/session/session-123/unblock')
+    expect(JSON.parse(call[1].body)).toEqual({
+      resolution: null,
+      rationale: 'Retry with two independently verified pathway sources.',
+      task_id: 'survey_method_landscape',
     })
   })
 })

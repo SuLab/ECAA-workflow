@@ -4255,6 +4255,21 @@ fn run_loop(
                         obligations.push(id);
                     }
                 }
+                // Every completed discover_* decision is agent-authored.
+                // Recompute its evidence eligibility from the retained
+                // method-landscape rows so cross-axis borrowing or a
+                // source-less default recommendation cannot advance.
+                if tid.as_str().starts_with("discover_")
+                    && ecaa_workflow_harness::validators::discovery_evidence_is_applicable(
+                        &task_artifact_path,
+                    )
+                {
+                    let id = ecaa_workflow_harness::validators::DISCOVERY_EVIDENCE_OBLIGATION
+                        .to_string();
+                    if seen_obligations.insert(id.clone()) {
+                        obligations.push(id);
+                    }
+                }
                 if !obligations.is_empty() {
                     // Validators inspect artifacts under
                     // runtime/outputs/<task_id>/ so the artifact path
@@ -6705,6 +6720,18 @@ fn run_assertion(
                 .iter()
                 .any(|p| count_lines_gz_aware(p).map(|n| n >= 2).unwrap_or(false))
         }
+        "table_header_has_all_groups" => {
+            let Some(groups) = assertion
+                .get("check")
+                .and_then(|check| check.get("column_groups"))
+                .and_then(|value| value.as_array())
+            else {
+                return false;
+            };
+            glob_matches(pkg_dir, target)
+                .iter()
+                .any(|path| table_header_has_all_groups(path, groups))
+        }
         "artifact_glob_any" => !glob_matches(pkg_dir, target).is_empty(),
         "string_contains" => {
             let path = resolve(target);
@@ -7190,6 +7217,54 @@ fn table_data_row_count(path: &Path, header_rows: usize) -> Option<usize> {
         .filter(|line| line.iter().any(|b| !b.is_ascii_whitespace()))
         .count();
     logical_rows.checked_sub(header_rows)
+}
+
+fn normalize_table_header(value: &str) -> String {
+    value
+        .trim()
+        .trim_matches('"')
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// Require at least one retained header from every configured semantic group.
+/// The delimiter is detected from the first non-empty line; header matching is
+/// case- and punctuation-insensitive, but exact after that normalization.
+fn table_header_has_all_groups(path: &Path, groups: &[serde_json::Value]) -> bool {
+    if path.extension().and_then(|extension| extension.to_str()) == Some("gz") {
+        return false;
+    }
+    let Ok(bytes) = read_bytes_capped(path, resolve_max_bytes()) else {
+        return false;
+    };
+    let Ok(text) = std::str::from_utf8(&bytes) else {
+        return false;
+    };
+    let Some(header) = text.lines().find(|line| !line.trim().is_empty()) else {
+        return false;
+    };
+    let delimiter = if header.matches('\t').count() >= header.matches(',').count() {
+        '\t'
+    } else {
+        ','
+    };
+    let headers: std::collections::BTreeSet<String> = header
+        .split(delimiter)
+        .map(normalize_table_header)
+        .collect();
+    groups.iter().all(|group| {
+        group.as_array().is_some_and(|candidates| {
+            !candidates.is_empty()
+                && candidates.iter().any(|candidate| {
+                    candidate
+                        .as_str()
+                        .map(normalize_table_header)
+                        .is_some_and(|candidate| headers.contains(&candidate))
+                })
+        })
+    })
 }
 
 /// Parse a task's reads.jsonl and return every package-relative path attributed
@@ -9376,6 +9451,43 @@ mod read_dag_tests {
             "check": { "json_pointer": "/summary/nope", "op": "gte", "value": 1.0 }
         });
         assert!(!run_assertion(pkg, &a_missing, &empty));
+    }
+
+    #[test]
+    fn table_header_has_all_groups_requires_each_semantic_identifier_role() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        let out = pkg.join("runtime/outputs/differential_expression");
+        std::fs::create_dir_all(&out).unwrap();
+        let assertion = serde_json::json!({
+            "id": "de.identifiers",
+            "assertion_type": "table_header_has_all_groups",
+            "target": "runtime/outputs/differential_expression/**/de_results.tsv*",
+            "check": {
+                "column_groups": [
+                    ["gene", "gene_id", "ensembl_gene_id"],
+                    ["gene_symbol", "symbol", "gene_name"]
+                ]
+            }
+        });
+        let empty = std::collections::BTreeMap::new();
+
+        std::fs::write(
+            out.join("de_results.tsv"),
+            "gene\tbaseMean\tlog2FoldChange\tpadj\nENSG1\t10\t2\t0.01\n",
+        )
+        .unwrap();
+        assert!(
+            !run_assertion(pkg, &assertion, &empty),
+            "an accession-only result cannot support symbol-labelled narrative claims"
+        );
+
+        std::fs::write(
+            out.join("de_results.tsv"),
+            "gene\tgene_symbol\tlog2FoldChange\tpadj\nENSG1\tGENE1\t2\t0.01\n",
+        )
+        .unwrap();
+        assert!(run_assertion(pkg, &assertion, &empty));
     }
 
     #[test]
