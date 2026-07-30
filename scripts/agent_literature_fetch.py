@@ -118,14 +118,17 @@ def _record_retrieval_axis(
     status: str,
     **details: Any,
 ) -> None:
-    """Persist every attempted query axis, including zero-result searches.
+    """Persist every distinct axis/query attempt, including zero-result searches.
 
     A claims matrix contains no row for an axis that returned no evidence, so
     reconstructing retrieval scope from that matrix silently drops precisely
     the searches needed to distinguish "not found" from "not searched".
     Record the scope at the helper boundary, before network access. The lock
-    keeps concurrent per-axis helper processes from losing one another's
-    updates, while the sorted payload is deterministic.
+    keeps concurrent helper processes from losing one another's updates. Some
+    survey tasks issue several candidate-method queries under one analysis
+    axis, so axis alone is not a unique key: retain one record per axis/query
+    pair and update only the matching attempt. The sorted payload remains
+    deterministic.
     """
     out.mkdir(parents=True, exist_ok=True)
     scope_path = out / "retrieval_scope.json"
@@ -153,23 +156,25 @@ def _record_retrieval_axis(
                 )
             payload = loaded
 
-        by_axis: Dict[str, Dict[str, Any]] = {}
+        by_attempt: Dict[tuple[str, str], Dict[str, Any]] = {}
         for item in payload.get("axes", []):
             if not isinstance(item, dict):
                 continue
             recorded = str(item.get("axis") or "").strip()
+            recorded_query = str(item.get("query") or "").strip()
             if recorded:
-                by_axis[recorded] = dict(item)
+                by_attempt[(recorded, recorded_query)] = dict(item)
 
-        entry = by_axis.get(axis, {"axis": axis, "query": query})
+        attempt_key = (axis, query)
+        entry = by_attempt.get(attempt_key, {"axis": axis, "query": query})
         entry["query"] = query
         entry["status"] = status
         entry.update(details)
-        by_axis[axis] = entry
+        by_attempt[attempt_key] = entry
 
         stable = {
             "schema_version": RETRIEVAL_SCOPE_SCHEMA_VERSION,
-            "axes": [by_axis[name] for name in sorted(by_axis)],
+            "axes": [by_attempt[key] for key in sorted(by_attempt)],
         }
         tmp_path = out / f".retrieval_scope.json.tmp-{os.getpid()}"
         tmp_path.write_text(

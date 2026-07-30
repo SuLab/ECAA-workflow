@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ecaa.dev/schemas/literature-retrieval-scope.schema.json",
   "title": "Literature retrieval scope",
-  "description": "Every query axis attempted by the bundled literature helper, including axes that returned no evidence rows.",
+  "description": "Every distinct axis and query attempted by the bundled literature helper, including attempts that returned no evidence rows. An analysis axis may appear more than once when it evaluates several candidate-method queries.",
   "type": "object",
   "required": ["schema_version", "axes"],
   "properties": {

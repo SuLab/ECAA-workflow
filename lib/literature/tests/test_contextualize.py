@@ -225,6 +225,15 @@ def test_zero_result_axis_survives_in_retained_retrieval_scope(workspace: dict) 
                         "fallback_used": False,
                         "truncated_at_storage_cap": False,
                     },
+                    {
+                        "axis": "dusp1_dexamethasone_asm",
+                        "query": "DUSP1 glucocorticoid response",
+                        "status": "completed",
+                        "entries_written": 0,
+                        "rows_written": 0,
+                        "fallback_used": False,
+                        "truncated_at_storage_cap": False,
+                    },
                 ],
             }
         ),

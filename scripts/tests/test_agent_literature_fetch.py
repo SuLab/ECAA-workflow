@@ -415,6 +415,58 @@ class RetrievalScopeTest(unittest.TestCase):
                 )
             self.assertEqual(scope_path.read_text(encoding="utf-8"), "{not-json")
 
+    def test_distinct_queries_under_one_analysis_axis_are_not_overwritten(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            out.mkdir()
+
+            alf._record_retrieval_axis(
+                out,
+                "differential_expression",
+                "DESeq2 negative binomial differential expression",
+                status="attempted",
+            )
+            alf._record_retrieval_axis(
+                out,
+                "differential_expression",
+                "DESeq2 negative binomial differential expression",
+                status="completed",
+                rows_written=2,
+            )
+            alf._record_retrieval_axis(
+                out,
+                "differential_expression",
+                "limma voom precision weights",
+                status="attempted",
+            )
+            alf._record_retrieval_axis(
+                out,
+                "differential_expression",
+                "limma voom precision weights",
+                status="completed",
+                rows_written=0,
+            )
+
+            self.assertEqual(
+                _read_retrieval_scope(out)["axes"],
+                [
+                    {
+                        "axis": "differential_expression",
+                        "query": "DESeq2 negative binomial differential expression",
+                        "rows_written": 2,
+                        "status": "completed",
+                    },
+                    {
+                        "axis": "differential_expression",
+                        "query": "limma voom precision weights",
+                        "rows_written": 0,
+                        "status": "completed",
+                    },
+                ],
+            )
+
 
 class RateLimitRetryTest(unittest.TestCase):
     """NCBI E-utilities rate-limit (3 req/s no key, 10 with key). _raw_get must
