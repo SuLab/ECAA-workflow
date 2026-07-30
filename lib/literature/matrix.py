@@ -285,7 +285,7 @@ def read_result_table(
                 table.n_significant += 1
             else:
                 continue
-            symbol = (row.get(sym_col) or "").strip() if sym_col else ""
+            symbol = _present(row.get(sym_col)) if sym_col else None
             table.findings.append(
                 Finding(
                     finding_id=finding_id,

@@ -41,6 +41,16 @@
 //!   * **RP-4** every mapped/unmapped/resolved/unresolved gene count the
 //!     report asserts must trace to a stage output (reject narrative-only
 //!     back-computed numbers).
+//!   * **RC-RANK** the retained enrichment ranking has the declared schema,
+//!     one unique label per row, sequential ranks, finite scores, and the same
+//!     row count as `n_genes_ranked` and any narrative claim that explicitly
+//!     describes the vector supplied to enrichment.
+//!   * **RC-COLLECTION** collection labels in pathway metadata must equal the
+//!     labels in `pathway_results.tsv`; provider-specific source names belong
+//!     in separate provenance fields.
+//!   * **RC-STAGE-NARRATIVE** a pathway stage narrative that names a top
+//!     enriched or depleted row must copy that row's NES and adjusted p-value
+//!     from `pathway_results.tsv` within the package policy's tolerances.
 //!   * **RP-5** a figure caption's asserted data shape ("N samples") must
 //!     match the figure's actual data shape (`top_features_heatmap` is a
 //!     single-column log2FC heatmap, not a per-sample expression matrix).
@@ -51,6 +61,11 @@
 //!     [`crate::report_contract::summarize_artifact`] — zero tolerance.
 //!     Unlike RP-2 (DE/pathway-shaped), this generalizes to every
 //!     modality's terminal result artifact.
+//!   * **RC-LITERATURE** every literature entity count in `report-data.json`,
+//!     the contextualization result, and any explicitly named narrative claim
+//!     must equal a fresh recomputation from `claims_evidence_matrix.csv`.
+//!     Evidence-row counts stay separate from distinct-entity counts, and
+//!     missing entity labels fall back to the row's finding identifier.
 //!   * **RC-IDENTITY** a `direction_split`'s `up + down` must not EXCEED
 //!     `n_significant` (directional rows can't outnumber the significant
 //!     set). A shortfall is legitimate — a significant row with a zero/NA
@@ -220,6 +235,9 @@ pub fn check_reporting_invariants(package_root: &Path) -> ReportingInvariantsRep
 
     check_rp1_effect_direction(package_root, &outputs, &mut report);
     check_rp2_gene_sets_tested(&outputs, &mut report);
+    check_rc_pathway_collections(&outputs, &mut report);
+    check_rc_pathway_rank(&outputs, &mut report);
+    check_rc_pathway_stage_narrative(package_root, &outputs, &mut report);
     check_rp3_fdr_family(&outputs, &mut report);
     check_rp4_mapping_reconciliation(&outputs, &mut report);
     check_rp5_figure_caption_shape(&outputs, &mut report);
@@ -227,6 +245,7 @@ pub fn check_reporting_invariants(package_root: &Path) -> ReportingInvariantsRep
     check_rp_prov_data_source(package_root, &outputs, &mut report);
     check_rp_qc_negative_claim(&outputs, &mut report);
     check_rc_count(package_root, &outputs, &mut report);
+    check_rc_literature_counts(&outputs, &mut report);
     check_rc_identity(&outputs, &mut report);
     check_rc_sections(package_root, &outputs, &mut report);
     check_rc_table(&outputs, &mut report);
@@ -438,6 +457,359 @@ fn check_rp2_gene_sets_tested(outputs: &Path, report: &mut ReportingInvariantsRe
             detail: format!(
                 "reported gene_sets_tested does not equal the post-filter tested rowcount \
                  recomputed from pathway_results.tsv (loaded-not-tested inflation) — {}",
+                mismatches.join("; ")
+            ),
+        });
+    }
+}
+
+fn json_string_set(value: &Value, key: &str) -> Option<BTreeSet<String>> {
+    value.get(key)?.as_array().map(|items| {
+        items
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect()
+    })
+}
+
+/// RC-COLLECTION: metadata labels identify the exact groups retained in the
+/// source table. A provider subcollection name is useful provenance, but it
+/// cannot replace a different table label in a field that claims to enumerate
+/// the table's collections.
+fn check_rc_pathway_collections(outputs: &Path, report: &mut ReportingInvariantsReport) {
+    let pathway_dir = outputs.join("pathway_enrichment");
+    let Ok((headers, rows)) =
+        crate::report_contract::assemble::read_table(&pathway_dir.join("pathway_results.tsv"))
+    else {
+        return;
+    };
+    let Some(collection_idx) = headers.iter().position(|name| name == "collection") else {
+        return;
+    };
+    let expected: BTreeSet<String> = rows
+        .iter()
+        .filter_map(|row| row.get(collection_idx))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .collect();
+    if expected.is_empty() {
+        return;
+    }
+    report.checked.push("RC-COLLECTION");
+
+    let sources = [
+        (
+            "result.json::gene_sets_collections",
+            read_json(&pathway_dir.join("result.json"))
+                .and_then(|value| json_string_set(&value, "gene_sets_collections")),
+        ),
+        (
+            "pathway_summary.json::collections",
+            read_json(&pathway_dir.join("pathway_summary.json"))
+                .and_then(|value| json_string_set(&value, "collections")),
+        ),
+    ];
+    let mut mismatches = Vec::new();
+    for (source, observed) in sources {
+        match observed {
+            Some(observed) if observed == expected => {}
+            Some(observed) => mismatches.push(format!(
+                "{source}={:?}, pathway_results.tsv={expected:?}",
+                observed
+            )),
+            None => mismatches.push(format!("{source} is missing or not a string array")),
+        }
+    }
+    if !mismatches.is_empty() {
+        report.findings.push(ReportingFinding {
+            invariant: "RC-COLLECTION",
+            severity: Severity::Required,
+            detail: format!(
+                "pathway collection metadata does not match the retained source table: {}",
+                mismatches.join("; ")
+            ),
+        });
+    }
+}
+
+fn narrative_rank_count_claims(text: &str, expected: u64) -> Vec<u64> {
+    let explicit = Regex::new(r"(?i)`?n_genes_ranked`?[^0-9]{0,64}([0-9][0-9,]*)")
+        .expect("static RC-RANK field regex compiles");
+    let gene_count = Regex::new(r"(?i)([0-9][0-9,]*)\s+(?:[a-z0-9_-]+\s+){0,6}genes?\b")
+        .expect("static RC-RANK gene-count regex compiles");
+    let mut mismatches = Vec::new();
+    for capture in explicit.captures_iter(text) {
+        if let Some(observed) = capture.get(1).and_then(|m| parse_grouped_int(m.as_str())) {
+            if observed != expected {
+                mismatches.push(observed);
+            }
+        }
+    }
+    for capture in gene_count.captures_iter(text) {
+        let Some(matched) = capture.get(0) else {
+            continue;
+        };
+        let clause = clause_around(text, matched.start()).to_ascii_lowercase();
+        let enrichment_context = ["fgsea", "gsea", "wald", "ranking", "ranked"]
+            .iter()
+            .any(|term| clause.contains(term));
+        let final_input_claim = [
+            " included",
+            " ranked",
+            "supplied to",
+            "used for",
+            "run on",
+            "ranking vector",
+        ]
+        .iter()
+        .any(|term| clause.contains(term));
+        if !enrichment_context || !final_input_claim {
+            continue;
+        }
+        if let Some(observed) = capture.get(1).and_then(|m| parse_grouped_int(m.as_str())) {
+            if observed != expected {
+                mismatches.push(observed);
+            }
+        }
+    }
+    mismatches.sort_unstable();
+    mismatches.dedup();
+    mismatches
+}
+
+/// RC-RANK: validate the deposit-retained vector actually supplied to the
+/// enrichment method, then bind its row count to structured metadata and
+/// unambiguous narrative claims about the final ranking population.
+fn check_rc_pathway_rank(outputs: &Path, report: &mut ReportingInvariantsReport) {
+    let pathway_dir = outputs.join("pathway_enrichment");
+    let rank_path = pathway_dir.join("ranked_genes.tsv");
+    if !rank_path.exists() {
+        return;
+    }
+    report.checked.push("RC-RANK");
+
+    let Ok((headers, rows)) = crate::report_contract::assemble::read_table(&rank_path) else {
+        report.findings.push(ReportingFinding {
+            invariant: "RC-RANK",
+            severity: Severity::Required,
+            detail: "ranked_genes.tsv cannot be parsed as a delimited table".to_string(),
+        });
+        return;
+    };
+    let required = ["rank", "gene_label", "source_id", "ranking_score"];
+    let missing: Vec<&str> = required
+        .iter()
+        .copied()
+        .filter(|name| !headers.iter().any(|header| header == *name))
+        .collect();
+    if !missing.is_empty() {
+        report.findings.push(ReportingFinding {
+            invariant: "RC-RANK",
+            severity: Severity::Required,
+            detail: format!(
+                "ranked_genes.tsv is missing required column(s): {}",
+                missing.join(", ")
+            ),
+        });
+        return;
+    }
+    let rank_idx = headers.iter().position(|name| name == "rank").unwrap_or(0);
+    let label_idx = headers
+        .iter()
+        .position(|name| name == "gene_label")
+        .unwrap_or(0);
+    let source_idx = headers
+        .iter()
+        .position(|name| name == "source_id")
+        .unwrap_or(0);
+    let score_idx = headers
+        .iter()
+        .position(|name| name == "ranking_score")
+        .unwrap_or(0);
+
+    let mut structural = Vec::new();
+    let mut labels = BTreeSet::new();
+    for (offset, row) in rows.iter().enumerate() {
+        let expected_rank = offset + 1;
+        if row
+            .get(rank_idx)
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            != Some(expected_rank)
+        {
+            structural.push(format!(
+                "row {} does not carry rank {expected_rank}",
+                offset + 2
+            ));
+        }
+        let label = row.get(label_idx).unwrap_or("").trim();
+        if label.is_empty() {
+            structural.push(format!("row {} has an empty gene_label", offset + 2));
+        } else if !labels.insert(label.to_string()) {
+            structural.push(format!("gene_label {label:?} appears more than once"));
+        }
+        if row.get(source_idx).unwrap_or("").trim().is_empty() {
+            structural.push(format!("row {} has an empty source_id", offset + 2));
+        }
+        let finite_score = row
+            .get(score_idx)
+            .and_then(|value| value.trim().parse::<f64>().ok())
+            .is_some_and(f64::is_finite);
+        if !finite_score {
+            structural.push(format!("row {} has a non-finite ranking_score", offset + 2));
+        }
+    }
+
+    let expected_count = rows.len() as u64;
+    let result = read_json(&pathway_dir.join("result.json"));
+    match result
+        .as_ref()
+        .and_then(|value| json_named_u64(value, "n_genes_ranked"))
+    {
+        Some(observed) if observed == expected_count => {}
+        Some(observed) => structural.push(format!(
+            "result.json n_genes_ranked={observed}, ranked_genes.tsv rows={expected_count}"
+        )),
+        None => structural.push("result.json n_genes_ranked is missing".to_string()),
+    }
+
+    let mut narrative = read_reports(outputs).unwrap_or_default();
+    if let Some(stage_narrative) = result
+        .as_ref()
+        .and_then(|value| value.get("narrative"))
+        .and_then(Value::as_str)
+    {
+        narrative.push('\n');
+        narrative.push_str(stage_narrative);
+    }
+    for observed in narrative_rank_count_claims(&narrative, expected_count) {
+        structural.push(format!(
+            "narrative final-ranking count={observed}, ranked_genes.tsv rows={expected_count}"
+        ));
+    }
+
+    if !structural.is_empty() {
+        structural.sort();
+        structural.dedup();
+        report.findings.push(ReportingFinding {
+            invariant: "RC-RANK",
+            severity: Severity::Required,
+            detail: structural.join("; "),
+        });
+    }
+}
+
+/// RC-STAGE-NARRATIVE: bind explicit top-pathway claims in the stage's own
+/// structured narrative to the retained pathway table. Final-report tables are
+/// covered separately by RC-ROW; this closes the same gap for `result.json`.
+fn check_rc_pathway_stage_narrative(
+    package_root: &Path,
+    outputs: &Path,
+    report: &mut ReportingInvariantsReport,
+) {
+    let pathway_dir = outputs.join("pathway_enrichment");
+    let Some(result) = read_json(&pathway_dir.join("result.json")) else {
+        return;
+    };
+    let Some(narrative) = result.get("narrative").and_then(Value::as_str) else {
+        return;
+    };
+    let Some(tolerances) = NarrativeTolerances::load(package_root) else {
+        return;
+    };
+    let Ok((headers, rows)) =
+        crate::report_contract::assemble::read_table(&pathway_dir.join("pathway_results.tsv"))
+    else {
+        return;
+    };
+    let Some(entity_idx) = headers.iter().position(|name| name == "pathway") else {
+        return;
+    };
+    let Some(effect_idx) = headers
+        .iter()
+        .position(|name| name.eq_ignore_ascii_case("NES"))
+    else {
+        return;
+    };
+    let Some(significance_idx) = headers
+        .iter()
+        .position(|name| name.eq_ignore_ascii_case("padj"))
+    else {
+        return;
+    };
+    let source: BTreeMap<String, (f64, f64)> = rows
+        .iter()
+        .filter_map(|row| {
+            Some((
+                row.get(entity_idx)?.trim().to_string(),
+                (
+                    row.get(effect_idx)?.trim().parse().ok()?,
+                    row.get(significance_idx)?.trim().parse().ok()?,
+                ),
+            ))
+        })
+        .collect();
+    let re = Regex::new(
+        r"(?ix)
+          top\s+(?:enriched|depleted)[^.]{0,240}?
+          \b([A-Z][A-Z0-9_]{2,})\s*
+          \(\s*NES\s*=\s*
+          ([+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:e[+-]?[0-9]+)?)
+          \s*,\s*padj\s*=\s*
+          ([+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:e[+-]?[0-9]+)?)
+          \s*\)",
+    )
+    .expect("static RC-STAGE-NARRATIVE regex compiles");
+
+    let effect_role = RoleCell {
+        narrative: 0,
+        source: 0,
+        significance: false,
+    };
+    let significance_role = RoleCell {
+        narrative: 0,
+        source: 0,
+        significance: true,
+    };
+    let mut mismatches = Vec::new();
+    let mut ran = false;
+    for capture in re.captures_iter(narrative) {
+        ran = true;
+        let entity = capture.get(1).map(|m| m.as_str()).unwrap_or("");
+        let claimed_effect = capture.get(2).and_then(|m| m.as_str().parse::<f64>().ok());
+        let claimed_significance = capture.get(3).and_then(|m| m.as_str().parse::<f64>().ok());
+        let Some((observed_effect, observed_significance)) = source.get(entity).copied() else {
+            mismatches.push(format!("{entity} is absent from pathway_results.tsv"));
+            continue;
+        };
+        if claimed_effect
+            .is_none_or(|claimed| !tolerances.agrees(&effect_role, claimed, observed_effect))
+        {
+            mismatches.push(format!(
+                "{entity} NES={} vs source {observed_effect}",
+                capture.get(2).map(|m| m.as_str()).unwrap_or("<missing>")
+            ));
+        }
+        if claimed_significance.is_none_or(|claimed| {
+            !tolerances.agrees(&significance_role, claimed, observed_significance)
+        }) {
+            mismatches.push(format!(
+                "{entity} padj={} vs source {observed_significance}",
+                capture.get(3).map(|m| m.as_str()).unwrap_or("<missing>")
+            ));
+        }
+    }
+    if !ran {
+        return;
+    }
+    report.checked.push("RC-STAGE-NARRATIVE");
+    if !mismatches.is_empty() {
+        report.findings.push(ReportingFinding {
+            invariant: "RC-STAGE-NARRATIVE",
+            severity: Severity::Required,
+            detail: format!(
+                "pathway result narrative disagrees with pathway_results.tsv: {}",
                 mismatches.join("; ")
             ),
         });
@@ -1727,6 +2099,203 @@ fn check_rc_count(package_root: &Path, outputs: &Path, report: &mut ReportingInv
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct LiteratureCounts {
+    novel_count: u64,
+    n_entities_assessed: u64,
+    n_entities_not_assessed: u64,
+    n_evidence_rows_assessed: u64,
+    n_evidence_rows_total: u64,
+}
+
+impl LiteratureCounts {
+    fn named(self) -> [(&'static str, u64); 6] {
+        [
+            ("novel_count", self.novel_count),
+            ("not_assessed_count", self.n_entities_not_assessed),
+            ("n_entities_assessed", self.n_entities_assessed),
+            ("n_entities_not_assessed", self.n_entities_not_assessed),
+            ("n_evidence_rows_assessed", self.n_evidence_rows_assessed),
+            ("n_evidence_rows_total", self.n_evidence_rows_total),
+        ]
+    }
+}
+
+fn parse_bool_cell(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "true" | "1" | "yes" => Some(true),
+        "false" | "0" | "no" => Some(false),
+        _ => None,
+    }
+}
+
+fn recompute_literature_counts(matrix_path: &Path) -> Option<LiteratureCounts> {
+    let (headers, rows) = crate::report_contract::assemble::read_table(matrix_path).ok()?;
+    let finding_idx = headers.iter().position(|name| name == "finding_id")?;
+    let entity_idx = headers.iter().position(|name| name == "entity")?;
+    let flag_idx = headers.iter().position(|name| name == "concordance_flag")?;
+    let searched_idx = headers.iter().position(|name| name == "searched");
+
+    let mut novel = BTreeSet::new();
+    let mut assessed = BTreeSet::new();
+    let mut not_assessed = BTreeSet::new();
+    let mut assessed_rows = 0u64;
+    for row in &rows {
+        let flag = row.get(flag_idx).unwrap_or("").trim();
+        let entity = crate::report_contract::report_data::matrix_entity_label(
+            row.get(entity_idx).unwrap_or(""),
+            row.get(finding_idx).unwrap_or(""),
+        );
+        if entity.is_empty() {
+            continue;
+        }
+        let searched = searched_idx
+            .and_then(|idx| row.get(idx))
+            .and_then(parse_bool_cell)
+            .unwrap_or({
+                matches!(
+                    flag,
+                    "same_direction" | "opposite_direction" | "unverifiable" | "no_prior_finding"
+                )
+            });
+        if searched {
+            assessed_rows += 1;
+            assessed.insert(entity.clone());
+        } else {
+            not_assessed.insert(entity.clone());
+        }
+        if flag == "no_prior_finding" {
+            novel.insert(entity);
+        }
+    }
+    for entity in &assessed {
+        not_assessed.remove(entity);
+    }
+
+    Some(LiteratureCounts {
+        novel_count: novel.len() as u64,
+        n_entities_assessed: assessed.len() as u64,
+        n_entities_not_assessed: not_assessed.len() as u64,
+        n_evidence_rows_assessed: assessed_rows,
+        n_evidence_rows_total: rows.len() as u64,
+    })
+}
+
+fn json_named_u64(value: &Value, name: &str) -> Option<u64> {
+    value.get(name).and_then(|raw| {
+        raw.as_u64().or_else(|| {
+            raw.as_str()
+                .and_then(|text| text.trim().replace(',', "").parse().ok())
+        })
+    })
+}
+
+/// RC-LITERATURE: keep distinct-entity and evidence-row denominators aligned
+/// across the deterministic report contract, the contextualization summary,
+/// and narrative claims that explicitly name one of those machine fields.
+///
+/// The matrix is the source artifact. Entity labels that contain a conventional
+/// missing-value marker fall back to `finding_id`, matching the contextualizer,
+/// so 242 unresolved accessions cannot become one entity named `NA`. The
+/// narrative scan is deliberately limited to explicit field names; an
+/// unlabelled free-text number is too ambiguous to block a deposit.
+fn check_rc_literature_counts(outputs: &Path, report: &mut ReportingInvariantsReport) {
+    let matrix_path = outputs
+        .join("contextualize_findings_with_literature")
+        .join("claims_evidence_matrix.csv");
+    let Some(expected) = recompute_literature_counts(&matrix_path) else {
+        return;
+    };
+    report.checked.push("RC-LITERATURE");
+
+    let mut mismatches = Vec::new();
+    if let Some(report_data) = read_report_data(outputs) {
+        if let Some(literature) = report_data.literature {
+            let observed = [
+                ("novel_count", literature.novel_count),
+                ("not_assessed_count", literature.not_assessed_count),
+                ("n_entities_assessed", literature.n_entities_assessed),
+                (
+                    "n_entities_not_assessed",
+                    literature.n_entities_not_assessed,
+                ),
+                (
+                    "n_evidence_rows_assessed",
+                    literature.n_evidence_rows_assessed,
+                ),
+                ("n_evidence_rows_total", literature.n_evidence_rows_total),
+            ];
+            for ((name, expected_value), (_, observed_value)) in
+                expected.named().into_iter().zip(observed)
+            {
+                if observed_value != expected_value {
+                    mismatches.push(format!(
+                        "report-data.json {name}={observed_value}, recomputed={expected_value}"
+                    ));
+                }
+            }
+        }
+    }
+
+    let result_path = outputs
+        .join("contextualize_findings_with_literature")
+        .join("result.json");
+    if let Some(result) = read_json(&result_path) {
+        for (name, expected_value) in expected.named() {
+            if name == "not_assessed_count" || name == "novel_count" {
+                continue;
+            }
+            if let Some(observed) = json_named_u64(&result, name) {
+                if observed != expected_value {
+                    mismatches.push(format!(
+                        "contextualization result.json {name}={observed}, \
+                         recomputed={expected_value}"
+                    ));
+                }
+            }
+        }
+    }
+
+    if let Some(narrative) = read_reports(outputs) {
+        for (name, expected_value) in expected.named() {
+            let pattern = format!(
+                r"(?i)`?{}`?[^0-9]{{0,64}}([0-9][0-9,]*)",
+                regex::escape(name)
+            );
+            let Ok(re) = Regex::new(&pattern) else {
+                continue;
+            };
+            for capture in re.captures_iter(&narrative) {
+                let Some(observed) = capture
+                    .get(1)
+                    .and_then(|value| value.as_str().replace(',', "").parse::<u64>().ok())
+                else {
+                    continue;
+                };
+                if observed != expected_value {
+                    mismatches.push(format!(
+                        "narrative {name}={observed}, recomputed={expected_value}"
+                    ));
+                }
+            }
+        }
+    }
+
+    if !mismatches.is_empty() {
+        mismatches.sort();
+        mismatches.dedup();
+        report.findings.push(ReportingFinding {
+            invariant: "RC-LITERATURE",
+            severity: Severity::Required,
+            detail: format!(
+                "literature entity/evidence-row counts disagree with \
+                 claims_evidence_matrix.csv: {}",
+                mismatches.join("; ")
+            ),
+        });
+    }
+}
+
 /// RC-IDENTITY: for every `report-data.json` artifact that declares a
 /// `direction_split`, its `up + down` must not EXCEED `n_significant` — the
 /// directional rows are a subset of the significant set, so they can never
@@ -2953,6 +3522,97 @@ mod tests {
         std::fs::write(path, body).unwrap();
     }
 
+    fn seed_literature_count_package(outputs: &Path, entity_count: u64) {
+        write(
+            outputs,
+            "contextualize_findings_with_literature/claims_evidence_matrix.csv",
+            "finding_id,entity,concordance_flag,searched\n\
+             F1,GENE1,same_direction,true\n\
+             F1,GENE1,same_direction,true\n\
+             F2,NA,not_assessed,false\n\
+             F3,NA,not_assessed,false\n",
+        );
+        write(
+            outputs,
+            "contextualize_findings_with_literature/result.json",
+            &serde_json::json!({
+                "n_entities_assessed": 1,
+                "n_entities_not_assessed": entity_count,
+                "n_evidence_rows_assessed": 2,
+                "n_evidence_rows_total": 4
+            })
+            .to_string(),
+        );
+        write(
+            outputs,
+            "reporting/report-data.json",
+            &serde_json::json!({
+                "artifacts": [],
+                "literature": {
+                    "concordant": [],
+                    "discordant": [],
+                    "unverifiable": [],
+                    "non_replications": [],
+                    "novel_count": 0,
+                    "not_assessed_count": entity_count,
+                    "n_entities_assessed": 1,
+                    "n_entities_not_assessed": entity_count,
+                    "n_evidence_rows_assessed": 2,
+                    "n_evidence_rows_total": 4,
+                    "retrieved_sources": []
+                }
+            })
+            .to_string(),
+        );
+        write(
+            outputs,
+            "final_reporting/final_report.md",
+            &format!(
+                "- `n_entities_assessed`: 1\n\
+                 - `n_entities_not_assessed`: {entity_count}\n\
+                 - `n_evidence_rows_assessed`: 2\n\
+                 - `n_evidence_rows_total`: 4\n"
+            ),
+        );
+    }
+
+    #[test]
+    fn rc_literature_distinguishes_entities_from_evidence_rows() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        seed_literature_count_package(&outputs, 2);
+
+        let report = check_reporting_invariants(tmp.path());
+
+        assert!(report.checked.contains(&"RC-LITERATURE"));
+        assert!(
+            report
+                .required_failures()
+                .iter()
+                .all(|failure| !failure.starts_with("RC-LITERATURE:")),
+            "{report:?}"
+        );
+    }
+
+    #[test]
+    fn rc_literature_rejects_na_collapse_and_row_count_as_entity_count() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        seed_literature_count_package(&outputs, 4);
+
+        let report = check_reporting_invariants(tmp.path());
+        let failures = report.required_failures();
+
+        assert!(
+            failures.iter().any(|failure| {
+                failure.starts_with("RC-LITERATURE:")
+                    && failure.contains("n_entities_not_assessed=4")
+                    && failure.contains("recomputed=2")
+            }),
+            "{failures:?}"
+        );
+    }
+
     #[test]
     fn rc_row_ranked_table_must_match_canonical_prefix() {
         let schema = ResultSchema {
@@ -3116,6 +3776,204 @@ mod tests {
             }
         }
         s
+    }
+
+    #[test]
+    fn rc_collection_requires_exact_table_labels_in_metadata() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "pathway_enrichment/pathway_results.tsv",
+            &pathway_results_tsv(&[("HALLMARK", 1), ("KEGG", 1)]),
+        );
+        write(
+            &outputs,
+            "pathway_enrichment/result.json",
+            &serde_json::json!({
+                "gene_sets_collections": ["HALLMARK", "KEGG_LEGACY"]
+            })
+            .to_string(),
+        );
+        write(
+            &outputs,
+            "pathway_enrichment/pathway_summary.json",
+            &serde_json::json!({
+                "collections": ["HALLMARK", "KEGG"]
+            })
+            .to_string(),
+        );
+
+        let report = check_reporting_invariants(tmp.path());
+        let failures = report.required_failures();
+
+        assert!(report.checked.contains(&"RC-COLLECTION"));
+        assert!(
+            failures.iter().any(|failure| {
+                failure.starts_with("RC-COLLECTION:") && failure.contains("KEGG_LEGACY")
+            }),
+            "{failures:?}"
+        );
+    }
+
+    #[test]
+    fn rc_collection_passes_when_both_metadata_surfaces_match() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "pathway_enrichment/pathway_results.tsv",
+            &pathway_results_tsv(&[("HALLMARK", 1), ("KEGG", 1)]),
+        );
+        for (path, key) in [
+            ("pathway_enrichment/result.json", "gene_sets_collections"),
+            ("pathway_enrichment/pathway_summary.json", "collections"),
+        ] {
+            write(
+                &outputs,
+                path,
+                &format!(r#"{{"{key}":["HALLMARK","KEGG"]}}"#),
+            );
+        }
+
+        let report = check_reporting_invariants(tmp.path());
+
+        assert!(report.checked.contains(&"RC-COLLECTION"));
+        assert!(
+            report
+                .required_failures()
+                .iter()
+                .all(|failure| !failure.starts_with("RC-COLLECTION:")),
+            "{report:?}"
+        );
+    }
+
+    fn seed_ranked_genes(outputs: &Path, narrative_count: u64) {
+        write(
+            outputs,
+            "pathway_enrichment/ranked_genes.tsv",
+            "rank\tgene_label\tsource_id\tranking_score\n\
+             1\tGENE1\tENSG1\t4.2\n\
+             2\tGENE2\tENSG2\t-3.1\n",
+        );
+        write(
+            outputs,
+            "pathway_enrichment/result.json",
+            &serde_json::json!({
+                "n_genes_ranked": 2,
+                "narrative": format!(
+                    "Preranked fgsea used the Wald statistic. {narrative_count} genes with a \
+                     valid Wald statistic were included."
+                )
+            })
+            .to_string(),
+        );
+    }
+
+    fn seed_pathway_stage_narrative(root: &Path, outputs: &Path, claimed_padj: &str) {
+        write_root(
+            root,
+            "policies/interpretation-policy.json",
+            include_str!("../../../config/downstream-policy/interpretation-policy.json"),
+        );
+        write(
+            outputs,
+            "pathway_enrichment/pathway_results.tsv",
+            "pathway\tpval\tpadj\tES\tNES\tsize\tleadingEdge\tcollection\n\
+             GENE_SET_A\t1e-6\t6.82e-05\t-0.5\t-1.9024\t20\tA|B\tGO_BP\n",
+        );
+        write(
+            outputs,
+            "pathway_enrichment/result.json",
+            &serde_json::json!({
+                "gene_sets_collections": ["GO_BP"],
+                "narrative": format!(
+                    "The top depleted gene set was GENE_SET_A \
+                     (NES=-1.9024, padj={claimed_padj})."
+                )
+            })
+            .to_string(),
+        );
+        write(
+            outputs,
+            "pathway_enrichment/pathway_summary.json",
+            r#"{"collections":["GO_BP"]}"#,
+        );
+    }
+
+    #[test]
+    fn rc_stage_narrative_rejects_coarse_wrong_adjusted_pvalue() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        seed_pathway_stage_narrative(tmp.path(), &outputs, "1.0e-04");
+
+        let report = check_reporting_invariants(tmp.path());
+        let failures = report.required_failures();
+
+        assert!(report.checked.contains(&"RC-STAGE-NARRATIVE"));
+        assert!(
+            failures.iter().any(|failure| {
+                failure.starts_with("RC-STAGE-NARRATIVE:")
+                    && failure.contains("GENE_SET_A padj=1.0e-04")
+            }),
+            "{failures:?}"
+        );
+    }
+
+    #[test]
+    fn rc_stage_narrative_accepts_source_precision() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        seed_pathway_stage_narrative(tmp.path(), &outputs, "6.82e-05");
+
+        let report = check_reporting_invariants(tmp.path());
+
+        assert!(report.checked.contains(&"RC-STAGE-NARRATIVE"));
+        assert!(
+            report
+                .required_failures()
+                .iter()
+                .all(|failure| !failure.starts_with("RC-STAGE-NARRATIVE:")),
+            "{report:?}"
+        );
+    }
+
+    #[test]
+    fn rc_rank_binds_narrative_to_the_retained_vector() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        seed_ranked_genes(&outputs, 3);
+
+        let report = check_reporting_invariants(tmp.path());
+        let failures = report.required_failures();
+
+        assert!(report.checked.contains(&"RC-RANK"));
+        assert!(
+            failures.iter().any(|failure| {
+                failure.starts_with("RC-RANK:")
+                    && failure.contains("final-ranking count=3")
+                    && failure.contains("rows=2")
+            }),
+            "{failures:?}"
+        );
+    }
+
+    #[test]
+    fn rc_rank_accepts_matching_structured_and_narrative_counts() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        seed_ranked_genes(&outputs, 2);
+
+        let report = check_reporting_invariants(tmp.path());
+
+        assert!(report.checked.contains(&"RC-RANK"));
+        assert!(
+            report
+                .required_failures()
+                .iter()
+                .all(|failure| !failure.starts_with("RC-RANK:")),
+            "{report:?}"
+        );
     }
 
     // -- RP-2 -------------------------------------------------------------

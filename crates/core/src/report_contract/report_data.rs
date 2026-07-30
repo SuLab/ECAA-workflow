@@ -164,8 +164,15 @@ pub enum LiteratureStatus {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LiteratureRollup {
+    /// Evidence-matrix rows classified as concordant. One entity may have
+    /// multiple rows when more than one source was retrieved, so this vector's
+    /// length is not an entity count.
     pub concordant: Vec<LitFinding>,
+    /// Evidence-matrix rows classified as discordant. Its length is a row
+    /// count, not an entity count.
     pub discordant: Vec<LitFinding>,
+    /// Evidence-matrix rows whose retrieved text did not support a directional
+    /// comparison. Its length is a row count, not an entity count.
     pub unverifiable: Vec<LitFinding>,
     pub non_replications: Vec<NonReplication>,
     /// Entities a query WAS issued for and no prior finding was retrieved
@@ -179,6 +186,29 @@ pub struct LiteratureRollup {
     /// existed still deserializes (defaults to 0) for read-back / replay.
     #[serde(default)]
     pub not_assessed_count: u64,
+    /// Distinct entities for which a prior-work query was issued.
+    #[serde(default)]
+    pub n_entities_assessed: u64,
+    /// Distinct entities for which no prior-work query was issued. This is the
+    /// explicitly named form of `not_assessed_count`; both values are emitted
+    /// for backward compatibility and must agree.
+    #[serde(default)]
+    pub n_entities_not_assessed: u64,
+    /// Evidence-matrix rows with `searched=true`.
+    #[serde(default)]
+    pub n_evidence_rows_assessed: u64,
+    /// Total evidence-matrix rows, assessed and not assessed.
+    #[serde(default)]
+    pub n_evidence_rows_total: u64,
+    /// Distinct upstream retrieval axes, including non-entity axes.
+    #[serde(default)]
+    pub n_search_axes_total: u64,
+    /// Retrieval axes that named an assessed entity.
+    #[serde(default)]
+    pub n_search_axes_naming_an_assessed_entity: u64,
+    /// Source-stage definitions for each explicitly denominated count.
+    #[serde(default)]
+    pub count_definitions: BTreeMap<String, String>,
     pub retrieved_sources: Vec<String>,
 }
 
@@ -562,6 +592,7 @@ struct MatrixRow {
     pmid: String,
     effect: Option<f64>,
     evidence_quote: String,
+    searched: String,
 }
 
 /// Reads `contextualize_findings_with_literature/result.json`'s
@@ -630,20 +661,92 @@ fn json_as_f64(v: &serde_json::Value) -> Option<f64> {
         .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
 }
 
+fn json_as_u64(v: &serde_json::Value) -> Option<u64> {
+    v.as_u64().or_else(|| {
+        v.as_str()
+            .and_then(|s| s.trim().replace(',', "").parse().ok())
+    })
+}
+
+#[derive(Debug, Default)]
+struct LiteratureCountMetadata {
+    n_search_axes_total: u64,
+    n_search_axes_naming_an_assessed_entity: u64,
+    count_definitions: BTreeMap<String, String>,
+}
+
+fn read_literature_count_metadata(result_json: &Path) -> LiteratureCountMetadata {
+    let Ok(text) = std::fs::read_to_string(result_json) else {
+        return LiteratureCountMetadata::default();
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return LiteratureCountMetadata::default();
+    };
+    let count_definitions = value
+        .get("count_definitions")
+        .and_then(serde_json::Value::as_object)
+        .map(|definitions| {
+            definitions
+                .iter()
+                .filter_map(|(name, definition)| {
+                    definition
+                        .as_str()
+                        .map(|definition| (name.clone(), definition.to_string()))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    LiteratureCountMetadata {
+        n_search_axes_total: value
+            .get("n_search_axes_total")
+            .and_then(json_as_u64)
+            .unwrap_or(0),
+        n_search_axes_naming_an_assessed_entity: value
+            .get("n_search_axes_naming_an_assessed_entity")
+            .and_then(json_as_u64)
+            .unwrap_or(0),
+        count_definitions,
+    }
+}
+
+fn is_missing_entity_label(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "" | "na" | "n/a" | "nan" | "null" | "none" | "-" | "."
+    )
+}
+
+pub(crate) fn matrix_entity_label(entity: &str, finding_id: &str) -> String {
+    if is_missing_entity_label(entity) {
+        finding_id.trim().to_string()
+    } else {
+        entity.trim().to_string()
+    }
+}
+
+fn matrix_row_was_searched(row: &MatrixRow) -> bool {
+    match row.searched.trim().to_ascii_lowercase().as_str() {
+        "true" | "1" | "yes" => true,
+        "false" | "0" | "no" => false,
+        _ => matches!(
+            row.concordance_flag.as_str(),
+            "same_direction" | "opposite_direction" | "unverifiable" | "no_prior_finding"
+        ),
+    }
+}
+
 /// Joins the reporting significant set against the contextualize stage's
 /// literature outputs.
 ///
-/// The returned rollup is built from the `claims_matrix_csv` ROWS directly —
-/// the matrix already carries the authoritative per-finding
-/// `concordance_flag`, so the counts are independent of which report-data
-/// entities happen to have populated. Every matrix row is bucketed by its
-/// flag (`same_direction`→concordant, `opposite_direction`→discordant,
-/// `unverifiable`→unverifiable, `no_prior_finding`→`novel_count`,
-/// `not_assessed`→`not_assessed_count`). A `no_prior_finding` row means a
-/// query WAS issued for the entity and nothing was retrieved — only that
-/// searched set is "novel". Any UNRECOGNIZED or empty flag routes to
-/// `not_assessed_count` (never novel): an entity retrieval was not performed
-/// for is not a novelty claim. `non_replications` come from
+/// The returned rollup is built from `claims_matrix_csv` directly. Finding
+/// vectors preserve every evidence row, while every field whose name says
+/// "entity" is computed over distinct entity labels. A missing-value marker in
+/// the entity column falls back to `finding_id`, so multiple unresolved
+/// accessions cannot collapse into one pseudo-entity named `NA`.
+/// `no_prior_finding` contributes a distinct entity to `novel_count`; an
+/// unsearched row contributes a distinct entity to `not_assessed_count` and
+/// `n_entities_not_assessed`. Evidence-row totals remain separate, explicitly
+/// named fields. `non_replications` come from
 /// `contextualize_result_json`'s
 /// `excluded_nonsig`; `retrieved_sources` is the union of every matrix PMID
 /// (the `prior_pmid`/`pmid` column, whichever resolves) ∪ non-replication PMIDs
@@ -674,6 +777,13 @@ pub fn join_literature(
         non_replications: Vec::new(),
         novel_count: 0,
         not_assessed_count: 0,
+        n_entities_assessed: 0,
+        n_entities_not_assessed: 0,
+        n_evidence_rows_assessed: 0,
+        n_evidence_rows_total: 0,
+        n_search_axes_total: 0,
+        n_search_axes_naming_an_assessed_entity: 0,
+        count_definitions: BTreeMap::new(),
         retrieved_sources: Vec::new(),
     };
 
@@ -697,6 +807,7 @@ pub fn join_literature(
     let finding_idx = resolve_column(&headers, "finding_id");
     let entity_idx = resolve_column(&headers, "entity");
     let flag_idx = resolve_column(&headers, "concordance_flag");
+    let searched_idx = resolve_column(&headers, "searched");
     // The contextualize atom's PMID column name varies across runs
     // (`prior_pmid` / `pmid`); try the known variants in order. `retrieved_sources`
     // then fills from whichever resolves, even when `result.json` has no
@@ -726,29 +837,33 @@ pub fn join_literature(
     let mut matrix_rows: Vec<MatrixRow> = Vec::new();
     let mut by_key: BTreeMap<String, MatrixRow> = BTreeMap::new();
     for rec in reader.records().flatten() {
+        let finding_id = finding_idx
+            .and_then(|i| rec.get(i))
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let entity = matrix_entity_label(
+            entity_idx.and_then(|i| rec.get(i)).unwrap_or(""),
+            &finding_id,
+        );
         let row = MatrixRow {
-            entity: entity_idx
-                .and_then(|i| rec.get(i))
-                .unwrap_or("")
-                .to_string(),
+            entity: entity.clone(),
             concordance_flag: flag_idx.and_then(|i| rec.get(i)).unwrap_or("").to_string(),
             pmid: pmid_idx.and_then(|i| rec.get(i)).unwrap_or("").to_string(),
             effect: effect_idx
                 .and_then(|i| rec.get(i))
                 .and_then(|s| s.trim().parse::<f64>().ok()),
             evidence_quote: quote_idx.and_then(|i| rec.get(i)).unwrap_or("").to_string(),
+            searched: searched_idx
+                .and_then(|i| rec.get(i))
+                .unwrap_or("")
+                .to_string(),
         };
-        if let Some(fid) = finding_idx
-            .and_then(|i| rec.get(i))
-            .filter(|s| !s.is_empty())
-        {
-            by_key.insert(fid.to_string(), row.clone());
+        if !finding_id.is_empty() {
+            by_key.insert(finding_id, row.clone());
         }
-        if let Some(ent) = entity_idx
-            .and_then(|i| rec.get(i))
-            .filter(|s| !s.is_empty())
-        {
-            by_key.insert(ent.to_string(), row.clone());
+        if !entity.is_empty() {
+            by_key.insert(entity, row.clone());
         }
         matrix_rows.push(row);
     }
@@ -758,8 +873,10 @@ pub fn join_literature(
     let mut concordant = Vec::new();
     let mut discordant = Vec::new();
     let mut unverifiable = Vec::new();
-    let mut novel_count = 0u64;
-    let mut not_assessed_count = 0u64;
+    let mut novel_entities: BTreeSet<String> = BTreeSet::new();
+    let mut assessed_entities: BTreeSet<String> = BTreeSet::new();
+    let mut not_assessed_entities: BTreeSet<String> = BTreeSet::new();
+    let mut n_evidence_rows_assessed = 0u64;
     let mut sources: BTreeSet<String> = BTreeSet::new();
 
     for row in &matrix_rows {
@@ -772,19 +889,35 @@ pub fn join_literature(
             evidence_quote: row.evidence_quote.clone(),
             effect: row.effect,
         };
+        if matrix_row_was_searched(row) {
+            n_evidence_rows_assessed += 1;
+            if !row.entity.is_empty() {
+                assessed_entities.insert(row.entity.clone());
+            }
+        } else if !row.entity.is_empty() {
+            not_assessed_entities.insert(row.entity.clone());
+        }
         match row.concordance_flag.as_str() {
             "same_direction" => concordant.push(finding()),
             "opposite_direction" => discordant.push(finding()),
             "unverifiable" => unverifiable.push(finding()),
             // A query WAS issued for this entity and nothing was retrieved —
             // the only case that counts as novel.
-            "no_prior_finding" => novel_count += 1,
-            // Retrieval was not performed for this entity. Any unrecognized or
-            // empty flag routes here too — an unsearched entity is never novel.
-            "not_assessed" => not_assessed_count += 1,
-            _ => not_assessed_count += 1,
+            "no_prior_finding" => {
+                if !row.entity.is_empty() {
+                    novel_entities.insert(row.entity.clone());
+                }
+            }
+            _ => {}
         }
     }
+    for entity in &assessed_entities {
+        not_assessed_entities.remove(entity);
+    }
+    let novel_count = novel_entities.len() as u64;
+    let n_entities_assessed = assessed_entities.len() as u64;
+    let n_entities_not_assessed = not_assessed_entities.len() as u64;
+    let n_evidence_rows_total = matrix_rows.len() as u64;
 
     // Deterministic emission order (matrix file order is not a stable
     // contract): sort each list by entity then pmid.
@@ -828,6 +961,7 @@ pub fn join_literature(
     for pmid in read_cited_pmids(contextualize_result_json) {
         sources.insert(pmid);
     }
+    let metadata = read_literature_count_metadata(contextualize_result_json);
 
     LiteratureRollup {
         concordant,
@@ -835,7 +969,14 @@ pub fn join_literature(
         unverifiable,
         non_replications,
         novel_count,
-        not_assessed_count,
+        not_assessed_count: n_entities_not_assessed,
+        n_entities_assessed,
+        n_entities_not_assessed,
+        n_evidence_rows_assessed,
+        n_evidence_rows_total,
+        n_search_axes_total: metadata.n_search_axes_total,
+        n_search_axes_naming_an_assessed_entity: metadata.n_search_axes_naming_an_assessed_entity,
+        count_definitions: metadata.count_definitions,
         retrieved_sources: sources.into_iter().collect(),
     }
 }
@@ -1359,9 +1500,13 @@ mod tests {
         assert_eq!(rollup.unverifiable.len(), 1);
         assert_eq!(rollup.unverifiable[0].entity, "GUNV");
 
-        // novel_count = the single no_prior_finding matrix row (F4/GNOPRIOR);
+        // novel_count = the single no_prior_finding entity (F4/GNOPRIOR);
         // GNOMATCH's non-match does NOT contribute.
         assert_eq!(rollup.novel_count, 1);
+        assert_eq!(rollup.n_entities_assessed, 4);
+        assert_eq!(rollup.n_entities_not_assessed, 0);
+        assert_eq!(rollup.n_evidence_rows_assessed, 4);
+        assert_eq!(rollup.n_evidence_rows_total, 4);
 
         assert_eq!(rollup.non_replications.len(), 1);
         let nr = &rollup.non_replications[0];
@@ -1396,6 +1541,10 @@ mod tests {
         assert!(rollup.unverifiable.is_empty());
         assert!(rollup.non_replications.is_empty());
         assert_eq!(rollup.novel_count, 0);
+        assert_eq!(rollup.n_entities_assessed, 0);
+        assert_eq!(rollup.n_entities_not_assessed, 0);
+        assert_eq!(rollup.n_evidence_rows_assessed, 0);
+        assert_eq!(rollup.n_evidence_rows_total, 0);
         assert!(rollup.retrieved_sources.is_empty());
     }
 
@@ -1593,5 +1742,57 @@ mod tests {
         assert_eq!(entities[1].literature, LiteratureStatus::NotAssessed);
         assert_eq!(entities[2].literature, LiteratureStatus::NotAssessed);
         assert_eq!(entities[3].literature, LiteratureStatus::NotAssessed);
+    }
+
+    #[test]
+    fn join_literature_separates_entity_counts_from_evidence_row_counts() {
+        let tmp = tempfile::tempdir().unwrap();
+        let matrix_path = tmp.path().join("claims_evidence_matrix.csv");
+        std::fs::write(
+            &matrix_path,
+            "finding_id,entity,prior_pmid,concordance_flag,searched\n\
+             F1,GENE1,10,same_direction,true\n\
+             F1,GENE1,11,same_direction,true\n\
+             F2,GENE2,,not_assessed,false\n",
+        )
+        .unwrap();
+
+        let mut entities = Vec::new();
+        let rollup = super::join_literature(
+            &mut entities,
+            &matrix_path,
+            std::path::Path::new("/nonexistent/result.json"),
+        );
+
+        assert_eq!(rollup.concordant.len(), 2, "two evidence rows");
+        assert_eq!(rollup.n_entities_assessed, 1, "one searched entity");
+        assert_eq!(rollup.n_entities_not_assessed, 1);
+        assert_eq!(rollup.not_assessed_count, 1);
+        assert_eq!(rollup.n_evidence_rows_assessed, 2);
+        assert_eq!(rollup.n_evidence_rows_total, 3);
+    }
+
+    #[test]
+    fn join_literature_replaces_missing_entity_markers_with_finding_ids() {
+        let tmp = tempfile::tempdir().unwrap();
+        let matrix_path = tmp.path().join("claims_evidence_matrix.csv");
+        std::fs::write(
+            &matrix_path,
+            "finding_id,entity,concordance_flag,searched\n\
+             ENSG1,NA,not_assessed,false\n\
+             ENSG2,NA,not_assessed,false\n",
+        )
+        .unwrap();
+
+        let mut entities = Vec::new();
+        let rollup = super::join_literature(
+            &mut entities,
+            &matrix_path,
+            std::path::Path::new("/nonexistent/result.json"),
+        );
+
+        assert_eq!(rollup.n_entities_not_assessed, 2);
+        assert_eq!(rollup.not_assessed_count, 2);
+        assert_eq!(rollup.n_evidence_rows_total, 2);
     }
 }

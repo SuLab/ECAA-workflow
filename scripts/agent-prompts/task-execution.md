@@ -204,6 +204,20 @@ real runs and are cheap to avoid:
   prints both numbers, only the post-filter one belongs in the narrative
   and in any `*_tested` field; record it in your JSON result too so a
   downstream validator can check it against the table rowcount.
+- **Separate the pre-mapping gene count from the final enrichment ranking.**
+  The number of tested DE rows with a finite statistic is not necessarily the
+  number of unique gene labels supplied to enrichment. Identifier mapping and
+  duplicate-label resolution can reduce the vector. For pathway enrichment,
+  retain the exact final vector in the task's declared `ranked_genes.tsv`,
+  record its data-row count as `n_genes_ranked`, and use that count whenever
+  prose says genes were ranked, included in, or supplied to fgsea/GSEA. If you
+  also report the pre-mapping input count, name it as a separate population.
+- **Keep collection labels identical across retained outputs.** Values in
+  `result.json::gene_sets_collections` and
+  `pathway_summary.json::collections` must be the exact distinct values in
+  `pathway_results.tsv::collection`. A provider subcollection such as
+  `CP:KEGG_LEGACY` is provenance; record it in a separate source field or
+  describe it in prose instead of replacing a table label such as `KEGG`.
 - **Every "FDR" mention must name its family and threshold.** Gene-level
   differential-expression FDR (`padj`) and pathway-level enrichment FDR
   (e.g. `fgsea` padj) are different multiple-testing corrections over
@@ -395,8 +409,11 @@ defines them — never assume genes/log2FC.
   is `not_assessed`, NOT novel and NOT "no prior work" — never describe an
   unsearched entity as novel or as having no prior literature. State the
   `novel_count` and the `not_assessed_count` as SEPARATE headline buckets, say
-  how many entities were actually searched (novel + concordant + discordant +
-  unverifiable) versus not assessed, and list every `retrieved_sources` entry.
+  how many entities were actually searched from `n_entities_assessed` versus
+  not assessed from `n_entities_not_assessed`, and list every
+  `retrieved_sources` entry. The `concordant`, `discordant`, and `unverifiable`
+  arrays retain evidence rows; one entity can contribute more than one row, so
+  their lengths must not be added to obtain an entity count.
 - **Never cite a PMID that is not in `retrieved_sources` / the evidence
   matrix — not even as background context.** Every PMID that appears anywhere
   in the report (including "Note", "Background", or discussion asides) MUST be
@@ -409,17 +426,18 @@ defines them — never assume genes/log2FC.
   from recall.
 - **Account for every entity, and label each count's denominator.**
   When you summarize the `literature` rollup (or any categorized set), the
-  category counts must account for every row — `concordant` + `discordant` +
-  `unverifiable` + `novel_count` covers the SEARCHED set (entities a query was
-  issued for), and `not_assessed_count` covers the entities retrieval was NOT
-  performed for. Report `not_assessed_count` as its own headline bucket; never
-  fold it into `novel_count`, and never call the not-assessed entities novel
-  or "no prior finding". Never drop the `unverifiable` bucket from a headline
-  just because it is the least interesting, and never state a total that omits
-  it. When you report both an entity-level count and a source-level (PMID)
-  count, name each denominator explicitly ("4 of 8 searched entities" vs
-  "10 of 30 PMIDs", and separately "12 entities not assessed") so the counts
-  are never conflated.
+  entity counts must account for every distinct entity.
+  `n_entities_assessed` covers the SEARCHED set and
+  `n_entities_not_assessed` covers the entities for which retrieval was NOT
+  performed. `not_assessed_count` is a backward-compatible alias for
+  `n_entities_not_assessed`; the two must agree. Report the not-assessed count
+  as its own headline bucket; never fold it into `novel_count`, and never call
+  the not-assessed entities novel or "no prior finding". Never drop the
+  `unverifiable` bucket from a headline just because it is the least
+  interesting. When you report both an entity-level count and a source-level
+  or evidence-row count, name each denominator explicitly ("4 searched
+  entities" versus "10 evidence rows" or "30 PMIDs", with "12 entities not
+  assessed" separate) so the counts are never conflated.
 - **Use the literature count whose NAME matches the claim you are making.** The
   contextualization stage emits each count separately and defines each one:
   `n_entities_assessed` (distinct entities a query was issued for),

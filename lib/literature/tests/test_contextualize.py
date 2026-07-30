@@ -350,6 +350,26 @@ def test_summary_counts_match_the_matrix(workspace: dict) -> None:
     assert summary["concordance_counts"] == tally
 
 
+@pytest.mark.parametrize("marker", ["", "NA", "N/A", "NaN", "None", "null", "-", "."])
+def test_missing_symbol_markers_fall_back_to_the_finding_id(
+    workspace: dict, marker: str
+) -> None:
+    with workspace["results"].open("w", encoding="utf-8", newline="") as fh:
+        writer = csv.writer(fh, delimiter="\t", lineterminator="\n")
+        writer.writerow(["gene", "symbol", "log2FoldChange", "padj"])
+        writer.writerow(["ENSG_UNMAPPED", marker, "1.0", "0.01"])
+
+    table = read_result_table(
+        workspace["results"],
+        symbol_column="symbol",
+        effect_column="log2FoldChange",
+        significance_column="padj",
+    )
+
+    assert len(table.findings) == 1
+    assert table.findings[0].symbol == "ENSG_UNMAPPED"
+
+
 # --- self-describing assessment counts ------------------------------------
 #
 # The fixture is chosen so the entity count and the evidence-ROW count DIFFER:

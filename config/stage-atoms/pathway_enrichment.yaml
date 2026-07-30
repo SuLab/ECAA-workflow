@@ -17,6 +17,21 @@ description: |
   (org.Hs.eg.db / biomaRt) rather than from the literature join, so it is the
   INDEPENDENT source the entity-label ↔ accession consistency check needs in
   order to catch a citation attached to the wrong entity.
+
+  Retain the exact vector supplied to the enrichment implementation as
+  ranked_genes.tsv under this task's output directory. It is tab-delimited
+  with the columns `rank`, `gene_label`, `source_id`, and `ranking_score`, in
+  the order used by the method, with one row per unique gene label. Do not put
+  it under intermediates/, because exported packages omit that directory.
+  Record its data-row count as `n_genes_ranked` in result.json. When identifier
+  mapping or duplicate-label resolution reduces the input, describe the
+  pre-mapping input count and the final ranked count as separate populations.
+
+  Use the exact collection labels from pathway_results.tsv in
+  result.json::gene_sets_collections and pathway_summary.json::collections.
+  Record a provider-specific source name such as KEGG Legacy in a separate
+  source field or narrative; do not substitute that provider label for the
+  table's collection label.
 edam_operation: "operation:2436"
 edam_data: "data:0951"
 edam_format: "format:3475"
@@ -27,6 +42,7 @@ plot_stage_id: biological_interpretation
 expected_artifacts:
   - pathway_results.tsv
   - pathway_summary.json
+  - ranked_genes.tsv
   # The annotation-derived entity-label ↔ accession mapping this stage resolves
   # in order to rank gene sets. Expected rather than REQUIRED: no shipped
   # library writes it here, so making it required would fail-close every
@@ -35,6 +51,9 @@ expected_artifacts:
   - annotation/symbol_map.tsv
   - manifest.json
   - result.json
+required_artifacts:
+  - path: ranked_genes.tsv
+    min_size_bytes: 1
 required_figures:
   - top_enriched_terms
 attributes:

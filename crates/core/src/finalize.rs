@@ -1368,7 +1368,10 @@ fn synthesize_stage_count_claim(package_root: &Path, task_id: &str) -> Option<St
     let (total_key, total) = [
         "n_terms_tested",
         "n_gene_sets_tested",
+        "n_gene_sets_total",
         "n_pathways_tested",
+        "n_pathways_total",
+        "n_sets_total",
         "n_genes_tested",
         "n_features_tested",
         "n_tested",
@@ -1403,6 +1406,7 @@ fn synthesize_stage_count_claim(package_root: &Path, task_id: &str) -> Option<St
         ("adjusted_pvalue_threshold", "padj"),
         ("padj_threshold", "padj"),
         ("fdr_threshold", "FDR"),
+        ("pathway_fdr_threshold_applied", "FDR"),
         ("significance_threshold", "FDR"),
         ("alpha", "FDR"),
     ]
@@ -1430,6 +1434,9 @@ fn synthesize_stage_count_claim(package_root: &Path, task_id: &str) -> Option<St
             && key != "n_significant_total"
             && !key.starts_with("n_sig_")
             && !key.starts_with("n_significant_")
+            && !key.starts_with("n_sets_significant_")
+            && !key.starts_with("n_gene_sets_significant_")
+            && !key.starts_with("n_pathways_significant_")
         {
             return None;
         }
@@ -1922,6 +1929,42 @@ mod tests {
     }
 
     #[test]
+    fn synthesize_stage_count_claim_accepts_sets_total_schema() {
+        let tmp = tempdir().unwrap();
+        let dir = tmp.path().join("runtime/outputs/pathway_enrichment");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("result.json"),
+            r#"{
+                "task_id":"pathway_enrichment",
+                "n_sets_total":5,
+                "n_sets_significant_fdr025":3,
+                "pathway_fdr_threshold_applied":0.25
+            }"#,
+        )
+        .unwrap();
+        fs::write(
+            dir.join("pathway_results.tsv"),
+            "pathway\tNES\tpadj\nA\t1\t0.01\nB\t-1\t0.10\nC\t1\t0.24\nD\t1\t0.30\nE\t1\t0.90\n",
+        )
+        .unwrap();
+
+        let claim = synthesize_stage_count_claim(tmp.path(), "pathway_enrichment")
+            .expect("set-count pathway floor claim synthesized");
+        assert_eq!(claim.claim, "3 of 5 gene sets significant at FDR < 0.25");
+        assert_eq!(
+            claim.evidence.as_deref(),
+            Some("runtime/outputs/pathway_enrichment/pathway_results.tsv")
+        );
+        let verdicts =
+            verify_structured_claims(std::slice::from_ref(&claim), tmp.path(), &test_cfg());
+        assert!(matches!(
+            verdicts[0].status,
+            crate::claim_verifier::ClaimStatus::Verified
+        ));
+    }
+
+    #[test]
     fn synthesize_stage_count_claim_none_for_non_enrichment_stage() {
         // A stage with no n_sig_*/total summary fields yields no derived claim,
         // so ordinary stages are never touched by the floor mechanism.
@@ -1947,7 +1990,7 @@ mod tests {
                     "down": ["downregulated"]
                 },
                 "effectSizeColumns": ["log2FC"],
-                "entityColumns": ["gene", "term"],
+                "entityColumns": ["gene", "term", "pathway"],
                 "pvalueColumns": ["padj"]
             }
         });
