@@ -35,4 +35,11 @@ for child in pip conda conda-envs apt R-libs python helpers; do
     test -w "$CACHE/$child"
 done
 
+ECAA_AGENT_SCRATCH_DIR="$TEST_ROOT/external-scratch"
+ECAA_CHAT_SESSION_ID="11111111-2222-4333-8444-555555555555"
+test "$(resolve_task_scratch_dir "$PACKAGE" task)" \
+    = "$ECAA_AGENT_SCRATCH_DIR/$ECAA_CHAT_SESSION_ID/task"
+unset ECAA_AGENT_SCRATCH_DIR ECAA_CHAT_SESSION_ID
+test "$(resolve_task_scratch_dir "$PACKAGE" task)" = "$PACKAGE/runtime/scratch/task"
+
 printf '%s\n' "agent common helper tests passed"

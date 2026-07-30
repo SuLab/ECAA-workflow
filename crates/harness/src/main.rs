@@ -3458,6 +3458,7 @@ fn run_loop(
         // this baseline against the post-agent disk state.
         let dag_before_agent = dispatch_snapshot.clone();
         let mut had_agent_error = false;
+        let mut deferred_fail_fast_states: Vec<(String, TaskState)> = Vec::new();
         std::thread::scope(|scope| {
             let mut handles = Vec::new();
             for id in &picks {
@@ -3654,43 +3655,13 @@ fn run_loop(
                                     tid, o.agent_status,
                                 ),
                             };
-                            match read_dag(path) {
-                                Ok(mut dag) => {
-                                    let writable = dag
-                                        .tasks
-                                        .get(tid.as_str())
-                                        .map(|t| !t.state.is_terminal())
-                                        .unwrap_or(false);
-                                    if writable {
-                                        if let Some(t) = dag.tasks.get_mut(tid.as_str()) {
-                                            t.state = failed_state.clone();
-                                        }
-                                        if let Err(e) = write_dag(path, &dag) {
-                                            tracing::warn!(
-                                                target: "fail_fast",
-                                                task_id = %tid,
-                                                error = format!("{:#}", e),
-                                                "could not persist immediate Failed state"
-                                            );
-                                        }
-                                        if let Some(ref pc) = progress {
-                                            pc.set_task_state(&tid, &failed_state);
-                                        }
-                                        eprintln!(
-                                            "  {} Agent exited non-zero with no state.patch.json on {} — marking Failed",
-                                            "✗".red(),
-                                            tid.red(),
-                                        );
-                                    }
-                                }
-                                Err(e) => {
-                                    tracing::warn!(
-                                        target: "fail_fast",
-                                        task_id = %tid,
-                                        error = format!("{:#}", e),
-                                        "could not read DAG to mark task Failed"
-                                    );
-                                }
+                            let writable = dag_before_agent
+                                .tasks
+                                .get(tid.as_str())
+                                .map(|t| !t.state.is_terminal())
+                                .unwrap_or(false);
+                            if writable {
+                                deferred_fail_fast_states.push((tid.clone(), failed_state));
                             }
                         }
                     }
@@ -3728,6 +3699,29 @@ fn run_loop(
         if !picks.is_empty() {
             // fresh re-read: agent threads may have mutated WORKFLOW.json.
             restore_agent_workflow_edits(path, &dag_before_agent, read_dag(path), &picks)?;
+        }
+
+        // Persist harness-authored fail-fast states only after direct agent
+        // edits have been checked and restored. Writing Failed before the
+        // contract check makes the harness mistake its own state transition
+        // for an agent-authored WORKFLOW.json mutation and replace the useful
+        // executor error with a false contract-violation blocker.
+        if !deferred_fail_fast_states.is_empty() {
+            let mut dag = read_dag(path)?;
+            let applied = apply_deferred_fail_fast_states(&mut dag, deferred_fail_fast_states);
+            if !applied.is_empty() {
+                write_dag(path, &dag)?;
+                for (tid, failed_state) in applied {
+                    if let Some(ref pc) = progress {
+                        pc.set_task_state(&tid, &failed_state);
+                    }
+                    eprintln!(
+                        "  {} Agent exited non-zero with no state.patch.json on {} — marking Failed",
+                        "✗".red(),
+                        tid.red(),
+                    );
+                }
+            }
         }
 
         // CV-6 — backfill agent-code.json `executed_code` for tasks whose
@@ -6046,6 +6040,27 @@ fn write_dag(dir: &Path, dag: &DAG) -> Result<()> {
 
 const WORKFLOW_METADATA_EDIT: &str = "<workflow-metadata>";
 
+fn apply_deferred_fail_fast_states(
+    dag: &mut DAG,
+    deferred: Vec<(String, TaskState)>,
+) -> Vec<(String, TaskState)> {
+    let mut applied = Vec::new();
+    for (task_id, failed_state) in deferred {
+        let writable = dag
+            .tasks
+            .get(task_id.as_str())
+            .map(|task| !task.state.is_terminal())
+            .unwrap_or(false);
+        if writable {
+            if let Some(task) = dag.tasks.get_mut(task_id.as_str()) {
+                task.state = failed_state.clone();
+            }
+            applied.push((task_id, failed_state));
+        }
+    }
+    applied
+}
+
 fn direct_workflow_edit_ids(before: &DAG, after: &DAG) -> Vec<String> {
     let mut ids = std::collections::BTreeSet::new();
     if before.version != after.version
@@ -7787,6 +7802,36 @@ mod write_dag_tests {
             }
             other => panic!("expected direct edit to be blocked, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn fail_fast_state_is_applied_after_contract_restore() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        let baseline = running_fixture();
+        write_dag(pkg, &baseline).unwrap();
+
+        restore_agent_workflow_edits(
+            pkg,
+            &baseline,
+            Ok(baseline.clone()),
+            &["compute".to_string()],
+        )
+        .unwrap();
+
+        let mut restored = read_dag(pkg).unwrap();
+        let failed_state = TaskState::Failed {
+            reason: "[agent_exit_nonzero] task=compute exit=1 no state.patch.json written".into(),
+        };
+        let applied = apply_deferred_fail_fast_states(
+            &mut restored,
+            vec![("compute".to_string(), failed_state.clone())],
+        );
+        assert_eq!(applied, vec![("compute".to_string(), failed_state)]);
+        assert!(matches!(
+            restored.tasks.get("compute").unwrap().state,
+            TaskState::Failed { .. }
+        ));
     }
 
     /// Server-side state changes on non-picked tasks (e.g. /unblock

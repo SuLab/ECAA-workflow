@@ -206,6 +206,25 @@ ensure_writable_session_cache() {
     done
 }
 
+# External scratch roots are shared across packages and chat sessions. Add the
+# validated session id when one is available so common task names such as
+# data_acquisition cannot collide with another run's ownership or contents.
+# Package-local scratch is already isolated by the package directory.
+resolve_task_scratch_dir() {
+    local package="$1"
+    local task_id="$2"
+
+    if [ -n "${ECAA_AGENT_SCRATCH_DIR:-}" ]; then
+        if [ -n "${ECAA_CHAT_SESSION_ID:-}" ]; then
+            printf '%s/%s/%s' "$ECAA_AGENT_SCRATCH_DIR" "$ECAA_CHAT_SESSION_ID" "$task_id"
+        else
+            printf '%s/%s' "$ECAA_AGENT_SCRATCH_DIR" "$task_id"
+        fi
+    else
+        printf '%s/runtime/scratch/%s' "$package" "$task_id"
+    fi
+}
+
 # Load the shared task-execution prompt body and expand runtime placeholders
 # to the caller's current values. Used by all three agent wrappers (local /
 # aws / slurm) so the patch-merge envelope, blocker-kind vocabulary,

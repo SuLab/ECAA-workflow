@@ -118,9 +118,11 @@ fi
 mkdir -p "$AGENT_HOME_DIR" 2>/dev/null || true
 SCRATCH_ARGS=()
 if [ -n "${ECAA_TASK_ID:-}" ]; then
-    SCRATCH_BASE="${ECAA_AGENT_SCRATCH_DIR:-$PACKAGE/runtime/scratch}"
-    SCRATCH_DIR="$SCRATCH_BASE/$ECAA_TASK_ID"
-    mkdir -p "$SCRATCH_DIR" 2>/dev/null || true
+    SCRATCH_DIR="$(resolve_task_scratch_dir "$PACKAGE" "$ECAA_TASK_ID")"
+    if ! mkdir -p "$SCRATCH_DIR" || [ ! -w "$SCRATCH_DIR" ]; then
+        echo "FATAL: task scratch directory is not writable: $SCRATCH_DIR" >&2
+        exit 1
+    fi
     SCRATCH_ARGS+=(-v "$SCRATCH_DIR":"$SCRATCH_DIR":rw -e "ECAA_TASK_SCRATCH_DIR=$SCRATCH_DIR")
 fi
 
