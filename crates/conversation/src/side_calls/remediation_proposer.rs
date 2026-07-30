@@ -214,6 +214,7 @@ fn parse_suggestions(raw: &str) -> Result<Vec<RemediationSuggestion>> {
     if let Some(arr) = val.as_array_mut() {
         for el in arr.iter_mut() {
             renest_flat_kind(el);
+            fill_safe_operator_defaults(el);
         }
     }
     serde_json::from_value(val).context("deserializing remediation suggestions")
@@ -254,6 +255,48 @@ fn renest_flat_kind(v: &mut serde_json::Value) {
         }
     }
     obj.insert("kind".to_string(), serde_json::Value::Object(kind_obj));
+}
+
+/// Preserve an otherwise useful `rebuild_environment` suggestion when the
+/// model omits its two display-only variant fields.
+///
+/// This repair is deliberately narrow. `rebuild_environment` is never
+/// auto-applied, and we only fill defaults when the suggestion is explicitly
+/// bound to `operator_action` and has a rationale for the operator to inspect.
+/// Missing fields on executable remediation kinds must still fail the typed
+/// parse rather than manufacturing an action.
+fn fill_safe_operator_defaults(v: &mut serde_json::Value) {
+    const GENERIC_CAPABILITY: &str = "executor capability described in rationale";
+    const GENERIC_OPERATOR_HINT: &str =
+        "Restore the required executor capability described in the rationale, then rerun the task.";
+
+    let Some(obj) = v.as_object_mut() else {
+        return;
+    };
+    let is_operator_action =
+        obj.get("tool_binding").and_then(serde_json::Value::as_str) == Some("operator_action");
+    let has_rationale = obj
+        .get("rationale")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|rationale| !rationale.trim().is_empty());
+    if !is_operator_action || !has_rationale {
+        return;
+    }
+
+    let Some(kind) = obj
+        .get_mut("kind")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return;
+    };
+    if kind.get("kind").and_then(serde_json::Value::as_str) != Some("rebuild_environment") {
+        return;
+    }
+
+    kind.entry("capability".to_string())
+        .or_insert_with(|| serde_json::Value::String(GENERIC_CAPABILITY.to_string()));
+    kind.entry("operator_command_hint".to_string())
+        .or_insert_with(|| serde_json::Value::String(GENERIC_OPERATOR_HINT.to_string()));
 }
 
 fn strip_fence(s: &str) -> &str {
@@ -380,6 +423,56 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(suggestions.len(), 1);
+    }
+
+    #[test]
+    fn repairs_display_fields_for_operator_only_environment_rebuild() {
+        let raw = r#"[
+            {
+                "id": "rs-docker-perms-001",
+                "kind": "rebuild_environment",
+                "rationale": "The executor cannot access the Docker daemon socket.",
+                "confidence": "high",
+                "evidence": ["stdout_tail", "exit_code", "executor_context"],
+                "tool_binding": "operator_action"
+            }
+        ]"#;
+
+        let suggestions = parse_suggestions(raw)
+            .expect("an operator-only environment repair must survive omitted display fields");
+        assert_eq!(suggestions.len(), 1);
+        let RemediationSuggestion {
+            kind:
+                ecaa_workflow_core::remediation::RemediationKind::RebuildEnvironment {
+                    capability,
+                    operator_command_hint,
+                },
+            ..
+        } = &suggestions[0]
+        else {
+            panic!("expected rebuild_environment suggestion");
+        };
+        assert_eq!(capability, "executor capability described in rationale");
+        assert!(operator_command_hint.contains("Restore the required executor capability"));
+    }
+
+    #[test]
+    fn does_not_repair_missing_fields_for_an_executable_binding() {
+        let raw = r#"[
+            {
+                "id": "rs-invalid-001",
+                "kind": "rebuild_environment",
+                "rationale": "The executor cannot access the Docker daemon socket.",
+                "confidence": "high",
+                "evidence": ["stdout_tail"],
+                "tool_binding": "rerun_task"
+            }
+        ]"#;
+
+        assert!(
+            parse_suggestions(raw).is_err(),
+            "defaults must not make an executable malformed suggestion valid"
+        );
     }
 
     #[tokio::test]

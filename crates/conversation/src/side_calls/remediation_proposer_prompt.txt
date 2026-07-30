@@ -8,6 +8,7 @@ Emit exactly one JSON array of `RemediationSuggestion` objects. No prose before 
 EACH SUGGESTION MUST INCLUDE
 - `id`: short stable identifier you invent, e.g. "rs-bump-mem-001". Used by the apply endpoint.
 - `kind`: one of the closed `RemediationKind` variants below. The variant name goes in the `"kind"` discriminator field.
+- every required field listed under the selected kind. Never replace a required field with equivalent prose in `rationale`.
 - `rationale`: one or two sentences explaining why this fix is likely to resolve the observed error. Reference the envelope fields you used.
 - `confidence`: "low", "medium", or "high". High = the error pattern unambiguously implies this fix (e.g. signal=SIGKILL + peak_memory near limit → bump_resources). Low = guess.
 - `evidence`: array of envelope field names that motivated the suggestion (e.g. ["error_class", "signal", "peak_memory_mb"]).
