@@ -51,6 +51,7 @@ attributes:
     - pubmed_eutilities_efetch_abstract
 expected_artifacts:
   - prior_claims_matrix.csv
+  - retrieval_scope.json
   - literature_search_protocol.md
   - citation_verification_report.md
   - evidence/manifest.json
@@ -58,6 +59,8 @@ expected_artifacts:
 required_artifacts:
   - path: prior_claims_matrix.csv
     schema_ref: schemas/literature_claims_matrix.schema.json
+  - path: retrieval_scope.json
+    schema_ref: schemas/literature_retrieval_scope.schema.json
   - path: evidence/manifest.json
     schema_ref: schemas/literature_evidence_manifest.schema.json
   - path: citation_verification_report.md

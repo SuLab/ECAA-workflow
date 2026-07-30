@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ecaa.dev/schemas/literature-retrieval-scope.schema.json",
+  "title": "Literature retrieval scope",
+  "description": "Every query axis attempted by the bundled literature helper, including axes that returned no evidence rows.",
+  "type": "object",
+  "required": ["schema_version", "axes"],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "axes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["axis", "query", "status"],
+        "properties": {
+          "axis": {
+            "type": "string",
+            "minLength": 1
+          },
+          "query": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "enum": ["attempted", "completed"]
+          },
+          "entries_written": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "rows_written": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "fallback_used": {
+            "type": "boolean"
+          },
+          "truncated_at_storage_cap": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

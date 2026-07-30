@@ -19,6 +19,7 @@ description: |
       --significance-column <adjusted-p column> \
       --threshold    0.05 \
       --prior-claims runtime/outputs/review_prior_work/prior_claims_matrix.csv \
+      --retrieval-scope runtime/outputs/review_prior_work/retrieval_scope.json \
       --evidence-manifest runtime/outputs/review_prior_work/evidence/manifest.json \
       --out-dir      runtime/outputs/contextualize_findings_with_literature \
       --entity-kind  gene|region|variant \
@@ -181,6 +182,9 @@ claim_boundary: |
   distinct and MUST NOT be conflated: absence of retrieved evidence for an
   entity you never searched is not a "no prior finding" result, and downstream
   reporting treats only the searched no_prior_finding set as candidate-novel.
+  Read the searched boundary from upstream retrieval_scope.json, which retains
+  zero-result axes. Do not reconstruct it solely from prior_claims_matrix.csv:
+  a query that found no usable source emits no claims-matrix row.
   Do NOT introduce composite or narrative claims. Do NOT generate paragraphs
   that the upstream atom did not also generate row-wise.
 
@@ -193,7 +197,8 @@ claim_boundary: |
   re-verified as verbatim substrings at a recorded offset; prior directions
   are derived from the quoted sentence and analysis directions from the sign
   of the effect column; and the searched / unsearched boundary is taken from
-  the prior-claims query axes (or an explicit --searched-entities list),
+  retrieval_scope.json plus the prior-claims query axes (or an explicit
+  --searched-entities list),
   never guessed. A run that embeds a PMID, a quote, a direction label, or a
   sha256 digest as a literal in a task script is non-compliant even if its
   output happens to validate.

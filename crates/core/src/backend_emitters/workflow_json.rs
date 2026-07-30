@@ -521,6 +521,13 @@ fn lower_task(node: &TaskNode, depends_on: Vec<TaskId>) -> Result<Task, EmitErro
     if let Some(ea) = node.attributes.get("expected_artifacts") {
         spec_map.insert("expected_artifacts".into(), ea.clone());
     }
+    // Typed execution parameters, including their defaults, must travel with
+    // the emitted task. The registry is not available inside a re-executable
+    // package; dropping this block left the executor to invent a threshold
+    // even though the source atom declared one.
+    if let Some(parameters) = node.attributes.get("parameters") {
+        spec_map.insert("parameters".into(), parameters.clone());
+    }
     // Report-contract obligations: which report sections + supplementary
     // tables this atom's narrative must cover. Mirrors `required_figures` —
     // an allowlisted pass-through so the reporting/final_reporting agent's
@@ -1230,6 +1237,29 @@ mod tests {
             attrs.get("measurement_script").and_then(|v| v.as_str()),
             Some("measure_af_spectrum.py"),
             "measurement_script must reach spec.attributes so the AF-spectrum runbook gate fires",
+        );
+    }
+
+    #[test]
+    fn lowering_passes_typed_parameters_into_task_spec() {
+        let mut node = quantify_node();
+        let parameters = serde_json::json!([
+            {
+                "name": "pvalue_threshold",
+                "type": "number",
+                "required": false,
+                "default": 0.25,
+                "description": "Adjusted-p-value reporting cutoff."
+            }
+        ]);
+        node.attributes
+            .insert("parameters".into(), parameters.clone());
+
+        let task = lower_task(&node, vec![]).expect("lowering a parameterized node succeeds");
+        assert_eq!(
+            task.spec.as_ref().and_then(|s| s.get("parameters")),
+            Some(&parameters),
+            "typed parameter defaults must remain available inside the emitted package"
         );
     }
 

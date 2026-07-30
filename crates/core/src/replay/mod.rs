@@ -616,20 +616,21 @@ fn reconcile_failed_task_buckets(
         }
     }
 
-    // Surface table-less run failures. A stage that ran `ok:false` but produced
-    // no comparable `.tsv/.csv` artifact has no `per_artifact` row above, so its
-    // failure would be invisible to the verdict (the reporting / validate_* /
-    // discover_* stages emit `.md`/`.json`, not tables). Append a synthetic row
-    // for each such task_id, in deterministic (sorted) order, so a silent run
-    // failure cannot masquerade as a clean pass.
+    // Surface failures from tasks with no comparable artifact. A stage that ran
+    // `ok:false` but produced no comparable `.tsv`, `.csv`, or generated
+    // `*_summary.json` artifact has no `per_artifact` row above, so its failure
+    // would be invisible to the verdict (reporting and some validate/discover
+    // stages emit only Markdown, figures, or administrative JSON). Append a
+    // synthetic row for each such task_id, in deterministic (sorted) order, so
+    // a silent run failure cannot masquerade as a clean pass.
     //
-    // Bucket = `Unavailable`, NOT `Failed`: a table-less stage that errored
-    // offline produced NO comparable output to diverge against — it is
+    // Bucket = `Unavailable`, NOT `Failed`: a stage with no comparable
+    // artifact that errored offline produced NO output to diverge against — it is
     // "could not re-execute to completion offline", the same non-divergent class
     // as a stage skipped for network egress, not a byte/semantic DIVERGENCE.
-    // `Failed` is reserved for a table that re-executed and diverged beyond the
-    // semantic band with no acknowledgement (it would demand an F-Blocker and
-    // block a clean equivalence pass, misrepresenting a stage that simply is not
+    // `Failed` is reserved for a table or generated summary that re-executed and
+    // diverged with no acknowledgement (it would demand an F-Blocker and block
+    // a clean equivalence pass, misrepresenting a stage that simply is not
     // offline-reproducible — e.g. `discover_*`/`validate_*` audit/selection
     // stages that consume the network-derived literature outputs). The full
     // `ok:false` + stderr tail is recorded in the reason, so nothing is hidden.
@@ -638,14 +639,15 @@ fn reconcile_failed_task_buckets(
     // network-derived upstream input is legitimately unavailable offline"
     // (honestly `Unavailable`) from "failed despite being hermetic with every
     // input present" (a genuine reproduction failure). A divergence detectable
-    // ONLY via a non-table assertion (`.json`/`.md`/figure) inside such a stage
-    // is therefore surfaced as `Unavailable`/`Partial`, not `Failed`/`Fail`. A
-    // divergence in any actual `.tsv`/`.csv` result table is unaffected — it is
-    // caught independently by that table's own comparator row (and a table-BEARING
-    // `ok:false` task is upgraded to `Failed` by the first loop above, never
-    // reaching this path). Erring toward `Unavailable` keeps the verdict honest
-    // for a package whose analytical result tables reproduce while its
-    // literature-dependent audit stages cannot run offline.
+    // ONLY via Markdown, a figure, or an administrative JSON assertion inside
+    // such a stage is therefore surfaced as `Unavailable`/`Partial`, not
+    // `Failed`/`Fail`. Divergence in an actual `.tsv`/`.csv` result table or a
+    // generated `*_summary.json` is caught independently by that artifact's own
+    // comparator row (and a comparable-artifact-bearing `ok:false` task is
+    // upgraded to `Failed` by the first loop above, never reaching this path).
+    // Erring toward `Unavailable` keeps the verdict honest for a package whose
+    // analytical outputs reproduce while its literature-dependent audit stages
+    // cannot run offline.
     let represented: BTreeSet<&str> = report
         .per_artifact
         .iter()
@@ -665,7 +667,7 @@ fn reconcile_failed_task_buckets(
                 bucket: ReexecutionBucket::Unavailable,
                 reason: Some(format!(
                     "task '{task_id}' ran and exited ok:false but produced no comparable \
-                     table; not offline-reproducible (recorded Unavailable, non-divergent) so \
+                     artifact; not offline-reproducible (recorded Unavailable, non-divergent) so \
                      the run failure is surfaced without blocking equivalence. stderr tail: {}",
                     stderr_tail(stderr)
                 )),

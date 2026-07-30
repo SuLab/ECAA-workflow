@@ -2,8 +2,9 @@ id: final_reporting
 version: "1.0.0"
 role: operation
 description: |
-  Assemble the project-level final report: cross-stage narrative, dashboard
-  index, key figures, methods + caveats. Final node before SME review.
+  Preserve the validated reporting narrative verbatim and assemble the
+  project-level dashboard index and key figures around it. Final node before
+  SME review.
 edam_operation: "operation:0337"
 edam_data: "data:2048"
 edam_format: "format:2331"
@@ -23,25 +24,20 @@ resource_profile:
   gpu: false
   runtime_class: minutes
 claim_boundary: |
-  Findings-first: lead with the validated result rows and the
-  biological_interpretation narrative (when present), then methods and
-  caveats. Restate findings exactly as produced by upstream validated
-  tasks — every claim traces to an emitted result row or to an
-  interpretation statement that itself cites one. Do not introduce
-  claims that aren't backed by an emitted artifact; do not soften or
-  strengthen effect-size language; do not recommend methods the
-  pipeline did not run.
+  Findings-first preservation: `runtime/outputs/reporting/report.md` is the validated scientific
+  narrative. Copy its bytes unchanged as one contiguous block in
+  `final_report.md`; do not summarize, edit, reorder, or regenerate that
+  block. Project-level navigation or dashboard material may appear before or
+  after it, but must not introduce a scientific claim. This preservation rule
+  keeps every report claim attached to the exact upstream text that was
+  validated against its emitted result row or cited interpretation.
 
   This report is the read-and-evaluated deliverable, so carry the upstream
-  substance FORWARD into it rather than collapsing to a thin digest: the
-  findings, their interpretation, and the data/source grounding the
-  upstream tasks already recorded must appear in the report itself, not be
-  left behind in per-task outputs or the trace. This is faithful
-  re-emission under the trace-to-artifact rule above — NOT license to pad
-  with generic prose, and NOT license to add any finding, theme, value, or
-  citation that no upstream artifact produced (an unsupported addition is a
-  fabrication, worse than an omission). Generic reporting discipline only;
-  do not tailor content to any external grading rubric.
+  substance forward rather than collapsing it to a thin digest. Verbatim
+  inclusion is faithful re-emission under the trace-to-artifact rule, not
+  license to pad with generic prose or add any finding, theme, value, or
+  citation that no upstream artifact produced. Generic reporting discipline
+  only; do not tailor content to an external grading rubric.
 interpretation_exempt_from_word_budget: true
 required_report_sections:
   - provenance_method_rationale

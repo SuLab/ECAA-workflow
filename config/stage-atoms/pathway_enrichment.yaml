@@ -32,6 +32,12 @@ description: |
   Record a provider-specific source name such as KEGG Legacy in a separate
   source field or narrative; do not substitute that provider label for the
   table's collection label.
+
+  Record only parameters the selected implementation actually consumed. A
+  declared permutation count that is never passed to the enrichment call is
+  false provenance and must be omitted. Bind every reported cutoff, gene-set
+  size bound, seed, and algorithm option to the same run-time variable supplied
+  to the implementation.
 edam_operation: "operation:2436"
 edam_data: "data:0951"
 edam_format: "format:3475"
@@ -76,8 +82,8 @@ parameters:
   - name: pvalue_threshold
     type: number
     required: false
-    default: 0.05
-    description: "Significance cutoff for reporting an enriched term/pathway."
+    default: 0.25
+    description: "Adjusted-p-value cutoff for reporting a preranked GSEA term/pathway."
   - name: min_gene_set_size
     type: integer
     required: false

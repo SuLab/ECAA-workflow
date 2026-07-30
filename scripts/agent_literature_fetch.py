@@ -29,6 +29,7 @@ Pure standard library: urllib, hashlib, json, csv, re. No pip installs.
 from __future__ import annotations
 
 import csv
+import fcntl
 import hashlib
 import json
 import os
@@ -50,6 +51,7 @@ MANIFEST_SCHEMA_VERSION = 2
 EXTRACTED_TEXT_NORMALIZATION = "collapse_whitespace_lowercase_v1"
 USER_AGENT = "ecaa-workflow-literature-fetch/1 (+https://github.com/SuLab/ECAA-workflow)"
 HTTP_TIMEOUT_SECS = 30
+RETRIEVAL_SCOPE_SCHEMA_VERSION = 1
 
 # NCBI E-utilities rate limits: 3 req/s per IP without an API key, 10 req/s
 # with ECAA_LIT_NCBI_API_KEY. The helper bursts esearch + N efetch per axis, so
@@ -106,6 +108,76 @@ class HostNotAllowedError(RuntimeError):
 
 class EvidenceCapExceeded(RuntimeError):
     """Raised internally when the per-task evidence size cap is hit."""
+
+
+def _record_retrieval_axis(
+    out: Path,
+    axis: str,
+    query: str,
+    *,
+    status: str,
+    **details: Any,
+) -> None:
+    """Persist every attempted query axis, including zero-result searches.
+
+    A claims matrix contains no row for an axis that returned no evidence, so
+    reconstructing retrieval scope from that matrix silently drops precisely
+    the searches needed to distinguish "not found" from "not searched".
+    Record the scope at the helper boundary, before network access. The lock
+    keeps concurrent per-axis helper processes from losing one another's
+    updates, while the sorted payload is deterministic.
+    """
+    out.mkdir(parents=True, exist_ok=True)
+    scope_path = out / "retrieval_scope.json"
+    lock_key = hashlib.sha256(str(out.resolve()).encode("utf-8")).hexdigest()
+    # Keep synchronization bookkeeping outside the scientific output tree so
+    # the package does not retain an unexplained lock file as an output.
+    lock_path = Path("/tmp") / f"ecaa-literature-scope-{lock_key}.lock"
+    with lock_path.open("a+", encoding="utf-8") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        payload: Dict[str, Any] = {
+            "schema_version": RETRIEVAL_SCOPE_SCHEMA_VERSION,
+            "axes": [],
+        }
+        if scope_path.is_file():
+            try:
+                loaded = json.loads(scope_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                raise RuntimeError(
+                    f"cannot update malformed retrieval scope {scope_path}: {exc}"
+                ) from exc
+            if not isinstance(loaded, dict) or not isinstance(loaded.get("axes"), list):
+                raise RuntimeError(
+                    f"cannot update malformed retrieval scope {scope_path}: "
+                    "expected an object with an axes array"
+                )
+            payload = loaded
+
+        by_axis: Dict[str, Dict[str, Any]] = {}
+        for item in payload.get("axes", []):
+            if not isinstance(item, dict):
+                continue
+            recorded = str(item.get("axis") or "").strip()
+            if recorded:
+                by_axis[recorded] = dict(item)
+
+        entry = by_axis.get(axis, {"axis": axis, "query": query})
+        entry["query"] = query
+        entry["status"] = status
+        entry.update(details)
+        by_axis[axis] = entry
+
+        stable = {
+            "schema_version": RETRIEVAL_SCOPE_SCHEMA_VERSION,
+            "axes": [by_axis[name] for name in sorted(by_axis)],
+        }
+        tmp_path = out / f".retrieval_scope.json.tmp-{os.getpid()}"
+        tmp_path.write_text(
+            json.dumps(stable, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(tmp_path, scope_path)
+        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
 # --------------------------------------------------------------------------
@@ -582,6 +654,7 @@ def fetch_for_axis(
     ev_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = ev_dir / "manifest.json"
     csv_path = out / "method_landscape.csv"
+    _record_retrieval_axis(out, axis, query, status="attempted")
 
     routes = routes or {}
     curated = list(curated or [])
@@ -779,6 +852,16 @@ def fetch_for_axis(
         "fallback_used": fallback_used,
         "truncated_at_storage_cap": truncated,
     }
+    _record_retrieval_axis(
+        out,
+        axis,
+        query,
+        status="completed",
+        entries_written=n_entries,
+        rows_written=len(rows_out),
+        fallback_used=fallback_used,
+        truncated_at_storage_cap=truncated,
+    )
     if fallback_used:
         # Soft-warning: this axis fell back to curated_baseline rows only (no
         # live source resolved/verified). The Phase-13 validators SKIP

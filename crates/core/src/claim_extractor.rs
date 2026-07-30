@@ -405,6 +405,13 @@ static SENTENCE_SPLITTER_RE: LazyLock<Regex> = LazyLock::new(|| {
 static TABLE_REF_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)Table\s+S?[0-9A-Za-z_\-]+").expect("static regex"));
 
+/// A markdown bibliography/inventory bullet whose bold lead is only one or
+/// more numeric source locators. These rows describe what the retrieval stage
+/// fetched; author initials and query-axis labels in them are metadata, not
+/// claims about the analysis result.
+static BIBLIOGRAPHIC_INVENTORY_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\s*[-*+]\s+\*\*[\d,\s-]+\*\*\s*[-:]\s+").expect("static regex"));
+
 /// Uppercased tokens the broad `[A-Z][A-Z0-9]+` gene pattern captures but which
 /// are never gene symbols. Dropped alongside the policy's
 /// `entity_exclude_patterns` so prose abbreviations, format placeholders, and
@@ -1261,6 +1268,9 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
         if trimmed.starts_with('|') || trimmed.matches('|').count() >= 2 {
             continue;
         }
+        if BIBLIOGRAPHIC_INVENTORY_RE.is_match(trimmed) {
+            continue;
+        }
 
         // Phase C — derived-statistic claims (quantile-of-column, composite-key
         // enrichment cell) are SENTENCE-level: their subject is a column
@@ -1339,6 +1349,7 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
                 if excluded
                     || is_embedded_in_alnum_token(trimmed, m.start(), m.end())
                     || is_namespace_component(trimmed, m.start(), m.end())
+                    || is_contextual_non_entity(trimmed, m.start(), m.end(), token)
                     || table_ref_spans
                         .iter()
                         .any(|(start, end)| *start <= m.start() && m.end() <= *end)
@@ -1608,10 +1619,11 @@ pub fn extract_markdown_table_claims(text: &str, cfg: &ExtractorConfig) -> Vec<C
             if cells.len() != headers.len() {
                 break;
             }
-            // Re-scan the raw row text for key=value numerics too, in case
-            // the agent wrote "log2FC=…" inside a cell; `None` source_table
-            // because markdown rows carry no "Table S1" citation (the
-            // verifier's discovery step resolves the backing file).
+            // Preserve the raw row as the auditable excerpt. Numeric parsing is
+            // restricted inside `claim_from_table_row` to cells whose headers
+            // resolve to measurement roles; `None` source_table because
+            // markdown rows carry no "Table S1" citation (the verifier's
+            // discovery step resolves the backing file).
             if let Some(claim) = claim_from_table_row(
                 &cells,
                 &roles,
@@ -1693,6 +1705,10 @@ const ENTITY_COLUMN_VARIANTS: &[&str] = &[
 /// `beta` trail as last resorts. A table carrying BOTH `ES` and `NES` must bind
 /// `NES`, whichever of the two the file happens to print first.
 const EFFECT_COLUMN_VARIANTS: &[&str] = &[
+    "this run log2fc",
+    "here log2fc",
+    "analysis log2fc",
+    "observed log2fc",
     "log2fc",
     "log2 fc",
     "logfc",
@@ -1879,8 +1895,9 @@ enum TableRowOrigin {
 
 /// Build one `NumericTableLookup` [`Claim`] from a single result-table row,
 /// or `None` if the row's entity cell does not resolve to an entity or the row
-/// carries no checkable numeric slot. `row_text` is the raw line, re-scanned
-/// for in-cell `log2FC=…` key/value numerics.
+/// carries no checkable numeric slot. `row_text` is retained as the claim
+/// excerpt; key/value numerics are scanned only inside resolved measurement
+/// cells.
 /// `source_table` is the file basename for a delimited file (so the verifier
 /// reads the cited table directly) or `None` for a markdown row (so the
 /// verifier's discovery step resolves the backing file). Applies the same
@@ -1925,17 +1942,30 @@ fn claim_from_table_row(
             Direction::Down
         }
     });
-    // Re-scan the row text for key=value numerics too, in case the agent
-    // wrote "log2FC=…" inside a cell.
+    // Re-scan ONLY the cell whose header resolved to the measurement role for
+    // key=value numerics. Scanning the entire row lets a p-value quoted in an
+    // unrelated evidence/context cell leak into the analysis claim (for
+    // example, a prior-literature quote saying `p=6.9e-53` in a table whose
+    // actual analysis columns are only `Entity` and `Here log2FC`).
     let effect_size = effect_size.or_else(|| {
-        scan_effect_size_positions(row_text, regex_cache)
-            .first()
-            .map(|(_, v)| *v)
+        roles
+            .effect_idx
+            .and_then(|index| cells.get(index))
+            .and_then(|cell| {
+                scan_effect_size_positions(cell, regex_cache)
+                    .first()
+                    .map(|(_, value)| *value)
+            })
     });
     let pvalue = pvalue.or_else(|| {
-        scan_pvalue_positions(row_text, regex_cache)
-            .first()
-            .map(|(_, v, _)| *v)
+        roles
+            .pvalue_idx
+            .and_then(|index| cells.get(index))
+            .and_then(|cell| {
+                scan_pvalue_positions(cell, regex_cache)
+                    .first()
+                    .map(|(_, value, _)| *value)
+            })
     });
     // C2 all-None guard: a row whose entity matched but that has no
     // direction, effect size, or p-value carries nothing for the verifier
@@ -2044,7 +2074,25 @@ fn split_md_row(line: &str) -> Vec<String> {
         .unwrap_or_else(|| trimmed.strip_prefix('|').unwrap_or(trimmed));
     inner
         .split('|')
-        .map(|c| c.trim().trim_matches('`').trim().to_string())
+        .map(|c| {
+            let cell = c.trim().trim_matches('`').trim();
+            // CommonMark permits a backslash before ASCII punctuation. Agents
+            // routinely escape underscores in identifiers such as
+            // `HALLMARK\_ADIPOGENESIS`; the source table contains the literal
+            // identifier without that presentation-only backslash. Remove only
+            // punctuation escapes, preserving a backslash before letters or
+            // digits as data.
+            let mut unescaped = String::with_capacity(cell.len());
+            let mut chars = cell.chars().peekable();
+            while let Some(ch) = chars.next() {
+                if ch == '\\' && chars.peek().is_some_and(|next| next.is_ascii_punctuation()) {
+                    unescaped.push(chars.next().expect("peeked punctuation is present"));
+                } else {
+                    unescaped.push(ch);
+                }
+            }
+            unescaped
+        })
         .collect()
 }
 
@@ -2181,6 +2229,51 @@ fn is_embedded_in_alnum_token(sentence: &str, start: usize, end: usize) -> bool 
 fn is_namespace_component(sentence: &str, start: usize, end: usize) -> bool {
     sentence[..start].chars().next_back() == Some(':')
         || sentence[end..].chars().next() == Some(':')
+}
+
+/// Suppress identifiers that the broad gene-symbol pattern captures only
+/// because they are administrative labels or technical abbreviations in a
+/// recognizable local construction. The guards are deliberately contextual:
+/// `GC` and `N1` can be legitimate identifiers elsewhere and remain eligible.
+fn is_contextual_non_entity(sentence: &str, start: usize, end: usize, token: &str) -> bool {
+    let upper = token.to_ascii_uppercase();
+    let lower = sentence.to_ascii_lowercase();
+
+    // Donor/sample labels in a design sentence, e.g. "(N1, N61, N052611)".
+    if upper.starts_with('N')
+        && upper[1..].bytes().all(|byte| byte.is_ascii_digit())
+        && lower.contains("donor")
+        && (lower.contains("cell line") || lower.contains("sample"))
+    {
+        return true;
+    }
+
+    // Glucocorticoid shorthand in "dex/GC"; a standalone GC remains a valid
+    // entity candidate.
+    if upper == "GC" {
+        let before = &sentence[..start];
+        let after = &sentence[end..];
+        let dex_before = before
+            .strip_suffix('/')
+            .is_some_and(|prefix| prefix.to_ascii_lowercase().ends_with("dex"));
+        let dex_after = after
+            .strip_prefix('/')
+            .is_some_and(|suffix| suffix.to_ascii_lowercase().starts_with("dex"));
+        if dex_before || dex_after {
+            return true;
+        }
+    }
+
+    // Random-number-generator acronym in renderer/reproducibility prose.
+    if upper == "RNG"
+        && (lower.contains("seeded rng")
+            || lower.contains("random number generator")
+            || lower.contains("deterministic rng"))
+    {
+        return true;
+    }
+
+    false
 }
 
 fn is_alnum_token_char(ch: char) -> bool {
@@ -2769,6 +2862,63 @@ mod tests {
     }
 
     #[test]
+    fn bibliographic_inventory_rows_are_not_analysis_claims() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let claims = extract_claims(
+            "- **24926665** - Himes et al. 2014 (Himes BE, Jiang X): the primary \
+             study, retrieved under both DUSP1 and CRISPLD2 axes.",
+            &cfg,
+        );
+        assert!(
+            claims.is_empty(),
+            "source-inventory metadata must not generate entity claims: {claims:?}"
+        );
+
+        let scientific = extract_claims("DUSP1 was upregulated (log2FC = 1.5, Table S1).", &cfg);
+        assert!(
+            scientific.iter().any(|claim| claim.entity == "DUSP1"),
+            "ordinary scientific prose remains eligible"
+        );
+
+        let bold_count = extract_claims(
+            "- **4,030** significant genes included DUSP1 (log2FC = 1.5, Table S1).",
+            &cfg,
+        );
+        assert!(
+            bold_count.iter().any(|claim| claim.entity == "DUSP1"),
+            "a bold analysis count is not a bibliographic locator"
+        );
+    }
+
+    #[test]
+    fn design_and_reproducibility_abbreviations_are_contextually_suppressed() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let claims = extract_claims(
+            "Four donor cell lines (N1, N61) were paired. Prior literature \
+             discussed dex/GC treatment. Figures used a seeded RNG.",
+            &cfg,
+        );
+        let entities: Vec<&str> = claims.iter().map(|claim| claim.entity.as_str()).collect();
+        for token in ["N1", "N61", "GC", "RNG"] {
+            assert!(
+                !entities.contains(&token),
+                "{token} is metadata in this context, not an entity: {entities:?}"
+            );
+        }
+
+        for sentence in [
+            "N1 was upregulated (log2FC = 1.2).",
+            "GC was upregulated (log2FC = 1.2).",
+            "RNG was upregulated (log2FC = 1.2).",
+        ] {
+            assert!(
+                !extract_claims(sentence, &cfg).is_empty(),
+                "contextual guards must not globally deny-list {sentence}"
+            );
+        }
+    }
+
+    #[test]
     fn extracts_simple_entity_direction_claim() {
         let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
         let text = "ACAN was upregulated in NP cells (log2FC=2.1, padj=0.001, Table S1).";
@@ -2945,6 +3095,34 @@ mod tests {
             acan
         );
         assert_eq!(acan.direction, Some(Direction::Down));
+    }
+
+    #[test]
+    fn markdown_table_unescapes_identifier_punctuation() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let md = "| Pathway | NES | padj |\n|---|---|---|\n\
+                  | HALLMARK\\_ADIPOGENESIS | 1.979 | 2.14e-06 |\n";
+        let claims = extract_markdown_table_claims(md, &cfg);
+        assert_eq!(claims.len(), 1, "{claims:?}");
+        assert_eq!(claims[0].entity, "HALLMARK_ADIPOGENESIS");
+        assert_eq!(claims[0].effect_size, Some(1.979));
+        assert_eq!(claims[0].pvalue, Some(2.14e-6));
+    }
+
+    #[test]
+    fn literature_quote_pvalue_does_not_leak_into_analysis_table_claim() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let md = "| Entity | This-run log2FC | Tag | PMID | Evidence quote | Context |\n\
+                  |---|---|---|---|---|---|\n\
+                  | FKBP5 | +3.175 | unverifiable | 41509484 | \"FKBP5 (17.3-fold-change, p=6.9e-53)\" | different tissue |\n";
+        let claims = extract_markdown_table_claims(md, &cfg);
+        assert_eq!(claims.len(), 1, "{claims:?}");
+        assert_eq!(claims[0].entity, "FKBP5");
+        assert_eq!(claims[0].effect_size, Some(3.175));
+        assert_eq!(
+            claims[0].pvalue, None,
+            "a p-value in an evidence-quote column is not this analysis's p-value"
+        );
     }
 
     #[test]

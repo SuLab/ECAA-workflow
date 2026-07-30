@@ -972,11 +972,16 @@ enum NumericColumnKind {
 }
 
 /// One numeric assertion parsed out of a claim's narrative text.
+#[derive(Debug)]
 struct NumericToken {
     kind: NumericColumnKind,
     /// Parsed value, `None` when the value string could not be parsed at all
     /// (malformed / overflow) — the token is then *unparseable* for coverage.
     claimed: Option<f64>,
+    /// Byte span in the canonicalized excerpt. Used to bind a value to the
+    /// nearest entity in a sentence that reports several entities.
+    start: usize,
+    end: usize,
 }
 
 /// Order-of-magnitude p-value tolerance (in decades): a claimed p and a table p
@@ -1042,9 +1047,117 @@ fn scan_numeric_tokens(text: &str) -> Vec<NumericToken> {
         out.push(NumericToken {
             kind,
             claimed: parse_numeric_token(val.as_str()),
+            start: caps.get(0).map_or(val.start(), |matched| matched.start()),
+            end: caps.get(0).map_or(val.end(), |matched| matched.end()),
         });
     }
     out
+}
+
+/// Bind one numeric token to the nearest policy-recognized entity in the
+/// canonicalized excerpt. Returns `None` when no entity is detectable or the
+/// nearest-distance tie is ambiguous. A definite `false` marks a value owned by
+/// another entity and lets the numeric gate exclude it from this claim's
+/// coverage without suppressing contradictory values in a single-entity claim.
+fn numeric_token_owned_by_claim(
+    token: &NumericToken,
+    canonical_excerpt: &str,
+    claim: &Claim,
+    cfg: &ExtractorConfig,
+    table_entities: &BTreeSet<String>,
+) -> Option<bool> {
+    let mut spans: BTreeSet<(usize, usize, String)> = BTreeSet::new();
+    let claim_namespace = id_namespace(&claim.entity);
+    let claim_entity = normalize(&claim.entity);
+    for pattern in &cfg.entity_patterns {
+        for matched in pattern.find_iter(canonical_excerpt) {
+            let entity = matched.as_str();
+            let normalized = normalize(entity);
+            if id_namespace(entity) != claim_namespace
+                || (normalized != claim_entity && !table_entities.contains(&normalized))
+                || cfg
+                    .entity_exclude_patterns
+                    .iter()
+                    .any(|excluded| excluded.is_match(entity))
+            {
+                continue;
+            }
+            spans.insert((matched.start(), matched.end(), normalized));
+        }
+    }
+    // The extractor may obtain an entity from a structured Markdown cell
+    // rather than the policy's broad prose regex (for example,
+    // HALLMARK_ADIPOGENESIS). Add the claim's literal occurrence explicitly,
+    // allowing CommonMark's presentation-only backslash before punctuation.
+    let mut literal_pattern = String::from("(?i)");
+    for ch in claim.entity.chars() {
+        if ch.is_ascii_punctuation() {
+            literal_pattern.push_str(r"\\?");
+        }
+        literal_pattern.push_str(&regex::escape(&ch.to_string()));
+    }
+    let claim_spans: Vec<(usize, usize)> = regex::Regex::new(&literal_pattern)
+        .ok()
+        .map(|pattern| {
+            pattern
+                .find_iter(canonical_excerpt)
+                .map(|matched| (matched.start(), matched.end()))
+                .collect()
+        })
+        .unwrap_or_default();
+    for (start, end) in &claim_spans {
+        spans.insert((*start, *end, claim_entity.clone()));
+    }
+    // Drop broad-regex fragments contained in the exact claim occurrence,
+    // fragments inside the measurement expression itself, and fragments
+    // embedded in a larger identifier token. Broad symbol patterns can
+    // otherwise misread the `FC` in either `log2FC=4.8` or a preceding bare
+    // `log2FC` label as a gene and assign an adjacent value to that synthetic
+    // entity.
+    spans.retain(|(start, end, entity)| {
+        let overlaps_measurement = *start < token.end && token.start < *end;
+        let identifier_char = |value: char| value.is_alphanumeric() || value == '_';
+        let embedded_fragment = canonical_excerpt[..*start]
+            .chars()
+            .next_back()
+            .is_some_and(identifier_char)
+            || canonical_excerpt[*end..]
+                .chars()
+                .next()
+                .is_some_and(identifier_char);
+        !overlaps_measurement
+            && (entity == &claim_entity
+                || (!embedded_fragment
+                    && !claim_spans
+                        .iter()
+                        .any(|(claim_start, claim_end)| claim_start <= start && end <= claim_end)))
+    });
+    if spans.is_empty() {
+        return None;
+    }
+
+    let distance = |start: usize, end: usize| {
+        if end <= token.start {
+            token.start - end
+        } else if token.end <= start {
+            start - token.end
+        } else {
+            0
+        }
+    };
+    let min_distance = spans
+        .iter()
+        .map(|(start, end, _)| distance(*start, *end))
+        .min()?;
+    let nearest: BTreeSet<&str> = spans
+        .iter()
+        .filter(|(start, end, _)| distance(*start, *end) == min_distance)
+        .map(|(_, _, entity)| entity.as_str())
+        .collect();
+    if nearest.len() != 1 {
+        return None;
+    }
+    Some(nearest.contains(claim_entity.as_str()))
 }
 
 /// Parse a numeric value token, tolerating the collapsed base-10 exponent form
@@ -1233,6 +1346,7 @@ fn run_numeric_gate(
     let base_is_verified = matches!(base, ClaimStatus::Verified);
     let base_is_mismatch = matches!(base, ClaimStatus::Mismatch { .. });
 
+    let canonical_excerpt = crate::claim_extractor::canonicalize_scientific(&claim.excerpt);
     let tokens = scan_numeric_tokens(&claim.excerpt);
     if tokens.is_empty() {
         // No numeric assertion in the narrative text → the gate is inert; record
@@ -1248,6 +1362,20 @@ fn run_numeric_gate(
     }
 
     let resolved = resolve_entity_row(claim, index, cfg, cache);
+    let mut table_entities = BTreeSet::new();
+    for table in cache.values() {
+        for row in &table.rows {
+            for column in &cfg.entity_columns {
+                if let Some(value) = row.values.get(&normalize(column)) {
+                    let value = normalize(value);
+                    if !value.is_empty() {
+                        table_entities.insert(value);
+                    }
+                }
+            }
+        }
+    }
+    table_entities.insert(normalize(&claim.entity));
     let n_tokens = tokens.len();
     let mut n_compared = 0usize;
     let mut any_unparseable = false;
@@ -1307,27 +1435,19 @@ fn run_numeric_gate(
         }
     };
 
-    // Classify every comparable token as agree/disagree against the resolved
-    // row, tagged by numeric FAMILY (log2FC vs p-value). A DISAGREEING token
-    // becomes a Mismatch only when NO token of its family AGREED — the single
-    // wrong value the entity itself asserts. When an agreeing token of the same
-    // family is also present, the disagreeing one is another entity's value
-    // carried in the SAME multi-entity sentence ("the top up-regulated gene is
-    // A (log2FC=+11.0); the top down-regulated gene is B (log2FC=-4.8)"), and
-    // comparing it against this single entity's row would falsely flag it. This
-    // preserves fabrication detection (a lone wrong value with no correct
-    // counterpart still Mismatches) while removing the cross-entity FP.
-    struct ComparedToken {
-        agrees: bool,
-        family: usize,
-        audit: VerdictAudit,
-    }
-    let family_of = |k: NumericColumnKind| match k {
-        NumericColumnKind::Log2Fc => 0usize,
-        NumericColumnKind::PvalueAdjusted | NumericColumnKind::PvalueRaw => 1usize,
-    };
-    let mut compared: Vec<ComparedToken> = Vec::new();
+    // Bind each point value to its nearest entity before comparison. This
+    // removes another entity's value from a shared sentence without using the
+    // unsafe shortcut "one value agreed, therefore every disagreement in the
+    // same numeric family is ambient", which could verify a contradictory
+    // second value in a single-entity claim.
+    let mut n_ambient = 0usize;
     for tok in &tokens {
+        if numeric_token_owned_by_claim(tok, &canonical_excerpt, claim, cfg, &table_entities)
+            == Some(false)
+        {
+            n_ambient += 1;
+            continue;
+        }
         let Some(claimed) = tok.claimed else {
             any_unparseable = true;
             uncompared.get_or_insert_with(|| {
@@ -1382,32 +1502,21 @@ fn run_numeric_gate(
             .cloned()
             .expect("candidates non-empty");
         let audit = mk_numeric_audit(Some(claimed), Some(obs), Some(col), tok.kind, Some(agrees));
-        compared.push(ComparedToken {
-            agrees,
-            family: family_of(tok.kind),
-            audit,
-        });
-    }
-    let mut family_agreed = [false, false];
-    for c in &compared {
-        if c.agrees {
-            family_agreed[c.family] = true;
-        }
-    }
-    for c in compared {
-        if c.agrees {
+        if agrees {
             n_compared += 1;
-            pass.get_or_insert(c.audit);
-        } else if !family_agreed[c.family] {
+            pass.get_or_insert(audit);
+        } else {
             n_compared += 1;
-            mismatch.get_or_insert(c.audit);
+            mismatch.get_or_insert(audit);
         }
-        // else: a disagreeing token whose family ALSO has an agreeing token —
-        // another entity's value in a shared sentence; neither pass nor
-        // mismatch (ambient, not counted toward parse coverage).
     }
 
-    let parse_coverage = n_compared as f64 / n_tokens as f64;
+    let relevant_tokens = n_tokens.saturating_sub(n_ambient);
+    let parse_coverage = if relevant_tokens == 0 {
+        1.0
+    } else {
+        n_compared as f64 / relevant_tokens as f64
+    };
 
     // A genuine numeric disagreement is a Mismatch regardless of base status.
     if let Some(mut a) = mismatch {
@@ -1429,7 +1538,7 @@ fn run_numeric_gate(
     // assertion was present but not fully confirmable — but only for classes
     // that do not otherwise adjudicate the number (avoids regressing a
     // legitimately-verified numeric-class verdict).
-    let fully_confirmed = n_compared == n_tokens && !any_unparseable;
+    let fully_confirmed = n_compared == relevant_tokens && !any_unparseable;
     if base_is_verified && !fully_confirmed && !numeric_adjudicating_class(claim.contract) {
         let reason = "numeric assertion in the narrative could not be confirmed against the cited table (unparseable value or unresolved entity/column)".to_string();
         let mut a = uncompared.or(pass).unwrap_or_else(|| {
@@ -2176,7 +2285,7 @@ static EXTREME_PVAL_COL_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
 /// (a down-regulated / most-negative extreme).
 static EXTREME_DOWN_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(
-        r"(?i)(down[\s-]?(?:regulat|associat)|negative[\s-]+effect|most[\s-]?negative|largest[\s-]?negative)",
+        r"(?i)(down[\s-]?(?:regulat|associat)|negative[\s-]+(?:effect|association)|most[\s-]?negative|largest[\s-]?negative)",
     )
         .expect("static regex")
 });
@@ -2184,7 +2293,7 @@ static EXTREME_DOWN_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
 /// (an up-regulated / most-positive extreme).
 static EXTREME_UP_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(
-        r"(?i)(up[\s-]?(?:regulat|associat)|positive[\s-]+effect|most[\s-]?positive|largest[\s-]?positive)",
+        r"(?i)(up[\s-]?(?:regulat|associat)|positive[\s-]+(?:effect|association)|most[\s-]?positive|largest[\s-]?positive)",
     )
         .expect("static regex")
 });
@@ -2266,8 +2375,9 @@ fn verify_extreme_value(
     // guard the incidental padj flipped the extreme onto the p-value column and
     // false-Mismatched the true argmin gene whose padj is not the table minimum
     // (himes rerun 2026-07-22).
-    let has_effect_direction_cue =
-        EXTREME_DOWN_RE.is_match(excerpt) || EXTREME_UP_RE.is_match(excerpt);
+    let has_effect_direction_cue = claim.direction.is_some()
+        || EXTREME_DOWN_RE.is_match(excerpt)
+        || EXTREME_UP_RE.is_match(excerpt);
     // An EXPLICIT p-value/significance extreme ("most significant", "by padj",
     // "lowest padj") takes the extreme over the p-value column regardless of a
     // signed-effect direction ASIDE ("Most significant gene (by padj): SPARCL1
@@ -2297,8 +2407,22 @@ fn verify_extreme_value(
     // argmax reading of a down-regulation claim and false-Mismatched the true
     // argmin gene (himes rerun audit 2026-07-21). The cue only governs a signed
     // effect column, never a p-value column (whose extreme has no up/down sense).
-    let down_dir = !over_pvalue && EXTREME_DOWN_RE.is_match(excerpt);
-    let up_dir = !over_pvalue && EXTREME_UP_RE.is_match(excerpt);
+    let (down_dir, up_dir) = if over_pvalue {
+        (false, false)
+    } else {
+        match claim.direction {
+            // Extraction binds direction words to their nearest entity. Prefer
+            // that entity-local binding over sentence-wide regexes so a sentence
+            // that names both the strongest positive and strongest negative
+            // association verifies each entity against the correct extreme.
+            Some(Direction::Down) => (true, false),
+            Some(Direction::Up) => (false, true),
+            None => (
+                EXTREME_DOWN_RE.is_match(excerpt),
+                EXTREME_UP_RE.is_match(excerpt),
+            ),
+        }
+    };
     let kind = if down_dir && !up_dir {
         ExtremeKind::Min
     } else if up_dir && !down_dir {
@@ -3537,7 +3661,7 @@ static COUNT_NOUN_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     // sit between the count and its noun ("3 SME-supplied Drosophila gene
     // sets", "836 significantly differentially expressed genes").
     regex::Regex::new(
-        r"(?i)\b(\d[\d,]*)\s+(?:[A-Za-z][\w-]*\s+){0,5}?(gene[\s-]?sets?|cell[\s-]?types?|sub[\s-]?types?|genes?|features?|transcripts?|proteins?|peaks?|sites?|probes?|pathways?|terms?|cpgs?|loci|locus|snps?|variants?|regions?|clusters?|cells?|samples?|modules?|components?|domains?|communities|community|programs?|taxa|taxon|otus?|asvs?|species|genera|genus|families|family|phyla|phylum|lineages?)\b",
+        r"(?i)\b(\d[\d,]*)\s+(?:[A-Za-z][\w-]*\s+){0,5}?(gene[\s-]?sets?|donor\s+cell[\s-]?lines?|cell[\s-]?lines?|cell[\s-]?types?|sub[\s-]?types?|entities?|genes?|features?|transcripts?|proteins?|peaks?|sites?|probes?|pathways?|terms?|cpgs?|loci|locus|snps?|variants?|regions?|clusters?|cells?|samples?|modules?|components?|domains?|communities|community|programs?|taxa|taxon|otus?|asvs?|species|genera|genus|families|family|phyla|phylum|lineages?)\b",
     )
     .expect("static regex")
 });
@@ -3550,7 +3674,7 @@ static THRESH_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     // the column the claim actually names — `padj<0.05` must not be
     // checked against the raw `pvalue` column). Group 2 = the threshold.
     regex::Regex::new(
-        r"(?i)(p[\s._-]?adj|adj[\s._-]?p(?:[\s._-]?val(?:ue)?)?|fdr|q[\s._-]?val(?:ue)?|adjusted\s+p[\s-]?val(?:ue)?|p[\s-]?val(?:ue)?|p)\s*[<≤]\s*(\d*\.?\d+(?:[eE][+-]?\d+)?)",
+        r"(?i)(p[\s._-]?adj|adj[\s._-]?p(?:[\s._-]?val(?:ue)?)?|fdr|q[\s._-]?val(?:ue)?|adjusted\s+p[\s-]?val(?:ue)?|p[\s-]?val(?:ue)?|p)\)?\s*[<≤]\s*(\d*\.?\d+(?:[eE][+-]?\d+)?)",
     )
     .expect("static regex")
 });
@@ -3717,6 +3841,7 @@ struct LiteratureRow {
     concordance_flag: String,
     source_kind: String,
     verified: bool,
+    searched: bool,
 }
 
 /// `claims_evidence_matrix.csv` parsed into rows plus the *presence* of the
@@ -3766,6 +3891,7 @@ fn load_literature_rows(path: &Path) -> Result<LiteratureMatrix> {
     let flag_idx = col("concordance_flag");
     let source_idx = col("source_kind");
     let verified_idx = col("verified");
+    let searched_idx = col("searched");
     // The emitted contextualize header omits `verified` and `source_kind`
     // entirely. Distinguish "column absent" from "present-and-false" so the
     // caller can treat a recognized concordance_flag as the verification record
@@ -3802,6 +3928,10 @@ fn load_literature_rows(path: &Path) -> Result<LiteratureMatrix> {
             source_kind: get(source_idx),
             verified: matches!(
                 get(verified_idx).to_ascii_lowercase().as_str(),
+                "true" | "1"
+            ),
+            searched: matches!(
+                get(searched_idx).to_ascii_lowercase().as_str(),
                 "true" | "1"
             ),
         });
@@ -4052,7 +4182,14 @@ fn verify_literature_grounded_at(
         // concordance_flag IS the verification record (the step ran and
         // adjudicated); without that fallback every emitted-schema claim would
         // be falsely Unverifiable.
-        if r.verified || (!verified_present && recognized_flag) {
+        // `no_prior_finding` is a verified negative retrieval result when the
+        // retained scope says the entity was searched. It intentionally has
+        // `verified=false`: there is no evidence quote to substring-check.
+        // Requiring a positive quote-verification bit here stranded faithful
+        // "searched, no prior finding" statements as Unverifiable even though
+        // the matrix retained exactly the machine-resolved support record.
+        let verified_negative_retrieval = r.concordance_flag == "no_prior_finding" && r.searched;
+        if r.verified || verified_negative_retrieval || (!verified_present && recognized_flag) {
             any_verified = true;
         }
         for p in &r.prior_pmids {
@@ -4557,6 +4694,154 @@ static HEDGE_BEFORE_COUNT_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     .expect("static regex")
 });
 
+static COUNT_OF_NOUN_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r"(?i)\b(\d[\d,]*)\s+of\s+(?:those\s+)?\d[\d,]*\s+(?:[A-Za-z][\w-]*\s+){0,5}?(?:gene[\s-]?sets?|donor\s+cell[\s-]?lines?|cell[\s-]?lines?|entities?|genes?|features?|pathways?|terms?|samples?)\b",
+    )
+    .expect("static regex")
+});
+
+static INPUT_DIMENSION_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"(?i)\b(\d[\d,]*)\s+genes?\s*[×x*]\s*(\d[\d,]*)\s+samples?\b")
+        .expect("static regex")
+});
+
+static PREFILTER_SUMMARY_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r"(?i)\b(?:pre[\s-]?filter\s+)?removed\s+(\d[\d,]*)\s+of\s+(\d[\d,]*)\s+genes?,\s+retaining\s+(\d[\d,]*)\b",
+    )
+    .expect("static regex")
+});
+
+static RANKED_MAPPING_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r"(?i)\b(\d[\d,]*)\s+ranked\s+genes?.{0,160}?\bfrom\s+(\d[\d,]*)\s+tested\s+genes?\b",
+    )
+    .expect("static regex")
+});
+
+/// Closed semantic mapping from narrative wording to retained stage-summary
+/// fields. The key selection is independent of the claimed number, preventing
+/// coincidentally equal counts from being treated as evidence.
+fn semantic_summary_fields(
+    text: &str,
+    noun: &str,
+    has_up: bool,
+    has_down: bool,
+) -> Option<&'static [&'static str]> {
+    let lower = text.to_ascii_lowercase();
+    let noun = noun.to_ascii_lowercase().replace(['-', '_'], " ");
+    let noun = noun.trim();
+
+    if lower.contains("no usable") && (lower.contains("significance") || lower.contains("padj")) {
+        return Some(&["top_k_missing_significance_count"]);
+    }
+    if lower.contains("not assessed")
+        || lower.contains("not searched")
+        || lower.contains("no prior-work query")
+        || lower.contains("no prior work query")
+    {
+        return Some(&["n_entities_not_assessed"]);
+    }
+    if matches!(noun, "entity" | "entities")
+        && (lower.contains("were searched")
+            || lower.contains("was searched")
+            || lower.contains("were queried")
+            || lower.contains("was queried")
+            || lower.contains("query was issued"))
+    {
+        return Some(&["n_entities_assessed"]);
+    }
+    if lower.contains("ranked") && matches!(noun, "gene" | "genes") {
+        return Some(&["n_genes_ranked"]);
+    }
+    if noun.contains("donor cell line") {
+        return Some(&["n_donors"]);
+    }
+    if matches!(noun, "sample" | "samples")
+        && (lower.contains("input")
+            || lower.contains("matrix")
+            || lower.contains("librar")
+            || lower.contains("assayed"))
+    {
+        return Some(&["n_samples"]);
+    }
+    if matches!(noun, "gene" | "genes")
+        && (lower.contains("input")
+            || lower.contains("starting point")
+            || lower.contains("matrix contained"))
+    {
+        return Some(&["n_genes_input", "n_genes"]);
+    }
+    if lower.contains("removed") && matches!(noun, "gene" | "genes") {
+        return Some(&["n_genes_prefiltered"]);
+    }
+    if lower.contains("retained") && matches!(noun, "gene" | "genes") {
+        return Some(&["n_genes_tested", "tested_feature_count"]);
+    }
+    if lower.contains("tested") {
+        if is_set_level_noun(noun) {
+            return Some(&["n_sets_tested"]);
+        }
+        if matches!(noun, "gene" | "genes" | "feature" | "features") {
+            return Some(&["n_genes_tested", "tested_feature_count"]);
+        }
+    }
+    if lower.contains("significant") {
+        if is_set_level_noun(noun) {
+            return None;
+        }
+        if has_up && !has_down {
+            return Some(&["n_significant_up"]);
+        }
+        if has_down && !has_up {
+            return Some(&["n_significant_down"]);
+        }
+        if matches!(noun, "gene" | "genes" | "feature" | "features") {
+            return Some(&["n_significant"]);
+        }
+    }
+    if lower.contains("no prior finding") {
+        return Some(&["no_prior_finding"]);
+    }
+    None
+}
+
+/// Direction words elsewhere in a multi-fact sentence must not reclassify an
+/// aggregate population count. Inspect only the matched "N ... noun" phrase
+/// and its immediate following clause. This still recognizes forms such as
+/// "2,208 genes associated with increased expression" while leaving "largest
+/// positive effect among 4,030 significant genes" as an undirected universe
+/// count.
+fn aggregate_count_directions(
+    text: &str,
+    noun_match: &regex::Match<'_>,
+    cfg: &ExtractorConfig,
+) -> (bool, bool) {
+    let tail = &text[noun_match.end()..];
+    let punctuation_end = tail
+        .char_indices()
+        .find_map(|(offset, ch)| matches!(ch, '.' | ';' | ':' | '\n').then_some(offset))
+        .unwrap_or(tail.len());
+    let char_limit = tail
+        .char_indices()
+        .nth(120)
+        .map(|(offset, _)| offset)
+        .unwrap_or(tail.len());
+    let suffix_end = punctuation_end.min(char_limit);
+    let end = noun_match.end() + suffix_end;
+    let local = text[noun_match.start()..end].to_ascii_lowercase();
+    let has_up = cfg
+        .up_words
+        .iter()
+        .any(|word| local.contains(&word.to_ascii_lowercase()));
+    let has_down = cfg
+        .down_words
+        .iter()
+        .any(|word| local.contains(&word.to_ascii_lowercase()));
+    (has_up, has_down)
+}
+
 /// True for a round-number SUMMARY figure: ≥1000, a whole multiple of 100, with
 /// fewer than 3 significant digits (2000, 12000 — but NOT 2209 or 12500). Such
 /// figures read as rounded approximations, so VF-16 abstains rather than
@@ -4595,6 +4880,37 @@ pub fn verify_narrative_counts(
     let mut cache: BTreeMap<PathBuf, CachedTable> = BTreeMap::new();
     let narrative = crate::claim_extractor::strip_system_generated_blocks(narrative);
     let narrative = coalesce_wrapped_prose(&narrative);
+    let mut candidate_paths = index.distinct_paths();
+    candidate_paths.extend(discovery_candidate_tables(package_root));
+    candidate_paths.sort_by(|left, right| {
+        let priority = |path: &Path| match path.file_name().and_then(|name| name.to_str()) {
+            Some("de_results.tsv" | "pathway_results.tsv" | "ranked_genes.tsv") => 0,
+            Some(name) if name.contains("results") => 1,
+            _ => 2,
+        };
+        priority(left)
+            .cmp(&priority(right))
+            .then_with(|| left.cmp(right))
+    });
+    candidate_paths.dedup();
+
+    // A directional/significant bullet often inherits its threshold from the
+    // preceding paragraph. Retain the adjusted thresholds declared anywhere in
+    // this report, then accept an inherited threshold only when a canonical
+    // result table reproduces the exact count.
+    let mut adjusted_thresholds: Vec<f64> = THRESH_RE
+        .captures_iter(&narrative)
+        .filter(|captures| {
+            captures
+                .get(1)
+                .is_some_and(|keyword| is_adjusted_pvalue_keyword(keyword.as_str()))
+        })
+        .filter_map(|captures| captures.get(2)?.as_str().parse::<f64>().ok())
+        .filter(|value| value.is_finite())
+        .collect();
+    adjusted_thresholds.sort_by(f64::total_cmp);
+    adjusted_thresholds.dedup_by(|left, right| left.total_cmp(right).is_eq());
+
     for sentence in crate::claim_extractor::split_sentences(&narrative) {
         let s = sentence.trim();
         // Skip markdown table rows (mined structurally elsewhere).
@@ -4611,6 +4927,23 @@ pub fn verify_narrative_counts(
         let Some(noun_caps) = COUNT_NOUN_RE.captures(s) else {
             continue;
         };
+        let Some(count_match) = noun_caps.get(1) else {
+            continue;
+        };
+        // Rust's regex engine has no look-around. Without this explicit
+        // boundary check, `0.25 pathway-level adjusted p-value` is captured as
+        // the integer count `25 pathways` because the dot creates a word
+        // boundary before `25`. A significance threshold is not a population
+        // count and must not generate a spurious Unverifiable verdict.
+        let preceding_decimal = count_match.start() >= 2
+            && s.as_bytes()[count_match.start() - 1] == b'.'
+            && s.as_bytes()[count_match.start() - 2].is_ascii_digit();
+        let following_decimal = count_match.end() + 1 < s.len()
+            && s.as_bytes()[count_match.end()] == b'.'
+            && s.as_bytes()[count_match.end() + 1].is_ascii_digit();
+        if preceding_decimal || following_decimal {
+            continue;
+        }
         let noun = noun_caps.get(2).map(|m| m.as_str()).unwrap_or("items");
         let lower = s.to_lowercase();
         // Display cardinality is presentation metadata, not an analytical
@@ -4622,14 +4955,10 @@ pub fn verify_narrative_counts(
         if lower.contains("leading ") && lower.contains(" of ") {
             continue;
         }
-        let has_up = cfg
-            .up_words
-            .iter()
-            .any(|w| lower.contains(&w.to_lowercase()));
-        let has_down = cfg
-            .down_words
-            .iter()
-            .any(|w| lower.contains(&w.to_lowercase()));
+        let (has_up, has_down) = noun_caps
+            .get(0)
+            .map(|matched| aggregate_count_directions(s, &matched, cfg))
+            .unwrap_or((false, false));
         let dir = if has_up && !has_down {
             "up "
         } else if has_down && !has_up {
@@ -4675,6 +5004,105 @@ pub fn verify_narrative_counts(
                 None,
             )
         };
+        let summary_fact = |claim_entity: &str, claimed: f64, fields: &[&str]| -> ClaimVerdict {
+            let Some((path, field, observed)) = resolve_summary_count(package_root, fields) else {
+                return make(
+                    claim_entity,
+                    ClaimStatus::Unverifiable {
+                        reason: format!(
+                            "no unambiguous retained stage-summary field matched `{}`",
+                            fields.join("` or `")
+                        ),
+                    },
+                    None,
+                );
+            };
+            make(
+                claim_entity,
+                compare_exact_count(
+                    claimed,
+                    observed,
+                    &path,
+                    &format!("stage-summary field `{field}`"),
+                ),
+                Some(package_relative_label(&path, package_root)),
+            )
+        };
+
+        // Preserve every independently checkable axis in compact summary
+        // sentences. The generic noun matcher retains only the first
+        // "N noun" pair and would otherwise lose the sample dimension, the
+        // removed/starting/retained split, or the pre-/post-mapping pair.
+        if let Some(captures) = INPUT_DIMENSION_RE.captures(s) {
+            if let (Some(genes), Some(samples)) = (
+                captures
+                    .get(1)
+                    .and_then(|value| parse_count(value.as_str())),
+                captures
+                    .get(2)
+                    .and_then(|value| parse_count(value.as_str())),
+            ) {
+                out.push(summary_fact(
+                    "count:input genes",
+                    genes,
+                    &["n_genes_input", "n_genes"],
+                ));
+                out.push(summary_fact("count:input samples", samples, &["n_samples"]));
+                continue;
+            }
+        }
+        if let Some(captures) = PREFILTER_SUMMARY_RE.captures(s) {
+            if let (Some(removed), Some(input), Some(retained)) = (
+                captures
+                    .get(1)
+                    .and_then(|value| parse_count(value.as_str())),
+                captures
+                    .get(2)
+                    .and_then(|value| parse_count(value.as_str())),
+                captures
+                    .get(3)
+                    .and_then(|value| parse_count(value.as_str())),
+            ) {
+                out.push(summary_fact(
+                    "count:prefiltered genes",
+                    removed,
+                    &["n_genes_prefiltered"],
+                ));
+                out.push(summary_fact(
+                    "count:input genes",
+                    input,
+                    &["n_genes_input", "n_genes"],
+                ));
+                out.push(summary_fact(
+                    "count:tested genes",
+                    retained,
+                    &["n_genes_tested", "tested_feature_count"],
+                ));
+                continue;
+            }
+        }
+        if let Some(captures) = RANKED_MAPPING_RE.captures(s) {
+            if let (Some(ranked), Some(tested)) = (
+                captures
+                    .get(1)
+                    .and_then(|value| parse_count(value.as_str())),
+                captures
+                    .get(2)
+                    .and_then(|value| parse_count(value.as_str())),
+            ) {
+                out.push(summary_fact(
+                    "count:ranked genes",
+                    ranked,
+                    &["n_genes_ranked"],
+                ));
+                out.push(summary_fact(
+                    "count:tested genes",
+                    tested,
+                    &["n_genes_tested", "tested_feature_count"],
+                ));
+                continue;
+            }
+        }
 
         if let Some(summary) = parse_tested_summary(s) {
             let threshold = THRESH_RE
@@ -4685,7 +5113,7 @@ pub fn verify_narrative_counts(
                 let observe = |path: &Path,
                                cache: &mut BTreeMap<PathBuf, CachedTable>|
                  -> Option<(usize, usize, usize, usize)> {
-                    let cached = ensure_cached(cache, path, cfg)?;
+                    let cached = ensure_count_cached(cache, path, cfg, noun)?;
                     let (significant, up, down) = recompute_split_in_table(cached, cfg, threshold)?;
                     Some((cached.rows.len(), significant, up, down))
                 };
@@ -4699,13 +5127,10 @@ pub fn verify_narrative_counts(
                 let resolved = if let Some(src) = crate::claim_extractor::scan_table_reference(s) {
                     index.resolve(&src).map(Path::to_path_buf)
                 } else {
-                    let mut candidates = index.distinct_paths();
-                    candidates.extend(discovery_candidate_tables(package_root));
-                    candidates.sort();
-                    candidates.dedup();
-                    candidates
-                        .into_iter()
+                    candidate_paths
+                        .iter()
                         .find(|path| observe(path, &mut cache).map(&agrees).unwrap_or(false))
+                        .cloned()
                 };
 
                 if let Some(path) = resolved {
@@ -4779,6 +5204,143 @@ pub fn verify_narrative_counts(
             ));
             continue;
         }
+
+        // Threshold-less operational counts are checked against specifically
+        // named stage-summary fields. "X of Y" wording reports X as the
+        // asserted subset (for example, 4,024 of 4,030 were not assessed), not
+        // the denominator immediately preceding the noun.
+        if !THRESH_RE.is_match(s) {
+            if let Some(fields) = semantic_summary_fields(s, noun, has_up, has_down) {
+                let row_recompute_preferred = fields.first().is_some_and(|field| {
+                    matches!(
+                        *field,
+                        "n_significant" | "n_significant_up" | "n_significant_down"
+                    )
+                }) && !adjusted_thresholds.is_empty();
+                if !row_recompute_preferred {
+                    let claimed = COUNT_OF_NOUN_RE
+                        .captures(s)
+                        .and_then(|captures| captures.get(1))
+                        .or_else(|| noun_caps.get(1))
+                        .and_then(|value| parse_count(value.as_str()));
+                    if let Some(claimed) = claimed {
+                        if let Some((path, field, observed)) =
+                            resolve_summary_count(package_root, fields)
+                        {
+                            out.push(make(
+                                &entity,
+                                compare_exact_count(
+                                    claimed,
+                                    observed,
+                                    &path,
+                                    &format!("stage-summary field `{field}`"),
+                                ),
+                                Some(package_relative_label(&path, package_root)),
+                            ));
+                            continue;
+                        }
+                        if !is_grouping_noun(noun) {
+                            out.push(make(
+                                &entity,
+                                ClaimStatus::Unverifiable {
+                                    reason: format!(
+                                        "no unambiguous retained stage-summary field matched `{}`",
+                                        fields.join("` or `")
+                                    ),
+                                },
+                                None,
+                            ));
+                            continue;
+                        }
+                        // A cohort/assignment table can still substantiate a
+                        // grouping count by distinct labels. Fall through to
+                        // the table resolver instead of requiring a redundant
+                        // stage-summary field.
+                    }
+                }
+            }
+        }
+
+        if noun_caps
+            .get(0)
+            .is_some_and(|matched| matched.as_str().to_ascii_lowercase().contains("top"))
+        {
+            // "top-15 genes" states a display/rank window, not an analytical
+            // population count. A preceding subset count such as "0 of those
+            // 15 top features carry no usable padj" is handled by the semantic
+            // stage-summary branch above.
+            continue;
+        }
+
+        // A list bullet may state only the directional/significant count while
+        // the immediately surrounding report declares the threshold. Infer
+        // that evidence link only on a positive exact reproduction; a
+        // non-matching table never becomes a Mismatch.
+        let threshold_in_sentence = THRESH_RE.is_match(s);
+        let gene_level_noun = {
+            let normalized = noun.to_ascii_lowercase().replace(['-', '_'], " ");
+            matches!(
+                normalized.trim(),
+                "gene"
+                    | "genes"
+                    | "feature"
+                    | "features"
+                    | "transcript"
+                    | "transcripts"
+                    | "protein"
+                    | "proteins"
+                    | "probe"
+                    | "probes"
+                    | "site"
+                    | "sites"
+                    | "region"
+                    | "regions"
+            )
+        };
+        if !threshold_in_sentence
+            && gene_level_noun
+            && ((has_up ^ has_down) || lower.contains("significant"))
+        {
+            let claimed = noun_caps
+                .get(1)
+                .and_then(|matched| parse_count(matched.as_str()))
+                .map(|value| value as usize);
+            let mut inferred = None;
+            if let Some(claimed) = claimed {
+                'candidate: for path in &candidate_paths {
+                    let Some(cached) = ensure_count_cached(&mut cache, path, cfg, noun) else {
+                        continue;
+                    };
+                    for threshold in &adjusted_thresholds {
+                        let Some((significant, up, down)) =
+                            recompute_split_in_table(cached, cfg, *threshold)
+                        else {
+                            continue;
+                        };
+                        let observed = if has_up && !has_down {
+                            up
+                        } else if has_down && !has_up {
+                            down
+                        } else {
+                            significant
+                        };
+                        if claimed == observed {
+                            inferred = Some(path.clone());
+                            break 'candidate;
+                        }
+                    }
+                }
+            }
+            if let Some(path) = inferred {
+                out.push(make(
+                    &entity,
+                    ClaimStatus::Verified,
+                    Some(package_relative_label(&path, package_root)),
+                ));
+                continue;
+            }
+        }
+
         // Resolve a cited table before considering evidence discovery.
         if let Some(src) = crate::claim_extractor::scan_table_reference(s) {
             let Some(path) = index.resolve(&src) else {
@@ -4788,7 +5350,7 @@ pub fn verify_narrative_counts(
                 continue;
             };
             let path = path.to_path_buf();
-            let status = ensure_cached(&mut cache, &path, cfg)
+            let status = ensure_count_cached(&mut cache, &path, cfg, noun)
                 .and_then(|cached| verify_count_claim_in_table(s, &path, cfg, cached));
             match status {
                 Some(status) => out.push(make(&entity, status, Some(table_label(&path)))),
@@ -4802,17 +5364,13 @@ pub fn verify_narrative_counts(
         // Infer an evidence link only when an emitted result table positively
         // reproduces the exact thresholded count. A non-matching uncited table
         // never creates a Mismatch.
-        let mut candidates = index.distinct_paths();
-        candidates.extend(discovery_candidate_tables(package_root));
-        candidates.sort();
-        candidates.dedup();
         let mut inferred = None;
-        for path in candidates {
-            let verified = ensure_cached(&mut cache, &path, cfg)
+        for path in &candidate_paths {
+            let verified = ensure_count_cached(&mut cache, &path, cfg, noun)
                 .and_then(|cached| verify_count_claim_in_table(s, &path, cfg, cached))
                 .is_some_and(|status| matches!(status, ClaimStatus::Verified));
             if verified {
-                inferred = Some(path);
+                inferred = Some(path.clone());
                 break;
             }
         }
@@ -4988,12 +5546,13 @@ pub fn verify_narrative_threshold_honored(
     ClaimStatus::Verified
 }
 
-/// Compare a claimed count against the recomputed `observed`, allowing a
-/// small relative band (counts vary with NA / tie handling) while still
-/// catching fabricated figures.
+/// Compare an unhedged integer claim against a recomputed integer count.
+///
+/// NA and tie handling belong in the recomputation, not in a tolerance around
+/// its output. Once the narrative states an exact integer, only that integer
+/// verifies.
 fn compare_count(claimed_n: f64, observed: usize, table_path: &Path, what: &str) -> ClaimStatus {
-    let tol = (claimed_n * 0.02).max(2.0);
-    if (observed as f64 - claimed_n).abs() <= tol {
+    if claimed_n == observed as f64 {
         ClaimStatus::Verified
     } else {
         ClaimStatus::Mismatch {
@@ -5001,6 +5560,27 @@ fn compare_count(claimed_n: f64, observed: usize, table_path: &Path, what: &str)
                 "count claim: narrative says {}, `{}` has {} ({})",
                 claimed_n as i64,
                 table_label(table_path),
+                observed,
+                what
+            ),
+        }
+    }
+}
+
+fn compare_exact_count(
+    claimed_n: f64,
+    observed: usize,
+    source_path: &Path,
+    what: &str,
+) -> ClaimStatus {
+    if claimed_n == observed as f64 {
+        ClaimStatus::Verified
+    } else {
+        ClaimStatus::Mismatch {
+            detail: format!(
+                "count claim: narrative says {}, `{}` has {} ({})",
+                claimed_n as i64,
+                table_label(source_path),
                 observed,
                 what
             ),
@@ -5042,6 +5622,10 @@ fn is_grouping_noun(noun: &str) -> bool {
         n,
         "cluster"
             | "clusters"
+            | "donor cell line"
+            | "donor cell lines"
+            | "cell line"
+            | "cell lines"
             | "cell type"
             | "cell types"
             | "celltype"
@@ -5073,6 +5657,8 @@ fn is_grouping_noun(noun: &str) -> bool {
             | "lineages"
             | "subtype"
             | "subtypes"
+            | "sample"
+            | "samples"
     )
 }
 
@@ -5085,8 +5671,12 @@ fn grouping_column(cached: &CachedTable, noun: &str) -> Option<String> {
     let tokens = [
         stem.as_str(),
         "cluster",
+        "donor_cell_line",
+        "cell_line",
         "celltype",
         "cell_type",
+        "sample",
+        "sample_id",
         "type",
         "label",
         "module",
@@ -5109,6 +5699,55 @@ fn grouping_column(cached: &CachedTable, noun: &str) -> Option<String> {
         .keys()
         .find(|k| tokens.iter().any(|t| !t.is_empty() && k.contains(t)))
         .cloned()
+}
+
+/// Aggregate grouping tables (cohort manifests, cluster assignments) often do
+/// not carry a gene/pathway identifier from `entityColumns`. Load them with a
+/// closed set of grouping identifiers only for a grouping-count claim. This
+/// does not broaden ordinary entity discovery, where treating the first
+/// arbitrary column as an entity would create false matches.
+fn ensure_count_cached<'c>(
+    cache: &'c mut BTreeMap<PathBuf, CachedTable>,
+    path: &Path,
+    cfg: &ExtractorConfig,
+    noun: &str,
+) -> Option<&'c CachedTable> {
+    if !cache.contains_key(path) {
+        let mut entity_columns = cfg.entity_columns.clone();
+        if is_grouping_noun(noun) {
+            entity_columns.extend(
+                [
+                    "donor_cell_line",
+                    "cell_line",
+                    "cluster",
+                    "cell_type",
+                    "celltype",
+                    "sample",
+                    "sample_id",
+                    "module",
+                    "component",
+                    "domain",
+                    "community",
+                    "program",
+                    "taxon",
+                    "otu",
+                    "asv",
+                    "species",
+                    "genus",
+                    "family",
+                    "phylum",
+                    "lineage",
+                    "subtype",
+                    "assignment",
+                ]
+                .into_iter()
+                .map(str::to_string),
+            );
+        }
+        let table = load_table_rows(path, &entity_columns).ok()?;
+        cache.insert(path.to_path_buf(), table);
+    }
+    cache.get(path)
 }
 
 /// Verify a single structured claim.
@@ -5319,6 +5958,136 @@ fn discovery_candidate_tables(package_root: &Path) -> Vec<PathBuf> {
     out.sort();
     out.dedup();
     out
+}
+
+/// Canonical stage summaries that can substantiate an aggregate narrative
+/// count when the report does not cite a row-level table. Only `result.json`
+/// and explicitly named summary JSON files are eligible. This keeps provenance
+/// discovery away from arbitrary JSON numbers such as seeds, versions, or plot
+/// dimensions.
+fn discovery_candidate_summaries(package_root: &Path) -> Vec<PathBuf> {
+    fn push_summaries(dir: &Path, out: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
+                continue;
+            };
+            if name == "result.json" || name.ends_with("_summary.json") {
+                out.push(path);
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    let root_result = package_root.join("result.json");
+    if root_result.is_file() {
+        out.push(root_result);
+    }
+    let outputs = package_root.join("runtime").join("outputs");
+    if let Ok(entries) = std::fs::read_dir(&outputs) {
+        let mut tasks: Vec<PathBuf> = entries
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.is_dir())
+            .collect();
+        tasks.sort();
+        for task in tasks {
+            push_summaries(&task, &mut out);
+        }
+    }
+    out.sort_by(|left, right| {
+        let priority = |path: &Path| {
+            if path.file_name().and_then(|value| value.to_str()) == Some("result.json") {
+                0
+            } else {
+                1
+            }
+        };
+        priority(left)
+            .cmp(&priority(right))
+            .then_with(|| left.cmp(right))
+    });
+    out.dedup();
+    out
+}
+
+fn collect_json_integer_fields(value: &serde_json::Value, wanted: &str, found: &mut Vec<usize>) {
+    match value {
+        serde_json::Value::Object(map) => {
+            if let Some(number) = map.get(wanted) {
+                if let Some(value) = number
+                    .as_u64()
+                    .and_then(|value| usize::try_from(value).ok())
+                {
+                    found.push(value);
+                } else if let Some(value) = number
+                    .as_i64()
+                    .filter(|value| *value >= 0)
+                    .and_then(|value| usize::try_from(value).ok())
+                {
+                    found.push(value);
+                } else if let Some(value) = number
+                    .as_f64()
+                    .filter(|value| value.is_finite() && *value >= 0.0 && value.fract() == 0.0)
+                {
+                    found.push(value as usize);
+                }
+            }
+            for child in map.values() {
+                collect_json_integer_fields(child, wanted, found);
+            }
+        }
+        serde_json::Value::Array(values) => {
+            for child in values {
+                collect_json_integer_fields(child, wanted, found);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Resolve a semantic count to a named field in retained stage summaries.
+///
+/// Field names come from a closed allow-list selected from the claim wording;
+/// numeric equality alone never creates a link. If the same preferred field is
+/// present with conflicting values, the resolver abstains instead of choosing
+/// whichever file sorts first.
+fn resolve_summary_count(
+    package_root: &Path,
+    field_names: &[&str],
+) -> Option<(PathBuf, String, usize)> {
+    let summaries = discovery_candidate_summaries(package_root);
+    for field in field_names {
+        let mut matches = Vec::new();
+        for path in &summaries {
+            let Ok(bytes) = std::fs::read(path) else {
+                continue;
+            };
+            let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+                continue;
+            };
+            let mut observed = Vec::new();
+            collect_json_integer_fields(&value, field, &mut observed);
+            for value in observed {
+                matches.push((path.clone(), value));
+            }
+        }
+        if matches.is_empty() {
+            continue;
+        }
+        let first = matches[0].1;
+        if matches.iter().all(|(_, observed)| *observed == first) {
+            return Some((matches.remove(0).0, (*field).to_string(), first));
+        }
+        return None;
+    }
+    None
 }
 
 /// Verify prose / markdown-table claims, discovering the backing table by
@@ -6166,6 +6935,97 @@ mod tests {
             matches!(report2.verdicts[0].status, ClaimStatus::Mismatch { .. }),
             "entity that is NOT the argmin must Mismatch, got {:?}",
             report2.verdicts[0].status
+        );
+    }
+
+    #[test]
+    fn paired_positive_and_negative_association_extremes_bind_per_entity() {
+        let mut policy = policy_json();
+        policy["verifiableEntities"]["directionVocab"]["up"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!("positive association"));
+        policy["verifiableEntities"]["directionVocab"]["down"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!("negative association"));
+        let cfg = ExtractorConfig::from_policy(&policy).unwrap();
+        let tmp = tempdir().unwrap();
+        write_table(
+            tmp.path(),
+            "de_results.tsv",
+            "gene\tlog2FC\tpadj\n\
+             ENSG00000109906\t4.84\t2.21e-40\n\
+             ENSG00000162692\t-3.45\t5.12e-81\n\
+             ENSG00000152583\t4.10\t7.06e-132\n",
+        );
+        let text = "The gene with the strongest positive association was \
+                    ENSG00000109906 (log2FC = 4.84, padj = 2.21e-40), and the \
+                    gene with the strongest negative association was \
+                    ENSG00000162692 (log2FC = -3.45, padj = 5.12e-81).";
+        let mut claims = crate::claim_extractor::extract_claims(text, &cfg);
+        assert_eq!(claims.len(), 2, "{claims:?}");
+        for claim in &mut claims {
+            claim.source_table = Some("de_results.tsv".to_string());
+        }
+        assert_eq!(claims[0].direction, Some(Direction::Up));
+        assert_eq!(claims[1].direction, Some(Direction::Down));
+
+        let report = verify_claims(&claims, tmp.path(), &cfg);
+        assert_eq!(report.n_verified, 2, "{:?}", report.verdicts);
+        assert_eq!(report.n_mismatch, 0, "{:?}", report.verdicts);
+    }
+
+    #[test]
+    fn numeric_gate_does_not_hide_a_second_single_entity_value() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_table(
+            tmp.path(),
+            "de_results.tsv",
+            "gene\tlog2FC\tpadj\nENSG00000109906\t4.84\t2.21e-40\n",
+        );
+        let claim = Claim {
+            entity: "ENSG00000109906".into(),
+            direction: Some(Direction::Up),
+            effect_size: Some(4.84),
+            pvalue: None,
+            source_table: Some("de_results.tsv".into()),
+            excerpt: "ENSG00000109906 had log2FC = 4.84, but the same sentence also \
+                      reports log2FC = 9.99."
+                .into(),
+            contract: ClaimContract::NumericTableLookup,
+            literature_evidence: None,
+            matched_pvalue_keyword: None,
+            linear_fold: None,
+            aggregate_kind: None,
+            aggregate_column: None,
+            aggregate_rowset: None,
+            aggregate_value: None,
+            collection: None,
+            term: None,
+            keyed_column: None,
+            keyed_value: None,
+        };
+        let canonical = crate::claim_extractor::canonicalize_scientific(&claim.excerpt);
+        let tokens = scan_numeric_tokens(&claim.excerpt);
+        assert_eq!(tokens.len(), 2, "{tokens:#?}");
+        assert!(
+            tokens.iter().all(|token| numeric_token_owned_by_claim(
+                token,
+                &canonical,
+                &claim,
+                &cfg,
+                &BTreeSet::from([normalize(&claim.entity)])
+            ) != Some(false)),
+            "both values belong to the only entity in the sentence"
+        );
+
+        let report = verify_claims(&[claim], tmp.path(), &cfg);
+        assert!(
+            matches!(report.verdicts[0].status, ClaimStatus::Mismatch { .. }),
+            "one agreeing value must not mask a contradictory value for the same entity: {:?}",
+            report.verdicts[0].status
         );
     }
 
@@ -7309,6 +8169,12 @@ mod tests {
             "exact count must Verify, got {:?}",
             ok[0].status
         );
+        let near = run("4 genes were upregulated at FDR < 0.05 (Table C).");
+        assert!(
+            matches!(near[0].status, ClaimStatus::Mismatch { .. }),
+            "an unhedged integer that differs by one must not verify through a tolerance: {:?}",
+            near[0].status
+        );
         let inferred = run("3 genes were upregulated at FDR < 0.05.");
         assert!(
             matches!(inferred[0].status, ClaimStatus::Verified),
@@ -7337,11 +8203,32 @@ mod tests {
                 .collect::<Vec<_>>()
         );
 
+        let inherited_bullets = run(
+            "Of 5 genes tested, **5 were statistically significant at gene-level \
+             FDR (padj) < 0.05**:\n\
+             - **3 genes** associated with increased expression (positive log2FC)\n\
+             - **2 genes** associated with decreased expression (negative log2FC)",
+        );
+        assert_eq!(
+            inherited_bullets.len(),
+            4,
+            "tested, significant, inherited-up, and inherited-down counts must be retained: \
+             {inherited_bullets:?}"
+        );
+        assert!(
+            inherited_bullets
+                .iter()
+                .all(|verdict| matches!(verdict.status, ClaimStatus::Verified)),
+            "separate directional bullets inherit only an exactly reproduced report threshold: \
+             {inherited_bullets:?}"
+        );
+
         for heading in [
             "# Top 10 genes",
             "**Top-hits table (top 10 genes):**",
             "The table below shows the 10 genes.",
             "The table represents the leading 25 of 2,208 up-regulated significant genes.",
+            "The primary threshold was 0.25 pathway-level adjusted p-value.",
         ] {
             assert!(
                 run(heading).is_empty(),
@@ -9015,6 +9902,185 @@ mod tests {
     }
 
     #[test]
+    fn vf16_grouping_count_resolves_donor_cell_lines() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_table(
+            tmp.path(),
+            "cohort_manifest.tsv",
+            "sample_id\tdonor_cell_line\ttreatment\n\
+             N1_untrt\tN1\tuntrt\nN1_trt\tN1\ttrt\n\
+             N61_untrt\tN61\tuntrt\nN61_trt\tN61\ttrt\n\
+             N3_untrt\tN3\tuntrt\nN3_trt\tN3\ttrt\n\
+             N4_untrt\tN4\tuntrt\nN4_trt\tN4\ttrt\n",
+        );
+        let verdicts = verify_narrative_counts(
+            "The experiment used 4 donor cell lines in a paired design.",
+            tmp.path(),
+            tmp.path(),
+            &cfg,
+        );
+        assert_eq!(verdicts.len(), 1, "{verdicts:?}");
+        assert!(
+            matches!(verdicts[0].status, ClaimStatus::Verified),
+            "{verdicts:?}"
+        );
+        assert_eq!(
+            verdicts[0].claim.source_table.as_deref(),
+            Some("cohort_manifest.tsv")
+        );
+    }
+
+    #[test]
+    fn vf16_semantic_stage_summaries_link_operational_counts() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        let write_summary = |task: &str, value: serde_json::Value| {
+            let dir = tmp.path().join("runtime").join("outputs").join(task);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(
+                dir.join("result.json"),
+                serde_json::to_vec_pretty(&value).unwrap(),
+            )
+            .unwrap();
+        };
+        write_summary(
+            "data_acquisition",
+            serde_json::json!({"n_genes": 63677, "n_samples": 8, "n_donors": 4}),
+        );
+        write_summary(
+            "differential_expression",
+            serde_json::json!({
+                "n_genes_input": 63677,
+                "n_genes_prefiltered": 41308,
+                "n_genes_tested": 22369,
+                "n_significant": 4030,
+                "top_effect_abundance_ratio_basis": {
+                    "top_k_missing_significance_count": 0
+                }
+            }),
+        );
+        write_summary(
+            "pathway_enrichment",
+            serde_json::json!({"n_genes_ranked": 17190}),
+        );
+        write_summary(
+            "contextualize_findings_with_literature",
+            serde_json::json!({
+                "n_entities_assessed": 6,
+                "n_entities_not_assessed": 4024
+            }),
+        );
+
+        let narrative = "\
+The input matrix contained 63,677 genes x 8 samples.
+The pre-filter removed 41,308 of 63,677 genes, retaining 22,369 for testing.
+The 17,190 ranked genes were mapped from 22,369 tested genes.
+6 entities were searched.
+4,024 of 4,030 significant DE genes were not searched.
+0 of those 15 top features carry no usable padj.
+The largest positive effect among all 4,030 significant genes was reported separately.";
+        let verdicts = verify_narrative_counts(narrative, tmp.path(), tmp.path(), &cfg);
+        assert_eq!(verdicts.len(), 11, "{verdicts:#?}");
+        assert!(
+            verdicts
+                .iter()
+                .all(|verdict| matches!(verdict.status, ClaimStatus::Verified)),
+            "{verdicts:#?}"
+        );
+        assert!(
+            verdicts.iter().all(|verdict| verdict
+                .claim
+                .source_table
+                .as_deref()
+                .is_some_and(|source| source.starts_with("runtime/outputs/")
+                    && source.ends_with("/result.json"))),
+            "{verdicts:#?}"
+        );
+    }
+
+    #[test]
+    fn vf16_semantic_stage_summary_detects_wrong_not_assessed_count() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        let dir = tmp
+            .path()
+            .join("runtime/outputs/contextualize_findings_with_literature");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("result.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "n_entities_not_assessed": 4024
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let verdicts = verify_narrative_counts(
+            "4,023 of 4,030 significant DE genes were not searched.",
+            tmp.path(),
+            tmp.path(),
+            &cfg,
+        );
+        assert_eq!(verdicts.len(), 1, "{verdicts:#?}");
+        assert!(
+            matches!(verdicts[0].status, ClaimStatus::Mismatch { .. }),
+            "{verdicts:#?}"
+        );
+        assert_eq!(
+            verdicts[0].claim.source_table.as_deref(),
+            Some("runtime/outputs/contextualize_findings_with_literature/result.json")
+        );
+    }
+
+    #[test]
+    fn vf16_semantic_summary_abstains_on_missing_or_conflicting_fields() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+
+        let missing = tempdir().unwrap();
+        let missing_verdicts = verify_narrative_counts(
+            "0 of those 15 top features carry no usable padj.",
+            missing.path(),
+            missing.path(),
+            &cfg,
+        );
+        assert_eq!(missing_verdicts.len(), 1, "{missing_verdicts:#?}");
+        assert!(
+            matches!(missing_verdicts[0].status, ClaimStatus::Unverifiable { .. }),
+            "{missing_verdicts:#?}"
+        );
+
+        let conflicting = tempdir().unwrap();
+        let dir = conflicting
+            .path()
+            .join("runtime/outputs/contextualize_findings_with_literature");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("result.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "n_entities_not_assessed": 4024,
+                "nested": {"n_entities_not_assessed": 4023}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let conflicting_verdicts = verify_narrative_counts(
+            "4,024 of 4,030 significant DE genes were not searched.",
+            conflicting.path(),
+            conflicting.path(),
+            &cfg,
+        );
+        assert_eq!(conflicting_verdicts.len(), 1, "{conflicting_verdicts:#?}");
+        assert!(
+            matches!(
+                conflicting_verdicts[0].status,
+                ClaimStatus::Unverifiable { .. }
+            ),
+            "{conflicting_verdicts:#?}"
+        );
+    }
+
+    #[test]
     fn thresholded_nonsignificance_claim_verifies_when_gene_is_nonsignificant() {
         // Real himes FP (CXCL1): "GENEA … was not significant (padj > 0.05)" on
         // a gene whose table padj is indeed >= 0.05 must VERIFY. The
@@ -9139,9 +10205,9 @@ mod tests {
         let p = tmp.path().join("claims_evidence_matrix.csv");
         std::fs::write(
             &p,
-            "finding_id,entity,prior_pmids,concordance_flag,source_kind,verified\n\
-             finding_42,TP53,12345678;23456789,same_direction,pmc_oa_full_text,true\n\
-             finding_9,EGFR,,no_prior_finding,none,false\n",
+            "finding_id,entity,prior_pmids,concordance_flag,source_kind,verified,searched\n\
+             finding_42,TP53,12345678;23456789,same_direction,pmc_oa_full_text,true,true\n\
+             finding_9,EGFR,,no_prior_finding,none,false,true\n",
         )
         .unwrap();
         let matrix = load_literature_rows(&p).unwrap();
@@ -9156,6 +10222,7 @@ mod tests {
         assert!(rows[0].verified);
         assert!(rows[1].prior_pmids.is_empty());
         assert!(!rows[1].verified);
+        assert!(rows[1].searched);
     }
 
     fn write_lit_matrix(root: &Path, body: &str) {
@@ -9471,6 +10538,37 @@ mod tests {
         assert!(
             matches!(status, ClaimStatus::Verified),
             "symbol-bound same_direction claim must verify without an in-sentence PMID; got {status:?}"
+        );
+    }
+
+    #[test]
+    fn literature_no_prior_finding_verifies_from_retained_search_scope() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_lit_matrix(
+            tmp.path(),
+            "finding_id,entity,prior_pmids,concordance_flag,source_kind,verified,searched\n\
+             ENSG00000157514,TSC22D3,,no_prior_finding,none,false,true\n",
+        );
+        let claim = lit_claim_symbol_only(
+            "TSC22D3",
+            "TSC22D3 was searched, but no prior finding was retrieved.",
+        );
+        let status = verify_literature_grounded_at(&claim, tmp.path(), &cfg);
+        assert!(
+            matches!(status, ClaimStatus::Verified),
+            "searched no-result row is the machine-resolved support for a faithful absence claim; got {status:?}"
+        );
+
+        write_lit_matrix(
+            tmp.path(),
+            "finding_id,entity,prior_pmids,concordance_flag,source_kind,verified,searched\n\
+             ENSG00000157514,TSC22D3,,no_prior_finding,none,false,false\n",
+        );
+        let status = verify_literature_grounded_at(&claim, tmp.path(), &cfg);
+        assert!(
+            matches!(status, ClaimStatus::Unverifiable { .. }),
+            "an unsearched no-result row must not substantiate an absence claim; got {status:?}"
         );
     }
 

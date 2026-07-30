@@ -30,6 +30,10 @@ def _read_csv_rows(out: Path):
     return list(csv.DictReader(text.splitlines()))
 
 
+def _read_retrieval_scope(out: Path):
+    return json.loads((out / "retrieval_scope.json").read_text())
+
+
 class NormalizerTest(unittest.TestCase):
     def test_collapse_whitespace_lowercase_v1(self):
         self.assertEqual(
@@ -186,7 +190,6 @@ class PrimaryLiteratureFetchTest(unittest.TestCase):
                 self.assertEqual(r["source_kind"], "pubmed_abstract")
                 self.assertEqual(r["redistributable"], "true")
                 self.assertEqual(r["verified"], "true")
-
 
     def test_snapshot_stores_full_abstract_not_just_first_sentence(self):
         """ROOT-FIX faithful twin: the snapshot bytes (sha256_binary) must be
@@ -353,6 +356,64 @@ class PrimaryLiteratureFetchTest(unittest.TestCase):
             # ≥2 distinct verified PMIDs under the single candidate.
             pmids = {r["pmid"] for r in rows if r["verified"] == "true"}
             self.assertGreaterEqual(len(pmids), 2)
+
+
+class RetrievalScopeTest(unittest.TestCase):
+    def test_zero_result_axis_is_retained_without_a_csv_row(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            out.mkdir()
+
+            def no_hits(url, host, allowed_hosts):
+                return {"esearchresult": {"idlist": []}}
+
+            alf._http_get_json = no_hits
+            summary = alf.fetch_for_axis(
+                out_dir=str(out),
+                axis="SPDEF",
+                query="SPDEF dexamethasone airway smooth muscle",
+                classes=["primary_literature"],
+                routes={"primary_literature": {"hosts": ["eutils.ncbi.nlm.nih.gov"]}},
+            )
+
+            self.assertEqual(summary["rows_written"], 0)
+            self.assertEqual(_read_csv_rows(out), [])
+            scope = _read_retrieval_scope(out)
+            self.assertEqual(scope["schema_version"], 1)
+            self.assertEqual(
+                scope["axes"],
+                [
+                    {
+                        "axis": "SPDEF",
+                        "entries_written": 0,
+                        "fallback_used": False,
+                        "query": "SPDEF dexamethasone airway smooth muscle",
+                        "rows_written": 0,
+                        "status": "completed",
+                        "truncated_at_storage_cap": False,
+                    }
+                ],
+            )
+
+    def test_malformed_existing_scope_is_not_silently_replaced(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            out.mkdir()
+            scope_path = out / "retrieval_scope.json"
+            scope_path.write_text("{not-json", encoding="utf-8")
+
+            with self.assertRaisesRegex(RuntimeError, "malformed retrieval scope"):
+                alf._record_retrieval_axis(
+                    out,
+                    "SPDEF",
+                    "SPDEF dexamethasone airway smooth muscle",
+                    status="attempted",
+                )
+            self.assertEqual(scope_path.read_text(encoding="utf-8"), "{not-json")
 
 
 class RateLimitRetryTest(unittest.TestCase):

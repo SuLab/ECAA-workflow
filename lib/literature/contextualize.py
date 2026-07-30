@@ -359,12 +359,67 @@ COUNT_DEFINITIONS: Dict[str, str] = {
 }
 
 
+def read_retrieval_scope(path: Path) -> tuple[List[str], Optional[int]]:
+    """Read attempted axes from the helper scope or a legacy retrieval summary.
+
+    The retained claims matrix cannot represent a zero-result query. New
+    packages therefore carry `retrieval_scope.json`; the two legacy shapes are
+    accepted so an older package can still recover its recorded empty axes
+    from `scripts/retrieval_summary.json` or `result.json`.
+    """
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise MatrixError(f"cannot read literature retrieval scope {path}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise MatrixError(f"literature retrieval scope {path} must be a JSON object")
+
+    raw_axes = payload.get("axes")
+    if not isinstance(raw_axes, list):
+        raw_axes = payload.get("axis_summaries")
+    if not isinstance(raw_axes, list):
+        raw_axes = payload.get("entities_no_results")
+    if not isinstance(raw_axes, list):
+        raw_axes = []
+
+    axes = set()
+    for item in raw_axes:
+        raw = item.get("axis") if isinstance(item, dict) else item
+        axis = str(raw or "").strip()
+        if axis:
+            axes.add(axis)
+
+    declared = payload.get("axes_queried")
+    if isinstance(declared, bool) or not isinstance(declared, int):
+        declared = None
+    return sorted(axes), declared
+
+
+def discover_retrieval_scope(
+    prior_claims: Path,
+) -> tuple[List[str], Optional[int], Optional[Path]]:
+    """Locate the strongest retained retrieval-scope artifact beside a matrix."""
+    parent = prior_claims.parent
+    candidates = (
+        parent / "retrieval_scope.json",
+        parent / "scripts" / "retrieval_summary.json",
+        parent / "result.json",
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            axes, declared = read_retrieval_scope(candidate)
+            return axes, declared, candidate
+    return [], None, None
+
+
 def assessment_counts(
     rows: Sequence[ClaimRow],
     prior_rows: Sequence[dict],
     scope: Dict[str, List[str]],
     *,
     scope_source: str,
+    retrieval_axes: Sequence[str] = (),
+    declared_axis_count: Optional[int] = None,
 ) -> Dict[str, object]:
     """Self-describing assessment counts, each with its own denominator named.
 
@@ -387,7 +442,16 @@ def assessment_counts(
     not_assessed_entities = sorted(
         {r.entity for r in rows if r.searched != "true" and r.entity} - set(assessed_entities)
     )
-    axes_total = sorted({(row.get("axis") or "").strip() for row in prior_rows} - {""})
+    axes_total = sorted(
+        ({(row.get("axis") or "").strip() for row in prior_rows} - {""})
+        | {axis.strip() for axis in retrieval_axes if axis.strip()}
+    )
+    if declared_axis_count is not None and declared_axis_count != len(axes_total):
+        raise MatrixError(
+            "retrieval scope is internally inconsistent: "
+            f"axes_queried={declared_axis_count}, but {len(axes_total)} distinct axis names "
+            "are retained"
+        )
     naming_axes = sorted(
         {axis for entity in assessed_entities for axis in scope.get(entity, []) if axis}
     )
@@ -399,6 +463,7 @@ def assessment_counts(
         "n_search_axes_total": len(axes_total),
         "n_search_axes_naming_an_assessed_entity": len(naming_axes),
         "entities_assessed": assessed_entities,
+        "search_axes_total": axes_total,
         "search_axes_naming_an_assessed_entity": naming_axes,
         # `explicit` means the retrieval step handed us its own scope list, so no
         # axis named the entities and the axis-naming count is 0 by construction
@@ -523,6 +588,7 @@ def contextualize(
     significant_only: bool = True,
     contrast_terms: Sequence[str] = (),
     explicit_searched: Optional[Sequence[str]] = None,
+    retrieval_scope: Optional[Path] = None,
     verify_hashes: bool = True,
 ) -> Dict[str, object]:
     """Run the whole contextualization and write every declared artifact.
@@ -540,10 +606,21 @@ def contextualize(
     )
     prior_rows = read_prior_claims(prior_claims)
     evidence = load_evidence(evidence_manifest, verify_hashes=verify_hashes)
+    if retrieval_scope is not None:
+        retrieval_axes, declared_axis_count = read_retrieval_scope(retrieval_scope)
+        retrieval_scope_path: Optional[Path] = retrieval_scope
+    else:
+        retrieval_axes, declared_axis_count, retrieval_scope_path = discover_retrieval_scope(
+            prior_claims
+        )
+
+    # Scope-only pseudo-rows carry no PMID. They let a zero-result query mark a
+    # finding as searched/no-prior-finding without becoming citable evidence.
+    scope_rows = list(prior_rows) + [{"axis": axis} for axis in retrieval_axes]
 
     rows = build_rows(
         table,
-        prior_rows,
+        scope_rows,
         evidence,
         entity_kind=entity_kind,
         contrast_terms=contrast_terms,
@@ -567,7 +644,7 @@ def contextualize(
     # Same pure call `build_rows` makes, so the axis attribution the counts
     # report is the one the rows were built from.
     scope = searched_entities(
-        prior_rows,
+        scope_rows,
         (f.symbol for f in table.findings),
         explicit=explicit_searched,
     )
@@ -595,7 +672,15 @@ def contextualize(
             rows,
             prior_rows,
             scope,
-            scope_source="explicit" if explicit_searched is not None else "query_axes",
+            scope_source=(
+                "explicit"
+                if explicit_searched is not None
+                else "retrieval_scope"
+                if retrieval_scope_path is not None
+                else "query_axes"
+            ),
+            retrieval_axes=retrieval_axes,
+            declared_axis_count=declared_axis_count,
         )
     )
     return summary
@@ -643,6 +728,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="file of entity symbols a query was issued for, one per line",
     )
     p.add_argument(
+        "--retrieval-scope",
+        type=Path,
+        default=None,
+        help=(
+            "retained retrieval_scope.json (auto-detected beside --prior-claims "
+            "when omitted)"
+        ),
+    )
+    p.add_argument(
         "--no-verify-hashes",
         action="store_true",
         help="skip snapshot byte-hash verification (diagnostics only)",
@@ -673,6 +767,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         significant_only=not args.all_rows,
         contrast_terms=args.contrast_terms,
         explicit_searched=explicit,
+        retrieval_scope=args.retrieval_scope,
         verify_hashes=not args.no_verify_hashes,
     )
     json.dump(summary, sys.stdout, indent=2, sort_keys=True)

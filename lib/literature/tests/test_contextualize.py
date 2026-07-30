@@ -199,6 +199,47 @@ def test_searched_entity_with_no_naming_snapshot_is_no_prior_finding(workspace: 
     assert rows["SAA1"]["searched"] == "true"
 
 
+def test_zero_result_axis_survives_in_retained_retrieval_scope(workspace: dict) -> None:
+    """An attempted axis with no claim row is searched, not not_assessed."""
+    scope_path = workspace["prior"].parent / "retrieval_scope.json"
+    scope_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "axes": [
+                    {
+                        "axis": "dusp1_dexamethasone_asm",
+                        "query": "DUSP1 dexamethasone airway smooth muscle",
+                        "status": "completed",
+                        "entries_written": 3,
+                        "rows_written": 3,
+                        "fallback_used": False,
+                        "truncated_at_storage_cap": False,
+                    },
+                    {
+                        "axis": "SAA1",
+                        "query": "SAA1 dexamethasone airway smooth muscle",
+                        "status": "completed",
+                        "entries_written": 0,
+                        "rows_written": 0,
+                        "fallback_used": False,
+                        "truncated_at_storage_cap": False,
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    summary = _run(workspace)
+    rows = {r["entity"]: r for r in _matrix(workspace)}
+    assert rows["SAA1"]["concordance_flag"] == "no_prior_finding"
+    assert rows["SAA1"]["searched"] == "true"
+    assert summary["n_search_axes_total"] == 2
+    assert summary["search_axes_total"] == ["SAA1", "dusp1_dexamethasone_asm"]
+    assert summary["search_scope_source"] == "retrieval_scope"
+
+
 # --- concordance ----------------------------------------------------------
 
 
@@ -489,6 +530,7 @@ def test_assessment_counts_are_deterministic(workspace: dict, tmp_path: Path) ->
         "n_search_axes_total",
         "n_search_axes_naming_an_assessed_entity",
         "entities_assessed",
+        "search_axes_total",
         "search_axes_naming_an_assessed_entity",
         "search_scope_source",
         "count_definitions",

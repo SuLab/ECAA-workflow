@@ -48,6 +48,7 @@
 //!   atom-declared obligation id; threaded through to
 //!   `RequiredArtifact.validation_obligations` by the v4 lowering pass)
 //! - runtime_packages → `TaskNode::attributes["runtime_packages"]`
+//! - parameters → `TaskNode::attributes["parameters"]`
 //! - read_allowance → `TaskNode::attributes["read_allowance"]`
 //!
 //! The attributes-bag strategy is intentional: it is shape-preserving
@@ -365,6 +366,12 @@ fn preserve_attributes(atom: &AtomDefinition) -> BTreeMap<String, serde_json::Va
             serde_json::to_value(rp).unwrap_or(serde_json::Value::Null),
         );
     }
+    if !atom.parameters.is_empty() {
+        a.insert(
+            "parameters".into(),
+            serde_json::to_value(&atom.parameters).unwrap_or(serde_json::Value::Null),
+        );
+    }
     // Threaded so `composer_v4::companion_synthesis` can propagate it to a
     // synthesized `validate_<id>` companion (a validator cross-checking a
     // broad-read aggregator legitimately needs the same read scope), and so
@@ -386,7 +393,7 @@ mod tests {
     use crate::atom::{
         AtomAssignee, AtomDefinition, AtomRole, ContainerSource, ContainerSpec, IterateConvergence,
         IterateConvergenceOp, IterateMaxAction, IterateSpec, JointlyWithConstraint,
-        MethodChoiceRef, NetworkPolicy, ResourceProfile,
+        MethodChoiceRef, NetworkPolicy, ParameterSpec, ParameterType, ResourceProfile,
     };
     use crate::runtime_prereqs::RuntimePrereqs;
     use crate::workflow_contracts::implementation::Implementation;
@@ -449,6 +456,26 @@ mod tests {
         assert_eq!(node.version.major, 1);
         assert_eq!(node.version.minor, 0);
         assert_eq!(node.version.patch, 0);
+    }
+
+    #[test]
+    fn from_atom_preserves_typed_parameter_defaults() {
+        let mut atom = minimal_atom("pathway_enrichment");
+        atom.parameters = vec![ParameterSpec {
+            name: "pvalue_threshold".into(),
+            r#type: ParameterType::Number,
+            required: false,
+            default: Some(serde_json::json!(0.25)),
+            allowed_values: Vec::new(),
+            examples: Vec::new(),
+            description: Some("Adjusted-p-value reporting cutoff.".into()),
+        }];
+
+        let node = TaskNode::from_atom(&atom);
+        assert_eq!(
+            node.attributes.get("parameters"),
+            Some(&serde_json::to_value(&atom.parameters).unwrap())
+        );
     }
 
     #[test]

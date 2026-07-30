@@ -23,6 +23,49 @@ pub const SIGNED_SINK_UNDER_RUNTIME: &str = "verification-reports/claim-verifica
 /// [`SIGNED_SINK_UNDER_RUNTIME`] by the `signed_sink_paths_agree` test.
 pub const SIGNED_SINK_REL: &str = "runtime/verification-reports/claim-verification.signed.json";
 
+struct SinkUpdateLock {
+    dir: PathBuf,
+}
+
+impl SinkUpdateLock {
+    fn acquire(target: &Path) -> std::io::Result<Self> {
+        let dir = target.with_extension("update-lock");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        loop {
+            match std::fs::create_dir(&dir) {
+                Ok(()) => return Ok(Self { dir }),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    let stale = std::fs::metadata(&dir)
+                        .and_then(|metadata| metadata.modified())
+                        .and_then(|modified| modified.elapsed().map_err(std::io::Error::other))
+                        .is_ok_and(|age| age > std::time::Duration::from_secs(300));
+                    if stale {
+                        let _ = std::fs::remove_dir(&dir);
+                        continue;
+                    }
+                    if std::time::Instant::now() >= deadline {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::WouldBlock,
+                            format!(
+                                "timed out acquiring signed-sink update lock {}",
+                                dir.display()
+                            ),
+                        ));
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+}
+
+impl Drop for SinkUpdateLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir(&self.dir);
+    }
+}
+
 /// Build the package-relative Evidence (V) reference for a verified claim's
 /// `source_table`. The runtime verifier records the table it confirmed against
 /// by basename (e.g. `de_results.tsv`); a bare basename is resolved to the
@@ -354,17 +397,17 @@ pub fn build_sink_doc(
     doc
 }
 
-/// Build the sink doc for `task_id`, HMAC-sign it with `writer`, and APPEND
-/// it as one signed JSONL row to
+/// Build the sink doc for `task_id`, HMAC-sign it with `writer`, and retain it
+/// as one signed JSONL row in
 /// `<package_root>/runtime/verification-reports/claim-verification.signed.json`.
 /// Returns the written path.
 ///
-/// The sink is append-only: one independently-signed row per task
-/// verification. The loader (`audit_proof::loader::load_claims`) unions all
-/// rows so a recall gap recorded by an earlier task can never be erased by a
-/// later coverage-less task — a last-writer REPLACE silently dropped it (the
-/// F2 at-rest erasure). Because each row carries its own HMAC, appending
-/// needs no rewrite of prior rows.
+/// The sink retains the latest independently signed row for each task. The
+/// loader (`audit_proof::loader::load_claims`) unions those rows so a recall
+/// gap recorded by one task cannot be erased by a later coverage-less task.
+/// Updating one task requires a serialized read-filter-write transaction:
+/// concurrent host writers preserve every sibling row byte-for-byte and
+/// atomically replace the ledger only after the new content is durable.
 ///
 /// The reports dir is already excluded from the BagIt manifest
 /// (`emitter/bagit.rs`) and is never trusted from the agent side
@@ -387,16 +430,15 @@ pub fn persist_signed_verdicts(
     writer.write_signed_row(&mut buf, &doc)?;
     // `buf` already ends in '\n' (write_signed_row uses writeln!).
 
-    // Idempotent replace, mirroring `refresh_plaintext_sidecar`. The sink is
-    // NDJSON — one independently-MAC'd row per finalized task. A plain append
-    // (the prior behaviour) was correct only for a single end-to-end run; on a
-    // RE-finalize it appended a *second* row for the same task, leaving the
-    // first (now stale) row in place. The audit-proof loader reads the sink as
-    // the trust surface and keys on the first row per task, so it would then
-    // evaluate STALE verdicts (e.g. a claim the corrected verifier no longer
-    // emits) and report phantom violations. Drop any existing row whose
+    // The server completion hook and harness convergence finalizer can update
+    // this ledger from separate processes. Serialize the read-filter-write
+    // transaction so neither writer can splice a signed row or discard a
+    // sibling task's row. The final rename is atomic for readers.
+    let _lock = SinkUpdateLock::acquire(&path)?;
+
+    // Idempotent replace. The sink is NDJSON: drop any existing row whose
     // `task_id` equals this task's, preserving every other row's original bytes
-    // (and therefore its signature) verbatim, then append the fresh row.
+    // and signature verbatim, then append the fresh row.
     let mut kept: Vec<u8> = Vec::new();
     if let Ok(existing) = std::fs::read_to_string(&path) {
         for line in existing.lines() {
@@ -420,9 +462,7 @@ pub fn persist_signed_verdicts(
     }
     kept.extend_from_slice(&buf);
 
-    // Atomic-ish rewrite: a full overwrite replaces the prior contents in one
-    // call (matching the plaintext sidecar's `std::fs::write`).
-    std::fs::write(&path, &kept)?;
+    crate::fs_helpers::atomic_write_bytes_sync(&path, &kept)?;
     Ok(path)
 }
 
@@ -1040,6 +1080,45 @@ mod tests {
         assert_eq!(by_task["task_a"]["n_verified"], json!(1));
         assert_eq!(by_task["task_a"]["n_mismatch"], json!(0));
         assert_eq!(by_task["task_b"]["n_verified"], json!(1));
+    }
+
+    #[test]
+    fn concurrent_task_updates_preserve_valid_signed_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let writer = AuditWriter::for_session();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(12));
+        let root = dir.path().to_path_buf();
+        let mut workers = Vec::new();
+        for index in 0..12 {
+            let writer = writer.clone();
+            let barrier = barrier.clone();
+            let root = root.clone();
+            workers.push(std::thread::spawn(move || {
+                barrier.wait();
+                persist_signed_verdicts(
+                    &root,
+                    &format!("task_{index:02}"),
+                    &ClaimVerificationReport::empty(),
+                    None,
+                    &writer,
+                )
+                .unwrap();
+            }));
+        }
+        for worker in workers {
+            worker.join().unwrap();
+        }
+
+        let body = std::fs::read_to_string(dir.path().join(SIGNED_SINK_REL)).unwrap();
+        let mut tasks = std::collections::BTreeSet::new();
+        for line in body.lines().filter(|line| !line.trim().is_empty()) {
+            let signed: Value = serde_json::from_str(line).unwrap();
+            let inner = writer
+                .verify_row(&signed)
+                .expect("every concurrently retained row must verify");
+            tasks.insert(inner["task_id"].as_str().unwrap().to_string());
+        }
+        assert_eq!(tasks.len(), 12, "one valid row must survive for every task");
     }
 
     #[test]

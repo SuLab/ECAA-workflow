@@ -33,6 +33,13 @@ description: |
   for an available covariate; the response matches the stated outcome). It never
   prescribes a model.
 
+  RUNTIME-METADATA CONSISTENCY: if the executable script chooses an effect-size
+  shrinkage method through an availability fallback, bind the analysis call and
+  every emitted `lfc_shrinkage` field to the same run-time variable. Do not
+  hard-code the preferred method in de_summary.json and then post-edit the JSON
+  after a different fallback ran. The retained script must regenerate truthful,
+  identical method metadata during replay.
+
   COUNT-CONSISTENCY (defense-in-depth): the significant-entity count you report
   (and any `n_sig` you record) MUST come from the SAME significance vector
   written to de_results.tsv — never from a separately-thresholded object. If you

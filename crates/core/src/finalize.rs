@@ -1371,6 +1371,7 @@ fn synthesize_stage_count_claim(package_root: &Path, task_id: &str) -> Option<St
         "n_gene_sets_total",
         "n_pathways_tested",
         "n_pathways_total",
+        "n_sets_tested",
         "n_sets_total",
         "n_genes_tested",
         "n_features_tested",
@@ -1428,43 +1429,74 @@ fn synthesize_stage_count_claim(package_root: &Path, task_id: &str) -> Option<St
             .map(|(key, value)| (key.as_str(), value)),
     );
 
-    let (count, threshold, label) = count_candidates.into_iter().find_map(|(key, value)| {
-        let key = key.to_ascii_lowercase();
-        if key != "n_significant"
-            && key != "n_significant_total"
-            && !key.starts_with("n_sig_")
-            && !key.starts_with("n_significant_")
-            && !key.starts_with("n_sets_significant_")
-            && !key.starts_with("n_gene_sets_significant_")
-            && !key.starts_with("n_pathways_significant_")
-        {
-            return None;
-        }
-        let count = value.as_u64()?;
-        let digits_reversed: String = key.chars().rev().take_while(char::is_ascii_digit).collect();
-        let encoded_threshold = if digits_reversed.is_empty() {
-            None
-        } else {
-            let digits: String = digits_reversed.chars().rev().collect();
-            Some(digits.parse::<u32>().ok()? as f64 / 100.0)
-        };
-        let (threshold, label) = encoded_threshold
-            .map(|threshold| {
-                let label = if key.contains("padj") || key.contains("adj") {
-                    "padj"
-                } else if key.contains("pvalue") {
-                    "pvalue"
-                } else {
-                    "FDR"
-                };
-                (threshold, label)
+    let resolved_candidates: Vec<(&str, u64, f64, &str)> = count_candidates
+        .into_iter()
+        .filter_map(|(key, value)| {
+            let normalized_key = key.to_ascii_lowercase();
+            if normalized_key != "n_significant"
+                && normalized_key != "n_significant_total"
+                && !normalized_key.starts_with("n_sig_")
+                && !normalized_key.starts_with("n_significant_")
+                && !normalized_key.starts_with("n_sets_significant_")
+                && !normalized_key.starts_with("n_gene_sets_significant_")
+                && !normalized_key.starts_with("n_pathways_significant_")
+            {
+                return None;
+            }
+            let count = value.as_u64()?;
+            let digits_reversed: String = normalized_key
+                .chars()
+                .rev()
+                .take_while(char::is_ascii_digit)
+                .collect();
+            let encoded_threshold = if digits_reversed.is_empty() {
+                None
+            } else {
+                let digits: String = digits_reversed.chars().rev().collect();
+                Some(digits.parse::<u32>().ok()? as f64 / 100.0)
+            };
+            let (threshold, label) = encoded_threshold
+                .map(|threshold| {
+                    let label = if normalized_key.contains("padj") || normalized_key.contains("adj")
+                    {
+                        "padj"
+                    } else if normalized_key.contains("pvalue") {
+                        "pvalue"
+                    } else {
+                        "FDR"
+                    };
+                    (threshold, label)
+                })
+                .or(explicit_threshold)?;
+            if !(threshold > 0.0 && threshold < 1.0) {
+                return None;
+            }
+            Some((key, count, threshold, label))
+        })
+        .collect();
+
+    // A generic count plus an explicit threshold is the strongest declaration.
+    // If a stage instead emits several threshold-encoded counts (the live
+    // pathway schema carries both padj05 and padj25), use the largest retained
+    // threshold. Picking the first lexicographic key silently selected padj05
+    // even though the stage's primary preranked-GSEA reporting boundary is
+    // padj25.
+    let selected = resolved_candidates
+        .iter()
+        .find(|(key, _, _, _)| matches!(*key, "n_significant" | "n_significant_total"))
+        .or_else(|| {
+            explicit_threshold.and_then(|(expected, _)| {
+                resolved_candidates
+                    .iter()
+                    .find(|(_, _, threshold, _)| (*threshold - expected).abs() <= f64::EPSILON)
             })
-            .or(explicit_threshold)?;
-        if !(threshold > 0.0 && threshold < 1.0) {
-            return None;
-        }
-        Some((count, threshold, label))
-    })?;
+        })
+        .or_else(|| {
+            resolved_candidates
+                .iter()
+                .max_by(|left, right| left.2.total_cmp(&right.2).then_with(|| left.0.cmp(right.0)))
+        })?;
+    let (_, count, threshold, label) = *selected;
 
     let table = stage_count_table(&dir, total)?;
     let rel = table
@@ -1952,6 +1984,43 @@ mod tests {
         let claim = synthesize_stage_count_claim(tmp.path(), "pathway_enrichment")
             .expect("set-count pathway floor claim synthesized");
         assert_eq!(claim.claim, "3 of 5 gene sets significant at FDR < 0.25");
+        assert_eq!(
+            claim.evidence.as_deref(),
+            Some("runtime/outputs/pathway_enrichment/pathway_results.tsv")
+        );
+        let verdicts =
+            verify_structured_claims(std::slice::from_ref(&claim), tmp.path(), &test_cfg());
+        assert!(matches!(
+            verdicts[0].status,
+            crate::claim_verifier::ClaimStatus::Verified
+        ));
+    }
+
+    #[test]
+    fn synthesize_stage_count_claim_accepts_live_pathway_schema() {
+        let tmp = tempdir().unwrap();
+        let dir = tmp.path().join("runtime/outputs/pathway_enrichment");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("result.json"),
+            r#"{
+                "task_id":"pathway_enrichment",
+                "method":"clusterProfiler::gseGO + gseKEGG",
+                "n_sets_tested":5,
+                "n_significant_padj25":3,
+                "n_significant_padj05":1
+            }"#,
+        )
+        .unwrap();
+        fs::write(
+            dir.join("pathway_results.tsv"),
+            "pathway\tNES\tpadj\nA\t1\t0.01\nB\t-1\t0.10\nC\t1\t0.24\nD\t1\t0.30\nE\t1\t0.90\n",
+        )
+        .unwrap();
+
+        let claim = synthesize_stage_count_claim(tmp.path(), "pathway_enrichment")
+            .expect("live pathway summary yields a floor claim");
+        assert_eq!(claim.claim, "3 of 5 gene sets significant at padj < 0.25");
         assert_eq!(
             claim.evidence.as_deref(),
             Some("runtime/outputs/pathway_enrichment/pathway_results.tsv")

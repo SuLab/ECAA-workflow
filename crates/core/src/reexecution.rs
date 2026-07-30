@@ -2,11 +2,13 @@
 //!
 //! Five buckets, in priority order (first match wins per artifact):
 //! - `ByteIdentical`: SHA-256 of result artifact matches replay.
-//! - `SemanticEquivalent`: per-modality numeric bounds satisfied. Bounds
-//!   come from [`crate::reexecution_bounds::ModalityBoundsProvider`],
-//!   resolved by the caller from the classified modality; the
-//!   default-constructed `ModalityBounds` reproduces the historical ±5%
-//!   relative band for unconfigured modalities. See [`classify_reexecution`].
+//! - `SemanticEquivalent`: per-modality numeric bounds are satisfied for
+//!   tables, or canonical JSON values match exactly for generated summary
+//!   metadata. Bounds come from
+//!   [`crate::reexecution_bounds::ModalityBoundsProvider`], resolved by the
+//!   caller from the classified modality; the default-constructed
+//!   `ModalityBounds` reproduces the historical ±5% relative band for
+//!   unconfigured table modalities. See [`classify_reexecution`].
 //! - `AcknowledgedNonDeterminism`: artifact differs beyond the band, but the
 //!   source package's `determinism-shim.json::non_deterministic_artifacts`
 //!   declares a matching [`NonDetAck`](crate::determinism_shim::NonDetAck)
@@ -38,6 +40,10 @@ use std::path::Path;
 /// error). A structural divergence can only be acknowledged by a WHOLE-artifact
 /// ack — a column-scoped ack never lists this token, so it stays `Failed`.
 const STRUCTURE_SENTINEL: &str = "<table-shape>";
+
+/// Synthetic JSON-pointer identifier used when a generated summary cannot be
+/// parsed as JSON. Only a whole-artifact acknowledgement can cover it.
+const JSON_STRUCTURE_SENTINEL: &str = "<json-structure>";
 
 /// The five re-execution buckets per PAR-26-040 §Aim 3A primary endpoint.
 ///
@@ -98,18 +104,20 @@ impl ReexecutionReport {
     }
 }
 
-/// Classify every result table found in `parent_pkg` by comparing it
-/// against the corresponding file in `replay_pkg`.
+/// Classify every result table and generated summary found in `parent_pkg` by
+/// comparing it against the corresponding file in `replay_pkg`.
 ///
-/// Candidate `*.{csv,tsv}` tables are gathered from BOTH locations,
-/// deduplicated by their path relative to `parent_pkg`:
+/// Candidate `*.{csv,tsv}` tables and direct or nested `*_summary.json`
+/// artifacts are gathered from BOTH locations, deduplicated by their path
+/// relative to `parent_pkg`:
 /// - `<parent_pkg>/runtime/outputs/` scanned **recursively** — the real
-///   location, where per-task subdirs hold tables like
-///   `runtime/outputs/differential_expression/de_results.tsv`, AND
+///   location, where per-task subdirs hold tables and execution summaries like
+///   `runtime/outputs/differential_expression/de_results.tsv` and
+///   `runtime/outputs/differential_expression/de_summary.json`, AND
 /// - `<parent_pkg>/results/tables/` scanned **non-recursively** —
-///   legacy/forward-compat, kept working.
+///   legacy/forward-compat for result tables, kept working.
 ///
-/// When NEITHER location yields a table, an empty report is returned
+/// When NEITHER location yields a comparable artifact, an empty report is returned
 /// (the historical behavior for an absent `results/tables`).
 ///
 /// `policy_path` is the optional path to a `determinism-shim.json` sidecar
@@ -131,17 +139,17 @@ pub fn classify_reexecution(
     // acknowledged non-determinism sources.
     let shim = load_determinism_shim(parent_pkg, policy_path);
 
-    // Gather candidate parent tables from both locations, deduplicated by
+    // Gather candidate parent artifacts from both locations, deduplicated by
     // their path relative to `parent_pkg`. `BTreeMap` keeps the per-artifact
     // ordering deterministic across runs (a hard dependency for the
     // byte-reproducibility contract).
-    let mut parent_tables: BTreeMap<String, std::path::PathBuf> = BTreeMap::new();
+    let mut parent_artifacts: BTreeMap<String, std::path::PathBuf> = BTreeMap::new();
 
     // (1) runtime/outputs/ — recursive (the real location).
-    collect_tables_recursive(
+    collect_comparable_artifacts_recursive(
         &parent_pkg.join("runtime").join("outputs"),
         parent_pkg,
-        &mut parent_tables,
+        &mut parent_artifacts,
     )?;
 
     // (2) results/tables/ — non-recursive (legacy/forward-compat).
@@ -153,12 +161,13 @@ pub fn classify_reexecution(
             if !path.is_file() || !is_table_ext(&path) {
                 continue;
             }
-            insert_table(&path, parent_pkg, &mut parent_tables);
+            insert_artifact(&path, parent_pkg, &mut parent_artifacts);
         }
     }
 
-    // Neither location yielded a table — preserve the empty-report behavior.
-    if parent_tables.is_empty() {
+    // Neither location yielded a comparable artifact — preserve the
+    // empty-report behavior.
+    if parent_artifacts.is_empty() {
         return Ok(ReexecutionReport {
             schema_version: "0.1".to_string(),
             bucket_counts: BTreeMap::new(),
@@ -177,7 +186,7 @@ pub fn classify_reexecution(
     let recorded_root = crate::replay::read_recorded_env(parent_pkg).0;
     let scratch_root = replay_pkg.to_string_lossy().to_string();
 
-    for (rel_path, path) in &parent_tables {
+    for (rel_path, path) in &parent_artifacts {
         // Resolve the replay file by the same relative path. Preserve the
         // existing fallback: when `path` is somehow not under `parent_pkg`,
         // join the relative string directly.
@@ -214,10 +223,21 @@ fn is_table_ext(path: &Path) -> bool {
     ext == "csv" || ext == "tsv"
 }
 
-/// Insert one parent table into `out`, keyed by its path relative to
+/// `true` when `path` names generated summary metadata. Administrative JSON
+/// sidecars (`task-spec.json`, `agent-usage.json`, state patches, manifests)
+/// are deliberately excluded: replay is intended to verify values emitted by
+/// the scientific computation, not harness bookkeeping.
+fn is_summary_json(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .map(|n| n.to_ascii_lowercase().ends_with("_summary.json"))
+        .unwrap_or(false)
+}
+
+/// Insert one parent artifact into `out`, keyed by its path relative to
 /// `parent_pkg`. The fallback (path not under `parent_pkg`) keys by the
 /// file name so the entry is never silently dropped.
-fn insert_table(path: &Path, parent_pkg: &Path, out: &mut BTreeMap<String, std::path::PathBuf>) {
+fn insert_artifact(path: &Path, parent_pkg: &Path, out: &mut BTreeMap<String, std::path::PathBuf>) {
     let rel_path = path
         .strip_prefix(parent_pkg)
         .map(|p| p.to_path_buf())
@@ -227,10 +247,11 @@ fn insert_table(path: &Path, parent_pkg: &Path, out: &mut BTreeMap<String, std::
     out.insert(rel_path, path.to_path_buf());
 }
 
-/// Recursively collect `*.{csv,tsv}` files under `dir` into `out`, keyed by
-/// their path relative to `parent_pkg`. A missing `dir` is a no-op (the
-/// always-emits discipline: an absent runtime/outputs must not error).
-fn collect_tables_recursive(
+/// Recursively collect `*.{csv,tsv}` files and `*_summary.json` files under
+/// `dir` into `out`, keyed by their path relative to `parent_pkg`. A missing
+/// `dir` is a no-op (the always-emits discipline: an absent runtime/outputs
+/// must not error).
+fn collect_comparable_artifacts_recursive(
     dir: &Path,
     parent_pkg: &Path,
     out: &mut BTreeMap<String, std::path::PathBuf>,
@@ -243,9 +264,9 @@ fn collect_tables_recursive(
         let path = entry.path();
         let file_type = entry.file_type()?;
         if file_type.is_dir() {
-            collect_tables_recursive(&path, parent_pkg, out)?;
-        } else if file_type.is_file() && is_table_ext(&path) {
-            insert_table(&path, parent_pkg, out);
+            collect_comparable_artifacts_recursive(&path, parent_pkg, out)?;
+        } else if file_type.is_file() && (is_table_ext(&path) || is_summary_json(&path)) {
+            insert_artifact(&path, parent_pkg, out);
         }
     }
     Ok(())
@@ -302,16 +323,21 @@ fn classify_single_artifact(
         };
     }
 
-    // SemanticEquivalent: numeric cells within per-modality bounds. Checked
-    // BEFORE AcknowledgedNonDeterminism on purpose: a within-band reproduction
-    // is a NON-divergent outcome (spec §5.6, "byte_identical / semantic_equivalent
-    // / unavailable are non-divergent and need no ack") and must not be relabeled
-    // as a divergent acknowledged outcome. The default is the historical ±5%
-    // relative band. The delimiter is SNIFFED FROM CONTENT (see
-    // [`delimiter_for`]) — an agent that writes `write.csv()` output to a
-    // `.tsv` name is common, and trusting the extension tab-parsed such a file
-    // into a single column whose name was the entire header line, so every
-    // data row string-compared and the artifact failed spuriously.
+    // SemanticEquivalent is checked BEFORE AcknowledgedNonDeterminism on
+    // purpose: a semantically equivalent reproduction is a NON-divergent
+    // outcome (spec §5.6, "byte_identical / semantic_equivalent / unavailable
+    // are non-divergent and need no ack") and must not be relabeled as a
+    // divergent acknowledged outcome.
+    //
+    // Tables use per-modality numeric bounds. The delimiter is SNIFFED FROM
+    // CONTENT (see [`delimiter_for`]) — an agent that writes `write.csv()`
+    // output to a `.tsv` name is common, and trusting the extension tab-parsed
+    // such a file into a single column whose name was the entire header line,
+    // so every data row string-compared and the artifact failed spuriously.
+    //
+    // Generated `*_summary.json` metadata compares canonically and exactly.
+    // Method names, thresholds, seeds, counts, and branch labels are execution
+    // contracts, not estimates to which a ±5% tolerance can safely apply.
     // Path-normalize BEFORE the semantic comparison (but after the byte-identical
     // check above): a text artifact that embeds the absolute package root — a
     // validation-report `detail` column naming an input file, a logged output
@@ -323,23 +349,34 @@ fn classify_single_artifact(
     // applies to scripts. A byte-identical artifact never reaches here.
     let parent_norm = normalize_root(&parent_bytes, recorded_root);
     let replay_norm = normalize_root(&replay_bytes, scratch_root);
-    let delimiter = delimiter_for(&parent_norm, parent_artifact);
-    let diverging = match check_semantic_equivalence(&parent_norm, &replay_norm, delimiter, bounds)
-    {
-        Ok(cols) => cols,
-        // A parse failure (e.g. invalid UTF-8) is a structural divergence: only
-        // a whole-artifact ack can cover it.
-        Err(_e) => BTreeSet::from([STRUCTURE_SENTINEL.to_string()]),
+    let summary_json = is_summary_json(parent_artifact);
+    let diverging = if summary_json {
+        match check_json_equivalence(&parent_norm, &replay_norm) {
+            Ok(paths) => paths,
+            Err(_e) => BTreeSet::from([JSON_STRUCTURE_SENTINEL.to_string()]),
+        }
+    } else {
+        let delimiter = delimiter_for(&parent_norm, parent_artifact);
+        match check_semantic_equivalence(&parent_norm, &replay_norm, delimiter, bounds) {
+            Ok(cols) => cols,
+            // A parse failure (e.g. invalid UTF-8) is a structural divergence:
+            // only a whole-artifact ack can cover it.
+            Err(_e) => BTreeSet::from([STRUCTURE_SENTINEL.to_string()]),
+        }
     };
 
     if diverging.is_empty() {
         return ArtifactClassification {
             artifact_path: rel_path.to_string(),
             bucket: ReexecutionBucket::SemanticEquivalent,
-            reason: Some(format!(
-                "numeric columns within per-modality bounds (rel {:.3}, abs {:.4})",
-                bounds.relative_tolerance, bounds.absolute_tolerance
-            )),
+            reason: Some(if summary_json {
+                "canonical JSON values match after package-root normalization".to_string()
+            } else {
+                format!(
+                    "numeric columns within per-modality bounds (rel {:.3}, abs {:.4})",
+                    bounds.relative_tolerance, bounds.absolute_tolerance
+                )
+            }),
         };
     }
 
@@ -356,7 +393,7 @@ fn classify_single_artifact(
                     artifact_path: rel_path.to_string(),
                     bucket: ReexecutionBucket::AcknowledgedNonDeterminism,
                     reason: Some(format!(
-                        "diverging column(s) [{}] acknowledged by determinism-shim.json ({:?}: {})",
+                        "diverging comparison key(s) [{}] acknowledged by determinism-shim.json ({:?}: {})",
                         diverging.iter().cloned().collect::<Vec<_>>().join(", "),
                         ack.kind,
                         ack.reason
@@ -371,9 +408,157 @@ fn classify_single_artifact(
         artifact_path: rel_path.to_string(),
         bucket: ReexecutionBucket::Failed,
         reason: Some(format!(
-            "diverging column(s) [{}] exceed per-modality semantic-equivalence bounds with no covering non-determinism acknowledgment",
-            diverging.iter().cloned().collect::<Vec<_>>().join(", ")
+            "{} [{}] {} with no covering non-determinism acknowledgment",
+            if summary_json {
+                "diverging JSON pointer(s)"
+            } else {
+                "diverging column(s)"
+            },
+            diverging.iter().cloned().collect::<Vec<_>>().join(", "),
+            if summary_json {
+                "do not match the recorded generated summary"
+            } else {
+                "exceed per-modality semantic-equivalence bounds"
+            }
         )),
+    }
+}
+
+/// Compare generated summary JSON exactly after package-root normalization.
+///
+/// Object key order and insignificant JSON formatting are ignored by parsing
+/// both documents. Every scalar value is otherwise exact. Numeric values are
+/// compared numerically so `1` and `1.0` are equivalent, while `1000` and
+/// `999` are not. Divergences are returned as RFC 6901 JSON pointers, making
+/// the specific execution metadata field auditable and usable by a
+/// field-scoped non-determinism acknowledgement.
+fn check_json_equivalence(parent: &[u8], replay: &[u8]) -> Result<BTreeSet<String>, String> {
+    let parent: serde_json::Value =
+        serde_json::from_slice(parent).map_err(|e| format!("parent JSON: {e}"))?;
+    let replay: serde_json::Value =
+        serde_json::from_slice(replay).map_err(|e| format!("replay JSON: {e}"))?;
+    let mut diverging = BTreeSet::new();
+    compare_json_values(&parent, &replay, "", &mut diverging);
+    Ok(diverging)
+}
+
+fn compare_json_values(
+    parent: &serde_json::Value,
+    replay: &serde_json::Value,
+    pointer: &str,
+    diverging: &mut BTreeSet<String>,
+) {
+    use serde_json::Value;
+
+    match (parent, replay) {
+        (Value::Object(parent_map), Value::Object(replay_map)) => {
+            let keys: BTreeSet<&str> = parent_map
+                .keys()
+                .chain(replay_map.keys())
+                .map(String::as_str)
+                .collect();
+            for key in keys {
+                let child = json_pointer_child(pointer, key);
+                match (parent_map.get(key), replay_map.get(key)) {
+                    (Some(parent_value), Some(replay_value)) => {
+                        compare_json_values(parent_value, replay_value, &child, diverging);
+                    }
+                    _ => {
+                        diverging.insert(child);
+                    }
+                }
+            }
+        }
+        (Value::Array(parent_values), Value::Array(replay_values)) => {
+            if parent_values.len() != replay_values.len() {
+                diverging.insert(json_pointer_child(pointer, "<length>"));
+            }
+            for (index, (parent_value, replay_value)) in
+                parent_values.iter().zip(replay_values.iter()).enumerate()
+            {
+                let child = json_pointer_child(pointer, &index.to_string());
+                compare_json_values(parent_value, replay_value, &child, diverging);
+            }
+        }
+        (Value::Number(parent_number), Value::Number(replay_number)) => {
+            if !json_numbers_equal(parent_number, replay_number) {
+                diverging.insert(json_pointer_or_root(pointer));
+            }
+        }
+        _ if parent == replay => {}
+        _ => {
+            diverging.insert(json_pointer_or_root(pointer));
+        }
+    }
+}
+
+fn json_numbers_equal(parent: &serde_json::Number, replay: &serde_json::Number) -> bool {
+    match (canonical_json_number(parent), canonical_json_number(replay)) {
+        (Some(parent), Some(replay)) => parent == replay,
+        // Valid JSON numbers normally normalize. If an extreme exponent cannot
+        // fit the canonical representation, fall back to exact spelling rather
+        // than letting two independent normalization failures compare equal.
+        _ => parent.to_string() == replay.to_string(),
+    }
+}
+
+/// Exact base-10 normalization for a JSON number.
+///
+/// Converting unlike integer representations through `f64` aliases adjacent
+/// integers above 2^53, which could make two different retained counts compare
+/// equal. Normalize the decimal spelling instead. The returned exponent means
+/// `digits × 10^exponent`; leading and trailing zeroes are removed, so `1`,
+/// `1.0`, and `1e0` share one representation without sacrificing integer
+/// precision.
+fn canonical_json_number(number: &serde_json::Number) -> Option<(bool, String, i64)> {
+    let representation = number.to_string();
+    let exponent_offset = representation
+        .find('e')
+        .or_else(|| representation.find('E'));
+    let (mantissa, explicit_exponent) = match exponent_offset {
+        Some(offset) => {
+            let (mantissa, exponent) = representation.split_at(offset);
+            (mantissa, exponent.get(1..)?.parse::<i64>().ok()?)
+        }
+        None => (representation.as_str(), 0),
+    };
+
+    let (negative, unsigned) = mantissa
+        .strip_prefix('-')
+        .map_or((false, mantissa), |value| (true, value));
+    let (whole, fractional) = unsigned.split_once('.').unwrap_or((unsigned, ""));
+    if whole.is_empty()
+        || !whole.bytes().all(|byte| byte.is_ascii_digit())
+        || !fractional.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return None;
+    }
+
+    let mut digits = format!("{whole}{fractional}")
+        .trim_start_matches('0')
+        .to_string();
+    if digits.is_empty() {
+        return Some((false, "0".to_string(), 0));
+    }
+    let fractional_len = i64::try_from(fractional.len()).ok()?;
+    let mut exponent = explicit_exponent.checked_sub(fractional_len)?;
+    while digits.ends_with('0') {
+        digits.pop();
+        exponent = exponent.checked_add(1)?;
+    }
+    Some((negative, digits, exponent))
+}
+
+fn json_pointer_child(parent: &str, token: &str) -> String {
+    let escaped = token.replace('~', "~0").replace('/', "~1");
+    format!("{parent}/{escaped}")
+}
+
+fn json_pointer_or_root(pointer: &str) -> String {
+    if pointer.is_empty() {
+        "/".to_string()
+    } else {
+        pointer.to_string()
     }
 }
 
@@ -658,6 +843,125 @@ mod tests {
             "identical runtime/outputs table must classify ByteIdentical, got {:?}",
             ac.bucket
         );
+    }
+
+    #[test]
+    fn generated_summary_json_is_compared_canonically() {
+        let parent = tempfile::tempdir().expect("parent tempdir");
+        let replay = tempfile::tempdir().expect("replay tempdir");
+        let rel = "runtime/outputs/differential_expression/de_summary.json";
+        write_file(
+            &parent.path().join(rel),
+            r#"{"method":"DESeq2","lfc_shrinkage":"normal","n_tested":22369}"#,
+        );
+        // Formatting, object-key order, and integer notation do not change the
+        // JSON value.
+        write_file(
+            &replay.path().join(rel),
+            "{\n  \"n_tested\": 22369.0,\n  \"lfc_shrinkage\": \"normal\",\n  \"method\": \"DESeq2\"\n}\n",
+        );
+
+        let report = classify_reexecution(
+            parent.path(),
+            replay.path(),
+            None,
+            ModalityBounds::default(),
+        )
+        .expect("classify_reexecution must succeed");
+
+        let ac = classification_for(&report, rel);
+        assert_eq!(ac.bucket, ReexecutionBucket::SemanticEquivalent);
+        assert!(ac.reason.as_deref().unwrap().contains("canonical JSON"));
+    }
+
+    #[test]
+    fn generated_summary_metadata_mismatch_fails_without_numeric_tolerance() {
+        let parent = tempfile::tempdir().expect("parent tempdir");
+        let replay = tempfile::tempdir().expect("replay tempdir");
+        let rel = "runtime/outputs/pathway_enrichment/pathway_summary.json";
+        write_file(
+            &parent.path().join(rel),
+            r#"{"method":"clusterProfiler","nperm":1000,"padj_threshold":0.25}"#,
+        );
+        // Both numeric changes are inside the default table tolerance. Summary
+        // metadata is an execution contract and must still fail exactly.
+        write_file(
+            &replay.path().join(rel),
+            r#"{"method":"fgsea","nperm":999,"padj_threshold":0.24}"#,
+        );
+
+        let report = classify_reexecution(
+            parent.path(),
+            replay.path(),
+            None,
+            ModalityBounds::default(),
+        )
+        .expect("classify_reexecution must succeed");
+
+        let ac = classification_for(&report, rel);
+        assert_eq!(ac.bucket, ReexecutionBucket::Failed);
+        let reason = ac.reason.as_deref().unwrap();
+        assert!(reason.contains("/method"));
+        assert!(reason.contains("/nperm"));
+        assert!(reason.contains("/padj_threshold"));
+    }
+
+    #[test]
+    fn generated_summary_keeps_large_integer_counts_exact() {
+        let parent = tempfile::tempdir().expect("parent tempdir");
+        let replay = tempfile::tempdir().expect("replay tempdir");
+        let rel = "runtime/outputs/pathway_enrichment/pathway_summary.json";
+        write_file(&parent.path().join(rel), r#"{"n_tested":9007199254740992}"#);
+        write_file(&replay.path().join(rel), r#"{"n_tested":9007199254740993}"#);
+
+        let report = classify_reexecution(
+            parent.path(),
+            replay.path(),
+            None,
+            ModalityBounds::default(),
+        )
+        .expect("classify_reexecution must succeed");
+
+        let ac = classification_for(&report, rel);
+        assert_eq!(ac.bucket, ReexecutionBucket::Failed);
+        assert!(ac.reason.as_deref().unwrap().contains("/n_tested"));
+    }
+
+    #[test]
+    fn generated_summary_normalizes_embedded_package_roots() {
+        let parent = tempfile::tempdir().expect("parent tempdir");
+        let replay = tempfile::tempdir().expect("replay tempdir");
+        let rel = "runtime/outputs/normalisation/normalisation_summary.json";
+        let recorded_root = "/recorded/workflow-package";
+
+        write_file(
+            &parent
+                .path()
+                .join("runtime/outputs/normalisation/determinism-env.json"),
+            &format!(r#"{{"pkg_root":"{recorded_root}"}}"#),
+        );
+        write_file(
+            &parent.path().join(rel),
+            &format!(r#"{{"matrix":"{recorded_root}/runtime/outputs/normalisation/counts.tsv"}}"#),
+        );
+        write_file(
+            &replay.path().join(rel),
+            &format!(
+                r#"{{"matrix":"{}/runtime/outputs/normalisation/counts.tsv"}}"#,
+                replay.path().display()
+            ),
+        );
+
+        let report = classify_reexecution(
+            parent.path(),
+            replay.path(),
+            None,
+            ModalityBounds::default(),
+        )
+        .expect("classify_reexecution must succeed");
+
+        let ac = classification_for(&report, rel);
+        assert_eq!(ac.bucket, ReexecutionBucket::SemanticEquivalent);
     }
 
     #[test]

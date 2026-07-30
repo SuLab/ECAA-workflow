@@ -90,7 +90,16 @@ fn seed_clean_pathways(outputs: &Path) {
         outputs,
         "pathway_enrichment/pathway_summary.json",
         &serde_json::json!({
-            "gene_sets_tested": { "HALLMARK": 2, "GO_BP": 3, "total": 5 }
+            "gene_sets_tested": { "HALLMARK": 2, "GO_BP": 3, "total": 5 },
+            "collections": ["HALLMARK", "GO_BP"]
+        })
+        .to_string(),
+    );
+    write(
+        outputs,
+        "pathway_enrichment/result.json",
+        &serde_json::json!({
+            "gene_sets_collections": ["HALLMARK", "GO_BP"]
         })
         .to_string(),
     );
@@ -242,7 +251,8 @@ fn float_counts_and_label_format_do_not_false_block_rollup() {
         &outputs,
         "pathway_enrichment/pathway_summary.json",
         &serde_json::json!({
-            "gene_sets_tested": { "HALLMARK": 2, "GO-BP": 3, "total": 5 }
+            "gene_sets_tested": { "HALLMARK": 2, "GO-BP": 3, "total": 5 },
+            "collections": ["HALLMARK", "GO-BP"]
         })
         .to_string(),
     );
@@ -251,7 +261,12 @@ fn float_counts_and_label_format_do_not_false_block_rollup() {
     write(
         &outputs,
         "pathway_enrichment/result.json",
-        &serde_json::json!({ "n_genes_ranked": 17190.0, "n_genes_unmapped": "5160" }).to_string(),
+        &serde_json::json!({
+            "n_genes_ranked": 17190.0,
+            "n_genes_unmapped": "5160",
+            "gene_sets_collections": ["HALLMARK", "GO_BP"]
+        })
+        .to_string(),
     );
     write(
         &outputs,

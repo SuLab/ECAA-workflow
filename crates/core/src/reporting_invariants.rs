@@ -51,6 +51,15 @@
 //!   * **RC-STAGE-NARRATIVE** a pathway stage narrative that names a top
 //!     enriched or depleted row must copy that row's NES and adjusted p-value
 //!     from `pathway_results.tsv` within the package policy's tolerances.
+//!   * **RC-METHOD** a method name embedded in a pathway-level significance
+//!     label must match the implementation recorded by the pathway stage.
+//!   * **RC-FINAL-FIDELITY** when both report stages ran, the agent-authored
+//!     portion of terminal `final_report.md` must contain the complete
+//!     agent-authored `reporting/report.md` byte-for-byte as one contiguous
+//!     block. Deterministic system-owned blocks are removed from both files
+//!     before comparison because they are injected after task execution. The
+//!     final stage may wrap the validated block with non-scientific navigation,
+//!     but may not silently rewrite a validated row or sentence.
 //!   * **RP-5** a figure caption's asserted data shape ("N samples") must
 //!     match the figure's actual data shape (`top_features_heatmap` is a
 //!     single-column log2FC heatmap, not a per-sample expression matrix).
@@ -238,6 +247,8 @@ pub fn check_reporting_invariants(package_root: &Path) -> ReportingInvariantsRep
     check_rc_pathway_collections(&outputs, &mut report);
     check_rc_pathway_rank(&outputs, &mut report);
     check_rc_pathway_stage_narrative(package_root, &outputs, &mut report);
+    check_rc_pathway_method(&outputs, &mut report);
+    check_rc_final_report_fidelity(&outputs, &mut report);
     check_rp3_fdr_family(&outputs, &mut report);
     check_rp4_mapping_reconciliation(&outputs, &mut report);
     check_rp5_figure_caption_shape(&outputs, &mut report);
@@ -497,6 +508,10 @@ fn check_rc_pathway_collections(outputs: &Path, report: &mut ReportingInvariants
     if expected.is_empty() {
         return;
     }
+    let expected_normalized: BTreeSet<String> = expected
+        .iter()
+        .map(|value| normalize_label(value))
+        .collect();
     report.checked.push("RC-COLLECTION");
 
     let sources = [
@@ -514,7 +529,12 @@ fn check_rc_pathway_collections(outputs: &Path, report: &mut ReportingInvariants
     let mut mismatches = Vec::new();
     for (source, observed) in sources {
         match observed {
-            Some(observed) if observed == expected => {}
+            Some(observed)
+                if observed
+                    .iter()
+                    .map(|value| normalize_label(value))
+                    .collect::<BTreeSet<_>>()
+                    == expected_normalized => {}
             Some(observed) => mismatches.push(format!(
                 "{source}={:?}, pathway_results.tsv={expected:?}",
                 observed
@@ -1379,6 +1399,133 @@ fn check_rp9_method_label(outputs: &Path, report: &mut ReportingInvariantsReport
             detail: "report labels the DE model a \"linear mixed model\"; the executed model is \
                      a fixed-effects negative-binomial GLM (e.g. DESeq2 ~ cell + dex), not a \
                      mixed model"
+                .to_string(),
+        });
+    }
+}
+
+// ---------------------------------------------------------------------------
+// RC-METHOD (Required) — pathway significance label matches implementation
+// ---------------------------------------------------------------------------
+
+/// Return the canonical implementation token recorded by the pathway stage.
+/// `GSEA` itself names an analysis family rather than one implementation, so
+/// only unambiguous implementation names participate in this check.
+fn recorded_pathway_implementation(outputs: &Path) -> Option<&'static str> {
+    for filename in ["result.json", "pathway_summary.json"] {
+        let Some(value) = read_json(&outputs.join("pathway_enrichment").join(filename)) else {
+            continue;
+        };
+        let Some(method) = value.get("method").and_then(Value::as_str) else {
+            continue;
+        };
+        let lower = method.to_ascii_lowercase();
+        for implementation in ["clusterprofiler", "fgsea", "enrichr"] {
+            if lower.contains(implementation) {
+                return Some(implementation);
+            }
+        }
+    }
+    None
+}
+
+/// Concatenate only narrative-bearing reporting fields. Artifact names and
+/// method metadata are deliberately excluded: they may legitimately mention a
+/// tool without asserting that it produced the pathway p-values.
+fn reporting_method_surfaces(outputs: &Path) -> Option<String> {
+    let mut text = read_reports(outputs).unwrap_or_default();
+    for stage in ["reporting", "final_reporting"] {
+        let Some(value) = read_json(&outputs.join(stage).join("result.json")) else {
+            continue;
+        };
+        for pointer in ["/summary", "/narrative_text", "/pathway_summary/threshold"] {
+            if let Some(fragment) = value.pointer(pointer).and_then(Value::as_str) {
+                text.push('\n');
+                text.push_str(fragment);
+            }
+        }
+    }
+    (!text.is_empty()).then_some(text)
+}
+
+/// Fail when a pathway-level FDR label names a different implementation than
+/// the pathway stage actually ran. This is structural, not a broad prose
+/// heuristic: the regex is anchored to the method slot inside the explicit
+/// `pathway-level (<implementation>) FDR` construction.
+fn check_rc_pathway_method(outputs: &Path, report: &mut ReportingInvariantsReport) {
+    let Some(recorded) = recorded_pathway_implementation(outputs) else {
+        return;
+    };
+    let Some(surfaces) = reporting_method_surfaces(outputs) else {
+        return;
+    };
+    report.checked.push("RC-METHOD");
+
+    let label = Regex::new(
+        r"(?i)pathway-level\s*\(\s*(clusterprofiler|fgsea|enrichr)\s*\)\s*(?:fdr|adjusted)",
+    )
+    .expect("static RC-METHOD regex compiles");
+    let mismatched: BTreeSet<String> = label
+        .captures_iter(&surfaces)
+        .filter_map(|captures| captures.get(1))
+        .map(|matched| matched.as_str().to_ascii_lowercase())
+        .filter(|claimed| claimed != recorded)
+        .collect();
+    if !mismatched.is_empty() {
+        report.findings.push(ReportingFinding {
+            invariant: "RC-METHOD",
+            severity: Severity::Required,
+            detail: format!(
+                "pathway-level significance label names implementation(s) {}, but \
+                 pathway_enrichment records `{recorded}`",
+                mismatched.into_iter().collect::<Vec<_>>().join(", ")
+            ),
+        });
+    }
+}
+
+// ---------------------------------------------------------------------------
+// RC-FINAL-FIDELITY (Required) — terminal report preserves validated prose
+// ---------------------------------------------------------------------------
+
+/// Require the terminal report to carry the complete upstream reporting
+/// narrative as an unchanged contiguous block. Deterministic system-owned
+/// table and provenance blocks are appended independently after task execution,
+/// so compare the agent-authored remainders rather than letting injection
+/// placement create a false failure. Navigation or dashboard material may wrap
+/// the validated block without weakening this guarantee.
+fn check_rc_final_report_fidelity(outputs: &Path, report: &mut ReportingInvariantsReport) {
+    let reporting_path = outputs.join("reporting").join("report.md");
+    let final_path = outputs.join("final_reporting").join("final_report.md");
+    let (Ok(upstream), Ok(final_report)) = (
+        std::fs::read_to_string(&reporting_path),
+        std::fs::read_to_string(&final_path),
+    ) else {
+        return;
+    };
+    let upstream = strip_marked_block(
+        &strip_provenance_section(&upstream),
+        FULL_TABLE_START,
+        FULL_TABLE_END,
+    );
+    let final_report = strip_marked_block(
+        &strip_provenance_section(&final_report),
+        FULL_TABLE_START,
+        FULL_TABLE_END,
+    );
+    let upstream = upstream.trim_end();
+    if upstream.is_empty() {
+        return;
+    }
+
+    report.checked.push("RC-FINAL-FIDELITY");
+    if !final_report.contains(upstream) {
+        report.findings.push(ReportingFinding {
+            invariant: "RC-FINAL-FIDELITY",
+            severity: Severity::Required,
+            detail: "the agent-authored portion of final_reporting/final_report.md does not \
+                     contain the complete agent-authored reporting/report.md byte-for-byte; \
+                     the terminal stage rewrote, omitted, or reordered validated report content"
                 .to_string(),
         });
     }
@@ -4035,7 +4182,16 @@ mod tests {
             &outputs,
             "pathway_enrichment/pathway_summary.json",
             &serde_json::json!({
-                "gene_sets_tested": { "HALLMARK": 2, "GO_BP": 3, "total": 5 }
+                "gene_sets_tested": { "HALLMARK": 2, "GO_BP": 3, "total": 5 },
+                "collections": ["HALLMARK", "GO_BP"]
+            })
+            .to_string(),
+        );
+        write(
+            &outputs,
+            "pathway_enrichment/result.json",
+            &serde_json::json!({
+                "gene_sets_collections": ["HALLMARK", "GO_BP"]
             })
             .to_string(),
         );
@@ -4237,6 +4393,174 @@ mod tests {
         assert!(report.required_failures().is_empty());
     }
 
+    // -- RC-METHOD (required) --------------------------------------------
+
+    #[test]
+    fn rc_method_rejects_wrong_pathway_implementation_label() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "pathway_enrichment/result.json",
+            &serde_json::json!({
+                "method": "clusterProfiler::gseGO + gseKEGG"
+            })
+            .to_string(),
+        );
+        write(
+            &outputs,
+            "reporting/result.json",
+            &serde_json::json!({
+                "summary": "1,450 pathways passed pathway-level (fgsea) FDR < 0.25",
+                "pathway_summary": {
+                    "threshold": "pathway-level (fgsea) FDR < 0.25"
+                }
+            })
+            .to_string(),
+        );
+
+        let report = check_reporting_invariants(tmp.path());
+        assert!(report.checked.contains(&"RC-METHOD"));
+        assert!(!report.passed(), "{report:?}");
+        assert!(
+            report
+                .required_failures()
+                .iter()
+                .any(|failure| failure.contains("RC-METHOD")
+                    && failure.contains("fgsea")
+                    && failure.contains("clusterprofiler")),
+            "{:?}",
+            report.required_failures()
+        );
+    }
+
+    #[test]
+    fn rc_method_accepts_method_neutral_pathway_label() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "pathway_enrichment/result.json",
+            &serde_json::json!({
+                "method": "clusterProfiler::gseGO + gseKEGG"
+            })
+            .to_string(),
+        );
+        write(
+            &outputs,
+            "final_reporting/final_report.md",
+            "1,450 pathways passed the pathway-level adjusted p-value (padj) \
+             threshold of 0.25. Enrichment used clusterProfiler GSEA.\n",
+        );
+
+        let report = check_reporting_invariants(tmp.path());
+        assert!(report.checked.contains(&"RC-METHOD"));
+        assert!(
+            report
+                .required_failures()
+                .iter()
+                .all(|failure| !failure.contains("RC-METHOD")),
+            "{:?}",
+            report.required_failures()
+        );
+    }
+
+    // -- RC-FINAL-FIDELITY (required) -----------------------------------
+
+    #[test]
+    fn rc_final_fidelity_rejects_rewritten_upstream_report() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "reporting/report.md",
+            "# Primary results\n\n| Gene | log2FC | padj |\n\
+             |---|---:|---:|\n| TSC22D3 | 2.68567 | 3.342277e-19 |\n",
+        );
+        write(
+            &outputs,
+            "final_reporting/final_report.md",
+            "# Final report\n\n# Primary results\n\n| Gene | log2FC | padj |\n\
+             |---|---:|---:|\n| TSC22D3 | -0.064 | 0.763 |\n",
+        );
+
+        let report = check_reporting_invariants(tmp.path());
+        assert!(report.checked.contains(&"RC-FINAL-FIDELITY"));
+        assert!(
+            report
+                .required_failures()
+                .iter()
+                .any(|failure| failure.contains("RC-FINAL-FIDELITY")),
+            "{:?}",
+            report.required_failures()
+        );
+    }
+
+    #[test]
+    fn rc_final_fidelity_accepts_verbatim_report_with_dashboard_wrapper() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        let upstream = "# Primary results\n\n| Gene | log2FC | padj |\n\
+                        |---|---:|---:|\n| TSC22D3 | 2.68567 | 3.342277e-19 |\n";
+        write(&outputs, "reporting/report.md", upstream);
+        write(
+            &outputs,
+            "final_reporting/final_report.md",
+            &format!(
+                "# Project dashboard\n\nSee `dashboard_index.json`.\n\n{upstream}\n\
+                 ## Dashboard files\n\n- `figures/summary_dashboard.png`\n"
+            ),
+        );
+
+        let report = check_reporting_invariants(tmp.path());
+        assert!(report.checked.contains(&"RC-FINAL-FIDELITY"));
+        assert!(
+            report
+                .required_failures()
+                .iter()
+                .all(|failure| !failure.contains("RC-FINAL-FIDELITY")),
+            "{:?}",
+            report.required_failures()
+        );
+    }
+
+    #[test]
+    fn rc_final_fidelity_ignores_independently_appended_system_blocks() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        let upstream = "# Primary results\n\nTSC22D3 had log2FC 2.68567.\n";
+        let full_tables = format!("{FULL_TABLE_START}\nsystem table\n{FULL_TABLE_END}\n");
+        let provenance = format!(
+            "{}\nsystem provenance\n{}\n",
+            crate::report_contract::provenance_section::DATA_PROVENANCE_START,
+            crate::report_contract::provenance_section::DATA_PROVENANCE_END
+        );
+        write(
+            &outputs,
+            "reporting/report.md",
+            &format!("{upstream}\n{full_tables}\n{provenance}"),
+        );
+        write(
+            &outputs,
+            "final_reporting/final_report.md",
+            &format!(
+                "# Project dashboard\n\n{upstream}\n## Dashboard files\n\nNavigation only.\n\n\
+                 {full_tables}\n{provenance}"
+            ),
+        );
+
+        let report = check_reporting_invariants(tmp.path());
+        assert!(report.checked.contains(&"RC-FINAL-FIDELITY"));
+        assert!(
+            report
+                .required_failures()
+                .iter()
+                .all(|failure| !failure.contains("RC-FINAL-FIDELITY")),
+            "{:?}",
+            report.required_failures()
+        );
+    }
+
     // -- RP-1 (warn, structural) -----------------------------------------
 
     #[test]
@@ -4388,7 +4712,16 @@ mod tests {
             &outputs,
             "pathway_enrichment/pathway_summary.json",
             &serde_json::json!({
-                "gene_sets_tested": { "HALLMARK": 2, "GO-BP": 3, "total": 5 }
+                "gene_sets_tested": { "HALLMARK": 2, "GO-BP": 3, "total": 5 },
+                "collections": ["hallmark", "go_bp"]
+            })
+            .to_string(),
+        );
+        write(
+            &outputs,
+            "pathway_enrichment/result.json",
+            &serde_json::json!({
+                "gene_sets_collections": ["hallmark", "go_bp"]
             })
             .to_string(),
         );
@@ -4417,7 +4750,16 @@ mod tests {
             &outputs,
             "pathway_enrichment/pathway_summary.json",
             &serde_json::json!({
-                "gene_sets_tested": { "HALLMARK": 2, "GO_BP": 3, "MYSTERY": 99, "total": 5 }
+                "gene_sets_tested": { "HALLMARK": 2, "GO_BP": 3, "MYSTERY": 99, "total": 5 },
+                "collections": ["HALLMARK", "GO_BP"]
+            })
+            .to_string(),
+        );
+        write(
+            &outputs,
+            "pathway_enrichment/result.json",
+            &serde_json::json!({
+                "gene_sets_collections": ["HALLMARK", "GO_BP"]
             })
             .to_string(),
         );
@@ -4433,7 +4775,8 @@ mod tests {
             &outputs,
             "pathway_enrichment/pathway_summary.json",
             &serde_json::json!({
-                "gene_sets_tested": { "HALLMARK": 2, "GO_BP": 3, "MYSTERY": 99, "total": 10085 }
+                "gene_sets_tested": { "HALLMARK": 2, "GO_BP": 3, "MYSTERY": 99, "total": 10085 },
+                "collections": ["HALLMARK", "GO_BP"]
             })
             .to_string(),
         );

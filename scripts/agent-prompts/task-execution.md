@@ -24,6 +24,29 @@ the wrong root during replay, where your script runs from a staged copy at a
 different depth. Equivalently you may use paths relative to the working
 directory, which the harness sets to `$PACKAGE`.
 
+### Runtime-derived metadata
+
+When executable code selects a method at run time, including an availability
+fallback, compute that choice once and use the same variable for the analysis
+call and every metadata artifact the script writes. For example, if an R
+script sets `shrink_type` to `ashr` or `normal`, both `lfcShrink(type=...)` and
+`de_summary.json::lfc_shrinkage` must read `shrink_type`; never hard-code the
+preferred branch in the summary. Apply the same rule to engines, reference
+databases, normalization methods, and other fallbacks. Do not repair a
+contradictory summary by editing JSON after the script finishes: replay must
+regenerate the same truthful metadata directly from the retained executable
+code.
+
+The same rule applies to parameters: emit a parameter only when the selected
+implementation actually consumed it, and populate metadata from the variable
+passed to that call. Do not declare a permutation count, cutoff, seed, or size
+bound that exists only in the script's summary block.
+
+For a `validate_*` task, compare the target's retained scripts and run logs
+with its result and summary metadata. A script that can execute one branch but
+records another is a validation failure even when the current result JSON was
+post-edited to the value observed in the log.
+
 ### Turn budget
 
 You have a budget of {{MAX_TURNS_PER_TASK}} turns per task. Spend them on
@@ -188,6 +211,14 @@ a pathway-enrichment summary, or any stage that produces a `narrative_text`
 field or a markdown report body — the following mistakes have shipped in
 real runs and are cheap to avoid:
 
+- **`final_reporting` preserves the validated report; it does not rewrite
+  it.** Read `runtime/outputs/reporting/report.md` as bytes and place those
+  bytes unchanged as one contiguous block in `final_report.md`. You may put
+  project navigation or dashboard material before or after that block, but
+  those additions must not make scientific claims. Do not summarize, edit,
+  reorder, reformat, or regenerate any sentence or table in the copied block.
+  A source-owned validator rejects a final report that does not contain the
+  complete upstream report verbatim.
 - **Direction words come from the sign of the statistic, never free text.**
   When you write "above"/"below", "higher"/"lower", "increased"/"decreased",
   or similar, derive the word from the actual sign or ratio you computed —
@@ -220,12 +251,14 @@ real runs and are cheap to avoid:
   describe it in prose instead of replacing a table label such as `KEGG`.
 - **Every "FDR" mention must name its family and threshold.** Gene-level
   differential-expression FDR (`padj`) and pathway-level enrichment FDR
-  (e.g. `fgsea` padj) are different multiple-testing corrections over
-  different universes with different conventional thresholds (commonly
-  0.05 vs 0.25). Never write a bare "FDR" — write, every time it appears
-  (not only in a reproducibility appendix), "gene-level FDR (padj) <
-  0.05" / "pathway-level (fgsea) FDR < 0.25", using the thresholds this
-  run actually applied.
+  (`padj`) are different multiple-testing corrections over different
+  universes with different conventional thresholds (commonly 0.05 vs 0.25).
+  Never write a bare "FDR": write, every time it appears (not only in a
+  reproducibility appendix), "gene-level FDR (padj) < 0.05" or
+  "pathway-level adjusted p-value (padj) < 0.25", using the thresholds this
+  run actually applied. Do not put a hard-coded implementation name such as
+  `fgsea` in the pathway-level threshold label. If a sentence names the
+  implementation, copy it from the executed stage's `method` field.
 - **Quote p-values precisely enough to match the source table.** When you
   state a SPECIFIC p-value / padj / FDR in prose, copy it to at least TWO
   significant figures directly from the results table (e.g. "padj = 6.5e-05",
@@ -538,6 +571,12 @@ shapes ranking only — it is NOT a threshold and NOT a mandated tool; you still
 choose, install, and record `decision.json::chosen` exactly as above.
 
 ### SME parameter overrides
+
+Read `task-spec.json::spec.parameters` before writing executable code. For each
+declared parameter, use `spec.sme_parameter_overrides[name]` when present;
+otherwise use the declared `default`. Apply that resolved value to the method
+call and report it from the same run-time variable. A parameter declaration is
+part of the executable task contract, not documentation that may be ignored.
 
 When `task-spec.json` carries a non-empty `spec.sme_parameter_overrides` map,
 treat each `{parameter: value}` entry as an SME-mandated input you MUST apply

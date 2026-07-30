@@ -45,11 +45,14 @@ attributes:
 expected_artifacts:
   - method_landscape.csv
   - method_landscape.json
+  - retrieval_scope.json
   - evidence/manifest.json
   - result.json
 required_artifacts:
   - path: method_landscape.csv
     schema_ref: schemas/method_landscape_matrix.schema.json
+  - path: retrieval_scope.json
+    schema_ref: schemas/literature_retrieval_scope.schema.json
   - path: evidence/manifest.json
     schema_ref: schemas/literature_evidence_manifest.schema.json
 validators:

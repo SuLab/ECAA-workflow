@@ -7,8 +7,9 @@ bundled retrieval helper. The package `PROMPT.md` above and the per-task
 `task-spec.json` remain authoritative for what this stage must produce; the
 rules here are the cross-cutting retrieval contract.
 
-**Use the bundled helper `lib/agent_literature_fetch.py` to write `method_landscape.csv` and
-`evidence/manifest.json` — do NOT hand-roll their schemas.** The post-task literature validators enforce the exact column set and
+**Use the bundled helper `lib/agent_literature_fetch.py` to write `method_landscape.csv`,
+`retrieval_scope.json`, and `evidence/manifest.json` — do NOT hand-roll their
+schemas.** The post-task literature validators enforce the exact column set and
 manifest fields documented below; a hand-rolled CSV or a manifest in any other
 shape (e.g. a top-level `sources` array, `artifact_path` keys, or PMID-only
 entries) WILL be rejected and block the task. The helper emits the schema the
@@ -67,7 +68,11 @@ Write everything under `runtime/outputs/$ECAA_TASK_ID/`:
    quote that does not match — never fabricate a match.
 2. **`method_landscape.json`** — the same content as a JSON object keyed by
    axis, for the UI and the downstream loader.
-3. **`evidence/manifest.json`** — the FOUNDATION evidence manifest
+3. **`retrieval_scope.json`** — the helper-maintained list of every query axis
+   attempted, including axes that returned zero rows. Do not derive this list
+   from `method_landscape.csv`: a zero-result search has no evidence row and
+   would disappear.
+4. **`evidence/manifest.json`** — the FOUNDATION evidence manifest
    (`{"schema_version": 2, "entries": [...]}`) with one entry per fetched
    source: `source_kind, path, sha256_binary, sha256_extracted_text,
    extracted_text_normalization, bytes, retrieval_ts, retrieval_query_id,
@@ -78,7 +83,7 @@ Write everything under `runtime/outputs/$ECAA_TASK_ID/`:
    `source_kind: pubmed_efetch_xml_batch` and `redistributable: true` (PubMed
    abstracts are public-domain US-Gov work); the validator resolves a claim row
    to its snapshot via any member of `pmids_in_batch`.
-4. **`result.json`** — the usual task result (summary, artifacts, status).
+5. **`result.json`** — the usual task result (summary, artifacts, status).
 
 ### How to retrieve
 
