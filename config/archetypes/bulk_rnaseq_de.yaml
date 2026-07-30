@@ -54,13 +54,15 @@ atoms:
     # archetype tolerates its absence, not that it is pruned.
   - atom_id: differential_expression
     required: true
-    # DE's `counts` one-of binds `raw_counts` from `quantification` (the raw
-    # count matrix count-GLM tools fit) and `normalized_counts` from
-    # `normalisation` (rank-based tools). On the counts-first path the
-    # upstream `quantification` chain is pruned and the raw edge is rewired
-    # onto `data_acquisition`. Method-neutral: both substrates are offered;
-    # the agent's runtime method choice selects the one it reads.
-    depends_on: [quantification, normalisation]
+    # DE's `counts` one-of binds `raw_counts` from `qc_preprocessing`
+    # (feature/sample-filtered raw counts for count-GLM tools) and
+    # `normalized_counts` from `normalisation` (rank-based tools).
+    # `data_acquisition` supplies the tabular sample metadata needed for the
+    # fitted design. On a counts-first path, input-stage pruning rewires the
+    # quantification-to-QC edge onto `data_acquisition`; QC remains the
+    # canonical raw-count handoff into DE. Method-neutral: both count
+    # substrates are offered and the runtime method choice selects one.
+    depends_on: [qc_preprocessing, normalisation, data_acquisition]
   - atom_id: contextualize_findings_with_literature
     required: false
     depends_on: [differential_expression, review_prior_work]

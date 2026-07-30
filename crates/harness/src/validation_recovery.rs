@@ -348,6 +348,39 @@ fn pointer_f64_array(path: &Path, pointer: &str) -> Option<Vec<f64>> {
     Some(arr.iter().filter_map(|x| x.as_f64()).collect())
 }
 
+fn table_data_row_count(path: &Path, header_rows: usize) -> Option<usize> {
+    if path.extension().and_then(|e| e.to_str()) == Some("gz") {
+        return None;
+    }
+    let bytes =
+        crate::ecaa_io::read_bytes_capped(path, crate::ecaa_io::resolve_max_bytes()).ok()?;
+    if bytes.contains(&0) {
+        return None;
+    }
+    bytes
+        .split(|b| *b == b'\n')
+        .filter(|line| line.iter().any(|b| !b.is_ascii_whitespace()))
+        .count()
+        .checked_sub(header_rows)
+}
+
+fn reads_manifest_paths_for_port(path: &Path, declared_port: &str) -> Option<Vec<String>> {
+    let bytes =
+        crate::ecaa_io::read_bytes_capped(path, crate::ecaa_io::resolve_max_bytes()).ok()?;
+    let text = std::str::from_utf8(&bytes).ok()?;
+    let mut paths = Vec::new();
+    for line in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        let row: serde_json::Value = serde_json::from_str(line).ok()?;
+        let object = row.as_object()?;
+        let row_path = object.get("path").and_then(|v| v.as_str())?;
+        let row_port = object.get("declared_port").and_then(|v| v.as_str())?;
+        if row_port == declared_port {
+            paths.push(row_path.to_string());
+        }
+    }
+    Some(paths)
+}
+
 /// Format an `f64` that is conceptually a count / bound for the neutral
 /// statement: integers render without a trailing `.0`, fractions keep up
 /// to 4 significant decimals. Deterministic.
@@ -558,6 +591,66 @@ pub fn build_statement(
                 }
                 None => generic_statement(id),
             }
+        }
+        "cross_stage_table_handoff" => {
+            let up_task = check
+                .and_then(|c| c.get("upstream_task"))
+                .and_then(|v| v.as_str());
+            let up_file = check
+                .and_then(|c| c.get("upstream_file"))
+                .and_then(|v| v.as_str());
+            let declared_port = check
+                .and_then(|c| c.get("declared_port"))
+                .and_then(|v| v.as_str());
+            let header_rows = check
+                .and_then(|c| c.get("header_rows"))
+                .and_then(|v| v.as_u64())
+                .and_then(|n| usize::try_from(n).ok());
+            let (
+                Some(target),
+                Some(up_task),
+                Some(up_file),
+                Some(declared_port),
+                Some(header_rows),
+            ) = (target, up_task, up_file, declared_port, header_rows)
+            else {
+                return generic_statement(id);
+            };
+            let this_path = resolve(target);
+            let Some(up_path) = upstream.get(up_task).map(|dir| dir.join(up_file)) else {
+                return generic_statement(id);
+            };
+            let this_rows = table_data_row_count(&this_path, header_rows);
+            let up_rows = table_data_row_count(&up_path, header_rows);
+            let expected_read = up_path
+                .strip_prefix(pkg_dir)
+                .ok()
+                .map(|p| p.to_string_lossy().replace('\\', "/"));
+            let selected_paths = this_path
+                .parent()
+                .and_then(|parent| {
+                    reads_manifest_paths_for_port(&parent.join("reads.jsonl"), declared_port)
+                })
+                .unwrap_or_default();
+            let read_recorded = expected_read
+                .as_deref()
+                .map(|expected| {
+                    !selected_paths.is_empty() && selected_paths.iter().all(|path| path == expected)
+                })
+                .unwrap_or(false);
+            let this_s = this_rows
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| "unreadable".to_string());
+            let up_s = up_rows
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| "unreadable".to_string());
+            let read_s = if read_recorded { "present" } else { "absent" };
+            format!(
+                "{id}: this design requires the output table population and observed-read record to match the canonical {up_task}/{up_file} handoff. \
+                 The output contains {this_s} data rows, the upstream table contains {up_s}, and the exact {declared_port} read record is {read_s}. \
+                 Revisit the analysis so its output population and recorded input agree with the direct upstream artifact. \
+                 (How you achieve that is your choice; no method, tool, or threshold value is prescribed.)"
+            )
         }
         _ => generic_statement(id),
     }
@@ -907,6 +1000,57 @@ mod tests {
         assert!(
             s.contains("at most"),
             "must restate the design requirement: {s}"
+        );
+    }
+
+    #[test]
+    fn table_handoff_statement_restates_rows_and_read_status() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        std::fs::create_dir_all(pkg.join("runtime/outputs/qc_preprocessing")).unwrap();
+        std::fs::create_dir_all(pkg.join("runtime/outputs/differential_expression")).unwrap();
+        std::fs::write(
+            pkg.join("runtime/outputs/qc_preprocessing/filtered_count_matrix.tsv"),
+            "gene\ts1\nA\t1\nB\t2\n",
+        )
+        .unwrap();
+        std::fs::write(
+            pkg.join("runtime/outputs/differential_expression/de_results.tsv"),
+            "gene\tpadj\nA\t0.01\nB\t0.02\nC\t0.5\n",
+        )
+        .unwrap();
+        std::fs::write(
+            pkg.join("runtime/outputs/differential_expression/reads.jsonl"),
+            "{\"path\":\"runtime/outputs/data_acquisition/counts.tsv\",\"declared_port\":\"raw_counts\"}\n",
+        )
+        .unwrap();
+        let mut upstream = BTreeMap::new();
+        upstream.insert(
+            "qc_preprocessing".to_string(),
+            pkg.join("runtime/outputs/qc_preprocessing"),
+        );
+        let assertion = json!({
+            "id": "differential_expression.canonical_count_handoff",
+            "assertion_type": "cross_stage_table_handoff",
+            "target": "runtime/outputs/differential_expression/de_results.tsv",
+            "check": {
+                "upstream_task": "qc_preprocessing",
+                "upstream_file": "filtered_count_matrix.tsv",
+                "declared_port": "raw_counts",
+                "alternative_ports": ["normalized_counts"],
+                "header_rows": 1
+            }
+        });
+        let s = build_statement(pkg, &assertion, &upstream);
+        assert_method_neutral(&s);
+        assert!(s.contains("3 data rows"), "must state output rows: {s}");
+        assert!(
+            s.contains("upstream table contains 2"),
+            "must state upstream rows: {s}"
+        );
+        assert!(
+            s.contains("read record is absent"),
+            "must state canonical-read status: {s}"
         );
     }
 

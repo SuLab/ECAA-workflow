@@ -40,6 +40,7 @@
                     "json_pointer_is_bool",
                     "json_pointer_is_array",
                     "cross_stage_output_comparison",
+                    "cross_stage_table_handoff",
                     "cross_field_equals",
                     "formula_references_covariates"
                   ]

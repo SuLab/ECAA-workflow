@@ -150,6 +150,16 @@ writer of task state.
    per file, in a stable order, with no timestamps. If the task read no
    cross-stage input files, omit the manifest (an absent file is fine).
 
+### Canonical upstream handoffs
+
+Treat the artifact bound to a declared input port by a direct dependency as
+the canonical handoff for that port. Read that artifact itself. Do not reopen
+an equivalent-looking file from an ancestor stage, and do not recreate the
+handoff by applying a new filter or transformation to an ancestor file. A
+filtered raw-count matrix remains raw counts, so a count-based model must use
+the direct QC artifact bound to `raw_counts` when one is declared. Record the
+exact artifact and port in `reads.jsonl`.
+
 ### Tabular file format
 
 A table's filename extension MUST match its actual delimiter: `.tsv` is

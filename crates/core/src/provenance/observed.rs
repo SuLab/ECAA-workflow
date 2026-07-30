@@ -2,15 +2,16 @@
 //!
 //! Reconciliation compares what a task *actually read* against what
 //! the composed DAG *declared* it would read (the `EdgeContract`s
-//! whose `to_node` is the task). A read whose path lives under a
-//! declared producer's output directory (`runtime/outputs/<from_node>/`)
-//! resolves that producer as the edge's authoritative source — this is
-//! what disambiguates a mutually-exclusive one-of input group (e.g. the
-//! differential-expression `raw_counts` / `normalized_counts`
-//! candidates) down to the single edge the task actually consumed. A
-//! read that matches no declared producer is a divergence: either the
-//! task read something outside its declared input contract, or the
-//! declared graph is wrong.
+//! whose `to_node` is the task). Only typed or adapter-mediated data-flow
+//! edges authorize reads; ordering edges do not. A read whose path lives
+//! under a declared producer's output directory
+//! (`runtime/outputs/<from_node>/`) and, when named, whose
+//! `declared_port` matches that same edge resolves the producer as the
+//! authoritative source. This disambiguates a mutually-exclusive one-of
+//! input group (e.g. differential-expression `raw_counts` /
+//! `normalized_counts`) down to the single edge the task consumed. A read
+//! that matches no declared producer-and-port edge is a divergence: either
+//! the task read outside its declared input contract, or the graph is wrong.
 //!
 //! This module is pure and synchronous — no I/O, no clock, no
 //! `HashMap`. Capturing the observed reads (harness-side) and folding
@@ -32,9 +33,8 @@ const OUTPUTS_ROOT: &str = "runtime/outputs/";
 
 /// One file a task was observed to read, captured at the harness
 /// dispatch site (later task). `declared_port` is the input port the
-/// task's own read manifest attributes the read to, when known — it is
-/// independent of, and may disagree with, what [`reconcile`] concludes
-/// from the path itself.
+/// task's own read manifest attributes the read to, when known. Reconciliation
+/// requires the claimed port and producer path to resolve the same edge.
 ///
 /// `Serialize`/`Deserialize` so the harness can carry a task's observed
 /// reads on its `InvocationRecord` (`runtime/invocations.jsonl`,
@@ -61,10 +61,9 @@ pub struct ObservedRead {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ReconVerdict {
-    /// The read path lives under a declared producer's output
-    /// directory. `authoritative_edge` is `(from_node, to_node)` of the
-    /// declared edge that produced it — for a mutually-exclusive
-    /// one-of group, this is the member the task actually consumed.
+    /// The read path and any claimed port resolve the same declared data-flow
+    /// edge. `authoritative_edge` is `(from_node, to_node)` of that edge; for
+    /// a mutually-exclusive one-of group, it is the consumed member.
     Match {
         authoritative_edge: (String, String),
     },
@@ -120,8 +119,8 @@ fn path_under_producer_output(path: &str, producer_task: &str) -> bool {
     path.starts_with(&prefix)
 }
 
-/// Reconcile `task_id`'s observed reads against its declared producer
-/// edges (the members of `declared` whose `to_node == task_id`).
+/// Reconcile `task_id`'s observed reads against its declared typed or
+/// adapter-mediated producer edges.
 ///
 /// Reads not addressed to `task_id` are ignored (callers may pass the
 /// full declared-edge / observed-read sets for a package; this
@@ -132,8 +131,17 @@ pub fn reconcile(
     reads: &[ObservedRead],
     task_id: &str,
 ) -> Vec<ReconVerdict> {
-    let declared_for_task: Vec<&EdgeContract> =
-        declared.iter().filter(|e| e.to_node == task_id).collect();
+    let declared_for_task: Vec<&EdgeContract> = declared
+        .iter()
+        .filter(|e| {
+            e.to_node == task_id
+                && matches!(
+                    e.kind,
+                    crate::workflow_contracts::edge::EdgeKind::TypedDataFlow
+                        | crate::workflow_contracts::edge::EdgeKind::AdapterMediated
+                )
+        })
+        .collect();
 
     reads
         .iter()
@@ -143,9 +151,20 @@ pub fn reconcile(
                 return ReconVerdict::Untracked;
             }
 
-            let path_match = declared_for_task
-                .iter()
-                .find(|e| path_under_producer_output(&read.path, &e.from_node));
+            // When the agent names the port this read satisfied, both the
+            // producer path AND the consumer port must identify the same
+            // declared data-flow edge. Matching only the producer directory
+            // lets a file for one port masquerade as another whenever a task
+            // consumes two products from the same producer, or when an
+            // ordering-only edge happens to name the file's ancestor.
+            let path_match = declared_for_task.iter().find(|e| {
+                path_under_producer_output(&read.path, &e.from_node)
+                    && read
+                        .declared_port
+                        .as_ref()
+                        .map(|port| &e.to_port == port)
+                        .unwrap_or(true)
+            });
 
             if let Some(edge) = path_match {
                 return ReconVerdict::Match {
@@ -357,6 +376,57 @@ mod tests {
             } => assert_eq!(declared_producer.as_deref(), Some("normalisation")),
             other => panic!("expected Divergent, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn producer_path_for_a_different_port_is_divergent() {
+        let edges = vec![
+            edge(
+                "qc_preprocessing",
+                "filtered_count_matrix",
+                "differential_expression",
+                "raw_counts",
+            ),
+            edge(
+                "data_acquisition",
+                "cohort_manifest",
+                "differential_expression",
+                "experimental_design",
+            ),
+        ];
+        let reads = vec![ObservedRead {
+            task_id: "differential_expression".into(),
+            declared_port: Some("raw_counts".into()),
+            path: "runtime/outputs/data_acquisition/data/counts.tsv".into(),
+        }];
+        let v = reconcile(&edges, &reads, "differential_expression");
+        match &v[0] {
+            ReconVerdict::Divergent {
+                declared_producer, ..
+            } => assert_eq!(declared_producer.as_deref(), Some("qc_preprocessing")),
+            other => panic!("expected Divergent, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ordering_only_edge_does_not_authorize_data_reads() {
+        let mut ordering = edge(
+            "data_acquisition",
+            "splice",
+            "differential_expression",
+            "splice",
+        );
+        ordering.kind = EdgeKind::OrderingOnly;
+        let reads = vec![ObservedRead {
+            task_id: "differential_expression".into(),
+            declared_port: Some("raw_counts".into()),
+            path: "runtime/outputs/data_acquisition/data/counts.tsv".into(),
+        }];
+        assert_eq!(
+            reconcile(&[ordering], &reads, "differential_expression"),
+            vec![ReconVerdict::Untracked],
+            "an ordering edge is not a declared data producer"
+        );
     }
 
     #[test]

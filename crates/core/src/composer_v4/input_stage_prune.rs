@@ -77,6 +77,19 @@ fn node_produces(n: &TaskNode, iri: &str) -> bool {
         .any(|o| port_supplies_iri(&o.semantic_type, iri))
 }
 
+/// Does node `n` also CONSUME the supplied ontology type?
+///
+/// Such a node is a same-type transformer/re-producer, not the source stage
+/// whose upstream chain should be removed. Count-matrix QC is the motivating
+/// case: it consumes raw counts and emits filtered raw counts. After the first
+/// prune removes quantification, a repeated prune pass must not reinterpret QC
+/// as a new root producer and bypass it.
+fn node_consumes(n: &TaskNode, iri: &str) -> bool {
+    n.inputs
+        .iter()
+        .any(|i| port_supplies_iri(&i.semantic_type, iri))
+}
+
 /// Tag prefix marking a `CompatibilityProof.warnings` row that records a
 /// producer-port rename applied by the rewire below.
 ///
@@ -241,11 +254,18 @@ pub fn prune_supplied_upstream(
         if iri == RAW_INPUT_IRI {
             continue;
         }
-        // Producer candidates: non-anchor nodes exposing this output type.
+        // Source-producer candidates: non-anchor nodes exposing this output
+        // type that do not also consume it. Same-type transformers such as
+        // count-matrix QC or VCF filtering remain downstream of the staged
+        // supplied product, including on repeated prune passes.
         let producers: Vec<String> = dag
             .nodes
             .iter()
-            .filter(|n| node_produces(n, iri) && !SUPPLY_ANCHORS.contains(&n.id.as_str()))
+            .filter(|n| {
+                node_produces(n, iri)
+                    && !node_consumes(n, iri)
+                    && !SUPPLY_ANCHORS.contains(&n.id.as_str())
+            })
             .map(|n| n.id.clone())
             .collect();
         if producers.is_empty() {
@@ -1153,6 +1173,82 @@ mod tests {
                 canonical_port: "raw_count_matrix".into(),
             }],
             "the rewire must retain BOTH the original and the resolved port"
+        );
+    }
+
+    #[test]
+    fn repeated_counts_prune_keeps_same_type_qc_transformer() {
+        let mut dag = WorkflowDag {
+            id: "t".into(),
+            nodes: vec![
+                data_acquisition_node(),
+                node(
+                    "alignment",
+                    vec![inp("reads", FASTQ)],
+                    vec![out("bam", BAM)],
+                ),
+                node(
+                    "quantification",
+                    vec![inp("bam", BAM)],
+                    vec![out("count_matrix", COUNTS)],
+                ),
+                node(
+                    "qc_preprocessing",
+                    vec![inp("count_matrix", COUNTS)],
+                    vec![out("filtered_count_matrix", COUNTS)],
+                ),
+                node(
+                    "differential_expression",
+                    vec![inp("raw_counts", COUNTS)],
+                    vec![out("de", DE)],
+                ),
+            ],
+            edges: vec![
+                edge_ports("data_acquisition", "raw_reads", "alignment", "reads"),
+                edge_ports("alignment", "bam", "quantification", "bam"),
+                edge_ports(
+                    "quantification",
+                    "count_matrix",
+                    "qc_preprocessing",
+                    "count_matrix",
+                ),
+                edge_ports(
+                    "qc_preprocessing",
+                    "filtered_count_matrix",
+                    "differential_expression",
+                    "raw_counts",
+                ),
+            ],
+            ..Default::default()
+        };
+        let supplied = [DataProductContract::gene_count_matrix()];
+
+        prune_supplied_upstream(&mut dag, &supplied);
+        prune_supplied_upstream(&mut dag, &supplied);
+
+        assert!(
+            dag.nodes.iter().any(|n| n.id == "qc_preprocessing"),
+            "same-type QC transformer must survive repeated pruning"
+        );
+        assert!(
+            !dag.nodes.iter().any(|n| n.id == "quantification"),
+            "source quantification stage must be pruned for supplied counts"
+        );
+        assert!(
+            dag.edges.iter().any(|e| {
+                e.from_node == "data_acquisition"
+                    && e.to_node == "qc_preprocessing"
+                    && e.to_port == "count_matrix"
+            }),
+            "the acquisition anchor must feed the retained QC stage"
+        );
+        assert!(
+            dag.edges.iter().any(|e| {
+                e.from_node == "qc_preprocessing"
+                    && e.to_node == "differential_expression"
+                    && e.to_port == "raw_counts"
+            }),
+            "DE must retain the QC output as its raw-count handoff"
         );
     }
 

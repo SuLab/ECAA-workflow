@@ -286,6 +286,7 @@ const HARNESS_IMPLEMENTED_ASSERTION_TYPES: &[&str] = &[
     "positive_control_present",
     "negative_control_present",
     "cross_stage_output_comparison",
+    "cross_stage_table_handoff",
     "cross_field_equals",
     "formula_references_covariates",
     "json_pointer_is_bool",
@@ -308,6 +309,53 @@ fn assertion_types_in_contract(contract: &serde_json::Value) -> std::collections
         }
     }
     out
+}
+
+/// Bulk DE must consume the exact post-QC raw-count table and retain its
+/// feature population. This protects the typed edge with an executable
+/// artifact/provenance check, so an ancestor count matrix cannot substitute
+/// for the direct QC handoff.
+#[test]
+fn association_contract_requires_canonical_count_handoff() {
+    let path = policies_dir().join("validation-contract-association.json");
+    let contract = load_and_validate(&path)
+        .unwrap_or_else(|e| panic!("association contract failed schema validation: {e:#}"));
+    let handoff = stage_assertions(&contract, "differential_expression")
+        .into_iter()
+        .find(|a| {
+            a.get("id").and_then(|v| v.as_str())
+                == Some("differential_expression.canonical_count_handoff")
+        })
+        .expect("association contract must require the canonical QC-to-DE handoff");
+    assert_eq!(
+        handoff.get("assertion_type").and_then(|v| v.as_str()),
+        Some("cross_stage_table_handoff")
+    );
+    let check = handoff.get("check").expect("handoff check present");
+    assert_eq!(
+        check.get("upstream_task").and_then(|v| v.as_str()),
+        Some("qc_preprocessing")
+    );
+    assert_eq!(
+        check.get("upstream_file").and_then(|v| v.as_str()),
+        Some("filtered_count_matrix.tsv")
+    );
+    assert_eq!(
+        check.get("declared_port").and_then(|v| v.as_str()),
+        Some("raw_counts")
+    );
+    assert_eq!(
+        check
+            .get("alternative_ports")
+            .and_then(|v| v.as_array())
+            .and_then(|ports| ports.first())
+            .and_then(|v| v.as_str()),
+        Some("normalized_counts")
+    );
+    assert_eq!(
+        handoff.get("severity").and_then(|v| v.as_str()),
+        Some("required")
+    );
 }
 
 /// The new DE/regression method-correctness contract must (1) validate against

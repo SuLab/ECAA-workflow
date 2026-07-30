@@ -168,7 +168,8 @@ mod archetype_emit {
 
     /// Compose one archetype through the production dispatch. `counts_first`
     /// seeds `available_input_stage = data:3917` so the reads-processing
-    /// chain is pruned and the DE raw edge rewires onto `data_acquisition`.
+    /// chain is pruned and the QC input rewires onto `data_acquisition`.
+    /// DE remains bound to QC's filtered raw-count handoff.
     /// Returns the validated `WorkflowDag` — panics unless the outcome is a
     /// `ValidatedExecutableDag` (i.e. the graph plans with no blocking gap).
     fn emit_validated(arch_id: &str, counts_first: bool) -> WorkflowDag {
@@ -249,19 +250,19 @@ mod archetype_emit {
             .find(|e| e.to_node == de && e.to_port == port)
     }
 
-    /// AC1 — reads-first bulk: `raw_counts` binds `quantification`, tagged
-    /// `counts`; the `normalisation → normalized_counts` edge is also
-    /// tagged `counts` (so neither authoritative count edge is untagged).
+    /// AC1 — reads-first bulk: `raw_counts` binds `qc_preprocessing`, tagged
+    /// `counts`; the `normalisation → normalized_counts` edge is also tagged
+    /// `counts`, and acquisition metadata binds the design port.
     #[test]
-    fn ac1_reads_first_bulk_binds_raw_to_quantification_tagged() {
+    fn ac1_reads_first_bulk_binds_raw_to_qc_tagged() {
         let dag = emit_validated("bulk_rnaseq_de", false);
         let de = sole_de_stage(&dag);
 
         let raw =
             count_edge(&dag, &de, "raw_counts").expect("reads-first bulk must bind DE.raw_counts");
         assert_eq!(
-            raw.from_node, "quantification",
-            "reads-first raw_counts must come from quantification"
+            raw.from_node, "qc_preprocessing",
+            "reads-first raw_counts must come from the canonical QC handoff"
         );
         assert_eq!(
             raw.mutually_exclusive_group.as_deref(),
@@ -278,27 +279,44 @@ mod archetype_emit {
             "the normalisation→DE.normalized_counts edge must also be tagged — \
              no untagged authoritative count edge may survive"
         );
+
+        let design = count_edge(&dag, &de, "experimental_design")
+            .expect("bulk DE must bind its sample metadata");
+        assert_eq!(
+            design.from_node, "data_acquisition",
+            "the experimental design must come from acquisition metadata"
+        );
+        assert_eq!(design.from_port, "cohort_manifest");
     }
 
-    /// AC2 — counts-first bulk: the reads chain is pruned and `raw_counts`
-    /// rewires onto `data_acquisition`; the graph still plans (the
-    /// `emit_validated` helper asserts ValidatedExecutableDag = no residual
-    /// blocking gap). The raw edge stays tagged through the rewire.
+    /// AC2 — counts-first bulk: the reads chain is pruned, acquisition feeds
+    /// QC, and `raw_counts` still comes from QC. The graph still plans (the
+    /// helper asserts ValidatedExecutableDag = no residual blocking gap).
     #[test]
-    fn ac2_counts_first_bulk_binds_raw_to_data_acquisition_and_plans() {
+    fn ac2_counts_first_bulk_keeps_qc_as_raw_handoff_and_plans() {
         let dag = emit_validated("bulk_rnaseq_de", true);
         let de = sole_de_stage(&dag);
         let raw =
             count_edge(&dag, &de, "raw_counts").expect("counts-first bulk must bind DE.raw_counts");
         assert_eq!(
-            raw.from_node, "data_acquisition",
-            "counts-first raw_counts must rewire onto the data_acquisition anchor"
+            raw.from_node, "qc_preprocessing",
+            "counts-first raw_counts must remain bound to the canonical QC handoff"
         );
         assert_eq!(
             raw.mutually_exclusive_group.as_deref(),
             Some("counts"),
-            "the rewired raw_counts edge must keep its mutually_exclusive_group tag"
+            "the QC raw_counts edge must keep its mutually_exclusive_group tag"
         );
+        let qc_input = count_edge(&dag, "qc_preprocessing", "count_matrix")
+            .expect("counts-first acquisition must feed the retained QC stage");
+        assert_eq!(
+            qc_input.from_node, "data_acquisition",
+            "input-stage pruning must rewire acquisition into QC, not around it"
+        );
+        let design = count_edge(&dag, &de, "experimental_design")
+            .expect("counts-first bulk DE must bind its sample metadata");
+        assert_eq!(design.from_node, "data_acquisition");
+        assert_eq!(design.from_port, "cohort_manifest");
         // The quantification chain is gone — no edge may reference it.
         assert!(
             !dag.edges.iter().any(|e| e.from_node == "quantification"),

@@ -6673,9 +6673,9 @@ fn json_pointer_presence_count(path: &Path, pointer: &str) -> Option<usize> {
 /// surfaces as a hard failure.
 ///
 /// `upstream` maps an upstream task_id to that task's output dir so
-/// `cross_stage_output_comparison` can read a producer's result without
-/// knowing which validator is running. The map is deterministic
-/// (BTreeMap, built once from the DAG by `enforce_validation_contract`).
+/// cross-stage assertions can read a producer's result without knowing which
+/// validator is running. The map is deterministic (BTreeMap, built once from
+/// the DAG by `enforce_validation_contract`).
 fn run_assertion(
     pkg_dir: &Path,
     assertion: &serde_json::Value,
@@ -6989,6 +6989,92 @@ fn run_assertion(
             };
             numeric_compare(this_val, op, up_val)
         }
+        "cross_stage_table_handoff" => {
+            // Canonical table handoff: when the consumer selected the named
+            // port, it must record only the exact upstream artifact bound to
+            // that port, and its output table must preserve that artifact's
+            // data-row population. A valid reads manifest with no record for
+            // the named port means a mutually-exclusive sibling was selected,
+            // so this assertion is not applicable. This catches an analysis
+            // that reopens an ancestor matrix and silently applies a different
+            // prefilter even if both artifacts have the same semantic type.
+            let this_path = resolve(target);
+            let Some(check) = assertion.get("check") else {
+                return false;
+            };
+            let Some(up_task) = check.get("upstream_task").and_then(|v| v.as_str()) else {
+                return false;
+            };
+            let Some(up_file) = check.get("upstream_file").and_then(|v| v.as_str()) else {
+                return false;
+            };
+            let Some(declared_port) = check.get("declared_port").and_then(|v| v.as_str()) else {
+                return false;
+            };
+            let Some(alternative_ports) = check
+                .get("alternative_ports")
+                .and_then(|v| v.as_array())
+                .and_then(|ports| {
+                    ports
+                        .iter()
+                        .map(|port| port.as_str())
+                        .collect::<Option<Vec<_>>>()
+                })
+                .filter(|ports| !ports.is_empty())
+            else {
+                return false;
+            };
+            let Some(header_rows) = check
+                .get("header_rows")
+                .and_then(|v| v.as_u64())
+                .and_then(|n| usize::try_from(n).ok())
+            else {
+                return false;
+            };
+            let Some(reads_path) = this_path.parent().map(|p| p.join("reads.jsonl")) else {
+                return false;
+            };
+            let Some(selected_paths) = reads_manifest_paths_for_port(&reads_path, declared_port)
+            else {
+                return false;
+            };
+            let Some(alternative_selected) = alternative_ports
+                .iter()
+                .map(|port| {
+                    reads_manifest_paths_for_port(&reads_path, port).map(|paths| !paths.is_empty())
+                })
+                .collect::<Option<Vec<_>>>()
+            else {
+                return false;
+            };
+            if selected_paths.is_empty() {
+                return alternative_selected.iter().any(|selected| *selected);
+            }
+            if alternative_selected.iter().any(|selected| *selected) {
+                return false;
+            }
+            let Some(up_dir) = upstream.get(up_task) else {
+                return false;
+            };
+            let up_path = up_dir.join(up_file);
+            let Ok(up_rel) = up_path.strip_prefix(pkg_dir) else {
+                return false;
+            };
+            let expected_path = up_rel.to_string_lossy().replace('\\', "/");
+            if selected_paths.iter().any(|path| path != &expected_path) {
+                return false;
+            }
+            let (Some(this_rows), Some(up_rows)) = (
+                table_data_row_count(&this_path, header_rows),
+                table_data_row_count(&up_path, header_rows),
+            ) else {
+                return false;
+            };
+            if this_rows != up_rows {
+                return false;
+            }
+            true
+        }
         "cross_field_equals" => {
             // Method-correctness: two AGENT-RECORDED string fields in the same
             // result.json must be equal after normalization. Catches the
@@ -7085,6 +7171,45 @@ fn run_assertion(
         }
         _ => false,
     }
+}
+
+/// Count non-empty tabular data rows after `header_rows`, using the same
+/// bounded read applied to agent-produced JSON. Blank padding lines are not
+/// table records. A missing, oversized, binary/NUL-containing, or
+/// header-truncated artifact fails closed as `None`.
+fn table_data_row_count(path: &Path, header_rows: usize) -> Option<usize> {
+    if path.extension().and_then(|e| e.to_str()) == Some("gz") {
+        return None;
+    }
+    let bytes = read_bytes_capped(path, resolve_max_bytes()).ok()?;
+    if bytes.contains(&0) {
+        return None;
+    }
+    let logical_rows = bytes
+        .split(|b| *b == b'\n')
+        .filter(|line| line.iter().any(|b| !b.is_ascii_whitespace()))
+        .count();
+    logical_rows.checked_sub(header_rows)
+}
+
+/// Parse a task's reads.jsonl and return every package-relative path attributed
+/// to `declared_port`. Every non-empty row must be a JSON object containing
+/// string `path` and `declared_port` fields; malformed manifests fail closed
+/// rather than being searched as loose text.
+fn reads_manifest_paths_for_port(path: &Path, declared_port: &str) -> Option<Vec<String>> {
+    let bytes = read_bytes_capped(path, resolve_max_bytes()).ok()?;
+    let text = std::str::from_utf8(&bytes).ok()?;
+    let mut paths = Vec::new();
+    for line in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        let row: serde_json::Value = serde_json::from_str(line).ok()?;
+        let object = row.as_object()?;
+        let row_path = object.get("path").and_then(|v| v.as_str())?;
+        let row_port = object.get("declared_port").and_then(|v| v.as_str())?;
+        if row_port == declared_port {
+            paths.push(row_path.to_string());
+        }
+    }
+    Some(paths)
 }
 
 fn glob_matches(pkg_dir: &Path, pattern: &str) -> Vec<std::path::PathBuf> {
@@ -9740,6 +9865,211 @@ mod read_dag_tests {
         )
         .unwrap();
         assert!(!run_assertion(pkg, &a, &upstream));
+    }
+
+    fn canonical_table_handoff_assertion() -> serde_json::Value {
+        serde_json::json!({
+            "id": "differential_expression.canonical_count_handoff",
+            "assertion_type": "cross_stage_table_handoff",
+            "target": "runtime/outputs/differential_expression/de_results.tsv",
+            "check": {
+                "upstream_task": "qc_preprocessing",
+                "upstream_file": "filtered_count_matrix.tsv",
+                "declared_port": "raw_counts",
+                "alternative_ports": ["normalized_counts"],
+                "header_rows": 1
+            }
+        })
+    }
+
+    fn write_handoff_fixture(pkg: &Path, result_rows: &str, read_path: &str) {
+        std::fs::create_dir_all(pkg.join("runtime/outputs/qc_preprocessing")).unwrap();
+        std::fs::create_dir_all(pkg.join("runtime/outputs/differential_expression")).unwrap();
+        std::fs::write(
+            pkg.join("runtime/outputs/qc_preprocessing/filtered_count_matrix.tsv"),
+            "gene\ts1\ts2\nA\t1\t2\nB\t3\t4\n",
+        )
+        .unwrap();
+        std::fs::write(
+            pkg.join("runtime/outputs/differential_expression/de_results.tsv"),
+            result_rows,
+        )
+        .unwrap();
+        std::fs::write(
+            pkg.join("runtime/outputs/differential_expression/reads.jsonl"),
+            format!(
+                "{}\n",
+                serde_json::json!({
+                    "path": read_path,
+                    "declared_port": "raw_counts"
+                })
+            ),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn cross_stage_table_handoff_accepts_exact_read_and_equal_population() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        write_handoff_fixture(
+            pkg,
+            "gene\tlog2FC\tpadj\nA\t1.2\t0.01\nB\t-1.4\t0.02\n",
+            "runtime/outputs/qc_preprocessing/filtered_count_matrix.tsv",
+        );
+        let mut upstream = std::collections::BTreeMap::new();
+        upstream.insert(
+            "qc_preprocessing".to_string(),
+            pkg.join("runtime/outputs/qc_preprocessing"),
+        );
+        assert!(run_assertion(
+            pkg,
+            &canonical_table_handoff_assertion(),
+            &upstream
+        ));
+    }
+
+    #[test]
+    fn cross_stage_table_handoff_rejects_ancestor_read_or_row_drift() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        let mut upstream = std::collections::BTreeMap::new();
+        upstream.insert(
+            "qc_preprocessing".to_string(),
+            pkg.join("runtime/outputs/qc_preprocessing"),
+        );
+
+        write_handoff_fixture(
+            pkg,
+            "gene\tlog2FC\tpadj\nA\t1.2\t0.01\nB\t-1.4\t0.02\n",
+            "runtime/outputs/data_acquisition/counts.tsv",
+        );
+        assert!(
+            !run_assertion(pkg, &canonical_table_handoff_assertion(), &upstream),
+            "an ancestor artifact cannot substitute for the canonical QC handoff"
+        );
+
+        std::fs::write(
+            pkg.join("runtime/outputs/differential_expression/reads.jsonl"),
+            concat!(
+                "{\"path\":\"runtime/outputs/qc_preprocessing/filtered_count_matrix.tsv\",",
+                "\"declared_port\":\"raw_counts\"}\n",
+                "{\"path\":\"runtime/outputs/data_acquisition/counts.tsv\",",
+                "\"declared_port\":\"raw_counts\"}\n"
+            ),
+        )
+        .unwrap();
+        assert!(
+            !run_assertion(pkg, &canonical_table_handoff_assertion(), &upstream),
+            "a mixed canonical-and-ancestor raw-count read must fail"
+        );
+
+        write_handoff_fixture(
+            pkg,
+            "gene\tlog2FC\tpadj\nA\t1.2\t0.01\nB\t-1.4\t0.02\nC\t0.4\t0.5\n",
+            "runtime/outputs/qc_preprocessing/filtered_count_matrix.tsv",
+        );
+        assert!(
+            !run_assertion(pkg, &canonical_table_handoff_assertion(), &upstream),
+            "the DE population must equal the canonical QC population"
+        );
+    }
+
+    #[test]
+    fn cross_stage_table_handoff_fails_closed_on_missing_inputs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        let assertion = canonical_table_handoff_assertion();
+        assert!(!run_assertion(
+            pkg,
+            &assertion,
+            &std::collections::BTreeMap::new()
+        ));
+
+        write_handoff_fixture(
+            pkg,
+            "gene\tlog2FC\tpadj\nA\t1.2\t0.01\nB\t-1.4\t0.02\n",
+            "runtime/outputs/qc_preprocessing/filtered_count_matrix.tsv",
+        );
+        std::fs::remove_file(pkg.join("runtime/outputs/differential_expression/de_results.tsv"))
+            .unwrap();
+        let mut upstream = std::collections::BTreeMap::new();
+        upstream.insert(
+            "qc_preprocessing".to_string(),
+            pkg.join("runtime/outputs/qc_preprocessing"),
+        );
+        assert!(!run_assertion(pkg, &assertion, &upstream));
+    }
+
+    #[test]
+    fn cross_stage_table_handoff_skips_a_selected_one_of_sibling() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        write_handoff_fixture(
+            pkg,
+            "gene\tlog2FC\tpadj\nA\t1.2\t0.01\n",
+            "runtime/outputs/normalisation/normalized_counts.tsv",
+        );
+        std::fs::write(
+            pkg.join("runtime/outputs/differential_expression/reads.jsonl"),
+            concat!(
+                "{\"path\":\"runtime/outputs/normalisation/normalized_counts.tsv\",",
+                "\"declared_port\":\"normalized_counts\"}\n"
+            ),
+        )
+        .unwrap();
+        assert!(
+            run_assertion(
+                pkg,
+                &canonical_table_handoff_assertion(),
+                &std::collections::BTreeMap::new()
+            ),
+            "a valid normalized-count selection is outside the raw-count assertion"
+        );
+    }
+
+    #[test]
+    fn cross_stage_table_handoff_rejects_no_count_choice_or_both_choices() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        write_handoff_fixture(
+            pkg,
+            "gene\tlog2FC\tpadj\nA\t1.2\t0.01\nB\t-1.4\t0.02\n",
+            "runtime/outputs/qc_preprocessing/filtered_count_matrix.tsv",
+        );
+        let mut upstream = std::collections::BTreeMap::new();
+        upstream.insert(
+            "qc_preprocessing".to_string(),
+            pkg.join("runtime/outputs/qc_preprocessing"),
+        );
+
+        std::fs::write(
+            pkg.join("runtime/outputs/differential_expression/reads.jsonl"),
+            concat!(
+                "{\"path\":\"runtime/outputs/data_acquisition/samples.tsv\",",
+                "\"declared_port\":\"experimental_design\"}\n"
+            ),
+        )
+        .unwrap();
+        assert!(
+            !run_assertion(pkg, &canonical_table_handoff_assertion(), &upstream),
+            "an unrelated design read cannot bypass the count handoff"
+        );
+
+        std::fs::write(
+            pkg.join("runtime/outputs/differential_expression/reads.jsonl"),
+            concat!(
+                "{\"path\":\"runtime/outputs/qc_preprocessing/filtered_count_matrix.tsv\",",
+                "\"declared_port\":\"raw_counts\"}\n",
+                "{\"path\":\"runtime/outputs/normalisation/normalized_counts.tsv\",",
+                "\"declared_port\":\"normalized_counts\"}\n"
+            ),
+        )
+        .unwrap();
+        assert!(
+            !run_assertion(pkg, &canonical_table_handoff_assertion(), &upstream),
+            "a one-of input cannot select both raw and normalized counts"
+        );
     }
 
     /// Pessimistic-unknown contract: an unrecognized assertion_type must
