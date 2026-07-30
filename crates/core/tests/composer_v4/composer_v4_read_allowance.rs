@@ -67,6 +67,18 @@ fn bulk_rnaseq_de_goal() -> GoalSpec {
 /// real compiler actually emits for a canonical bulk-RNA-seq intent
 /// (the archetype seed wins primary over search on a definitive match).
 fn run_v4_planner(modality: &str, goal: &GoalSpec) -> WorkflowDag {
+    run_v4_planner_with_data(
+        modality,
+        goal,
+        vec![DataProductContract::sample_paired_fastq()],
+    )
+}
+
+fn run_v4_planner_with_data(
+    modality: &str,
+    goal: &GoalSpec,
+    available_data: Vec<DataProductContract>,
+) -> WorkflowDag {
     let atom_reg = AtomRegistry::load_from_dir(Path::new(ATOMS_DIR))
         .expect("AtomRegistry must load from config/stage-atoms");
     let archetype_reg = ArchetypeRegistry::load_from_dir(Path::new(ARCHETYPES_DIR))
@@ -80,7 +92,7 @@ fn run_v4_planner(modality: &str, goal: &GoalSpec) -> WorkflowDag {
             .unwrap_or_else(|| goal.edam_data.clone()),
         modality: Some(modality.into()),
         project_class: Some("bioinformatics".into()),
-        available_data: vec![DataProductContract::sample_paired_fastq()],
+        available_data,
         desired_outputs: vec![DesiredOutput {
             label: goal
                 .source_prose
@@ -155,6 +167,109 @@ fn bulk_rnaseq_normalisation_gets_a_typed_data_acquisition_metadata_edge() {
     assert_eq!(count_edge.to_port, "count_matrix");
     assert_eq!(count_edge.proof.producer_type, "data:3917");
     assert_eq!(count_edge.proof.consumer_type, "data:3917");
+}
+
+#[test]
+fn himes_counts_first_edges_use_authored_ports_and_reconcile_realistic_reads() {
+    let dag = run_v4_planner_with_data(
+        "bulk_rnaseq",
+        &bulk_rnaseq_de_goal(),
+        vec![DataProductContract::gene_count_matrix()],
+    );
+
+    for (from, to, expected_port) in [
+        (
+            "differential_expression",
+            "pathway_enrichment",
+            "ranked_de_results",
+        ),
+        (
+            "differential_expression",
+            "contextualize_findings_with_literature",
+            "analysis_findings",
+        ),
+    ] {
+        let edge = dag
+            .edges
+            .iter()
+            .find(|edge| edge.from_node == from && edge.to_node == to)
+            .unwrap_or_else(|| panic!("missing {from} -> {to} edge"));
+        assert_eq!(
+            edge.to_port, expected_port,
+            "{from} -> {to} must bind the authored semantic port: {edge:?}"
+        );
+        assert!(
+            !edge.to_port.starts_with("residual_in_"),
+            "{from} -> {to} must not depend on a synthetic residual port"
+        );
+    }
+
+    let survey_edges: Vec<_> = dag
+        .edges
+        .iter()
+        .filter(|edge| {
+            edge.from_node == "data_acquisition" && edge.to_node == "survey_method_landscape"
+        })
+        .collect();
+    for (from_port, to_port) in [
+        ("cohort_manifest", "cohort_manifest"),
+        ("raw_count_matrix", "count_matrix"),
+    ] {
+        assert!(
+            survey_edges.iter().any(|edge| {
+                edge.from_port == from_port
+                    && edge.to_port == to_port
+                    && matches!(
+                        edge.kind,
+                        ecaa_workflow_core::workflow_contracts::edge::EdgeKind::TypedDataFlow
+                            | ecaa_workflow_core::workflow_contracts::edge::EdgeKind::AdapterMediated
+                    )
+            }),
+            "data acquisition must bind {from_port} -> {to_port}: {survey_edges:?}"
+        );
+    }
+
+    let observed_reads = vec![
+        ObservedRead {
+            task_id: "survey_method_landscape".into(),
+            declared_port: Some("cohort_manifest".into()),
+            path: "runtime/outputs/data_acquisition/data/himes-inputs/samples.csv".into(),
+        },
+        ObservedRead {
+            task_id: "survey_method_landscape".into(),
+            declared_port: Some("count_matrix".into()),
+            path: "runtime/outputs/data_acquisition/data/himes-inputs/counts.tsv".into(),
+        },
+        ObservedRead {
+            task_id: "contextualize_findings_with_literature".into(),
+            declared_port: Some("analysis_findings".into()),
+            path: "runtime/outputs/differential_expression/de_results.tsv".into(),
+        },
+        ObservedRead {
+            task_id: "pathway_enrichment".into(),
+            declared_port: Some("ranked_de_results".into()),
+            path: "runtime/outputs/differential_expression/de_results.tsv".into(),
+        },
+    ];
+    let mut metadata = graph_with_parameter_connections(&dag.edges);
+    let divergences = reconcile_ro_crate_edges_with_allowances(
+        &mut metadata,
+        &dag.edges,
+        &observed_reads,
+        &node_read_allowances(&dag),
+    );
+    assert!(
+        divergences.is_empty(),
+        "authored-port reads must reconcile without allowances: {divergences:#?}"
+    );
+    let root = metadata["@graph"]
+        .as_array()
+        .and_then(|graph| graph.iter().find(|entry| entry["@id"] == "./"))
+        .expect("root Dataset node present");
+    assert!(
+        root.get("ecaax:provenanceDivergence").is_none(),
+        "realistic Himes reads must not create provenance divergence: {root:#?}"
+    );
 }
 
 /// `final_reporting` declares a `read_allowance` facet (its own atom

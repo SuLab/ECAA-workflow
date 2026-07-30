@@ -87,3 +87,58 @@ fn qc_preprocessing_separates_metrics_from_filtered_counts() {
         "QC instructions must keep replay-critical annotation lookup inside the retained package"
     );
 }
+
+#[test]
+fn differential_expression_default_call_set_matches_result_schema() {
+    let reg = AtomRegistry::load_from_dir(&config_root().join("stage-atoms"))
+        .expect("AtomRegistry must load the differential-expression contract");
+    let de = reg
+        .get("differential_expression")
+        .expect("differential_expression must be present");
+
+    let effect_threshold = de
+        .parameters
+        .iter()
+        .find(|parameter| parameter.name == "log2fc_threshold")
+        .expect("differential_expression must declare log2fc_threshold");
+    assert_eq!(
+        effect_threshold.default,
+        Some(serde_json::json!(0.0)),
+        "the default call set must not add an effect-size criterion that is absent from result_schema.significance"
+    );
+
+    let significance = de
+        .result_schema
+        .as_ref()
+        .and_then(|schema| schema.significance.as_ref())
+        .expect("differential_expression must declare its significance rule");
+    assert_eq!(significance.column, "padj");
+    assert_eq!(significance.threshold, 0.05);
+
+    let shrinkage_columns = de
+        .non_determinism
+        .iter()
+        .find(|ack| ack.artifact == "de_results.tsv")
+        .and_then(|ack| ack.columns.as_ref())
+        .expect("adaptive-shrinkage declaration must name its affected columns");
+    let mut accepted_effect_headers = vec![de
+        .result_schema
+        .as_ref()
+        .and_then(|schema| schema.signed_effect_column.as_deref())
+        .expect("differential_expression must declare a signed effect")
+        .to_string()];
+    accepted_effect_headers.extend(
+        de.result_schema
+            .as_ref()
+            .expect("result schema present")
+            .signed_effect_aliases
+            .iter()
+            .cloned(),
+    );
+    for header in accepted_effect_headers {
+        assert!(
+            shrinkage_columns.contains(&header),
+            "adaptive-shrinkage replay declaration must cover accepted effect header {header}"
+        );
+    }
+}

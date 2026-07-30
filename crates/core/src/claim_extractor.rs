@@ -2284,6 +2284,26 @@ fn is_contextual_non_entity(sentence: &str, start: usize, end: usize, token: &st
         return true;
     }
 
+    // Negative-binomial model abbreviation in methods prose. `NB` remains
+    // eligible as an identifier elsewhere; only an explicit model/GLM
+    // construction suppresses it.
+    if upper == "NB"
+        && (lower.contains("nb glm")
+            || lower.contains("negative-binomial")
+            || lower.contains("negative binomial"))
+    {
+        return true;
+    }
+
+    // Gene-set collection metadata, not a row entity. GO namespace labels
+    // contain underscores and match the broad all-caps identifier pattern, but
+    // in an explicit collection/gene-set inventory they name a grouping axis.
+    if matches!(upper.as_str(), "GO_BP" | "GO_MF" | "GO_CC")
+        && (lower.contains("collection") || lower.contains("gene set"))
+    {
+        return true;
+    }
+
     false
 }
 
@@ -2922,15 +2942,17 @@ mod tests {
     }
 
     #[test]
-    fn design_and_reproducibility_abbreviations_are_contextually_suppressed() {
+    fn design_method_and_reproducibility_abbreviations_are_contextually_suppressed() {
         let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
         let claims = extract_claims(
             "Four donor cell lines (N1, N61) were paired. Prior literature \
-             discussed dex/GC treatment. Figures used a seeded RNG.",
+             discussed dex/GC treatment. Figures used a seeded RNG. DESeq2 fit \
+             a fixed-effects NB GLM. Collections included Hallmark and GO_BP \
+             gene sets.",
             &cfg,
         );
         let entities: Vec<&str> = claims.iter().map(|claim| claim.entity.as_str()).collect();
-        for token in ["N1", "N61", "GC", "RNG"] {
+        for token in ["N1", "N61", "GC", "RNG", "NB", "GO_BP"] {
             assert!(
                 !entities.contains(&token),
                 "{token} is metadata in this context, not an entity: {entities:?}"
@@ -2941,6 +2963,8 @@ mod tests {
             "N1 was upregulated (log2FC = 1.2).",
             "GC was upregulated (log2FC = 1.2).",
             "RNG was upregulated (log2FC = 1.2).",
+            "NB was upregulated (log2FC = 1.2).",
+            "GO_BP was enriched (NES = 1.2).",
         ] {
             assert!(
                 !extract_claims(sentence, &cfg).is_empty(),

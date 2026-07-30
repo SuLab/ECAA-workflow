@@ -823,8 +823,8 @@ export interface DiscoveryDecision {
 /// shape the BlockerCard discovery picker consumes.
 ///
 /// The agent's current `decision.json` schema records the scored method
-/// pool as `{ chosen, candidate_pool_full: [{ method_id, rank,
-/// composite_score, rationale, ... }] }` — it does NOT carry the legacy
+/// pool as `{ chosen, candidate_pool_full: [{ method_id, composite_rank,
+/// composite_score, suitability_rationale, ... }] }` — it does NOT carry the legacy
 /// top-level `top_candidate` / `runner_ups` / `scores` fields the UI was
 /// written against. Without this adapter `decision.top_candidate` reads
 /// `undefined`, so the picker renders a single blank radio marked
@@ -834,9 +834,9 @@ export interface DiscoveryDecision {
 /// This maps the rich pool back onto the legacy fields:
 ///   - top_candidate ← `chosen` (the agent's recommendation) or rank-1
 ///   - runner_ups    ← every other method, rank-ordered
-///   - scores        ← `composite_score` normalized from the 0–5 scoring
-///                     scale to the 0–1 scale the card's "score X/1.0"
-///                     label expects
+///   - scores        ← `composite_score_after_gates` or `composite_score`,
+///                     preserving the current 0–1 scale and normalizing legacy
+///                     0–5 pools to the card's 0–1 display
 ///   - rationale     ← top-level rationale or the rank-1 method's rationale
 /// A decision that already carries `top_candidate` is returned unchanged,
 /// so legacy artifacts keep working.
@@ -859,8 +859,16 @@ export function normalizeDiscoveryDecision(
     return raw as DiscoveryDecision
   }
   const sorted = [...pool].sort((a, b) => {
-    const ra = typeof a.rank === 'number' ? (a.rank as number) : Number.MAX_SAFE_INTEGER
-    const rb = typeof b.rank === 'number' ? (b.rank as number) : Number.MAX_SAFE_INTEGER
+    const rank = (entry: Record<string, unknown>): number => {
+      if (typeof entry.composite_rank === 'number') {
+        return entry.composite_rank as number
+      }
+      return typeof entry.rank === 'number'
+        ? (entry.rank as number)
+        : Number.MAX_SAFE_INTEGER
+    }
+    const ra = rank(a)
+    const rb = rank(b)
     return ra - rb
   })
   const methodIds = sorted
@@ -869,11 +877,32 @@ export function normalizeDiscoveryDecision(
   const top = chosen || methodIds[0] || ''
   const runner_ups = methodIds.filter((m) => m !== top)
   const scores: Record<string, number> = {}
+  const rawScores = sorted
+    .map((c) =>
+      typeof c.composite_score_after_gates === 'number'
+        ? (c.composite_score_after_gates as number)
+        : typeof c.composite_score === 'number'
+          ? (c.composite_score as number)
+          : null,
+    )
+    .filter((score): score is number => score !== null && Number.isFinite(score))
+  // Current discovery decisions use [0, 1]. Historical artifacts used
+  // [0, 5]. Detect the pool once instead of dividing every score by five:
+  // a current 0.94 score must render as 0.94, not the misleading 0.19.
+  const scoreScale = rawScores.some((score) => score > 1) ? 5 : 1
   for (const c of sorted) {
-    if (typeof c.method_id === 'string' && typeof c.composite_score === 'number') {
-      // composite_score is clamped to [0, 5] server-side; the radio
-      // renders "score X/1.0", so normalize onto the 0–1 scale.
-      scores[c.method_id] = (c.composite_score as number) / 5
+    const rawScore =
+      typeof c.composite_score_after_gates === 'number'
+        ? (c.composite_score_after_gates as number)
+        : typeof c.composite_score === 'number'
+          ? (c.composite_score as number)
+          : null
+    if (
+      typeof c.method_id === 'string' &&
+      rawScore !== null &&
+      Number.isFinite(rawScore)
+    ) {
+      scores[c.method_id] = Math.min(1, Math.max(0, rawScore / scoreScale))
     }
   }
   const topEntry = sorted.find((c) => c.method_id === top)
@@ -887,6 +916,8 @@ export function normalizeDiscoveryDecision(
         ? (d.rationale as string)
         : typeof topEntry?.rationale === 'string'
           ? (topEntry.rationale as string)
+          : typeof topEntry?.suitability_rationale === 'string'
+            ? (topEntry.suitability_rationale as string)
           : undefined,
     auto_picked: typeof d.auto_picked === 'boolean' ? (d.auto_picked as boolean) : undefined,
   }

@@ -53,6 +53,16 @@
 //!     from `pathway_results.tsv` within the package policy's tolerances.
 //!   * **RC-METHOD** a method name embedded in a pathway-level significance
 //!     label must match the implementation recorded by the pathway stage.
+//!   * **RC-SOFTWARE-VERSION** every package-version pair asserted in report
+//!     prose must agree with a version retained in an executed stage's
+//!     `env.lock`, `result.json`, or the package-level install/dependency log.
+//!     This prevents a reporting agent from filling a reproducibility table
+//!     with a plausible version recalled from model memory.
+//!   * **RC-FILTER-POPULATION** when QC records distinct source and retained
+//!     matrix row counts, the report may not introduce the retained count as
+//!     the unqualified input count-matrix population. The retained population
+//!     must be identified as filtered, analysis-ready, tested, or as input to
+//!     a specifically named downstream model.
 //!   * **RC-FINAL-FIDELITY** when both report stages ran, the agent-authored
 //!     portion of terminal `final_report.md` must contain the complete
 //!     agent-authored `reporting/report.md` byte-for-byte as one contiguous
@@ -255,6 +265,8 @@ pub fn check_reporting_invariants(package_root: &Path) -> ReportingInvariantsRep
     check_rc_pathway_rank(&outputs, &mut report);
     check_rc_pathway_stage_narrative(package_root, &outputs, &mut report);
     check_rc_pathway_method(&outputs, &mut report);
+    check_rc_software_versions(&outputs, &mut report);
+    check_rc_filter_population(&outputs, &mut report);
     check_rc_final_report_fidelity(&outputs, &mut report);
     check_rp3_fdr_family(&outputs, &mut report);
     check_rp4_mapping_reconciliation(&outputs, &mut report);
@@ -678,6 +690,13 @@ fn narrative_rank_count_claims(text: &str, expected: u64) -> Vec<u64> {
         let Some(matched) = capture.get(0) else {
             continue;
         };
+        let matched_text = matched.as_str().to_ascii_lowercase();
+        if matched_text.contains("duplicate") {
+            // A clause such as "removed 32 duplicate gene-symbol labels,
+            // 17,177 genes were ranked" contains two gene counts.  The first
+            // describes deduplication loss, not the final ranking population.
+            continue;
+        }
         let clause = clause_around(text, matched.start()).to_ascii_lowercase();
         let enrichment_context = ["fgsea", "gsea", "wald", "ranking", "ranked"]
             .iter()
@@ -757,6 +776,7 @@ fn check_rc_pathway_rank(outputs: &Path, report: &mut ReportingInvariantsReport)
         .unwrap_or(0);
 
     let mut structural = Vec::new();
+    let mut expected_duplicate_removals = None;
     let mut labels = BTreeSet::new();
     for (offset, row) in rows.iter().enumerate() {
         let expected_rank = offset + 1;
@@ -889,6 +909,7 @@ fn check_rc_pathway_rank(outputs: &Path, report: &mut ReportingInvariantsReport)
                     ));
                 } else {
                     let expected_duplicates = mapped - expected_count;
+                    expected_duplicate_removals = Some(expected_duplicates);
                     match result
                         .as_ref()
                         .and_then(|value| json_named_u64(value, "n_duplicate_gene_labels_removed"))
@@ -920,6 +941,25 @@ fn check_rc_pathway_rank(outputs: &Path, report: &mut ReportingInvariantsReport)
         structural.push(format!(
             "narrative final-ranking count={observed}, ranked_genes.tsv rows={expected_count}"
         ));
+    }
+    if let Some(expected_duplicates) = expected_duplicate_removals {
+        let duplicate_claim = Regex::new(
+            r"(?i)\b(?:removing|removed|removal\s+of)\s+(\d[\d,]*)\s+duplicate(?:\s+gene[\s-]?symbol)?\s+labels?\b",
+        )
+        .expect("static duplicate-removal regex compiles");
+        for captures in duplicate_claim.captures_iter(&narrative) {
+            let Some(observed) = captures
+                .get(1)
+                .and_then(|value| parse_grouped_int(value.as_str()))
+            else {
+                continue;
+            };
+            if observed != expected_duplicates {
+                structural.push(format!(
+                    "narrative duplicate-label removal count={observed}, recomputed={expected_duplicates}"
+                ));
+            }
+        }
     }
 
     if !structural.is_empty() {
@@ -1695,6 +1735,249 @@ fn check_rc_pathway_method(outputs: &Path, report: &mut ReportingInvariantsRepor
             ),
         });
     }
+}
+
+// ---------------------------------------------------------------------------
+// RC-SOFTWARE-VERSION (Required) — narrative versions match runtime evidence
+// ---------------------------------------------------------------------------
+
+fn normalize_package_name(name: &str) -> String {
+    name.chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+fn record_software_version(
+    versions: &mut BTreeMap<String, (String, BTreeSet<String>)>,
+    package: &str,
+    version: &str,
+) {
+    let package = package.trim();
+    let version = version.trim().trim_start_matches(['v', 'V']);
+    let key = normalize_package_name(package);
+    if key.len() < 3 || version.is_empty() || !version.chars().any(|c| c == '.') {
+        return;
+    }
+    let entry = versions
+        .entry(key)
+        .or_insert_with(|| (package.to_string(), BTreeSet::new()));
+    entry.1.insert(version.to_ascii_lowercase());
+}
+
+fn collect_result_software_versions(
+    value: &Value,
+    versions: &mut BTreeMap<String, (String, BTreeSet<String>)>,
+) {
+    if let (Some(method), Some(version)) = (
+        value.get("method").and_then(Value::as_str),
+        value.get("method_version").and_then(Value::as_str),
+    ) {
+        record_software_version(versions, method, version);
+    }
+    if let Some(packages) = value
+        .get("language_packages_installed")
+        .and_then(Value::as_array)
+    {
+        for package in packages {
+            let name = package
+                .get("name")
+                .or_else(|| package.get("package"))
+                .and_then(Value::as_str);
+            let version = package
+                .get("version")
+                .or_else(|| package.get("resolved_version"))
+                .and_then(Value::as_str);
+            if let (Some(name), Some(version)) = (name, version) {
+                record_software_version(versions, name, version);
+            }
+        }
+    }
+}
+
+fn collect_software_versions(outputs: &Path) -> BTreeMap<String, (String, BTreeSet<String>)> {
+    let mut versions = BTreeMap::new();
+    let r_package = Regex::new(
+        r"(?:^|[\s\[])([A-Za-z][A-Za-z0-9.]*)_([0-9]+(?:\.[0-9A-Za-z]+)+(?:[-+][0-9A-Za-z.]+)?)\b",
+    )
+    .expect("static R package-version regex compiles");
+
+    let mut stage_dirs: Vec<_> = std::fs::read_dir(outputs)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .map(|entry| entry.path())
+        .collect();
+    stage_dirs.sort();
+    for stage in stage_dirs {
+        if let Some(value) = read_json(&stage.join("result.json")) {
+            collect_result_software_versions(&value, &mut versions);
+        }
+        if let Ok(lock) = std::fs::read_to_string(stage.join("env.lock")) {
+            for captures in r_package.captures_iter(&lock) {
+                if let (Some(package), Some(version)) = (captures.get(1), captures.get(2)) {
+                    record_software_version(&mut versions, package.as_str(), version.as_str());
+                }
+            }
+        }
+    }
+
+    let runtime = outputs.parent().unwrap_or(outputs);
+    if let Ok(log) = std::fs::read_to_string(runtime.join("install-log.jsonl")) {
+        for line in log.lines() {
+            let Ok(value) = serde_json::from_str::<Value>(line) else {
+                continue;
+            };
+            if let (Some(package), Some(version)) = (
+                value.get("package").and_then(Value::as_str),
+                value.get("resolved_version").and_then(Value::as_str),
+            ) {
+                record_software_version(&mut versions, package, version);
+            }
+        }
+    }
+    if let Some(lock) = read_json(&runtime.join("dependency-lock.json")) {
+        for registry in ["r", "python", "conda"] {
+            let Some(packages) = lock.get(registry).and_then(Value::as_array) else {
+                continue;
+            };
+            for package in packages {
+                if let (Some(name), Some(version)) = (
+                    package.get("name").and_then(Value::as_str),
+                    package.get("resolved").and_then(Value::as_str),
+                ) {
+                    record_software_version(&mut versions, name, version);
+                }
+            }
+        }
+    }
+    versions
+}
+
+/// Fail when report prose pairs a known executed package with a version that
+/// no retained runtime source records. The scan is intentionally narrow: it
+/// constructs patterns only for packages found in this package's own runtime
+/// evidence and only recognizes an immediately adjacent dotted version.
+fn check_rc_software_versions(outputs: &Path, report: &mut ReportingInvariantsReport) {
+    let versions = collect_software_versions(outputs);
+    let Some(prose) = read_agent_report_prose(outputs) else {
+        return;
+    };
+    if versions.is_empty() {
+        return;
+    }
+    report.checked.push("RC-SOFTWARE-VERSION");
+
+    let mut mismatches = BTreeSet::new();
+    for (_key, (package, recorded)) in versions {
+        let pattern = format!(
+            r"(?i)(?:^|[^A-Za-z0-9.])({})\s*(?:[:=]\s*|\(\s*)?(?:v(?:ersion)?\s*)?([0-9]+(?:\.[0-9A-Za-z]+)+(?:[-+][0-9A-Za-z.]+)?)",
+            regex::escape(&package)
+        );
+        let matcher = Regex::new(&pattern).expect("escaped package name yields valid regex");
+        for captures in matcher.captures_iter(&prose) {
+            let Some(claimed) = captures.get(2) else {
+                continue;
+            };
+            let claimed = claimed.as_str().trim_end_matches('.').to_ascii_lowercase();
+            if !recorded.contains(&claimed) {
+                mismatches.insert(format!(
+                    "{package} claims version {}, retained runtime evidence records {}",
+                    claimed,
+                    recorded.iter().cloned().collect::<Vec<_>>().join(" or ")
+                ));
+            }
+        }
+    }
+
+    if !mismatches.is_empty() {
+        report.findings.push(ReportingFinding {
+            invariant: "RC-SOFTWARE-VERSION",
+            severity: Severity::Required,
+            detail: format!(
+                "report software-version claim disagrees with retained runtime evidence: {}",
+                mismatches.into_iter().collect::<Vec<_>>().join(" | ")
+            ),
+        });
+    }
+}
+
+// ---------------------------------------------------------------------------
+// RC-FILTER-POPULATION (Required) — source and retained matrices stay distinct
+// ---------------------------------------------------------------------------
+
+fn first_named_count(value: &Value, names: &[&str]) -> Option<u64> {
+    names.iter().find_map(|name| json_named_u64(value, name))
+}
+
+/// Reject the specific ambiguity where a report calls the post-QC population
+/// the unqualified input count matrix even though QC records a larger source
+/// population. Calling the retained population the filtered/tested matrix, or
+/// the input to a named downstream model, remains valid and is not matched.
+fn check_rc_filter_population(outputs: &Path, report: &mut ReportingInvariantsReport) {
+    let Some(qc) = read_json(&outputs.join("qc_preprocessing").join("result.json")) else {
+        return;
+    };
+    let filter = qc.get("gene_filter").unwrap_or(&qc);
+    let Some(source_count) = first_named_count(
+        filter,
+        &[
+            "n_genes_pre_filter",
+            "n_features_pre_filter",
+            "n_rows_pre_filter",
+        ],
+    ) else {
+        return;
+    };
+    let Some(retained_count) = first_named_count(
+        filter,
+        &["n_genes_retained", "n_features_retained", "n_rows_retained"],
+    ) else {
+        return;
+    };
+    if source_count == retained_count {
+        return;
+    }
+    let Some(prose) = read_agent_report_prose(outputs) else {
+        return;
+    };
+    report.checked.push("RC-FILTER-POPULATION");
+
+    let claim = Regex::new(
+        r"(?i)\b(?:the\s+)?input\s+(?:raw\s+)?count\s+matrix\s+(?:contained|contains|had|has)\s+(?:gene\s+expression\s+values\s+for\s+)?([0-9][0-9,]*)\s+(?:genes|features|rows)\b",
+    )
+    .expect("static input-population regex compiles");
+    let mut bad_counts = BTreeSet::new();
+    for captures in claim.captures_iter(&prose) {
+        let Some(count) = captures
+            .get(1)
+            .and_then(|value| parse_grouped_int(value.as_str()))
+        else {
+            continue;
+        };
+        if count != source_count {
+            bad_counts.insert(count);
+        }
+    }
+    if bad_counts.is_empty() {
+        return;
+    }
+
+    report.findings.push(ReportingFinding {
+        invariant: "RC-FILTER-POPULATION",
+        severity: Severity::Required,
+        detail: format!(
+            "report calls {} the unqualified input count-matrix population, but QC records \
+             source population {source_count} and retained population {retained_count}; \
+             identify the latter as filtered/tested or as input to a named downstream model",
+            bad_counts
+                .into_iter()
+                .map(|count| count.to_string())
+                .collect::<Vec<_>>()
+                .join(" or ")
+        ),
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -3989,6 +4272,85 @@ mod tests {
         std::fs::write(path, body).unwrap();
     }
 
+    #[test]
+    fn rc_software_version_rejects_model_recalled_version() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "pathway_enrichment/env.lock",
+            "other attached packages:\n [1] fgsea_1.36.2 msigdbr_26.1.0\n",
+        );
+        write(
+            &outputs,
+            "reporting/report.md",
+            "## Reproducibility\n\n- fgsea: v1.36.2\n- msigdbr: v24.1.1\n",
+        );
+
+        let wrong = check_reporting_invariants(tmp.path());
+        assert!(wrong.checked.contains(&"RC-SOFTWARE-VERSION"));
+        assert!(wrong.findings.iter().any(|finding| {
+            finding.invariant == "RC-SOFTWARE-VERSION"
+                && finding.severity == Severity::Required
+                && finding.detail.contains("msigdbr")
+                && finding.detail.contains("24.1.1")
+                && finding.detail.contains("26.1.0")
+        }));
+
+        write(
+            &outputs,
+            "reporting/report.md",
+            "## Reproducibility\n\n- fgsea: v1.36.2\n- msigdbr: v26.1.0\n",
+        );
+        let corrected = check_reporting_invariants(tmp.path());
+        assert!(corrected
+            .findings
+            .iter()
+            .all(|finding| finding.invariant != "RC-SOFTWARE-VERSION"));
+    }
+
+    #[test]
+    fn rc_filter_population_rejects_retained_count_as_unqualified_input() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "qc_preprocessing/result.json",
+            r#"{
+                "gene_filter": {
+                    "n_genes_pre_filter": 63677,
+                    "n_genes_retained": 22369
+                }
+            }"#,
+        );
+        write(
+            &outputs,
+            "reporting/report.md",
+            "The input count matrix contained gene expression values for 22,369 genes across 8 samples.",
+        );
+
+        let ambiguous = check_reporting_invariants(tmp.path());
+        assert!(ambiguous.checked.contains(&"RC-FILTER-POPULATION"));
+        assert!(ambiguous.findings.iter().any(|finding| {
+            finding.invariant == "RC-FILTER-POPULATION"
+                && finding.severity == Severity::Required
+                && finding.detail.contains("22369")
+                && finding.detail.contains("63677")
+        }));
+
+        write(
+            &outputs,
+            "reporting/report.md",
+            "The source count matrix contained 63,677 genes across 8 samples; the pre-filter \
+             retained 22,369 genes for testing.",
+        );
+        let corrected = check_reporting_invariants(tmp.path());
+        assert!(corrected
+            .findings
+            .iter()
+            .all(|finding| finding.invariant != "RC-FILTER-POPULATION"));
+    }
+
     fn seed_literature_count_package(outputs: &Path, entity_count: u64) {
         write(
             outputs,
@@ -4669,6 +5031,56 @@ mod tests {
                 && failures.contains("n_duplicate_gene_labels_removed=0, recomputed=1"),
             "{failures}"
         );
+    }
+
+    #[test]
+    fn rc_rank_rejects_ranked_population_reported_as_duplicate_removals() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        seed_ranked_genes(&outputs, 2);
+        write(
+            &outputs,
+            "pathway_enrichment/annotation/symbol_map.tsv",
+            "symbol\tensembl_gene_id\n\
+             GENE1\tENSG1\n\
+             GENE1\tENSG2\n\
+             GENE2\tENSG3\n",
+        );
+        write(
+            &outputs,
+            "pathway_enrichment/result.json",
+            &serde_json::json!({
+                "n_genes_pre_mapping": 4,
+                "n_genes_mapped": 3,
+                "n_genes_unmapped": 1,
+                "n_genes_ranked": 2,
+                "n_duplicate_gene_labels_removed": 1
+            })
+            .to_string(),
+        );
+        write(
+            &outputs,
+            "reporting/report.md",
+            "After removing 2 duplicate gene-symbol labels, 2 genes were ranked for fgsea.",
+        );
+
+        let wrong = check_reporting_invariants(tmp.path());
+        assert!(wrong.required_failures().iter().any(|failure| {
+            failure.starts_with("RC-RANK:")
+                && failure.contains("duplicate-label removal count=2")
+                && failure.contains("recomputed=1")
+        }));
+
+        write(
+            &outputs,
+            "reporting/report.md",
+            "After removing 1 duplicate gene-symbol label, 2 genes were ranked for fgsea.",
+        );
+        let corrected = check_reporting_invariants(tmp.path());
+        assert!(corrected
+            .required_failures()
+            .iter()
+            .all(|failure| !failure.starts_with("RC-RANK:")));
     }
 
     // -- RP-2 -------------------------------------------------------------

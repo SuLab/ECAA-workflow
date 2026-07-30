@@ -1890,16 +1890,13 @@ fn try_cross_omics_archetype_seed(
 /// `depends_on` entry becomes an `EdgeContract` carrying a
 /// `CompatibilityProof` produced by the `CompatibilityEngine`.
 ///
-/// When an atom declares rich `inputs:` / `outputs:` (the typed-port
-/// shape), use those directly on the lifted `TaskNode` instead of the
-/// `from_atom` synthesis path that projects `atom.edam_data` into a
-/// single placeholder port. The synthesis path otherwise emits a
-/// placeholder shape that doesn't match the rich-port declarations
-/// the YAML carries, leaving every archetype-lifted edge with a
-/// `SemanticTypeMismatch` warning that flips
-/// `score.required_contract_unsatisfied` to `Reject`. Using the rich
-/// ports directly lets the archetype seed score cleanly and surface
-/// as primary when its match evidence is definitive.
+/// `TaskNode::from_atom` preserves authored rich ports for ordinary atoms and
+/// uses the legacy `edam_data` projection only when those declarations are
+/// absent. Raw aggregator conversion deliberately omits static inputs because
+/// fan-in is resolved dynamically. Archetype lifting must nevertheless retain
+/// the aggregator's authored input long enough to build dependency edges; the
+/// reporting fan-in pass later replaces its semantic type with the union of
+/// the actual producer types.
 pub fn lift_to_workflow_dag(
     result: &CompositionResult,
     ctx: &PlanningContext,
@@ -1919,17 +1916,8 @@ pub fn lift_to_workflow_dag(
         let mut node = TaskNode::from_atom(&c.atom);
         node.id = c.stage_id.to_string();
         node.machine_name = c.stage_id.to_string();
-        // Prefer the atom's rich port specs over the
-        // legacy `edam_data`-synthesized placeholders. The rich ports
-        // are what the meet-in-the-middle search uses; the archetype
-        // lift path needs to use the same shapes so its edges' proofs
-        // reflect real port-typed compatibility, not the legacy
-        // single-port fallback.
-        if !c.atom.inputs.is_empty() {
+        if node.inputs.is_empty() && !c.atom.inputs.is_empty() {
             node.inputs = c.atom.inputs.clone();
-        }
-        if !c.atom.outputs.is_empty() {
-            node.outputs = c.atom.outputs.clone();
         }
         // Stage id remembered separately so re-lowering is byte-stable.
         node.attributes.insert(

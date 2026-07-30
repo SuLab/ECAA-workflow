@@ -2,15 +2,17 @@
 //!
 //! This module is the thin adapter that lets every existing atom
 //! materialize as a typed `TaskNode` without reauthoring config
-//! YAML. `AtomDefinition` is the authoring surface; rich-port
-//! `inputs:` / `outputs:` declarations on atoms augment but do not
-//! replace this converter.
+//! YAML. `AtomDefinition` is the authoring surface; authored rich-port
+//! `inputs:` / `outputs:` declarations are preserved verbatim. The legacy
+//! `edam_data` / `edam_format` projection is only a fallback for atoms that
+//! have not migrated to rich ports.
 //!
 //! Field preservation contract:
 //!
 //! - id, version → `TaskNode::id`, `TaskNode::version`
 //! - description → `TaskNode::intent`
-//! - edam_data, edam_format → input/output `PortContract` synthesized
+//! - inputs, outputs → preserved rich `PortContract` values when authored
+//! - edam_data, edam_format → fallback input/output `PortContract` synthesis
 //! - role → `TaskNode::attributes["role"]` + `discovery_kind` for
 //!   `Discovery` atoms
 //! - assignee → `Implementation::ManualProtocol` for `Sme` atoms;
@@ -119,16 +121,17 @@ impl TaskNode {
     }
 }
 
-/// Synthesize input ports from `edam_data` for atoms that don't
-/// declare rich `inputs:`. `Aggregator` atoms get an empty input
-/// vector by design (per CLAUDE.md "discover_*/validate_*/aggregator
-/// are self-describing"). `Discovery` and `Validation` atoms get
-/// one synthesized input port mirroring their upstream source.
+/// Preserve authored rich input ports, falling back to `edam_data` only for
+/// atoms that do not declare `inputs:`. `Aggregator` atoms always get an empty
+/// static input vector because their fan-in is resolved dynamically.
 fn synthesize_inputs(atom: &AtomDefinition) -> Vec<PortContract> {
     if matches!(atom.role.default_behavior_class(), AtomRole::Aggregator) {
         // Aggregator inputs are resolved at fan-in; no static port
         // shape to synthesize.
         return Vec::new();
+    }
+    if !atom.inputs.is_empty() {
+        return atom.inputs.clone();
     }
     match atom.edam_data.as_deref() {
         Some(iri) => vec![PortContract::from_edam("input", Some(iri), None)],
@@ -136,9 +139,12 @@ fn synthesize_inputs(atom: &AtomDefinition) -> Vec<PortContract> {
     }
 }
 
-/// Synthesize output ports from `edam_data` + `edam_format` for
-/// atoms that don't declare rich `outputs:`.
+/// Preserve authored rich output ports, falling back to `edam_data` +
+/// `edam_format` only for atoms that do not declare `outputs:`.
 fn synthesize_outputs(atom: &AtomDefinition) -> Vec<PortContract> {
+    if !atom.outputs.is_empty() {
+        return atom.outputs.clone();
+    }
     let edam_data = atom.edam_data.as_deref();
     let edam_format = atom.edam_format.as_deref();
     if edam_data.is_none() && edam_format.is_none() {
@@ -494,10 +500,39 @@ mod tests {
     }
 
     #[test]
+    fn from_atom_preserves_authored_rich_ports_over_legacy_fallbacks() {
+        let mut atom = minimal_atom("pathway_enrichment");
+        atom.inputs = vec![PortContract {
+            name: "ranked_de_results".into(),
+            semantic_type: SemanticType::edam("data:3134", "Gene expression data"),
+            statistical_state: Some("de_tested".into()),
+            units: Some("log2 fold change".into()),
+            ..PortContract::default()
+        }];
+        atom.outputs = vec![PortContract {
+            name: "pathway_results".into(),
+            semantic_type: SemanticType::edam("data:0960", "Pathway"),
+            statistical_state: Some("multiple_testing_corrected".into()),
+            ..PortContract::default()
+        }];
+
+        let node = TaskNode::from_atom(&atom);
+        assert_eq!(node.inputs, atom.inputs);
+        assert_eq!(node.outputs, atom.outputs);
+        assert_eq!(node.inputs[0].name, "ranked_de_results");
+        assert_eq!(node.outputs[0].name, "pathway_results");
+    }
+
+    #[test]
     fn from_atom_aggregator_has_no_static_inputs() {
         let mut atom = minimal_atom("aggregate_counts");
         atom.role = AtomRole::Aggregator;
         atom.edam_data = None;
+        atom.inputs = vec![PortContract {
+            name: "legacy_authored_input".into(),
+            semantic_type: SemanticType::edam("data:2914", "Sequence metrics"),
+            ..PortContract::default()
+        }];
         let node = TaskNode::from_atom(&atom);
         assert!(node.inputs.is_empty());
     }

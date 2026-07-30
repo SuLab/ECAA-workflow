@@ -557,12 +557,25 @@ impl DeterministicCompatibilityEngine {
 ///   normalized one. Without this, declaring `normalization_state:
 ///   normalized` on `differential_expression`'s normalized input would
 ///   refuse a legitimate `batch_correction` substrate.
+/// - `statistical_state: de_tested ⊑ any_tested` and
+///   `multiple_testing_corrected ⊑ any_tested` — literature
+///   contextualization accepts either a tested result table or a table whose
+///   test statistics have subsequently been multiplicity-corrected.  The
+///   explicit relations keep `any_tested` from acting as an unconstrained
+///   string wildcard.
 ///
 /// Direction matters and is not symmetric: the reverse (a plain
 /// normalized matrix feeding a port that requires batch correction) is
 /// NOT a subtype and stays incompatible.
-const FACET_SUBTYPES: &[(&str, &str, &str)] =
-    &[("normalization_state", "batch_corrected", "normalized")];
+const FACET_SUBTYPES: &[(&str, &str, &str)] = &[
+    ("normalization_state", "batch_corrected", "normalized"),
+    ("statistical_state", "de_tested", "any_tested"),
+    (
+        "statistical_state",
+        "multiple_testing_corrected",
+        "any_tested",
+    ),
+];
 
 pub(crate) fn facet_subtype_rationale(
     facet: &str,
@@ -1890,6 +1903,39 @@ mod tests {
         consumer.normalization_state = Some("batch_corrected".into());
         assert!(matches!(
             engine.prove(&producer, &consumer, &PlanningContext::default()),
+            CompatibilityResult::Incompatible(_)
+        ));
+    }
+
+    #[test]
+    fn any_tested_accepts_only_declared_tested_state_subtypes() {
+        use crate::workflow_contracts::edge::FacetMatchKind;
+        let engine = DeterministicCompatibilityEngine::new();
+        let mut consumer = p("data:3134");
+        consumer.statistical_state = Some("any_tested".into());
+
+        for state in ["de_tested", "multiple_testing_corrected"] {
+            let mut producer = p("data:3134");
+            producer.statistical_state = Some(state.into());
+            match engine.prove(&producer, &consumer, &PlanningContext::default()) {
+                CompatibilityResult::Compatible(proof) => {
+                    let facet = proof
+                        .facet_matches
+                        .iter()
+                        .find(|facet| facet.facet == "statistical_state")
+                        .expect("statistical_state subtype must be surfaced");
+                    assert!(matches!(facet.kind, FacetMatchKind::Subtype));
+                    assert_eq!(facet.producer, state);
+                    assert_eq!(facet.consumer, "any_tested");
+                }
+                other => panic!("{state} must satisfy any_tested, got {other:?}"),
+            }
+        }
+
+        let mut raw = p("data:3134");
+        raw.statistical_state = Some("raw_counts".into());
+        assert!(matches!(
+            engine.prove(&raw, &consumer, &PlanningContext::default()),
             CompatibilityResult::Incompatible(_)
         ));
     }

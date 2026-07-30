@@ -419,11 +419,12 @@ pub(crate) fn type_companion_edges(dag: &mut WorkflowDag) {
         if !node.outputs.is_empty() {
             continue;
         }
-        // Companion producers reach here port-less: discover companions are
-        // bare skeletons, and the survey atom declares a rich `outputs:`
-        // block but no top-level `edam_data` (which is all `from_atom`'s
-        // `synthesize_outputs` reads). Give each its canonical method-axis
-        // artifact so the companion edges have a producer type to flow.
+        // Companion producers can reach here port-less when they are bare
+        // skeletons or come from an overlay atom with no authored/legacy
+        // output. Give those nodes a canonical method-axis artifact so the
+        // companion edges have a producer type to flow. Registry-backed survey
+        // nodes retain their authored `method_landscape` output in
+        // `TaskNode::from_atom` and therefore skip this fallback.
         let synthesized = if is_discover(&node.id) {
             Some((
                 "method_recommendation",

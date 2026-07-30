@@ -375,6 +375,42 @@ describe('BlockerCard — discovery-approval variant', () => {
     ).toBeInTheDocument()
   })
 
+  it('renders current 0–1 composite scores without dividing them by five', async () => {
+    mockFetch([
+      jsonResponse(200, {
+        task_id: 'discover_differential_expression',
+        chosen: 'deseq2',
+        candidate_pool_full: [
+          {
+            method_id: 'deseq2',
+            composite_rank: 1,
+            composite_score_after_gates: 0.942857,
+            suitability_rationale: 'paired count model',
+          },
+          {
+            method_id: 'edger',
+            composite_rank: 2,
+            composite_score_after_gates: 0.871429,
+          },
+        ],
+      }),
+      jsonResponse(404, 'no blocker.json'),
+    ])
+    render(
+      <BlockerCard
+        reason="Awaiting SME approval. Full decision: runtime/outputs/discover_differential_expression/decision.json"
+        recoveryHint="pick a method"
+        onUnblock={vi.fn()}
+        sessionId="s1"
+      />,
+    )
+    await waitFor(() =>
+      expect(screen.getByLabelText('deseq2')).toBeChecked(),
+    )
+    expect(screen.getByText(/score 0\.94/)).toBeInTheDocument()
+    expect(screen.getByText(/paired count model/)).toBeInTheDocument()
+  })
+
   it('degrades to plain-text reason when sessionId is null', () => {
     render(
       <BlockerCard

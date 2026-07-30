@@ -64,6 +64,10 @@ inputs:
       kind: union
       members:
         - kind: ontology_term
+          iri: "data:3134"
+          label: "Gene expression data"
+          ontology_version: "EDAM-1.25"
+        - kind: ontology_term
           iri: "data:0951"
           label: "Statistical estimate score"
           ontology_version: "EDAM-1.25"
@@ -115,6 +119,7 @@ attributes:
   claim_shape_branch:
     selector: input.analysis_findings.semantic_type.iri
     cases:
+      "data:3134": gene
       "data:0951": gene
       "data:3002": region
       "data:3498": variant
@@ -175,10 +180,10 @@ claim_boundary: |
   direction matches the analysis effect direction AND both effect-size
   magnitudes are >0; opposite_direction iff signs differ; no_prior_finding
   iff a literature query WAS ACTUALLY ISSUED for this entity and returned zero
-  usable prior rows (searched, nothing found); unverifiable iff prior rows
-  exist but their evidence_quote does not specify a direction; not_assessed
-  iff retrieval was NOT performed for this entity — it lies outside the set of
-  entities a query was issued for. no_prior_finding and not_assessed are
+  usable prior rows (searched, nothing found); unverifiable iff retained prior
+  evidence names the entity but does not specify a direction; not_assessed iff
+  no entity-specific query was issued and the bounded retained evidence corpus
+  contains no exact entity mention. no_prior_finding and not_assessed are
   distinct and MUST NOT be conflated: absence of retrieved evidence for an
   entity you never searched is not a "no prior finding" result, and downstream
   reporting treats only the searched no_prior_finding set as candidate-novel.
@@ -196,12 +201,15 @@ claim_boundary: |
   hash to the recorded digest; quotes are extracted from that snapshot and
   re-verified as verbatim substrings at a recorded offset; prior directions
   are derived from the quoted sentence and analysis directions from the sign
-  of the effect column; and the searched / unsearched boundary is taken from
+  of the effect column. Entity-specific query scope is taken from
   retrieval_scope.json plus the prior-claims query axes (or an explicit
-  --searched-entities list),
-  never guessed. A run that embeds a PMID, a quote, a direction label, or a
-  sha256 digest as a literal in a task script is non-compliant even if its
-  output happens to validate.
+  --searched-entities list), never guessed. The deterministic library also
+  scans the bounded retained evidence corpus for exact mentions of findings
+  not named by an entity-specific axis. A positive exact mention remains
+  citable evidence; an absent mention remains not_assessed and MUST NOT be
+  promoted to no_prior_finding. A run that embeds a PMID, a quote, a direction
+  label, or a sha256 digest as a literal in a task script is non-compliant even
+  if its output happens to validate.
 
   EVIDENCE GATING (MANDATORY; enforced by post-task validation): cite a prior
   PMID — and assert same_direction / opposite_direction / unverifiable — ONLY
@@ -209,12 +217,13 @@ claim_boundary: |
   snapshots/<sha256> file recorded in an evidence/manifest.json, either this
   task's own or an upstream literature task's such as review_prior_work /
   survey_method_landscape). Before writing ANY PMID into
-  claims_evidence_matrix.csv, confirm it resolves to such a manifest entry; if it
-  does not, DROP the citation and leave the prior PMID column empty. Choose the
-  flag by whether a query was issued for that entity: set no_prior_finding only
-  if you ACTUALLY searched for this entity and found no usable prior row; set
-  not_assessed if you did not perform retrieval for this entity (it was outside
-  the searched set). NEVER cite a PMID from memory, from the finding's
+  claims_evidence_matrix.csv, confirm it resolves to such a manifest entry; if
+  it does not, DROP the citation and leave the prior PMID column empty. Choose
+  the flag from the retained retrieval record: set no_prior_finding only if an
+  entity-specific query was ACTUALLY issued and found no usable prior row. If
+  no entity-specific query was issued, retain an exact entity mention found in
+  the bounded snapshots as positive evidence, but set not_assessed when no such
+  mention exists. NEVER cite a PMID from memory, from the finding's
   gene/region/variant name, or one you have not actually retrieved — an
   unretrieved PMID is an unsupported claim and will block the workflow. Record
   every PMID you DO cite as an entry in THIS task's evidence/manifest.json

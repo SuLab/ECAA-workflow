@@ -16,12 +16,16 @@ entries) WILL be rejected and block the task. The helper emits the schema the
 validators expect, including the per-source `sha256`, `license`, and
 `redistributable` provenance fields.
 
-**ALWAYS set `redistributable: true` for PubMed/PMC sources.** Every source you
-retrieve here (PubMed abstracts + efetch/esearch XML are public-domain US-Gov
-work; PMC OA is CC-licensed) IS redistributable — set `redistributable: true` on
-its CSV row AND its manifest entry. The legal gate rejects any literature row
-that is unmarked, so an omitted/false flag blocks the task. Only a locally-stored
-external PDF (`source_kind: external_pdf_local_only`) is non-redistributable.
+**Record the helper's redistribution basis exactly; do not infer copyright from
+the delivery service.** NLM does not hold copyright in PubMed abstracts, and
+content in PMC is not necessarily open access. The bundled helper treats its
+bounded PubMed abstract snapshots as `abstract_fair_use` under the package's
+evidence policy and therefore emits `redistributable: true` explicitly on the
+CSV row and manifest entry. Preserve that explicit value and license label, but
+never describe the abstract as public-domain U.S. Government work. Treat only a
+`pmc_oa_*` source carrying its recorded open license as inherently
+redistributable. A locally stored external PDF
+(`source_kind: external_pdf_local_only`) remains non-redistributable.
 
 **Corroboration — call the helper ONCE PER CANDIDATE METHOD.** The
 corroboration validator wants ≥2 distinct verified PMIDs grouped under the SAME
@@ -80,9 +84,10 @@ Write everything under `runtime/outputs/$ECAA_TASK_ID/`:
    source_ref, source_class, evidence_role` plus `version_context` for tool
    docs. A batched PubMed efetch entry — one XML snapshot covering many PMIDs
    from a single efetch request — lists them under `pmids_in_batch: [...]` with
-   `source_kind: pubmed_efetch_xml_batch` and `redistributable: true` (PubMed
-   abstracts are public-domain US-Gov work); the validator resolves a claim row
-   to its snapshot via any member of `pmids_in_batch`.
+   `source_kind: pubmed_efetch_xml_batch` and an explicit `redistributable`
+   value plus its recorded license basis. PubMed delivery does not make
+   publisher-supplied abstract text public domain. The validator resolves a
+   claim row to its snapshot via any member of `pmids_in_batch`.
 5. **`result.json`** — the usual task result (summary, artifacts, status).
 
 ### How to retrieve

@@ -1373,10 +1373,11 @@ fn synthesize_stage_count_claim(package_root: &Path, task_id: &str) -> Option<St
         "n_pathways_total",
         "n_sets_tested",
         "n_sets_total",
+        "tested_feature_count",
+        "n_genes_in_matrix",
         "n_genes_tested",
         "n_features_tested",
         "n_tested",
-        "tested_feature_count",
     ]
     .iter()
     .find_map(|key| {
@@ -1415,6 +1416,17 @@ fn synthesize_stage_count_claim(package_root: &Path, task_id: &str) -> Option<St
     .find_map(|(key, label)| {
         let threshold = obj.get(*key)?.as_f64()?;
         Some((threshold, *label))
+    })
+    .or_else(|| {
+        // `pathway_enrichment`'s authored parameter is historically named
+        // `pvalue_threshold`, but its contract explicitly defines it as the
+        // adjusted-p-value reporting cutoff and the emitted result table uses
+        // `padj`. Interpret that legacy field only for this source atom; a
+        // generic raw-p-value stage must not be silently relabelled.
+        (task_id == "pathway_enrichment")
+            .then(|| obj.get("pvalue_threshold")?.as_f64())
+            .flatten()
+            .map(|threshold| (threshold, "padj"))
     });
 
     let mut count_candidates: Vec<(&str, &serde_json::Value)> = Vec::new();
@@ -1923,6 +1935,40 @@ mod tests {
     }
 
     #[test]
+    fn synthesize_stage_count_claim_prefers_de_table_population_over_estimable_padj_count() {
+        let tmp = tempdir().unwrap();
+        let dir = tmp.path().join("runtime/outputs/differential_expression");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("result.json"),
+            r#"{
+                "task_id":"differential_expression",
+                "tested_feature_count":4,
+                "n_genes_in_matrix":4,
+                "n_genes_tested":3,
+                "n_significant":2,
+                "adjusted_pvalue_threshold":0.05
+            }"#,
+        )
+        .unwrap();
+        fs::write(
+            dir.join("de_results.tsv"),
+            "gene\tlog2FoldChange\tpadj\nA\t1\t0.01\nB\t-1\t0.04\nC\t0\t0.2\nD\t0\tNA\n",
+        )
+        .unwrap();
+
+        let claim = synthesize_stage_count_claim(tmp.path(), "differential_expression")
+            .expect("DE floor must use the four-row retained table population");
+        assert_eq!(claim.claim, "2 of 4 features significant at padj < 0.05");
+        let verdicts =
+            verify_structured_claims(std::slice::from_ref(&claim), tmp.path(), &test_cfg());
+        assert!(matches!(
+            verdicts[0].status,
+            crate::claim_verifier::ClaimStatus::Verified
+        ));
+    }
+
+    #[test]
     fn synthesize_stage_count_claim_sums_himes_pathway_collections() {
         let tmp = tempdir().unwrap();
         let dir = tmp.path().join("runtime/outputs/pathway_enrichment");
@@ -2031,6 +2077,108 @@ mod tests {
             verdicts[0].status,
             crate::claim_verifier::ClaimStatus::Verified
         ));
+    }
+
+    #[test]
+    fn synthesize_stage_count_claim_accepts_himes_pathway_adjusted_cutoff_alias() {
+        let tmp = tempdir().unwrap();
+        let dir = tmp.path().join("runtime/outputs/pathway_enrichment");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("result.json"),
+            r#"{
+                "task_id":"pathway_enrichment",
+                "n_pathways_tested":4,
+                "n_significant":2,
+                "pvalue_threshold":0.25
+            }"#,
+        )
+        .unwrap();
+        fs::write(
+            dir.join("pathway_results.tsv"),
+            "pathway\tNES\tpadj\nA\t1\t0.01\nB\t-1\t0.10\nC\t1\t0.30\nD\t1\t0.90\n",
+        )
+        .unwrap();
+
+        let claim = synthesize_stage_count_claim(tmp.path(), "pathway_enrichment")
+            .expect("pathway floor must honor the atom-defined adjusted cutoff alias");
+        assert_eq!(claim.claim, "2 of 4 gene sets significant at padj < 0.25");
+        let verdicts =
+            verify_structured_claims(std::slice::from_ref(&claim), tmp.path(), &test_cfg());
+        assert!(matches!(
+            verdicts[0].status,
+            crate::claim_verifier::ClaimStatus::Verified
+        ));
+    }
+
+    #[test]
+    fn compute_task_coverage_addresses_himes_de_and_pathway_recall_floors() {
+        let cases = [
+            (
+                "differential_expression",
+                serde_json::json!({
+                    "task_id": "differential_expression",
+                    "claims": [],
+                    "tested_feature_count": 4,
+                    "n_genes_tested": 3,
+                    "n_significant": 2,
+                    "adjusted_pvalue_threshold": 0.05
+                }),
+                "de_results.tsv",
+                "gene\tlog2FoldChange\tpadj\nA\t1\t0.01\nB\t-1\t0.04\nC\t0\t0.2\nD\t0\tNA\n",
+            ),
+            (
+                "pathway_enrichment",
+                serde_json::json!({
+                    "task_id": "pathway_enrichment",
+                    "claims": [],
+                    "n_pathways_tested": 4,
+                    "n_significant": 2,
+                    "pvalue_threshold": 0.25
+                }),
+                "pathway_results.tsv",
+                "pathway\tNES\tpadj\nA\t1\t0.01\nB\t-1\t0.10\nC\t1\t0.30\nD\t1\t0.90\n",
+            ),
+        ];
+
+        for (task_id, result, table_name, table) in cases {
+            let tmp = tempdir().unwrap();
+            let policy_dir = tmp.path().join("policies");
+            fs::create_dir_all(&policy_dir).unwrap();
+            fs::write(
+                policy_dir.join("interpretation-policy.json"),
+                serde_json::to_vec_pretty(&serde_json::json!({
+                    "verifiableEntities": {
+                        "enabled": true,
+                        "expected": [{
+                            "entity": task_id,
+                            "expected_output_table": task_id,
+                            "requirement": "required"
+                        }]
+                    }
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+            let output_dir = tmp.path().join("runtime/outputs").join(task_id);
+            fs::create_dir_all(&output_dir).unwrap();
+            fs::write(
+                output_dir.join("result.json"),
+                serde_json::to_vec_pretty(&result).unwrap(),
+            )
+            .unwrap();
+            fs::write(output_dir.join(table_name), table).unwrap();
+
+            let coverage = compute_task_coverage(tmp.path(), task_id, &test_cfg())
+                .unwrap_or_else(|| panic!("{task_id} coverage was not computed"));
+            assert_eq!(
+                (coverage.required_total, coverage.required_addressed),
+                (1, 1),
+                "{task_id}: {coverage:?}"
+            );
+            assert_eq!(coverage.required_absent, 0, "{task_id}: {coverage:?}");
+            assert_eq!(coverage.required_unverifiable, 0, "{task_id}: {coverage:?}");
+        }
     }
 
     #[test]

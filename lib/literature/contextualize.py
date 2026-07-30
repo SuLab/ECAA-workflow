@@ -116,7 +116,11 @@ def _best_evidence(
         return None
     scored = []
     for offset, sentence in hits:
-        call = infer_direction(sentence, contrast_terms=contrast_terms)
+        call = infer_direction(
+            sentence,
+            contrast_terms=contrast_terms,
+            entity=symbol,
+        )
         rank = (
             0 if (call.direction and call.contrast_grounded)
             else 1 if call.direction
@@ -137,6 +141,8 @@ def _row_for_pair(
     offset: int,
     quote: str,
     call: DirectionCall,
+    *,
+    searched: bool = True,
 ) -> ClaimRow:
     verified = verify_quote(entry, quote, offset)
     if not verified:
@@ -163,7 +169,7 @@ def _row_for_pair(
         retrieval_ts=entry.retrieval_ts,
         redistributable="true" if entry.redistributable else "false",
         verified="true" if verified else "false",
-        searched="true",
+        searched="true" if searched else "false",
     )
 
 
@@ -212,8 +218,16 @@ def build_rows(
     """Map every finding onto its retrieved prior sources.
 
     One row per `(finding, cited PMID)`; one row per finding when nothing
-    was cited. Findings whose entity no query named are `not_assessed`;
-    searched findings with no snapshot naming them are `no_prior_finding`.
+    was cited. A query-axis match restricts candidate sources to the PMIDs
+    retrieved for that axis. When no axis names the entity, the retained
+    evidence corpus is still scanned for an exact entity mention: a positive
+    mention is inspectable evidence and must not be discarded merely because
+    it arrived through a broader study-, tissue-, or condition-level query.
+
+    An entity absent from that bounded corpus remains `not_assessed`; absence
+    is promoted to `no_prior_finding` only when an entity-specific query axis
+    was actually retained. This preserves the negative-retrieval boundary
+    without throwing away positive evidence already in the package.
     """
     if entity_kind not in ENTITY_KINDS:
         raise MatrixError(f"entity_kind must be one of {list(ENTITY_KINDS)}, got {entity_kind!r}")
@@ -228,13 +242,11 @@ def build_rows(
     for finding in table.findings:
         analysis_direction = effect_direction(finding.effect)
         axes = scope.get(finding.symbol)
-        if axes is None:
-            rows.append(_unsearched_row(finding, entity_kind, analysis_direction))
-            continue
 
-        # Only sources retrieved under an axis that named this entity are
-        # candidates; an explicit scope carries no axes, so every retrieved
-        # source is a candidate for it.
+        # Entity-specific axes constrain the candidate corpus. When no axis
+        # names the entity, scan every retained snapshot for a positive exact
+        # mention. This is a bounded corpus lookup, not evidence of an
+        # exhaustive entity-specific literature search.
         candidate_pmids = pmids_for_axes(prior_rows, axes) if axes else sorted(evidence)
         cited = 0
         for pmid in candidate_pmids:
@@ -254,7 +266,11 @@ def build_rows(
             )
             cited += 1
         if cited == 0:
-            rows.append(_no_prior_row(finding, entity_kind, analysis_direction))
+            rows.append(
+                _unsearched_row(finding, entity_kind, analysis_direction)
+                if axes is None
+                else _no_prior_row(finding, entity_kind, analysis_direction)
+            )
     return rows
 
 
@@ -332,12 +348,14 @@ def _counts(rows: Sequence[ClaimRow]) -> Dict[str, int]:
 #: two numbers were conflatable because neither carried its own definition.
 COUNT_DEFINITIONS: Dict[str, str] = {
     "n_entities_assessed": (
-        "distinct entities a prior-work query was actually issued for. This is the "
-        "only count that may be described as a number of entities searched."
+        "distinct entities with a retained entity-specific query or an exact entity "
+        "mention found in the bounded retained evidence corpus. This is an assessment "
+        "count, not a claim that the full literature was searched."
     ),
     "n_entities_not_assessed": (
-        "distinct entities NO prior-work query was issued for. Not novel, and not "
-        "'no prior work' — their literature status is unknown."
+        "distinct entities with neither a retained entity-specific query nor an exact "
+        "mention in the bounded retained evidence corpus. Not novel, and not 'no prior "
+        "work' — their literature status is unknown."
     ),
     "n_evidence_rows_assessed": (
         "rows of claims_evidence_matrix.csv with searched=true. One assessed entity "
@@ -514,15 +532,17 @@ def write_reports(
         "",
         "## Procedure",
         "",
-        "1. An entity is *searched* iff a prior-claims query axis names it.",
-        "   Entities outside that set are `not_assessed`, never `no_prior_finding`.",
-        "2. For each searched entity, each PMID retrieved under a naming axis is",
-        "   opened and scanned for sentences containing the entity symbol",
-        "   (word-boundary; case-sensitive for ALL-CAPS symbols).",
-        "3. The cited sentence is the highest-ranked mention (contrast-grounded and",
+        "1. A query axis that names an entity constrains its candidate PMIDs to",
+        "   sources retrieved under that axis.",
+        "2. When no axis names an entity, every retained snapshot is still scanned",
+        "   for an exact entity mention. A positive mention is retained as evidence;",
+        "   an absent mention remains `not_assessed`, never `no_prior_finding`.",
+        "3. Candidate snapshots are scanned for sentences containing the entity",
+        "   symbol (word-boundary; case-sensitive for ALL-CAPS symbols).",
+        "4. The cited sentence is the highest-ranked mention (contrast-grounded and",
         "   directional > directional > contrast-grounded > first), re-verified as a",
         "   verbatim substring of the snapshot at the recorded offset.",
-        "4. The prior direction is a lexical call over that sentence; the analysis",
+        "5. The prior direction is a lexical call over that sentence; the analysis",
         "   direction is the sign of the effect column. Concordance is their",
         "   comparison; an unresolved direction on either side is `unverifiable`.",
         "",

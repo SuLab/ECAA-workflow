@@ -42,10 +42,28 @@ implementation actually consumed it, and populate metadata from the variable
 passed to that call. Do not declare a permutation count, cutoff, seed, or size
 bound that exists only in the script's summary block.
 
+Treat every software version as a quantitative provenance claim. Copy it only
+from retained runtime evidence produced by this run: the executed stage's
+`result.json`, `env.lock`, `env.explicit.lock`, `language_packages_installed`,
+or the package-level install/dependency log. Never supply a version from model
+memory or from the version you expected to install. If no retained source
+records a package's resolved version, name the package without a version and
+state that the resolved version was not retained.
+
 For a `validate_*` task, compare the target's retained scripts and run logs
 with its result and summary metadata. A script that can execute one branch but
 records another is a validation failure even when the current result JSON was
 post-edited to the value observed in the log.
+
+Also apply every source-owned assertion for the target stage from
+`policies/validation-contract.json` exactly as written. For a
+`cross_stage_table_handoff` assertion, inspect the target stage's
+`reads.jsonl`: the recorded path must be the exact declared upstream artifact,
+the target and upstream row populations must agree, and a one-of handoff with
+`alternative_ports` must select exactly one member. Zero selected members or
+simultaneous reads through the declared port and any alternative port are
+validation failures. A matching row count does not excuse a wrong path or a
+multi-port read.
 
 ### Turn budget
 
@@ -160,6 +178,16 @@ filtered raw-count matrix remains raw counts, so a count-based model must use
 the direct QC artifact bound to `raw_counts` when one is declared. Record the
 exact artifact and port in `reads.jsonl`.
 
+Before opening any cross-stage artifact, inspect `runtime/proofs.jsonl` for the
+edge whose `to_node` is `$ECAA_TASK_ID` and whose `from_node` produced the
+artifact. The `declared_port` written to `reads.jsonl` must equal that edge's
+exact `to_port`; a semantically appealing name from prose is not a substitute.
+Never invent `companion_in_*`, `residual_in_*`, or another port label. If no
+`typed_data_flow` or `adapter_mediated` edge authorizes the read, and the task
+spec provides no explicit read allowance for it, do not read the artifact.
+Record a precise blocker if the task cannot complete without that undeclared
+input.
+
 ### Tabular file format
 
 A table's filename extension MUST match its actual delimiter: `.tsv` is
@@ -245,6 +273,16 @@ real runs and are cheap to avoid:
   prints both numbers, only the post-filter one belongs in the narrative
   and in any `*_tested` field; record it in your JSON result too so a
   downstream validator can check it against the table rowcount.
+- **Distinguish the source matrix from the matrix retained for testing.**
+  When QC records different pre-filter and retained row counts, call the
+  former the source or original input matrix and call the latter the
+  filtered, analysis-ready, or tested matrix. Never introduce the retained
+  row count as the unqualified "input count matrix" and then identify a
+  larger original input later in the same paragraph. Correct: "The source
+  count matrix contained 63,677 genes across 8 samples; the rowSums >= 10
+  pre-filter retained 22,369 genes for testing." It is also correct to call
+  22,369 the input to a specifically named downstream model, provided the
+  sentence explicitly says it is the filtered matrix.
 - **A "Top" result table is always the canonical ordered prefix.** Read the
   relevant artifact's `ranking` object from `report-data.json` and copy its
   first N enriched or depleted rows in order. This rule applies whether the
@@ -478,9 +516,9 @@ defines them — never assume genes/log2FC.
   no prior finding (`novel_count`). An entity retrieval was NOT performed for
   is `not_assessed`, NOT novel and NOT "no prior work" — never describe an
   unsearched entity as novel or as having no prior literature. State the
-  `novel_count` and the `not_assessed_count` as SEPARATE headline buckets, say
-  how many entities were actually searched from `n_entities_assessed` versus
-  not assessed from `n_entities_not_assessed`, and list every
+  `novel_count` and the `not_assessed_count` as SEPARATE headline buckets. Say
+  how many entities were assessed from `n_entities_assessed` versus not
+  assessed from `n_entities_not_assessed`, and list every
   `retrieved_sources` entry. The `concordant`, `discordant`, and `unverifiable`
   arrays retain evidence rows; one entity can contribute more than one row, so
   their lengths must not be added to obtain an entity count.
@@ -497,20 +535,23 @@ defines them — never assume genes/log2FC.
 - **Account for every entity, and label each count's denominator.**
   When you summarize the `literature` rollup (or any categorized set), the
   entity counts must account for every distinct entity.
-  `n_entities_assessed` covers the SEARCHED set and
-  `n_entities_not_assessed` covers the entities for which retrieval was NOT
-  performed. `not_assessed_count` is a backward-compatible alias for
+  `n_entities_assessed` covers entities with an entity-specific query OR an
+  exact mention in the bounded retained evidence corpus.
+  `n_entities_not_assessed` covers entities with neither. Only
+  `no_prior_finding` establishes a searched negative and contributes to
+  `novel_count`. `not_assessed_count` is a backward-compatible alias for
   `n_entities_not_assessed`; the two must agree. Report the not-assessed count
   as its own headline bucket; never fold it into `novel_count`, and never call
   the not-assessed entities novel or "no prior finding". Never drop the
   `unverifiable` bucket from a headline just because it is the least
   interesting. When you report both an entity-level count and a source-level
-  or evidence-row count, name each denominator explicitly ("4 searched
+  or evidence-row count, name each denominator explicitly ("4 assessed
   entities" versus "10 evidence rows" or "30 PMIDs", with "12 entities not
   assessed" separate) so the counts are never conflated.
 - **Use the literature count whose NAME matches the claim you are making.** The
   contextualization stage emits each count separately and defines each one:
-  `n_entities_assessed` (distinct entities a query was issued for),
+  `n_entities_assessed` (distinct entities with an entity-specific query or an
+  exact mention in the bounded retained evidence corpus),
   `n_evidence_rows_assessed` (rows of the evidence matrix with `searched=true` —
   one assessed entity contributes one row per cited source, so this is always
   >= the entity count and is NEVER a count of entities),
@@ -520,16 +561,25 @@ defines them — never assume genes/log2FC.
   emitted in `count_definitions` rather than restating the population yourself.
   A real run read the 9 assessed evidence ROWS as "9 specific genes" when only 4
   entities were ever searched, then stated the correct 4 later in the same
-  report — the same file gave two different answers for one quantity. Only
-  `n_entities_assessed` may be described as a number of entities searched, and
-  every count you state must be the one whose name matches the noun in your
-  sentence.
+  report — the same file gave two different answers for one quantity. Describe
+  `n_entities_assessed` as assessed, not necessarily entity-query searched.
+  Use `n_search_axes_naming_an_assessed_entity` when discussing the retained
+  entity-specific query subset. Every count you state must be the one whose
+  name matches the noun in your sentence.
 - **Every count in a filtering funnel must be traceable to `report-data.json`.**
   If you describe an entity-count funnel (input → retained → tested →
   reported), each number must be one `report-data.json` provides (e.g.
   `n_total`, `n_significant`); do not introduce a stage-internal intermediate
   count a reader cannot reconcile against the file, and make the funnel
   arithmetic add up.
+- **Keep identifier-mapping losses in their declared buckets.** For pathway
+  ranking, copy `n_genes_pre_mapping`, `n_genes_mapped`,
+  `n_genes_unmapped`, `n_duplicate_gene_labels_removed`, and
+  `n_genes_ranked` from the retained pathway result. Check both identities:
+  pre-mapping = mapped + unmapped, and mapped = ranked + duplicate labels
+  removed. Never describe the ranked population as the duplicate-removal
+  count, and never call the combined mapping-plus-deduplication loss
+  "unmapped."
 - **Caveat context heterogeneity uniformly.** When a concordance or discordance
   rests on prior evidence from a different biological context than this analysis
   — a different tissue, organism, or assay, evident from the `evidence_quote` —
@@ -549,6 +599,12 @@ The direction-word rule above (derive "up"/"down"/"higher"/"lower" from the
 sign of the statistic, never free text) applies unchanged here: when you
 render `direction_split` or an entity's `effect`, the words around them
 must still come from the sign you're citing, not from intuition.
+
+Do not equate retained scripts with a successful replay. Unless this package
+already contains a machine-generated replay result that covers the outputs
+named in the sentence, describe scripts and locks as replay inputs or retained
+provenance only. Do not call the workflow fully replayable, fully reproducible
+offline, or able to regenerate every result merely because scripts exist.
 
 ### Data acquisition — required input stage
 

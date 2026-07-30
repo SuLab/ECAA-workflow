@@ -11,8 +11,11 @@
 //! one ordering edge `survey_method_landscape → <each discover_*>`. The
 //! survey itself is wired downstream of any data-characterization
 //! producer present in the DAG (`survey` consumes the run's
-//! intake-facts + QC characterization), so it never floats as a
-//! `depends_on=[]` root in `WORKFLOW.json`.
+//! intake facts + tabular cohort/count characterization). Every compatible
+//! producer output is bound to the survey's authored semantic input name, so
+//! observed reads never have to cite an invented `companion_in_*` port. When
+//! an overlay registry supplies no compatible rich ports, a single ordering
+//! fallback still prevents a `depends_on=[]` survey root.
 //!
 //! # Why edges, not id-prefix sniffing
 //!
@@ -145,9 +148,13 @@ pub fn synthesize_survey_method_landscape(
     }
     dag.edges.extend(survey_edges);
 
-    // Edge: each present data-characterization producer → survey, so
-    // the survey waits on the run's characterized inputs and never
-    // floats as a depends_on=[] root in WORKFLOW.json.
+    // Edge: each present data-characterization producer → survey, so the
+    // survey waits on the run's characterized inputs and never floats as a
+    // depends_on=[] root in WORKFLOW.json. Bind EVERY compatible producer
+    // output to the survey's authored port. A counts-first acquisition may
+    // legitimately supply both `cohort_manifest` and `count_matrix`; collapsing
+    // that node pair to one arbitrary first-output edge makes the second read
+    // undeclared and forces agents to invent `companion_in_*` labels.
     //
     // Cycle guard: the survey gates the earliest discover_* stages
     // (sequence_trimming / alignment / quantification), so any node that
@@ -157,6 +164,13 @@ pub fn synthesize_survey_method_landscape(
     // the survey over the current edge set and skip any producer in it.
     let downstream_of_survey = reachable_from(&dag.edges, SURVEY_ID);
     let mut producer_edges: Vec<EdgeContract> = Vec::new();
+    let survey_inputs = dag
+        .nodes
+        .iter()
+        .find(|node| node.id == SURVEY_ID)
+        .map(|node| node.inputs.clone())
+        .unwrap_or_default();
+    let engine = crate::compatibility::engine::DeterministicCompatibilityEngine::new();
     for producer in DATA_CHARACTERIZATION_PRODUCERS {
         if !existing_ids.contains(*producer) {
             continue;
@@ -166,11 +180,52 @@ pub fn synthesize_survey_method_landscape(
             // create a cycle. Leave it unconnected to the survey.
             continue;
         }
-        let already = dag
-            .edges
+        let producer_outputs = dag
+            .nodes
             .iter()
-            .any(|e| e.from_node == *producer && e.to_node == SURVEY_ID);
-        if already {
+            .find(|node| node.id == *producer)
+            .map(|node| node.outputs.clone())
+            .unwrap_or_default();
+        let mut added_typed = false;
+        for output in &producer_outputs {
+            let (out_port, in_port, proof, kind) = super::planner::pick_best_port_pair(
+                &engine,
+                std::slice::from_ref(output),
+                &survey_inputs,
+                false,
+            );
+            if !matches!(kind, EdgeKind::TypedDataFlow | EdgeKind::AdapterMediated) {
+                continue;
+            }
+            let already = dag.edges.iter().chain(producer_edges.iter()).any(|edge| {
+                edge.from_node == *producer
+                    && edge.to_node == SURVEY_ID
+                    && edge.from_port == out_port.name
+                    && edge.to_port == in_port.name
+            });
+            if already {
+                added_typed = true;
+                continue;
+            }
+            producer_edges.push(EdgeContract {
+                from_node: (*producer).into(),
+                from_port: out_port.name,
+                to_node: SURVEY_ID.into(),
+                to_port: in_port.name,
+                proof,
+                kind,
+                chain_of_custody: None,
+                mutually_exclusive_group: None,
+            });
+            added_typed = true;
+        }
+        if added_typed
+            || dag
+                .edges
+                .iter()
+                .chain(producer_edges.iter())
+                .any(|edge| edge.from_node == *producer && edge.to_node == SURVEY_ID)
+        {
             continue;
         }
         producer_edges.push(EdgeContract {
@@ -179,7 +234,6 @@ pub fn synthesize_survey_method_landscape(
             to_node: SURVEY_ID.into(),
             to_port: String::new(),
             proof: ordering_proof(producer, SURVEY_ID),
-            // Data-characterization producer gates the survey: ordering edge.
             kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
             mutually_exclusive_group: None,
@@ -318,6 +372,52 @@ mod tests {
             (dag.nodes.len(), dag.edges.len()),
             before,
             "second pass is a no-op"
+        );
+    }
+
+    #[test]
+    fn binds_counts_first_context_to_authored_survey_ports() {
+        let reg = real_registry();
+        let acquisition =
+            TaskNode::from_atom(reg.get("data_acquisition").expect("data-acquisition atom"));
+        let discover = TaskNode::synthesize_discover(
+            "discover_pathway_enrichment",
+            "pathway_enrichment",
+            &["fgsea".to_string()],
+            "pathway_enrichment",
+        );
+        let mut dag = dag_with(vec![acquisition, discover]);
+
+        synthesize_survey_method_landscape(&mut dag, &reg, None);
+
+        let edges: Vec<&EdgeContract> = dag
+            .edges
+            .iter()
+            .filter(|edge| {
+                edge.from_node == "data_acquisition" && edge.to_node == "survey_method_landscape"
+            })
+            .collect();
+        assert!(
+            edges.iter().any(|edge| {
+                edge.from_port == "cohort_manifest"
+                    && edge.to_port == "cohort_manifest"
+                    && edge.kind == EdgeKind::TypedDataFlow
+            }),
+            "cohort metadata must bind its semantic survey port: {edges:?}"
+        );
+        assert!(
+            edges.iter().any(|edge| {
+                edge.from_port == "raw_count_matrix"
+                    && edge.to_port == "count_matrix"
+                    && edge.kind == EdgeKind::TypedDataFlow
+            }),
+            "counts-first matrix must bind its semantic survey port: {edges:?}"
+        );
+        assert!(
+            edges
+                .iter()
+                .all(|edge| !edge.to_port.starts_with("companion_in_")),
+            "survey input labels must come from its authored contract: {edges:?}"
         );
     }
 

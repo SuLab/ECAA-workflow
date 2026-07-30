@@ -121,6 +121,38 @@ def test_perturbation_vocabulary_is_not_an_up_cue() -> None:
     assert infer_direction("T-cell activation was assessed.").direction is None
 
 
+def test_perturbation_vocabulary_is_not_a_down_outcome() -> None:
+    assert (
+        infer_direction(
+            "IL6R was influenced by CEBPD knockdown.",
+            entity="IL6R",
+        ).direction
+        is None
+    )
+    assert infer_direction("DUSP1 loss of function was studied.").direction is None
+
+
+def test_enhancer_noun_is_not_an_enhance_cue() -> None:
+    sentence = (
+        "CCAAT/Enhancer Binding Protein D (CEBPD) modulates inflammatory responses."
+    )
+    assert infer_direction(sentence, entity="CEBPD").direction is None
+
+
+def test_entity_window_does_not_assign_a_distant_cue_to_the_gene() -> None:
+    sentence = (
+        "Genes with inducible GR occupancy and putative antiinflammatory "
+        "properties included IRS2, APPL2, RAMP1, and MFGE8."
+    )
+    assert infer_direction(sentence, entity="MFGE8").direction is None
+    assert infer_direction(sentence, entity="IRS2").direction is None
+
+
+def test_entity_window_retains_a_local_directional_cue() -> None:
+    sentence = "Dexamethasone treatment significantly increased CRISPLD2 mRNA."
+    assert infer_direction(sentence, entity="CRISPLD2").direction == UP
+
+
 # --- contrast grounding ---------------------------------------------------
 
 

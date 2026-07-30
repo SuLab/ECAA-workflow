@@ -186,10 +186,12 @@ pub struct LiteratureRollup {
     /// existed still deserializes (defaults to 0) for read-back / replay.
     #[serde(default)]
     pub not_assessed_count: u64,
-    /// Distinct entities for which a prior-work query was issued.
+    /// Distinct entities assessed through either a retained entity-specific
+    /// query or an exact mention in the bounded retained evidence corpus.
     #[serde(default)]
     pub n_entities_assessed: u64,
-    /// Distinct entities for which no prior-work query was issued. This is the
+    /// Distinct entities with neither a retained entity-specific query nor an
+    /// exact mention in the bounded retained evidence corpus. This is the
     /// explicitly named form of `not_assessed_count`; both values are emitted
     /// for backward compatibility and must agree.
     #[serde(default)]
@@ -668,11 +670,62 @@ fn json_as_u64(v: &serde_json::Value) -> Option<u64> {
     })
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct LiteratureCountMetadata {
     n_search_axes_total: u64,
     n_search_axes_naming_an_assessed_entity: u64,
     count_definitions: BTreeMap<String, String>,
+}
+
+fn default_literature_count_definitions() -> BTreeMap<String, String> {
+    [
+        (
+            "n_entities_assessed",
+            "distinct entities with a retained entity-specific query or an exact entity \
+             mention found in the bounded retained evidence corpus. This is an assessment \
+             count, not a claim that the full literature was searched.",
+        ),
+        (
+            "n_entities_not_assessed",
+            "distinct entities with neither a retained entity-specific query nor an exact \
+             mention in the bounded retained evidence corpus. Not novel, and not 'no prior \
+             work': their literature status is unknown.",
+        ),
+        (
+            "n_evidence_rows_assessed",
+            "rows of claims_evidence_matrix.csv with searched=true. One assessed entity \
+             contributes one row per cited source, so this is never a count of entities.",
+        ),
+        (
+            "n_evidence_rows_total",
+            "total rows of claims_evidence_matrix.csv, assessed and not. A count of rows, \
+             not of entities.",
+        ),
+        (
+            "n_search_axes_total",
+            "distinct query axes the upstream prior-work retrieval recorded, including axes \
+             that name a method, a dataset, or a condition rather than an entity.",
+        ),
+        (
+            "n_search_axes_naming_an_assessed_entity",
+            "the subset of retained query axes that named an assessed entity. This is the \
+             entity-specific retrieval subset, not the count of entities supported through \
+             exact mentions in broader retained evidence.",
+        ),
+    ]
+    .into_iter()
+    .map(|(name, definition)| (name.to_string(), definition.to_string()))
+    .collect()
+}
+
+impl Default for LiteratureCountMetadata {
+    fn default() -> Self {
+        Self {
+            n_search_axes_total: 0,
+            n_search_axes_naming_an_assessed_entity: 0,
+            count_definitions: default_literature_count_definitions(),
+        }
+    }
 }
 
 fn read_literature_count_metadata(result_json: &Path) -> LiteratureCountMetadata {
@@ -682,20 +735,23 @@ fn read_literature_count_metadata(result_json: &Path) -> LiteratureCountMetadata
     let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
         return LiteratureCountMetadata::default();
     };
-    let count_definitions = value
-        .get("count_definitions")
-        .and_then(serde_json::Value::as_object)
-        .map(|definitions| {
-            definitions
-                .iter()
-                .filter_map(|(name, definition)| {
-                    definition
-                        .as_str()
-                        .map(|definition| (name.clone(), definition.to_string()))
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    let mut count_definitions = default_literature_count_definitions();
+    count_definitions.extend(
+        value
+            .get("count_definitions")
+            .and_then(serde_json::Value::as_object)
+            .map(|definitions| {
+                definitions
+                    .iter()
+                    .filter_map(|(name, definition)| {
+                        definition
+                            .as_str()
+                            .map(|definition| (name.clone(), definition.to_string()))
+                    })
+                    .collect::<BTreeMap<String, String>>()
+            })
+            .unwrap_or_default(),
+    );
     LiteratureCountMetadata {
         n_search_axes_total: value
             .get("n_search_axes_total")
@@ -1770,6 +1826,15 @@ mod tests {
         assert_eq!(rollup.not_assessed_count, 1);
         assert_eq!(rollup.n_evidence_rows_assessed, 2);
         assert_eq!(rollup.n_evidence_rows_total, 3);
+        assert_eq!(
+            rollup.count_definitions.len(),
+            6,
+            "deterministic count definitions must survive when the agent omitted them"
+        );
+        assert!(rollup
+            .count_definitions
+            .get("n_entities_assessed")
+            .is_some_and(|definition| definition.contains("bounded retained evidence corpus")));
     }
 
     #[test]

@@ -195,7 +195,7 @@ fn fixture_abstract_only_fallback_mixed_source_kinds_pass() {
     fs::create_dir_all(&evidence).unwrap();
 
     // Row 0: pmc_oa_full_text source
-    // Row 1: abstract_only source (NLM public-domain abstract)
+    // Row 1: abstract-only source with an explicit fair-use policy marker.
     let csv = task.join("prior_claims_matrix.csv");
     write(
         &csv,
@@ -209,7 +209,7 @@ COMP,gene,28123457,comp degradation in cartilage,0,abstract_only,sha256:bb,2026-
         &manifest,
         r#"{"schema_version":1,"entries":[
 {"pmid":"28123456","source_kind":"pmc_oa_full_text","path":"28123456.xml","sha256_binary":"aa","sha256_extracted_text":"cc","extracted_text_normalization":"collapse_whitespace_lowercase_v1","bytes":60,"retrieval_ts":"2026-05-14T00:00:00Z","retrieval_query_id":"q001","redistributable":true,"license":"CC-BY-4.0"},
-{"pmid":"28123457","source_kind":"abstract_only","path":"28123457.abstract.json","sha256_binary":"bb","sha256_extracted_text":"dd","extracted_text_normalization":"collapse_whitespace_lowercase_v1","bytes":90,"retrieval_ts":"2026-05-14T00:00:00Z","retrieval_query_id":"q002","redistributable":true,"license":"NLM-public-domain-abstract"}
+{"pmid":"28123457","source_kind":"abstract_only","path":"28123457.abstract.json","sha256_binary":"bb","sha256_extracted_text":"dd","extracted_text_normalization":"collapse_whitespace_lowercase_v1","bytes":90,"retrieval_ts":"2026-05-14T00:00:00Z","retrieval_query_id":"q002","redistributable":true,"license":"abstract_fair_use"}
 ]}"#,
     );
 

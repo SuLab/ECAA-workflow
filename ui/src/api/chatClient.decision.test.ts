@@ -64,6 +64,39 @@ describe('normalizeDiscoveryDecision', () => {
     expect(d.runner_ups).toEqual(['b', 'c'])
   })
 
+  it('preserves current 0–1 scores and reads composite_rank plus gated score', () => {
+    const raw = {
+      task_id: 'discover_differential_expression',
+      chosen: 'deseq2',
+      candidate_pool_full: [
+        {
+          method_id: 'edger',
+          composite_rank: 2,
+          composite_score: 0.9,
+          composite_score_after_gates: 0.871429,
+        },
+        {
+          method_id: 'deseq2',
+          composite_rank: 1,
+          composite_score: 0.95,
+          composite_score_after_gates: 0.942857,
+          suitability_rationale: 'paired count model',
+        },
+        {
+          method_id: 'limma_voom',
+          composite_rank: 3,
+          composite_score_after_gates: 0.85,
+        },
+      ],
+    }
+    const d = normalizeDiscoveryDecision(raw)!
+    expect(d.top_candidate).toBe('deseq2')
+    expect(d.runner_ups).toEqual(['edger', 'limma_voom'])
+    expect(d.scores!['deseq2']).toBeCloseTo(0.942857)
+    expect(d.scores!['edger']).toBeCloseTo(0.871429)
+    expect(d.rationale).toBe('paired count model')
+  })
+
   it('falls back to rank-1 when chosen is absent', () => {
     const raw = {
       task_id: 't',

@@ -1313,31 +1313,27 @@ pub fn run_evidence_quote_substring_match(
 // Runner 3: redistributable_or_marked
 // ============================================================================
 
-/// Source-kind classes whose redistributability is KNOWN from the class itself,
+/// Source-kind classes whose redistributability is known from the class itself,
 /// so a claim row need not carry an explicit `redistributable=true` mark to pass
-/// the legal gate. NLM E-utilities output (PubMed abstracts/efetch/esearch XML)
-/// is public-domain US government data; PMC OA is CC-licensed.
+/// the legal gate. Only the explicitly open-access PMC class qualifies.
+/// PubMed abstracts are commonly supplied by publishers and are not NLM-owned,
+/// while generic PMC availability does not establish an open license.
 /// `external_pdf_local_only` is deliberately EXCLUDED (a locally-stored PDF is
 /// not redistributable). Matched by the class PREFIX so executor-specific
-/// spellings (codex's `pubmed_abstract_with_pmc_front_xml_checked`,
-/// `pmc_front_or_abstract_xml_only`) are covered without enumerating every
-/// variant, while UNRELATED kinds that merely contain the token are not.
+/// `pmc_oa_*` spellings are covered without enumerating every variant, while
+/// unrelated kinds that merely contain the token are not.
 fn source_kind_is_inherently_redistributable(source_kind: &str) -> bool {
-    // Scoped to NLM/PMC public + OA classes only (NLM E-utilities output is
-    // public-domain US-Gov work; PMC OA is CC). Metadata aggregators
-    // (openalex/crossref) and generic `abstract_only` are intentionally EXCLUDED
-    // — those still require an explicit redistributable mark, preserving the
-    // legal gate for sources whose underlying license isn't class-determined.
-    // Anchored at the START of the source_kind, not anywhere in it: NLM serves
-    // redistributable full text only under the `pmc_*` / `pubmed_*` class
-    // prefixes (`pmc` covers every PubMed Central spelling — pmc_oa_full_text,
-    // pmc_front, pmc_xml_fulltext, …). Unanchored `contains` let unrelated kinds
-    // (e.g. `camphor_db_export`) spoof the legal gate (critical-analysis M8).
+    // Scoped to an explicit PMC open-access class. PubMed delivery and generic
+    // PMC availability are not license determinations, so `pubmed_*`, `pmc_*`
+    // without the `pmc_oa_` marker, metadata aggregators (openalex/crossref),
+    // and generic `abstract_only` still require an explicit redistributable
+    // mark. Anchoring also prevents unrelated kinds such as
+    // `camphor_db_export` from spoofing the legal gate (critical-analysis M8).
     let sk = source_kind.to_ascii_lowercase();
     if sk.starts_with("external_pdf") {
         return false;
     }
-    sk.starts_with("pmc") || sk.starts_with("pubmed_")
+    sk.starts_with("pmc_oa_")
 }
 
 /// Validates that every row in `claims_matrix.csv` references a redistributable source
@@ -1356,7 +1352,7 @@ pub fn run_redistributable_or_marked(
     // cites a PMID has source_kind="" and would fail the row-only legal gate below
     // even though its evidence IS redistributable. Honor the manifest: a row whose
     // cited PMID resolves to a manifest entry marked redistributable (or whose
-    // source class is inherently redistributable — PubMed/PMC) passes the gate.
+    // source class is explicitly PMC open access) passes the gate.
     // Best-effort: an unreadable manifest leaves the map empty (row-only behavior).
     let manifest = load_manifest(manifest_path).ok();
     let manifest_pmids: BTreeMap<String, &EvidenceEntry> = manifest
@@ -1428,13 +1424,11 @@ pub fn run_redistributable_or_marked(
             ("doc_page", _) => true,
             // A literature source explicitly marked redistributable passes.
             (_, true) => true,
-            // NLM/PMC public + OA classes are redistributable BY THEIR CLASS
-            // (NLM E-utilities data is public-domain; PMC OA is CC-licensed), so
-            // an unmarked row from these sources still passes — codex omits the
-            // flag but its PubMed/PMC evidence is legally redistributable. The
-            // legal gate stays strict for everything else: external_pdf_local_only
-            // is excluded above, and an unmarked source of an UNRECOGNISED class
-            // still fails.
+            // Explicit PMC OA classes are redistributable by class. PubMed
+            // abstracts and generic PMC records must carry a manifest or row
+            // marker with the applicable license/policy basis; delivery through
+            // NLM alone is not a copyright determination. The legal gate stays
+            // strict for every unrecognised or unmarked class.
             (sk, false) if source_kind_is_inherently_redistributable(sk) => true,
             (_, false) => false,
         };
@@ -3386,34 +3380,31 @@ mod tests {
         // LEGAL GATE preserved: external local PDFs must NOT claim redistribution.
         assert!(run("external_pdf_local_only", "true").is_err());
         assert!(run("external_pdf_local_only", "false").is_ok());
-        // LEGAL GATE preserved for non-NLM/PMC aggregators: an UNMARKED
-        // openalex/crossref source still fails (license not class-determined).
+        // The legal gate rejects any unmarked class whose license is not
+        // determined by the class name.
         assert!(run("openalex", "false").is_err());
         assert!(run("crossref", "false").is_err());
-        // NLM/PMC public + OA classes are redistributable BY CLASS: an UNMARKED
-        // pmc_oa / pubmed source now passes (NLM E-utilities + PMC OA are
-        // public-domain / CC). External PDFs (above) stay strict.
+        // An explicit PMC OA class is redistributable by class. PubMed
+        // abstracts still require an explicit row or manifest marker because
+        // NLM delivery does not determine their copyright.
         assert!(run("pmc_oa_full_text", "false").is_ok());
-        assert!(run("pubmed_abstract", "false").is_ok());
+        assert!(run("pubmed_abstract", "false").is_err());
     }
 
     #[test]
     fn redistributable_accepts_pubmed_efetch_batch() {
-        // PubMed efetch returns public-domain abstracts (NIH/US-Gov work), so a
-        // `pubmed_efetch_xml_batch` row marked redistributable:true is consistent.
-        // Regression: the batched-efetch source_kind the canonical retrieval path
-        // emits previously fell through to a spurious RedistributableTagInconsistent.
+        // A `pubmed_efetch_xml_batch` row carrying the helper's explicit
+        // redistribution marker is consistent.
         let dir = TempDir::new().unwrap();
         let manifest = dir.path().join("evidence/manifest.json"); // unused by this runner
         let hdr = "entity,entity_kind,pmid,evidence_quote,evidence_quote_offset,source_kind,source_hash,retrieval_ts,redistributable,verified";
         let csv = dir.path().join("m.csv");
         write(&csv, &format!("{hdr}\nMaxQuant,method,19029910,foo,0,pubmed_efetch_xml_batch,sha256:abc,2026-06-08T00:00:00Z,true,true\n"));
         assert!(run_redistributable_or_marked(&csv, &manifest).is_ok());
-        // NLM/PMC public source unmarked now PASSES: redistributability is
-        // class-determined (PubMed efetch XML is public-domain US-Gov work), so a
-        // hand-rolled manifest that omits the flag (codex) is not blocked.
+        // An unmarked PubMed source fails closed. PubMed does not own
+        // publisher-supplied abstract copyright.
         write(&csv, &format!("{hdr}\nMaxQuant,method,19029910,foo,0,pubmed_efetch_xml_batch,sha256:abc,2026-06-08T00:00:00Z,false,true\n"));
-        assert!(run_redistributable_or_marked(&csv, &manifest).is_ok());
+        assert!(run_redistributable_or_marked(&csv, &manifest).is_err());
     }
 
     #[test]
@@ -3526,7 +3517,7 @@ mod tests {
         fs::create_dir_all(manifest.parent().unwrap()).unwrap();
         write(
             &manifest,
-            r#"{"schema_version":2,"entries":[{"pmids_in_batch":["19029910","30656827"],"source_kind":"pubmed_efetch_xml_batch","path":"snap.xml","sha256_binary":"00","sha256_extracted_text":"00","extracted_text_normalization":"collapse_whitespace_lowercase_v1","bytes":0,"retrieval_ts":"2026-06-08T00:00:00Z","retrieval_query_id":"q001","redistributable":true,"license":"public domain"}]}"#,
+            r#"{"schema_version":2,"entries":[{"pmids_in_batch":["19029910","30656827"],"source_kind":"pubmed_efetch_xml_batch","path":"snap.xml","sha256_binary":"00","sha256_extracted_text":"00","extracted_text_normalization":"collapse_whitespace_lowercase_v1","bytes":0,"retrieval_ts":"2026-06-08T00:00:00Z","retrieval_query_id":"q001","redistributable":true,"license":"abstract_fair_use"}]}"#,
         );
         write(
             &manifest.parent().unwrap().join("snap.xml"),
@@ -3649,19 +3640,18 @@ mod tests {
     #[test]
     fn redistributable_match_is_anchored_not_substring() {
         // M8: the legal gate must anchor on the source_kind class PREFIX, not
-        // match the token anywhere in the string. Real PMC/PubMed spellings
-        // still pass; unrelated kinds that merely CONTAIN "pmc"/"pubmed" must not.
-        // pmc_*/pubmed_* spellings pass:
+        // match the token anywhere in the string. Only an explicit PMC OA class
+        // is inherently redistributable.
         assert!(source_kind_is_inherently_redistributable(
             "pmc_oa_full_text"
         ));
-        assert!(source_kind_is_inherently_redistributable(
+        assert!(!source_kind_is_inherently_redistributable(
             "pmc_front_or_abstract_xml_only"
         ));
-        assert!(source_kind_is_inherently_redistributable(
+        assert!(!source_kind_is_inherently_redistributable(
             "pubmed_abstract_with_pmc_front_xml_checked"
         ));
-        assert!(source_kind_is_inherently_redistributable("pubmed_efetch"));
+        assert!(!source_kind_is_inherently_redistributable("pubmed_efetch"));
         // Substring false-positives must NOT pass (the bug: unanchored
         // contains("pmc")/contains("pubmed")).
         assert!(!source_kind_is_inherently_redistributable(
@@ -3707,15 +3697,15 @@ mod tests {
     }
 
     #[test]
-    fn validators_accept_codex_real_pasilla_evidence_schema() {
+    fn validators_require_redistribution_basis_for_codex_pasilla_schema() {
         // The exact schema codex (gpt-5.5) emits for review_prior_work, captured
         // from a live pasilla run: claims CSV uses `source_type` (not source_kind),
         // `quote_start` (not evidence_quote_offset), `source_sha256` (not
         // source_hash), and OMITS source_kind / redistributable columns; the
         // manifest entries use `source_type` (not source_kind) and `pmids` (plural).
-        // All three obligations must resolve it: schema spelling via aliases, and
-        // redistributability inferred from the NLM/PMC source class (codex omits
-        // the flag, but PubMed/PMC are public/OA).
+        // Locator and quote obligations still resolve the schema aliases, but
+        // the legal gate fails closed because neither the row nor manifest
+        // records a redistribution basis.
         let dir = TempDir::new().unwrap();
         let csv = dir.path().join("prior_claims_matrix.csv");
         write(
@@ -3745,8 +3735,8 @@ mod tests {
             "evidence_quote_substring_match must resolve codex's quote against the source"
         );
         assert!(
-            run_redistributable_or_marked(&csv, &manifest).is_ok(),
-            "redistributable_or_marked must pass NLM/PMC sources even when codex omits the flag"
+            run_redistributable_or_marked(&csv, &manifest).is_err(),
+            "PubMed delivery must not substitute for an explicit redistribution basis"
         );
     }
 
@@ -3766,13 +3756,12 @@ mod tests {
         // codex / unknown literature source_kind, marked redistributable → ok.
         assert!(run("pubmed", "true").is_ok());
         assert!(run("ncbi_efetch", "true").is_ok());
-        // NLM/PMC classes pass UNMARKED via class inference (any `pmc*` spelling,
-        // incl. codex's `pmc_xml_fulltext`; PMC serves only OA/author-MS full text).
-        assert!(run("pmc_xml_fulltext", "false").is_ok());
+        // Only an explicit PMC OA class passes without a separate marker.
+        assert!(run("pmc_xml_fulltext", "false").is_err());
         assert!(run("pmc_oa_full_text", "false").is_ok());
-        assert!(run("pubmed_abstract", "false").is_ok());
-        // Legal gate preserved: external local PDF must NOT claim redistribution,
-        // and an unmarked non-NLM/non-PMC source still fails.
+        assert!(run("pubmed_abstract", "false").is_err());
+        // Legal gate preserved: external local PDF must not claim redistribution,
+        // and an unmarked source with no class-determined license still fails.
         assert!(run("external_pdf_local_only", "true").is_err());
         assert!(run("external_pdf_local_only", "false").is_ok());
         assert!(run("some_random_blog", "false").is_err());
@@ -3858,7 +3847,7 @@ mod tests {
         fs::create_dir_all(manifest.parent().unwrap()).unwrap();
         write(
             &manifest,
-            r#"{"schema_version":2,"entries":[{"source_ref":"31412983","source_kind":"pubmed_abstract_xml","path":"pmid_31412983.xml","sha256_binary":"00","sha256_extracted_text":"00","extracted_text_normalization":"collapse_whitespace_lowercase_v1","bytes":0,"retrieval_ts":"2026-05-14T00:00:00Z","retrieval_query_id":"q001","redistributable":true,"license":"public_domain"}]}"#,
+            r#"{"schema_version":2,"entries":[{"source_ref":"31412983","source_kind":"pubmed_abstract_xml","path":"pmid_31412983.xml","sha256_binary":"00","sha256_extracted_text":"00","extracted_text_normalization":"collapse_whitespace_lowercase_v1","bytes":0,"retrieval_ts":"2026-05-14T00:00:00Z","retrieval_query_id":"q001","redistributable":true,"license":"abstract_fair_use"}]}"#,
         );
         write(
             &manifest.parent().unwrap().join("pmid_31412983.xml"),
@@ -3876,7 +3865,7 @@ mod tests {
         fs::create_dir_all(manifest.parent().unwrap()).unwrap();
         write(
             &manifest,
-            r#"{"schema_version":2,"entries":[{"source_ref":"42519304","source_kind":"pubmed_abstract_xml","path":"pmid_42519304.xml","sha256_binary":"00","sha256_extracted_text":"00","extracted_text_normalization":"collapse_whitespace_lowercase_v1","bytes":0,"retrieval_ts":"2026-07-29T00:00:00Z","retrieval_query_id":"q001","redistributable":true,"license":"public_domain"}]}"#,
+            r#"{"schema_version":2,"entries":[{"source_ref":"42519304","source_kind":"pubmed_abstract_xml","path":"pmid_42519304.xml","sha256_binary":"00","sha256_extracted_text":"00","extracted_text_normalization":"collapse_whitespace_lowercase_v1","bytes":0,"retrieval_ts":"2026-07-29T00:00:00Z","retrieval_query_id":"q001","redistributable":true,"license":"abstract_fair_use"}]}"#,
         );
         write(
             &manifest.parent().unwrap().join("pmid_42519304.xml"),

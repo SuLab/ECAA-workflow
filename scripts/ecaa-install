@@ -33,16 +33,45 @@ PY="${ECAA_PY:-python3}"
 RSCRIPT="${ECAA_RSCRIPT:-Rscript}"
 CRAN="${ECAA_CRAN_REPO:-https://cloud.r-project.org}"
 
-# Best-effort path to the runtime install-log (NEVER fails the install).
-# Derive from ECAA_PACKAGE_DIR if set, else from PACKAGE env, else skip.
+# Best-effort runtime provenance (NEVER fails the install).
+#
+# The package-level JSONL is the machine-readable source of truth. A concise
+# per-task transcript is also written automatically because asking the agent to
+# remember a shell redirection left image-provided packages entirely absent
+# from otherwise replayable runs.
 _log_install() {
-  local reg="$1" pkg="$2" ver="$3"
+  local reg="$1" pkg="$2" ver="$3" action="${4:-resolved}"
   local logdir="${ECAA_PACKAGE_DIR:-${PACKAGE:-}}"
   [ -z "$logdir" ] && return 0
   local logfile="$logdir/runtime/install-log.jsonl"
   mkdir -p "$(dirname "$logfile")" 2>/dev/null || return 0
-  printf '{"registry":"%s","package":"%s","resolved_version":"%s"}\n' \
-    "$reg" "$pkg" "$ver" >> "$logfile" 2>/dev/null || true
+  local task_id="${ECAA_TASK_ID:-}" timestamp record
+  timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)"
+  if command -v jq >/dev/null 2>&1; then
+    record="$(jq -cn \
+      --arg timestamp "$timestamp" \
+      --arg atom_id "$task_id" \
+      --arg registry "$reg" \
+      --arg package "$pkg" \
+      --arg resolved_version "$ver" \
+      --arg action "$action" \
+      '{timestamp:$timestamp,atom_id:$atom_id,registry:$registry,package:$package,
+        resolved_version:$resolved_version,source:"agent_runtime",action:$action}' \
+      2>/dev/null || true)"
+    [ -n "$record" ] \
+      && printf '%s\n' "$record" >> "$logfile" 2>/dev/null \
+      || true
+  fi
+
+  # ECAA_TASK_ID is harness-authored, but keep the path write fail-closed if a
+  # malformed value ever reaches this helper.
+  case "$task_id" in
+    ''|*[!A-Za-z0-9._-]*) return 0 ;;
+  esac
+  local task_log="$logdir/runtime/outputs/$task_id/scripts/00_install.log"
+  mkdir -p "$(dirname "$task_log")" 2>/dev/null || return 0
+  printf '[%s] ecaa-install %s %s: version=%s action=%s\n' \
+    "$timestamp" "$reg" "$pkg" "$ver" "$action" >> "$task_log" 2>/dev/null || true
 }
 
 r_vec() { # join args as an R c("a","b") vector
@@ -60,7 +89,7 @@ case "$eco" in
     if [ $_pip_exit -eq 0 ]; then
       for _pkg in "$@"; do
         _ver="$("$PY" -m pip show "$_pkg" 2>/dev/null | awk '/^Version:/{print $2}')" || _ver=""
-        _log_install "python" "$_pkg" "${_ver:-}"
+        _log_install "python" "$_pkg" "${_ver:-}" "resolved"
       done
     fi
     exit $_pip_exit
@@ -79,7 +108,7 @@ case "$eco" in
     if [ $_r_exit -eq 0 ]; then
       for _pkg in "$@"; do
         _ver="$("$RSCRIPT" --no-save -e "cat(as.character(packageVersion('$_pkg')))" 2>/dev/null)" || _ver=""
-        _log_install "r" "$_pkg" "${_ver:-}"
+        _log_install "r" "$_pkg" "${_ver:-}" "resolved"
       done
     fi
     exit $_r_exit
@@ -118,8 +147,10 @@ case "$eco" in
         _conda_name="bioconductor-${_lc}"
         # If env exists, check whether the pkg is already present.
         if _bioc_env_exists; then
-          if conda list -n "$BIOC_ENV" 2>/dev/null | grep -qi "^${_conda_name}[[:space:]]"; then
+          if "$MAMBA" list -n "$BIOC_ENV" 2>/dev/null | grep -qi "^${_conda_name}[[:space:]]"; then
+            _ver="$("$MAMBA" list -n "$BIOC_ENV" 2>/dev/null | awk -v p="$_conda_name" 'tolower($1)==p{print $2}' | head -1)" || _ver=""
             echo "ecaa-install: already present (bioc/conda): $_pkg"
+            _log_install "conda" "$_pkg" "${_ver:-}" "already_present"
             _bioc_ok+=("$_pkg")
             continue
           fi
@@ -147,9 +178,9 @@ case "$eco" in
           for _pkg in "$@"; do
             _lc="$(printf '%s' "$_pkg" | tr '[:upper:]' '[:lower:]')"
             _conda_name="bioconductor-${_lc}"
-            _ver="$(conda list -n "$BIOC_ENV" 2>/dev/null | awk -v p="$_conda_name" 'tolower($1)==p{print $2}' | head -1)" || _ver=""
+            _ver="$("$MAMBA" list -n "$BIOC_ENV" 2>/dev/null | awk -v p="$_conda_name" 'tolower($1)==p{print $2}' | head -1)" || _ver=""
             echo "ecaa-install: ok (bioc): ${_pkg} → conda env '${BIOC_ENV}'; run R with: conda run -n ${BIOC_ENV} Rscript <script>"
-            _log_install "conda" "$_pkg" "${_ver:-}"
+            _log_install "conda" "$_pkg" "${_ver:-}" "installed"
             _bioc_ok+=("$_pkg")
           done
         fi
@@ -198,7 +229,7 @@ case "$eco" in
       if [ $_biocmgr_exit -eq 0 ]; then
         for _pkg in "${_bioc_failed[@]}"; do
           _ver="$("$MAMBA" run -n "$BIOC_ENV" env -u R_LIBS_USER Rscript --no-save -e "cat(as.character(packageVersion('$_pkg')))" 2>/dev/null)" || _ver=""
-          _log_install "conda" "$_pkg" "${_ver:-}"
+          _log_install "conda" "$_pkg" "${_ver:-}" "installed"
           echo "ecaa-install: ok (bioc): ${_pkg} → conda env '${BIOC_ENV}' R library; run R with: conda run -n ${BIOC_ENV} Rscript <script>"
         done
       fi

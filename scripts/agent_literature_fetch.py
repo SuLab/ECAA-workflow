@@ -524,9 +524,10 @@ def _fetch_primary_literature(query: str, route: Dict[str, Any]) -> List[Dict[st
     abstract. Each finding carries the SINGULAR pmid as its locator so the
     snapshot/manifest plumbing writes a per-PMID entry — which is exactly what
     the harness literature validators resolve against (run_pmid_resolves keys
-    the manifest by singular pmid; the redistributable gate accepts
-    `pubmed_abstract` as public-domain-fair-use). The snapshot bytes ARE the
-    FULL extracted abstract text (carried as `_extracted`), so the
+    the manifest by singular pmid; the helper explicitly records the package
+    policy's `abstract_fair_use` basis for `pubmed_abstract`). PubMed delivery
+    does not make publisher-supplied abstract text public domain. The snapshot
+    bytes ARE the FULL extracted abstract text (carried as `_extracted`), so the
     evidence_quote quote-presence check is exact and the stored snapshot is a
     faithful record of the whole abstract — not just its topic sentence.
 

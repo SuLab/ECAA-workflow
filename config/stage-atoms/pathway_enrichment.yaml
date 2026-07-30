@@ -111,10 +111,16 @@ claim_boundary: |
 inputs:
   - name: ranked_de_results
     semantic_type:
-      kind: ontology_term
-      iri: "data:0951"
-      label: "Statistical estimate score"
-      ontology_version: "EDAM-1.25"
+      kind: union
+      members:
+        - kind: ontology_term
+          iri: "data:3134"
+          label: "Gene expression data"
+          ontology_version: "EDAM-1.25"
+        - kind: ontology_term
+          iri: "data:0951"
+          label: "Statistical estimate score"
+          ontology_version: "EDAM-1.25"
     physical_format:
       iri: "format:3475"
       label: "Tabular text"

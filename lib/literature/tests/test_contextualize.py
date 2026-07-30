@@ -192,6 +192,30 @@ def test_unsearched_entity_is_not_assessed_never_novel(workspace: dict) -> None:
     assert rows["SAA1"]["searched"] == "false"
 
 
+def test_broad_query_retains_exact_entity_evidence(workspace: dict) -> None:
+    """A study-level query can retrieve direct evidence for an entity even
+    though the query axis does not spell out that entity's symbol."""
+    prior_rows = read_prior_claims(workspace["prior"])
+    for row in prior_rows:
+        row["axis"] = "himes_2014_airway_study"
+    with workspace["prior"].open("w", encoding="utf-8", newline="") as fh:
+        writer = csv.DictWriter(
+            fh,
+            fieldnames=["axis", "pmid", "source_hash", "evidence_quote"],
+            lineterminator="\n",
+        )
+        writer.writeheader()
+        writer.writerows(prior_rows)
+
+    summary = _run(workspace)
+    dusp1 = [r for r in _matrix(workspace) if r["entity"] == "DUSP1"]
+    assert {r["prior_pmid"] for r in dusp1} == {"24926665", "25625944"}
+    assert any(r["concordance_flag"] == "same_direction" for r in dusp1)
+    assert all(r["searched"] == "true" for r in dusp1)
+    assert summary["n_entities_assessed"] == 1
+    assert "DUSP1" in summary["entities_assessed"]
+
+
 def test_searched_entity_with_no_naming_snapshot_is_no_prior_finding(workspace: dict) -> None:
     _run(workspace, explicit_searched=["SAA1"])
     rows = {r["entity"]: r for r in _matrix(workspace)}
@@ -441,7 +465,7 @@ def test_entity_and_evidence_row_counts_are_separate_numbers(workspace: dict) ->
     assert summary["n_evidence_rows_assessed"] == len(searched)
     assert summary["n_entities_assessed"] == len({r["entity"] for r in searched})
     assert summary["entities_assessed"] == ["DUSP1"]
-    # Only the entity count may be described as a number of entities searched.
+    # Only the entity count may be described as a number of entities assessed.
     assert summary["n_evidence_rows_total"] == len(rows) == summary["n_rows"]
 
 

@@ -20,6 +20,11 @@ direction is accepted. Without them the direction is still derived, but
 so in its verification report rather than quietly presenting an ungrounded
 direction as a replication check.
 
+`entity` is the caller's lever on cue attribution. When supplied, a cue
+must occur near the named entity. This deliberately turns sentences such
+as "IL6R was influenced by CEBPD knockdown" into unresolved evidence
+rather than assigning the perturbation's direction to IL6R.
+
 Ambiguity resolves to "no direction", never to a guess: a sentence with
 cues in both classes, or with none, yields `None` — which the caller maps
 to the `unverifiable` concordance flag.
@@ -67,9 +72,12 @@ DOWN_STEMS: Tuple[str, ...] = (
     "lower",
     "abolish",
     "depleted",
-    "knockdown",
-    "loss of",
 )
+
+# `knockdown`, `knockout`, and `loss of` are deliberately absent. Like
+# stimulation and activation, they usually name an experimental perturbation,
+# not the direction of the measured entity. A sentence must contain an actual
+# outcome cue such as reduced, repressed, or lower to support a down call.
 
 #: Negators that cancel a cue appearing AFTER them, within
 #: `NEGATION_WINDOW` characters: "did not significantly increase".
@@ -120,6 +128,12 @@ VOIDING_TERMS: Tuple[str, ...] = (
 #: Wide enough for "did not significantly increase", narrow enough that a
 #: negation in a neighbouring clause does not reach across.
 NEGATION_WINDOW = 40
+
+# Maximum gap between a directional cue and an explicitly supplied entity.
+# The bounded window is conservative by design: a distant cue may belong to
+# another subject in the same sentence, so unresolved is safer than a false
+# concordance verdict.
+ENTITY_CUE_WINDOW = 48
 
 UP = "up"
 DOWN = "down"
@@ -174,6 +188,12 @@ def _stem_hits(text_lower: str, stems: Sequence[str]) -> List[Tuple[int, str]]:
     hits: List[Tuple[int, str]] = []
     for stem in stems:
         for match in re.finditer(rf"(?<![a-z]){re.escape(stem)}", text_lower):
+            # "enhancer" names a regulatory element; it is not a conjugation
+            # of "enhance" and must never become an increase cue.
+            if stem == "enhanc" and text_lower[match.start() :].startswith(
+                ("enhancer", "enhancers")
+            ):
+                continue
             start = match.start()
             window = text_lower[max(0, start - NEGATION_WINDOW) : start]
             if any(rx.search(window) for rx in _PRECEDING_NEGATOR_RE):
@@ -186,6 +206,7 @@ def infer_direction(
     sentence: str,
     *,
     contrast_terms: Sequence[str] = (),
+    entity: Optional[str] = None,
 ) -> DirectionCall:
     """Classify one sentence as reporting an increase, a decrease, or neither.
 
@@ -203,6 +224,28 @@ def infer_direction(
 
     up_hits = _stem_hits(lower, UP_STEMS)
     down_hits = _stem_hits(lower, DOWN_STEMS)
+
+    if entity and entity.strip():
+        escaped = re.escape(entity.strip().lower())
+        entity_spans = [
+            match.span()
+            for match in re.finditer(
+                rf"(?<![a-z0-9]){escaped}(?![a-z0-9])",
+                lower,
+            )
+        ]
+
+        def near_entity(hit: Tuple[int, str]) -> bool:
+            cue_start, stem = hit
+            cue_end = cue_start + len(stem)
+            return any(
+                max(entity_start - cue_end, cue_start - entity_end, 0)
+                <= ENTITY_CUE_WINDOW
+                for entity_start, entity_end in entity_spans
+            )
+
+        up_hits = [hit for hit in up_hits if near_entity(hit)]
+        down_hits = [hit for hit in down_hits if near_entity(hit)]
 
     if up_hits and not down_hits:
         return DirectionCall(UP, grounded, up_hits[0][1])

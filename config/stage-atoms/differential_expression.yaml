@@ -46,8 +46,10 @@ description: |
   matrix population, not its raw-count statistical state. Do not reopen a
   count matrix from `data_acquisition`, `quantification`, or another ancestor,
   and do not substitute a new prefilter. Record the exact QC artifact in
-  reads.jsonl under the `raw_counts` port. The data-row population written to
-  de_results.tsv must equal the population in the canonical QC handoff.
+  reads.jsonl under the `raw_counts` port, and do not also record or consume the
+  mutually exclusive `normalized_counts` sibling. Exactly one count substrate
+  may be selected. The data-row population written to de_results.tsv must equal
+  the population in the canonical QC handoff.
 
   COUNT-CONSISTENCY (defense-in-depth): the significant-entity count you report
   (and any `n_sig` you record) MUST come from the SAME significance vector
@@ -155,8 +157,12 @@ parameters:
   - name: log2fc_threshold
     type: number
     required: false
-    default: 1.0
-    description: "Minimum absolute log2 fold-change to call a feature differentially expressed."
+    default: 0.0
+    description: >-
+      Optional minimum absolute log2 fold-change for a stricter reported call
+      set. The neutral default applies no effect-size cutoff, so the default
+      call set agrees with result_schema.significance (padj < 0.05). An SME may
+      set a positive threshold explicitly.
   - name: independent_filtering
     type: boolean
     required: false
@@ -270,9 +276,10 @@ result_schema:
 # (the recorded shrinkage engine may be absent from a re-execution's env, so the
 # effect-size columns fall back to a different estimator). The Wald stat/pvalue/padj
 # come from the UNSHRUNKEN model, so the significant set is shrinkage-independent.
-# The effect-size column emitted in de_results.tsv is `log2FC` (the ECAA canonical
-# column name, matching cross_version_diff + the interpretation policy) — NOT the
-# DESeq2-native `log2FoldChange`, which would dangle against the real table.
+# Agents may emit the effect-size column under the declared canonical
+# `log2FoldChange` name or one of its result-schema aliases. Cover every accepted
+# spelling so replay does not treat the same adaptive-shrinkage output
+# differently solely because an executor chose a valid header alias.
 # Projected at emit time into determinism-shim.json::non_deterministic_artifacts
 # so a divergence confined to these two columns is bucketed
 # AcknowledgedNonDeterminism, while a divergence in any other column (e.g. stat,
@@ -280,7 +287,9 @@ result_schema:
 non_determinism:
   - artifact: de_results.tsv
     columns:
+      - log2FoldChange
       - log2FC
+      - logFC
       - lfcSE
     kind: adaptive_shrinkage
     reason: >-

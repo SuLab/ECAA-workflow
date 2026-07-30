@@ -183,6 +183,25 @@ fn task_execution_prompt_exempts_interpretation_from_word_cap() {
     );
 }
 
+/// A validate companion must independently reject the observed defect in which
+/// a count model records both members of its raw/normalised one-of handoff.
+#[test]
+fn task_execution_prompt_requires_exact_one_of_handoff_validation() {
+    let path = repo_root().join("scripts/agent-prompts/task-execution.md");
+    let text =
+        fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+    assert!(
+        text.contains("cross_stage_table_handoff")
+            && text.contains("alternative_ports")
+            && text.contains("exactly one member"),
+        "validate_* instructions must preserve the source-owned one-of handoff semantics"
+    );
+    assert!(
+        text.contains("matching row count does not excuse") && text.contains("simultaneous reads"),
+        "a validator must not reduce path/port exclusivity to row-count agreement"
+    );
+}
+
 /// WS-2 — biological_interpretation + validate_biological_interpretation
 /// must be OPTIONAL (never forbidden) in every interpretation-relevant
 /// corpus scenario, so a flag-on emission that includes them still

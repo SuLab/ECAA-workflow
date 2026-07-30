@@ -6,15 +6,14 @@
 //! extensible `facets` map for future additions without a schema
 //! revision.
 //!
-//! Today's atoms encode port-level info via the `edam_data` /
-//! `edam_format` pair plus `attributes` map; `TaskNode::from_atom`
-//! synthesizes one input and one output `PortContract` from those
-//! fields so existing atoms materialize as typed nodes.
+//! Migrated atoms author complete `inputs:` / `outputs:` values, which
+//! `TaskNode::from_atom` preserves verbatim. Legacy atoms may still encode
+//! port-level info via the `edam_data` / `edam_format` pair; the converter
+//! synthesizes one coarse input and output only for that fallback path.
 //!
 //! Rich biological facets (genome build, coordinate system, normalization
-//! state, etc.) are present as optional fields; atoms synthesized via
-//! `TaskNode::from_atom` populate only the EDAM pair and leave richer
-//! facets to be authored incrementally.
+//! state, etc.) are present as optional fields. Rich atom ports retain those
+//! facets; only legacy fallback ports leave them unset.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -176,8 +175,8 @@ pub enum PortPrivacyClass {
 
 /// A typed port — input or output of a `TaskNode`. Design §1 + §12.
 ///
-/// All facet-bearing fields are optional because atoms synthesized from
-/// `AtomDefinition.edam_data` / `edam_format` provide only the EDAM
+/// All facet-bearing fields are optional because the legacy
+/// `AtomDefinition.edam_data` / `edam_format` fallback provides only the EDAM
 /// pair; richer ports supply genome build, coordinate system, and other
 /// biological facets inline.
 ///
