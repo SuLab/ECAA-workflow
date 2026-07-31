@@ -206,6 +206,123 @@ ensure_writable_session_cache() {
     done
 }
 
+# Resolve the uid/gid used by a containerized execution agent.
+#
+# The common case preserves the invoking uid/gid so bind-mounted outputs retain
+# operator ownership. A containerized workflow server is different: its process
+# often runs as uid 0 even though its package/cache mounts belong to the
+# unprivileged host operator. Passing that uid through to Claude Code makes
+# `--dangerously-skip-permissions` fail before the task starts.
+#
+# Resolution order:
+#   1. explicit ECAA_AGENT_CONTAINER_UID/GID (both required, both non-zero);
+#   2. invoking uid/gid when the caller is already non-root;
+#   3. owner of the session cache or package parent;
+#   4. the image's configured non-root user;
+#   5. the standard unprivileged overflow identity 65532:65532.
+#
+# Args 4 and 5 are test seams for the invoking uid/gid. Production callers omit
+# them and the function reads `id` directly.
+resolve_container_user_identity() {
+    local container_image="$1"
+    local package="$2"
+    local cache_dir="${3:-}"
+    local caller_uid="${4:-$(id -u)}"
+    local caller_gid="${5:-$(id -g)}"
+    local requested_uid="${ECAA_AGENT_CONTAINER_UID:-}"
+    local requested_gid="${ECAA_AGENT_CONTAINER_GID:-}"
+    local anchor anchor_uid anchor_gid image_identity image_uid image_gid
+
+    if [ -n "$requested_uid" ] || [ -n "$requested_gid" ]; then
+        if ! [[ "$requested_uid" =~ ^[0-9]+$ ]] \
+           || ! [[ "$requested_gid" =~ ^[0-9]+$ ]] \
+           || [ "$requested_uid" -eq 0 ] \
+           || [ "$requested_gid" -eq 0 ]; then
+            echo "FATAL: ECAA_AGENT_CONTAINER_UID/GID must both be positive non-zero integers" >&2
+            return 1
+        fi
+        printf '%s:%s' "$requested_uid" "$requested_gid"
+        return 0
+    fi
+
+    if [[ "$caller_uid" =~ ^[0-9]+$ ]] \
+       && [[ "$caller_gid" =~ ^[0-9]+$ ]] \
+       && [ "$caller_uid" -ne 0 ]; then
+        printf '%s:%s' "$caller_uid" "$caller_gid"
+        return 0
+    fi
+
+    for anchor in "$cache_dir" "$(dirname "$package")"; do
+        [ -n "$anchor" ] && [ -e "$anchor" ] || continue
+        anchor_uid="$(stat -c %u "$anchor" 2>/dev/null || true)"
+        anchor_gid="$(stat -c %g "$anchor" 2>/dev/null || true)"
+        if [[ "$anchor_uid" =~ ^[0-9]+$ ]] && [ "$anchor_uid" -ne 0 ]; then
+            if ! [[ "$anchor_gid" =~ ^[0-9]+$ ]] || [ "$anchor_gid" -eq 0 ]; then
+                anchor_gid="$anchor_uid"
+            fi
+            printf '%s:%s' "$anchor_uid" "$anchor_gid"
+            return 0
+        fi
+    done
+
+    if [ -n "$container_image" ] && command -v docker >/dev/null 2>&1; then
+        image_identity="$(docker run --rm --entrypoint sh "$container_image" -c \
+            'printf "%s:%s" "$(id -u)" "$(id -g)"' 2>/dev/null || true)"
+        image_uid="${image_identity%%:*}"
+        image_gid="${image_identity#*:}"
+        if [[ "$image_uid" =~ ^[0-9]+$ ]] \
+           && [[ "$image_gid" =~ ^[0-9]+$ ]] \
+           && [ "$image_uid" -ne 0 ]; then
+            [ "$image_gid" -ne 0 ] || image_gid="$image_uid"
+            printf '%s:%s' "$image_uid" "$image_gid"
+            return 0
+        fi
+    fi
+
+    printf '65532:65532'
+}
+
+# Make one workflow-owned bind source writable by the resolved container user.
+# The operation is intentionally scoped to the exact supplied path. It runs
+# only when that path's current owner differs, so a completed package is not
+# recursively traversed again for every dispatched task.
+prepare_container_writable_path() {
+    local path="$1"
+    local container_image="$2"
+    local target_uid="$3"
+    local target_gid="$4"
+    local owner_uid owner_gid
+
+    [ -e "$path" ] || return 0
+    owner_uid="$(stat -c %u "$path" 2>/dev/null || true)"
+    owner_gid="$(stat -c %g "$path" 2>/dev/null || true)"
+    if [ "$owner_uid" = "$target_uid" ] && [ "$owner_gid" = "$target_gid" ]; then
+        return 0
+    fi
+
+    if [ "$(id -u)" -ne 0 ]; then
+        echo "FATAL: bind source is not owned by the container user and the caller cannot repair it: $path" >&2
+        return 1
+    fi
+
+    if [ -n "$container_image" ] && command -v docker >/dev/null 2>&1; then
+        if docker run --rm --user 0:0 \
+            -v "$path":"$path" \
+            --entrypoint chown "$container_image" \
+            -R "$target_uid:$target_gid" "$path" >/dev/null 2>&1; then
+            return 0
+        fi
+        echo "FATAL: could not assign container-user ownership to bind source: $path" >&2
+        return 1
+    fi
+
+    if chown -R "$target_uid:$target_gid" "$path" 2>/dev/null; then
+        return 0
+    fi
+    echo "FATAL: could not assign container-user ownership to bind source: $path" >&2
+    return 1
+}
+
 # External scratch roots are shared across packages and chat sessions. Add the
 # validated session id when one is available so common task names such as
 # data_acquisition cannot collide with another run's ownership or contents.

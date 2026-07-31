@@ -35,6 +35,33 @@ for child in pip conda conda-envs apt R-libs python helpers; do
     test -w "$CACHE/$child"
 done
 
+CALLER_UID="$(id -u)"
+CALLER_GID="$(id -g)"
+if [ "$CALLER_UID" -ne 0 ]; then
+    test "$(resolve_container_user_identity "" "$PACKAGE" "$CACHE")" \
+        = "$CALLER_UID:$CALLER_GID"
+fi
+
+ECAA_AGENT_CONTAINER_UID=12345
+ECAA_AGENT_CONTAINER_GID=12346
+test "$(resolve_container_user_identity "" "$PACKAGE" "$CACHE" 0 0)" \
+    = "12345:12346"
+unset ECAA_AGENT_CONTAINER_UID ECAA_AGENT_CONTAINER_GID
+
+ECAA_AGENT_CONTAINER_UID=0
+ECAA_AGENT_CONTAINER_GID=12346
+if resolve_container_user_identity "" "$PACKAGE" "$CACHE" 0 0 >/dev/null 2>&1; then
+    echo "root container identity was accepted" >&2
+    exit 1
+fi
+unset ECAA_AGENT_CONTAINER_UID ECAA_AGENT_CONTAINER_GID
+
+WRITABLE="$TEST_ROOT/container-writable"
+mkdir -p "$WRITABLE"
+prepare_container_writable_path "$WRITABLE" "" "$CALLER_UID" "$CALLER_GID"
+test "$(stat -c %u "$WRITABLE")" = "$CALLER_UID"
+test "$(stat -c %g "$WRITABLE")" = "$CALLER_GID"
+
 ECAA_AGENT_SCRATCH_DIR="$TEST_ROOT/external-scratch"
 ECAA_CHAT_SESSION_ID="11111111-2222-4333-8444-555555555555"
 test "$(resolve_task_scratch_dir "$PACKAGE" task)" \

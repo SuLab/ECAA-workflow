@@ -625,6 +625,19 @@ if [ -z "$CONTAINER_IMAGE" ] && [ -n "${ECAA_DEFAULT_CONTAINER_IMAGE:-}" ]; then
   CONTAINER_IMAGE="$ECAA_DEFAULT_CONTAINER_IMAGE"
 fi
 
+AGENT_CONTAINER_UID="$(id -u)"
+AGENT_CONTAINER_GID="$(id -g)"
+if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
+  if ! AGENT_CONTAINER_IDENTITY="$(
+    resolve_container_user_identity \
+      "$CONTAINER_IMAGE" "$PACKAGE" "${ECAA_SESSION_CACHE_DIR:-}"
+  )"; then
+    exit 96
+  fi
+  AGENT_CONTAINER_UID="${AGENT_CONTAINER_IDENTITY%%:*}"
+  AGENT_CONTAINER_GID="${AGENT_CONTAINER_IDENTITY#*:}"
+fi
+
 if [ -n "${ECAA_SESSION_CACHE_DIR:-}" ]; then
   ensure_writable_session_cache "$ECAA_SESSION_CACHE_DIR" "$CONTAINER_IMAGE"
 fi
@@ -1250,7 +1263,7 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
     DOCKER_LABEL_ARGS+=("--label" "ecaa-session=${ECAA_CHAT_SESSION_ID}")
   fi
 
-  # Drop to the host UID/GID inside the container so:
+  # Drop to the resolved non-root operator UID/GID inside the container so:
   # (1) `claude --dangerously-skip-permissions` doesn't trip the
   #  "running-as-root" guard the Claude CLI added in 2.1.x,
   # (2) files written into the bind-mounted package volume keep host
@@ -1258,7 +1271,12 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   # (3) the mounted ~/.claude/.credentials.json is readable as a
   #  normal user (root inside container would also read it via the
   #  RO bind, but the credentials lookup honors $HOME, not uid 0).
-  DOCKER_USER_ARGS=(--user "$(id -u):$(id -g)")
+  #
+  # A workflow-server container commonly runs as root while its mounted
+  # package/cache roots belong to the host operator. In that topology,
+  # forwarding `id -u` would still run Claude as root. The resolver above
+  # selects the mount owner (or image non-root user) instead.
+  DOCKER_USER_ARGS=(--user "$AGENT_CONTAINER_UID:$AGENT_CONTAINER_GID")
 
   # Per directive language packages (R / Python / conda)
   # install at task time inside the container, not at image build
@@ -1547,6 +1565,36 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
 
   stage_dood_helpers "$SCRIPT_DIR" "$PACKAGE" "${ECAA_TASK_ID:-}"
 
+  # The outer workflow-server process may be root even though the task
+  # container must not be. Repair only workflow-owned writable bind sources
+  # before dispatch. The package root is traversed once when first emitted;
+  # subsequent tasks repair their own output/scratch/cache subtrees.
+  prepare_container_writable_path \
+    "$PACKAGE" "$CONTAINER_IMAGE" "$AGENT_CONTAINER_UID" "$AGENT_CONTAINER_GID"
+  if [ -n "${ECAA_TASK_ID:-}" ]; then
+    prepare_container_writable_path \
+      "$PACKAGE/runtime/outputs/$ECAA_TASK_ID" \
+      "$CONTAINER_IMAGE" "$AGENT_CONTAINER_UID" "$AGENT_CONTAINER_GID"
+  fi
+  if [ -n "${ECAA_TASK_SCRATCH_DIR:-}" ]; then
+    prepare_container_writable_path \
+      "$ECAA_TASK_SCRATCH_DIR" \
+      "$CONTAINER_IMAGE" "$AGENT_CONTAINER_UID" "$AGENT_CONTAINER_GID"
+  fi
+  prepare_container_writable_path \
+    "$AGENT_HOME_DIR" "$CONTAINER_IMAGE" "$AGENT_CONTAINER_UID" "$AGENT_CONTAINER_GID"
+  if [ -n "${ECAA_SESSION_CACHE_DIR:-}" ]; then
+    for __agent_cache_child in \
+      pip conda conda-envs apt R-libs python helpers claude-code agent-claude-home; do
+      if [ -e "$ECAA_SESSION_CACHE_DIR/$__agent_cache_child" ]; then
+        prepare_container_writable_path \
+          "$ECAA_SESSION_CACHE_DIR/$__agent_cache_child" \
+          "$CONTAINER_IMAGE" "$AGENT_CONTAINER_UID" "$AGENT_CONTAINER_GID"
+      fi
+    done
+    unset __agent_cache_child
+  fi
+
   # Docker isolation hardening. The agent writes outputs into
   # $PACKAGE and $AGENT_HOME_DIR (which are bound RW above);
   # everything else is read-only. Tmpfs covers /tmp and
@@ -1763,7 +1811,7 @@ fi
 if [ "$CLAUDE_EXIT" = "0" ] && [ -n "${ECAA_TASK_ID:-}" ]; then
   if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
     render_required_figures "$PACKAGE" "$ECAA_TASK_ID" "container" \
-      "$CONTAINER_IMAGE" "$(id -u):$(id -g)" "$ECAA_DOCKER_TMPFS_TMP_SIZE"
+      "$CONTAINER_IMAGE" "$AGENT_CONTAINER_UID:$AGENT_CONTAINER_GID" "$ECAA_DOCKER_TMPFS_TMP_SIZE"
   else
     render_required_figures "$PACKAGE" "$ECAA_TASK_ID" "host" \
       "" "" "$ECAA_DOCKER_TMPFS_TMP_SIZE"
