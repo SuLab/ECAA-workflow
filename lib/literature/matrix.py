@@ -65,18 +65,16 @@ SIGNIFICANCE_COLUMNS: Tuple[str, ...] = (
 
 #: Column order of `claims_evidence_matrix.csv`.
 #:
-#: `analysis_effect` is the canonical, modality-agnostic name for the signed
-#: effect. `analysis_log2fc` carries the SAME value under the DE-flavoured
-#: name the downstream reader
-#: (`report_contract::report_data::join_literature`) currently recognises;
-#: it is a compatibility alias, not a second measurement, and should be
-#: dropped once that reader accepts `analysis_effect`.
+#: `analysis_effect` and `analysis_significance` are the canonical,
+#: modality-agnostic measurements copied from the upstream finding. Their
+#: meaning comes from the upstream result schema and explicit column
+#: resolution, not from a gene-expression-specific header alias.
 COLUMNS: Tuple[str, ...] = (
     "finding_id",
     "entity",
     "entity_kind",
     "analysis_effect",
-    "analysis_log2fc",
+    "analysis_significance",
     "analysis_direction",
     "prior_pmid",
     "prior_direction",
@@ -95,9 +93,8 @@ COLUMNS: Tuple[str, ...] = (
 #: library emits alongside the matrix, in emitted order.
 #:
 #: The NAMES are fixed because they are the convention the independent
-#: label↔accession consistency check resolves against — the same
-#: compatibility-alias reasoning as `analysis_log2fc` above. The SOURCE columns
-#: are still resolved by ROLE (`SYMBOL_COLUMNS` → the label,
+#: label↔accession consistency check resolves against. The SOURCE columns are
+#: still resolved by ROLE (`SYMBOL_COLUMNS` → the label,
 #: `ID_COLUMNS` → the accession), so a region- or variant-keyed table emits its
 #: own identifiers here with no entity-specific handling; `ensembl_gene_id` is
 #: then the conventional name for the accession role, not a claim that the
@@ -145,7 +142,7 @@ class ClaimRow:
     entity: str
     entity_kind: str
     analysis_effect: str
-    analysis_log2fc: str
+    analysis_significance: str
     analysis_direction: str
     prior_pmid: str
     prior_direction: str

@@ -164,6 +164,18 @@ def test_missing_symbol_column_uses_the_identifier_as_the_entity(tmp_path: Path)
     assert table.effect_column == "beta"
 
 
+def test_variant_measurements_use_modality_neutral_matrix_fields(tmp_path: Path) -> None:
+    path = tmp_path / "variants.tsv"
+    path.write_text("variant_id\tbeta\tp_value\nchr1:100:A:T\t0.4\t0.001\n", encoding="utf-8")
+    table = read_result_table(path, threshold=0.05)
+    rows = build_rows(table, [], {}, entity_kind="variant")
+
+    assert len(rows) == 1
+    assert float(rows[0].analysis_effect) == 0.4
+    assert float(rows[0].analysis_significance) == 0.001
+    assert not hasattr(rows[0], "analysis_log2fc")
+
+
 # --- searched-set boundary ------------------------------------------------
 
 
@@ -337,6 +349,19 @@ def test_matrix_columns_and_verified_quotes(workspace: dict) -> None:
         assert entry.text[offset : offset + len(quote)] == quote
         assert row["source_hash"] == entry.source_hash
         assert row["retrieval_ts"] == entry.retrieval_ts
+
+
+def test_matrix_schema_matches_the_shared_emitter_contract() -> None:
+    schema_path = (
+        Path(__file__).resolve().parents[3]
+        / "config"
+        / "stage-atoms"
+        / "schemas"
+        / "claims_evidence_matrix.schema.json"
+    )
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    assert set(schema["required"]) == set(COLUMNS)
+    assert set(schema["properties"]) == set(COLUMNS)
 
 
 def test_no_pmid_or_sha256_literal_is_embedded_in_the_library() -> None:

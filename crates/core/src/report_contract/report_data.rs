@@ -878,12 +878,11 @@ pub fn join_literature(
     let pmid_idx = ["prior_pmid", "pmid"]
         .iter()
         .find_map(|name| resolve_column(&headers, name));
-    // The contextualize atom's effect column name also varies across runs
-    // (`lfc` / `log2FoldChange` / `logFC` / `log2fc` / `nes` / `analysis_log2fc`);
-    // try the known variants in order. Local to this matrix reader — the atom's
-    // own output is fixed-ish, so a small candidate list tolerates its known
-    // column-name drift.
+    // The current shared contextualization library emits the modality-neutral
+    // `analysis_effect`. Retain historical aliases only for reading packages
+    // produced before that wire contract was canonicalized.
     let effect_idx = [
+        "analysis_effect",
         "lfc",
         "log2FoldChange",
         "logFC",
@@ -897,6 +896,7 @@ pub fn join_literature(
     // report-data `significance` slot because the analytical schema and prose
     // use the multiple-testing-adjusted value.
     let significance_idx = [
+        "analysis_significance",
         "analysis_padj",
         "padj",
         "adj_p_value",
@@ -1762,17 +1762,17 @@ mod tests {
     }
 
     #[test]
-    fn join_literature_resolves_pmid_and_analysis_log2fc_columns() {
+    fn join_literature_resolves_canonical_analysis_measurement_columns() {
         // This run's matrix names the PMID column `pmid` (not `prior_pmid`) and
-        // the effect column `analysis_log2fc` (not `lfc`). Both resolve via the
-        // broadened candidate lists → LitFinding.pmid + effect populate, and
-        // `retrieved_sources` fills from the matrix `pmid` even with no
-        // result.json `cited_pmids`.
+        // carries modality-neutral analysis measurement columns. They populate
+        // LitFinding without relying on a gene-expression-specific alias, and
+        // `retrieved_sources` fills from the matrix `pmid` even with no result
+        // JSON `cited_pmids`.
         let tmp = tempfile::tempdir().unwrap();
         let matrix_path = tmp.path().join("claims_evidence_matrix.csv");
         std::fs::write(
             &matrix_path,
-            "finding_id,entity,entity_kind,pmid,prior_direction,analysis_log2fc,analysis_padj,concordance_flag,evidence_quote\n\
+            "finding_id,entity,entity_kind,pmid,prior_direction,analysis_effect,analysis_significance,concordance_flag,evidence_quote\n\
              F1,CRISPLD2,gene,999,up,2.61,0.001,same_direction,prior quote\n",
         )
         .unwrap();

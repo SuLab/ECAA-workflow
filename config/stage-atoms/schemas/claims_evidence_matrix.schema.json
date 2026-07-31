@@ -1,25 +1,80 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ClaimsEvidenceMatrixRow",
-  "description": "Row schema for claims_evidence_matrix.csv emitted by contextualize_findings_with_literature. Each row maps one upstream analysis finding to PMID-anchored prior literature with a deterministic concordance flag.",
+  "description": "Row schema for claims_evidence_matrix.csv emitted by contextualize_findings_with_literature. Each row maps one upstream analysis finding to one retained prior-literature source with a deterministic concordance flag. Analysis measurements use modality-neutral field names.",
   "type": "object",
-  "required": ["finding_id", "entity", "entity_kind", "prior_pmids", "concordance_flag",
-               "evidence_quote", "evidence_quote_offset", "source_kind", "source_hash",
-               "retrieval_ts", "redistributable", "verified"],
+  "required": [
+    "finding_id",
+    "entity",
+    "entity_kind",
+    "analysis_effect",
+    "analysis_significance",
+    "analysis_direction",
+    "prior_pmid",
+    "prior_direction",
+    "concordance_flag",
+    "evidence_quote",
+    "evidence_quote_offset",
+    "source_kind",
+    "source_hash",
+    "retrieval_ts",
+    "redistributable",
+    "verified",
+    "searched"
+  ],
   "additionalProperties": false,
   "properties": {
     "finding_id": { "type": "string", "minLength": 1 },
     "entity": { "type": "string", "minLength": 1 },
     "entity_kind": { "type": "string", "enum": ["gene", "region", "variant"] },
-    "prior_pmids": { "type": "array", "items": { "type": "string", "pattern": "^[1-9][0-9]{6,8}$" }, "uniqueItems": true },
-    "concordance_flag": { "type": "string",
-                          "enum": ["same_direction", "opposite_direction", "no_prior_finding", "unverifiable", "not_assessed"] },
+    "analysis_effect": { "type": ["number", "string", "null"] },
+    "analysis_significance": { "type": ["number", "string", "null"] },
+    "analysis_direction": { "type": "string", "enum": ["up", "down", ""] },
+    "prior_pmid": {
+      "type": "string",
+      "pattern": "^([1-9][0-9]{6,8})?$"
+    },
+    "prior_direction": { "type": "string", "enum": ["up", "down", ""] },
+    "concordance_flag": {
+      "type": "string",
+      "enum": [
+        "same_direction",
+        "opposite_direction",
+        "no_prior_finding",
+        "unverifiable",
+        "not_assessed"
+      ]
+    },
     "evidence_quote": { "type": "string" },
-    "evidence_quote_offset": { "type": "integer", "minimum": 0 },
-    "source_kind": { "type": "string", "enum": ["pmc_oa_full_text", "abstract_only", "external_pdf_local_only", "none"] },
-    "source_hash": { "type": "string", "pattern": "^(sha256:[0-9a-f]{64}|none)$" },
+    "evidence_quote_offset": {
+      "oneOf": [
+        { "type": "integer", "minimum": 0 },
+        { "type": "string", "pattern": "^[0-9]+$" }
+      ]
+    },
+    "source_kind": { "type": "string", "minLength": 1 },
+    "source_hash": {
+      "type": "string",
+      "pattern": "^(sha256:[0-9a-f]{64}|none)$"
+    },
     "retrieval_ts": { "type": "string" },
-    "redistributable": { "type": "boolean" },
-    "verified": { "type": "boolean" }
+    "redistributable": {
+      "oneOf": [
+        { "type": "boolean" },
+        { "type": "string", "enum": ["true", "false"] }
+      ]
+    },
+    "verified": {
+      "oneOf": [
+        { "type": "boolean" },
+        { "type": "string", "enum": ["true", "false"] }
+      ]
+    },
+    "searched": {
+      "oneOf": [
+        { "type": "boolean" },
+        { "type": "string", "enum": ["true", "false"] }
+      ]
+    }
   }
 }
