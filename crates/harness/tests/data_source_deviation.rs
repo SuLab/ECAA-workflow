@@ -89,6 +89,34 @@ fn decision_lines(root: &Path) -> Vec<DecisionRecord> {
         .collect()
 }
 
+fn write_registered_input(root: &Path) {
+    let runtime = root.join("runtime");
+    std::fs::create_dir_all(&runtime).unwrap();
+    std::fs::write(
+        runtime.join("inputs.json"),
+        serde_json::json!([{
+            "input_id": "registered123456",
+            "label": "upload-observations",
+            "kind": "uploaded_files",
+            "root_path": "/srv/uploads/registered123456",
+            "files": [
+                {
+                    "relpath": "observations.parquet",
+                    "size_bytes": 120,
+                    "sha256": "a".repeat(64)
+                },
+                {
+                    "relpath": "labels.csv",
+                    "size_bytes": 40,
+                    "sha256": "b".repeat(64)
+                }
+            ]
+        }])
+        .to_string(),
+    )
+    .unwrap();
+}
+
 /// The harness — NOT the agent — promotes `result.json::source_deviation`
 /// into one typed `DataSourceDeviation` record, carrying every field the
 /// free-text note carried plus the checksums. Re-running the promotion
@@ -310,6 +338,125 @@ fn no_deviation_writes_no_decision() {
         source_deviation_recorded(&artifact_dir(root)),
         ValidatorOutcome::Passed,
         "no declared deviation = nothing to reconcile"
+    );
+}
+
+/// An agent can mistakenly use `source_deviation` as an ordinary
+/// provenance block even when it read the exact registered bytes.
+/// Promotion must not create a false typed decision, and the required
+/// obligation must force repair of the invalid declaration.
+#[test]
+fn registered_source_restatement_is_not_promoted() {
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path();
+    write_registered_input(root);
+    write_result(
+        root,
+        serde_json::json!({
+            "task_id": TASK,
+            "status": "completed",
+            "source_deviation": {
+                "requested": "SME-uploaded observations.parquet and labels.csv registered in runtime/inputs.json",
+                "requested_available": true,
+                "used": "upload-observations (registered123456)",
+                "used_kind": "uploaded_files",
+                "reason": "Used the registered upload as the primary source.",
+                "checksums": {
+                    "data/upload-observations/observations.parquet": "a".repeat(64),
+                    "data/upload-observations/labels.csv": "b".repeat(64)
+                }
+            }
+        }),
+    );
+
+    let declared =
+        promote_source_deviation(root, TASK, "session-under-test", &FrozenClock::default());
+    assert!(
+        declared.is_some(),
+        "the harness must still schedule the required obligation"
+    );
+    assert!(
+        decision_lines(root).is_empty(),
+        "an identity restatement must not become a typed deviation"
+    );
+    match source_deviation_recorded(&artifact_dir(root)) {
+        ValidatorOutcome::Failed { message } => {
+            assert!(message.contains("same complete filename/SHA-256 set"));
+            assert!(message.contains("not a source substitution"));
+            assert!(message.contains("remove the source_deviation block"));
+        }
+        other => panic!("expected identity-deviation failure, got {other:?}"),
+    }
+}
+
+/// A registered substitute remains a real deviation when intake named
+/// an external source. Matching the used bytes to an upload must not
+/// erase the difference between the requested and used identities.
+#[test]
+fn registered_substitute_for_external_source_is_promoted() {
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path();
+    write_registered_input(root);
+    write_result(
+        root,
+        serde_json::json!({
+            "task_id": TASK,
+            "status": "completed",
+            "source_deviation": {
+                "requested": "s3://study-bucket/release-4/source-data",
+                "requested_available": false,
+                "used": "upload-observations (registered123456)",
+                "used_kind": "uploaded_files",
+                "reason": "The requested object was unavailable.",
+                "checksums": {
+                    "data/upload-observations/observations.parquet": "a".repeat(64),
+                    "data/upload-observations/labels.csv": "b".repeat(64)
+                }
+            }
+        }),
+    );
+
+    promote_source_deviation(root, TASK, "session-under-test", &FrozenClock::default());
+    assert_eq!(
+        decision_lines(root).len(),
+        1,
+        "a registered replacement for an external source is still a real substitution"
+    );
+}
+
+/// External releases can use the same filenames as a registered local
+/// replacement. Filename and checksum equality alone must not erase the
+/// source-identity change, even when the agent says the external source
+/// itself remained available.
+#[test]
+fn matching_filenames_do_not_hide_external_source_substitution() {
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path();
+    write_registered_input(root);
+    write_result(
+        root,
+        serde_json::json!({
+            "task_id": TASK,
+            "status": "completed",
+            "source_deviation": {
+                "requested": "s3://study-bucket/release-4/observations.parquet and labels.csv",
+                "requested_available": true,
+                "used": "upload-observations (registered123456)",
+                "used_kind": "uploaded_files",
+                "reason": "The registered copy was used instead of the external release.",
+                "checksums": {
+                    "data/upload-observations/observations.parquet": "a".repeat(64),
+                    "data/upload-observations/labels.csv": "b".repeat(64)
+                }
+            }
+        }),
+    );
+
+    promote_source_deviation(root, TASK, "session-under-test", &FrozenClock::default());
+    assert_eq!(
+        decision_lines(root).len(),
+        1,
+        "matching filenames and hashes do not prove the requested source was the registration"
     );
 }
 

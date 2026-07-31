@@ -934,6 +934,135 @@ pub fn read_source_deviation(
     serde_json::from_value(block.clone()).ok()
 }
 
+#[derive(serde::Deserialize)]
+struct RegisteredSourceInput {
+    #[serde(default)]
+    input_id: String,
+    #[serde(default)]
+    label: String,
+    #[serde(default)]
+    root_path: String,
+    #[serde(default)]
+    files: Vec<RegisteredSourceFile>,
+}
+
+#[derive(serde::Deserialize)]
+struct RegisteredSourceFile {
+    #[serde(default)]
+    relpath: String,
+    #[serde(default)]
+    sha256: String,
+}
+
+fn source_filename(path: &str) -> String {
+    path.rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(path)
+        .trim()
+        .to_ascii_lowercase()
+}
+
+fn source_fingerprints<I, P, H>(entries: I) -> Vec<(String, String)>
+where
+    I: IntoIterator<Item = (P, H)>,
+    P: AsRef<str>,
+    H: AsRef<str>,
+{
+    let mut fingerprints: Vec<_> = entries
+        .into_iter()
+        .map(|(path, hash)| {
+            (
+                source_filename(path.as_ref()),
+                hash.as_ref().trim().to_ascii_lowercase(),
+            )
+        })
+        .filter(|(name, hash)| !name.is_empty() && !hash.is_empty())
+        .collect();
+    fingerprints.sort();
+    fingerprints
+}
+
+fn source_text_names_registration_alias(text: &str, input: &RegisteredSourceInput) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    [&input.input_id, &input.label, &input.root_path]
+        .into_iter()
+        .map(|alias| alias.trim().to_ascii_lowercase())
+        .filter(|alias| alias.len() >= 4)
+        .any(|alias| normalized.contains(&alias))
+}
+
+fn source_text_identifies_registration(text: &str, input: &RegisteredSourceInput) -> bool {
+    if source_text_names_registration_alias(text, input) {
+        return true;
+    }
+    let normalized = text.to_ascii_lowercase();
+    let filenames: std::collections::BTreeSet<_> = input
+        .files
+        .iter()
+        .map(|file| source_filename(&file.relpath))
+        .filter(|name| !name.is_empty())
+        .collect();
+    !filenames.is_empty() && filenames.iter().all(|name| normalized.contains(name))
+}
+
+fn requested_text_identifies_runtime_registration(
+    text: &str,
+    input: &RegisteredSourceInput,
+) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    source_text_names_registration_alias(text, input)
+        || normalized.contains("runtime/inputs.json")
+        || normalized.contains("runtime\\inputs.json")
+}
+
+/// Identify a `source_deviation` block that only restates the exact
+/// registered input as both requested and used.
+///
+/// This is deliberately conservative. The declaration must say the
+/// requested source was available and explicitly identify a runtime
+/// registration, the used description must identify that same
+/// registration, and its complete filename/SHA-256 multiset must equal
+/// the declared materialized-input checksums. A real substitution from
+/// an accession, URL, or different registered input therefore remains
+/// promotable even when its filenames happen to match.
+fn registered_source_identity_reason(
+    package_root: &Path,
+    deviation: &ecaa_workflow_core::decision_log::SourceDeviation,
+) -> Option<String> {
+    if !deviation.requested_available || deviation.checksums.is_empty() {
+        return None;
+    }
+    let raw = std::fs::read(package_root.join("runtime").join("inputs.json")).ok()?;
+    let inputs: Vec<RegisteredSourceInput> = serde_json::from_slice(&raw).ok()?;
+    let declared = source_fingerprints(
+        deviation
+            .checksums
+            .iter()
+            .map(|(path, hash)| (path.as_str(), hash.as_str())),
+    );
+    if declared.is_empty() {
+        return None;
+    }
+    inputs.into_iter().find_map(|input| {
+        let registered = source_fingerprints(
+            input
+                .files
+                .iter()
+                .map(|file| (file.relpath.as_str(), file.sha256.as_str())),
+        );
+        (registered == declared
+            && requested_text_identifies_runtime_registration(&deviation.requested, &input)
+            && source_text_identifies_registration(&deviation.used, &input))
+        .then(|| {
+            format!(
+                "requested and used both identify registered input {:?} ({:?}), \
+                 with the same complete filename/SHA-256 set",
+                input.input_id, input.label
+            )
+        })
+    })
+}
+
 /// Walk up from a task's artifact dir to the package root by locating
 /// the `runtime/outputs` boundary. Pure path arithmetic — no filesystem
 /// reads — so it behaves identically under a tempdir fixture and a real
@@ -1078,8 +1207,18 @@ pub fn source_deviation_recorded(artifact_path: &Path) -> ValidatorOutcome {
         };
     }
 
-    // (a)/(b) — the typed decision record must exist and agree.
     let package_root = package_root_from_artifact_path(artifact_path);
+    if let Some(reason) = registered_source_identity_reason(&package_root, &declared) {
+        return ValidatorOutcome::Failed {
+            message: format!(
+                "task {task_id} declares result.json::source_deviation even though {reason}. \
+                 Reading the registered input unchanged is not a source substitution; remove \
+                 the source_deviation block and retain ordinary source provenance instead"
+            ),
+        };
+    }
+
+    // (a)/(b) — the typed decision record must exist and agree.
     match recorded_source_deviation(&package_root, &task_id) {
         None => {
             return ValidatorOutcome::Failed {
@@ -1171,6 +1310,15 @@ pub fn promote_source_deviation(
 
     let artifact_path = package_root.join("runtime").join("outputs").join(task_id);
     let deviation = read_source_deviation(&artifact_path)?;
+
+    // Do not turn an agent's restatement of the exact requested
+    // registration into a false typed deviation. Return the declaration
+    // so the required obligation is still unioned into the validator
+    // bundle; `source_deviation_recorded` then blocks the task with a
+    // repair instruction to remove the invalid block.
+    if registered_source_identity_reason(package_root, &deviation).is_some() {
+        return Some(deviation);
+    }
 
     if recorded_source_deviation(package_root, task_id).is_some() {
         return Some(deviation);

@@ -33,7 +33,9 @@ description: |
   per_accession_summary.json describes — the harness cross-checks the two and
   blocks the task if they contradict. Do NOT write runtime/decisions.jsonl: the
   harness reads this block and appends the typed decision record itself. If you
-  read exactly the requested source, OMIT the key entirely.
+  read exactly the requested source, OMIT the key entirely. A file or directory
+  in runtime/inputs.json is a requested source: reading those registered bytes
+  unchanged is not a fallback and MUST NOT produce `source_deviation`.
 edam_operation: "operation:2422"
 edam_data: "data:2531"
 edam_format: "format:3915"
