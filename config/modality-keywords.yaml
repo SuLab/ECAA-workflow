@@ -51,7 +51,11 @@ method_keywords:
     method: limma-voom
     match: word
   - keyword: cellranger
-    stage: preprocessing
+    stage: quantification
+    method: Cell Ranger
+    match: word
+  - keyword: "cell ranger"
+    stage: quantification
     method: Cell Ranger
     match: word
   - keyword: seurat
@@ -87,19 +91,19 @@ method_keywords:
     method: MACS3
     match: word
   - keyword: maxquant
-    stage: protein_identification
+    stage: peptide_search
     method: MaxQuant
     match: word
   - keyword: fragpipe
-    stage: protein_identification
+    stage: peptide_search
     method: FragPipe
     match: word
   - keyword: metaphlan
-    stage: taxonomic_profiling
+    stage: taxonomic_classification
     method: MetaPhlAn
     match: word
   - keyword: kraken2
-    stage: taxonomic_profiling
+    stage: taxonomic_classification
     method: Kraken2
     match: word
 

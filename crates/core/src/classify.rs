@@ -277,6 +277,27 @@ fn organism_keyword_matches(keyword: &str, lower_text: &str, words: &[String]) -
     }
 }
 
+/// Match a method keyword as one or more complete normalized tokens.
+///
+/// Unlike the historical single-token comparison, this handles hyphenated
+/// executable names and configured multi-word vendor names without allowing a
+/// short method such as `star` to match inside an ordinary word.
+fn method_keyword_matches(keyword: &str, normalized_text: &str) -> bool {
+    let haystack = normalized_text
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>();
+    let needle = normalize_for_match(keyword)
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    !needle.is_empty()
+        && haystack
+            .windows(needle.len())
+            .any(|window| window.iter().copied().eq(needle.iter().map(String::as_str)))
+}
+
 // ── Classifier ────────────────────────────────────────────────────────────────
 
 /// Classifier data.
@@ -692,8 +713,8 @@ impl Classifier {
             .method_keywords
             .iter()
             .filter(|mk| match mk.r#match.as_str() {
-                "word" => words.iter().any(|w| w.eq_ignore_ascii_case(&mk.keyword)),
-                _ => lower.contains(&mk.keyword.to_lowercase()),
+                "word" => method_keyword_matches(&mk.keyword, &normalized_text),
+                _ => normalized_text.contains(&normalize_for_match(&mk.keyword)),
             })
             .map(|mk| MethodSpec {
                 stage: mk.stage.clone(),
@@ -2971,6 +2992,40 @@ mod tests {
         let r = clf.classify("We ran Cell Ranger on the 10x single cell data");
         assert_eq!(r.modality, "single_cell_rnaseq");
         assert!(r.confidence > 0.0, "two-word 'Cell Ranger' should match");
+        assert!(
+            r.methods_specified
+                .iter()
+                .any(|method| method.method == "Cell Ranger" && method.stage == "quantification"),
+            "the spaced vendor name must also be retained as a method choice"
+        );
+    }
+
+    #[test]
+    fn hyphenated_method_name_preserves_word_boundary_match() {
+        let clf = load_classifier();
+        let r = clf.classify("Align the germline reads with BWA-MEM before variant calling");
+        assert!(
+            r.methods_specified
+                .iter()
+                .any(|method| method.method == "BWA-MEM" && method.stage == "alignment"),
+            "a configured base executable must match its hyphenated command name"
+        );
+    }
+
+    #[test]
+    fn configured_method_stages_are_canonical_atoms() {
+        let clf = load_classifier();
+        let atom_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("config/stage-atoms");
+        for method in &clf.config.method_keywords {
+            assert!(
+                atom_dir.join(format!("{}.yaml", method.stage)).is_file(),
+                "method keyword `{}` references non-canonical stage `{}`",
+                method.keyword,
+                method.stage
+            );
+        }
     }
 
     #[test]

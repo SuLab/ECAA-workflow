@@ -25,7 +25,7 @@ impl PreferredMethodSource {
     /// Fixed-literal rationale string stamped into `spec_preferred_methods`.
     pub fn rationale(self) -> &'static str {
         match self {
-            PreferredMethodSource::Sme => "SME-requested via set_intake_method",
+            PreferredMethodSource::Sme => "SME-requested method",
             PreferredMethodSource::Classifier => {
                 "named in intake prose (classifier method keyword)"
             }
@@ -156,6 +156,7 @@ fn alias_lookup(s: &str) -> Option<&'static str> {
         "mutect2" | "gatk mutect2" | "mutect 2" => Some("mutect2"),
         "strelka2" | "strelka" | "strelka 2" => Some("strelka2"),
         "lofreq" | "lo freq" | "lo_freq" => Some("lofreq"),
+        "cell ranger" | "cellranger" | "cell_ranger" => Some("cellranger"),
         _ => None,
     }
 }
@@ -173,6 +174,7 @@ mod tests {
             "haplotypecaller"
         );
         assert_eq!(normalize_method_id("DeepVariant"), "deepvariant");
+        assert_eq!(normalize_method_id("Cell Ranger"), "cellranger");
         // Unknown out-of-catalog tool: verbatim passthrough.
         assert_eq!(normalize_method_id("Octopus"), "octopus");
         assert_eq!(normalize_method_id("clair3 --model r941"), "clair3");

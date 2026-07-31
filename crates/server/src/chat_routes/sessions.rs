@@ -1074,6 +1074,203 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn create_session_from_intent_promotes_named_methods_before_confirmation() {
+        let (router, app) = make_router(vec![]).await;
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/chat/session/from-intent")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "goal": "Identify treatment-associated genes from STAR-aligned counts using DESeq2 with a paired design.",
+                    "modality": "bulk_rnaseq",
+                    "input_data_stage": "gene count matrix and sample metadata",
+                    "desired_outputs": "Differential-expression table and volcano plot",
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let response = router.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body_json(response.into_body()).await;
+        let session_id = uuid::Uuid::parse_str(body["session_id"].as_str().unwrap()).unwrap();
+        let session = app.conversation.get_session(session_id).await.unwrap();
+
+        assert_eq!(
+            session
+                .intake_methods
+                .0
+                .get("differential_expression")
+                .map(|resolution| resolution.method.as_str()),
+            Some("DESeq2")
+        );
+        assert!(
+            !session.intake_methods.0.contains_key("alignment"),
+            "a method that describes a pruned producer must not reinsert or pin that stage"
+        );
+        assert_eq!(
+            session
+                .sme_method_signals
+                .named
+                .get("differential_expression"),
+            Some(&true)
+        );
+        let discover = session
+            .workflow_dag
+            .as_ref()
+            .and_then(|dag| {
+                dag.nodes
+                    .iter()
+                    .find(|node| node.id == "discover_differential_expression")
+            })
+            .expect("named method keeps its active discovery gate");
+        assert_eq!(
+            discover
+                .attributes
+                .get("spec_preferred_methods")
+                .and_then(|value| value.get("deseq2"))
+                .and_then(serde_json::Value::as_str),
+            Some("SME-requested method")
+        );
+    }
+
+    #[tokio::test]
+    async fn create_session_from_intent_promotes_methods_across_registered_modalities() {
+        let (router, app) = make_router(vec![]).await;
+        let cases = [
+            (
+                "Call and annotate germline variants with GATK.",
+                "variant_calling",
+                "variant_calling",
+                "GATK HaplotypeCaller",
+            ),
+            (
+                "Run a DDA proteomics analysis with MaxQuant.",
+                "proteomics",
+                "peptide_search",
+                "MaxQuant",
+            ),
+            (
+                "Profile the microbial community with Kraken2 and compare diversity.",
+                "metagenomics",
+                "taxonomic_classification",
+                "Kraken2",
+            ),
+            (
+                "Process 10x single-cell reads with Cell Ranger and cluster with Seurat.",
+                "single_cell_rnaseq",
+                "quantification",
+                "Cell Ranger",
+            ),
+            (
+                "Call chromatin binding peaks with MACS3.",
+                "chip_seq",
+                "peak_calling",
+                "MACS3",
+            ),
+        ];
+
+        for (goal, modality, stage, expected_method) in cases {
+            let req = Request::builder()
+                .method("POST")
+                .uri("/api/chat/session/from-intent")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "goal": goal,
+                        "modality": modality,
+                    })
+                    .to_string(),
+                ))
+                .unwrap();
+            let response = router.clone().oneshot(req).await.unwrap();
+            assert_eq!(
+                response.status(),
+                StatusCode::OK,
+                "structured intake failed for modality {modality}"
+            );
+            let body = body_json(response.into_body()).await;
+            let session_id = uuid::Uuid::parse_str(body["session_id"].as_str().unwrap()).unwrap();
+            let session = app.conversation.get_session(session_id).await.unwrap();
+            assert_eq!(
+                session
+                    .intake_methods
+                    .0
+                    .get(stage)
+                    .map(|resolution| resolution.method.as_str()),
+                Some(expected_method),
+                "named method did not reach the active axis for modality {modality}"
+            );
+            assert_eq!(
+                session.sme_method_signals.named.get(stage),
+                Some(&true),
+                "SME method signal was not retained for modality {modality}"
+            );
+            let method_id =
+                ecaa_workflow_core::preferred_methods::normalize_method_id(expected_method);
+            let discover = session
+                .workflow_dag
+                .as_ref()
+                .and_then(|dag| {
+                    dag.nodes.iter().find(|node| {
+                        node.attributes
+                            .get("method_axis")
+                            .and_then(serde_json::Value::as_str)
+                            == Some(stage)
+                    })
+                })
+                .expect("promoted method must retain an active discovery node");
+            assert_eq!(
+                discover
+                    .attributes
+                    .get("spec_preferred_methods")
+                    .and_then(|value| value.get(&method_id))
+                    .and_then(serde_json::Value::as_str),
+                Some("SME-requested method"),
+                "preferred method did not reach the compiled task for modality {modality}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn create_session_from_intent_rejects_ambiguous_methods_for_one_stage() {
+        let (router, app) = make_router(vec![]).await;
+        let sessions_before = app.conversation.iter_session_metadata().await.len();
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/chat/session/from-intent")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "goal": "Analyze the count matrix using DESeq2 and edgeR.",
+                    "modality": "bulk_rnaseq",
+                    "input_data_stage": "gene count matrix and sample metadata",
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let response = router.oneshot(req).await.unwrap();
+        let status = response.status();
+        let message = String::from_utf8(
+            axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(
+            message.contains("names multiple methods for `differential_expression`"),
+            "ambiguity response must identify the affected stage: {message}"
+        );
+        assert_eq!(
+            app.conversation.iter_session_metadata().await.len(),
+            sessions_before,
+            "an ambiguous structured intake must not persist a partial session"
+        );
+    }
+
+    #[tokio::test]
     async fn create_session_from_intent_transfers_inputs_and_prunes_from_explicit_stage() {
         use ecaa_workflow_conversation::session::state::{UserInput, UserInputFile, UserInputKind};
 

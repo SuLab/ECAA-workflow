@@ -16,6 +16,7 @@
 mod greeting;
 mod retry;
 pub(crate) mod send_turn;
+mod structured_intake;
 mod tool_loop;
 mod transitions;
 
@@ -323,6 +324,8 @@ impl ConversationService {
                     ));
                 }
             }
+
+            structured_intake::apply_classifier_named_methods(&mut session, &config_dir)?;
 
             let summary = structured_plan_summary(&session, &prose);
             let confirmation =
