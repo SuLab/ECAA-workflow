@@ -232,6 +232,184 @@ pub fn discovery_evidence_is_applicable(artifact_path: &Path) -> bool {
         })
 }
 
+/// Fill deterministic evidence fields that an agent omitted from a discovery
+/// decision.
+///
+/// The method-landscape CSV is the retained authority for these three fields;
+/// agents do not calculate them independently. Missing values are therefore a
+/// serialization-completeness defect, not a scientific judgment that needs a
+/// new model turn. Existing values are never overwritten so a contradictory
+/// agent-authored claim still fails [`DiscoveryEvidenceConsistencyRunner`].
+///
+/// Tier labels are copied from the decision's own root `tiers` map into each
+/// candidate row when omitted. This preserves the agent's ranking judgment
+/// while making the per-candidate contract auditable.
+pub fn canonicalize_missing_discovery_evidence_fields(
+    artifact_path: &Path,
+) -> Result<usize, String> {
+    let task_id = artifact_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| "discovery artifact path has no UTF-8 task id".to_string())?;
+    let fallback_axis = task_id
+        .strip_prefix("discover_")
+        .ok_or_else(|| format!("{task_id} is not a discover_* task"))?;
+    let axis = std::fs::read(artifact_path.join("task-spec.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .and_then(|spec| {
+            spec.pointer("/spec/stage_class")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        })
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| fallback_axis.to_string());
+    let package_root = artifact_path
+        .ancestors()
+        .find(|path| path.join("runtime").join("outputs").is_dir())
+        .ok_or_else(|| {
+            format!(
+                "cannot locate package root from discovery artifact {}",
+                artifact_path.display()
+            )
+        })?;
+    let landscape_path =
+        package_root.join("runtime/outputs/survey_method_landscape/method_landscape.csv");
+    let landscape = std::fs::read_to_string(&landscape_path)
+        .map_err(|error| format!("cannot read {}: {error}", landscape_path.display()))?;
+    let by_axis =
+        ecaa_workflow_core::method_landscape::load_candidate_metadata_from_str(&landscape)
+            .map_err(|error| format!("method landscape parse failed: {error}"))?;
+    let expected = by_axis.get(&axis);
+
+    let decision_path = artifact_path.join("decision.json");
+    let mut decision: serde_json::Value = std::fs::read(&decision_path)
+        .map_err(|error| format!("cannot read {}: {error}", decision_path.display()))
+        .and_then(|bytes| {
+            serde_json::from_slice(&bytes)
+                .map_err(|error| format!("cannot parse {}: {error}", decision_path.display()))
+        })?;
+    let tier_by_method: std::collections::BTreeMap<String, String> = decision
+        .get("tiers")
+        .and_then(serde_json::Value::as_object)
+        .into_iter()
+        .flat_map(|tiers| tiers.iter())
+        .flat_map(|(tier, methods)| {
+            let values: Vec<&str> = match methods {
+                serde_json::Value::String(method) => vec![method.as_str()],
+                serde_json::Value::Array(methods) => methods
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .collect(),
+                _ => Vec::new(),
+            };
+            values
+                .into_iter()
+                .map(|method| (method.to_string(), tier.clone()))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    let candidates = decision
+        .get_mut("candidate_pool_full")
+        .and_then(serde_json::Value::as_array_mut)
+        .ok_or_else(|| "decision.json lacks candidate_pool_full".to_string())?;
+
+    let mut additions = Vec::new();
+    let mut added_count = 0usize;
+    for candidate in candidates {
+        let Some(row) = candidate.as_object_mut() else {
+            continue;
+        };
+        let method = row
+            .get("method_id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        if method.is_empty() {
+            continue;
+        }
+        let metadata = expected.and_then(|methods| {
+            methods
+                .iter()
+                .find(|(candidate_method, _)| candidate_method == &method)
+                .map(|(_, metadata)| metadata)
+        });
+        let exact_fields = [
+            (
+                "literature_eligible",
+                serde_json::json!(metadata.is_some_and(|value| value.literature_eligible)),
+            ),
+            (
+                "supporting_evidence_count",
+                serde_json::json!(metadata
+                    .map(|value| value.supporting_evidence_count)
+                    .unwrap_or(0)),
+            ),
+            (
+                "high_quality_evidence_count",
+                serde_json::json!(metadata
+                    .map(|value| value.high_quality_evidence_count)
+                    .unwrap_or(0)),
+            ),
+        ];
+        let mut fields_added = Vec::new();
+        for (field, value) in exact_fields {
+            if !row.contains_key(field) {
+                row.insert(field.to_string(), value);
+                fields_added.push(field.to_string());
+                added_count += 1;
+            }
+        }
+        if !row.contains_key("recommended_tier") {
+            if let Some(tier) = tier_by_method.get(&method) {
+                row.insert(
+                    "recommended_tier".to_string(),
+                    serde_json::Value::String(tier.clone()),
+                );
+                fields_added.push("recommended_tier".to_string());
+                added_count += 1;
+            }
+        }
+        if !fields_added.is_empty() {
+            additions.push(serde_json::json!({
+                "method_id": method,
+                "fields_added": fields_added,
+            }));
+        }
+    }
+    if added_count == 0 {
+        return Ok(0);
+    }
+
+    decision
+        .as_object_mut()
+        .ok_or_else(|| {
+            "decision.json root must be an object for evidence canonicalization".to_string()
+        })?
+        .insert(
+            "harness_evidence_canonicalization".to_string(),
+            serde_json::json!({
+                "axis": axis,
+                "source": "runtime/outputs/survey_method_landscape/method_landscape.csv",
+                "policy": "fill_missing_exact_axis_fields_without_overwriting_authored_values",
+                "candidate_fields_added": additions,
+            }),
+        );
+    let mut bytes = serde_json::to_vec_pretty(&decision)
+        .map_err(|error| format!("cannot serialize canonical decision: {error}"))?;
+    bytes.push(b'\n');
+    let temporary_path = artifact_path.join(".decision.json.canonical.tmp");
+    std::fs::write(&temporary_path, bytes)
+        .map_err(|error| format!("cannot write {}: {error}", temporary_path.display()))?;
+    std::fs::rename(&temporary_path, &decision_path).map_err(|error| {
+        format!(
+            "cannot replace {} with canonical decision: {error}",
+            decision_path.display()
+        )
+    })?;
+    Ok(added_count)
+}
+
 impl ValidatorRunner for DiscoveryEvidenceConsistencyRunner {
     fn obligation_id(&self) -> &'static str {
         DISCOVERY_EVIDENCE_OBLIGATION
@@ -352,23 +530,75 @@ impl ValidatorRunner for DiscoveryEvidenceConsistencyRunner {
             let expected_high_quality = expected_meta
                 .map(|m| m.high_quality_evidence_count)
                 .unwrap_or(0);
-            let actual_eligible = candidate
+            let Some(actual_eligible) = candidate
                 .get("literature_eligible")
                 .and_then(serde_json::Value::as_bool)
-                .unwrap_or(false);
-            let passes = candidate
+            else {
+                return ValidatorOutcome::Failed {
+                    message: format!(
+                        "{axis}/{method}: candidate row lacks boolean literature_eligible"
+                    ),
+                };
+            };
+            let Some(actual_support) = candidate
+                .get("supporting_evidence_count")
+                .and_then(serde_json::Value::as_u64)
+            else {
+                return ValidatorOutcome::Failed {
+                    message: format!(
+                        "{axis}/{method}: candidate row lacks integer supporting_evidence_count"
+                    ),
+                };
+            };
+            let Some(actual_high_quality) = candidate
+                .get("high_quality_evidence_count")
+                .and_then(serde_json::Value::as_u64)
+            else {
+                return ValidatorOutcome::Failed {
+                    message: format!(
+                        "{axis}/{method}: candidate row lacks integer high_quality_evidence_count"
+                    ),
+                };
+            };
+            let Some(passes) = candidate
                 .get("passes_default_eligibility_criteria")
                 .and_then(serde_json::Value::as_bool)
-                .unwrap_or(false);
-            let tier = candidate
+            else {
+                return ValidatorOutcome::Failed {
+                    message: format!(
+                        "{axis}/{method}: candidate row lacks boolean passes_default_eligibility_criteria"
+                    ),
+                };
+            };
+            let Some(tier) = candidate
                 .get("recommended_tier")
                 .and_then(serde_json::Value::as_str)
-                .unwrap_or("");
+            else {
+                return ValidatorOutcome::Failed {
+                    message: format!(
+                        "{axis}/{method}: candidate row lacks string recommended_tier"
+                    ),
+                };
+            };
 
             if actual_eligible != expected_eligible {
                 return ValidatorOutcome::Failed {
                     message: format!(
                         "{axis}/{method}: literature_eligible={actual_eligible} but exact-axis evidence requires {expected_eligible}"
+                    ),
+                };
+            }
+            if actual_support != expected_support as u64 {
+                return ValidatorOutcome::Failed {
+                    message: format!(
+                        "{axis}/{method}: supporting_evidence_count={actual_support} but exact-axis evidence requires {expected_support}"
+                    ),
+                };
+            }
+            if actual_high_quality != expected_high_quality as u64 {
+                return ValidatorOutcome::Failed {
+                    message: format!(
+                        "{axis}/{method}: high_quality_evidence_count={actual_high_quality} but exact-axis evidence requires {expected_high_quality}"
                     ),
                 };
             }
@@ -1597,6 +1827,8 @@ mod tests {
             serde_json::json!({
                 "method_id": "deseq2_vst",
                 "literature_eligible": true,
+                "supporting_evidence_count": 1,
+                "high_quality_evidence_count": 1,
                 "passes_default_eligibility_criteria": true,
                 "recommended_tier": "defaultRecommended"
             }),
@@ -1613,6 +1845,8 @@ mod tests {
             serde_json::json!({
                 "method_id": "deseq2_vst",
                 "literature_eligible": false,
+                "supporting_evidence_count": 0,
+                "high_quality_evidence_count": 0,
                 "passes_default_eligibility_criteria": false,
                 "recommended_tier": "alternative"
             }),
@@ -1631,6 +1865,8 @@ mod tests {
             serde_json::json!({
                 "method_id": "deseq2_vst",
                 "literature_eligible": false,
+                "supporting_evidence_count": 0,
+                "high_quality_evidence_count": 0,
                 "passes_default_eligibility_criteria": true,
                 "recommended_tier": "alternative"
             }),
@@ -1647,6 +1883,8 @@ mod tests {
             serde_json::json!({
                 "method_id": "deseq2_vst",
                 "literature_eligible": true,
+                "supporting_evidence_count": 1,
+                "high_quality_evidence_count": 1,
                 "passes_default_eligibility_criteria": true,
                 "recommended_tier": "defaultRecommended"
             }),
@@ -1686,19 +1924,116 @@ mod tests {
             serde_json::json!({
                 "candidate_pool_full": [{
                     "method_id": "deseq2",
-                    "literature_eligible": true,
-                    "passes_default_eligibility_criteria": true,
-                    "recommended_tier": "defaultRecommended"
-                }]
+                    "passes_default_eligibility_criteria": true
+                }],
+                "tiers": {
+                    "defaultRecommended": "deseq2"
+                }
             })
             .to_string(),
         )
         .unwrap();
         assert_eq!(
+            canonicalize_missing_discovery_evidence_fields(&discover).unwrap(),
+            4
+        );
+        assert_eq!(
             DiscoveryEvidenceConsistencyRunner.run(&discover),
             ValidatorOutcome::Passed
         );
         assert!(discovery_evidence_is_applicable(&discover));
+    }
+
+    #[test]
+    fn discovery_evidence_canonicalization_fills_missing_fields_for_any_axis() {
+        let (pkg, discover) = discovery_fixture(
+            "normalisation,center_scale,primary_literature,true\n",
+            serde_json::json!({
+                "method_id": "center_scale",
+                "passes_default_eligibility_criteria": true
+            }),
+        );
+        fs::write(
+            discover.join("decision.json"),
+            serde_json::json!({
+                "chosen": "center_scale",
+                "candidate_pool_full": [{
+                    "method_id": "center_scale",
+                    "passes_default_eligibility_criteria": true
+                }],
+                "tiers": {
+                    "defaultRecommended": "center_scale",
+                    "alternative": []
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            canonicalize_missing_discovery_evidence_fields(&discover).unwrap(),
+            4
+        );
+        let decision: serde_json::Value =
+            serde_json::from_slice(&fs::read(discover.join("decision.json")).unwrap()).unwrap();
+        let candidate = &decision["candidate_pool_full"][0];
+        assert_eq!(candidate["literature_eligible"], true);
+        assert_eq!(candidate["supporting_evidence_count"], 1);
+        assert_eq!(candidate["high_quality_evidence_count"], 1);
+        assert_eq!(candidate["recommended_tier"], "defaultRecommended");
+        assert_eq!(
+            decision["harness_evidence_canonicalization"]["axis"],
+            "normalisation"
+        );
+        assert_eq!(
+            DiscoveryEvidenceConsistencyRunner.run(&discover),
+            ValidatorOutcome::Passed
+        );
+        drop(pkg);
+    }
+
+    #[test]
+    fn discovery_evidence_canonicalization_never_overwrites_conflicts() {
+        let (pkg, discover) = discovery_fixture(
+            "normalisation,center_scale,primary_literature,true\n",
+            serde_json::json!({
+                "method_id": "center_scale",
+                "literature_eligible": false,
+                "passes_default_eligibility_criteria": true
+            }),
+        );
+        fs::write(
+            discover.join("decision.json"),
+            serde_json::json!({
+                "chosen": "center_scale",
+                "candidate_pool_full": [{
+                    "method_id": "center_scale",
+                    "literature_eligible": false,
+                    "passes_default_eligibility_criteria": true
+                }],
+                "tiers": {
+                    "defaultRecommended": "center_scale"
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            canonicalize_missing_discovery_evidence_fields(&discover).unwrap(),
+            3
+        );
+        let decision: serde_json::Value =
+            serde_json::from_slice(&fs::read(discover.join("decision.json")).unwrap()).unwrap();
+        assert_eq!(
+            decision["candidate_pool_full"][0]["literature_eligible"],
+            false
+        );
+        assert!(matches!(
+            DiscoveryEvidenceConsistencyRunner.run(&discover),
+            ValidatorOutcome::Failed { .. }
+        ));
+        drop(pkg);
     }
 
     #[test]

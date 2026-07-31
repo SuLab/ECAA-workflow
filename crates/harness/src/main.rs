@@ -4267,6 +4267,25 @@ fn run_loop(
                         &task_artifact_path,
                     )
                 {
+                    match ecaa_workflow_harness::validators::canonicalize_missing_discovery_evidence_fields(
+                        &task_artifact_path,
+                    ) {
+                        Ok(added) if added > 0 => {
+                            tracing::info!(
+                                task_id = %tid,
+                                fields_added = added,
+                                "filled missing exact-axis discovery evidence fields"
+                            );
+                        }
+                        Ok(_) => {}
+                        Err(error) => {
+                            tracing::warn!(
+                                task_id = %tid,
+                                error = %error,
+                                "could not canonicalize missing discovery evidence fields; validator will fail closed"
+                            );
+                        }
+                    }
                     let id = ecaa_workflow_harness::validators::DISCOVERY_EVIDENCE_OBLIGATION
                         .to_string();
                     if seen_obligations.insert(id.clone()) {

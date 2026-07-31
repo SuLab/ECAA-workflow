@@ -663,6 +663,13 @@ blocking — naming the method IS the SME's selection (equivalent to an entry in
 when `spec_preferred_methods` is empty or two-or-more spec-preferred methods are
 env-available.
 
+Every `candidate_pool_full` row must retain `literature_eligible`,
+`supporting_evidence_count`, and `high_quality_evidence_count` from rows whose
+axis and candidate method both match exactly. Retain false values and zero
+counts rather than omitting them. Every candidate row must also retain
+`recommended_tier` using the same assignment recorded in the decision's root
+`tiers` map.
+
 When the discover node carries `attributes.goal_context` (or the
 `## Analysis objective` in `PROMPT.md` names a specific detection goal such as
 low-frequency / heteroplasmic variants), treat it as a GOAL signal on the
