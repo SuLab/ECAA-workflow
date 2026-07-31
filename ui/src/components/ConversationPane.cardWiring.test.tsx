@@ -18,7 +18,7 @@
  */
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ConversationPane from './ConversationPane'
 import { SessionProvider, EventsProvider } from '../hooks/contexts'
@@ -34,6 +34,11 @@ vi.mock('../api/chatClient', async (importOriginal) => {
   return {
     ...actual,
     getLlmAvailability: vi.fn().mockResolvedValue({ kind: 'available' }),
+    getChatConfig: vi.fn().mockResolvedValue({
+      auto_title_enabled: false,
+      auto_title_min_turns: 2,
+      modalities: [],
+    }),
     listDispositions: vi.fn().mockResolvedValue({ dispositions: [] }),
     getProposals: vi.fn().mockResolvedValue([]),
     getTaskResult: vi.fn().mockResolvedValue(null),
@@ -172,6 +177,9 @@ function renderPane(
 describe('ConversationPane card wiring → deterministic REST', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(chatClient.getLlmAvailability).mockResolvedValue({
+      kind: 'available',
+    })
   })
 
   it('onSelectSensitivityWinner posts to /sme-selection, not sendTurn', async () => {
@@ -196,5 +204,87 @@ describe('ConversationPane card wiring → deterministic REST', () => {
       )
     })
     expect(sendTurn).not.toHaveBeenCalled()
+  })
+
+  it('keeps confirmation actionable when the chat backend is disabled', async () => {
+    vi.mocked(chatClient.getLlmAvailability).mockResolvedValue({
+      kind: 'disabled',
+      reason: 'Chat execution is disabled for this deployment',
+      set_by: 'operator',
+    })
+    const confirm = vi.fn().mockResolvedValue(undefined)
+    const state: SessionStateSnapshot = {
+      session_id: SESSION_ID,
+      state: { kind: 'pending_confirmation' },
+      user_confirmed: false,
+      project_class: 'bioinformatics',
+      last_activity: '2026-07-29T00:00:00Z',
+      task_count: 4,
+      progress: { completed: 0, ready: 1, blocked: 0, pending: 3 },
+      title: null,
+      parent_session_id: null,
+      blocked_tasks: [],
+      pending_input_hints: [],
+    }
+    const conv = makeConv({
+      confirm,
+      state,
+      turns: [
+        {
+          turn_id: 'confirmation-turn',
+          role: 'assistant',
+          content: 'Review the compiled workflow.',
+          intent: 'summary_confirm',
+          tool_calls: [],
+          quick_replies: [],
+          confirmation_card: {
+            summary_markdown: 'Review the compiled workflow.',
+            summary_hash: 'a'.repeat(64),
+          },
+          timestamp: '2026-07-29T00:00:00Z',
+        },
+      ],
+    })
+    const user = userEvent.setup()
+    renderPane(conv, makeSse())
+
+    expect(
+      await screen.findByText(/continues through the deterministic controls/i),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('form', { name: /structured intake/i }),
+    ).not.toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: 'Accept' }))
+    expect(confirm).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows deterministic execution control after offline emission', async () => {
+    vi.mocked(chatClient.getLlmAvailability).mockResolvedValue({
+      kind: 'disabled',
+      reason: 'Chat execution is disabled for this deployment',
+      set_by: 'operator',
+    })
+    const startExecutionAction = vi.fn().mockResolvedValue(undefined)
+    const state: SessionStateSnapshot = {
+      session_id: SESSION_ID,
+      state: { kind: 'emitted' },
+      user_confirmed: true,
+      project_class: 'time_series_forecast',
+      last_activity: '2026-07-29T00:00:00Z',
+      task_count: 4,
+      progress: { completed: 0, ready: 1, blocked: 0, pending: 3 },
+      emitted_package_path: '/tmp/pkg',
+      title: null,
+      parent_session_id: null,
+      blocked_tasks: [],
+      pending_input_hints: [],
+    }
+    const conv = makeConv({ state, startExecutionAction })
+    const user = userEvent.setup()
+    renderPane(conv, makeSse())
+
+    expect(await screen.findByText(/confirmed package has been emitted/i)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Start execution' }))
+    expect(startExecutionAction).toHaveBeenCalledTimes(1)
   })
 })

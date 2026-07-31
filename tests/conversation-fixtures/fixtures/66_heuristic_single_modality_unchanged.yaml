@@ -21,24 +21,19 @@ flow:
     text: |
       bulk RNA-seq differential expression from human PBMCs. We also
       have proteomics from a different study we want to compare later.
-  - kind: confirm
-  - kind: user
-    text: "(confirmed — please continue)"
 
 # mock_responses omitted — heuristic backend ignores it.
 
 expected_final_state:
   # Two-modality semicolon prose lands in mid-band (~0.5 confidence)
   # and routes through classify → evidence → clarifying-ask terminator;
-  # the SME's `confirm` click then transitions IntakeFollowup → ReadyToEmit.
   # The fixture's load-bearing claim is the NEGATIVE — `propose_quick_replies`
   # MUST NOT appear before `classify_intake`. Asserting that via
   # `tool_calls_excluded` + the ordered `tool_calls_observed` head is more
-  # stable than coupling to terminal-state arithmetic that the missing
-  # `ConfirmationToken` on the `Intake → ReadyToEmit` shortcut prevents
-  # from ever reaching `Emitted`.
-  state_kind: ready_to_emit
-  user_confirmed: true
+  # stable than bypassing the confirmation-card contract from an unresolved
+  # follow-up state.
+  state_kind: intake_followup
+  user_confirmed: false
   tool_calls_observed:
     - classify_intake
     - get_classification_evidence
@@ -52,6 +47,5 @@ rubric_notes: |
   cross-omics gate has false-positively fired (it should ONLY fire on
   the "joint analysis of X and Y" conjunction template; see fixture 65
   for the positive case). The `tool_calls_excluded` primitive captures
-  this directly. Terminal-state assertion (`ready_to_emit`) reflects
-  the mid-band terminator path + confirm-from-IntakeFollowup transition;
-  it is not the regression this fixture guards against.
+  this directly. The fixture remains in `intake_followup` because no
+  confirmation card was raised.

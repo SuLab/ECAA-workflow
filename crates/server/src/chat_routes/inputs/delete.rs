@@ -37,7 +37,20 @@ pub(crate) async fn delete_input(
         })
         .await;
     match result {
-        Ok(s) => Json(s.inputs.clone()).into_response(),
+        Ok(s) => {
+            if let Err(error) = app
+                .conversation
+                .rebuild_dag_after_input_change(session_id)
+                .await
+            {
+                return crate::error::ApiError::Internal(anyhow::anyhow!(
+                    "input removal persisted, but recomposing the pre-emission workflow failed \
+                     for session {session_id}: {error}"
+                ))
+                .into_response();
+            }
+            Json(s.inputs.clone()).into_response()
+        }
         Err(e) => {
             let msg = e.to_string();
             // The only remaining failure mode is "session not found"

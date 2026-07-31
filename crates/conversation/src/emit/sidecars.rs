@@ -329,7 +329,7 @@ fn acks_for_task_ids(
             acks.push(ecaa_workflow_core::determinism_shim::NonDetAck {
                 artifact: format!("runtime/outputs/{}/{}", id, decl.artifact),
                 columns: decl.columns.clone(),
-                kind: decl.kind.clone(),
+                kind: decl.kind,
                 reason: decl.reason.clone(),
             });
         }

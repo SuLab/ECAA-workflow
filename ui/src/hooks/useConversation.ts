@@ -342,6 +342,7 @@ export function useConversation(): UseConversation {
         if (currentSessionRef.current !== id) return
         setState(s)
         markFresh('state')
+        return s
       } catch (e) {
         if (isAbortError(e)) return
         markStale('state')
@@ -501,7 +502,21 @@ export function useConversation(): UseConversation {
       const token = ++turnTokenRef.current
       try {
         await confirmChatSession(sessionId, opts)
-        await refreshState(sessionId)
+        // Read the post-confirm snapshot directly. The confirm endpoint
+        // performs deterministic auto-emission synchronously, so this
+        // response is the authority for deciding whether a legacy
+        // conversational continuation is still needed.
+        const confirmedState = await getChatState(sessionId)
+        if (currentSessionRef.current === sessionId) {
+          setState(confirmedState)
+          markFresh('state')
+        }
+        // The deterministic structured-intake path emits directly from
+        // the confirm endpoint because no conversational model is
+        // available to process a synthetic continuation turn. Preserve
+        // the established conversational follow-up only when the
+        // authoritative server state still needs it.
+        if (confirmedState?.state.kind === 'emitted') return
         // Drive a follow-up turn so the assistant can react to the confirm.
         // Mint a client-side user_turn_id so the server-side persisted
         // user Turn (the `(confirmed — please continue)` synthetic) is
@@ -553,7 +568,13 @@ export function useConversation(): UseConversation {
         setSending(false)
       }
     },
-    [sessionId, refreshState, startStillThinkingTimer, clearStillThinkingTimer],
+    [
+      sessionId,
+      refreshState,
+      markFresh,
+      startStillThinkingTimer,
+      clearStillThinkingTimer,
+    ],
   )
 
   const reject = useCallback(async () => {

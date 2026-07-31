@@ -255,7 +255,7 @@ async fn write_stage_confirm_sidecar(
     if let Some(s) = app.conversation.get_session(session_id).await {
         // Imported (read-only) packages must not have stage confirms written.
         if let Err(resp) = crate::chat_routes::package_import::ensure_not_imported(&s) {
-            return resp;
+            return resp.into_response();
         }
         if let Some(pkg) = &s.emitted_package_path {
             let runtime_dir = pkg.join("runtime");
@@ -902,10 +902,17 @@ mod tests {
 
         // Pin the class on the session directly so the precondition
         // path fires regardless of the initial prose classification.
+        // Re-arm the content-addressed confirmation identity because
+        // project class is part of the scientific plan fingerprint.
         app.conversation
             .store_handle()
             .update(sid, |s| {
                 s.project_class = ecaa_workflow_core::project_class::ProjectClass::ClinicalTrial;
+                let summary_hash = s.current_summary_hash();
+                s.pending_emission_id = Some(uuid::Uuid::new_v5(
+                    &uuid::Uuid::NAMESPACE_OID,
+                    summary_hash.as_bytes(),
+                ));
                 Ok(())
             })
             .await

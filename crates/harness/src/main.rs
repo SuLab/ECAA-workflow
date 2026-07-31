@@ -7500,9 +7500,10 @@ fn build_probe_script(specs: &[ProbeSpec], r_libs_prefix: Option<&str>) -> Strin
                 ));
             }
             ProbeKind::Cellranger => {
-                lines.push(format!(
+                lines.push(
                     "echo 'CELLRANGER='\"$(cellranger --version 2>/dev/null | head -1)\""
-                ));
+                        .to_string(),
+                );
             }
         }
     }

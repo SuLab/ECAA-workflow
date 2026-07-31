@@ -90,7 +90,7 @@ export default function ConversationPane() {
 
   const handleStructuredSubmit = useCallback(
     async (intent: WorkflowIntent) => {
-      const session = await startSessionFromIntent(intent)
+      const session = await startSessionFromIntent(intent, conv.sessionId)
       // Attach the page-level session context to the deterministic
       // session the fallback just created. Without the query param,
       // useConversation would create a fresh blank session on reload.
@@ -100,7 +100,7 @@ export default function ConversationPane() {
         window.location.assign(url.toString())
       }
     },
-    [],
+    [conv.sessionId],
   )
 
   // When a turn finishes (sending → false) drop the in-flight streaming
@@ -536,6 +536,15 @@ export default function ConversationPane() {
     const isDisabled = availability.kind === 'disabled'
     const reason =
       'reason' in availability ? availability.reason : 'unknown'
+    const stateKind = conv.state?.state.kind ?? null
+    const confirmationVisible = stateKind === 'pending_confirmation'
+    const emitted = stateKind === 'emitted'
+    const showStructuredForm =
+      stateKind === null ||
+      stateKind === 'greeting' ||
+      stateKind === 'intake' ||
+      stateKind === 'intake_followup' ||
+      stateKind === 'blocked'
     return (
       <div
         style={{
@@ -572,10 +581,25 @@ export default function ConversationPane() {
           }}
         >
           <div style={{ fontSize: '0.78rem', marginTop: '0.2rem' }}>
-            {reason}. You can still start a workflow by filling out the form
-            below.
+            {reason}.{' '}
+            {showStructuredForm
+              ? 'You can still start a workflow by filling out the form below.'
+              : 'This workflow continues through the deterministic controls below.'}
           </div>
         </CardContainer>
+        {conv.error && (
+          <CardContainer
+            palette="danger"
+            role="alert"
+            style={{
+              padding: '0.6rem 0.85rem',
+              color: 'var(--color-danger-fg)',
+              fontSize: '0.8rem',
+            }}
+          >
+            {conv.error}
+          </CardContainer>
+        )}
         {blockers.length > 0 && (
           <div style={{ padding: '0.25rem 0' }}>
             {blockers.map((blocked) => (
@@ -593,7 +617,51 @@ export default function ConversationPane() {
             ))}
           </div>
         )}
-        <StructuredIntakeForm onSubmit={handleStructuredSubmit} />
+        {confirmationVisible && (
+          <div
+            style={{
+              display: 'flex',
+              flex: 1,
+              minHeight: 320,
+              overflow: 'hidden',
+            }}
+          >
+            <ChatTimeline
+              turns={conv.turns}
+              pillStatusLine={null}
+              onConfirm={conv.confirm}
+              onReject={conv.reject}
+              onQuickReply={onQuickReply}
+              projectClass={conv.state?.project_class}
+              sessionId={conv.sessionId}
+              virtualize={false}
+            />
+          </div>
+        )}
+        {emitted && (
+          <CardContainer
+            palette="neutral"
+            role="status"
+            ariaLive="polite"
+            title="Package ready"
+            style={{ padding: '0.7rem 0.9rem', fontSize: '0.82rem' }}
+          >
+            The confirmed package has been emitted. Start or resume execution
+            below, then track task state in the Progress tab.
+          </CardContainer>
+        )}
+        {conv.sessionId && conv.state?.state && (
+          <StartExecutionPanel
+            sessionId={conv.sessionId}
+            sessionState={conv.state.state}
+            executionRunning={conv.executionRunning}
+            progress={conv.state.progress}
+            onStart={conv.startExecutionAction}
+          />
+        )}
+        {showStructuredForm && (
+          <StructuredIntakeForm onSubmit={handleStructuredSubmit} />
+        )}
       </div>
     )
   }
@@ -705,6 +773,7 @@ export default function ConversationPane() {
         onConfirm={conv.confirm}
         onReject={conv.reject}
         onQuickReply={onQuickReply}
+        projectClass={conv.state?.project_class}
         sessionId={conv.sessionId}
         onBranch={
           ENABLE_BRANCH_FROM_HERE_CARD && hasEmittedAtLeastOnce

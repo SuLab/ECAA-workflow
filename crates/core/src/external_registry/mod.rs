@@ -40,21 +40,18 @@ use crate::workflow_contracts::task_node::TaskNode;
 
 /// Trust tier of an external registry. `Community` is the conservative
 /// default; `Curated` is operator-declared (see `ECAA_EXTERNAL_CURATED_DIRS`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS, schemars::JsonSchema,
+)]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum RegistryTier {
     /// Community-sourced; caps at Unverified/Contracted.
+    #[default]
     Community,
     /// Operator-curated; may reach StaticChecked after validation.
     Curated,
-}
-
-impl Default for RegistryTier {
-    fn default() -> Self {
-        RegistryTier::Community
-    }
 }
 
 impl RegistryTier {

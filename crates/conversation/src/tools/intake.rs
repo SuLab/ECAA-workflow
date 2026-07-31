@@ -224,6 +224,36 @@ pub(super) fn set_intake_modality(
     modality_id: &str,
     config_dir: &Path,
 ) -> ToolResult {
+    set_intake_modality_with_actor(
+        session,
+        modality_id,
+        config_dir,
+        ecaa_workflow_core::decision_log::DecisionActor::Llm,
+    )
+}
+
+/// Apply the modality selected directly by the SME in structured intake. Uses
+/// the same registry validation and DAG rebuild as the conversational tool but
+/// records the correct decision actor.
+pub(crate) fn apply_sme_selected_modality(
+    session: &mut Session,
+    modality_id: &str,
+    config_dir: &Path,
+) -> ToolResult {
+    set_intake_modality_with_actor(
+        session,
+        modality_id,
+        config_dir,
+        ecaa_workflow_core::decision_log::DecisionActor::Sme,
+    )
+}
+
+fn set_intake_modality_with_actor(
+    session: &mut Session,
+    modality_id: &str,
+    config_dir: &Path,
+    actor: ecaa_workflow_core::decision_log::DecisionActor,
+) -> ToolResult {
     let trimmed = modality_id.trim();
     if trimmed.is_empty() {
         return ToolResult::err(ToolError::ValidationFailure {
@@ -247,7 +277,7 @@ pub(super) fn set_intake_modality(
                 });
             }
         };
-    if registry.get(trimmed).is_none() {
+    let Some(modality_definition) = registry.get(trimmed).cloned() else {
         let alternatives: Vec<String> = registry.iter().map(|(id, _)| id.clone()).collect();
         return ToolResult::err(ToolError::ValidationFailure {
             reason: format!("unknown modality '{}'", trimmed),
@@ -256,7 +286,7 @@ pub(super) fn set_intake_modality(
                    selection should already match one of these."
                 .into(),
         });
-    }
+    };
 
     if session.classification.is_none() {
         return ToolResult::err(ToolError::PreconditionFailure {
@@ -269,16 +299,44 @@ pub(super) fn set_intake_modality(
         });
     }
 
+    // A modality is routed by its catalog entry to an archetype, and the
+    // archetype owns the authoritative project class. Derive both together so
+    // an explicit non-biological selection cannot retain the classifier's
+    // default Bioinformatics class. This also removes the former dependence on
+    // hard-coded modality families.
+    let selected_archetype = match archetype_for_modality(&modality_definition, config_dir) {
+        Ok(archetype) => archetype,
+        Err(error) => {
+            return ToolResult::err(ToolError::InternalError {
+                reason: error.to_string(),
+            });
+        }
+    };
+    let selected_project_class =
+        match project_class_from_catalog_id(&selected_archetype.project_class) {
+            Ok(project_class) => project_class,
+            Err(error) => {
+                return ToolResult::err(ToolError::InternalError {
+                    reason: error.to_string(),
+                });
+            }
+        };
+    session.project_class = selected_project_class;
+
     // Rewrite the classification + clear derived snapshots so the
     // composer reseeds against the SME-confirmed modality on the next
-    // rebuild. `taxonomy` is dropped + rebuilt from the archetype
-    // catalog under the new modality, so the per-modality metadata
-    // doesn't carry the prior (wrong) modality forward.
+    // rebuild. The registry supplies the ontology identifiers and exact
+    // archetype rather than retaining values from the classifier's prior
+    // candidate.
     if let Some(c) = session.classification.as_mut() {
         c.modality = trimmed.to_string();
-        c.archetype_id = None;
+        c.edam_topic = modality_definition.edam_topic.clone();
+        c.edam_operation = modality_definition.edam_operation.clone();
+        c.archetype_id = Some(selected_archetype.id.clone());
+        c.additional_modalities.clear();
+        c.tie_candidates.clear();
     }
-    session.archetype_snapshot = None;
+    session.archetype_snapshot = Some(selected_archetype);
     session.taxonomy = None;
 
     // Reload the classifier so the rebuild_dag taxonomy path resolves
@@ -319,18 +377,425 @@ pub(super) fn set_intake_modality(
             field: "modality".to_string(),
             value: serde_json::Value::String(trimmed.to_string()),
         },
-        ecaa_workflow_core::decision_log::DecisionActor::Llm,
+        actor,
         None,
     );
 
     if let Err(e) = rebuild_dag(session, config_dir) {
         return ToolResult::err(e);
     }
+    if let Some(classification) = session.classification.clone() {
+        materialize_workflow_intent(session, &classification, "");
+    }
     ToolResult::ok(serde_json::json!({
         "outcome": "modality_overridden",
         "modality": trimmed,
+        "project_class": session.project_class,
         "state": session.state,
     }))
+}
+
+/// Resolve a registered modality to the exact archetype that defines its
+/// executable route. Most modality manifests name `archetype_id` directly.
+/// The compatibility path for older manifests accepts exactly one
+/// `modality_hint` match. Zero or multiple matches fail closed instead of
+/// silently choosing an id-sorted archetype.
+fn archetype_for_modality(
+    modality: &ecaa_workflow_core::modality_registry::ModalityDefinition,
+    config_dir: &Path,
+) -> anyhow::Result<ecaa_workflow_core::archetype::ArchetypeDefinition> {
+    use anyhow::{anyhow, Context};
+    use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
+
+    let archetypes_dir = config_dir.join("archetypes");
+    let registry = ArchetypeRegistry::load_cached(&archetypes_dir).with_context(|| {
+        format!(
+            "loading archetype registry from {}",
+            archetypes_dir.display()
+        )
+    })?;
+    if let Some(archetype_id) = modality.archetype_id.as_deref() {
+        return registry.get(archetype_id).cloned().ok_or_else(|| {
+            anyhow!(
+                "registered modality `{}` references missing archetype `{archetype_id}`",
+                modality.id
+            )
+        });
+    }
+
+    let matches = registry
+        .iter()
+        .filter(|(_, archetype)| archetype.modality_hint.as_deref() == Some(modality.id.as_str()))
+        .map(|(_, archetype)| archetype.clone())
+        .collect::<Vec<_>>();
+    match matches.as_slice() {
+        [archetype] => Ok(archetype.clone()),
+        [] => Err(anyhow!(
+            "registered modality `{}` has no archetype_id and no matching archetype modality_hint",
+            modality.id
+        )),
+        many => Err(anyhow!(
+            "registered modality `{}` has no archetype_id and matches multiple archetypes by \
+             modality_hint: {}",
+            modality.id,
+            many.iter()
+                .map(|archetype| archetype.id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+    }
+}
+
+fn project_class_from_catalog_id(
+    id: &str,
+) -> anyhow::Result<ecaa_workflow_core::project_class::ProjectClass> {
+    use anyhow::anyhow;
+    use ecaa_workflow_core::project_class::ProjectClass;
+    match id {
+        "bioinformatics" => Ok(ProjectClass::Bioinformatics),
+        "clinical_trial" => Ok(ProjectClass::ClinicalTrial),
+        "time_series_forecast" => Ok(ProjectClass::TimeSeriesForecast),
+        other => Err(anyhow!(
+            "archetype declares unknown project class `{other}`; update the closed ProjectClass \
+             registry before making this archetype runnable"
+        )),
+    }
+}
+
+#[derive(Clone)]
+struct DeclaredInputProduct {
+    stable_id: String,
+    label: String,
+    score: usize,
+    has_non_anchor_producer: bool,
+}
+
+/// Resolve the structured form's explicit starting-product declaration against
+/// typed ports in the selected archetype. The resolver contains no modality
+/// names or filename rules. A declaration must identify exactly one semantic
+/// type from the compiled workflow.
+///
+/// When the type has a non-anchor producer, stamp it into the goal and rebuild
+/// so the generic supplied-product pass removes that producer and its upstream
+/// chain. A type already consumed or produced by the staging anchor is recorded
+/// without pruning.
+pub(crate) fn apply_sme_declared_input_stage(
+    session: &mut Session,
+    declaration: &str,
+    config_dir: &Path,
+) -> ToolResult {
+    if let Err(result) = validate_prose_input(declaration) {
+        return result;
+    }
+    let Some(workflow) = session.workflow_dag.as_ref() else {
+        return ToolResult::err(ToolError::PreconditionFailure {
+            reason: "no compiled workflow is available for starting-product resolution".into(),
+            hint: "Classify the goal and select a modality before declaring the starting product."
+                .into(),
+        });
+    };
+
+    let declaration_normalized = normalize_product_phrase(declaration);
+    let declaration_words = phrase_words(&declaration_normalized);
+    let mut candidates: std::collections::BTreeMap<String, DeclaredInputProduct> =
+        std::collections::BTreeMap::new();
+
+    for node in &workflow.nodes {
+        let is_anchor = is_input_anchor(node);
+        for port in &node.outputs {
+            collect_product_candidate(
+                port,
+                !is_anchor,
+                &declaration_normalized,
+                &declaration_words,
+                &mut candidates,
+            );
+        }
+        if is_anchor {
+            // Raw and tabular imports may exist only as an anchor input.
+            for port in &node.inputs {
+                collect_product_candidate(
+                    port,
+                    false,
+                    &declaration_normalized,
+                    &declaration_words,
+                    &mut candidates,
+                );
+            }
+        }
+    }
+
+    let best_score = candidates.values().map(|candidate| candidate.score).max();
+    let Some(best_score) = best_score.filter(|score| *score > 0) else {
+        return ToolResult::err(ToolError::ValidationFailure {
+            reason: format!(
+                "starting data product `{}` does not identify a typed port in the selected \
+                 workflow",
+                declaration.trim()
+            ),
+            valid_alternatives: product_alternatives(&candidates),
+            hint: "Use an exact product label, port name, physical format, or semantic type id \
+                   shown by the selected workflow."
+                .into(),
+        });
+    };
+    let winners = candidates
+        .values()
+        .filter(|candidate| candidate.score == best_score)
+        .cloned()
+        .collect::<Vec<_>>();
+    let [selected] = winners.as_slice() else {
+        return ToolResult::err(ToolError::ValidationFailure {
+            reason: format!(
+                "starting data product `{}` is ambiguous across semantic types: {}",
+                declaration.trim(),
+                winners
+                    .iter()
+                    .map(|candidate| { format!("{} ({})", candidate.label, candidate.stable_id) })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            valid_alternatives: product_alternatives(&candidates),
+            hint: "Enter the exact semantic type id or a more specific product label.".into(),
+        });
+    };
+    let selected = selected.clone();
+
+    if selected.has_non_anchor_producer {
+        let fallback_goal = session.archetype_snapshot.as_ref().map(|archetype| {
+            ecaa_workflow_core::goal_spec::GoalSpec {
+                edam_data: archetype.goal_data.clone(),
+                edam_format: archetype.goal_format.clone(),
+                modifiers: Default::default(),
+                source_prose: Some(session.intake_prose.clone()),
+                confidence: 1.0,
+            }
+        });
+        let Some(classification) = session.classification.as_mut() else {
+            return ToolResult::err(ToolError::PreconditionFailure {
+                reason: "no classification is available for starting-product resolution".into(),
+                hint: "Classify the goal before declaring the starting product.".into(),
+            });
+        };
+        if classification.goal.is_none() {
+            classification.goal = fallback_goal;
+        }
+        let Some(goal) = classification.goal.as_mut() else {
+            return ToolResult::err(ToolError::InternalError {
+                reason: "the selected archetype did not provide a goal for supplied-product \
+                         composition"
+                    .into(),
+            });
+        };
+        goal.modifiers
+            .insert("available_input_stage".into(), selected.stable_id.clone());
+        if let Err(error) = rebuild_dag(session, config_dir) {
+            return ToolResult::err(error);
+        }
+    }
+
+    session.record_decision(
+        ecaa_workflow_core::decision_log::DecisionType::SetIntakeField {
+            stage: "_session".into(),
+            field: "input_data_stage".into(),
+            value: serde_json::json!({
+                "declaration": declaration.trim(),
+                "semantic_type": selected.stable_id,
+            }),
+        },
+        ecaa_workflow_core::decision_log::DecisionActor::Sme,
+        None,
+    );
+    if let Some(classification) = session.classification.clone() {
+        materialize_workflow_intent(session, &classification, "");
+    }
+
+    ToolResult::ok(serde_json::json!({
+        "outcome": "input_data_stage_resolved",
+        "semantic_type": selected.stable_id,
+        "label": selected.label,
+        "pruned_producer_chain": selected.has_non_anchor_producer,
+    }))
+}
+
+fn is_input_anchor(node: &ecaa_workflow_core::workflow_contracts::task_node::TaskNode) -> bool {
+    ["data_acquisition", "data_import"]
+        .iter()
+        .any(|catalog_id| {
+            node.id == *catalog_id
+                || node
+                    .attributes
+                    .get("atom_id")
+                    .and_then(serde_json::Value::as_str)
+                    == Some(*catalog_id)
+                || node
+                    .attributes
+                    .get("stage_id")
+                    .and_then(serde_json::Value::as_str)
+                    == Some(*catalog_id)
+        })
+}
+
+fn collect_product_candidate(
+    port: &ecaa_workflow_core::workflow_contracts::port::PortContract,
+    non_anchor_producer: bool,
+    declaration_normalized: &str,
+    declaration_words: &std::collections::BTreeSet<String>,
+    candidates: &mut std::collections::BTreeMap<String, DeclaredInputProduct>,
+) {
+    use ecaa_workflow_core::workflow_contracts::semantic_type::SemanticType;
+
+    let (stable_id, label, mut aliases) = match &port.semantic_type {
+        SemanticType::OntologyTerm { iri, label, .. } => {
+            (iri.clone(), label.clone(), vec![label.clone(), iri.clone()])
+        }
+        SemanticType::LocalExtension {
+            namespace,
+            id,
+            definition,
+            ..
+        } => (
+            format!("{namespace}:{id}"),
+            id.replace('_', " "),
+            vec![
+                id.replace('_', " "),
+                format!("{namespace}:{id}"),
+                definition.clone(),
+            ],
+        ),
+        // A union on an ingest-anchor input describes concrete alternative
+        // products that the SME may register. Surface each member separately.
+        // A union on a producer output is intentionally not expanded because
+        // that task is not guaranteed to emit the selected member, so pruning
+        // it as an exact producer would be unsound.
+        SemanticType::Union { members } if !non_anchor_producer => {
+            for member in members {
+                let mut member_port = port.clone();
+                member_port.semantic_type = member.clone();
+                collect_product_candidate(
+                    &member_port,
+                    false,
+                    declaration_normalized,
+                    declaration_words,
+                    candidates,
+                );
+            }
+            return;
+        }
+        SemanticType::Opaque { .. } | SemanticType::Union { .. } => return,
+    };
+    aliases.push(port.name.replace('_', " "));
+    if let Some(format) = &port.physical_format {
+        aliases.push(format.iri.clone());
+        if let Some(label) = &format.label {
+            aliases.push(label.clone());
+        }
+        if let Some(extension) = &format.extension {
+            aliases.push(extension.clone());
+        }
+    }
+    if let Some(units) = &port.units {
+        aliases.push(units.clone());
+    }
+    if let Some(state) = &port.normalization_state {
+        aliases.push(state.clone());
+    }
+    if let Some(state) = &port.statistical_state {
+        aliases.push(state.clone());
+    }
+
+    let score = aliases
+        .iter()
+        .filter_map(|alias| {
+            product_alias_score(alias, declaration_normalized, declaration_words, &stable_id)
+        })
+        .max()
+        .unwrap_or(0);
+    let candidate = DeclaredInputProduct {
+        stable_id: stable_id.clone(),
+        label,
+        score,
+        has_non_anchor_producer: non_anchor_producer,
+    };
+    candidates
+        .entry(stable_id)
+        .and_modify(|existing| {
+            existing.has_non_anchor_producer |= non_anchor_producer;
+            if candidate.score > existing.score {
+                existing.score = candidate.score;
+                existing.label = candidate.label.clone();
+            }
+        })
+        .or_insert(candidate);
+}
+
+fn product_alias_score(
+    alias: &str,
+    declaration_normalized: &str,
+    declaration_words: &std::collections::BTreeSet<String>,
+    stable_id: &str,
+) -> Option<usize> {
+    let alias_normalized = normalize_product_phrase(alias);
+    if alias_normalized.is_empty() {
+        return None;
+    }
+    if declaration_normalized == stable_id.to_ascii_lowercase() {
+        return Some(2_000);
+    }
+    if declaration_normalized == alias_normalized {
+        return Some(1_500 + alias_normalized.len());
+    }
+    let alias_words = phrase_words(&alias_normalized);
+    let meaningful_single = alias_words.len() == 1
+        && alias_words
+            .iter()
+            .next()
+            .is_some_and(|word| !GENERIC_PRODUCT_WORDS.contains(&word.as_str()));
+    if (alias_words.len() >= 2 || meaningful_single) && alias_words.is_subset(declaration_words) {
+        return Some(1_000 + alias_words.len() * 10 + alias_normalized.len());
+    }
+    if declaration_words.len() >= 2 && declaration_words.is_subset(&alias_words) {
+        return Some(500 + declaration_words.len() * 10);
+    }
+    None
+}
+
+const GENERIC_PRODUCT_WORDS: &[&str] = &[
+    "data", "dataset", "file", "input", "output", "product", "report", "result", "table",
+];
+
+fn normalize_product_phrase(value: &str) -> String {
+    value
+        .to_ascii_lowercase()
+        .split(|character: char| !character.is_ascii_alphanumeric() && character != ':')
+        .filter(|word| !word.is_empty())
+        .map(|word| match word {
+            "matrices" => "matrix",
+            "variations" | "variants" => "variant",
+            "alignments" => "alignment",
+            "counts" => "count",
+            "peaks" => "peak",
+            "reads" => "read",
+            "files" => "file",
+            "values" => "value",
+            other => other,
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn phrase_words(value: &str) -> std::collections::BTreeSet<String> {
+    value.split_whitespace().map(ToString::to_string).collect()
+}
+
+fn product_alternatives(
+    candidates: &std::collections::BTreeMap<String, DeclaredInputProduct>,
+) -> Vec<String> {
+    candidates
+        .values()
+        .map(|candidate| format!("{} ({})", candidate.label, candidate.stable_id))
+        .take(20)
+        .collect()
 }
 
 /// Best-effort recovery of a structured value the LLM may have JSON-encoded
@@ -1196,9 +1661,14 @@ fn build_taxonomy_metadata_for_modality(
         .preferred_container
         .as_ref()
         .map(|c| c.image.clone());
+    let domain = match project_class {
+        ProjectClass::Bioinformatics => "computational biology",
+        ProjectClass::ClinicalTrial => "clinical trials",
+        ProjectClass::TimeSeriesForecast => "time-series forecasting",
+    };
     Ok(StageTaxonomy {
         id: archetype.id.clone(),
-        domain: "computational biology".into(),
+        domain: domain.into(),
         description: archetype.description.clone(),
         policies: None,
         claim_boundary: archetype.claim_boundary.clone(),
@@ -1547,7 +2017,42 @@ fn auto_register_pending_hints(session: &mut crate::session::Session) {
 #[cfg(test)]
 mod validation_contract_hop_tests {
     use super::*;
+    use ecaa_workflow_core::workflow_contracts::port::PortContract;
+    use ecaa_workflow_core::workflow_contracts::semantic_type::{default_minted, SemanticType};
     use std::path::Path;
+
+    #[test]
+    fn starting_product_candidates_expand_only_ingest_anchor_unions() {
+        let local = SemanticType::LocalExtension {
+            namespace: "lab2".into(),
+            id: "calibrated_signal".into(),
+            proposed_parent_terms: vec![],
+            definition: "Registered calibrated signal".into(),
+            maturity: default_minted(),
+        };
+        let port = PortContract::with_semantic_type(
+            "accepted_source",
+            SemanticType::Union {
+                members: vec![SemanticType::edam("data:2531", "Dataset"), local],
+            },
+        );
+        let declaration = normalize_product_phrase("lab2:calibrated_signal");
+        let words = phrase_words(&declaration);
+
+        let mut anchor_candidates = std::collections::BTreeMap::new();
+        collect_product_candidate(&port, false, &declaration, &words, &mut anchor_candidates);
+        assert!(
+            anchor_candidates.contains_key("lab2:calibrated_signal"),
+            "concrete members of an ingest-anchor union must be selectable"
+        );
+
+        let mut producer_candidates = std::collections::BTreeMap::new();
+        collect_product_candidate(&port, true, &declaration, &words, &mut producer_candidates);
+        assert!(
+            producer_candidates.is_empty(),
+            "a union output cannot prove that a producer emits one exact member"
+        );
+    }
 
     #[test]
     fn variant_calling_taxonomy_carries_contract_ref() {

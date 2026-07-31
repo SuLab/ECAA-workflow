@@ -66,7 +66,7 @@ pub async fn post_undo_amendment(
     // Mirrors the guard on `post_amend_method` / `post_rerun` in this file.
     if let Some(session) = app.conversation.get_session(session_id).await {
         if let Err(resp) = crate::chat_routes::package_import::ensure_not_imported(&session) {
-            return resp;
+            return resp.into_response();
         }
     }
     match app
@@ -111,7 +111,7 @@ pub async fn post_amend_method(
     // Imported (read-only) packages cannot be amended.
     if let Some(session) = app.conversation.get_session(session_id).await {
         if let Err(resp) = crate::chat_routes::package_import::ensure_not_imported(&session) {
-            return resp;
+            return resp.into_response();
         }
     }
     match app
@@ -167,7 +167,7 @@ pub async fn post_rerun(
     // Imported (read-only) packages cannot be rerun.
     if let Some(session) = app.conversation.get_session(session_id).await {
         if let Err(resp) = crate::chat_routes::package_import::ensure_not_imported(&session) {
-            return resp;
+            return resp.into_response();
         }
     }
     match app

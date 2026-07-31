@@ -412,7 +412,7 @@ pub fn maybe_snapshot(package_root: &Path) {
             p,
             &ecaa_workflow_core::clock::WallClock,
         )
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
+        .map_err(|e| std::io::Error::other(e.to_string()))
     });
 }
 

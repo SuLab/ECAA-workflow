@@ -280,6 +280,17 @@ pub(crate) async fn register_input_path(
         .await;
     match result {
         Ok(s) => {
+            if let Err(error) = app
+                .conversation
+                .rebuild_dag_after_input_change(session_id)
+                .await
+            {
+                return crate::error::ApiError::Internal(anyhow::anyhow!(
+                    "input registration persisted, but recomposing the pre-emission workflow \
+                     failed for session {session_id}: {error}"
+                ))
+                .into_response();
+            }
             // Mirror the inputs list into the emitted package's
             // `runtime/inputs.json` whenever the session has already
             // emitted. The emit pipeline writes inputs.json at emit
@@ -400,6 +411,67 @@ mod tests {
         // Persisted to the session.
         let session = app.conversation.get_session(id).await.unwrap();
         assert_eq!(session.inputs.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn pre_emit_registration_rearms_confirmation_for_new_manifest() {
+        let root = allowlisted_temp();
+        let (router, app) = make_router(vec![]).await;
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/api/chat/session/from-intent")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "goal": "Call and annotate variants from the registered sequencing inputs.",
+                    "modality": "variant_calling",
+                    "input_data_stage": "paired FASTQ reads",
+                    "desired_outputs": "Annotated variant table",
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let response = router.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload = body_json(response.into_body()).await;
+        let session_id = uuid::Uuid::parse_str(payload["session_id"].as_str().unwrap()).unwrap();
+        let before = app.conversation.get_session(session_id).await.unwrap();
+        let before_emission_id = before
+            .pending_emission_id
+            .expect("structured intake raises confirmation");
+
+        let body = serde_json::json!({ "path": root.display().to_string() });
+        let request = Request::builder()
+            .method("POST")
+            .uri(format!("/api/chat/session/{session_id}/inputs/path"))
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        let response = router.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let after = app.conversation.get_session(session_id).await.unwrap();
+        assert_eq!(after.inputs.len(), 1);
+        assert!(
+            matches!(
+                after.state,
+                ecaa_workflow_conversation::SessionState::PendingConfirmation { .. }
+            ),
+            "input mutation must return to an actionable confirmation"
+        );
+        assert_ne!(
+            after.pending_emission_id,
+            Some(before_emission_id),
+            "the content-addressed confirmation must bind the new input manifest"
+        );
+        assert!(
+            after
+                .conversation
+                .last()
+                .is_some_and(|turn| turn.confirmation_card.is_some()),
+            "recomposition must raise a fresh confirmation card"
+        );
     }
 
     #[tokio::test]

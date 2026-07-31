@@ -15,6 +15,9 @@ flow:
       ratios with bootstrap confidence intervals. Exploratory only — this
       is hypothesis-generating for Phase III.
   - kind: confirm
+    mode:
+      kind: exploratory
+    checkpoint_mode: gated
   - kind: user
     text: "(confirmed — please continue)"
 
@@ -56,7 +59,5 @@ expected_final_state:
     - policies/container.json
 
 rubric_notes: |
-  Proves the ClinicalTrial class supports exploratory sessions. The
-  "Analysis discipline" dropdown defaults to Exploratory even though
-  the class is ClinicalTrial (plan §8.C.2 / D8 — force-explicit-mode is
-  about *picking*, not about always picking Confirmatory).
+  Proves that the ClinicalTrial class supports exploratory sessions.
+  The fixture makes that discipline explicit, as the public UI requires.

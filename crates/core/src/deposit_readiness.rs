@@ -713,7 +713,7 @@ fn json_count(v: &serde_json::Value, key: &str) -> Option<u64> {
 /// records none of them. Max (not first-present) so a document carrying two
 /// spellings of the failure count cannot hide a positive one behind a zero.
 fn max_count(v: &serde_json::Value, keys: &[&str]) -> Option<u64> {
-    keys.iter().filter_map(|k| json_count(v, *k)).max()
+    keys.iter().filter_map(|k| json_count(v, k)).max()
 }
 
 /// A task's verdict as derived from its NUMERIC check counts alone.
@@ -2421,7 +2421,7 @@ fn path_tokens(s: &str) -> Vec<&str> {
                 ',' | ';' | '(' | ')' | '[' | ']' | '{' | '}' | '"' | '\'' | '`' | '<' | '>' | '|'
             )
     })
-    .map(|t| t.trim_end_matches(|c: char| matches!(c, '.' | ':' | '!' | '?')))
+    .map(|t| t.trim_end_matches(['.', ':', '!', '?']))
     .filter(|t| !t.is_empty())
     .collect()
 }

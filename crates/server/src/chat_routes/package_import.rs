@@ -514,13 +514,12 @@ pub(super) async fn get_capabilities(
 /// Reject an action that mutates lifecycle on a read-only imported package.
 /// Applied after the session is fetched in every lifecycle handler
 /// (start_execution / branch / amend / rerun).
-pub(crate) fn ensure_not_imported(session: &Session) -> Result<(), Response> {
+pub(crate) fn ensure_not_imported(session: &Session) -> Result<(), (StatusCode, &'static str)> {
     if session.imported {
         return Err((
             StatusCode::PRECONDITION_FAILED,
             "this action is not available for imported (read-only) packages",
-        )
-            .into_response());
+        ));
     }
     Ok(())
 }

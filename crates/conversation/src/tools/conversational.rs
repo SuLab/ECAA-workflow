@@ -101,7 +101,7 @@ fn sme_request_text(session: &Session) -> String {
         .join(" ")
 }
 
-pub(super) fn propose_summary_confirmation(
+pub(crate) fn propose_summary_confirmation(
     session: &mut Session,
     summary_markdown: &str,
 ) -> ToolResult {

@@ -247,10 +247,10 @@ fn atomic_write_json(path: &Path, val: &Value) -> io::Result<()> {
         .suffix(".json")
         .tempfile_in(dir)?
         .keep()
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        .map_err(io::Error::other)?;
 
     let serialized = serde_json::to_string_pretty(val)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("JSON serialization: {e}")))?;
+        .map_err(|e| io::Error::other(format!("JSON serialization: {e}")))?;
 
     use std::io::Write as _;
     tmp_file.write_all(serialized.as_bytes())?;

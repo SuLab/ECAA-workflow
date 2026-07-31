@@ -1380,6 +1380,7 @@ pub fn default_runners() -> Vec<Box<dyn ValidatorRunner>> {
 /// are exempted from the starter-coverage drift check below. If the
 /// integrated build later mirrors these into core's starter set, remove
 /// them from this list so the drift check re-tightens.
+#[cfg(test)]
 const HARNESS_LOCAL_VARIANT_OBLIGATIONS: &[&str] = &[
     "variant_af_spectrum_plausible",
     "variant_filtered_count_consistency",
@@ -1391,8 +1392,10 @@ const HARNESS_LOCAL_VARIANT_OBLIGATIONS: &[&str] = &[
 /// the SHAPE of the task's own result.json, so they never need an atom
 /// to name them. Exempted from the starter-coverage drift check for the
 /// same reason.
+#[cfg(test)]
 const HARNESS_LOCAL_PROVENANCE_OBLIGATIONS: &[&str] = &[SOURCE_DEVIATION_OBLIGATION];
 
+#[cfg(test)]
 const HARNESS_LOCAL_DISCOVERY_OBLIGATIONS: &[&str] = &[DISCOVERY_EVIDENCE_OBLIGATION];
 
 #[cfg(test)]

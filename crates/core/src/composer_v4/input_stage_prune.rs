@@ -24,29 +24,43 @@ use std::collections::{BTreeMap, BTreeSet};
 /// target for a supplied product.
 const SUPPLY_ANCHORS: &[&str] = &["data_acquisition", "data_import"];
 
-/// FASTQ / raw sequence reads — the default raw input seed, never a "supplied
-/// processed product" worth pruning toward.
-const RAW_INPUT_IRI: &str = "data:2044";
+fn node_matches_catalog_id(node: &TaskNode, catalog_id: &str) -> bool {
+    node.id == catalog_id
+        || node
+            .attributes
+            .get("atom_id")
+            .and_then(serde_json::Value::as_str)
+            == Some(catalog_id)
+        || node
+            .attributes
+            .get("stage_id")
+            .and_then(serde_json::Value::as_str)
+            == Some(catalog_id)
+}
 
-fn type_iri(st: &SemanticType) -> Option<&str> {
+fn is_supply_anchor(node: &TaskNode) -> bool {
+    SUPPLY_ANCHORS
+        .iter()
+        .any(|anchor| node_matches_catalog_id(node, anchor))
+}
+
+fn product_type_id(st: &SemanticType) -> Option<String> {
     match st {
-        SemanticType::OntologyTerm { iri, .. } => Some(iri.as_str()),
+        SemanticType::OntologyTerm { iri, .. } => Some(iri.clone()),
+        SemanticType::LocalExtension { .. } => Some(st.stable_id()),
         _ => None,
     }
 }
 
-fn product_iri(p: &DataProductContract) -> Option<&str> {
-    type_iri(&p.semantic_type)
-}
-
-/// Does a producer OUTPUT port of semantic type `st` supply the
-/// SME-supplied product typed by ontology IRI `iri`?
+/// Does a producer OUTPUT port of semantic type `st` supply the SME-supplied
+/// product identified by `type_id`?
 ///
 /// True when:
-/// - the port is an `OntologyTerm` whose IRI equals `iri` (the exact-term
+/// - the port is an `OntologyTerm` whose IRI equals `type_id` (the exact-term
 ///   match that already drove counts/peaks/VCF/BAM/DE-results pruning), OR
-/// - the port is a `LocalExtension` whose `proposed_parent_terms` CONTAINS
-///   `iri` — i.e. the port is a local subtype of the supplied ontology term.
+/// - the port is the exact registered `LocalExtension`, OR
+/// - the port is a `LocalExtension` whose `proposed_parent_terms` contains
+///   `type_id` — i.e. the port is a local subtype of the supplied ontology term.
 ///   This is the proteomics case: `protein_quantification`'s output port is
 ///   `ecaax:protein_abundance_matrix` with `proposed_parent_terms: [data:2976]`,
 ///   so a seeded `data:2976` (protein abundance matrix) must match it to prune
@@ -56,25 +70,27 @@ fn product_iri(p: &DataProductContract) -> Option<&str> {
 /// product → producer-port direction used for input-stage pruning. It is a
 /// one-directional "the supplied ontology term is (an ancestor of) what this
 /// port produces" test — it does not touch `SemanticType`'s general
-/// type-equality / edge-compatibility logic, and it never fires for the raw
-/// default (`data:2044` is guarded out before any port match).
-fn port_supplies_iri(st: &SemanticType, iri: &str) -> bool {
+/// type-equality / edge-compatibility logic.
+fn port_supplies_type(st: &SemanticType, type_id: &str) -> bool {
     match st {
-        SemanticType::OntologyTerm { iri: port_iri, .. } => port_iri == iri,
+        SemanticType::OntologyTerm { iri: port_iri, .. } => port_iri == type_id,
         SemanticType::LocalExtension {
             proposed_parent_terms,
             ..
-        } => proposed_parent_terms.iter().any(|p| p == iri),
+        } => {
+            st.stable_id() == type_id
+                || proposed_parent_terms.iter().any(|parent| parent == type_id)
+        }
         _ => false,
     }
 }
 
-/// Does node `n` expose an OUTPUT port that supplies ontology type `iri`
+/// Does node `n` expose an OUTPUT port that supplies semantic type `type_id`
 /// (exact ontology term, or a local extension proposing it as a parent)?
-fn node_produces(n: &TaskNode, iri: &str) -> bool {
+fn node_produces(n: &TaskNode, type_id: &str) -> bool {
     n.outputs
         .iter()
-        .any(|o| port_supplies_iri(&o.semantic_type, iri))
+        .any(|output| port_supplies_type(&output.semantic_type, type_id))
 }
 
 /// Does node `n` also CONSUME the supplied ontology type?
@@ -84,10 +100,10 @@ fn node_produces(n: &TaskNode, iri: &str) -> bool {
 /// case: it consumes raw counts and emits filtered raw counts. After the first
 /// prune removes quantification, a repeated prune pass must not reinterpret QC
 /// as a new root producer and bypass it.
-fn node_consumes(n: &TaskNode, iri: &str) -> bool {
+fn node_consumes(n: &TaskNode, type_id: &str) -> bool {
     n.inputs
         .iter()
-        .any(|i| port_supplies_iri(&i.semantic_type, iri))
+        .any(|input| port_supplies_type(&input.semantic_type, type_id))
 }
 
 /// Tag prefix marking a `CompatibilityProof.warnings` row that records a
@@ -179,7 +195,7 @@ pub fn port_aliases(edge: &EdgeContract) -> Vec<PortAlias> {
 /// 1. the anchor already declares a port with that exact name (authored, or
 ///    just pushed by the port-copy) — nothing to rewrite;
 /// 2. an anchor port whose semantic type is identical to the producer port's;
-/// 3. an anchor port supplying the pruned product type `iri` — exact
+/// 3. an anchor port supplying the pruned product `type_id` — exact
 ///    ontology-term match preferred over local-extension subsumption.
 ///
 /// Returns `None` — leaving `from_port` untouched — when the name is not a
@@ -187,8 +203,8 @@ pub fn port_aliases(edge: &EdgeContract) -> Vec<PortAlias> {
 /// ordering-edge sentinels (`report` / `literature` / `_excluded_rewire` /
 /// `splice` / the empty string), which are workflow-ordering relations rather
 /// than port-typed data flows and must not be coerced onto a data port. Step 3
-/// is likewise skipped for a producer port that does not supply `iri`, so an
-/// unrelated side output is never aliased to the supplied product.
+/// is likewise skipped for a producer port that does not supply `type_id`, so
+/// an unrelated side output is never aliased to the supplied product.
 ///
 /// Ties break on the anchor's declaration order — the YAML order the registry
 /// loads — so the choice is deterministic.
@@ -196,7 +212,7 @@ fn resolve_anchor_port(
     anchor: &TaskNode,
     producer: &TaskNode,
     original_port: &str,
-    iri: &str,
+    type_id: &str,
 ) -> Option<String> {
     if anchor.outputs.iter().any(|o| o.name == original_port) {
         return Some(original_port.to_string());
@@ -210,20 +226,25 @@ fn resolve_anchor_port(
     {
         return Some(same_type.name.clone());
     }
-    if !port_supplies_iri(&producer_port.semantic_type, iri) {
+    if !port_supplies_type(&producer_port.semantic_type, type_id) {
         return None;
     }
     anchor
         .outputs
         .iter()
-        .find(|o| matches!(&o.semantic_type, SemanticType::OntologyTerm { iri: i, .. } if i == iri))
+        .find(|output| {
+            matches!(
+                &output.semantic_type,
+                SemanticType::OntologyTerm { iri, .. } if iri == type_id
+            )
+        })
         .or_else(|| {
             anchor
                 .outputs
                 .iter()
-                .find(|o| port_supplies_iri(&o.semantic_type, iri))
+                .find(|output| port_supplies_type(&output.semantic_type, type_id))
         })
-        .map(|o| o.name.clone())
+        .map(|output| output.name.clone())
 }
 
 /// Transitive ancestors of `target` (every node with a forward path to it).
@@ -248,12 +269,9 @@ pub fn prune_supplied_upstream(
 ) -> Vec<String> {
     let mut removed_all = Vec::new();
     for product in available {
-        let Some(iri) = product_iri(product) else {
+        let Some(type_id) = product_type_id(&product.semantic_type) else {
             continue;
         };
-        if iri == RAW_INPUT_IRI {
-            continue;
-        }
         // Source-producer candidates: non-anchor nodes exposing this output
         // type that do not also consume it. Same-type transformers such as
         // count-matrix QC or VCF filtering remain downstream of the staged
@@ -261,10 +279,10 @@ pub fn prune_supplied_upstream(
         let producers: Vec<String> = dag
             .nodes
             .iter()
-            .filter(|n| {
-                node_produces(n, iri)
-                    && !node_consumes(n, iri)
-                    && !SUPPLY_ANCHORS.contains(&n.id.as_str())
+            .filter(|node| {
+                node_produces(node, &type_id)
+                    && !node_consumes(node, &type_id)
+                    && !is_supply_anchor(node)
             })
             .map(|n| n.id.clone())
             .collect();
@@ -290,18 +308,28 @@ pub fn prune_supplied_upstream(
 
         // Prune set = Q ∪ ancestors(Q), minus the supply anchors.
         let anc = ancestors(&q, &dag.edges);
+        let supply_anchor_ids = dag
+            .nodes
+            .iter()
+            .filter(|node| is_supply_anchor(node))
+            .map(|node| node.id.clone())
+            .collect::<BTreeSet<_>>();
         let prune: BTreeSet<String> = anc
             .into_iter()
             .chain(std::iter::once(q.clone()))
-            .filter(|id| !SUPPLY_ANCHORS.contains(&id.as_str()))
+            .filter(|id| !supply_anchor_ids.contains(id))
             .collect();
 
-        // The supply anchor we rewire onto (must exist in the DAG).
-        let Some(anchor) = SUPPLY_ANCHORS
-            .iter()
-            .find(|a| dag.nodes.iter().any(|n| &n.id == *a))
-            .map(|a| a.to_string())
-        else {
+        // The supply anchor we rewire onto (must exist in the DAG). Match the
+        // stable catalog identity carried in node attributes so namespaced
+        // aliases in cross-modality archetypes receive the same treatment as
+        // an unaliased single-modality node.
+        let Some(anchor) = SUPPLY_ANCHORS.iter().find_map(|catalog_id| {
+            dag.nodes
+                .iter()
+                .find(|node| node_matches_catalog_id(node, catalog_id))
+                .map(|node| node.id.clone())
+        }) else {
             continue;
         };
 
@@ -323,11 +351,11 @@ pub fn prune_supplied_upstream(
         if let Some(port) = dag.nodes.iter().find(|n| n.id == q).and_then(|n| {
             n.outputs
                 .iter()
-                .find(|o| port_supplies_iri(&o.semantic_type, iri))
+                .find(|output| port_supplies_type(&output.semantic_type, &type_id))
                 .cloned()
         }) {
             if let Some(anchor_node) = dag.nodes.iter_mut().find(|n| n.id == anchor) {
-                if !node_produces(anchor_node, iri) {
+                if !node_produces(anchor_node, &type_id) {
                     anchor_node.outputs.push(port);
                 }
             }
@@ -359,7 +387,7 @@ pub fn prune_supplied_upstream(
                 .collect::<BTreeSet<String>>()
                 .into_iter()
                 .filter_map(|original| {
-                    let canonical = resolve_anchor_port(anchor_node, q_node, &original, iri)?;
+                    let canonical = resolve_anchor_port(anchor_node, q_node, &original, &type_id)?;
                     (canonical != original).then_some((original, canonical))
                 })
                 .collect(),
@@ -586,7 +614,59 @@ mod tests {
         );
     }
 
-    /// No supplied stage (FASTQ default) → no pruning.
+    #[test]
+    fn supplied_product_pruning_preserves_namespaced_ingest_anchor() {
+        let mut anchor = data_acquisition_node();
+        anchor.id = "rnaseq_data_acquisition".into();
+        anchor.attributes.insert(
+            "atom_id".into(),
+            serde_json::Value::String("data_acquisition".into()),
+        );
+        let mut dag = WorkflowDag {
+            id: "aliased".into(),
+            nodes: vec![
+                anchor,
+                node(
+                    "rnaseq_quantification",
+                    vec![inp("reads", FASTQ)],
+                    vec![out("counts", COUNTS)],
+                ),
+                node(
+                    "rnaseq_differential_expression",
+                    vec![inp("counts", COUNTS)],
+                    vec![out("de", DE)],
+                ),
+            ],
+            edges: vec![
+                edge("rnaseq_data_acquisition", "rnaseq_quantification"),
+                edge("rnaseq_quantification", "rnaseq_differential_expression"),
+            ],
+            ..Default::default()
+        };
+
+        let removed =
+            prune_supplied_upstream(&mut dag, &[DataProductContract::gene_count_matrix()]);
+        assert!(
+            removed.iter().any(|node| node == "rnaseq_quantification"),
+            "the aliased producer must be pruned"
+        );
+        assert!(
+            dag.nodes
+                .iter()
+                .any(|node| node.id == "rnaseq_data_acquisition"),
+            "the aliased ingest anchor must never be pruned"
+        );
+        assert!(
+            dag.edges.iter().any(|edge| {
+                edge.from_node == "rnaseq_data_acquisition"
+                    && edge.to_node == "rnaseq_differential_expression"
+            }),
+            "the retained consumer must be rewired to the actual aliased anchor"
+        );
+    }
+
+    /// A source product already emitted by the ingest anchor has no
+    /// non-anchor producer, so it is never treated as a processed-stage prune.
     #[test]
     fn raw_fastq_input_is_not_pruned() {
         let mut dag = WorkflowDag {
@@ -610,12 +690,12 @@ mod tests {
             ],
             ..Default::default()
         };
-        // FASTQ seed (data:2044) must be a no-op even though it's "available".
+        // The source seed must be a no-op even though it is "available".
         let removed =
             prune_supplied_upstream(&mut dag, &[DataProductContract::sample_paired_fastq()]);
         assert!(
             removed.is_empty(),
-            "FASTQ default seed must not prune anything"
+            "an ingest-anchor source seed must not prune anything"
         );
         assert_eq!(dag.nodes.len(), 3);
     }
@@ -1077,6 +1157,66 @@ mod tests {
             node_produces(da, PROTEIN_ABUNDANCE),
             "data_acquisition must expose the supplied protein-abundance type"
         );
+    }
+
+    #[test]
+    fn exact_registered_local_extension_prunes_without_namespace_allowlist() {
+        let local_type = SemanticType::LocalExtension {
+            namespace: "lab2".into(),
+            id: "calibrated_signal".into(),
+            proposed_parent_terms: vec![],
+            definition: "A site-registered calibrated instrument signal".into(),
+            maturity: crate::workflow_contracts::semantic_type::default_minted(),
+        };
+        let mut dag = WorkflowDag {
+            id: "open-world-local-extension".into(),
+            nodes: vec![
+                node("data_import", vec![], vec![out("source", "data:2531")]),
+                node(
+                    "instrument_calibration",
+                    vec![inp("source", "data:2531")],
+                    vec![PortContract::with_semantic_type(
+                        "calibrated_signal",
+                        local_type.clone(),
+                    )],
+                ),
+                node(
+                    "signal_model",
+                    vec![PortContract::with_semantic_type(
+                        "signal",
+                        local_type.clone(),
+                    )],
+                    vec![out("model", "data:1278")],
+                ),
+            ],
+            edges: vec![
+                edge_ports("data_import", "source", "instrument_calibration", "source"),
+                edge_ports(
+                    "instrument_calibration",
+                    "calibrated_signal",
+                    "signal_model",
+                    "signal",
+                ),
+            ],
+            ..Default::default()
+        };
+        let supplied = DataProductContract::skeleton("registered_signal", local_type.clone());
+
+        let removed = prune_supplied_upstream(&mut dag, &[supplied]);
+
+        assert_eq!(removed, vec!["instrument_calibration"]);
+        assert!(
+            dag.edges
+                .iter()
+                .any(|edge| edge.from_node == "data_import" && edge.to_node == "signal_model"),
+            "the generic staging anchor must replace the local-extension producer"
+        );
+        let anchor = dag
+            .nodes
+            .iter()
+            .find(|node| node.id == "data_import")
+            .expect("data-import anchor retained");
+        assert!(node_produces(anchor, &local_type.stable_id()));
     }
 
     /// The counts-first shape that produced an unresolvable `from_port` in a

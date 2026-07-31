@@ -74,16 +74,13 @@ fn push_to_registry(local_tag: &str, digest: &str, registry: &str) -> io::Result
         .args(["tag", local_tag, &remote_ref])
         .output()?;
     if !out.status.success() {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!(
-                "docker tag failed (exit {:?}): {} -> {}: {}",
-                out.status.code(),
-                local_tag,
-                remote_ref,
-                String::from_utf8_lossy(&out.stderr).trim_end()
-            ),
-        ));
+        return Err(io::Error::other(format!(
+            "docker tag failed (exit {:?}): {} -> {}: {}",
+            out.status.code(),
+            local_tag,
+            remote_ref,
+            String::from_utf8_lossy(&out.stderr).trim_end()
+        )));
     }
 
     // Push the remote ref.
@@ -91,14 +88,11 @@ fn push_to_registry(local_tag: &str, digest: &str, registry: &str) -> io::Result
         .args(["push", &remote_ref])
         .status()?;
     if !status.success() {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!(
-                "docker push failed (exit {:?}): {}",
-                status.code(),
-                remote_ref
-            ),
-        ));
+        return Err(io::Error::other(format!(
+            "docker push failed (exit {:?}): {}",
+            status.code(),
+            remote_ref
+        )));
     }
 
     // Return the pull-by-digest reference so replay can do `docker pull
@@ -123,16 +117,13 @@ fn save_to_cas(local_tag: &str, digest: &str, dir: &Path) -> io::Result<StoreLoc
         .arg(&tar_path)
         .output()?;
     if !out.status.success() {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!(
-                "docker save failed (exit {:?}): {} -> {}: {}",
-                out.status.code(),
-                local_tag,
-                tar_path.display(),
-                String::from_utf8_lossy(&out.stderr).trim_end()
-            ),
-        ));
+        return Err(io::Error::other(format!(
+            "docker save failed (exit {:?}): {} -> {}: {}",
+            out.status.code(),
+            local_tag,
+            tar_path.display(),
+            String::from_utf8_lossy(&out.stderr).trim_end()
+        )));
     }
 
     Ok(StoreLocation::LocalCas(tar_path))

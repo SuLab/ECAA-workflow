@@ -22,6 +22,7 @@ mod transitions;
 use crate::anthropic::LlmBackend;
 use crate::metrics::MetricsStore;
 use crate::persistence::SessionStore;
+use crate::session::state::UserInput;
 use crate::session::{Session, SessionId};
 use dashmap::{DashMap, DashSet};
 use ecaa_workflow_core::llm_availability::LlmAvailability;
@@ -33,6 +34,20 @@ pub use greeting::greeting_turn;
 pub use retry::ServiceError;
 pub use tool_loop::{SOFT_LANDING_ITERATION, TOOL_LOOP_CAP, TOOL_PILL_THRESHOLD};
 pub use transitions::{AmendResult, AutoEmitOutcome};
+
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+struct StructuredIntakeValidation(String);
+
+fn structured_tool_failure(content: serde_json::Value, fallback: &str) -> anyhow::Error {
+    match serde_json::from_value::<crate::errors::ToolError>(content) {
+        Ok(error @ crate::errors::ToolError::ValidationFailure { .. }) => {
+            anyhow::Error::new(StructuredIntakeValidation(error.short_reason()))
+        }
+        Ok(error) => anyhow::anyhow!(error.short_reason()),
+        Err(_) => anyhow::anyhow!(fallback.to_string()),
+    }
+}
 
 /// Optional event sink the service uses to publish tool-call boundaries
 /// to a downstream SSE broadcaster. The server passes one in to surface
@@ -223,6 +238,22 @@ impl ConversationService {
         careful_mode: bool,
         prose: String,
     ) -> Result<(SessionId, crate::session::Turn), ServiceError> {
+        self.start_session_from_prose_with_inputs(careful_mode, prose, Vec::new(), None, None)
+            .await
+    }
+
+    /// Structured-intake entry point that carries any input manifests the SME
+    /// registered on the form's source session. Inputs are installed before
+    /// classification and composition, so the existing cross-modality
+    /// supplied-product typing can select the correct pipeline entry point.
+    pub async fn start_session_from_prose_with_inputs(
+        &self,
+        careful_mode: bool,
+        prose: String,
+        initial_inputs: Vec<UserInput>,
+        requested_modality: Option<String>,
+        requested_input_data_stage: Option<String>,
+    ) -> Result<(SessionId, crate::session::Turn), ServiceError> {
         let prose = prose.trim().to_string();
         if prose.is_empty() {
             return Err(ServiceError::Internal(
@@ -230,31 +261,93 @@ impl ConversationService {
             ));
         }
 
-        let (id, greeting) = self.start_session(careful_mode).await?;
+        // Build the complete deterministic session in memory and persist it
+        // only after every registry, composition, and confirmation check
+        // succeeds. A validation error must not leave a greeting-only orphan
+        // in the session store.
+        let mut session = Session::new(careful_mode);
+        let greeting = greeting_turn();
+        Arc::make_mut(&mut session.conversation).push(greeting.clone());
+        let id = session.id;
         let config_dir = self.config_dir.clone();
-        let store = self.store_handle();
-        store
-            .update(id, |session| {
-                let mut next = session.clone();
-                Arc::make_mut(&mut next.conversation)
-                    .push(crate::session::Turn::user(prose.clone()));
-                next.last_activity = chrono::Utc::now();
-                next.try_transition(crate::session::StateTrigger::AppendProse)
-                    .map_err(anyhow::Error::from)?;
+        let configure = || -> anyhow::Result<()> {
+            session.inputs = initial_inputs;
+            Arc::make_mut(&mut session.conversation)
+                .push(crate::session::Turn::user(prose.clone()));
+            session.last_activity = chrono::Utc::now();
+            session
+                .try_transition(crate::session::StateTrigger::AppendProse)
+                .map_err(anyhow::Error::from)?;
 
-                let result = crate::tools::append_intake_prose(&mut next, &prose, &config_dir);
+            let result = crate::tools::append_intake_prose(&mut session, &prose, &config_dir);
+            if result.is_error {
+                return Err(structured_tool_failure(
+                    result.content,
+                    "append_intake_prose failed",
+                ));
+            }
+
+            if let Some(requested_modality) = requested_modality.as_deref() {
+                // The form value is a direct SME decision, not merely a
+                // classifier hint. Always route it through the registry
+                // override, even when the keyword classifier happened to
+                // choose the same modality. The override also derives the
+                // modality's project class and records the SME decision.
+                let result = crate::tools::apply_sme_selected_modality(
+                    &mut session,
+                    requested_modality,
+                    &config_dir,
+                );
                 if result.is_error {
-                    let reason = serde_json::from_value::<crate::errors::ToolError>(result.content)
-                        .map(|err| err.short_reason())
-                        .unwrap_or_else(|_| "append_intake_prose failed".to_string());
-                    return Err(anyhow::anyhow!(reason));
+                    return Err(structured_tool_failure(
+                        result.content,
+                        "applying the structured modality selection failed",
+                    ));
                 }
+            }
 
-                *session = next;
-                Ok(())
-            })
+            if let Some(declaration) = requested_input_data_stage
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                let result = crate::tools::apply_sme_declared_input_stage(
+                    &mut session,
+                    declaration,
+                    &config_dir,
+                );
+                if result.is_error {
+                    return Err(structured_tool_failure(
+                        result.content,
+                        "resolving the structured starting product failed",
+                    ));
+                }
+            }
+
+            let summary = structured_plan_summary(&session, &prose);
+            let confirmation =
+                crate::tools::conversational::propose_summary_confirmation(&mut session, &summary);
+            if confirmation.is_error {
+                return Err(structured_tool_failure(
+                    confirmation.content,
+                    "structured plan confirmation failed",
+                ));
+            }
+            session.raise_initial_confirmation(summary);
+            Ok(())
+        };
+        configure().map_err(|error| {
+            error
+                .downcast_ref::<StructuredIntakeValidation>()
+                .map(|validation| ServiceError::Validation(validation.0.clone()))
+                .unwrap_or_else(|| ServiceError::Internal(error.to_string()))
+        })?;
+
+        self.store
+            .save(&session)
             .await
-            .map_err(|e| ServiceError::Internal(e.to_string()))?;
+            .map_err(|error| ServiceError::Internal(error.to_string()))?;
+        self.set_llm_availability(id, LlmAvailability::detect_from_env());
 
         Ok((id, greeting))
     }
@@ -387,6 +480,46 @@ impl ConversationService {
     pub fn session_turn_lock_for_test(&self, id: SessionId) -> SessionTurnMutex {
         self.session_turn_lock(id)
     }
+}
+
+/// Deterministic confirmation summary for the structured-intake path. The
+/// detailed task contracts remain visible in the Plan and Composition tabs;
+/// this card binds the SME's click to the objective, classification, registered
+/// inputs, and compiled task count without asking an unavailable chat model to
+/// restate them.
+fn structured_plan_summary(session: &Session, prose: &str) -> String {
+    let objective = prose
+        .lines()
+        .find_map(|line| line.strip_prefix("Goal: "))
+        .unwrap_or(prose)
+        .trim();
+    let modality = session
+        .classification
+        .as_ref()
+        .map(|classification| classification.modality.as_str())
+        .unwrap_or("unclassified");
+    let task_count = session
+        .workflow_dag
+        .as_ref()
+        .map(|dag| dag.nodes.len())
+        .or_else(|| session.dag.as_ref().map(|dag| dag.tasks.len()))
+        .unwrap_or(0);
+    let registration_count = session.inputs.len();
+    let file_count = session
+        .inputs
+        .iter()
+        .map(|input| input.files.len())
+        .sum::<usize>();
+
+    format!(
+        "Review the compiled workflow before emission.\n\n\
+         Objective: {objective}\n\
+         Modality: {modality}\n\
+         Registered inputs: {registration_count} registration(s), {file_count} file(s)\n\
+         Compiled plan: {task_count} task(s)\n\n\
+         Inspect the Plan and Composition tabs for the complete task and data-flow contracts. \
+         Click Accept only when the objective, inputs, and plan are correct."
+    )
 }
 
 #[cfg(test)]

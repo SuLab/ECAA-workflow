@@ -10,6 +10,8 @@ import { useConversation } from './useConversation'
 import * as chatClient from '../api/chatClient'
 import type { Turn } from '../types'
 
+vi.mock('../api/chatClient', { spy: true })
+
 function makeTurn(role: 'user' | 'assistant' | 'system', content: string): Turn {
   return {
     turn_id: `turn-${role}-${content.slice(0, 6)}`,
@@ -24,6 +26,7 @@ function makeTurn(role: 'user' | 'assistant' | 'system', content: string): Turn 
 }
 
 beforeEach(() => {
+  vi.clearAllMocks()
   // Default URL — fresh session creation path.
   Object.defineProperty(window, 'location', {
     writable: true,
@@ -283,6 +286,57 @@ describe('useConversation', () => {
     })
 
     expect(confirmSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not send a conversational follow-up after deterministic emission', async () => {
+    vi.spyOn(chatClient, 'createChatSession').mockResolvedValue({
+      session_id: 'sess-offline-confirm',
+      greeting: makeTurn('assistant', 'hi'),
+    })
+    const initialState = {
+      session_id: 'sess-offline-confirm',
+      state: { kind: 'pending_confirmation' } as any,
+      user_confirmed: false,
+      last_activity: '2026-07-29T00:00:00Z',
+      task_count: 3,
+      progress: { completed: 0, ready: 1, blocked: 0, pending: 2 },
+      title: null,
+      parent_session_id: null,
+      blocked_tasks: [],
+      pending_input_hints: [],
+    }
+    const emittedState = {
+      ...initialState,
+      state: { kind: 'emitted' } as any,
+      user_confirmed: true,
+      emitted_package_path: '/tmp/pkg',
+    }
+    let confirmed = false
+    vi.spyOn(chatClient, 'getChatState').mockImplementation(async () =>
+      confirmed ? emittedState : initialState,
+    )
+    vi.spyOn(chatClient, 'confirmChatSession').mockImplementation(async () => {
+      confirmed = true
+    })
+    const turnSpy = vi
+      .spyOn(chatClient, 'sendChatTurn')
+      .mockResolvedValue(makeTurn('assistant', 'should not run'))
+
+    const { result } = renderHook(() => useConversation())
+    await act(async () => {
+      await result.current.start()
+    })
+    await act(async () => {
+      await result.current.confirm()
+    })
+
+    expect(result.current.state?.state.kind).toBe('emitted')
+    expect(turnSpy).not.toHaveBeenCalled()
+    expect(
+      result.current.turns.some(
+        (turn) => turn.content === '(confirmed — please continue)',
+      ),
+    ).toBe(false)
   })
 
   it('rapid sendTurn calls only POST /turn once', async () => {

@@ -149,7 +149,7 @@ fn serialize_workflow_ordered(
     for (k, v) in obj.iter().filter(|(k, _)| k.as_str() != "tasks") {
         let key = serde_json::to_string(k)?;
         let val = serde_json::to_string_pretty(v)?.replace('\n', "\n  ");
-        let _ = write!(out, "  {key}: {val},\n");
+        let _ = writeln!(out, "  {key}: {val},");
     }
     out.push_str("  \"tasks\": {\n");
     for (i, k) in ordered.iter().enumerate() {
@@ -396,7 +396,7 @@ pub(super) fn register_deposit_entities(dst: &Path) -> Result<usize> {
     for e in graph.iter_mut() {
         if e.get("@id").and_then(Value::as_str) == Some("./") {
             match e.get_mut("hasPart").and_then(Value::as_array_mut) {
-                Some(hp) => hp.extend(new_haspart.drain(..)),
+                Some(hp) => hp.append(&mut new_haspart),
                 None => {
                     e["hasPart"] = Value::Array(std::mem::take(&mut new_haspart));
                 }

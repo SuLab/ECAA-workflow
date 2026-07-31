@@ -662,7 +662,7 @@ pub(crate) fn type_aggregator_fan_in_edges(dag: &mut WorkflowDag) {
         if members.is_empty() {
             continue;
         }
-        members.sort_by(|a, b| a.stable_id().cmp(&b.stable_id()));
+        members.sort_by_key(|a| a.stable_id());
         members.dedup_by(|a, b| a.stable_id() == b.stable_id());
         let union = if members.len() == 1 {
             members.into_iter().next().expect("len checked == 1 above")

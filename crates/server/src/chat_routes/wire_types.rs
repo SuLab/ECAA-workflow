@@ -53,6 +53,12 @@ pub struct StartSessionFromIntentRequest {
     /// Organism name or taxonomy ID; empty string when not specified.
     #[serde(default)]
     pub organism: String,
+    /// Scientific data product the registered files already represent, such as
+    /// raw reads, aligned reads, a count matrix, called peaks, or called
+    /// variants. Free text is resolved by the modality-gated intake type
+    /// classifier; empty means the workflow uses its default entry point.
+    #[serde(default)]
+    pub input_data_stage: String,
     /// Desired output types or deliverables described by the SME.
     #[serde(default)]
     pub desired_outputs: String,
@@ -62,6 +68,13 @@ pub struct StartSessionFromIntentRequest {
     /// When true, escalates to Opus for higher-confidence intake.
     #[serde(default)]
     pub careful_mode: bool,
+    /// Existing UI session whose registered inputs should seed the new
+    /// deterministic workflow session. The structured-intake form lives on a
+    /// normal session, so files can be uploaded before the SME submits the
+    /// form. Carrying only the manifest keeps the new session independent
+    /// while preserving the exact input bytes the SME selected.
+    #[serde(default)]
+    pub source_session_id: Option<SessionId>,
 }
 
 /// Request body for `POST /api/chat/session/:id/turn`.
@@ -92,6 +105,14 @@ pub struct SessionStateSnapshot {
     pub state: ecaa_workflow_conversation::SessionState,
     /// Whether the SME has clicked the Confirm button.
     pub user_confirmed: bool,
+    /// Project class used to enforce the matching confirmation discipline in
+    /// every UI mode, including the structured fallback used without chat.
+    ///
+    /// Optional on the wire so a UI can still inspect a snapshot emitted by a
+    /// pre-field server. This server always returns `Some`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub project_class: Option<ecaa_workflow_core::project_class::ProjectClass>,
     /// Timestamp of the most recent activity in this session.
     #[ts(type = "string")]
     pub last_activity: chrono::DateTime<chrono::Utc>,

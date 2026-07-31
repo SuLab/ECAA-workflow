@@ -37,7 +37,7 @@ use std::collections::BTreeSet;
 use crate::workflow_contracts::data_product::DataProductContract;
 use crate::workflow_contracts::port::PortContract;
 use crate::workflow_contracts::semantic_type::SemanticType;
-use crate::workflow_contracts::task_node::WorkflowDag;
+use crate::workflow_contracts::task_node::{TaskNode, WorkflowDag};
 
 /// Canonical semantic IRI for a gene-set / pathway gene-set collection
 /// (the GMT-style input the SME registers for pathway / gene-set
@@ -88,6 +88,22 @@ const READS_SEMANTIC_LABEL: &str = "Sequence reads";
 /// anchor. Mirrors `survey_method_landscape_synthesis`'s
 /// `DATA_CHARACTERIZATION_PRODUCERS` ingest-root pair.
 const INGEST_ROOT_IDS: &[&str] = &["data_acquisition", "data_import"];
+
+fn is_ingest_root(node: &TaskNode) -> bool {
+    INGEST_ROOT_IDS.iter().any(|catalog_id| {
+        node.id == *catalog_id
+            || node
+                .attributes
+                .get("atom_id")
+                .and_then(serde_json::Value::as_str)
+                == Some(*catalog_id)
+            || node
+                .attributes
+                .get("stage_id")
+                .and_then(serde_json::Value::as_str)
+                == Some(*catalog_id)
+    })
+}
 
 /// Lower-case helper for substring role/name matching.
 fn lc(s: &str) -> String {
@@ -272,13 +288,10 @@ pub fn surface_registered_source_ports(
     if registered_inputs.is_empty() {
         return;
     }
-    // Find the ingest-root anchor. `data_acquisition` first, then
-    // `data_import`; the two never coexist in a composed DAG.
-    let Some(anchor_idx) = dag
-        .nodes
-        .iter()
-        .position(|n| INGEST_ROOT_IDS.contains(&n.id.as_str()))
-    else {
+    // Find the ingest-root anchor by stable catalog identity. Composed
+    // cross-modality workflows namespace node ids but retain `atom_id` and
+    // `stage_id`, so aliases receive the same registered source ports.
+    let Some(anchor_idx) = dag.nodes.iter().position(is_ingest_root) else {
         return;
     };
 
@@ -440,6 +453,23 @@ mod tests {
                 .iter()
                 .map(|p| p.name.clone())
                 .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn surfaces_registered_output_on_namespaced_ingest_anchor() {
+        let mut dag = dag_with_anchor("rnaseq_data_acquisition");
+        dag.nodes[0].attributes.insert(
+            "atom_id".into(),
+            serde_json::Value::String("data_acquisition".into()),
+        );
+        surface_registered_source_ports(&mut dag, &[registered_gmt()]);
+        assert!(
+            dag.nodes[0]
+                .outputs
+                .iter()
+                .any(|port| port.semantic_type.stable_id() == GENE_SET_SEMANTIC_IRI),
+            "catalog identity must recognize an aliased ingest root"
         );
     }
 

@@ -570,7 +570,9 @@ fn artifact_name(csv_path: &Path) -> String {
 /// [`locate_unparseable_column`] name the column when the csv reader cannot.
 /// Aliases are listed alongside their canonical spelling because the producer
 /// may have written either.
-const TYPED_COLUMNS: &[(&str, fn(&str) -> bool)] = &[
+type TypedColumnPredicate = fn(&str) -> bool;
+
+const TYPED_COLUMNS: &[(&str, TypedColumnPredicate)] = &[
     ("evidence_quote_offset", cell_parses_as_u64),
     ("quote_start", cell_parses_as_u64),
     ("redistributable", cell_parses_as_bool),
@@ -1572,7 +1574,7 @@ pub fn run_claim_row_has_finding_id(
         // is a known PK — upstream PKs are unique gene/ensembl/peak/variant ids, so a
         // segment hit names the same finding rather than a coincidental collision.
         let segment_hit = fid
-            .split(|c: char| c == ':' || c == '_')
+            .split([':', '_'])
             .any(|seg| !seg.is_empty() && known.contains(seg));
         let resolved = known.contains(&fid)
             || known.contains(strip_us)
@@ -2407,10 +2409,9 @@ fn is_pseudogene_symbol_heuristic(sym: &str) -> bool {
     }
     // Trailing `P` preceded by a digit: `...3P` (processed-pseudogene marker).
     let bytes = up.as_bytes();
-    if bytes.len() >= 2 && bytes[bytes.len() - 1] == b'P' {
-        if bytes[bytes.len() - 2].is_ascii_digit() {
-            return true;
-        }
+    if bytes.len() >= 2 && bytes[bytes.len() - 1] == b'P' && bytes[bytes.len() - 2].is_ascii_digit()
+    {
+        return true;
     }
     false
 }
@@ -2468,10 +2469,10 @@ fn direction_concordant(
     if let (Some(&ce), Some(&te)) = (claimed_eff, truth_eff) {
         return (ce > 0.0 && te > 0.0) || (ce < 0.0 && te < 0.0) || (ce == 0.0 && te == 0.0);
     }
-    match concordance_flag.map(|f| f.trim().to_ascii_lowercase()) {
-        Some(f) if f == "same_direction" => true,
-        _ => false,
-    }
+    matches!(
+        concordance_flag.map(|f| f.trim().to_ascii_lowercase()),
+        Some(f) if f == "same_direction"
+    )
 }
 
 /// Severity of one classified symbol↔Ensembl disagreement (DR-10).
@@ -2574,7 +2575,7 @@ fn load_ensembl_effect_map(path: &Path) -> BTreeMap<String, f64> {
     let Some(mut rdr) = open_delimited_table(path) else {
         return out;
     };
-    let Ok(headers) = rdr.headers().map(|h| h.clone()) else {
+    let Ok(headers) = rdr.headers().cloned() else {
         return out;
     };
     let sample = sniff_table_rows(&mut rdr, ENTITY_ROLE_SNIFF_ROWS);

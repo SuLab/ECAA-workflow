@@ -908,3 +908,113 @@ fn d9_emitted_short_circuit_requires_both_state_and_package_path() {
          even if a stale emitted_package_path is present"
     );
 }
+
+#[test]
+fn confirmation_hash_binds_scientific_intent_inputs_and_topology() {
+    use crate::session::state::{UserInput, UserInputFile, UserInputKind};
+    use ecaa_workflow_core::project_class::ProjectClass;
+    use ecaa_workflow_core::workflow_contracts::task_node::TaskNode;
+
+    let input = |input_id: &str, root_path: &str, sha256: &str| UserInput {
+        input_id: input_id.to_string(),
+        label: "registered analysis inputs".into(),
+        kind: UserInputKind::UploadedFiles,
+        root_path: root_path.to_string(),
+        files: vec![UserInputFile {
+            relpath: "matrix.tsv".into(),
+            size_bytes: 1234,
+            sha256: sha256.to_string(),
+        }],
+        registered_at: chrono::Utc::now(),
+        registered_by: "sme".into(),
+    };
+
+    let mut baseline = Session::test_fixture_two_atom_dag();
+    baseline.intake_prose =
+        "Registered starting data product is a matrix; compare two cohorts.".into();
+    baseline.inputs = vec![input("random-a", "/host/a/session", &"a".repeat(64))];
+
+    let mut same_science = baseline.clone();
+    same_science.id = uuid::Uuid::new_v4();
+    same_science.inputs = vec![input("random-b", "/different/host", &"a".repeat(64))];
+    assert_eq!(
+        baseline.current_summary_hash(),
+        same_science.current_summary_hash(),
+        "host paths and random registration ids are not scientific plan content"
+    );
+
+    let baseline_hash = baseline.current_summary_hash();
+
+    let mut changed_bytes = baseline.clone();
+    changed_bytes.inputs[0].files[0].sha256 = "b".repeat(64);
+    assert_ne!(baseline_hash, changed_bytes.current_summary_hash());
+
+    let mut changed_registration_label = baseline.clone();
+    changed_registration_label.inputs[0].label = "different declared role".into();
+    assert_ne!(
+        baseline_hash,
+        changed_registration_label.current_summary_hash()
+    );
+
+    let mut changed_registration_kind = baseline.clone();
+    changed_registration_kind.inputs[0].kind = UserInputKind::LocalPath;
+    assert_ne!(
+        baseline_hash,
+        changed_registration_kind.current_summary_hash()
+    );
+
+    let mut changed_intent = baseline.clone();
+    changed_intent
+        .intake_prose
+        .push_str(" Include a third cohort.");
+    assert_ne!(baseline_hash, changed_intent.current_summary_hash());
+
+    let mut changed_class = baseline.clone();
+    changed_class.project_class = ProjectClass::ClinicalTrial;
+    assert_ne!(baseline_hash, changed_class.current_summary_hash());
+
+    let mut changed_topology = baseline.clone();
+    changed_topology
+        .workflow_dag
+        .as_mut()
+        .expect("fixture has workflow DAG")
+        .nodes
+        .push(TaskNode::skeleton("variant_annotation", "annotate"));
+    assert_ne!(baseline_hash, changed_topology.current_summary_hash());
+
+    let mut changed_contract = baseline.clone();
+    changed_contract
+        .workflow_dag
+        .as_mut()
+        .expect("fixture has workflow DAG")
+        .nodes[0]
+        .attributes
+        .insert("analysis_threshold".into(), serde_json::json!(0.01));
+    assert_ne!(
+        baseline_hash,
+        changed_contract.current_summary_hash(),
+        "task contract changes must invalidate confirmation even when topology is unchanged"
+    );
+
+    let mut changed_parameter = baseline.clone();
+    changed_parameter.sme_parameter_overrides.set(
+        "alignment",
+        "threads",
+        serde_json::json!(8),
+        ecaa_workflow_core::parameter_override::OverrideSource::Sme,
+    );
+    assert_ne!(
+        baseline_hash,
+        changed_parameter.current_summary_hash(),
+        "SME parameter values are part of the approved execution plan"
+    );
+
+    let mut changed_checkpoint_mode = baseline.clone();
+    changed_checkpoint_mode.checkpoint_mode =
+        ecaa_workflow_core::checkpoint_mode::CheckpointMode::Selective;
+    assert_ne!(
+        baseline_hash,
+        changed_checkpoint_mode.current_summary_hash(),
+        "checkpoint discipline is part of the approved execution plan"
+    );
+}

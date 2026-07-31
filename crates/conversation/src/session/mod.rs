@@ -534,22 +534,20 @@ impl Session {
         self.execution_token = None;
     }
 
-    /// Lowercase hex SHA-256 of the CURRENT plan-shape canonical
-    /// summary. `ConfirmationToken::summary_hash` is bound to this
-    /// value at mint time; an amendment or re-classification will
-    /// shift this digest so the token's `authorizes()` returns false
-    /// even before a state transition fires `clear_confirmation`.
-    ///
-    /// Matches the hex shape used by
-    /// [`crate::session::ConfirmationCard::summary_hash`] so an audit
-    /// replayer can cross-reference the token to the card on the
-    /// conversation tail byte-for-byte.
-    ///
-    /// Canonical input fields: `intake_methods` (BTreeMap-sorted by
-    /// key), `classification.modality` (if set).
-    /// These are the load-bearing "shape" of the next emit; any of
-    /// them changing means the next package is materially different
-    /// from what the SME approved.
+    /// Raise the initial plan summary produced by deterministic structured
+    /// intake. This is the no-chat counterpart of the
+    /// `propose_summary_confirmation` tool: it presents a real confirmation
+    /// card and mints no confirmation token. The SME must still click Accept.
+    pub fn raise_initial_confirmation(&mut self, summary_markdown: impl Into<String>) {
+        if !matches!(
+            self.state,
+            crate::session::SessionState::Intake | crate::session::SessionState::IntakeFollowup
+        ) {
+            return;
+        }
+        self.raise_confirmation(summary_markdown);
+    }
+
     /// After an SME REST edit (amend/rerun/parameter/bound) or a branch of an
     /// emitted parent has drained the session to `ReadyToEmit`, deterministically
     /// re-raise the plan summary confirmation card and move to
@@ -567,6 +565,14 @@ impl Session {
         if !matches!(self.state, crate::session::SessionState::ReadyToEmit) {
             return;
         }
+        self.raise_confirmation(summary_markdown);
+    }
+
+    /// Shared confirmation-card constructor for deterministic initial intake
+    /// and deterministic re-emission. Callers guard the allowed source state;
+    /// every accepted source has a legal `ProposeSummaryConfirmation`
+    /// transition.
+    fn raise_confirmation(&mut self, summary_markdown: impl Into<String>) {
         // REST edits clear pending_emission_id to None; re-derive it from the
         // canonical plan-shape hash (idempotent on an unchanged plan).
         if self.pending_emission_id.is_none() {
@@ -576,20 +582,17 @@ impl Session {
         }
         let summary_markdown = summary_markdown.into();
         let summary_hash = crate::tools::conversational::summary_hash_of(&summary_markdown);
+        let retained_optional_stages = self
+            .workflow_dag
+            .as_ref()
+            .map(crate::session::RetainedOptionalStage::from_workflow_dag)
+            .filter(|stages| !stages.is_empty());
         let card = crate::session::ConfirmationCard {
             summary_markdown: summary_markdown.clone(),
             summary_hash,
             resource_estimate: None,
-            retained_optional_stages: None,
+            retained_optional_stages,
         };
-        let mut turn = crate::session::Turn::assistant(summary_markdown);
-        turn.intent = Some(crate::session::AssistantIntent::SummaryConfirm);
-        turn.confirmation_card = Some(card);
-        std::sync::Arc::make_mut(&mut self.conversation).push(turn);
-        // ReadyToEmit → PendingConfirmation (added arm). Infallible given the
-        // guard above; tolerate an unexpected state without panicking, but log
-        // it (silent `let _ = ...try_transition` drops are forbidden — they hide
-        // exactly this class of state race).
         if let Err(e) =
             self.try_transition(crate::session::StateTrigger::ProposeSummaryConfirmation)
         {
@@ -598,11 +601,26 @@ impl Session {
                 trigger = "ProposeSummaryConfirmation",
                 state = ?self.state,
                 error = %e,
-                "raise_reemit_confirmation: unexpected transition failure (tolerated)"
+                "raise_confirmation: unexpected transition failure (tolerated)"
             );
+            return;
         }
+        let mut turn = crate::session::Turn::assistant(summary_markdown);
+        turn.intent = Some(crate::session::AssistantIntent::SummaryConfirm);
+        turn.confirmation_card = Some(card);
+        std::sync::Arc::make_mut(&mut self.conversation).push(turn);
     }
 
+    /// Lowercase hex SHA-256 of the current canonical plan shape.
+    /// `ConfirmationToken::summary_hash` is bound to this value at mint time;
+    /// an amendment or re-classification shifts the digest so the token's
+    /// `authorizes()` returns false even before a state transition fires
+    /// `clear_confirmation`.
+    ///
+    /// Canonical input fields include the intake text, selected methods,
+    /// project class, input-file manifests, exclusions, and DAG topology.
+    /// Any of them changing means the next package is materially different
+    /// from what the SME approved.
     pub fn current_summary_hash(&self) -> String {
         use sha2::{Digest, Sha256};
         let mut h = Sha256::new();
@@ -624,20 +642,145 @@ impl Session {
     }
 
     fn canonical_summary_input(&self) -> serde_json::Value {
-        // Pick stable fields that define the "shape" of the next
-        // emit. `intake_methods` is the per-stage method registry;
-        // `modality` is the classifier output. Adding fields here
-        // forces a re-confirm on legacy sessions where the field
-        // would have been absent; we keep the set deliberately small.
+        // Pick stable fields that define the shape and scientific intent of the
+        // next emit. File manifests intentionally omit host paths, registration
+        // timestamps, and random input ids. DAG topology intentionally omits
+        // the session-scoped workflow id. Identical intent and input bytes
+        // therefore retain the content-addressed emission-id invariant across
+        // independent sessions.
         let intake = serde_json::to_value(&self.intake_methods).unwrap_or(serde_json::Value::Null);
         let modality = self
             .classification
             .as_ref()
             .map(|c| c.modality.clone())
             .unwrap_or_default();
+        let mut input_manifests = self
+            .inputs
+            .iter()
+            .map(|input| {
+                let mut files = input
+                    .files
+                    .iter()
+                    .map(|file| (file.relpath.clone(), file.size_bytes, file.sha256.clone()))
+                    .collect::<Vec<_>>();
+                files.sort();
+                (
+                    input.label.clone(),
+                    input.kind,
+                    files
+                        .into_iter()
+                        .map(|(relpath, size_bytes, sha256)| {
+                            serde_json::json!({
+                                "relpath": relpath,
+                                "size_bytes": size_bytes,
+                                "sha256": sha256,
+                            })
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect::<Vec<_>>();
+        input_manifests.sort_by(|left, right| {
+            left.0
+                .cmp(&right.0)
+                .then_with(|| {
+                    serde_json::to_string(&left.1)
+                        .unwrap_or_default()
+                        .cmp(&serde_json::to_string(&right.1).unwrap_or_default())
+                })
+                .then_with(|| {
+                    serde_json::to_string(&left.2)
+                        .unwrap_or_default()
+                        .cmp(&serde_json::to_string(&right.2).unwrap_or_default())
+                })
+        });
+        let input_manifests = input_manifests
+            .into_iter()
+            .map(|(label, kind, files)| {
+                serde_json::json!({
+                    "label": label,
+                    "kind": kind,
+                    "files": files,
+                })
+            })
+            .collect::<Vec<_>>();
+        let mut workflow_dag = self.workflow_dag.clone();
+        if let Some(dag) = workflow_dag.as_mut() {
+            // The workflow id contains the session-scoped intent id. All task,
+            // port, proof, assumption, and source-template content remains in
+            // the fingerprint; only this non-scientific identity is removed.
+            dag.id.clear();
+            dag.nodes.sort_by(|left, right| left.id.cmp(&right.id));
+            dag.edges.sort_by(|left, right| {
+                (
+                    left.from_node.as_str(),
+                    left.from_port.as_str(),
+                    left.to_node.as_str(),
+                    left.to_port.as_str(),
+                )
+                    .cmp(&(
+                        right.from_node.as_str(),
+                        right.from_port.as_str(),
+                        right.to_node.as_str(),
+                        right.to_port.as_str(),
+                    ))
+            });
+            dag.assumptions
+                .entries
+                .sort_by(|left, right| left.id.cmp(&right.id));
+        }
+        let workflow_dag = serde_json::to_value(workflow_dag).unwrap_or(serde_json::Value::Null);
+
+        let mut workflow_intent = self
+            .workflow_intent
+            .as_ref()
+            .and_then(|intent| serde_json::to_value(intent).ok())
+            .unwrap_or(serde_json::Value::Null);
+        if let Some(intent) = workflow_intent.as_object_mut() {
+            // The intent id is the random session UUID. Input contracts are
+            // still bound below by semantic facets and by their byte manifests,
+            // while host-specific locators and random product ids are omitted.
+            intent.remove("id");
+            if let Some(available) = intent
+                .get_mut("available_data")
+                .and_then(serde_json::Value::as_array_mut)
+            {
+                for product in available.iter_mut() {
+                    if let Some(product) = product.as_object_mut() {
+                        product.remove("id");
+                        if let Some(physical) = product
+                            .get_mut("physical")
+                            .and_then(serde_json::Value::as_object_mut)
+                        {
+                            physical.remove("uri");
+                        }
+                    }
+                }
+                available.sort_by_key(|product| serde_json::to_string(product).unwrap_or_default());
+            }
+        }
+
+        let mut excluded_atoms = self.excluded_atoms.clone();
+        excluded_atoms.sort();
+        excluded_atoms.dedup();
         serde_json::json!({
+            "intake_prose": self.intake_prose,
             "intake_methods": intake,
+            "classification": self.classification,
             "modality": modality,
+            "project_class": self.project_class,
+            "taxonomy": self.taxonomy,
+            "workflow_intent": workflow_intent,
+            "archetype_snapshot": self.archetype_snapshot,
+            "excluded_atoms": excluded_atoms,
+            "input_manifests": input_manifests,
+            "workflow_dag": workflow_dag,
+            "active_policy_bundle": self.active_policy_bundle,
+            "session_mode": self.mode,
+            "checkpoint_mode": self.checkpoint_mode,
+            "parameter_overrides": self.sme_parameter_overrides,
+            "validation_bounds": self.sme_validation_bounds,
+            "runtime_overrides": self.atom_runtime_overrides,
         })
     }
 }

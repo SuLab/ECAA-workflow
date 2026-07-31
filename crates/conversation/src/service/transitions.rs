@@ -258,74 +258,69 @@ impl ConversationService {
                     return Err(anyhow::anyhow!(
                         "precondition_failure: ClinicalTrial sessions must pick \
                          an Analysis discipline (Exploratory or Confirmatory) \
-                         before confirming. Re-send /confirm with a non-null `mode` field."
+                        before confirming. Re-send /confirm with a non-null `mode` field."
                     ));
                 }
+                let effective_mode = if is_first_confirm {
+                    mode.clone().unwrap_or_else(|| s.mode.clone())
+                } else {
+                    s.mode.clone()
+                };
+                let effective_checkpoint = if is_first_confirm {
+                    checkpoint_mode.unwrap_or(s.checkpoint_mode)
+                } else {
+                    s.checkpoint_mode
+                };
+                // Validate the requested discipline before changing state. The
+                // store keeps the in-memory object locked even when a closure
+                // returns an error, so precondition checks must be mutation-free.
+                if let Err(reason) = effective_checkpoint
+                    .ensure_compatible_with_confirmatory(effective_mode.is_confirmatory())
+                {
+                    return Err(anyhow::anyhow!("precondition_failure: {}", reason));
+                }
+                // The pending emission id is the content-addressed identity of
+                // the plan for which the visible confirmation card was raised.
+                // Reject a stale click if any scientific input, task contract,
+                // exclusion, or policy changed without successfully re-arming
+                // confirmation. Mode/checkpoint choices are applied only after
+                // this comparison because the SME selects them on the card.
+                let visible_plan_hash = s.current_summary_hash();
+                let expected_pending_id =
+                    uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, visible_plan_hash.as_bytes());
+                if s.pending_emission_id != Some(expected_pending_id) {
+                    return Err(anyhow::anyhow!(
+                        "precondition_failure: the plan changed after this confirmation card was \
+                         raised; rebuild the plan and review a fresh confirmation card"
+                    ));
+                }
+
                 s.try_transition(StateTrigger::UserClickedConfirm)
                     .map_err(|e| anyhow::anyhow!("{}", e))?;
-                // Mint a per-emit token bound to the current
-                // `pending_emission_id` and the current plan summary
-                // hash. `emit_package`'s precondition verifies the
-                // token authorizes the pending emission, so an
-                // amendment between confirm and emit forces a
-                // re-confirm.
-                //
-                // pending_emission_id is set when the session
-                // transitions INTO PendingConfirmation; if it's
-                // somehow missing here, mint as a no-op (returns
-                // None) and let `is_confirmed()` keep returning false.
-                // The state machine should make this branch
-                // unreachable; we don't fail hard so a legacy
-                // PendingConfirmation session without the new field
-                // can still confirm (the next emit will refuse via
-                // the precondition gate).
-                //
-                // Audit actor: today the inner `update` closure
-                // doesn't carry the principal across the boundary;
-                // we stamp `System` as a transitional placeholder. A
-                // follow-up will thread the actor through
-                // `confirm_with_modes` so the token captures the
-                // exact owner-user (or share viewer / harness agent)
-                // that clicked.
-                if s.pending_emission_id.is_none() {
-                    // Legacy fallback: PendingConfirmation reached
-                    // without going through propose_summary_confirmation.
-                    // Derive from the canonical summary hash (UUIDv5
-                    // over NAMESPACE_OID) to preserve the §G2 invariant
-                    // even on the legacy path — `Uuid::new_v4()` would
-                    // mint a random id and break "identical confirmed
-                    // plan ⇒ identical emission id" for any session that
-                    // bypasses propose_summary_confirmation.
-                    let summary_hash = s.current_summary_hash();
-                    let derived =
-                        uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, summary_hash.as_bytes());
-                    s.pending_emission_id = Some(derived);
+                if is_first_confirm {
+                    s.mode = effective_mode;
+                    s.checkpoint_mode = effective_checkpoint;
                 }
+                s.mode_locked = true;
+
+                // Mode and checkpoint discipline are material plan controls.
+                // Re-derive the content-addressed emission id after applying
+                // them, then mint the token against that exact canonical plan.
+                // This also repairs legacy PendingConfirmation sessions whose
+                // id was derived from the earlier, narrower fingerprint.
+                let canonical_hash = s.current_summary_hash();
+                s.pending_emission_id = Some(uuid::Uuid::new_v5(
+                    &uuid::Uuid::NAMESPACE_OID,
+                    canonical_hash.as_bytes(),
+                ));
+                // Audit actor: today the inner `update` closure does not carry
+                // the principal across the boundary, so `System` remains the
+                // transitional token actor. The durable decision immediately
+                // below records the SME click.
                 let _ = s.mint_confirmation_token(
                     chrono::Utc::now(),
                     crate::audit_actor::AuditActor::System,
                 );
-                if let Some(m) = mode {
-                    if !s.mode_locked {
-                        s.mode = m;
-                    }
-                }
-                if let Some(cp) = checkpoint_mode {
-                    if !s.mode_locked {
-                        s.checkpoint_mode = cp;
-                    }
-                }
-                // Confirmatory + fast is forbidden. defer
-                // to the canonical helper so any future surface that
-                // mutates checkpoint_mode after confirm enforces the
-                // same invariant via one predicate.
-                if let Err(reason) = s
-                    .checkpoint_mode
-                    .ensure_compatible_with_confirmatory(s.mode.is_confirmatory())
-                {
-                    return Err(anyhow::anyhow!("precondition_failure: {}", reason));
-                }
-                s.mode_locked = true;
                 // Attach the most-recently-raised
                 // confirmation card's `summary_hash` so the audit
                 // record fingerprints the exact text the SME saw at
@@ -1308,6 +1303,81 @@ impl ConversationService {
         // and `workflow_dag` is None anyway; the splice from signoff is
         // the only dag content, and the next rebuild will re-inject it
         // via the promoted-node pass added to `rebuild_dag`.
+        Ok(())
+    }
+
+    /// Recompose a pre-emission workflow after its registered input manifest
+    /// changes. Input files are scientific plan inputs, not passive UI
+    /// attachments: the manifest participates in the confirmation fingerprint
+    /// and can source required task ports at execution time.
+    ///
+    /// A change made while the confirmation card is visible invalidates that
+    /// card, rebuilds under the new manifest, and raises a fresh deterministic
+    /// card. Emitted sessions are intentionally excluded because their input
+    /// routes mirror new registrations into the existing package for blocker
+    /// recovery rather than silently changing its DAG.
+    pub async fn rebuild_dag_after_input_change(&self, id: SessionId) -> Result<(), ServiceError> {
+        let store = self.store_handle();
+        store.get(id).await.ok_or(ServiceError::SessionNotFound)?;
+        let config_dir = self.config_dir().clone();
+
+        let saved = store
+            .update(id, |session| {
+                // SessionStore retains in-memory mutations when an update
+                // closure returns an error. Recompose a clone and publish it
+                // only after every transition and confirmation check succeeds.
+                let mut next = session.clone();
+                let rearm_confirmation = matches!(
+                    next.state,
+                    crate::session::SessionState::PendingConfirmation { .. }
+                );
+                let pre_emission = matches!(
+                    next.state,
+                    crate::session::SessionState::Intake
+                        | crate::session::SessionState::IntakeFollowup
+                        | crate::session::SessionState::PendingConfirmation { .. }
+                );
+                if !pre_emission || next.classification.is_none() || next.taxonomy.is_none() {
+                    return Ok(());
+                }
+
+                if rearm_confirmation {
+                    next.try_transition(crate::session::StateTrigger::UserClickedReject)
+                        .map_err(anyhow::Error::from)?;
+                    next.clear_confirmation();
+                    next.pending_emission_id = None;
+                }
+                crate::tools::rebuild_dag(&mut next, &config_dir)
+                    .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+
+                if rearm_confirmation {
+                    let summary = super::structured_plan_summary(&next, &next.intake_prose.clone());
+                    let confirmation = crate::tools::conversational::propose_summary_confirmation(
+                        &mut next, &summary,
+                    );
+                    if confirmation.is_error {
+                        let reason = serde_json::from_value::<crate::errors::ToolError>(
+                            confirmation.content,
+                        )
+                        .map(|error| error.short_reason())
+                        .unwrap_or_else(|_| {
+                            "rebuilding the structured confirmation card failed".to_string()
+                        });
+                        return Err(anyhow::anyhow!(reason));
+                    }
+                    next.raise_initial_confirmation(summary);
+                }
+                *session = next;
+                Ok(())
+            })
+            .await
+            .map_err(|error| {
+                ServiceError::Internal(format!("save after input recomposition failed: {error}"))
+            })?;
+
+        if let Some(sink) = self.event_sink() {
+            sink.state_advanced(id, &saved.state);
+        }
         Ok(())
     }
 }

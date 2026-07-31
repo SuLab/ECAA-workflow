@@ -31,10 +31,12 @@ figure_exempt:
 inputs:
   - name: decomposed_components
     semantic_type:
-      kind: ontology_term
-      iri: "data:3134"
-      label: "Gene expression matrix"
-      ontology_version: "EDAM-1.25"
+      kind: local_extension
+      namespace: "ecaax"
+      id: "time_series_decomposition"
+      proposed_parent_terms:
+        - "data:0006"
+      definition: "Trend, seasonal, and residual components with stationarity diagnostics."
     physical_format:
       iri: "format:3475"
       label: "Tabular text"
@@ -42,11 +44,13 @@ inputs:
 outputs:
   - name: fitted_model
     semantic_type:
-      kind: ontology_term
-      iri: "data:3134"
-      label: "Gene expression matrix"
-      ontology_version: "EDAM-1.25"
+      kind: local_extension
+      namespace: "ecaax"
+      id: "fitted_model"
+      proposed_parent_terms:
+        - "data:0006"
+      definition: "Serialized forecasting model with fit and residual diagnostics."
     physical_format:
-      iri: "format:3475"
-      label: "Tabular text"
+      iri: "format:3464"
+      label: "JSON"
     privacy_class: internal

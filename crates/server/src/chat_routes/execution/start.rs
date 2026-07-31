@@ -230,7 +230,7 @@ async fn start_execution_inner(
     // before burning a rate-limit token or minting an execution latch.
     if let Some(session) = app.conversation.get_session(session_id).await {
         if let Err(resp) = crate::chat_routes::package_import::ensure_not_imported(&session) {
-            return resp;
+            return resp.into_response();
         }
     }
     // Every

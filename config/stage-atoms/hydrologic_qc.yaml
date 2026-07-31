@@ -23,3 +23,27 @@ resource_profile:
   memory: medium
   gpu: false
   runtime_class: minutes
+inputs:
+  - name: imported_dataset
+    semantic_type:
+      kind: ontology_term
+      iri: "data:2531"
+      label: "Experiment annotation"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal
+outputs:
+  - name: cleaned_time_series
+    semantic_type:
+      kind: local_extension
+      namespace: "ecaax"
+      id: "time_series_data"
+      proposed_parent_terms:
+        - "data:0006"
+      definition: "Quality-controlled numeric time-indexed observations."
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal

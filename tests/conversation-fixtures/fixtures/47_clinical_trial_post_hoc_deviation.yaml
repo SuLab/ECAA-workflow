@@ -13,6 +13,11 @@ flow:
       analyzed by logistic regression on the ITT population. Secondary:
       DAS28-CRP MMRM. Confirmatory.
   - kind: confirm
+    mode:
+      kind: confirmatory
+      prespecified_stages:
+        - primary_endpoint
+    checkpoint_mode: gated
   - kind: user
     text: "(confirmed — please continue)"
 
@@ -40,10 +45,9 @@ mock_responses:
       output_dir: "{tempdir}"
   - kind: text
     text: |
-      Package emitted. In production the UI dropdown would carry the
-      prespec_stages selection; the fixture runner's confirm button
-      defaults to Exploratory, so this fixture exercises the emission
-      path only. The deviation-gate unit-test coverage lives in
+      Package emitted. The fixture confirmation carries the same
+      prespecified-stage selection as the public UI. The deviation-gate
+      unit-test coverage lives in
       crates/conversation/src/tools/tests.rs::
       confirmatory_amend_of_prespecified_stage_requires_rationale.
 

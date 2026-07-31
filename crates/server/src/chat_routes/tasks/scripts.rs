@@ -66,7 +66,7 @@ pub async fn post_rerun_script(
     };
     // Imported (read-only) packages must never execute host scripts.
     if let Err(resp) = crate::chat_routes::package_import::ensure_not_imported(&session) {
-        return resp;
+        return resp.into_response();
     }
     let Some(pkg) = session.emitted_package_path.clone() else {
         return (StatusCode::BAD_REQUEST, "session has no emitted package").into_response();

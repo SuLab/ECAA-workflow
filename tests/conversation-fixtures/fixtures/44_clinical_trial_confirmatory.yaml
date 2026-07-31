@@ -15,6 +15,12 @@ flow:
       and HAQ-DI change via MMRM with hierarchical multiplicity testing.
       Sensitivity: per-protocol and tipping-point.
   - kind: confirm
+    mode:
+      kind: confirmatory
+      prespecified_stages:
+        - primary_endpoint
+        - secondary_endpoints
+    checkpoint_mode: gated
   - kind: user
     text: "(confirmed — please continue)"
 
@@ -69,8 +75,7 @@ expected_final_state:
     - runtime/intake-conversation.jsonl
 
 rubric_notes: |
-  The confirmation card for a ClinicalTrial session shows an
-  "Analysis discipline" dropdown with no default — the SME must
-  pick Exploratory or Confirmatory before Confirm activates (plan
-  §8.C.2 / D8). This fixture exercises the Exploratory path; a sibling
-  fixture (42) covers the Confirmatory + PostHocDeviation gate.
+  The confirmation card for a ClinicalTrial session requires the SME
+  to pick Exploratory or Confirmatory before Confirm activates. This
+  fixture exercises the confirmatory path with explicit prespecified
+  primary and secondary endpoint stages.

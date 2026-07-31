@@ -220,6 +220,10 @@ impl IntakeFacts {
             "already processed",
             "provided",
             "prepared",
+            "registered",
+            "uploaded",
+            "supplied",
+            "attached",
             "start from",
             "starting from",
             "no raw",
@@ -845,6 +849,68 @@ mod tests {
                 "expected NO input stage (default raw) for: {prose:?}"
             );
         }
+    }
+
+    #[test]
+    fn structured_registration_markers_resolve_across_modalities() {
+        // Structured intake and upload UIs use these possession words. Keep the
+        // mapping at the shared modality-gated resolver so every archetype path
+        // gets identical semantics and an unrelated modality cannot inherit a
+        // product type merely because its name appeared in the request.
+        for (prose, modality, expected_iri) in [
+            (
+                "registered starting data product is a count matrix",
+                "bulk_rnaseq",
+                "data:3917",
+            ),
+            (
+                "uploaded starting data product is a set of called peaks",
+                "atac_seq",
+                "data:1255",
+            ),
+            (
+                "attached starting data product is a VCF of called variants",
+                "variant_calling",
+                "data:3498",
+            ),
+            (
+                "supplied starting data product is a protein abundance matrix",
+                "proteomics",
+                "data:2976",
+            ),
+            (
+                "registered starting data product is a beta matrix",
+                "methylation",
+                "data:3917",
+            ),
+            (
+                "uploaded starting data product is a taxonomy table",
+                "metagenomics",
+                "data:3028",
+            ),
+            (
+                "attached starting data product is aligned BAM files",
+                "chip_seq",
+                "data:0863",
+            ),
+        ] {
+            let product = IntakeFacts::detect_input_data_stage(prose, Some(modality))
+                .unwrap_or_else(|| panic!("expected a supplied input stage for {prose:?}"));
+            assert_eq!(
+                product.semantic_type.stable_id(),
+                expected_iri,
+                "wrong supplied product for modality {modality}"
+            );
+        }
+
+        assert!(
+            IntakeFacts::detect_input_data_stage(
+                "uploaded starting data product is a count matrix",
+                Some("chip_seq"),
+            )
+            .is_none(),
+            "modality gating must reject a count-matrix seed on ChIP-seq"
+        );
     }
 
     #[test]

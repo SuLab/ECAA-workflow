@@ -80,6 +80,13 @@ pub struct PlanningContext {
     /// `cross_omics_rnaseq_proteomics`) require the namespaced
     /// parallel-pipeline scaffold the cross-omics archetypes encode.
     pub additional_modalities: Vec<String>,
+    /// Exact archetype selected through a schema-validated SME intake
+    /// control. When set, the planner must evaluate this catalog route as
+    /// the primary candidate and must not replace it with a heuristic search
+    /// result. Scientific or policy blockers on the selected archetype remain
+    /// visible in the resulting typed outcome; selection never turns a failed
+    /// contract into a pass.
+    pub selected_archetype_id: Option<String>,
     /// True while planning a single modality as one branch of a
     /// multi-branch composition. Set by `compose_branches` on each
     /// per-modality sub-context so the top-of-`plan()` multi-branch

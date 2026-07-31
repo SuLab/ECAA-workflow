@@ -73,7 +73,7 @@ use std::collections::BTreeSet;
 use crate::atom_registry::AtomRegistry;
 use crate::compatibility::engine::DeterministicCompatibilityEngine;
 use crate::composer_v4::planner::pick_best_port_pair;
-use crate::workflow_contracts::edge::{EdgeContract, EdgeKind};
+use crate::workflow_contracts::edge::EdgeContract;
 use crate::workflow_contracts::evidence::{
     Assumption, AssumptionResolution, AssumptionSource, RiskClass,
 };
@@ -355,6 +355,7 @@ fn synthesize_validator_node(validate_id: &str, target_id: &str, target_intent: 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::workflow_contracts::edge::EdgeKind;
     use crate::workflow_contracts::evidence::AssumptionLedger;
     use crate::workflow_contracts::port::PortContract;
 

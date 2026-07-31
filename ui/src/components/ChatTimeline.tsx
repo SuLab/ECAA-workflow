@@ -29,6 +29,10 @@ interface Props {
   /** Threaded to the latest assistant turn's ConfirmationTurnCard so the
    *  SME can drop a retained optional stage before emit. */
   onRemoveOptionalStage?: (stageId: string) => void | Promise<void>
+  /** Render every row without Virtuoso. Used for small deterministic
+   *  control surfaces that must remain actionable before layout
+   *  measurement is available. */
+  virtualize?: boolean
 }
 
 // Sentinel turn_id we splice onto the end of the rendered list when an
@@ -48,6 +52,7 @@ function ChatTimeline({
   sessionId,
   onBranch,
   onRemoveOptionalStage,
+  virtualize = true,
 }: Props) {
   const virtuosoRef = useRef<VirtuosoHandle>(null)
 
@@ -127,6 +132,71 @@ function ChatTimeline({
         >
           Tell me about the analysis you're planning. I'll work through it with you.
         </div>
+      </div>
+    )
+  }
+
+  if (!virtualize) {
+    return (
+      <div
+        role="log"
+        aria-live="polite"
+        aria-relevant="additions text"
+        style={{
+          flex: 1,
+          minHeight: 0,
+          overflowY: 'auto',
+          padding: '0.75rem',
+          background: 'var(--color-surface-1)',
+        }}
+      >
+        {visible.map((turn) => {
+          const realIndex = indexMap.get(turn.turn_id) ?? -1
+          if (turn.role === 'user') {
+            return (
+              <div key={turn.turn_id} style={{ paddingBottom: '0.6rem' }}>
+                <UserTurnCard turn={turn} />
+              </div>
+            )
+          }
+          return (
+            <div key={turn.turn_id} style={{ paddingBottom: '0.6rem' }}>
+              <AssistantTurnCard
+                turn={turn}
+                isLatest={realIndex === lastAssistantIdx && !showStreaming}
+                isLatestConfirmationCard={realIndex === lastConfirmationCardIdx}
+                pillStatusLine={
+                  realIndex === lastAssistantIdx && !showStreaming
+                    ? pillStatusLine
+                    : null
+                }
+                onConfirm={onConfirm}
+                onReject={onReject}
+                onQuickReply={onQuickReply}
+                projectClass={projectClass}
+                sessionId={sessionId ?? undefined}
+                onBranch={
+                  realIndex === lastAssistantIdx && !showStreaming
+                    ? onBranch
+                    : undefined
+                }
+                onRemoveOptionalStage={
+                  realIndex === lastConfirmationCardIdx
+                    ? onRemoveOptionalStage
+                    : undefined
+                }
+              />
+            </div>
+          )
+        })}
+        {showStreaming && (
+          <div style={{ paddingBottom: '0.6rem' }}>
+            <InFlightAssistantBubble
+              text={streamingText!}
+              pillStatusLine={pillStatusLine}
+            />
+          </div>
+        )}
       </div>
     )
   }

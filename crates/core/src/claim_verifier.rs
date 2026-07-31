@@ -94,9 +94,8 @@ fn id_namespace(token: &str) -> &'static str {
         return "set";
     }
     let upper = t.to_ascii_uppercase();
-    if upper.starts_with("ENS") {
+    if let Some(rest) = upper.strip_prefix("ENS") {
         // ENS + optional species (up to 4 letters) + G/T/P + ≥6 digits.
-        let rest = &upper[3..];
         let letters: String = rest
             .chars()
             .take_while(|c| c.is_ascii_alphabetic())
@@ -1139,10 +1138,8 @@ fn numeric_token_owned_by_claim(
     let distance = |start: usize, end: usize| {
         if end <= token.start {
             token.start - end
-        } else if token.end <= start {
-            start - token.end
         } else {
-            0
+            start.saturating_sub(token.end)
         }
     };
     let min_distance = spans
@@ -2818,7 +2815,7 @@ fn verify_one(
                     .fold(None, |acc: Option<f64>, v| {
                         Some(acc.map_or(v, |a: f64| a.max(v)))
                     });
-                let non_significant = max_p.map_or(true, |p| p >= 0.05);
+                let non_significant = max_p.is_none_or(|p| p >= 0.05);
                 if non_significant {
                     return ClaimStatus::Unverifiable {
                         reason: format!(
@@ -4442,7 +4439,7 @@ fn verify_count_claim_in_table(
         let noun_caps = noun_caps?;
         let claimed_n = parse_count(noun_caps.get(1)?.as_str())?;
         if is_grouping_noun(&noun) {
-            if let Some(col) = grouping_column(&cached, &noun) {
+            if let Some(col) = grouping_column(cached, &noun) {
                 let mut seen: std::collections::BTreeSet<String> =
                     std::collections::BTreeSet::new();
                 for row in &cached.rows {
@@ -5110,7 +5107,7 @@ fn aggregate_count_directions(
 /// figures read as rounded approximations, so VF-16 abstains rather than
 /// exact-matching them against a recompute.
 fn is_round_count(n: f64) -> bool {
-    if !(n >= 1000.0) || n.fract() != 0.0 || (n % 100.0) != 0.0 {
+    if n.is_nan() || n < 1000.0 || n.fract() != 0.0 || (n % 100.0) != 0.0 {
         return false;
     }
     format!("{}", n as i64).trim_end_matches('0').len() < 3
@@ -6551,8 +6548,8 @@ pub fn verify_narrative_counts(
         // never creates a Mismatch.
         let mut inferred = BTreeSet::new();
         for path in &candidate_paths {
-            let verified = ensure_count_cached(&mut cache, &path, cfg, noun)
-                .and_then(|cached| verify_count_claim_in_table(s, &path, cfg, cached))
+            let verified = ensure_count_cached(&mut cache, path, cfg, noun)
+                .and_then(|cached| verify_count_claim_in_table(s, path, cfg, cached))
                 .is_some_and(|status| matches!(status, ClaimStatus::Verified));
             if verified {
                 inferred.insert(path.clone());

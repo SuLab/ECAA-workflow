@@ -5,7 +5,7 @@
 use crate::session::{AssistantIntent, Turn};
 use std::time::Duration;
 
-/// `ServiceError` carries the three failure shapes the
+/// `ServiceError` carries the four failure shapes the
 /// service layer surfaces back to its caller. Migrated to
 /// `thiserror::Error` per the round-3 stay-on-anyhow-plus-thiserror
 /// decision; the manual `Display` + `Error` impls live in
@@ -18,6 +18,10 @@ pub enum ServiceError {
     /// The LLM backend returned an unrecoverable error.
     #[error("llm backend error: {0}")]
     Backend(String),
+    /// Structured intake supplied a value that could not be resolved against
+    /// the active catalog or compiled workflow contract.
+    #[error("validation error: {0}")]
+    Validation(String),
     /// An unexpected server-side error occurred in the service layer.
     #[error("internal error: {0}")]
     Internal(String),

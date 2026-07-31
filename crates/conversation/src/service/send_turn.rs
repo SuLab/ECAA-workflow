@@ -153,6 +153,9 @@ impl ConversationService {
         let baseline_conversation_len = session.conversation.len();
         let baseline_tool_call_log_len = session.tool_call_log.len();
         let baseline_decisions_len = session.decisions.len();
+        let baseline_pending_emission_id = session.pending_emission_id;
+        let baseline_inputs = session.inputs.clone();
+        let baseline_pending_input_hints = session.pending_input_hints.clone();
         let mut user_turn = Turn::user(user_message);
         if let Some(client_id) = client_user_turn_id {
             // Validate shape (UUID v4 hex with dashes) before
@@ -278,6 +281,19 @@ impl ConversationService {
                 current.intake_prose = session.intake_prose.clone();
                 current.classification = session.classification.clone();
                 current.taxonomy = session.taxonomy.clone();
+                current.workflow_intent = session.workflow_intent.clone();
+                current.project_class = session.project_class;
+                current.archetype_snapshot = session.archetype_snapshot.clone();
+                // Intake prose can auto-register discovered paths. Preserve
+                // those local additions when no REST input mutation raced the
+                // turn; otherwise the persisted upload/delete wins and its
+                // own recomposition path will raise a fresh confirmation.
+                if current.inputs == baseline_inputs {
+                    current.inputs = session.inputs.clone();
+                }
+                if current.pending_input_hints == baseline_pending_input_hints {
+                    current.pending_input_hints = session.pending_input_hints.clone();
+                }
                 current.emitted_package_path = session
                     .emitted_package_path
                     .clone()
@@ -292,19 +308,26 @@ impl ConversationService {
                 // `current.confirmation_token` is the authoritative
                 // SME-driven latch — don't touch it from the snapshot.
                 //
-                // user_confirmed is now confirmation_token (per C2);
-                // discard both the token AND the pending emission id
-                // (server-owned).
+                // user_confirmed is now confirmation_token (per C2). The LLM
+                // cannot mint a token, so the persisted SME-driven token is
+                // authoritative. `propose_summary_confirmation` does mint the
+                // content-addressed pending emission id on the local turn
+                // snapshot, however. Forward that id only when the persisted
+                // value still equals the turn-start baseline. A concurrent
+                // confirm/reject/amend changes the persisted value and wins
+                // this compare-and-swap merge.
                 let _ = &session.confirmation_token; // explicitly discard the snapshot
-                let _ = session.pending_emission_id; // explicitly discard the snapshot
-                                                     // By-id merge for proposals. The tool loop only
-                                                     // CREATES proposals (via propose_hypothesized_*); REST
-                                                     // /proposals/:id/approve|reject and the server-side gate
-                                                     // runner transition `lifecycle` from PendingSme to
-                                                     // Promoted/Rejected. So: insert locals whose id is not
-                                                     // in current (new proposals from this loop); keep
-                                                     // current's entry when both sides know the id (preserve
-                                                     // any concurrent lifecycle advance).
+                if current.pending_emission_id == baseline_pending_emission_id {
+                    current.pending_emission_id = session.pending_emission_id;
+                }
+                // By-id merge for proposals. The tool loop only
+                // CREATES proposals (via propose_hypothesized_*); REST
+                // /proposals/:id/approve|reject and the server-side gate
+                // runner transition `lifecycle` from PendingSme to
+                // Promoted/Rejected. So: insert locals whose id is not
+                // in current (new proposals from this loop); keep
+                // current's entry when both sides know the id (preserve
+                // any concurrent lifecycle advance).
                 for (id, prop) in &session.proposals {
                     if !current.proposals.contains_key(id) {
                         current.proposals.insert(id.clone(), prop.clone());

@@ -116,7 +116,7 @@ pub async fn auto_approve_discoveries(
     };
     // Imported (read-only) packages must not be mutated.
     if let Err(resp) = crate::chat_routes::package_import::ensure_not_imported(&session) {
-        return resp;
+        return resp.into_response();
     }
     let Some(pkg) = session.emitted_package_path.clone() else {
         return (StatusCode::BAD_REQUEST, "session has no emitted package").into_response();
@@ -160,7 +160,7 @@ pub async fn post_sme_selection(
     };
     // Imported (read-only) packages must not be mutated.
     if let Err(resp) = crate::chat_routes::package_import::ensure_not_imported(&session) {
-        return resp;
+        return resp.into_response();
     }
     let Some(pkg) = session.emitted_package_path.clone() else {
         return (StatusCode::BAD_REQUEST, "session has no emitted package").into_response();
@@ -495,7 +495,7 @@ pub async fn post_sme_decisions(
     };
     // Imported (read-only) packages must not be mutated.
     if let Err(resp) = crate::chat_routes::package_import::ensure_not_imported(&session) {
-        return resp;
+        return resp.into_response();
     }
     let Some(pkg) = session.emitted_package_path.clone() else {
         return (StatusCode::BAD_REQUEST, "session has no emitted package").into_response();

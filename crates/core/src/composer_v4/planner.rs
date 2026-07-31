@@ -728,6 +728,37 @@ pub fn plan(
         }
     }
 
+    if let Some(selected) = ctx.selected_archetype_id.as_deref() {
+        let selected_seed_available = alternatives.iter().any(|alternative| {
+            alternative.source == "archetype"
+                && alternative.dag.source_template.as_deref() == Some(selected)
+        });
+        if !selected_seed_available {
+            let dag = WorkflowDag {
+                id: format!("composed:{}", ctx.intent.id),
+                ..Default::default()
+            };
+            return PlannerResult {
+                primary: ComposeOutcome::PartialDag {
+                    dag,
+                    unresolved_gaps: vec![GapReport {
+                        id: "selected_archetype_unavailable".into(),
+                        statement: format!(
+                            "the SME-selected archetype `{selected}` could not be composed from \
+                             the current registry and goal"
+                        ),
+                        missing_port: None,
+                        suggestions: vec![
+                            "Repair the selected archetype or its referenced atom contracts".into(),
+                            "Return to intake and select a different registered modality".into(),
+                        ],
+                    }],
+                },
+                alternatives,
+            };
+        }
+    }
+
     if alternatives.is_empty() {
         // Neither path produced a composition. Surface as PartialDag
         // with a typed gap pointing at the goal data type.
@@ -763,8 +794,20 @@ pub fn plan(
     // but distinct provenance (archetype vs search) remain visible to
     // the SME so they can pick the path matching their mental model.
     alternatives.sort_by(|a, b| {
-        a.score
-            .cmp(&b.score)
+        let selected_rank = |alternative: &RankedAlternative| {
+            ctx.selected_archetype_id
+                .as_deref()
+                .map(|selected| {
+                    u8::from(
+                        alternative.source != "archetype"
+                            || alternative.dag.source_template.as_deref() != Some(selected),
+                    )
+                })
+                .unwrap_or(0)
+        };
+        selected_rank(a)
+            .cmp(&selected_rank(b))
+            .then_with(|| a.score.cmp(&b.score))
             .then_with(|| a.source.cmp(&b.source))
             .then_with(|| a.dag.id.cmp(&b.dag.id))
     });
@@ -1173,32 +1216,48 @@ fn try_archetype_seed(
     if matches.is_empty() {
         return None;
     }
-    let top_score = matches[0].evidence.total;
-    let top_evidence = matches[0].evidence;
-    let top_modality_match = matches[0].evidence.modality_match;
-    let tie_threshold = (top_score as f32 * 0.95).floor() as u32;
-    // The tie window only considers archetypes with
-    // the SAME modality_match level as the top match. After we
-    // sort modality_match-first, a top atac_seq_peaks entry
-    // (modality_match=2, total=3) shouldn't tie with any
-    // bulk_rnaseq_de that happens to share the goal triple but
-    // doesn't match atac_seq's modality (modality_match=0,
-    // total=6 just on goal_data + format + project_class).
-    let close: Vec<_> = matches
-        .iter()
-        .filter(|m| {
-            m.evidence.modality_match == top_modality_match && m.evidence.total >= tie_threshold
-        })
-        .collect();
-    if close.len() > 1 {
-        // Tied archetypes — skip the seed; the search path produces a
-        // single typed DAG without forcing the SME to pick between
-        // close-call archetypes here.
-        return None;
-    }
-    let mut archetype = matches[0].archetype;
-    let mut effective_evidence = top_evidence;
-    let mut effective_score = top_score;
+    let selected_match = ctx.selected_archetype_id.as_deref().and_then(|selected| {
+        matches
+            .iter()
+            .find(|candidate| candidate.archetype.id == selected)
+    });
+    let (mut archetype, mut effective_evidence, mut effective_score) =
+        if let Some(selected) = selected_match {
+            (
+                selected.archetype,
+                selected.evidence,
+                selected.evidence.total,
+            )
+        } else {
+            // A schema-validated exact selection must fail closed if it is
+            // incompatible with the current catalog and goal. Returning no
+            // archetype seed lets the caller surface a typed gap rather than
+            // silently substituting an unrelated search DAG.
+            if ctx.selected_archetype_id.is_some() {
+                return None;
+            }
+
+            let top_score = matches[0].evidence.total;
+            let top_evidence = matches[0].evidence;
+            let top_modality_match = matches[0].evidence.modality_match;
+            let tie_threshold = (top_score as f32 * 0.95).floor() as u32;
+            // The tie window only considers archetypes with the SAME
+            // modality_match level as the top match. A modality-specific
+            // candidate must not tie with an unrelated goal-only candidate.
+            let close: Vec<_> = matches
+                .iter()
+                .filter(|candidate| {
+                    candidate.evidence.modality_match == top_modality_match
+                        && candidate.evidence.total >= tie_threshold
+                })
+                .collect();
+            if close.len() > 1 {
+                // Tied inferred archetypes remain search-only until the SME
+                // selects one. An exact SME selection bypasses this branch.
+                return None;
+            }
+            (matches[0].archetype, top_evidence, top_score)
+        };
 
     // Remediation task 2 — defense in depth against the
     // bare-keyword false-positive class (paper-01..paper-10 hit this
@@ -1224,41 +1283,43 @@ fn try_archetype_seed(
     // `data:0951`). If the project-class archetype IS compatible
     // (e.g. clinical-trial bio data via ADaM bridge — same first-atom
     // shape as the modality canonical), this branch is a no-op.
-    if let Some(modality_id) = ctx.intent.modality.as_deref() {
-        if effective_evidence.modality_match == 0
-            && !arch_inputs_compatible_with_modality(
-                archetype,
-                modality_id,
-                atom_reg,
-                archetype_reg,
-            )
-        {
-            if let Some(fallback) =
-                archetype_reg.find_primary_for_modality(modality_id, "bioinformatics")
+    if ctx.selected_archetype_id.is_none() {
+        if let Some(modality_id) = ctx.intent.modality.as_deref() {
+            if effective_evidence.modality_match == 0
+                && !arch_inputs_compatible_with_modality(
+                    archetype,
+                    modality_id,
+                    atom_reg,
+                    archetype_reg,
+                )
             {
-                let re_matches = archetype_reg.find_match_with_evidence_modality_kind(
-                    &goal.edam_data,
-                    goal.edam_format.as_deref(),
-                    &fallback.project_class,
-                    Some(modality_id),
-                    target_kind,
-                );
-                let fallback_match = re_matches.iter().find(|m| m.archetype.id == fallback.id);
-                let fallback_matches_goal = fallback_match
-                    .map(|m| m.evidence.goal_data_exact > 0 || m.evidence.goal_data_subtype > 0)
-                    .unwrap_or(false);
-                if fallback.id != archetype.id && fallback_matches_goal {
-                    tracing::warn!(
-                        archetype = %archetype.id,
-                        fallback = %fallback.id,
-                        modality = %modality_id,
-                        project_class = %project_class,
-                        "archetype-modality input collision; demoting project-class archetype to modality fallback"
+                if let Some(fallback) =
+                    archetype_reg.find_primary_for_modality(modality_id, "bioinformatics")
+                {
+                    let re_matches = archetype_reg.find_match_with_evidence_modality_kind(
+                        &goal.edam_data,
+                        goal.edam_format.as_deref(),
+                        &fallback.project_class,
+                        Some(modality_id),
+                        target_kind,
                     );
-                    archetype = fallback;
-                    if let Some(rm) = fallback_match {
-                        effective_evidence = rm.evidence;
-                        effective_score = rm.evidence.total;
+                    let fallback_match = re_matches.iter().find(|m| m.archetype.id == fallback.id);
+                    let fallback_matches_goal = fallback_match
+                        .map(|m| m.evidence.goal_data_exact > 0 || m.evidence.goal_data_subtype > 0)
+                        .unwrap_or(false);
+                    if fallback.id != archetype.id && fallback_matches_goal {
+                        tracing::warn!(
+                            archetype = %archetype.id,
+                            fallback = %fallback.id,
+                            modality = %modality_id,
+                            project_class = %project_class,
+                            "archetype-modality input collision; demoting project-class archetype to modality fallback"
+                        );
+                        archetype = fallback;
+                        if let Some(rm) = fallback_match {
+                            effective_evidence = rm.evidence;
+                            effective_score = rm.evidence.total;
+                        }
                     }
                 }
             }

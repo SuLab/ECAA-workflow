@@ -172,6 +172,8 @@ export interface CreateSessionResponse {
 export interface ChatConfig {
   auto_title_enabled: boolean
   auto_title_min_turns: number
+  /** Runtime modality registry. Optional for compatibility with older servers. */
+  modalities?: Array<{ id: string; display_name: string }>
 }
 
 export async function getChatConfig(): Promise<ChatConfig> {
@@ -624,6 +626,7 @@ export interface WorkflowIntent {
   goal: string
   modality: string
   organism: string
+  input_data_stage: string
   desired_outputs: string
   uncertainties: string
 }
@@ -636,11 +639,15 @@ export interface WorkflowIntent {
  */
 export async function startSessionFromIntent(
   intent: WorkflowIntent,
+  sourceSessionId?: string | null,
 ): Promise<CreateSessionResponse> {
   return jsonFetch('/api/chat/session/from-intent', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(intent),
+    body: JSON.stringify({
+      ...intent,
+      ...(sourceSessionId ? { source_session_id: sourceSessionId } : {}),
+    }),
   })
 }
 

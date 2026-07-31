@@ -7,8 +7,12 @@ use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
 use ecaa_workflow_core::atom_registry::AtomRegistry;
 use ecaa_workflow_core::builder::build_dag_from_workflow_dag;
 use ecaa_workflow_core::classify::Classifier;
-use ecaa_workflow_core::composer::compose_with_modalities_full;
+use ecaa_workflow_core::composer::{
+    compose_with_modalities_full, compose_with_modalities_full_pref_strict_with_archetype,
+};
 use ecaa_workflow_core::goal_spec::GoalSpec;
+use ecaa_workflow_core::modality_registry::ModalityRegistry;
+use ecaa_workflow_core::preferred_methods::PreferredMethods;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -115,6 +119,80 @@ fn river_discharge_composes_executable_dag_via_same_planner() {
         !dag.tasks.is_empty(),
         "lowered hydrology DAG must carry executable tasks"
     );
+}
+
+#[test]
+fn explicit_catalog_selection_pins_every_registered_modality_archetype() {
+    let (atoms, archetypes) = workspace_config();
+    let modalities = ModalityRegistry::load_from_dir(&config_root().join("modalities"))
+        .expect("load modality registry");
+    assert!(
+        modalities.iter().count() > 2,
+        "fixture must exercise the complete runtime modality catalog"
+    );
+
+    for (modality_id, modality) in modalities.iter() {
+        let archetype_id = modality.archetype_id.clone().unwrap_or_else(|| {
+            let matches = archetypes
+                .iter()
+                .filter(|(_, archetype)| {
+                    archetype.modality_hint.as_deref() == Some(modality_id.as_str())
+                })
+                .map(|(id, _)| id.clone())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                matches.len(),
+                1,
+                "legacy modality {modality_id} must resolve to exactly one archetype"
+            );
+            matches[0].clone()
+        });
+        let archetype = archetypes
+            .get(&archetype_id)
+            .unwrap_or_else(|| panic!("missing catalog archetype {archetype_id}"));
+        let mut modifiers = BTreeMap::new();
+        if let Some(kind) = &archetype.goal_kind_hint {
+            modifiers.insert("kind".into(), kind.clone());
+        }
+        let goal = GoalSpec {
+            edam_data: archetype.goal_data.clone(),
+            edam_format: archetype.goal_format.clone(),
+            modifiers,
+            source_prose: Some(format!("explicitly selected {archetype_id}")),
+            confidence: 1.0,
+        };
+        let result = compose_with_modalities_full_pref_strict_with_archetype(
+            &goal,
+            &archetype.project_class,
+            &atoms,
+            &archetypes,
+            &[modality_id.as_str()],
+            None,
+            None,
+            None,
+            &PreferredMethods::default(),
+            false,
+            Some(&archetype_id),
+        )
+        .unwrap_or_else(|err| panic!("selected route {archetype_id} failed: {err}"));
+
+        assert_eq!(
+            result
+                .workflow_dag
+                .as_ref()
+                .and_then(|dag| dag.source_template.as_deref()),
+            Some(archetype_id.as_str()),
+            "planner substituted a different route for explicit catalog selection {archetype_id}"
+        );
+        assert_eq!(
+            result
+                .ranked_alternatives
+                .first()
+                .and_then(|alternative| alternative.dag.source_template.as_deref()),
+            Some(archetype_id.as_str()),
+            "selected catalog route must remain the first auditable alternative"
+        );
+    }
 }
 
 #[test]

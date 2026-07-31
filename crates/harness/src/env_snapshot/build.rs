@@ -308,10 +308,9 @@ pub fn build_image(opts: &SnapshotOpts) -> io::Result<String> {
 
     let status = cmd.status()?;
     if !status.success() {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!("docker build failed with status: {status}"),
-        ));
+        return Err(io::Error::other(format!(
+            "docker build failed with status: {status}"
+        )));
     }
 
     // Resolve the content digest. Prefer registry digest (post-push); fall

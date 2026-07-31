@@ -30,23 +30,44 @@ figure_exempt:
   reason: "Intermediate component tables (trend/seasonal/residual) consumed by the downstream model_fit atom; not an SME-facing figure."
   category: intermediate
 inputs:
-  - name: panel
+  - name: imported_dataset
     semantic_type:
       kind: ontology_term
-      iri: "data:3134"
-      label: "Gene expression matrix"
+      iri: "data:2531"
+      label: "Experiment annotation"
       ontology_version: "EDAM-1.25"
     physical_format:
       iri: "format:3475"
       label: "Tabular text"
+    cardinality: { kind: optional }
     privacy_class: internal
+  - name: cleaned_time_series
+    semantic_type:
+      kind: local_extension
+      namespace: "ecaax"
+      id: "time_series_data"
+      proposed_parent_terms:
+        - "data:0006"
+      definition: "Quality-controlled numeric time-indexed observations."
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    cardinality: { kind: optional }
+    privacy_class: internal
+input_groups:
+  - name: time_series_source
+    kind: one_of
+    members: [imported_dataset, cleaned_time_series]
+    min_bound: 1
 outputs:
   - name: decomposed_components
     semantic_type:
-      kind: ontology_term
-      iri: "data:3134"
-      label: "Gene expression matrix"
-      ontology_version: "EDAM-1.25"
+      kind: local_extension
+      namespace: "ecaax"
+      id: "time_series_decomposition"
+      proposed_parent_terms:
+        - "data:0006"
+      definition: "Trend, seasonal, and residual components with stationarity diagnostics."
     physical_format:
       iri: "format:3475"
       label: "Tabular text"

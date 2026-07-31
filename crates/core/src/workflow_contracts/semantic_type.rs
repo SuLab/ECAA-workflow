@@ -12,6 +12,45 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+/// Validate a compact semantic-type identifier carried across an intake or
+/// workflow boundary.
+///
+/// Unlike [`crate::goal_spec::is_valid_edam_iri`], this validator is not
+/// restricted to EDAM or the built-in `ecaax` namespace. `SemanticType` is
+/// intentionally open-world, so a registered local extension such as
+/// `lab:normalized_signal` must remain routable. The accepted shape is a
+/// bounded compact IRI with an ASCII namespace and local identifier. Full URLs,
+/// whitespace, control characters, and punctuation with structural meaning in
+/// synthetic union/opaque ids are rejected.
+pub fn is_valid_stable_id(id: &str) -> bool {
+    if id.is_empty() || id.len() > 256 || id != id.trim() {
+        return false;
+    }
+    let Some((namespace, local_id)) = id.split_once(':') else {
+        return false;
+    };
+    if namespace.is_empty()
+        || namespace.len() > 64
+        || namespace.eq_ignore_ascii_case("opaque")
+        || local_id.is_empty()
+        || local_id.len() > 191
+        || local_id.contains(':')
+    {
+        return false;
+    }
+    let valid_namespace = namespace
+        .chars()
+        .next()
+        .is_some_and(|character| character.is_ascii_alphabetic())
+        && namespace.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.')
+        });
+    let valid_local_id = local_id
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.'));
+    valid_namespace && valid_local_id
+}
+
 /// v4 P6 / D4 — graduation lifecycle of a minted `LocalExtension`.
 ///
 /// Five stages, monotonic by design (forward-only, no demotion):
@@ -305,6 +344,31 @@ pub struct OntologyTermRef {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stable_id_validation_is_open_to_registered_namespaces_but_structurally_bounded() {
+        for valid in [
+            "data:3917",
+            "ecaax:time_series_data",
+            "lab-2:normalized.signal_v3",
+            "NCIT:C1234",
+        ] {
+            assert!(is_valid_stable_id(valid), "{valid} should be valid");
+        }
+        for invalid in [
+            "",
+            "unqualified",
+            "data:",
+            ":value",
+            "http://example.org/type",
+            "union(data:1|data:2)",
+            "opaque:anything",
+            "lab:value with spaces",
+            "lab:value/child",
+        ] {
+            assert!(!is_valid_stable_id(invalid), "{invalid} should be invalid");
+        }
+    }
 
     #[test]
     fn round_trip_ontology_term() {

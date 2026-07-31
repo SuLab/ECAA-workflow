@@ -2976,14 +2976,14 @@ mod state_machine_centralization {
         );
     }
 
-    /// Regression — intake-fact post-filters must prune the
+    /// Regression — explicit SME exclusions must prune the
     /// authoritative typed `WorkflowDag`, not only the derived
     /// `session.dag` cache. Otherwise a later `ensure_dag_cached()`
     /// call (notably emit_package) re-lowers from `workflow_dag` and
     /// resurrects raw-read / literature tasks that the UI DAG had
     /// already gated out.
     #[test]
-    fn intake_fact_gate_prunes_authoritative_workflow_dag_and_cache() {
+    fn explicit_exclusion_prunes_authoritative_workflow_dag_and_cache() {
         use crate::session::Session;
         use ecaa_workflow_core::workflow_contracts::edge::{
             CompatibilityProof, EdgeContract, EdgeKind,
@@ -3044,25 +3044,12 @@ mod state_machine_centralization {
             source_template: None,
         });
 
-        {
-            let mut guard = s.workflow_dag_mut();
-            let wf = guard.as_mut().expect("workflow dag seeded");
-            let dropped = crate::tools::prune_workflow_dag_roots_with_companions(
-                wf,
-                &[
-                    "raw_qc",
-                    "review_prior_work",
-                    "contextualize_findings_with_literature",
-                ],
-            );
-            assert!(dropped.contains("raw_qc"));
-            assert!(dropped.contains("validate_raw_qc"));
-            assert!(dropped.contains("discover_raw_qc"));
-            assert!(dropped.contains("review_prior_work"));
-            assert!(dropped.contains("validate_review_prior_work"));
-            assert!(dropped.contains("contextualize_findings_with_literature"));
-            assert!(dropped.contains("validate_contextualize_findings_with_literature"));
-        }
+        s.excluded_atoms = vec![
+            "raw_qc".into(),
+            "review_prior_work".into(),
+            "contextualize_findings_with_literature".into(),
+        ];
+        crate::tools::prune_excluded_atoms(&mut s);
 
         let wf = s
             .workflow_dag
@@ -3110,12 +3097,10 @@ mod state_machine_centralization {
         }
     }
 
-    /// Regression — chain-middle drops must splice surviving
+    /// Regression — explicit chain-middle exclusions must reconnect surviving
     /// (parent → child) edges so downstream pipeline atoms keep a
-    /// data source. Without the splice, `qc_preprocessing` ends up
-    /// with `depends_on: []` after the counts-only-input gate strips
-    /// `[raw_qc, sequence_trimming, alignment, quantification]`, and
-    /// the whole analytical chain runs as an island.
+    /// data source. Without the reconnect, the first surviving consumer ends
+    /// up with no dependency and the analytical chain runs as an island.
     #[test]
     fn workflow_dag_prune_splices_chain_middle_drops() {
         use crate::session::Session;
@@ -3182,14 +3167,13 @@ mod state_machine_centralization {
             source_template: None,
         });
 
-        {
-            let mut guard = s.workflow_dag_mut();
-            let wf = guard.as_mut().expect("workflow dag seeded");
-            let _ = crate::tools::prune_workflow_dag_roots_with_companions(
-                wf,
-                &["raw_qc", "sequence_trimming", "alignment", "quantification"],
-            );
-        }
+        s.excluded_atoms = vec![
+            "raw_qc".into(),
+            "sequence_trimming".into(),
+            "alignment".into(),
+            "quantification".into(),
+        ];
+        crate::tools::prune_excluded_atoms(&mut s);
 
         let wf = s
             .workflow_dag
@@ -3201,7 +3185,7 @@ mod state_machine_centralization {
             .find(|e| e.from_node == "data_acquisition" && e.to_node == "qc_preprocessing");
         assert!(
             bridge.is_some(),
-            "splice must bridge data_acquisition → qc_preprocessing after FASTQ chain drop; \
+            "exclusion rewire must bridge data_acquisition → qc_preprocessing; \
              remaining edges: {:?}",
             wf.edges
                 .iter()
@@ -3935,150 +3919,6 @@ async fn rebuild_dag_populates_archetype_id_from_matched_archetype() {
         id.contains("single_cell") || id.contains("cell_de") || id.contains("scrna"),
         "archetype_id '{}' should be a single-cell archetype for scRNA-seq intake",
         id
-    );
-}
-
-/// Regression: counts-level entry detected from the exclusion set.
-///
-/// When the SME declares a counts-only analysis in prose and the LLM
-/// excludes the read→counts bridge via `set_intake_excluded_atoms`
-/// (`quantification` / `alignment`) WITHOUT registering any input file
-/// through the Inputs tab, `session.inputs` is empty so the old
-/// `counts_only_inputs` gate returned false and the FASTQ-level atoms
-/// (`raw_qc`, `sequence_trimming`) survived — later getting absorbed into
-/// `reporting.depends_on` by the lowering pass's orphan-strand repair,
-/// producing a semantically false "reporting consumes raw-read QC"
-/// dependency. The `counts_level_entry` predicate now also fires on the
-/// bridge exclusion, so the whole FASTQ block is pruned.
-#[test]
-fn counts_level_entry_from_exclusion_prunes_fastq_block() {
-    use ecaa_workflow_core::workflow_contracts::edge::{
-        CompatibilityProof, EdgeContract, EdgeKind,
-    };
-    use ecaa_workflow_core::workflow_contracts::evidence::AssumptionLedger;
-    use ecaa_workflow_core::workflow_contracts::port::PortContract;
-    use ecaa_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
-
-    fn node(id: &str) -> TaskNode {
-        let mut n = TaskNode::skeleton(id, format!("intent {id}"));
-        n.outputs = vec![PortContract::from_edam(
-            "out",
-            Some("data:0006"),
-            Some("format:1915"),
-        )];
-        n.inputs = vec![PortContract::from_edam(
-            "in",
-            Some("data:0006"),
-            Some("format:1915"),
-        )];
-        n
-    }
-    fn edge(from: &str, to: &str) -> EdgeContract {
-        EdgeContract {
-            from_node: from.into(),
-            from_port: "out".into(),
-            to_node: to.into(),
-            to_port: "in".into(),
-            proof: CompatibilityProof::default(),
-            kind: EdgeKind::TypedDataFlow,
-            chain_of_custody: None,
-            mutually_exclusive_group: None,
-        }
-    }
-
-    let nodes = [
-        "data_acquisition",
-        "raw_qc",
-        "sequence_trimming",
-        "alignment",
-        "quantification",
-        "qc_preprocessing",
-        "normalisation",
-        "differential_expression",
-        "reporting",
-        "validate_raw_qc",
-    ]
-    .iter()
-    .map(|i| node(i))
-    .collect::<Vec<_>>();
-    let mut wf = WorkflowDag {
-        id: "t".into(),
-        nodes,
-        edges: vec![
-            edge("data_acquisition", "raw_qc"),
-            edge("raw_qc", "sequence_trimming"),
-            edge("sequence_trimming", "alignment"),
-            edge("alignment", "quantification"),
-            edge("quantification", "qc_preprocessing"),
-            edge("qc_preprocessing", "normalisation"),
-            edge("normalisation", "differential_expression"),
-            edge("differential_expression", "reporting"),
-            edge("raw_qc", "validate_raw_qc"),
-        ],
-        assumptions: AssumptionLedger::default(),
-        source_template: None,
-    };
-
-    // Empty registered inputs (no Inputs-tab registration) — the old gate
-    // would NOT fire here. The counts-level signal comes from the exclusion.
-    let mut s = crate::session::Session::new(false);
-    s.excluded_atoms = vec![
-        "sequence_trimming".into(),
-        "alignment".into(),
-        "quantification".into(),
-    ];
-    assert!(
-        s.inputs.is_empty(),
-        "test models the no-registered-input path"
-    );
-
-    let dropped = super::prune_counts_only_input_workflow_dag(&mut wf, &s);
-
-    let ids: std::collections::BTreeSet<&str> = wf.nodes.iter().map(|n| n.id.as_str()).collect();
-    for x in [
-        "raw_qc",
-        "sequence_trimming",
-        "alignment",
-        "quantification",
-        "validate_raw_qc",
-    ] {
-        assert!(
-            !ids.contains(x),
-            "{x} must be pruned at counts-level entry; got {ids:?}"
-        );
-    }
-    assert!(
-        dropped.contains("raw_qc"),
-        "raw_qc must be reported in the dropped set"
-    );
-    for keep in [
-        "data_acquisition",
-        "qc_preprocessing",
-        "normalisation",
-        "differential_expression",
-        "reporting",
-    ] {
-        assert!(ids.contains(keep), "{keep} must survive");
-    }
-    // The chain drop must splice data_acquisition → qc_preprocessing so the
-    // surviving downstream isn't left with an empty depends_on.
-    assert!(
-        wf.edges
-            .iter()
-            .any(|e| super::edge_node_id(&e.from_node) == "data_acquisition"
-                && super::edge_node_id(&e.to_node) == "qc_preprocessing"),
-        "expected spliced data_acquisition -> qc_preprocessing edge; edges={:?}",
-        wf.edges
-            .iter()
-            .map(|e| (e.from_node.as_str(), e.to_node.as_str()))
-            .collect::<Vec<_>>()
-    );
-    assert!(
-        !wf.edges
-            .iter()
-            .any(|e| super::edge_node_id(&e.from_node) == "raw_qc"
-                || super::edge_node_id(&e.to_node) == "raw_qc"),
-        "no edge may reference pruned raw_qc"
     );
 }
 

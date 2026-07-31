@@ -217,6 +217,9 @@ pub(crate) fn compose_v4_dispatch_full(
     // `RiskMode::Production` (declared OrderingOnly edges also reject);
     // `false` keeps `RiskMode::Draft`. Bare/test callers pass `false`.
     compose_strict: bool,
+    // Exact catalog route selected through a schema-validated SME control.
+    // `None` preserves classifier/search ranking for legacy callers.
+    selected_archetype_id: Option<&str>,
 ) -> Result<ComposerOutput, CompositionError> {
     use crate::composer_v4;
 
@@ -381,14 +384,12 @@ pub(crate) fn compose_v4_dispatch_full(
         } else {
             seed_available_data_for_modalities(target_modalities)
         };
-        // Input-stage-aware seeding: if the classifier detected an SME-declared
-        // supplied product on the full intake text (stamped into
-        // `goal.modifiers["available_input_stage"]` as its type IRI), seed THAT
-        // instead of the raw default so `input_stage_prune` drops the
-        // now-redundant producing-chain. The IRI is already modality-gated by
-        // `detect_input_data_stage` (C5/M7), so seeding here is safe — and the
-        // prune no-ops anyway when no producer for the IRI exists in the lifted
-        // DAG. Default raw seed otherwise.
+        // Input-stage-aware seeding: an explicit SME declaration is stored as
+        // the stable semantic-type id in `available_input_stage`. Accept any
+        // catalog-valid ontology term or local-extension id rather than a
+        // modality-specific allowlist. `input_stage_prune` still requires an
+        // exact producer in the selected DAG and therefore no-ops safely for a
+        // valid type that the archetype does not produce.
         match goal
             .modifiers
             .get("available_input_stage")
@@ -400,50 +401,15 @@ pub(crate) fn compose_v4_dispatch_full(
                     ),
                 ]
             }
-            // `data:3134` ("Gene expression data") is the supplied
-            // pre-computed differential-expression results table (BiomniBench
-            // da-15-8). It is the `differential_expression` atom's OUTPUT-PORT
-            // type, so `input_stage_prune::prune_supplied_upstream` finds the
-            // DE node as the most-upstream producer and drops it plus the whole
-            // upstream raw-read / quantify chain — exactly as the counts-matrix
-            // (`data:3917`) path drops the align/quantify chain. Method-neutral:
-            // this only declares the product is available, never a DE method.
-            //
-            // `data:3028` ("Taxonomy") is the supplied metagenomics
-            // taxonomy/OTU/ASV table — the `taxonomic_classification` atom's
-            // OUTPUT-PORT type. Seeding it lets `prune_supplied_upstream` drop
-            // the raw_qc → sequence_trimming → taxonomic_classification chain
-            // and rewire `diversity_analysis` onto the staging anchor.
-            //
-            // `data:2976` ("Protein abundance matrix") is the supplied
-            // proteomics abundance/intensity matrix. It is the proposed-parent
-            // ontology term of the `protein_quantification` OUTPUT port (a
-            // LocalExtension `ecaax:protein_abundance_matrix`). Seeding it here
-            // declares the product available; note the prune matches producer
-            // ports by ontology-term IRI equality, so the search→quantify chain
-            // is not pruned while the producer port stays a local extension (see
-            // `intake_facts::detect_input_data_stage`). Method-neutral: declares
-            // the product only, never a quantification or DE method.
-            //
-            // (The methylation beta matrix seeds `data:3917` — the generic
-            // `quantification` atom's OUTPUT port that `methylation_de` reuses —
-            // and so flows through the `Some("data:3917")` counts arm above, not
-            // this arm.)
-            Some(
-                iri @ ("data:1255" | "data:3498" | "data:0863" | "data:3134" | "data:3028"
-                | "data:2976"),
-            ) => {
-                let label = match iri {
-                    "data:1255" => "Called peaks",
-                    "data:3498" => "Sequence variant",
-                    "data:3134" => "Gene expression data",
-                    "data:3028" => "Taxonomy",
-                    "data:2976" => "Protein abundance matrix",
-                    _ => "Sequence alignment",
-                };
+            Some(type_id)
+                if crate::workflow_contracts::semantic_type::is_valid_stable_id(type_id) =>
+            {
                 let mut dp = crate::workflow_contracts::data_product::DataProductContract::skeleton(
-                    format!("intake_supplied_{}", iri.replace(':', "_")),
-                    crate::workflow_contracts::semantic_type::SemanticType::edam(iri, label),
+                    format!("intake_supplied_{}", type_id.replace(':', "_")),
+                    crate::workflow_contracts::semantic_type::SemanticType::edam(
+                        type_id,
+                        "SME-supplied data product",
+                    ),
                 );
                 dp.description_only = false;
                 vec![dp]
@@ -472,6 +438,7 @@ pub(crate) fn compose_v4_dispatch_full(
         Some(effective_project_class.as_str()),
         &available_data,
     );
+    ctx.selected_archetype_id = selected_archetype_id.map(String::from);
     // R1/R2 closure — surface the opaque-observation sink + session id
     // onto the composer-level PlanningContext so `composer_v4::plan`
     // (and the underlying forward/backward/meet-in-middle search modules)
@@ -859,6 +826,41 @@ pub fn compose_with_modalities_full_pref_strict(
     preferred_methods: &crate::preferred_methods::PreferredMethods,
     compose_strict: bool,
 ) -> Result<ComposerOutput, CompositionError> {
+    compose_with_modalities_full_pref_strict_with_archetype(
+        goal,
+        project_class,
+        atom_reg,
+        archetype_reg,
+        target_modalities,
+        policy_ctx,
+        opaque_sink,
+        opaque_session_id,
+        preferred_methods,
+        compose_strict,
+        None,
+    )
+}
+
+/// As [`compose_with_modalities_full_pref_strict`], with an optional exact
+/// archetype selected by the SME through a schema-validated intake control.
+/// The selected route remains subject to every type, policy, and execution
+/// gate, but heuristic search cannot replace it with a different analysis.
+#[allow(clippy::too_many_arguments)]
+pub fn compose_with_modalities_full_pref_strict_with_archetype(
+    goal: &GoalSpec,
+    project_class: &str,
+    atom_reg: &AtomRegistry,
+    archetype_reg: &ArchetypeRegistry,
+    target_modalities: &[&str],
+    policy_ctx: Option<&crate::policy_context::PolicyContext>,
+    opaque_sink: Option<
+        std::sync::Arc<dyn crate::compatibility::engine::OpaqueObservationSink + Send + Sync>,
+    >,
+    opaque_session_id: Option<&str>,
+    preferred_methods: &crate::preferred_methods::PreferredMethods,
+    compose_strict: bool,
+    selected_archetype_id: Option<&str>,
+) -> Result<ComposerOutput, CompositionError> {
     // Atypical-shape fall-through. The v4 dispatch jumps straight to
     // `compose_v4_dispatch_full` for the normal path, so flex-shape /
     // out-of-catalog prompts (CyTOF, Mendelian randomization, cryo-EM,
@@ -882,7 +884,8 @@ pub fn compose_with_modalities_full_pref_strict(
     // the keyword scorer surfaced: a scATAC-only prompt is mis-detected
     // as RNA+ATAC cross-omics, and that spurious companion is exactly the
     // misroute being suppressed. Other flex kinds stay single-modality.
-    let generic_fallthrough = !covered_project_class
+    let generic_fallthrough = selected_archetype_id.is_none()
+        && !covered_project_class
         && (unique_modalities(target_modalities).len() < 2 || is_out_of_catalog)
         && requires_generic_fallthrough(goal, target_modalities.first().copied());
 
@@ -910,6 +913,7 @@ pub fn compose_with_modalities_full_pref_strict(
             opaque_session_id,
             preferred_methods,
             compose_strict,
+            None,
         );
     }
     // v4 dispatch already takes the policy context; for multi-modality
@@ -929,5 +933,6 @@ pub fn compose_with_modalities_full_pref_strict(
         opaque_session_id,
         preferred_methods,
         compose_strict,
+        selected_archetype_id,
     )
 }

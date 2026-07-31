@@ -62,7 +62,7 @@ pub(crate) fn render_readme(
     let objective_line = objective
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| classification.workflow_description.as_str());
+        .unwrap_or(classification.workflow_description.as_str());
     let objective_line = if objective_line.is_empty() {
         "_(no objective recorded)_"
     } else {

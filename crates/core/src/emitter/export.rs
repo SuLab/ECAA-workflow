@@ -1291,12 +1291,10 @@ const RELOCATION_PROLOGUE_MARKER: &str =
 fn relocation_prologue(lang: ScriptLang, depth: usize, roots: &[RelocRoot]) -> String {
     let mut s = String::new();
     let depth = depth.max(1);
-    let up_r = std::iter::repeat("\"..\"")
-        .take(depth)
+    let up_r = std::iter::repeat_n("\"..\"", depth)
         .collect::<Vec<_>>()
         .join(", ");
-    let up_posix = std::iter::repeat("..")
-        .take(depth)
+    let up_posix = std::iter::repeat_n("..", depth)
         .collect::<Vec<_>>()
         .join("/");
     match lang {

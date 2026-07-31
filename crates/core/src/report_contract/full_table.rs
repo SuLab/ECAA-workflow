@@ -37,9 +37,6 @@ fn fmt_literature(l: &LiteratureStatus) -> String {
         LiteratureStatus::Unverifiable { pmid } => format!("unverifiable (PMID:{pmid})"),
         LiteratureStatus::Novel => "novel".to_string(),
         LiteratureStatus::NotAssessed => "not_assessed".to_string(),
-        // `LiteratureStatus` is `#[non_exhaustive]`; a future status renders
-        // as an em dash rather than failing the whole table render.
-        _ => "—".to_string(),
     }
 }
 

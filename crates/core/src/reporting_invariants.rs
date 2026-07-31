@@ -3194,8 +3194,9 @@ fn check_literature_evidence_table(
     mismatches: &mut Vec<String>,
 ) {
     type EvidenceKey = (String, String, String);
+    type EvidenceMeasurement = (Option<f64>, Option<f64>);
     let mut expected: BTreeMap<EvidenceKey, usize> = BTreeMap::new();
-    let mut expected_measurements: BTreeMap<EvidenceKey, Vec<(Option<f64>, Option<f64>)>> =
+    let mut expected_measurements: BTreeMap<EvidenceKey, Vec<EvidenceMeasurement>> =
         BTreeMap::new();
     for (status, findings) in [
         ("concordant", literature.concordant.as_slice()),
@@ -3353,8 +3354,7 @@ fn check_literature_evidence_table(
 
     let pmid_re = Regex::new(r"\b\d{4,9}\b").expect("static PMID cell regex compiles");
     let mut actual: BTreeMap<EvidenceKey, usize> = BTreeMap::new();
-    let mut actual_measurements: BTreeMap<EvidenceKey, Vec<(Option<f64>, Option<f64>)>> =
-        BTreeMap::new();
+    let mut actual_measurements: BTreeMap<EvidenceKey, Vec<EvidenceMeasurement>> = BTreeMap::new();
     let mut malformed_rows = 0usize;
     let mut aggregated_rows = 0usize;
     for row in &table.rows {

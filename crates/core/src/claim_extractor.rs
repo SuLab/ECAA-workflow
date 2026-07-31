@@ -1088,7 +1088,7 @@ pub fn classify_contract(sentence: &str) -> ClaimContract {
     // An explicit numeric comparator ("FDR < 0.05") is a real, checkable
     // assertion even alongside hedging language, so it stays thresholded.
     let has_explicit_comparator = lower.contains('<') || lower.contains('≤');
-    if has_threshold_kw && !(is_proximity_hedge && !has_explicit_comparator) {
+    if has_threshold_kw && (has_explicit_comparator || !is_proximity_hedge) {
         return ClaimContract::ThresholdedDeOrEnrichment;
     }
 
@@ -1499,17 +1499,20 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
                 .collect();
             (owners.len() == 1).then(|| owners[0])
         };
+        let slot_binding_context = SlotBindingContext {
+            n_entities,
+            last_entity_pos,
+            explicitly_shared_clause,
+            single_direction_owner,
+        };
         for (entity_index, (ent_pos, ent_name)) in entity_hits.into_iter().enumerate() {
             let next_entity_pos = entity_positions.get(entity_index + 1).copied();
             let effect_idx = bind_slot_index(
                 entity_index,
-                n_entities,
-                last_entity_pos,
                 ent_pos,
                 next_entity_pos,
                 &effect_positions,
-                explicitly_shared_clause,
-                single_direction_owner,
+                slot_binding_context,
             );
             let effect_size = effect_idx.map(|i| effect_size_hits[i].1);
             let direction = bind_direction_for_entity(
@@ -1527,13 +1530,10 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
             );
             let p_idx = bind_slot_index(
                 entity_index,
-                n_entities,
-                last_entity_pos,
                 ent_pos,
                 next_entity_pos,
                 &pvalue_positions,
-                explicitly_shared_clause,
-                single_direction_owner,
+                slot_binding_context,
             );
             let pvalue = p_idx.map(|i| pvalue_hits[i].1);
             let matched_pvalue_keyword = p_idx.map(|i| pvalue_hits[i].2.clone());
@@ -2339,8 +2339,7 @@ fn is_embedded_in_alnum_token(sentence: &str, start: usize, end: usize) -> bool 
 /// A standalone `CP` can be the ceruloplasmin gene and remains eligible. Only
 /// the colon-adjacent form is structural metadata rather than a gene mention.
 fn is_namespace_component(sentence: &str, start: usize, end: usize) -> bool {
-    sentence[..start].chars().next_back() == Some(':')
-        || sentence[end..].chars().next() == Some(':')
+    sentence[..start].ends_with(':') || sentence[end..].starts_with(':')
 }
 
 /// Suppress identifiers that the broad gene-symbol pattern captures only
@@ -2631,45 +2630,46 @@ fn bind_pmids_for_entity(
     Vec::new()
 }
 
-fn bind_slot_index(
-    entity_index: usize,
+#[derive(Clone, Copy)]
+struct SlotBindingContext {
     n_entities: usize,
     last_entity_pos: usize,
+    explicitly_shared_clause: bool,
+    single_direction_owner: Option<usize>,
+}
+
+fn bind_slot_index(
+    entity_index: usize,
     entity_pos: usize,
     next_entity_pos: Option<usize>,
     positions: &[usize],
-    explicitly_shared_clause: bool,
-    single_direction_owner: Option<usize>,
+    context: SlotBindingContext,
 ) -> Option<usize> {
     match positions.len() {
         0 => None,
         1 => {
-            if n_entities == 1 || explicitly_shared_clause {
+            if context.n_entities == 1 || context.explicitly_shared_clause {
                 return Some(0);
             }
-            if let Some(owner) = single_direction_owner {
+            if let Some(owner) = context.single_direction_owner {
                 return (entity_index == owner).then_some(0);
             }
             let pos = positions[0];
-            if pos >= entity_pos && next_entity_pos.is_none_or(|next| pos < next) {
-                Some(0)
-            } else if entity_index == 0 && pos < entity_pos {
-                Some(0)
-            } else {
-                None
-            }
+            ((pos >= entity_pos && next_entity_pos.is_none_or(|next| pos < next))
+                || (entity_index == 0 && pos < entity_pos))
+                .then_some(0)
         }
         _ => {
-            if n_entities > 1 && positions[0] > last_entity_pos {
+            if context.n_entities > 1 && positions[0] > context.last_entity_pos {
                 // Trailing value list after all entities: pair positionally or
                 // demote when the counts cannot be paired.
-                return if positions.len() == n_entities {
+                return if positions.len() == context.n_entities {
                     Some(entity_index)
                 } else {
                     None
                 };
             }
-            if n_entities > 1 {
+            if context.n_entities > 1 {
                 let local: Vec<usize> = positions
                     .iter()
                     .enumerate()

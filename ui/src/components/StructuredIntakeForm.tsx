@@ -1,33 +1,27 @@
-// MVP structured-intake form. Shown in place of the conversational
+// Structured-intake form. Shown in place of the conversational
 // ChatComposer when `GET /api/chat/llm-availability` returns anything
 // other than `{ kind: "available" }`. The form gives the SME a path
 // to start a deterministic session even when the LLM is disabled
 // (operator kill-switch / no API key) or temporarily unavailable
 // (transient 5xx / quota). v3 P10, closing v4 §6.4.
 //
-// The field set is intentionally small: goal, modality, organism,
-// desired outputs, and uncertainties. The submit handler is wired by
-// the parent so the same form drops into a "create new session" flow
-// or a "branch from session N" flow without coupling to either.
+// The field set is intentionally small: goal, modality, optional domain
+// context, registered starting product, outputs, and uncertainties.
+// Modality choices come from the server's runtime registry; the text
+// input remains open so a newer server-side catalog is never constrained
+// by a stale browser bundle.
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { getChatConfig } from '../api/chatClient'
 
 /**
- * The seven keyword-routable modalities supported by
- * `config/modality-keywords.yaml`. The fallback form omits the three
- * build-only modalities (`gwas-coloc`, `long-read-rnaseq`,
- * `spatial-transcriptomics`) because they are not classifier-reachable
- * from prose anyway — the SME would need to name a specific taxonomy
- * to use them, which means they have the developer surface already.
+ * Safe fallback shown while `/api/chat/config` loads or when the UI is paired
+ * with an older server. Runtime modalities are never duplicated in the browser
+ * bundle. The field remains open text, so an operator can still enter an exact
+ * registered id.
  */
-export const MVP_MODALITY_OPTIONS = [
-  { value: 'bulk_rnaseq', label: 'Bulk RNA-seq' },
-  { value: 'single_cell_rnaseq', label: 'Single-cell RNA-seq' },
-  { value: 'variant_calling', label: 'Variant calling' },
-  { value: 'chip_seq', label: 'ChIP-seq' },
-  { value: 'metagenomics', label: 'Metagenomics' },
-  { value: 'proteomics', label: 'Proteomics' },
-  { value: 'generic_omics', label: 'Other / not sure' },
+export const FALLBACK_MODALITY_OPTIONS = [
+  { value: 'auto', label: 'Auto-detect from goal' },
 ] as const
 
 /** v3 P10 structured intent shape captured by the MVP fallback form. */
@@ -35,6 +29,7 @@ export interface WorkflowIntent {
   goal: string
   modality: string
   organism: string
+  input_data_stage: string
   desired_outputs: string
   uncertainties: string
 }
@@ -66,12 +61,40 @@ const inputStyle: React.CSSProperties = {
 
 export default function StructuredIntakeForm({ onSubmit, disabled }: Props) {
   const [goal, setGoal] = useState('')
-  const [modality, setModality] = useState('bulk_rnaseq')
+  const [modality, setModality] = useState('auto')
+  const [modalityOptions, setModalityOptions] = useState<
+    Array<{ value: string; label: string }>
+  >(FALLBACK_MODALITY_OPTIONS.slice())
   const [organism, setOrganism] = useState('')
+  const [inputDataStage, setInputDataStage] = useState('')
   const [desiredOutputs, setDesiredOutputs] = useState('')
   const [uncertainties, setUncertainties] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let active = true
+    void getChatConfig()
+      .then((config) => {
+        if (!active || !config.modalities?.length) return
+        setModalityOptions(
+          [
+            { value: 'auto', label: 'Auto-detect from goal' },
+            ...config.modalities.map((entry) => ({
+              value: entry.id,
+              label: entry.display_name,
+            })),
+          ],
+        )
+      })
+      .catch(() => {
+        // An older server may not include the catalog. The open text input and
+        // compatibility suggestions remain usable.
+      })
+    return () => {
+      active = false
+    }
+  }, [])
 
   const isValid = goal.trim().length > 0 && !!modality
 
@@ -85,6 +108,7 @@ export default function StructuredIntakeForm({ onSubmit, disabled }: Props) {
         goal: goal.trim(),
         modality,
         organism: organism.trim(),
+        input_data_stage: inputDataStage.trim(),
         desired_outputs: desiredOutputs.trim(),
         uncertainties: uncertainties.trim(),
       })
@@ -124,7 +148,7 @@ export default function StructuredIntakeForm({ onSubmit, disabled }: Props) {
         id="intake-goal"
         value={goal}
         onChange={(e) => setGoal(e.target.value)}
-        placeholder="e.g. Identify genes differentially expressed between treated and control."
+        placeholder="e.g. Estimate an effect, classify observations, or forecast future values."
         rows={3}
         required
         disabled={submitting || disabled}
@@ -132,34 +156,71 @@ export default function StructuredIntakeForm({ onSubmit, disabled }: Props) {
       />
 
       <label htmlFor="intake-modality" style={labelStyle}>
-        Modality
+        Modality or analysis family
       </label>
-      <select
+      <input
         id="intake-modality"
+        type="text"
+        list="intake-modality-options"
         value={modality}
         onChange={(e) => setModality(e.target.value)}
+        required
         disabled={submitting || disabled}
         style={inputStyle}
-      >
-        {MVP_MODALITY_OPTIONS.map((opt) => (
+      />
+      <datalist id="intake-modality-options">
+        {modalityOptions.map((opt) => (
           <option key={opt.value} value={opt.value}>
             {opt.label}
           </option>
         ))}
-      </select>
+      </datalist>
+      <div
+        style={{
+          marginTop: '0.3rem',
+          fontSize: '0.74rem',
+          color: 'var(--color-text-muted)',
+        }}
+      >
+        Suggestions come from the current server catalog. For mixed or
+        uncertain analyses, use auto and name every modality in the goal.
+      </div>
 
       <label htmlFor="intake-organism" style={labelStyle}>
-        Organism (optional)
+        Organism (if applicable)
       </label>
       <input
         id="intake-organism"
         type="text"
         value={organism}
         onChange={(e) => setOrganism(e.target.value)}
-        placeholder="e.g. Homo sapiens, Mus musculus"
+        placeholder="e.g. Homo sapiens, Mus musculus, or leave blank"
         disabled={submitting || disabled}
         style={inputStyle}
       />
+
+      <label htmlFor="intake-data-stage" style={labelStyle}>
+        Registered starting data product (optional)
+      </label>
+      <input
+        id="intake-data-stage"
+        type="text"
+        value={inputDataStage}
+        onChange={(e) => setInputDataStage(e.target.value)}
+        placeholder="e.g. observation table, images, aligned reads, count matrix, called variants"
+        disabled={submitting || disabled}
+        style={inputStyle}
+      />
+      <div
+        style={{
+          marginTop: '0.3rem',
+          fontSize: '0.74rem',
+          color: 'var(--color-text-muted)',
+        }}
+      >
+        Describe what the uploaded files are, not the method that produced
+        them. This controls where the compiled workflow starts.
+      </div>
 
       <label htmlFor="intake-outputs" style={labelStyle}>
         Desired outputs
@@ -168,7 +229,7 @@ export default function StructuredIntakeForm({ onSubmit, disabled }: Props) {
         id="intake-outputs"
         value={desiredOutputs}
         onChange={(e) => setDesiredOutputs(e.target.value)}
-        placeholder="e.g. Differential-expression table, volcano plot, enrichment summary."
+        placeholder="e.g. Result tables, diagnostics, figures, forecasts, and a final report."
         rows={3}
         disabled={submitting || disabled}
         style={inputStyle}
@@ -181,7 +242,7 @@ export default function StructuredIntakeForm({ onSubmit, disabled }: Props) {
         id="intake-uncertainties"
         value={uncertainties}
         onChange={(e) => setUncertainties(e.target.value)}
-        placeholder="Anything you'd usually ask a bioinformatician?"
+        placeholder="Describe unresolved design choices, assumptions, constraints, or risks."
         rows={3}
         disabled={submitting || disabled}
         style={inputStyle}

@@ -59,7 +59,7 @@ pub(crate) async fn post_set_task_state(
         return (StatusCode::NOT_FOUND, "session not found").into_response();
     };
     if let Err(resp) = crate::chat_routes::package_import::ensure_not_imported(&session) {
-        return resp;
+        return resp.into_response();
     }
     // CV-4 server-side artifact guard. A `Completed` write for a task
     // whose declared `required_artifacts` are missing/empty on disk is

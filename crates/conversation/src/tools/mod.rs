@@ -54,7 +54,9 @@ mod tests;
 // tool-dispatch loop. Re-exported at the crate level so that caller
 // stays unchanged.
 
-pub(crate) use intake::append_intake_prose;
+pub(crate) use intake::{
+    append_intake_prose, apply_sme_declared_input_stage, apply_sme_selected_modality,
+};
 
 /// Direct-call entry point for the `propose_hypothesized_renderer` tool body,
 /// used by the REST endpoint
@@ -2000,6 +2002,12 @@ fn prune_excluded_atoms(session: &mut Session) {
     // edges are rewired to `data_acquisition`; cascade-dropped when
     // `data_acquisition` itself was dropped.
     ecaa_workflow_core::composer_v4::prune_unsourced::rewire_or_drop(wf, &dropped);
+    // Removing an intermediate can also remove the only edge that justified
+    // a composer-owned positional input. Keep authored inputs intact while
+    // deleting only synthetic ports that no longer have a producing edge.
+    ecaa_workflow_core::composer_v4::discover_companion_synthesis::prune_orphan_synthetic_inputs(
+        wf,
+    );
     tracing::debug!(
         session_id = %session.id,
         dropped_count = dropped.len(),
@@ -2586,16 +2594,24 @@ fn restamp_required_input_stage(session: &mut Session) {
     // unreliable because the classifier only attaches that modifier when it
     // ALSO recognized a goal PHRASE, so a declared product on prose whose goal
     // wording isn't a known pattern would be silently lost.
-    let declared = session.classification.as_ref().and_then(|c| {
-        use ecaa_workflow_core::workflow_contracts::semantic_type::SemanticType;
-        ecaa_workflow_core::intake_facts::IntakeFacts::detect_input_data_stage(
-            &c.intake_text,
-            Some(c.modality.as_str()),
-        )
-        .and_then(|p| match p.semantic_type {
-            SemanticType::OntologyTerm { iri, .. } => Some(iri),
-            _ => None,
-        })
+    let declared = session.classification.as_ref().and_then(|classification| {
+        classification
+            .goal
+            .as_ref()
+            .and_then(|goal| goal.modifiers.get("available_input_stage"))
+            .cloned()
+            .or_else(|| {
+                use ecaa_workflow_core::workflow_contracts::semantic_type::SemanticType;
+                ecaa_workflow_core::intake_facts::IntakeFacts::detect_input_data_stage(
+                    &classification.intake_text,
+                    Some(classification.modality.as_str()),
+                )
+                .and_then(|product| match &product.semantic_type {
+                    SemanticType::OntologyTerm { iri, .. } => Some(iri.clone()),
+                    SemanticType::LocalExtension { .. } => Some(product.semantic_type.stable_id()),
+                    SemanticType::Opaque { .. } | SemanticType::Union { .. } => None,
+                })
+            })
     });
     let Some(wf) = session.workflow_dag.as_mut() else {
         return;
@@ -3034,6 +3050,35 @@ fn resolve_policy_bundle(
     }
 }
 
+/// Return the exact catalog route from the latest explicit modality decision.
+/// Classifier-produced archetype snapshots remain heuristic and therefore do
+/// not activate this constraint. A later LLM modality mutation also supersedes
+/// an earlier SME selection, which prevents a stale pin from surviving an
+/// intentional conversational correction.
+fn sme_selected_archetype_id(session: &Session) -> Option<String> {
+    use ecaa_workflow_core::decision_log::{DecisionActor, DecisionType};
+
+    let current_modality = session.classification.as_ref()?.modality.as_str();
+    let latest_modality_decision = session.decisions.iter().rev().find(|record| {
+        matches!(
+            &record.decision,
+            DecisionType::SetIntakeField { field, .. } if field == "modality"
+        )
+    })?;
+    let DecisionType::SetIntakeField { value, .. } = &latest_modality_decision.decision else {
+        return None;
+    };
+    if latest_modality_decision.actor != DecisionActor::Sme
+        || value.as_str() != Some(current_modality)
+    {
+        return None;
+    }
+    session
+        .archetype_snapshot
+        .as_ref()
+        .map(|archetype| archetype.id.clone())
+}
+
 fn try_build_via_composer(
     session: &mut crate::session::Session,
     config_dir: &std::path::Path,
@@ -3044,6 +3089,7 @@ fn try_build_via_composer(
     use ecaa_workflow_core::goal_spec::GoalSpec;
     use ecaa_workflow_core::project_class::ProjectClass;
 
+    let selected_archetype_id = sme_selected_archetype_id(session);
     let classification = session.classification.as_ref()?;
     // Thread the
     // primary modality plus any cross-omics companions detected by
@@ -3075,7 +3121,7 @@ fn try_build_via_composer(
     // explicit method names trigger the override, not infrastructure
     // mentions. List is curated by the paper-recreation corpus's
     // `flex-*` scenarios; adding a method here is a one-line change.
-    {
+    if selected_archetype_id.is_none() {
         const NOVEL_METHOD_TOKENS: &[&str] = &[
             "mendelian randomization",
             "mendelian-randomization",
@@ -3429,7 +3475,8 @@ fn try_build_via_composer(
     // cross-omics archetype off the stray modality nouns in the prose,
     // overriding the SME's explicit single-modality scope. Only a genuine
     // ≥2-modality structured set should unlock cross-omics matching.
-    if modalities.len() >= 2
+    if selected_archetype_id.is_none()
+        && modalities.len() >= 2
         && ecaa_workflow_core::classify::is_n_way_intent(&classification.intake_text)
     {
         goal.modifiers
@@ -3445,7 +3492,6 @@ fn try_build_via_composer(
     if !classification.intake_text.trim().is_empty() {
         goal.source_prose = Some(classification.intake_text.clone());
     }
-
     // Single-source-of-truth slot-keyword scan. The hardcoded
     // INTEGRATOR_TOKENS / PROTOCOL_TOKENS lists above are a working
     // copy of the canonical lists that live in each slot manifest's
@@ -3513,7 +3559,7 @@ fn try_build_via_composer(
     // single-modality `single_cell_de` archetype (with maybe a slot
     // expansion that adds barcode_match / demultiplex atoms but
     // misses joint_wnn_integration + peak_to_gene_linking).
-    {
+    if selected_archetype_id.is_none() {
         let needs_paired_sc_atac = matches!(
             goal.modifiers.get("protocol").map(String::as_str),
             Some("share_seq") | Some("multiome_arc")
@@ -3650,28 +3696,30 @@ fn try_build_via_composer(
     let compose_strict = ecaa_workflow_core::config::Config::from_env()
         .map(|c| c.compose_strict)
         .unwrap_or(false);
-    let output = match ecaa_workflow_core::composer::compose_with_modalities_full_pref_strict(
-        &goal,
-        project_class_str,
-        &atoms,
-        &archetypes,
-        &modalities,
-        policy_ctx_owned.as_ref(),
-        Some(opaque_sink),
-        Some(session_id_str.as_str()),
-        &preferred_methods,
-        compose_strict,
-    ) {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::warn!(
-                session_id = %session.id,
-                error = ?e,
-                "rebuild_dag: composer returned error; falling back to legacy taxonomy build"
-            );
-            return None;
-        }
-    };
+    let output =
+        match ecaa_workflow_core::composer::compose_with_modalities_full_pref_strict_with_archetype(
+            &goal,
+            project_class_str,
+            &atoms,
+            &archetypes,
+            &modalities,
+            policy_ctx_owned.as_ref(),
+            Some(opaque_sink),
+            Some(session_id_str.as_str()),
+            &preferred_methods,
+            compose_strict,
+            selected_archetype_id.as_deref(),
+        ) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!(
+                    session_id = %session.id,
+                    error = ?e,
+                    "rebuild_dag: composer returned error; falling back to legacy taxonomy build"
+                );
+                return None;
+            }
+        };
     let composition = &output.composition;
     if modalities.len() >= 2
         && !composition
@@ -3723,36 +3771,13 @@ fn try_build_via_composer(
         build_dag_from_composition(composition, &workflow_id(&session.id), &methods, &[])
     };
     match dag_result {
-        Ok(mut dag) => {
-            let mut workflow_dag_for_session = output.workflow_dag.clone();
-            // Post-build intake-fact gates. Literature contextualization is
-            // unconditional: the review_prior_work +
-            // contextualize_findings_with_literature atoms (and their
-            // validate_* companions) always survive composition regardless
-            // of intake keywords, so no literature gate runs here.
-            //
-            // The counts-only-input gate still applies: when the
-            // SME-supplied inputs declare counts-matrix only (no FASTQ
-            // upstream) the FASTQ-level atoms are unreachable and the
-            // composer's archetype catalog still includes them.
-            let dropped_fastq = apply_counts_only_input_gate(&mut dag, session);
-            if let Some(wf) = workflow_dag_for_session.as_mut() {
-                let wf_dropped_fastq = prune_counts_only_input_workflow_dag(wf, session);
-                if !wf_dropped_fastq.is_empty() {
-                    tracing::debug!(
-                        session_id = %session.id,
-                        workflow_dag_dropped_fastq_atoms = ?wf_dropped_fastq,
-                        "rebuild_dag: applied intake-fact post-filters to authoritative WorkflowDag"
-                    );
-                }
-            }
-            if !dropped_fastq.is_empty() {
-                tracing::info!(
-                    session_id = %session.id,
-                    dropped_fastq_atoms = ?dropped_fastq,
-                    "rebuild_dag: applied intake-fact post-filters to v4 DAG"
-                );
-            }
+        Ok(dag) => {
+            // Supplied-product entry points are already resolved by the core
+            // type-driven `input_stage_prune` pass before lowering. Do not add
+            // modality- or filename-specific post-filters here: an explicit
+            // semantic product must drive every archetype through the same
+            // pruning algorithm.
+            let workflow_dag_for_session = output.workflow_dag.clone();
             // V3 cascade-invalidate any prior assumption
             // resolutions whose upstream contracts changed. The
             // "any → unresolved" reset edge closes the §15.1 state
@@ -3831,296 +3856,6 @@ fn try_build_via_composer(
 // validate_* companions) on every emission, so no literature opt-in gate
 // runs in rebuild_dag. The previous `apply_literature_opt_in_gate`
 // post-filter has been removed.
-
-fn companion_base_id(task_id: &str) -> &str {
-    task_id
-        .strip_prefix("discover_")
-        .or_else(|| task_id.strip_prefix("validate_"))
-        .unwrap_or(task_id)
-}
-
-/// Drop root task nodes plus their `discover_*` / `validate_*`
-/// companions from the authoritative typed `WorkflowDag`.
-///
-/// This mirrors `DAG::drop_tasks_with_validators` for the v4 source of
-/// truth. The lowered `session.dag` cache is allowed to be rebuilt at
-/// any point, so intake-fact gates must also remove nodes and edges
-/// from `session.workflow_dag`; otherwise gated tasks reappear during
-/// emit-time lowering.
-///
-/// Splices `(parent → child)` edges across each dropped node so that a
-/// chain-middle drop (e.g. the counts-only-input gate stripping the
-/// FASTQ run `data_acquisition → raw_qc → … → quantification →
-/// qc_preprocessing`) does not leave the downstream consumer with an
-/// empty `depends_on` list. The splice walks transitively through
-/// consecutive dropped nodes so multi-atom drops collapse to a single
-/// surviving-parent → surviving-child edge. Validators are excluded
-/// from being promoted to data sources during splicing.
-fn prune_workflow_dag_roots_with_companions(
-    workflow_dag: &mut ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag,
-    roots: &[&str],
-) -> std::collections::BTreeSet<String> {
-    let root_ids: std::collections::BTreeSet<&str> = roots.iter().copied().collect();
-    if root_ids.is_empty() {
-        return std::collections::BTreeSet::new();
-    }
-
-    let dropped: std::collections::BTreeSet<String> = workflow_dag
-        .nodes
-        .iter()
-        .filter_map(|node| {
-            let base = companion_base_id(node.id.as_str());
-            if root_ids.contains(node.id.as_str()) || root_ids.contains(base) {
-                Some(node.id.clone())
-            } else {
-                None
-            }
-        })
-        .collect();
-    if dropped.is_empty() {
-        return dropped;
-    }
-
-    // Capture (parents, children) per dropped node BEFORE we tear
-    // edges down. Include dropped relatives — the transitive walk
-    // needs them as hops to find the surviving boundary. Validator
-    // filtering happens inside the helpers, not at capture time. We
-    // resolve edge endpoints to atom ids by stripping the trailing
-    // `__<port>` qualifier that the v4 composer puts on edge endpoint
-    // identifiers.
-    let parents_of: std::collections::BTreeMap<String, Vec<String>> = dropped
-        .iter()
-        .map(|d| {
-            let parents: Vec<String> = workflow_dag
-                .edges
-                .iter()
-                .filter(|e| edge_node_id(&e.to_node) == d.as_str())
-                .map(|e| edge_node_id(&e.from_node).to_string())
-                .collect();
-            (d.clone(), parents)
-        })
-        .collect();
-    let children_of: std::collections::BTreeMap<String, Vec<String>> = dropped
-        .iter()
-        .map(|d| {
-            let children: Vec<String> = workflow_dag
-                .edges
-                .iter()
-                .filter(|e| edge_node_id(&e.from_node) == d.as_str())
-                .map(|e| edge_node_id(&e.to_node).to_string())
-                .collect();
-            (d.clone(), children)
-        })
-        .collect();
-
-    workflow_dag
-        .nodes
-        .retain(|node| !dropped.contains(&node.id));
-    workflow_dag.edges.retain(|edge| {
-        !dropped.contains(edge_node_id(&edge.from_node))
-            && !dropped.contains(edge_node_id(&edge.to_node))
-    });
-    for assumption in &mut workflow_dag.assumptions.entries {
-        assumption
-            .affects_nodes
-            .retain(|node_id| !dropped.contains(node_id));
-    }
-
-    // Splice surviving (parent → child) edges. Walk consecutive
-    // dropped nodes transitively in both directions so multi-atom
-    // runs collapse to a single bridging edge.
-    use ecaa_workflow_core::workflow_contracts::edge::EdgeContract;
-    let mut spliced_edges: Vec<EdgeContract> = Vec::new();
-    for d in &dropped {
-        let parents = transitive_surviving_workflow_parents(d, &dropped, &parents_of);
-        let children = transitive_surviving_workflow_children(d, &dropped, &children_of);
-        for parent in &parents {
-            for child in &children {
-                if parent == child {
-                    continue;
-                }
-                let already_present = workflow_dag.edges.iter().any(|e| {
-                    edge_node_id(&e.from_node) == parent.as_str()
-                        && edge_node_id(&e.to_node) == child.as_str()
-                }) || spliced_edges.iter().any(|e| {
-                    edge_node_id(&e.from_node) == parent.as_str()
-                        && edge_node_id(&e.to_node) == child.as_str()
-                });
-                if !already_present {
-                    spliced_edges.push(EdgeContract::synthetic_splice(
-                        parent.clone(),
-                        child.clone(),
-                    ));
-                }
-            }
-        }
-    }
-    workflow_dag.edges.extend(spliced_edges);
-    // Topology pruning can remove the only edge that justified a
-    // composer-owned positional input (`companion_in_N` / `residual_in_N`).
-    // Clean those ports at this generic post-mutation boundary so task-spec,
-    // task-nodes, and the observed-read reconciler all advertise the same
-    // contract. Authored atom inputs are preserved by the core helper.
-    ecaa_workflow_core::composer_v4::discover_companion_synthesis::prune_orphan_synthetic_inputs(
-        workflow_dag,
-    );
-    dropped
-}
-
-/// Endpoint identifiers on `EdgeContract` carry an optional `__<port>`
-/// suffix in some composer outputs. Strip it to recover the atom id.
-fn edge_node_id(endpoint: &str) -> &str {
-    endpoint.split("__").next().unwrap_or(endpoint)
-}
-
-fn transitive_surviving_workflow_parents(
-    start: &str,
-    drop_set: &std::collections::BTreeSet<String>,
-    parents_of: &std::collections::BTreeMap<String, Vec<String>>,
-) -> std::collections::BTreeSet<String> {
-    let mut out: std::collections::BTreeSet<String> = Default::default();
-    let mut seen: std::collections::BTreeSet<String> = Default::default();
-    let mut stack: Vec<String> = vec![start.to_string()];
-    while let Some(node) = stack.pop() {
-        if !seen.insert(node.clone()) {
-            continue;
-        }
-        if let Some(parents) = parents_of.get(&node) {
-            for p in parents {
-                if drop_set.contains(p) {
-                    stack.push(p.clone());
-                } else if !p.starts_with("validate_") {
-                    out.insert(p.clone());
-                }
-            }
-        }
-    }
-    out
-}
-
-fn transitive_surviving_workflow_children(
-    start: &str,
-    drop_set: &std::collections::BTreeSet<String>,
-    children_of: &std::collections::BTreeMap<String, Vec<String>>,
-) -> std::collections::BTreeSet<String> {
-    let mut out: std::collections::BTreeSet<String> = Default::default();
-    let mut seen: std::collections::BTreeSet<String> = Default::default();
-    let mut stack: Vec<String> = vec![start.to_string()];
-    while let Some(node) = stack.pop() {
-        if !seen.insert(node.clone()) {
-            continue;
-        }
-        if let Some(children) = children_of.get(&node) {
-            for c in children {
-                if drop_set.contains(c) {
-                    stack.push(c.clone());
-                } else if !c.starts_with("validate_") {
-                    out.insert(c.clone());
-                }
-            }
-        }
-    }
-    out
-}
-
-const FASTQ_LEVEL_ATOM_IDS: &[&str] =
-    &["raw_qc", "sequence_trimming", "alignment", "quantification"];
-
-fn counts_only_inputs(session: &crate::session::Session) -> bool {
-    if session.inputs.is_empty() {
-        return false;
-    }
-    let any_fastq = session.inputs.iter().any(|i| {
-        i.files.iter().any(|f| {
-            let lower = f.relpath.to_ascii_lowercase();
-            lower.ends_with(".fastq")
-                || lower.ends_with(".fastq.gz")
-                || lower.ends_with(".fq")
-                || lower.ends_with(".fq.gz")
-        })
-    });
-    !any_fastq
-}
-
-/// True when the SME has signalled counts-level entry by excluding the
-/// read→counts bridge atoms. `quantification` produces a counts matrix
-/// from alignments and `alignment` produces those alignments from reads;
-/// excluding either means no counts can be derived from raw reads in this
-/// workflow, so the SME is supplying counts directly. That makes the
-/// upstream FASTQ-level atoms (`raw_qc`, `sequence_trimming`) vestigial —
-/// exactly as a registered counts-matrix input would, and independent of
-/// whether the SME registered any input file. This catches the common
-/// path where the SME declares counts-only in prose and the LLM excludes
-/// the read-level chain via `set_intake_excluded_atoms` without ever
-/// touching the Inputs tab.
-fn excludes_read_to_counts_bridge(session: &crate::session::Session) -> bool {
-    session
-        .excluded_atoms
-        .iter()
-        .any(|a| a == "quantification" || a == "alignment")
-}
-
-/// Counts-level entry: the registered inputs are counts-only (no FASTQ),
-/// OR the SME explicitly excluded the read→counts bridge. Either way the
-/// FASTQ-level atoms are unreachable and must be pruned so a leftover
-/// `raw_qc` / `sequence_trimming` doesn't get absorbed into
-/// `reporting.depends_on` by the lowering pass's orphan-strand repair.
-fn counts_level_entry(session: &crate::session::Session) -> bool {
-    counts_only_inputs(session) || excludes_read_to_counts_bridge(session)
-}
-
-fn prune_counts_only_input_workflow_dag(
-    workflow_dag: &mut ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag,
-    session: &crate::session::Session,
-) -> std::collections::BTreeSet<String> {
-    if !counts_level_entry(session) {
-        return std::collections::BTreeSet::new();
-    }
-    prune_workflow_dag_roots_with_companions(workflow_dag, FASTQ_LEVEL_ATOM_IDS)
-}
-
-/// Counts-only-input gate post-filter. When the SME-registered inputs
-/// declare a counts-matrix shape (no FASTQ files in the registered
-/// roots), FASTQ-level atoms — `raw_qc`, `sequence_trimming`,
-/// `alignment`, `quantification` — are unreachable and the composer's
-/// archetype catalog includes them anyway. Drop them and their
-/// `validate_*` siblings so the DAG is consistent with the input
-/// declaration.
-///
-/// Heuristic for "counts-only": no registered input file has a FASTQ
-/// extension (`.fastq`, `.fastq.gz`, `.fq`, `.fq.gz`). When inputs are
-/// absent (legacy intake without a registered local path) the gate
-/// does NOT fire — the SME may be operating against public-repo
-/// accessions whose FASTQs the data_acquisition stage will materialize.
-fn apply_counts_only_input_gate(
-    dag: &mut ecaa_workflow_core::dag::DAG,
-    session: &crate::session::Session,
-) -> std::collections::BTreeSet<ecaa_workflow_core::dag::TaskId> {
-    if !counts_level_entry(session) {
-        return std::collections::BTreeSet::new();
-    }
-    // No FASTQ in registered inputs → drop FASTQ-level atoms when
-    // they're present in the DAG. The validate_* siblings are dropped
-    // by `drop_tasks_with_validators` automatically.
-    let present: Vec<&str> = FASTQ_LEVEL_ATOM_IDS
-        .iter()
-        .filter(|id| dag.tasks.contains_key(**id))
-        .copied()
-        .collect();
-    if present.is_empty() {
-        return std::collections::BTreeSet::new();
-    }
-    let dropped = dag.drop_tasks_with_validators(&present);
-    dropped
-        .into_iter()
-        .filter(|id| {
-            FASTQ_LEVEL_ATOM_IDS.contains(&id.as_str())
-                || FASTQ_LEVEL_ATOM_IDS
-                    .iter()
-                    .any(|p| format!("validate_{p}").as_str() == id.as_str())
-        })
-        .collect()
-}
 
 /// V3 cascade-invalidate prior assumption resolutions when
 /// the upstream contract under a previously-resolved assumption has

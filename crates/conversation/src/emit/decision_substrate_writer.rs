@@ -9,18 +9,18 @@
 //! which drains only the emitting session's bucket via
 //! `decision_substrate::drain_session` — so a sibling session's
 //! still-buffered compose-time decisions never leak into this session's
-//! sidecar. [`write_verifier_decisions`] is the legacy entry point that
+//! sidecar. The test-only `write_verifier_decisions` legacy entry point
 //! drains the unscoped default bucket (and, when no session scope is
-//! active on the calling thread, every bucket merged) — retained for the
-//! existing `emit/mod.rs` call site and for tests that record into the
-//! default bucket.
+//! active on the calling thread, every bucket merged).
 //!
 //! Atomicity: write to `<filename>.tmp` then rename so a panic mid-write
 //! leaves either no file or the previous file, matching the discipline
 //! established by `audit_log::write_jsonl` for the conversation/
 //! decision logs.
 
-use ecaa_workflow_core::decision_substrate::{drain, drain_session, VerifierDecision};
+#[cfg(test)]
+use ecaa_workflow_core::decision_substrate::drain;
+use ecaa_workflow_core::decision_substrate::{drain_session, VerifierDecision};
 use std::collections::HashSet;
 use std::path::Path;
 
@@ -97,12 +97,13 @@ fn write_decisions_to_dir(
 /// a few thousand rows per emit) and avoiding tokio's File handle keeps
 /// the call sync-friendly for tests that exercise the function from
 /// `#[cfg(test)]` without an active runtime.
+#[cfg(test)]
 pub(super) fn write_verifier_decisions(runtime_dir: &Path) -> std::io::Result<usize> {
     let decisions = drain();
     write_decisions_to_dir(runtime_dir, &decisions)
 }
 
-/// Session-isolated counterpart to [`write_verifier_decisions`]. Drains
+/// Session-isolated writer. Drains
 /// **only** the `session_id` bucket — so even when a sibling session's
 /// compose-time rows are still buffered in the process, this session's
 /// `verifier-decisions.jsonl` carries exactly its own decisions. This is
@@ -111,7 +112,7 @@ pub(super) fn write_verifier_decisions(runtime_dir: &Path) -> std::io::Result<us
 /// `plan()` call, so every row this drains was recorded under the same
 /// id.
 ///
-/// Synchronous for the same reason as [`write_verifier_decisions`].
+/// Synchronous because the sidecar is small and tests do not require a runtime.
 #[allow(dead_code)]
 pub(super) fn write_verifier_decisions_for_session(
     runtime_dir: &Path,

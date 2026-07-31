@@ -553,6 +553,17 @@ pub(crate) async fn finalize_upload(
         .await
     {
         Ok(s) => {
+            if let Err(error) = app
+                .conversation
+                .rebuild_dag_after_input_change(session_id)
+                .await
+            {
+                return crate::error::ApiError::Internal(anyhow::anyhow!(
+                    "upload registration persisted, but recomposing the pre-emission workflow \
+                     failed for session {session_id}: {error}"
+                ))
+                .into_response();
+            }
             let last = s.inputs.last().cloned();
             Json(last).into_response()
         }

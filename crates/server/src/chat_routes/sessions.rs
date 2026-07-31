@@ -239,6 +239,9 @@ pub async fn create_session(
             })
             .into_response()
         }
+        Err(ecaa_workflow_conversation::ServiceError::Validation(reason)) => {
+            (StatusCode::BAD_REQUEST, reason).into_response()
+        }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
 }
@@ -259,11 +262,74 @@ pub async fn create_session_from_intent(
         return (StatusCode::BAD_REQUEST, "modality is required").into_response();
     }
 
-    let prose = structured_intent_prose(&req);
+    let modalities_dir = app.config.config_dir.join("modalities");
+    let registry =
+        match ecaa_workflow_core::modality_registry::ModalityRegistry::load_cached(&modalities_dir)
+        {
+            Ok(registry) => registry,
+            Err(error) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("loading modality registry: {error}"),
+                )
+                    .into_response()
+            }
+        };
+    let requested_modality = if modality == "auto" {
+        None
+    } else {
+        let Some(definition) = registry.get(modality) else {
+            let alternatives = registry
+                .iter()
+                .map(|(id, _)| id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            return (
+                StatusCode::BAD_REQUEST,
+                format!("unknown modality `{modality}`; choose one of: auto, {alternatives}"),
+            )
+                .into_response();
+        };
+        Some((definition.id.clone(), definition.display_name.clone()))
+    };
+
     let owner_user = owner_user_from_headers(&headers);
+    let source_inputs = if let Some(source_id) = req.source_session_id {
+        let Some(source) = app.conversation.get_session(source_id).await else {
+            return (
+                StatusCode::NOT_FOUND,
+                format!("source session {source_id} not found"),
+            )
+                .into_response();
+        };
+        if let Some(request_user) = owner_user.as_deref() {
+            if source.owner_user != request_user {
+                return (
+                    StatusCode::FORBIDDEN,
+                    "source session belongs to a different user",
+                )
+                    .into_response();
+            }
+        }
+        source.inputs.clone()
+    } else {
+        Vec::new()
+    };
+    let modality_label = requested_modality
+        .as_ref()
+        .map(|(_, display_name)| display_name.as_str())
+        .unwrap_or("auto-detect from the complete goal");
+    let prose = structured_intent_prose(&req, modality_label);
     match app
         .conversation
-        .start_session_from_prose(req.careful_mode, prose)
+        .start_session_from_prose_with_inputs(
+            req.careful_mode,
+            prose,
+            source_inputs,
+            requested_modality.map(|(id, _)| id),
+            (!req.input_data_stage.trim().is_empty())
+                .then(|| req.input_data_stage.trim().to_string()),
+        )
         .await
     {
         Ok((id, greeting)) => {
@@ -274,6 +340,9 @@ pub async fn create_session_from_intent(
                 greeting,
             })
             .into_response()
+        }
+        Err(ecaa_workflow_conversation::ServiceError::Validation(reason)) => {
+            (StatusCode::BAD_REQUEST, reason).into_response()
         }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
@@ -317,15 +386,21 @@ pub(crate) async fn apply_owner_user(
     }
 }
 
-fn structured_intent_prose(req: &StartSessionFromIntentRequest) -> String {
+fn structured_intent_prose(req: &StartSessionFromIntentRequest, modality_label: &str) -> String {
     let modality = req.modality.trim();
     let mut lines = vec![
         format!("Goal: {}", req.goal.trim()),
-        format!("Modality: {} ({})", modality, modality_label(modality)),
+        format!("Modality: {modality} ({modality_label})"),
     ];
     let organism = req.organism.trim();
     if !organism.is_empty() {
         lines.push(format!("Organism: {organism}"));
+    }
+    let input_data_stage = req.input_data_stage.trim();
+    if !input_data_stage.is_empty() {
+        lines.push(format!(
+            "Registered starting data product is {input_data_stage}"
+        ));
     }
     let desired_outputs = req.desired_outputs.trim();
     if !desired_outputs.is_empty() {
@@ -336,19 +411,6 @@ fn structured_intent_prose(req: &StartSessionFromIntentRequest) -> String {
         lines.push(format!("Uncertainties: {uncertainties}"));
     }
     lines.join("\n")
-}
-
-fn modality_label(modality: &str) -> &'static str {
-    match modality {
-        "bulk_rnaseq" => "bulk RNA-seq",
-        "single_cell_rnaseq" => "single-cell RNA-seq",
-        "variant_calling" => "variant calling",
-        "chip_seq" => "ChIP-seq",
-        "metagenomics" => "metagenomics",
-        "proteomics" => "proteomics",
-        "generic_omics" => "other omics",
-        _ => "unspecified modality",
-    }
 }
 
 /// `GET /api/chat/session/:id/state` — return a `SessionStateSnapshot` for the given session.
@@ -432,6 +494,7 @@ pub async fn get_state(
                 // + summary_hash drift check) rather than the legacy
                 // bool field.
                 user_confirmed: session.is_confirmed(),
+                project_class: Some(session.project_class),
                 last_activity: session.last_activity,
                 task_count: dag_task_count,
                 progress,
@@ -951,6 +1014,7 @@ mod tests {
                     "goal": "Identify genes differentially expressed between treated and control samples.",
                     "modality": "bulk_rnaseq",
                     "organism": "Homo sapiens",
+                    "input_data_stage": "gene count matrix and sample metadata",
                     "desired_outputs": "Differential-expression table and volcano plot",
                     "uncertainties": "Batch covariates are not finalized"
                 })
@@ -974,6 +1038,21 @@ mod tests {
             turn.role == ecaa_workflow_conversation::TurnRole::User
                 && turn.content.contains("Desired outputs")
         }));
+        let node_ids = session
+            .workflow_dag
+            .as_ref()
+            .expect("structured intake compiles a typed workflow")
+            .nodes
+            .iter()
+            .map(|node| node.id.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        for producer in ["raw_qc", "sequence_trimming", "alignment", "quantification"] {
+            assert!(
+                !node_ids.contains(producer),
+                "the generic supplied-product pass must remove upstream producer {producer}; \
+                 nodes={node_ids:?}"
+            );
+        }
 
         let req = Request::builder()
             .method("GET")
@@ -983,7 +1062,322 @@ mod tests {
         let resp = router.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         let state = body_json(resp.into_body()).await;
-        assert_ne!(state["state"]["kind"], "greeting");
+        assert_eq!(state["state"]["kind"], "pending_confirmation");
+        assert_eq!(state["project_class"], "bioinformatics");
+        assert!(
+            session
+                .conversation
+                .last()
+                .is_some_and(|turn| turn.confirmation_card.is_some()),
+            "structured intake must expose an actionable confirmation card"
+        );
+    }
+
+    #[tokio::test]
+    async fn create_session_from_intent_transfers_inputs_and_prunes_from_explicit_stage() {
+        use ecaa_workflow_conversation::session::state::{UserInput, UserInputFile, UserInputKind};
+
+        let (router, app) = make_router(vec![]).await;
+        let (source_id, _) = app.conversation.start_session(false).await.unwrap();
+        let source_input = UserInput {
+            input_id: "source-input-1".into(),
+            label: "cohort variants".into(),
+            kind: UserInputKind::UploadedFiles,
+            root_path: "/registered/source/upload".into(),
+            files: vec![UserInputFile {
+                relpath: "cohort.vcf.gz".into(),
+                size_bytes: 4096,
+                sha256: "a".repeat(64),
+            }],
+            registered_at: chrono::Utc::now(),
+            registered_by: "local".into(),
+        };
+        app.conversation
+            .store_handle()
+            .update(source_id, {
+                let source_input = source_input.clone();
+                move |session| {
+                    session.inputs.push(source_input.clone());
+                    Ok(())
+                }
+            })
+            .await
+            .unwrap();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/chat/session/from-intent")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "goal": "Filter, annotate, and report the registered cohort variants.",
+                    "modality": "variant_calling",
+                    "input_data_stage": "a VCF of called variants",
+                    "desired_outputs": "Filtered variant table and evidence-linked report",
+                    "source_session_id": source_id,
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let response = router.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body_json(response.into_body()).await;
+        let target_id = uuid::Uuid::parse_str(body["session_id"].as_str().unwrap()).unwrap();
+
+        let target = app.conversation.get_session(target_id).await.unwrap();
+        assert_eq!(target.inputs, vec![source_input]);
+        assert_eq!(
+            target.classification.as_ref().map(|c| c.modality.as_str()),
+            Some("variant_calling")
+        );
+        assert!(
+            matches!(
+                target.state,
+                ecaa_workflow_conversation::SessionState::PendingConfirmation { .. }
+            ),
+            "structured target must stop for explicit SME confirmation"
+        );
+        let node_ids = target
+            .workflow_dag
+            .as_ref()
+            .expect("structured target has workflow DAG")
+            .nodes
+            .iter()
+            .map(|node| node.id.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert!(
+            !node_ids.contains("variant_calling") && !node_ids.contains("alignment"),
+            "a declared called-variant input must prune its producing chain: {node_ids:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn create_session_from_intent_routes_non_biological_registry_modality() {
+        let (router, app) = make_router(vec![]).await;
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/chat/session/from-intent")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "goal": "Forecast river discharge at the gauge with calibrated prediction intervals.",
+                    "modality": "river_discharge_forecast",
+                    "input_data_stage": "dataset descriptor for a registered gauge-station time-series table",
+                    "desired_outputs": "Forecast table, diagnostics, figures, and final report",
+                    "uncertainties": "The holdout period requires SME confirmation",
+                })
+                .to_string(),
+            ))
+            .unwrap();
+
+        let response = router.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body_json(response.into_body()).await;
+        let session_id = uuid::Uuid::parse_str(body["session_id"].as_str().unwrap()).unwrap();
+        let session = app.conversation.get_session(session_id).await.unwrap();
+
+        assert_eq!(
+            session.classification.as_ref().map(|c| c.modality.as_str()),
+            Some("river_discharge_forecast")
+        );
+        assert_eq!(
+            session.project_class,
+            ecaa_workflow_core::project_class::ProjectClass::TimeSeriesForecast
+        );
+        assert_eq!(
+            session
+                .workflow_intent
+                .as_ref()
+                .and_then(|intent| intent.project_class.as_deref()),
+            Some("time_series_forecast")
+        );
+        let node_ids = session
+            .workflow_dag
+            .as_ref()
+            .expect("river workflow DAG")
+            .nodes
+            .iter()
+            .map(|node| node.id.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            session
+                .workflow_dag
+                .as_ref()
+                .and_then(|dag| dag.source_template.as_deref()),
+            Some("river_discharge_forecast"),
+            "the schema-validated catalog selection must remain the authoritative route"
+        );
+        assert!(
+            session
+                .workflow_dag
+                .as_ref()
+                .into_iter()
+                .flat_map(|dag| &dag.edges)
+                .all(|edge| !matches!(
+                    edge.kind,
+                    ecaa_workflow_core::workflow_contracts::edge::EdgeKind::Unproven
+                )),
+            "the registered time-series route must have no unproven data-flow edge"
+        );
+        assert!(
+            node_ids.contains("hydrologic_qc")
+                && node_ids.contains("time_series_forecast_evaluate"),
+            "explicit registry modality must select its non-biological archetype; \
+             classification={:?}, taxonomy={:?}, archetype_snapshot={:?}, source_template={:?}, \
+             alternatives={:?}, unproven_edges={:?}, nodes={node_ids:?}",
+            session.classification,
+            session.taxonomy,
+            session
+                .archetype_snapshot
+                .as_ref()
+                .map(|archetype| archetype.id.as_str()),
+            session
+                .workflow_dag
+                .as_ref()
+                .and_then(|dag| dag.source_template.as_deref()),
+            session
+                .ranked_alternatives
+                .iter()
+                .map(|alternative| (
+                    alternative.source.as_str(),
+                    &alternative.score,
+                    alternative.dag.source_template.as_deref(),
+                ))
+                .collect::<Vec<_>>(),
+            session
+                .ranked_alternatives
+                .iter()
+                .find(|alternative| alternative.source == "archetype")
+                .map(|alternative| {
+                    alternative
+                        .dag
+                        .edges
+                        .iter()
+                        .filter(|edge| {
+                            matches!(
+                                edge.kind,
+                                ecaa_workflow_core::workflow_contracts::edge::EdgeKind::Unproven
+                            )
+                        })
+                        .map(|edge| {
+                            (
+                                edge.from_node.as_str(),
+                                edge.from_port.as_str(),
+                                edge.to_node.as_str(),
+                                edge.to_port.as_str(),
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                }),
+        );
+        assert!(matches!(
+            session.state,
+            ecaa_workflow_conversation::SessionState::PendingConfirmation { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn identical_structured_intakes_have_content_addressed_confirmation_identity() {
+        let (router, app) = make_router(vec![]).await;
+        let payload = serde_json::json!({
+            "goal": "Forecast river discharge at the gauge with calibrated prediction intervals.",
+            "modality": "river_discharge_forecast",
+            "input_data_stage": "dataset descriptor",
+            "desired_outputs": "Forecast table, diagnostics, figures, and final report",
+            "uncertainties": "The holdout period requires SME confirmation",
+        })
+        .to_string();
+        let request = || {
+            Request::builder()
+                .method("POST")
+                .uri("/api/chat/session/from-intent")
+                .header("content-type", "application/json")
+                .body(Body::from(payload.clone()))
+                .unwrap()
+        };
+
+        let first_response = router.clone().oneshot(request()).await.unwrap();
+        assert_eq!(first_response.status(), StatusCode::OK);
+        let first_body = body_json(first_response.into_body()).await;
+        let first_id = uuid::Uuid::parse_str(first_body["session_id"].as_str().unwrap()).unwrap();
+
+        let second_response = router.oneshot(request()).await.unwrap();
+        assert_eq!(second_response.status(), StatusCode::OK);
+        let second_body = body_json(second_response.into_body()).await;
+        let second_id = uuid::Uuid::parse_str(second_body["session_id"].as_str().unwrap()).unwrap();
+        assert_ne!(first_id, second_id);
+
+        let first = app.conversation.get_session(first_id).await.unwrap();
+        let second = app.conversation.get_session(second_id).await.unwrap();
+        assert_eq!(
+            first.current_summary_hash(),
+            second.current_summary_hash(),
+            "session-scoped identifiers must not perturb the scientific confirmation fingerprint"
+        );
+        assert_eq!(
+            first.pending_emission_id, second.pending_emission_id,
+            "identical compiled plans must have the same content-addressed emission identity"
+        );
+    }
+
+    #[tokio::test]
+    async fn create_session_from_intent_rejects_unknown_modality() {
+        let (router, _) = make_router(vec![]).await;
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/chat/session/from-intent")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "goal": "Analyze the registered data.",
+                    "modality": "not_a_registered_modality",
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let response = router.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn create_session_from_intent_returns_validation_error_for_unknown_starting_product() {
+        let (router, app) = make_router(vec![]).await;
+        let sessions_before = app.conversation.iter_session_metadata().await.len();
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/chat/session/from-intent")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "goal": "Forecast river discharge at the gauge.",
+                    "modality": "river_discharge_forecast",
+                    "input_data_stage": "unregistered holographic tensor",
+                    "desired_outputs": "Forecast table and diagnostics",
+                })
+                .to_string(),
+            ))
+            .unwrap();
+
+        let response = router.oneshot(req).await.unwrap();
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let message = String::from_utf8(body.to_vec()).unwrap();
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "unknown starting product must be a client validation error: {message}"
+        );
+        assert!(
+            message.contains("does not identify a typed port"),
+            "validation response must explain the catalog mismatch: {message}"
+        );
+        assert_eq!(
+            app.conversation.iter_session_metadata().await.len(),
+            sessions_before,
+            "a rejected structured intake must not persist a greeting-only orphan session"
+        );
     }
 
     #[tokio::test]

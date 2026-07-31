@@ -57,7 +57,7 @@ pub(crate) async fn post_validation_bound(
     }
     if let Some(session) = app.conversation.get_session(session_id).await {
         if let Err(resp) = crate::chat_routes::package_import::ensure_not_imported(&session) {
-            return resp;
+            return resp.into_response();
         }
         if let IfMatchOutcome::Mismatch { server, client } =
             check_if_match(&headers, &session, "set_validation_bound")

@@ -27,7 +27,7 @@ pub async fn branch_session_endpoint(
         // Imported (read-only) packages cannot be branched — no lineage
         // substrate to fork and no live session to re-emit from.
         if let Err(resp) = crate::chat_routes::package_import::ensure_not_imported(&s) {
-            return resp;
+            return resp.into_response();
         }
         if let super::IfMatchOutcome::Mismatch { server, client } =
             super::check_if_match(&headers, &s, "branch_session")

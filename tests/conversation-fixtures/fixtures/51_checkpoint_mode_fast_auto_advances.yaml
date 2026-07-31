@@ -14,6 +14,9 @@ flow:
       Phase II exploratory RCT — running in fast mode, I'll review the
       final report rather than gating each stage.
   - kind: confirm
+    mode:
+      kind: exploratory
+    checkpoint_mode: fast
   - kind: user
     text: "(confirmed — please continue)"
 
@@ -38,9 +41,8 @@ mock_responses:
       output_dir: "{tempdir}"
   - kind: text
     text: |
-      Package emitted. Fast mode would pre-approve every review gate;
-      the fixture runner confirms without a mode selector so this run
-      exercises the default Gated path.
+      Package emitted. Fast mode pre-approves every review gate for this
+      explicitly exploratory session.
 
 expected_final_state:
   state_kind: emitted
@@ -54,6 +56,6 @@ expected_final_state:
     - policies/container.json
 
 rubric_notes: |
-  Fixture-runner confirms always default to Gated; the Fast auto-advance
-  path is covered by the dedicated unit test in emit/mod.rs. This
-  fixture's role is a regression guard on emission + taxonomy loading.
+  The fixture drives the Fast auto-advance path through the same
+  confirmation controls as the public UI. Dedicated unit coverage in
+  emit/mod.rs verifies the generated sidecars and decision records.

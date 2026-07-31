@@ -14,6 +14,8 @@ use ecaa_workflow_conversation::{
     HeuristicMockBackend, LlmBackend, MockLlmBackend, SessionId, SessionState, SessionStore,
     StopReason, Tool, TurnResponse, Usage,
 };
+use ecaa_workflow_core::checkpoint_mode::CheckpointMode;
+use ecaa_workflow_core::session_mode::SessionMode;
 use serde::Deserialize;
 use std::fs;
 use std::path::PathBuf;
@@ -137,8 +139,14 @@ impl HeuristicBatchStrategyKind {
 enum FlowStep {
     /// Send a user prose turn through `service.send_turn`.
     User { text: String },
-    /// Click the deterministic Confirm button.
-    Confirm,
+    /// Click the deterministic Confirm button with the same explicit
+    /// discipline controls carried by the public confirmation API.
+    Confirm {
+        #[serde(default)]
+        mode: Option<SessionMode>,
+        #[serde(default)]
+        checkpoint_mode: Option<CheckpointMode>,
+    },
     /// Click the deterministic Make-corrections (reject) button.
     Reject,
     /// Click the deterministic Unblock button.
@@ -424,10 +432,16 @@ async fn drive_fixture(fixture: &Fixture, _tempdir: &tempfile::TempDir) -> Sessi
                         panic!("fixture {} step {}: send_turn failed: {}", fixture.id, i, e)
                     });
             }
-            FlowStep::Confirm => {
-                service.confirm(session_id).await.unwrap_or_else(|e| {
-                    panic!("fixture {} step {}: confirm failed: {}", fixture.id, i, e)
-                });
+            FlowStep::Confirm {
+                mode,
+                checkpoint_mode,
+            } => {
+                service
+                    .confirm_with_modes(session_id, None, mode.clone(), *checkpoint_mode)
+                    .await
+                    .unwrap_or_else(|e| {
+                        panic!("fixture {} step {}: confirm failed: {}", fixture.id, i, e)
+                    });
             }
             FlowStep::Reject => {
                 service.reject(session_id).await.unwrap_or_else(|e| {

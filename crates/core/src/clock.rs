@@ -121,7 +121,7 @@ pub fn run_epoch_clock() -> FrozenClock {
 pub fn run_epoch_clock_from(source_date_epoch: Option<&str>) -> FrozenClock {
     let secs = source_date_epoch
         .and_then(|s| s.trim().parse::<i64>().ok())
-        .filter(|&s| s >= RUN_EPOCH_BASE && s < RUN_WINDOW_END)
+        .filter(|&s| (RUN_EPOCH_BASE..RUN_WINDOW_END).contains(&s))
         .unwrap_or(RUN_EPOCH_BASE);
     FrozenClock {
         at: Utc

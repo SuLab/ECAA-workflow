@@ -203,14 +203,21 @@ async fn confirm_advances_state() {
         session.state,
         SessionState::PendingConfirmation { stage: None }
     );
+    assert_eq!(
+        session.pending_emission_id,
+        Some(uuid::Uuid::new_v5(
+            &uuid::Uuid::NAMESPACE_OID,
+            session.current_summary_hash().as_bytes(),
+        )),
+        "the persisted plan must retain the exact content-addressed identity shown on the card"
+    );
 
     svc.confirm(id).await.unwrap();
     let session = svc.get_session(id).await.unwrap();
     assert_eq!(session.state, SessionState::ReadyToEmit);
     // `user_confirmed: true` replaced by `is_confirmed()` against the
     // per-emit token. `confirm_with_modes` mints a token bound to the
-    // pending_emission_id (synthesized when missing) + current summary
-    // hash.
+    // pending_emission_id + current summary hash.
     assert!(
         session.is_confirmed(),
         "confirm must arm the per-emit ConfirmationToken latch"
@@ -221,8 +228,122 @@ async fn confirm_advances_state() {
     );
     assert!(
         session.pending_emission_id.is_some(),
-        "confirm must seed a pending_emission_id when missing"
+        "confirm must retain a pending_emission_id"
     );
+}
+
+#[tokio::test]
+async fn confirm_binds_selected_discipline_and_rejects_invalid_pair_without_mutation() {
+    use ecaa_workflow_core::checkpoint_mode::CheckpointMode;
+    use ecaa_workflow_core::session_mode::SessionMode;
+
+    let scripted_confirmation = || {
+        vec![
+            tool_use(Tool::Batchable(BatchableTool::AppendIntakeProse {
+                prose: "single cell scRNA-seq human samples".into(),
+            })),
+            tool_use(Tool::Batchable(BatchableTool::ProposeSummaryConfirmation {
+                summary_markdown: "Review the complete plan.".into(),
+            })),
+            assistant("Confirm when ready."),
+        ]
+    };
+
+    let (svc, _env) = make_service(scripted_confirmation()).await;
+    let (id, _) = svc.start_session(false).await.unwrap();
+    svc.send_turn(id, "prepare the analysis".into(), None)
+        .await
+        .unwrap();
+    svc.confirm_with_modes(
+        id,
+        None,
+        Some(SessionMode::Exploratory),
+        Some(CheckpointMode::Selective),
+    )
+    .await
+    .unwrap();
+    let confirmed = svc.get_session(id).await.unwrap();
+    let canonical_hash = confirmed.current_summary_hash();
+    assert_eq!(confirmed.checkpoint_mode, CheckpointMode::Selective);
+    assert_eq!(
+        confirmed
+            .confirmation_token
+            .as_ref()
+            .map(|token| token.summary_hash.as_str()),
+        Some(canonical_hash.as_str()),
+        "confirmation token must bind the plan after applying the selected discipline"
+    );
+    assert_eq!(
+        confirmed.pending_emission_id,
+        Some(uuid::Uuid::new_v5(
+            &uuid::Uuid::NAMESPACE_OID,
+            canonical_hash.as_bytes(),
+        )),
+        "emission identity must derive from the same post-selection plan"
+    );
+
+    let (invalid_svc, _invalid_env) = make_service(scripted_confirmation()).await;
+    let (invalid_id, _) = invalid_svc.start_session(false).await.unwrap();
+    invalid_svc
+        .send_turn(invalid_id, "prepare the analysis".into(), None)
+        .await
+        .unwrap();
+    let before = invalid_svc.get_session(invalid_id).await.unwrap();
+    let invalid_mode = SessionMode::Confirmatory {
+        prespecified_stages: vec!["differential_expression".into()],
+        prespecified_parameters: Default::default(),
+    };
+    assert!(
+        invalid_svc
+            .confirm_with_modes(
+                invalid_id,
+                None,
+                Some(invalid_mode),
+                Some(CheckpointMode::Fast),
+            )
+            .await
+            .is_err(),
+        "confirmatory plus fast must be rejected"
+    );
+    let after = invalid_svc.get_session(invalid_id).await.unwrap();
+    assert_eq!(after.state, before.state);
+    assert_eq!(after.mode, before.mode);
+    assert_eq!(after.checkpoint_mode, before.checkpoint_mode);
+    assert_eq!(after.pending_emission_id, before.pending_emission_id);
+    assert!(after.confirmation_token.is_none());
+    assert!(!after.mode_locked);
+
+    let (stale_svc, _stale_env) = make_service(scripted_confirmation()).await;
+    let (stale_id, _) = stale_svc.start_session(false).await.unwrap();
+    stale_svc
+        .send_turn(stale_id, "prepare the analysis".into(), None)
+        .await
+        .unwrap();
+    let pending_before_drift = stale_svc.get_session(stale_id).await.unwrap();
+    stale_svc
+        .store_handle()
+        .update(stale_id, |session| {
+            session
+                .intake_prose
+                .push_str(" Include a materially different endpoint.");
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert!(
+        stale_svc
+            .confirm_with_modes(stale_id, None, None, None)
+            .await
+            .is_err(),
+        "a card raised for an older plan fingerprint must fail closed"
+    );
+    let stale_after = stale_svc.get_session(stale_id).await.unwrap();
+    assert_eq!(stale_after.state, pending_before_drift.state);
+    assert_eq!(
+        stale_after.pending_emission_id,
+        pending_before_drift.pending_emission_id
+    );
+    assert!(stale_after.confirmation_token.is_none());
 }
 
 #[tokio::test]

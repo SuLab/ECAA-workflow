@@ -12,6 +12,15 @@ use super::ChatAppState;
 use axum::{extract::State, response::IntoResponse, Json};
 use serde::Serialize;
 
+/// One runtime-registered modality exposed to the structured-intake chooser.
+#[derive(Debug, Clone, Serialize)]
+pub(super) struct ChatModalityOption {
+    /// Stable modality id accepted by the structured-intake endpoint.
+    pub id: String,
+    /// Human-readable catalog label.
+    pub display_name: String,
+}
+
 /// Response shape. Mirrors the UI's `ChatConfig` interface; field
 /// names are snake_case to match the rest of the chat API.
 #[derive(Debug, Clone, Serialize)]
@@ -26,6 +35,9 @@ pub(super) struct ChatConfig {
     /// The UI disables the button below this threshold so users don't
     /// click it just to see the 400 response.
     pub auto_title_min_turns: usize,
+    /// Current modality registry, sorted by stable id. The structured fallback
+    /// reads this instead of maintaining a browser-side assay allowlist.
+    pub modalities: Vec<ChatModalityOption>,
 }
 
 pub(super) async fn get_config(State(app): State<ChatAppState>) -> impl IntoResponse {
@@ -33,9 +45,30 @@ pub(super) async fn get_config(State(app): State<ChatAppState>) -> impl IntoResp
     // (test-only pin; `None` in production) and falls back to
     // `app.config.auto_title` (the pre-loaded boot value).
     let auto_title_enabled = app.auto_title_enabled();
+    let modalities_dir = app.config.config_dir.join("modalities");
+    let modalities =
+        match ecaa_workflow_core::modality_registry::ModalityRegistry::load_cached(&modalities_dir)
+        {
+            Ok(registry) => registry
+                .iter()
+                .map(|(id, definition)| ChatModalityOption {
+                    id: id.clone(),
+                    display_name: definition.display_name.clone(),
+                })
+                .collect(),
+            Err(error) => {
+                tracing::warn!(
+                    path = %modalities_dir.display(),
+                    error = %error,
+                    "chat config could not load modality registry"
+                );
+                Vec::new()
+            }
+        };
     Json(ChatConfig {
         auto_title_enabled,
         auto_title_min_turns: ecaa_workflow_conversation::side_calls::AUTO_TITLE_MIN_TURNS,
+        modalities,
     })
     .into_response()
 }

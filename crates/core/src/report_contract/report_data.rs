@@ -912,8 +912,8 @@ pub fn join_literature(
     // key. Preserve only unambiguous keys: if two analytical artifacts reuse a
     // label with different measurements, the literature rollup abstains rather
     // than selecting one silently.
-    let mut canonical_by_key: BTreeMap<String, Option<(Option<f64>, Option<f64>)>> =
-        BTreeMap::new();
+    type Measurement = (Option<f64>, Option<f64>);
+    let mut canonical_by_key: BTreeMap<String, Option<Measurement>> = BTreeMap::new();
     for entity in sig_entities.iter() {
         let measurement = (entity.effect, entity.significance);
         canonical_by_key
