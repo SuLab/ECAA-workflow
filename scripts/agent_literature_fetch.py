@@ -52,6 +52,12 @@ EXTRACTED_TEXT_NORMALIZATION = "collapse_whitespace_lowercase_v1"
 USER_AGENT = "ecaa-workflow-literature-fetch/1 (+https://github.com/SuLab/ECAA-workflow)"
 HTTP_TIMEOUT_SECS = 30
 RETRIEVAL_SCOPE_SCHEMA_VERSION = 1
+DEFAULT_MINIMUM_INDEPENDENT_SOURCES = 2
+MAX_CANDIDATE_QUERY_ATTEMPTS = 3
+
+# Paper-class source classes that can satisfy the independent-source policy.
+# This mirrors the Rust validator and is intentionally modality-neutral.
+PAPER_CLASSES = ("primary_literature", "conference_proceedings")
 
 # NCBI E-utilities rate limits: 3 req/s per IP without an API key, 10 req/s
 # with ECAA_LIT_NCBI_API_KEY. The helper bursts esearch + N efetch per axis, so
@@ -238,6 +244,59 @@ def candidate_aliases(candidate: str) -> Tuple[str, ...]:
     return tuple(dict.fromkeys(a for a in aliases if a))
 
 
+def candidate_query_variants(query: str, candidate: str) -> Tuple[str, ...]:
+    """Return bounded, deterministic retrieval queries for a named method.
+
+    The caller's context-rich query remains the first attempt. If it is too
+    narrow, the helper may widen only to strings derived from the declared
+    candidate identifier and its canonical aliases. This keeps widening
+    independent of any analysis archetype or modality and prevents an agent
+    from inventing unrelated search terms.
+    """
+
+    variants: List[str] = []
+    seen: set[str] = set()
+
+    def add(value: str) -> None:
+        value = re.sub(r"\s+", " ", value or "").strip()
+        key = normalize_text(value)
+        if not value or key in seen or len(variants) >= MAX_CANDIDATE_QUERY_ATTEMPTS:
+            return
+        seen.add(key)
+        variants.append(value)
+
+    add(query)
+    canonical = re.sub(r"[_-]+", " ", candidate).strip()
+    add(canonical)
+    for alias in candidate_aliases(candidate):
+        add(alias)
+    return tuple(variants)
+
+
+def minimum_independent_sources(out: Path) -> int:
+    """Read the package's independent-source floor, mirroring the validator.
+
+    Task output directories live below ``<package>/runtime/outputs`` while the
+    policy lives at ``<package>/policies/source-discovery-policy.json``. Walk
+    upward exactly as the harness does. A missing, malformed, or non-integer
+    value uses the same default as the harness.
+    """
+
+    for directory in (out, *out.parents):
+        policy_path = directory / "policies" / "source-discovery-policy.json"
+        if not policy_path.exists():
+            continue
+        try:
+            policy = json.loads(policy_path.read_text(encoding="utf-8"))
+            value = policy["claimSupportRules"]["minimumIndependentSources"]
+        except (OSError, ValueError, KeyError, TypeError):
+            return DEFAULT_MINIMUM_INDEPENDENT_SOURCES
+        if type(value) is int and value >= 0:
+            return value
+        return DEFAULT_MINIMUM_INDEPENDENT_SOURCES
+    return DEFAULT_MINIMUM_INDEPENDENT_SOURCES
+
+
 def _candidate_alias_match(text: str, candidate: str) -> Optional[re.Match[str]]:
     key = normalize_text(candidate).replace("-", "_").replace(" ", "_")
     # These canonical tool ids are ordinary English words when lower-cased.
@@ -345,9 +404,9 @@ def _raw_get(url: str) -> bytes:
             if e.code in (429, 503) and attempt < _HTTP_MAX_RETRIES:
                 retry_after = e.headers.get("Retry-After") if e.headers else None
                 try:
-                    backoff = float(retry_after) if retry_after else 2.0 ** attempt
+                    backoff = float(retry_after) if retry_after else 2.0**attempt
                 except (TypeError, ValueError):
-                    backoff = 2.0 ** attempt
+                    backoff = 2.0**attempt
                 _time.sleep(min(backoff, _HTTP_MAX_BACKOFF_SECS))
                 attempt += 1
                 continue
@@ -437,7 +496,7 @@ def _crossref_extract(payload: Dict[str, Any]) -> List[Dict[str, str]]:
         titles = it.get("title") or []
         title = (titles[0] if titles else "").strip()
         abstract = re.sub(r"<[^>]+>", " ", it.get("abstract", "") or "")
-        quote = (abstract.strip() or title)
+        quote = abstract.strip() or title
         if not (doi and title and quote):
             continue
         out.append({"candidate": title, "source_ref": doi, "quote": quote})
@@ -466,7 +525,7 @@ def _extract_version_context(text: str, candidate: str) -> Optional[str]:
     if pos < 0:
         return None
     window = norm[pos : pos + len(candidate) + 40]
-    m = _VERSION_NEAR_TOOL.search(window[len(candidate):])
+    m = _VERSION_NEAR_TOOL.search(window[len(candidate) :])
     if m:
         return m.group(1)
     return None
@@ -581,8 +640,7 @@ def _pubmed_extract_abstract(xml: str) -> Tuple[str, str, str]:
     title_el = art.find(".//Article/ArticleTitle")
     title = "".join(title_el.itertext()).strip() if title_el is not None else ""
     abstract = " ".join(
-        "".join(a.itertext()).strip()
-        for a in art.findall(".//Abstract/AbstractText")
+        "".join(a.itertext()).strip() for a in art.findall(".//Abstract/AbstractText")
     ).strip()
     return pmid, title, abstract
 
@@ -647,8 +705,7 @@ def _fetch_primary_literature(query: str, route: Dict[str, Any]) -> List[Dict[st
         if not pmid.isdigit():
             continue
         efetch_url = (
-            f"https://{host}/entrez/eutils/efetch.fcgi?db=pubmed"
-            f"&retmode=xml&id={pmid}{key_qs}"
+            f"https://{host}/entrez/eutils/efetch.fcgi?db=pubmed&retmode=xml&id={pmid}{key_qs}"
         )
         xml = _http_get_text(efetch_url, host, hosts)
         got_pmid, title, abstract = _pubmed_extract_abstract(xml)
@@ -735,11 +792,13 @@ def fetch_for_axis(
     `<out_dir>/method_landscape.csv`.
 
     `curated` is the axis's curated candidate pool (the task spec's
-    `attributes.candidate_tools`). When retrieval yields zero usable rows for
-    the axis — offline, every route fails, or the literature is thin — the
-    helper falls back to emitting one `curated_baseline` row per curated
-    candidate (no locator, `verified=false`, empty quote). The fallback never
-    raises and never blocks the task.
+    `attributes.candidate_tools`). A named candidate whose first query falls
+    below the packaged independent-source floor receives a bounded sequence of
+    candidate-derived query attempts. When those attempts yield zero usable
+    rows — offline, every route fails, or the literature is thin — the helper
+    falls back to one `curated_baseline` row per applicable candidate (no
+    locator, `verified=false`, empty quote). The fallback never raises and
+    never blocks the task.
 
     Always (re)writes a `<out_dir>/method_landscape.json` rollup from the
     full CSV so a sibling UI agent has the per-axis candidate view.
@@ -751,173 +810,258 @@ def fetch_for_axis(
     ev_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = ev_dir / "manifest.json"
     csv_path = out / "method_landscape.csv"
-    _record_retrieval_axis(out, axis, query, status="attempted")
 
     routes = routes or {}
     curated = list(curated or [])
     active = enabled_classes(classes)
+    min_sources = minimum_independent_sources(out)
+    queries = (query,)
+    if candidate and any(cls in PAPER_CLASSES for cls in active):
+        queries = candidate_query_variants(query, candidate)
     cap = _evidence_cap_bytes()
 
     manifest = _load_manifest(manifest_path)
     ev_used = sum(int(e.get("bytes", 0)) for e in manifest.get("entries", []))
+    manifest_keys = {
+        (
+            str(e.get("source_class") or ""),
+            str(e.get("source_ref_kind") or ""),
+            normalize_text(str(e.get("source_ref") or "")),
+            str(e.get("sha256_binary") or ""),
+        )
+        for e in manifest.get("entries", [])
+        if isinstance(e, dict)
+    }
+
+    existing_rows = _read_csv_dicts(csv_path)
+
+    def row_is_in_scope(row: Dict[str, str]) -> bool:
+        if (row.get("axis") or "").strip() != axis:
+            return False
+        if candidate is not None:
+            return (row.get("candidate_method") or "").strip() == candidate
+        return True
+
+    scoped_existing = [row for row in existing_rows if row_is_in_scope(row)]
+    existing_row_keys = {
+        (
+            axis,
+            (row.get("candidate_method") or "").strip(),
+            (row.get("source_class") or "").strip(),
+            (row.get("source_ref_kind") or "").strip(),
+            normalize_text(row.get("source_ref") or ""),
+        )
+        for row in scoped_existing
+        if (row.get("source_ref") or "").strip()
+    }
+    processed_sources = {
+        (
+            (row.get("source_class") or "").strip(),
+            (row.get("source_ref_kind") or "").strip(),
+            normalize_text(row.get("source_ref") or ""),
+        )
+        for row in scoped_existing
+        if (row.get("source_ref") or "").strip()
+    }
+    verified_paper_sources = {
+        (row.get("source_ref") or row.get("source_hash") or "").strip()
+        for row in scoped_existing
+        if (row.get("verified") or "").strip().lower() == "true"
+        and (row.get("source_class") or "").strip() in PAPER_CLASSES
+        and (row.get("source_ref") or row.get("source_hash") or "").strip()
+    }
+    existing_retrieved_rows = any(
+        (row.get("source_class") or "").strip() != "curated_baseline" for row in scoped_existing
+    )
+
     truncated = False
     rows_out: List[Dict[str, Any]] = []
     n_entries = 0
     candidate_mismatch_filtered = 0
+    attempt_records: List[Dict[str, Any]] = []
 
-    for cls in active:
-        route = routes.get(cls, {}) or DEFAULT_ROUTES.get(cls, {})
-        # Retrieval is best-effort: a transport/availability failure (offline,
-        # DNS failure, timeout, malformed response) must degrade to the
-        # curated-baseline fallback below, never propagate and block the task.
-        # An egress-allowlist VIOLATION is a separate, loud failure (below).
-        try:
-            if cls == "conference_proceedings":
-                findings = _fetch_conference_proceedings(query, route)
-                ref_kind = "doi"
-                evidence_role = "recommendation_or_benchmark"
-            elif cls == "tool_documentation":
-                findings = _fetch_tool_documentation(query, route)
-                ref_kind = "url"
-                evidence_role = "capability_or_version"
-            elif cls == "primary_literature":
-                findings = _fetch_primary_literature(query, route)
-                ref_kind = "pmid"
-                evidence_role = "recommendation_or_benchmark"
-            else:
-                findings = []
-                ref_kind = "url"
-                evidence_role = "recommendation_or_benchmark"
-        except HostNotAllowedError:
-            # An egress-allowlist violation is a route MISCONFIGURATION, not a
-            # transport/availability failure. Surface it loudly rather than
-            # silently degrading — the curated fallback is for offline / route
-            # failure / thin literature, not for a bad allowlist.
-            raise
-        except Exception as exc:  # noqa: BLE001 — transport failure → fallback
-            # Offline, DNS failure, timeout, connection reset, malformed
-            # response, etc.: degrade to the curated-baseline fallback below
-            # rather than block the task.
-            sys.stderr.write(
-                f"[literature-fetch] axis={axis!r} class={cls!r} retrieval "
-                f"failed ({type(exc).__name__}: {exc}); falling back to "
-                f"curated pool.\n"
-            )
-            continue
+    for attempt_index, attempt_query in enumerate(queries):
+        _record_retrieval_axis(out, axis, attempt_query, status="attempted")
+        attempt_entries = 0
+        attempt_rows = 0
+        attempt_mismatches = 0
+        # Documentation routes are URL-directed rather than query-directed.
+        # Repeating them for candidate-only widening cannot discover a new
+        # page, so subsequent attempts remain restricted to paper indexes.
+        attempt_classes = (
+            active if attempt_index == 0 else [cls for cls in active if cls in PAPER_CLASSES]
+        )
 
-        for f in findings:
-            # Candidate override: when the caller surveys a NAMED method
-            # (survey_method_landscape calls the helper once per candidate
-            # method), every retrieved source is tagged with that method so
-            # multiple PMIDs accumulate under ONE candidate — which is what the
-            # corroboration validator (≥`min_sources` distinct verified PMIDs
-            # per candidate) requires. Without it each paper becomes its own
-            # single-PMID candidate and no axis ever carries a valid default.
-            if candidate and cls != "tool_documentation":
-                relevant_quote = candidate_evidence_quote(
-                    f.get("_extracted", f.get("quote", "")), candidate
+        for cls in attempt_classes:
+            route = routes.get(cls, {}) or DEFAULT_ROUTES.get(cls, {})
+            # Retrieval is best-effort: transport and availability failures
+            # advance to the next bounded query or the curated fallback. An
+            # egress-allowlist violation remains a loud configuration failure.
+            try:
+                if cls == "conference_proceedings":
+                    findings = _fetch_conference_proceedings(attempt_query, route)
+                    ref_kind = "doi"
+                    evidence_role = "recommendation_or_benchmark"
+                elif cls == "tool_documentation":
+                    findings = _fetch_tool_documentation(attempt_query, route)
+                    ref_kind = "url"
+                    evidence_role = "capability_or_version"
+                elif cls == "primary_literature":
+                    findings = _fetch_primary_literature(attempt_query, route)
+                    ref_kind = "pmid"
+                    evidence_role = "recommendation_or_benchmark"
+                else:
+                    findings = []
+                    ref_kind = "url"
+                    evidence_role = "recommendation_or_benchmark"
+            except HostNotAllowedError:
+                raise
+            except Exception as exc:  # noqa: BLE001 — transport failure → fallback
+                sys.stderr.write(
+                    f"[literature-fetch] axis={axis!r} class={cls!r} "
+                    f"query={attempt_query!r} retrieval failed "
+                    f"({type(exc).__name__}: {exc}); continuing bounded "
+                    "retrieval or curated fallback.\n"
                 )
-                if not relevant_quote:
-                    candidate_mismatch_filtered += 1
-                    continue
-                f["quote"] = relevant_quote
-            if candidate:
-                f["candidate"] = candidate
-            # Snapshot bytes: tool-doc keeps the raw HTML; index hits store the
-            # FULL extracted source text (`_extracted`, e.g. the whole PubMed
-            # abstract) when present, so the snapshot is a faithful record of
-            # the source rather than a ~100-byte topic sentence. The
-            # quote-presence check below substring-matches the verbatim quote
-            # against this full text, so it stays exact and reproducible. Only
-            # when a finding carries no `_extracted` (e.g. a curated baseline
-            # row whose quote IS its whole text) do we fall back to the quote.
-            if cls == "tool_documentation":
-                payload = f["_raw"].encode("utf-8")
-            else:
-                payload = f.get("_extracted", f["quote"]).encode("utf-8")
+                continue
 
-            if cap is not None and ev_used + len(payload) > cap:
-                truncated = True
+            for f in findings:
+                source_ref = str(f.get("source_ref") or "").strip()
+                source_key = (cls, ref_kind, normalize_text(source_ref))
+                if not source_ref or source_key in processed_sources:
+                    continue
+                processed_sources.add(source_key)
+
+                # Candidate override: every retained source must name the
+                # declared method. Query inclusion alone is never evidence.
+                if candidate and cls != "tool_documentation":
+                    relevant_quote = candidate_evidence_quote(
+                        f.get("_extracted", f.get("quote", "")), candidate
+                    )
+                    if not relevant_quote:
+                        candidate_mismatch_filtered += 1
+                        attempt_mismatches += 1
+                        continue
+                    f["quote"] = relevant_quote
+                if candidate:
+                    f["candidate"] = candidate
+
+                row_key = (
+                    axis,
+                    str(f["candidate"]),
+                    cls,
+                    ref_kind,
+                    normalize_text(source_ref),
+                )
+                if row_key in existing_row_keys:
+                    continue
+                existing_row_keys.add(row_key)
+
+                # Snapshot bytes: documentation keeps raw HTML; index hits
+                # retain the full extracted source text when available.
+                if cls == "tool_documentation":
+                    payload = f["_raw"].encode("utf-8")
+                else:
+                    payload = f.get("_extracted", f["quote"]).encode("utf-8")
+
+                sha = hashlib.sha256(payload).hexdigest()
+                manifest_key = (cls, ref_kind, normalize_text(source_ref), sha)
+                new_manifest_entry = manifest_key not in manifest_keys
+                if new_manifest_entry and cap is not None and ev_used + len(payload) > cap:
+                    truncated = True
+                    break
+
+                rel, sha = _snapshot(ev_dir, payload)
+                ts = _utc_now_iso()
+
+                # quote_present is a provenance check only. It confirms that
+                # the retained excerpt occurs in the retained source text.
+                extracted_src = f.get("_extracted", payload.decode("utf-8", errors="replace"))
+                snap_norm = normalize_text(extracted_src)
+                quote_norm = normalize_text(f["quote"])
+                quote_present = bool(quote_norm) and quote_norm in snap_norm
+                verified = quote_present
+                offset = snap_norm.find(quote_norm) if verified else 0
+
+                extracted_sha = hashlib.sha256(snap_norm.encode("utf-8")).hexdigest()
+                redistributable = cls != "tool_documentation"
+                license_str = "unknown" if cls == "tool_documentation" else "abstract_fair_use"
+                pmid_val = str(f.get("pmid") or "") if ref_kind == "pmid" else ""
+
+                if new_manifest_entry:
+                    qid = _next_query_id(manifest)
+                    entry: Dict[str, Any] = {
+                        "source_kind": f["source_kind"],
+                        "source_ref_kind": ref_kind,
+                        "source_ref": source_ref,
+                        "source_class": cls,
+                        "evidence_role": evidence_role,
+                        "path": rel,
+                        "sha256_binary": sha,
+                        "sha256_extracted_text": extracted_sha,
+                        "extracted_text_normalization": EXTRACTED_TEXT_NORMALIZATION,
+                        "bytes": len(payload),
+                        "retrieval_ts": ts,
+                        "retrieval_query_id": qid,
+                        "redistributable": redistributable,
+                        "license": license_str,
+                    }
+                    if f.get("version_context"):
+                        entry["version_context"] = f["version_context"]
+                    if pmid_val:
+                        entry["pmid"] = pmid_val
+                    manifest["entries"].append(entry)
+                    manifest_keys.add(manifest_key)
+                    ev_used += len(payload)
+                    n_entries += 1
+                    attempt_entries += 1
+
+                row = {
+                    "axis": axis,
+                    "candidate_method": f["candidate"],
+                    "source_ref_kind": ref_kind,
+                    "source_ref": source_ref,
+                    "source_class": cls,
+                    "evidence_role": evidence_role,
+                    "evidence_quote": f["quote"],
+                    "evidence_quote_offset": offset,
+                    "source_kind": f["source_kind"],
+                    "source_hash": "sha256:" + sha,
+                    "retrieval_ts": ts,
+                    "redistributable": "true" if redistributable else "false",
+                    "verified": "true" if verified else "false",
+                    "version_context": f.get("version_context") or "",
+                    "pmid": pmid_val,
+                }
+                rows_out.append(row)
+                attempt_rows += 1
+                if verified and cls in PAPER_CLASSES:
+                    verified_paper_sources.add(source_ref or "sha256:" + sha)
+
+            if truncated:
                 break
 
-            rel, sha = _snapshot(ev_dir, payload)
-            ev_used += len(payload)
-            n_entries += 1
-            ts = _utc_now_iso()
-            qid = _next_query_id(manifest)
-
-            # quote_present := the verbatim quote substring-matches the
-            # source's EXTRACTED text after collapse_whitespace_lowercase_v1
-            # normalization. This is a QUOTE-PRESENCE check only: it confirms
-            # the quote was copied verbatim from the snapshotted source. It does
-            # NOT assess whether the source SUPPORTS a downstream claim, nor the
-            # DIRECTIONALITY of any effect. For literature/index hits the
-            # snapshot binary now holds the FULL extracted text (`_extracted`),
-            # so the quote is matched against the whole abstract; for tool-doc
-            # pages the binary is raw HTML, so we verify against the stripped
-            # text (`_extracted`).
-            extracted_src = f.get("_extracted", payload.decode("utf-8", errors="replace"))
-            snap_norm = normalize_text(extracted_src)
-            quote_norm = normalize_text(f["quote"])
-            quote_present = bool(quote_norm) and quote_norm in snap_norm
-            verified = quote_present
-            offset = snap_norm.find(quote_norm) if verified else 0
-
-            extracted_sha = hashlib.sha256(snap_norm.encode("utf-8")).hexdigest()
-            # Proceedings snapshots store only short verbatim quotes (fair
-            # use); tool-doc HTML carries an unknown license, so mark it
-            # non-redistributable conservatively.
-            redistributable = cls != "tool_documentation"
-            license_str = "unknown" if cls == "tool_documentation" else "abstract_fair_use"
-
-            entry: Dict[str, Any] = {
-                "source_kind": f["source_kind"],
-                "source_ref_kind": ref_kind,
-                "source_ref": f["source_ref"],
-                "source_class": cls,
-                "evidence_role": evidence_role,
-                "path": rel,
-                "sha256_binary": sha,
-                "sha256_extracted_text": extracted_sha,
-                "extracted_text_normalization": EXTRACTED_TEXT_NORMALIZATION,
-                "bytes": len(payload),
-                "retrieval_ts": ts,
-                "retrieval_query_id": qid,
-                "redistributable": redistributable,
-                "license": license_str,
-            }
-            if f.get("version_context"):
-                entry["version_context"] = f["version_context"]
-            # Singular `pmid` on the manifest entry AND the CSV row for
-            # PMID-locator findings: the harness `run_pmid_resolves` validator
-            # keys the manifest by singular `pmid`, and the claims-matrix
-            # `pmid` column anchors the per-row resolve. Without it a
-            # legitimately-retrieved abstract reports pmid_not_found.
-            pmid_val = str(f.get("pmid") or "") if ref_kind == "pmid" else ""
-            if pmid_val:
-                entry["pmid"] = pmid_val
-            manifest["entries"].append(entry)
-
-            row = {
-                "axis": axis,
-                "candidate_method": f["candidate"],
-                "source_ref_kind": ref_kind,
-                "source_ref": f["source_ref"],
-                "source_class": cls,
-                "evidence_role": evidence_role,
-                "evidence_quote": f["quote"],
-                "evidence_quote_offset": offset,
-                "source_kind": f["source_kind"],
-                "source_hash": "sha256:" + sha,
-                "retrieval_ts": ts,
-                "redistributable": "true" if redistributable else "false",
-                "verified": "true" if verified else "false",
-                "version_context": f.get("version_context") or "",
-                "pmid": pmid_val,
-            }
-            rows_out.append(row)
-
-        if truncated:
+        attempt_record = {
+            "query": attempt_query,
+            "entries_written": attempt_entries,
+            "rows_written": attempt_rows,
+            "fallback_used": False,
+            "candidate_mismatch_filtered": attempt_mismatches,
+            "truncated_at_storage_cap": truncated,
+        }
+        attempt_records.append(attempt_record)
+        _record_retrieval_axis(
+            out,
+            axis,
+            attempt_query,
+            status="completed",
+            entries_written=attempt_entries,
+            rows_written=attempt_rows,
+            fallback_used=False,
+            candidate_mismatch_filtered=attempt_mismatches,
+            truncated_at_storage_cap=truncated,
+        )
+        if truncated or not candidate or len(verified_paper_sources) >= min_sources:
             break
 
     _write_manifest(manifest_path, manifest)
@@ -931,20 +1075,45 @@ def fetch_for_axis(
     fallback_used = False
     if rows_out:
         _append_csv_rows(csv_path, rows_out)
-    else:
+    elif not existing_retrieved_rows:
         # A per-candidate survey call must only emit a fallback for that
         # candidate. Emitting the full axis pool on every zero-result query
         # duplicates unrelated curated rows and can inflate downstream support
         # counts. The full pool is still retained in curated_pools.json below.
         fallback_candidates = [candidate] if candidate else curated
-        fallback_rows = _curated_baseline_rows(axis, fallback_candidates)
-        if fallback_rows:
+        all_fallback_rows = _curated_baseline_rows(axis, fallback_candidates)
+        existing_fallback_candidates = {
+            (row.get("candidate_method") or "").strip()
+            for row in scoped_existing
+            if (row.get("source_class") or "").strip() == "curated_baseline"
+        }
+        fallback_rows = [
+            row
+            for row in all_fallback_rows
+            if row["candidate_method"] not in existing_fallback_candidates
+        ]
+        if all_fallback_rows:
             fallback_used = True
-            _append_csv_rows(csv_path, fallback_rows)
+            if fallback_rows:
+                _append_csv_rows(csv_path, fallback_rows)
         elif not csv_path.exists():
             # No curated pool either — still leave a header-only CSV so the
             # downstream loader + the required_artifacts check find the file.
             _append_csv_rows(csv_path, [])
+
+    if attempt_records:
+        last_attempt = attempt_records[-1]
+        _record_retrieval_axis(
+            out,
+            axis,
+            last_attempt["query"],
+            status="completed",
+            entries_written=last_attempt["entries_written"],
+            rows_written=last_attempt["rows_written"],
+            fallback_used=fallback_used,
+            candidate_mismatch_filtered=last_attempt["candidate_mismatch_filtered"],
+            truncated_at_storage_cap=last_attempt["truncated_at_storage_cap"],
+        )
 
     # The method_landscape.json rollup is (re)written from the full CSV in
     # BOTH the normal and the fallback path so a sibling UI agent always has a
@@ -967,18 +1136,10 @@ def fetch_for_axis(
         "fallback_used": fallback_used,
         "candidate_mismatch_filtered": candidate_mismatch_filtered,
         "truncated_at_storage_cap": truncated,
+        "queries_attempted": [record["query"] for record in attempt_records],
+        "minimum_independent_sources": min_sources,
+        "verified_paper_sources": len(verified_paper_sources),
     }
-    _record_retrieval_axis(
-        out,
-        axis,
-        query,
-        status="completed",
-        entries_written=n_entries,
-        rows_written=len(rows_out),
-        fallback_used=fallback_used,
-        candidate_mismatch_filtered=candidate_mismatch_filtered,
-        truncated_at_storage_cap=truncated,
-    )
     if fallback_used:
         # Soft-warning: this axis fell back to curated_baseline rows only (no
         # live source resolved/verified). The Phase-13 validators SKIP
@@ -1036,10 +1197,6 @@ def _curated_baseline_rows(axis: str, curated: List[str]) -> List[Dict[str, Any]
 # method_landscape.json rollup. Conforms to the shape the sibling UI agent
 # consumes; derived from the full method_landscape.csv (all axes).
 # --------------------------------------------------------------------------
-
-# Paper-class source classes that make a candidate literature_eligible and
-# count toward its support_score (mirrors the Rust `PAPER_CLASSES`).
-PAPER_CLASSES = ("primary_literature", "conference_proceedings")
 
 METHOD_LANDSCAPE_JSON_SCHEMA_VERSION = 1
 
@@ -1135,9 +1292,7 @@ def _write_method_landscape_json(
     json_path.write_text(json.dumps(rollup, indent=2, sort_keys=False) + "\n")
 
 
-def _merge_curated_pool(
-    sidecar_path: Path, axis: str, curated: List[str]
-) -> Dict[str, List[str]]:
+def _merge_curated_pool(sidecar_path: Path, axis: str, curated: List[str]) -> Dict[str, List[str]]:
     """Accumulate the per-axis curated pools across `fetch_for_axis` calls.
 
     The agent calls the helper once per axis; each call appends rows to a

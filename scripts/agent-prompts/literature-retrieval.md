@@ -28,23 +28,31 @@ redistributable. A locally stored external PDF
 (`source_kind: external_pdf_local_only`) remains non-redistributable.
 
 **Corroboration — call the helper ONCE PER CANDIDATE METHOD.** The
-corroboration validator wants ≥2 distinct verified PMIDs grouped under the SAME
-`candidate_method`. So iterate the axis's candidate methods (its task-spec
-`attributes.candidate_tools`) and run the helper once per method, passing
-`--candidate <method>` and a method-scoped query, e.g.
+corroboration validator applies the package's required number of distinct
+verified sources under the SAME `candidate_method`. So iterate the axis's
+candidate methods (its task-spec `attributes.candidate_tools`) and run the
+helper once per method, passing `--candidate <method>` and a method-scoped
+query, e.g.
 
 ```
 python3 lib/agent_literature_fetch.py <out_dir> <axis> \
   "<method> <analysis context>" primary_literature --candidate <method>
 ```
 
-`--candidate` tags every PMID the query returns with that one method, so the
-PMIDs accumulate under it (≥2 → corroborated). WITHOUT `--candidate` each paper
-becomes its own single-PMID candidate and the survey fails
-`insufficient_corroboration`. If only one source genuinely exists for a method,
-retrieve it and proceed; do not fabricate a second — the validator de-ranks an
-under-corroborated method rather than failing the axis, as long as some method
-on the axis is adequately corroborated.
+`--candidate` tags every retained source with that one method, so independent
+locators accumulate under it until the packaged corroboration floor is met.
+WITHOUT `--candidate` each paper becomes its own single-source candidate and
+the survey can fail
+`insufficient_corroboration`. The helper reads the package's
+`minimumIndependentSources` policy. When the context-rich query returns too few
+distinct verified paper sources, it performs at most two deterministic wider
+queries derived only from the declared candidate identifier and its canonical
+aliases. Every attempted query, including a zero-result query, remains recorded
+in `retrieval_scope.json`. Do not add unbounded searches around this behavior.
+If the bounded attempts still find only one genuine source, retain it and
+proceed; do not fabricate a second. The validator de-ranks an
+under-corroborated method rather than failing the axis, as long as the axis has
+adequate independent support.
 
 The helper retains a paper-class query hit only when the stored source text
 names the requested candidate (using the helper's conservative compound-method
@@ -138,12 +146,13 @@ scope, leave it out — do not reach for an un-allowlisted source.
 
 If a class is disabled, you are offline, every route fails, or an axis yields
 no usable rows, that is fine and must NOT block the task. The helper handles
-this for you. For an axis-level call without `candidate`, pass the axis's
-curated candidate pool (its task-spec `attributes.candidate_tools`) to
+this for you after completing its bounded candidate-derived query attempts.
+For an axis-level call without `candidate`, pass the axis's curated candidate
+pool (its task-spec `attributes.candidate_tools`) to
 `fetch_for_axis(..., curated=[...])`. For the required per-candidate survey
 calls, pass only `curated=[candidate]`; the helper scopes it defensively when
-`candidate` is set. When retrieval produces zero usable rows, the helper emits
-one fallback row per applicable curated candidate with
+`candidate` is set. When all bounded retrieval attempts produce zero usable
+rows, the helper emits one fallback row per applicable curated candidate with
 `source_class=curated_baseline`,
 `verified=false`, and no locator (empty `source_ref_kind`/`source_ref` and
 empty `evidence_quote`). These rows let the downstream `discover_*` task still

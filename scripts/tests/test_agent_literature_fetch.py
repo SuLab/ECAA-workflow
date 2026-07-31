@@ -51,9 +51,7 @@ class HostGuardTest(unittest.TestCase):
 
     def test_non_allowlisted_text_host_raises(self):
         with self.assertRaises(alf.HostNotAllowedError):
-            alf._http_get_text(
-                "https://evil.example.com/x", "evil.example.com", ["readthedocs.io"]
-            )
+            alf._http_get_text("https://evil.example.com/x", "evil.example.com", ["readthedocs.io"])
 
 
 class OpenAlexFetchTest(unittest.TestCase):
@@ -199,9 +197,7 @@ class PrimaryLiteratureFetchTest(unittest.TestCase):
         """
         import tempfile
 
-        first_sentence = (
-            "MaxQuant enables high peptide identification rates."
-        )
+        first_sentence = "MaxQuant enables high peptide identification rates."
         rest = (
             " It provides individualized ppb-range mass accuracies as a "
             "function of peptide mass and elution time, and proteome-wide "
@@ -313,7 +309,6 @@ class PrimaryLiteratureFetchTest(unittest.TestCase):
         finally:
             alf._pubmed_evidence_quote = orig_quote
 
-
     def test_candidate_override_groups_pmids_under_one_method(self):
         """With an explicit candidate, every retrieved PMID is tagged with that
         method (not the paper title) so corroboration (≥2 distinct PMIDs per
@@ -358,9 +353,7 @@ class PrimaryLiteratureFetchTest(unittest.TestCase):
     def test_candidate_override_selects_method_naming_quote(self):
         import tempfile
 
-        alf._http_get_json = lambda url, host, allowed: {
-            "esearchresult": {"idlist": ["25217409"]}
-        }
+        alf._http_get_json = lambda url, host, allowed: {"esearchresult": {"idlist": ["25217409"]}}
         abstract = (
             "RNA sequencing is widely used in transcriptomics. "
             "DESeq2 estimates sample-specific size factors and fits "
@@ -382,11 +375,7 @@ class PrimaryLiteratureFetchTest(unittest.TestCase):
                 axis="normalisation",
                 query="DESeq2 normalization RNA-seq",
                 classes=["primary_literature"],
-                routes={
-                    "primary_literature": {
-                        "hosts": ["eutils.ncbi.nlm.nih.gov"]
-                    }
-                },
+                routes={"primary_literature": {"hosts": ["eutils.ncbi.nlm.nih.gov"]}},
                 curated=["deseq2_vst"],
                 candidate="deseq2_vst",
             )
@@ -402,9 +391,7 @@ class PrimaryLiteratureFetchTest(unittest.TestCase):
     def test_candidate_override_rejects_unrelated_query_hits(self):
         import tempfile
 
-        alf._http_get_json = lambda url, host, allowed: {
-            "esearchresult": {"idlist": ["25217409"]}
-        }
+        alf._http_get_json = lambda url, host, allowed: {"esearchresult": {"idlist": ["25217409"]}}
         alf._http_get_text = lambda url, host, allowed: (
             "<PubmedArticleSet><PubmedArticle><MedlineCitation>"
             "<PMID>25217409</PMID><Article><ArticleTitle>Unrelated analysis"
@@ -422,11 +409,7 @@ class PrimaryLiteratureFetchTest(unittest.TestCase):
                 axis="normalisation",
                 query="DESeq2 normalization RNA-seq",
                 classes=["primary_literature"],
-                routes={
-                    "primary_literature": {
-                        "hosts": ["eutils.ncbi.nlm.nih.gov"]
-                    }
-                },
+                routes={"primary_literature": {"hosts": ["eutils.ncbi.nlm.nih.gov"]}},
                 curated=["deseq2_vst", "edger_tmm"],
                 candidate="deseq2_vst",
             )
@@ -440,9 +423,7 @@ class PrimaryLiteratureFetchTest(unittest.TestCase):
 
     def test_ambiguous_method_name_requires_canonical_case(self):
         self.assertEqual(
-            alf.candidate_evidence_quote(
-                "Mast cells were quantified in airway tissue.", "mast"
-            ),
+            alf.candidate_evidence_quote("Mast cells were quantified in airway tissue.", "mast"),
             "",
         )
         self.assertIn(
@@ -451,6 +432,226 @@ class PrimaryLiteratureFetchTest(unittest.TestCase):
                 "MAST fits hurdle models to single-cell expression.", "mast"
             ),
         )
+
+
+class CandidateQueryWideningTest(unittest.TestCase):
+    @staticmethod
+    def _query(url):
+        from urllib.parse import parse_qs, urlparse
+
+        return parse_qs(urlparse(url).query).get("term", [""])[0]
+
+    @staticmethod
+    def _pubmed_xml(url, method_name):
+        from urllib.parse import parse_qs, urlparse
+
+        pmid = parse_qs(urlparse(url).query)["id"][0]
+        return (
+            "<PubmedArticleSet><PubmedArticle><MedlineCitation>"
+            f"<PMID>{pmid}</PMID><Article><ArticleTitle>"
+            f"{method_name} study {pmid}</ArticleTitle><Abstract><AbstractText>"
+            f"{method_name} was evaluated using benchmark {pmid}."
+            "</AbstractText></Abstract></Article></MedlineCitation>"
+            "</PubmedArticle></PubmedArticleSet>"
+        )
+
+    def test_narrow_query_widens_to_candidate_only_query(self):
+        import tempfile
+
+        calls = []
+        original = "spectral partition sparse matrices with contextual constraints"
+
+        def fake_get_json(url, host, allowed_hosts):
+            query = self._query(url)
+            calls.append(query)
+            ids = ["70000001", "70000002"] if query == "spectral partition" else []
+            return {"esearchresult": {"idlist": ids}}
+
+        alf._http_get_json = fake_get_json
+        alf._http_get_text = lambda url, host, allowed: self._pubmed_xml(url, "Spectral partition")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            out.mkdir()
+            summary = alf.fetch_for_axis(
+                out_dir=str(out),
+                axis="generic_partitioning",
+                query=original,
+                classes=["primary_literature"],
+                routes={"primary_literature": {"hosts": ["eutils.ncbi.nlm.nih.gov"]}},
+                curated=["spectral_partition"],
+                candidate="spectral_partition",
+            )
+
+            self.assertEqual(calls, [original, "spectral partition"])
+            self.assertEqual(summary["queries_attempted"], calls)
+            self.assertEqual(summary["verified_paper_sources"], 2)
+            self.assertFalse(summary["fallback_used"])
+            self.assertEqual(len(_read_csv_rows(out)), 2)
+            self.assertEqual(len(_read_manifest(out)["entries"]), 2)
+            scope_queries = {entry["query"] for entry in _read_retrieval_scope(out)["axes"]}
+            self.assertEqual(scope_queries, set(calls))
+
+    def test_sufficient_original_query_does_not_widen(self):
+        import tempfile
+
+        calls = []
+        original = "spectral partition benchmark"
+
+        def fake_get_json(url, host, allowed_hosts):
+            calls.append(self._query(url))
+            return {"esearchresult": {"idlist": ["70000011", "70000012"]}}
+
+        alf._http_get_json = fake_get_json
+        alf._http_get_text = lambda url, host, allowed: self._pubmed_xml(url, "Spectral partition")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            out.mkdir()
+            summary = alf.fetch_for_axis(
+                out_dir=str(out),
+                axis="generic_partitioning",
+                query=original,
+                classes=["primary_literature"],
+                candidate="spectral_partition",
+            )
+
+            self.assertEqual(calls, [original])
+            self.assertEqual(summary["queries_attempted"], [original])
+            self.assertEqual(len(_read_csv_rows(out)), 2)
+
+    def test_sources_are_deduplicated_across_queries_and_reruns(self):
+        import tempfile
+
+        calls = []
+        original = "adaptive solver constrained inputs"
+
+        def fake_get_json(url, host, allowed_hosts):
+            query = self._query(url)
+            calls.append(query)
+            ids = ["70000021"] if query == original else ["70000021", "70000022"]
+            return {"esearchresult": {"idlist": ids}}
+
+        alf._http_get_json = fake_get_json
+        alf._http_get_text = lambda url, host, allowed: self._pubmed_xml(url, "Adaptive solver")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            out.mkdir()
+            kwargs = {
+                "out_dir": str(out),
+                "axis": "generic_optimization",
+                "query": original,
+                "classes": ["primary_literature"],
+                "candidate": "adaptive_solver",
+            }
+            first = alf.fetch_for_axis(**kwargs)
+            second = alf.fetch_for_axis(**kwargs)
+
+            self.assertEqual(first["verified_paper_sources"], 2)
+            self.assertEqual(second["verified_paper_sources"], 2)
+            self.assertEqual(len(_read_csv_rows(out)), 2)
+            self.assertEqual(len(_read_manifest(out)["entries"]), 2)
+            # First call widens once. The rerun needs only its declared query
+            # because retained support already meets the packaged policy.
+            self.assertEqual(calls, [original, "adaptive solver", original])
+
+    def test_genuinely_thin_corpus_retains_one_source_without_fabrication(self):
+        import tempfile
+
+        calls = []
+        original = "adaptive solver constrained inputs"
+
+        def fake_get_json(url, host, allowed_hosts):
+            calls.append(self._query(url))
+            return {"esearchresult": {"idlist": ["70000031"]}}
+
+        alf._http_get_json = fake_get_json
+        alf._http_get_text = lambda url, host, allowed: self._pubmed_xml(url, "Adaptive solver")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            out.mkdir()
+            summary = alf.fetch_for_axis(
+                out_dir=str(out),
+                axis="generic_optimization",
+                query=original,
+                classes=["primary_literature"],
+                curated=["adaptive_solver"],
+                candidate="adaptive_solver",
+            )
+
+            self.assertEqual(len(calls), alf.MAX_CANDIDATE_QUERY_ATTEMPTS)
+            self.assertEqual(summary["verified_paper_sources"], 1)
+            self.assertFalse(summary["fallback_used"])
+            rows = _read_csv_rows(out)
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["source_class"], "primary_literature")
+
+    def test_package_policy_controls_widening_stop(self):
+        import tempfile
+
+        calls = []
+        original = "spectral partition contextual benchmark"
+
+        def fake_get_json(url, host, allowed_hosts):
+            query = self._query(url)
+            calls.append(query)
+            ids = (
+                ["70000041", "70000042"]
+                if query == original
+                else ["70000041", "70000042", "70000043"]
+            )
+            return {"esearchresult": {"idlist": ids}}
+
+        alf._http_get_json = fake_get_json
+        alf._http_get_text = lambda url, host, allowed: self._pubmed_xml(url, "Spectral partition")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            package = Path(tmp) / "package"
+            out = package / "runtime" / "outputs" / "survey"
+            out.mkdir(parents=True)
+            policies = package / "policies"
+            policies.mkdir()
+            (policies / "source-discovery-policy.json").write_text(
+                json.dumps({"claimSupportRules": {"minimumIndependentSources": 3}}),
+                encoding="utf-8",
+            )
+            summary = alf.fetch_for_axis(
+                out_dir=str(out),
+                axis="generic_partitioning",
+                query=original,
+                classes=["primary_literature"],
+                candidate="spectral_partition",
+            )
+
+            self.assertEqual(summary["minimum_independent_sources"], 3)
+            self.assertEqual(summary["verified_paper_sources"], 3)
+            self.assertEqual(calls, [original, "spectral partition"])
+            self.assertEqual(len(_read_csv_rows(out)), 3)
+
+    def test_axis_level_call_preserves_single_query_behavior(self):
+        import tempfile
+
+        calls = []
+
+        def fake_get_json(url, host, allowed_hosts):
+            calls.append(self._query(url))
+            return {"esearchresult": {"idlist": []}}
+
+        alf._http_get_json = fake_get_json
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            out.mkdir()
+            summary = alf.fetch_for_axis(
+                out_dir=str(out),
+                axis="generic_landscape",
+                query="context-rich landscape query",
+                classes=["primary_literature"],
+            )
+
+            self.assertEqual(calls, ["context-rich landscape query"])
+            self.assertEqual(summary["queries_attempted"], ["context-rich landscape query"])
 
 
 class RetrievalScopeTest(unittest.TestCase):
@@ -598,8 +799,11 @@ class RateLimitRetryTest(unittest.TestCase):
             calls["n"] += 1
             if calls["n"] == 1:
                 raise urllib.error.HTTPError(
-                    "https://eutils.ncbi.nlm.nih.gov/x", 429,
-                    "Too Many Requests", {"Retry-After": "0"}, None
+                    "https://eutils.ncbi.nlm.nih.gov/x",
+                    429,
+                    "Too Many Requests",
+                    {"Retry-After": "0"},
+                    None,
                 )
             return FakeResp()
 
@@ -613,8 +817,11 @@ class RateLimitRetryTest(unittest.TestCase):
 
         def always_429(req, timeout=None):
             raise urllib.error.HTTPError(
-                "https://eutils.ncbi.nlm.nih.gov/x", 429, "Too Many Requests",
-                {"Retry-After": "0"}, None
+                "https://eutils.ncbi.nlm.nih.gov/x",
+                429,
+                "Too Many Requests",
+                {"Retry-After": "0"},
+                None,
             )
 
         alf.urlopen = always_429
@@ -790,11 +997,7 @@ class ManifestSchemaConformanceTest(unittest.TestCase):
                 axis="normalisation",
                 query="DESeq2 normalization RNA-seq",
                 classes=["primary_literature"],
-                routes={
-                    "primary_literature": {
-                        "hosts": ["eutils.ncbi.nlm.nih.gov"]
-                    }
-                },
+                routes={"primary_literature": {"hosts": ["eutils.ncbi.nlm.nih.gov"]}},
                 curated=["deseq2_vst"],
                 candidate="deseq2_vst",
             )
@@ -804,11 +1007,7 @@ class ManifestSchemaConformanceTest(unittest.TestCase):
                 axis="pathway_enrichment",
                 query="fgsea preranked enrichment",
                 classes=["conference_proceedings"],
-                routes={
-                    "conference_proceedings": {
-                        "hosts": ["api.openalex.org"]
-                    }
-                },
+                routes={"conference_proceedings": {"hosts": ["api.openalex.org"]}},
                 curated=["fgsea"],
                 candidate="fgsea",
             )
@@ -820,12 +1019,8 @@ class ManifestSchemaConformanceTest(unittest.TestCase):
             )
             for row in rows:
                 typed = dict(row)
-                typed["evidence_quote_offset"] = int(
-                    typed["evidence_quote_offset"]
-                )
-                typed["redistributable"] = (
-                    typed["redistributable"].lower() == "true"
-                )
+                typed["evidence_quote_offset"] = int(typed["evidence_quote_offset"])
+                typed["redistributable"] = typed["redistributable"].lower() == "true"
                 typed["verified"] = typed["verified"].lower() == "true"
                 jsonschema.validate(typed, schema)
 
@@ -1050,9 +1245,7 @@ class MethodLandscapeJsonRollupTest(unittest.TestCase):
             # still be non-tentative because its curated pool was persisted.
             star = doc["axes"]["alignment"]["candidates"][0]
             self.assertEqual(star["method"], "STAR")
-            self.assertFalse(
-                star["tentative"], "axis-1 curated pool must survive axis-2 rebuild"
-            )
+            self.assertFalse(star["tentative"], "axis-1 curated pool must survive axis-2 rebuild")
 
     def test_per_candidate_fallback_does_not_repeat_full_axis_pool(self):
         import csv
@@ -1062,9 +1255,7 @@ class MethodLandscapeJsonRollupTest(unittest.TestCase):
             out = Path(tmp) / "out"
             out.mkdir()
             alf._http_get_json = lambda url, host, allowed: {"results": []}
-            route = {
-                "conference_proceedings": {"hosts": ["api.openalex.org"]}
-            }
+            route = {"conference_proceedings": {"hosts": ["api.openalex.org"]}}
             curated = ["fgsea", "clusterprofiler", "gsea", "enrichr"]
 
             alf.fetch_for_axis(
@@ -1092,12 +1283,8 @@ class MethodLandscapeJsonRollupTest(unittest.TestCase):
                 [row["candidate_method"] for row in rows],
                 ["fgsea", "gsea"],
             )
-            self.assertTrue(
-                all(row["source_class"] == "curated_baseline" for row in rows)
-            )
-            pools = json.loads(
-                (out / "evidence" / "curated_pools.json").read_text()
-            )
+            self.assertTrue(all(row["source_class"] == "curated_baseline" for row in rows))
+            pools = json.loads((out / "evidence" / "curated_pools.json").read_text())
             self.assertEqual(pools["pathway_enrichment"], curated)
 
     def test_candidates_sorted_by_support_score_then_name(self):
@@ -1157,9 +1344,7 @@ class CliCuratedFlagTest(unittest.TestCase):
             )
             self.assertEqual(rc, 0)
             rows = _read_csv_rows(out)
-            self.assertEqual(
-                sorted(r["candidate_method"] for r in rows), ["hisat2", "star"]
-            )
+            self.assertEqual(sorted(r["candidate_method"] for r in rows), ["hisat2", "star"])
             for r in rows:
                 self.assertEqual(r["source_class"], "curated_baseline")
 
