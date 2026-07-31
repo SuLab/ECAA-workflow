@@ -596,6 +596,67 @@ fn recover_patch_from_result_json(raw: &str, patch_path: &Path) -> Option<StateP
     })
 }
 
+/// Keep the DAG's completed-result projection identical to the task's retained
+/// `result.json`. Agents sometimes write the two terminal artifacts in
+/// separate turns and accidentally copy a stale or invented number into the
+/// patch summary. `result.json` is the durable task deliverable and is already
+/// the recovery authority for malformed patches, so use it as the completed
+/// result whenever both artifacts are present.
+///
+/// The rule is modality-agnostic: it compares JSON objects, not scientific
+/// field names. A status or task-id disagreement is rejected because choosing
+/// either side silently would preserve contradictory terminal evidence.
+fn canonicalize_completed_result_from_result_json(
+    patch: &mut StatePatch,
+    patch_path: &Path,
+    task_id: &str,
+) -> Result<()> {
+    let TaskState::Completed {
+        result: patch_result,
+    } = &mut patch.to
+    else {
+        return Ok(());
+    };
+    let Some(task_dir) = patch_path.parent() else {
+        return Ok(());
+    };
+    let result_path = task_dir.join("result.json");
+    if !result_path.exists() {
+        return Ok(());
+    }
+
+    let raw = read_capped(&result_path, resolve_max_bytes())
+        .with_context(|| format!("reading {}", result_path.display()))?;
+    let retained: serde_json::Value =
+        serde_json::from_str(&raw).with_context(|| format!("parsing {}", result_path.display()))?;
+    let retained_status = retained.get("status").and_then(serde_json::Value::as_str);
+    if retained_status != Some("completed") {
+        anyhow::bail!(
+            "terminal-result-mismatch: state.patch.json completes {}, but result.json status is {:?}",
+            task_id,
+            retained_status
+        );
+    }
+    if let Some(retained_task_id) = retained.get("task_id").and_then(serde_json::Value::as_str) {
+        if retained_task_id != task_id {
+            anyhow::bail!(
+                "terminal-result-task-mismatch: result.json has task_id={}, expected {}",
+                retained_task_id,
+                task_id
+            );
+        }
+    }
+    if *patch_result != retained {
+        tracing::warn!(
+            target: "patch",
+            task_id = %task_id,
+            "completed state.patch.json result disagreed with result.json; using retained result.json"
+        );
+        *patch_result = retained;
+    }
+    Ok(())
+}
+
 fn try_apply_patch(
     dag: &mut DAG,
     task_id: &str,
@@ -606,7 +667,7 @@ fn try_apply_patch(
     // agent can't OOM the harness through this trusted-input path.
     let raw = read_capped(patch_path, resolve_max_bytes())
         .with_context(|| format!("reading {}", patch_path.display()))?;
-    let patch: StatePatch = match parse_state_patch(&raw) {
+    let mut patch: StatePatch = match parse_state_patch(&raw) {
         Ok(p) => p,
         Err(parse_err) => {
             // Tolerant recovery: some agents (codex/gpt-5.5 especially) write a
@@ -633,6 +694,7 @@ fn try_apply_patch(
             }
         }
     };
+    canonicalize_completed_result_from_result_json(&mut patch, patch_path, task_id)?;
     if let Some((expected_run_id, expected_epoch)) = expected_identity {
         if patch.harness_run_id.as_deref() != Some(expected_run_id)
             || patch.dispatch_epoch != Some(expected_epoch)
@@ -892,6 +954,82 @@ mod tests {
         assert!(dir
             .join("runtime/outputs/compute/state.patch.applied.json")
             .exists());
+    }
+
+    #[test]
+    fn completed_patch_uses_retained_result_json_as_canonical_projection() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        write_workflow(dir, &fixture_dag());
+        write_patch(
+            dir,
+            "compute",
+            &serde_json::json!({
+                "from": "running",
+                "to": {
+                    "status": "completed",
+                    "result": {
+                        "summary": "range 20 to 30",
+                        "artifacts": ["result.json"]
+                    }
+                }
+            }),
+        );
+        std::fs::write(
+            dir.join("runtime/outputs/compute/result.json"),
+            serde_json::json!({
+                "task_id": "compute",
+                "status": "completed",
+                "summary": "range 10 to 40",
+                "artifacts": ["result.json"]
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let merged = apply_pending_patches(dir, &[TaskId::from("compute")]).unwrap();
+        match &merged.tasks.get("compute").unwrap().state {
+            TaskState::Completed { result } => {
+                assert_eq!(result["summary"], "range 10 to 40");
+                assert_eq!(result["status"], "completed");
+                assert_eq!(result["task_id"], "compute");
+            }
+            other => panic!("expected Completed, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn completed_patch_rejects_contradictory_result_status() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        write_workflow(dir, &fixture_dag());
+        write_patch(
+            dir,
+            "compute",
+            &serde_json::json!({
+                "from": "running",
+                "to": { "status": "completed", "result": { "summary": "done" } }
+            }),
+        );
+        std::fs::write(
+            dir.join("runtime/outputs/compute/result.json"),
+            serde_json::json!({
+                "task_id": "compute",
+                "status": "blocked",
+                "summary": "missing input"
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let mut dag = read_workflow(dir).unwrap();
+        let patch_path = dir.join("runtime/outputs/compute/state.patch.json");
+        let err = try_apply_patch(&mut dag, "compute", &patch_path, None)
+            .expect_err("contradictory terminal statuses must be rejected");
+        assert!(
+            err.to_string().contains("terminal-result-mismatch"),
+            "unexpected error: {err:#}"
+        );
     }
 
     /// Codex non-deterministically writes a `to` shape that is valid JSON but
