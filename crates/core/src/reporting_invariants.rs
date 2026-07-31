@@ -103,6 +103,10 @@
 //!   * **RC-ATTACHMENT** a generated `.significant.tsv` attachment must be
 //!     described with the `ResultSchema::significance` filter that actually
 //!     selected its rows, without an invented additional effect-size cutoff.
+//!   * **RC-THRESHOLD** an unambiguous narrative selection rule must preserve
+//!     the significance field, strict comparator, and cutoff declared by the
+//!     executable result schema. Per-entity bounds and markdown data rows are
+//!     not interpreted as selection rules.
 //!   * **RC-ROW** every DATA ROW of a markdown table in the narrative must be
 //!     re-derivable from the source artifact the table transcribes: its
 //!     identifier must be a row of that artifact, and every cell whose column
@@ -282,6 +286,7 @@ pub fn check_reporting_invariants(package_root: &Path) -> ReportingInvariantsRep
     check_rp_prov_data_source(package_root, &outputs, &mut report);
     check_rp_qc_negative_claim(&outputs, &mut report);
     check_rc_attachment_filter_claim(package_root, &outputs, &mut report);
+    check_rc_threshold_contract(package_root, &outputs, &mut report);
     check_rc_count(package_root, &outputs, &mut report);
     check_rc_literature_counts(package_root, &outputs, &mut report);
     check_rc_identity(&outputs, &mut report);
@@ -290,6 +295,178 @@ pub fn check_reporting_invariants(package_root: &Path) -> ReportingInvariantsRep
     check_rc_row(package_root, &outputs, &mut report);
 
     report
+}
+
+// ---------------------------------------------------------------------------
+// RC-THRESHOLD (Required) — prose preserves the executable comparator
+// ---------------------------------------------------------------------------
+
+/// RC-THRESHOLD: every unambiguous selection-threshold statement must preserve
+/// the exact field, comparator, and cutoff from the artifact's executable
+/// [`ResultSchema`]. In particular, strict `lt`/`gt` contracts cannot be
+/// narrated as inclusive `≤`/`≥` rules.
+///
+/// Significance-column aliases come from the package policy, so this check is
+/// independent of modality and analysis archetype. If one display name maps
+/// to genuinely different schema contracts in the same workflow, the check
+/// abstains unless the prose disambiguates it elsewhere; it never guesses
+/// which stage the writer meant.
+fn check_rc_threshold_contract(
+    package_root: &Path,
+    outputs: &Path,
+    report: &mut ReportingInvariantsReport,
+) {
+    let Some(report_data) = read_report_data(outputs) else {
+        return;
+    };
+    let Some(prose) = read_agent_report_prose(outputs) else {
+        return;
+    };
+    let workflow_schemas = read_report_schemas(package_root).unwrap_or_default();
+    let synonyms = load_policy_column_synonyms(package_root);
+
+    #[derive(Clone)]
+    struct ThresholdContract {
+        stage: String,
+        field: String,
+        comparator: Comparator,
+        cutoff: f64,
+    }
+
+    let mut exact_by_name: BTreeMap<String, Vec<ThresholdContract>> = BTreeMap::new();
+    let mut alias_by_name: BTreeMap<String, Vec<ThresholdContract>> = BTreeMap::new();
+    for artifact in &report_data.artifacts {
+        let schema = workflow_schemas
+            .get(&artifact.stage_id)
+            .or(artifact.result_schema.as_ref());
+        let Some(significance) = schema.and_then(|schema| schema.significance.as_ref()) else {
+            continue;
+        };
+        let contract = ThresholdContract {
+            stage: artifact.stage_id.clone(),
+            field: significance.column.clone(),
+            comparator: significance.comparator,
+            cutoff: significance.threshold,
+        };
+        exact_by_name
+            .entry(significance.column.to_ascii_lowercase())
+            .or_default()
+            .push(contract.clone());
+        for name in &synonyms.significance {
+            alias_by_name
+                .entry(name.to_ascii_lowercase())
+                .or_default()
+                .push(contract.clone());
+        }
+    }
+    // An exact executable column name is stage-specific evidence. A generic
+    // policy alias is used only when no schema declares that spelling, so a
+    // second stage with a different cutoff cannot make the first stage's
+    // canonical field name spuriously ambiguous.
+    for (name, contracts) in alias_by_name {
+        exact_by_name.entry(name).or_insert(contracts);
+    }
+    let by_name = exact_by_name;
+    if by_name.is_empty() {
+        return;
+    }
+    report.checked.push("RC-THRESHOLD");
+
+    let broad_selection_cue = Regex::new(
+        r"(?i)\b(?:significan\w*|threshold|cutoff|criterion|criteria|selected|selection|filter(?:ed|ing)?|fdr)\b",
+    )
+    .expect("static threshold-selection cue regex compiles");
+    let explicit_rule_cue = Regex::new(
+        r"(?i)\b(?:threshold|cutoff|criterion|criteria|selection|filter(?:ed|ing)?|defined|declared|classified|qualif(?:y|ied|ication)|required)\b",
+    )
+    .expect("static explicit threshold-rule cue regex compiles");
+    let mut offenders = BTreeSet::new();
+    for (name, contracts) in by_name {
+        let escaped = regex::escape(&name);
+        let pattern = format!(
+            r"(?i)\b{escaped}\b[\s`*_()\[\]-]{{0,16}}(<=|>=|≤|≥|<|>)\s*([+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?)"
+        );
+        let Ok(threshold_re) = Regex::new(&pattern) else {
+            continue;
+        };
+
+        let unique_contracts: BTreeSet<(&'static str, u64)> = contracts
+            .iter()
+            .map(|contract| {
+                (
+                    match contract.comparator {
+                        Comparator::Lt => "lt",
+                        Comparator::Gt => "gt",
+                    },
+                    contract.cutoff.to_bits(),
+                )
+            })
+            .collect();
+        if unique_contracts.len() != 1 {
+            continue;
+        }
+        let contract = &contracts[0];
+        let expected_symbol = match contract.comparator {
+            Comparator::Lt => "<",
+            Comparator::Gt => ">",
+        };
+
+        for line in prose.lines().filter(|line| {
+            broad_selection_cue.is_match(line) && !line.trim_start().starts_with('|')
+        }) {
+            for captures in threshold_re.captures_iter(line) {
+                let Some(claimed_symbol) = captures.get(1).map(|value| value.as_str()) else {
+                    continue;
+                };
+                let Some(claimed_cutoff) = captures
+                    .get(2)
+                    .and_then(|value| value.as_str().parse::<f64>().ok())
+                else {
+                    continue;
+                };
+                let scale = contract.cutoff.abs().max(claimed_cutoff.abs()).max(1.0);
+                let cutoff_agrees =
+                    (claimed_cutoff - contract.cutoff).abs() <= f64::EPSILON * 8.0 * scale;
+                let comparator_disagrees = claimed_symbol != expected_symbol;
+                // A different numeric bound in entity-level prose can be the
+                // observed value rather than the selection cutoff. Require an
+                // explicit rule cue before treating that case as a contract
+                // assertion. When the stated cutoff equals the executable
+                // cutoff, a broad significance cue is sufficient to catch an
+                // inclusive rendering of a strict rule.
+                let asserts_selection_rule =
+                    explicit_rule_cue.is_match(line) || (cutoff_agrees && comparator_disagrees);
+                if asserts_selection_rule && (comparator_disagrees || !cutoff_agrees) {
+                    let stages = contracts
+                        .iter()
+                        .map(|candidate| candidate.stage.as_str())
+                        .collect::<BTreeSet<_>>()
+                        .into_iter()
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    offenders.insert(format!(
+                        "`{name}` is declared as `{}` {expected_symbol} {} for stage(s) \
+                         {stages}, but the report states `{name} {claimed_symbol} \
+                         {claimed_cutoff}` in: {}",
+                        contract.field,
+                        contract.cutoff,
+                        line.trim()
+                    ));
+                }
+            }
+        }
+    }
+
+    if !offenders.is_empty() {
+        report.findings.push(ReportingFinding {
+            invariant: "RC-THRESHOLD",
+            severity: Severity::Required,
+            detail: format!(
+                "report threshold prose disagrees with the executable result schema: {}",
+                offenders.into_iter().collect::<Vec<_>>().join(" | ")
+            ),
+        });
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3047,6 +3224,17 @@ fn check_rc_count(package_root: &Path, outputs: &Path, report: &mut ReportingInv
         let Some(schema) = schemas.get(&artifact.stage_id) else {
             continue;
         };
+        if artifact
+            .result_schema
+            .as_ref()
+            .is_some_and(|embedded| embedded != schema)
+        {
+            ran = true;
+            mismatches.push(format!(
+                "{}: embedded result_schema disagrees with the executed WORKFLOW.json contract",
+                artifact.stage_id
+            ));
+        }
         let source_path = outputs.join(&artifact.stage_id).join(&schema.artifact);
         if !source_path.exists() {
             continue;
@@ -3494,6 +3682,100 @@ fn check_literature_evidence_table(
             "the narrative presents concordant, discordant, and unverifiable evidence-row statuses as a partition of assessed entities; entities may occur in more than one status"
                 .into(),
         );
+    }
+
+    // A status row count and the number of distinct entities represented by
+    // those rows are different denominators. Verify both whenever prose names
+    // them explicitly in the same statement.
+    for (status, findings) in [
+        ("concordant", literature.concordant.as_slice()),
+        ("discordant", literature.discordant.as_slice()),
+        ("unverifiable", literature.unverifiable.as_slice()),
+    ] {
+        let distinct_entities: BTreeSet<String> = findings
+            .iter()
+            .map(|finding| normalize_cell(&finding.entity))
+            .filter(|entity| !entity.is_empty())
+            .collect();
+        let pattern = format!(
+            r"(?i)\b(\d[\d,]*)\s+{status}\s+(?:evidence\s+)?rows?\s+(?:span|spans|cover|covers|represent|represents|occur\s+across)\s+(\d[\d,]*)\s+distinct\s+entit(?:y|ies)\b"
+        );
+        let Ok(status_re) = Regex::new(&pattern) else {
+            continue;
+        };
+        for captures in status_re.captures_iter(&narrative) {
+            let claimed_rows = captures
+                .get(1)
+                .and_then(|value| value.as_str().replace(',', "").parse::<usize>().ok());
+            let claimed_entities = captures
+                .get(2)
+                .and_then(|value| value.as_str().replace(',', "").parse::<usize>().ok());
+            if claimed_rows != Some(findings.len())
+                || claimed_entities != Some(distinct_entities.len())
+            {
+                mismatches.push(format!(
+                    "narrative `{status}` evidence summary reports {} row(s) spanning {} \
+                     distinct entity/entities, but report-data retains {} row(s) spanning {} \
+                     distinct entity/entities",
+                    claimed_rows
+                        .map(|value| value.to_string())
+                        .unwrap_or_else(|| "an unparseable number of".into()),
+                    claimed_entities
+                        .map(|value| value.to_string())
+                        .unwrap_or_else(|| "an unparseable number of".into()),
+                    findings.len(),
+                    distinct_entities.len()
+                ));
+            }
+        }
+    }
+
+    // Multiplicity prose has a machine-defined denominator. "One or more"
+    // covers every distinct entity represented by an evidence row, whereas
+    // "multiple" or "more than one" covers only entities represented by at
+    // least two rows. Derive both from retained objects instead of parsing a
+    // parenthetical label list, whose identifiers may legitimately contain
+    // commas, colons, or other modality-specific delimiters.
+    let mut evidence_rows_by_entity: BTreeMap<String, usize> = BTreeMap::new();
+    for finding in literature
+        .concordant
+        .iter()
+        .chain(&literature.discordant)
+        .chain(&literature.unverifiable)
+    {
+        let entity = normalize_cell(&finding.entity);
+        if !entity.is_empty() {
+            *evidence_rows_by_entity.entry(entity).or_default() += 1;
+        }
+    }
+    let multiplicity_re = Regex::new(
+        r"(?i)\b(\d[\d,]*)\s+distinct\s+entities?\s+each\s+(?:contributed|produced|yielded|generated|provided)\s+(one\s+or\s+more|more\s+than\s+one|multiple)\s+evidence\s+rows?\b",
+    )
+    .expect("static literature multiplicity regex compiles");
+    for captures in multiplicity_re.captures_iter(&narrative) {
+        let Some(claimed) = captures
+            .get(1)
+            .and_then(|value| value.as_str().replace(',', "").parse::<usize>().ok())
+        else {
+            continue;
+        };
+        let Some(quantifier) = captures.get(2).map(|value| value.as_str()) else {
+            continue;
+        };
+        let expected = if quantifier.eq_ignore_ascii_case("one or more") {
+            evidence_rows_by_entity.len()
+        } else {
+            evidence_rows_by_entity
+                .values()
+                .filter(|rows| **rows > 1)
+                .count()
+        };
+        if claimed != expected {
+            mismatches.push(format!(
+                "narrative asserts {claimed} distinct entities each contributed \
+                 {quantifier} evidence rows, but report-data establishes {expected}"
+            ));
+        }
     }
 }
 
@@ -4995,6 +5277,202 @@ mod tests {
             .all(|finding| finding.invariant != "RC-FILTER-POPULATION"));
     }
 
+    #[test]
+    fn rc_threshold_preserves_strict_lt_and_gt_contracts_across_modalities() {
+        for (field, comparator, cutoff, correct, inclusive) in [
+            ("error_rate", "lt", 0.1, "<", "≤"),
+            ("risk_score", "gt", 2.5, ">", "≥"),
+            ("signed_deviation", "lt", -0.5, "<", "≤"),
+        ] {
+            let tmp = TempDir::new().unwrap();
+            let outputs = outputs_dir(&tmp);
+            write(
+                &outputs,
+                "reporting/report-data.json",
+                &serde_json::json!({
+                    "artifacts": [{
+                        "stage_id": "generic_screen",
+                        "artifact": "scores.tsv",
+                        "result_schema": {
+                            "artifact": "scores.tsv",
+                            "entity_column": "record_id",
+                            "significance": {
+                                "column": field,
+                                "threshold": cutoff,
+                                "comparator": comparator
+                            }
+                        },
+                        "n_total": 4,
+                        "n_significant": 2,
+                        "direction_split": null,
+                        "effect_distribution": null,
+                        "significant_entities": [],
+                        "significant_table_path":
+                            "runtime/outputs/generic_screen/scores.significant.tsv",
+                        "full_table_path":
+                            "runtime/outputs/generic_screen/scores.full.tsv",
+                        "spilled_to_attachment_only": false
+                    }],
+                    "literature": null
+                })
+                .to_string(),
+            );
+            write(
+                &outputs,
+                "reporting/report.md",
+                &format!(
+                    "The selection threshold classified records at `{field}` {inclusive} {}.",
+                    if field == "error_rate" {
+                        ".1".to_string()
+                    } else {
+                        cutoff.to_string()
+                    }
+                ),
+            );
+            let wrong = check_reporting_invariants(tmp.path());
+            assert!(
+                wrong.required_failures().iter().any(|failure| {
+                    failure.starts_with("RC-THRESHOLD:")
+                        && failure.contains(inclusive)
+                        && failure.contains(correct)
+                }),
+                "{wrong:#?}"
+            );
+
+            write(
+                &outputs,
+                "reporting/report.md",
+                &format!(
+                    "The selection threshold classified records at `{field}` {correct} {cutoff}."
+                ),
+            );
+            let corrected = check_reporting_invariants(tmp.path());
+            assert!(
+                corrected
+                    .findings
+                    .iter()
+                    .all(|finding| finding.invariant != "RC-THRESHOLD"),
+                "{corrected:#?}"
+            );
+
+            write(
+                &outputs,
+                "reporting/report.md",
+                &format!(
+                    "Record ALPHA was significant at `{field}` {correct} {}.\n\n\
+                     | Record | Bound |\n\
+                     |---|---|\n\
+                     | BETA | `{field}` {inclusive} {} |",
+                    cutoff / 10.0,
+                    cutoff / 5.0
+                ),
+            );
+            let observed_bounds = check_reporting_invariants(tmp.path());
+            assert!(
+                observed_bounds
+                    .findings
+                    .iter()
+                    .all(|finding| finding.invariant != "RC-THRESHOLD"),
+                "{observed_bounds:#?}"
+            );
+
+            write(
+                &outputs,
+                "reporting/report.md",
+                &format!(
+                    "The declared cutoff classified records at `{field}` {correct} {}.",
+                    cutoff / 2.0
+                ),
+            );
+            let wrong_cutoff = check_reporting_invariants(tmp.path());
+            assert!(
+                wrong_cutoff.required_failures().iter().any(|failure| {
+                    failure.starts_with("RC-THRESHOLD:")
+                        && failure.contains(&format!("{}", cutoff / 2.0))
+                }),
+                "{wrong_cutoff:#?}"
+            );
+        }
+    }
+
+    #[test]
+    fn rc_threshold_exact_schema_field_disambiguates_shared_policy_aliases() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            tmp.path(),
+            "policies/interpretation-policy.json",
+            r#"{
+                "verifiableEntities": {
+                    "pvalueColumns": ["alpha_score", "beta_score", "FDR"]
+                }
+            }"#,
+        );
+        let artifact = |stage: &str, field: &str, threshold: f64, comparator: &str| {
+            serde_json::json!({
+                "stage_id": stage,
+                "artifact": "scores.tsv",
+                "result_schema": {
+                    "artifact": "scores.tsv",
+                    "entity_column": "record_id",
+                    "significance": {
+                        "column": field,
+                        "threshold": threshold,
+                        "comparator": comparator
+                    }
+                },
+                "n_total": 4,
+                "n_significant": 2,
+                "direction_split": null,
+                "effect_distribution": null,
+                "significant_entities": [],
+                "significant_table_path": "",
+                "full_table_path": "",
+                "spilled_to_attachment_only": false
+            })
+        };
+        write(
+            &outputs,
+            "reporting/report-data.json",
+            &serde_json::json!({
+                "artifacts": [
+                    artifact("alpha_screen", "alpha_score", 0.1, "lt"),
+                    artifact("beta_screen", "beta_score", 2.5, "gt")
+                ],
+                "literature": null
+            })
+            .to_string(),
+        );
+        write(
+            &outputs,
+            "reporting/report.md",
+            "The declared threshold classified records at `alpha_score` ≤ 0.1.",
+        );
+        let exact = check_reporting_invariants(tmp.path());
+        assert!(
+            exact
+                .required_failures()
+                .iter()
+                .any(|failure| failure.starts_with("RC-THRESHOLD:")),
+            "{exact:#?}"
+        );
+
+        write(
+            &outputs,
+            "reporting/report.md",
+            "The FDR threshold classified records at FDR ≤ 0.1.",
+        );
+        let ambiguous_alias = check_reporting_invariants(tmp.path());
+        assert!(
+            ambiguous_alias
+                .findings
+                .iter()
+                .all(|finding| finding.invariant != "RC-THRESHOLD"),
+            "one alias names two incompatible contracts, so the checker must abstain: \
+             {ambiguous_alias:#?}"
+        );
+    }
+
     fn seed_literature_count_package(outputs: &Path, entity_count: u64) {
         write(
             outputs,
@@ -5083,6 +5561,91 @@ mod tests {
                     && failure.contains("recomputed=2")
             }),
             "{failures:?}"
+        );
+    }
+
+    #[test]
+    fn rc_literature_checks_status_entity_denominators_and_multiplicity() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "contextualize_findings_with_literature/claims_evidence_matrix.csv",
+            "finding_id,entity,pmid,concordance_flag,searched\n\
+             F1,ALPHA,1111,same_direction,true\n\
+             F1,ALPHA,2222,same_direction,true\n\
+             F2,BETA,3333,opposite_direction,true\n\
+             F3,GAMMA,4444,unverifiable,true\n",
+        );
+        write(
+            &outputs,
+            "contextualize_findings_with_literature/result.json",
+            r#"{
+                "n_entities_assessed": 3,
+                "n_entities_not_assessed": 0,
+                "n_evidence_rows_assessed": 4,
+                "n_evidence_rows_total": 4
+            }"#,
+        );
+        let finding = |entity: &str, pmid: &str| {
+            serde_json::json!({
+                "entity": entity,
+                "pmid": pmid,
+                "evidence_quote": "retained evidence",
+                "effect": null
+            })
+        };
+        write(
+            &outputs,
+            "reporting/report-data.json",
+            &serde_json::json!({
+                "artifacts": [],
+                "literature": {
+                    "concordant": [finding("ALPHA", "1111"), finding("ALPHA", "2222")],
+                    "discordant": [finding("BETA", "3333")],
+                    "unverifiable": [finding("GAMMA", "4444")],
+                    "non_replications": [],
+                    "novel_count": 0,
+                    "not_assessed_count": 0,
+                    "n_entities_assessed": 3,
+                    "n_entities_not_assessed": 0,
+                    "n_evidence_rows_assessed": 4,
+                    "n_evidence_rows_total": 4,
+                    "retrieved_sources": ["1111", "2222", "3333", "4444"]
+                }
+            })
+            .to_string(),
+        );
+        write(
+            &outputs,
+            "reporting/report.md",
+            "## Literature evidence\n\n\
+             | Entity | Status | PMID |\n\
+             |---|---|---|\n\
+             | ALPHA | concordant | 1111 |\n\
+             | ALPHA | concordant | 2222 |\n\
+             | BETA | discordant | 3333 |\n\
+             | GAMMA | unverifiable | 4444 |\n\n\
+             2 concordant evidence rows span 2 distinct entities.\n\
+             2 distinct entities each contributed multiple evidence rows \
+             (ALPHA: 2 rows).\n",
+        );
+
+        let report = check_reporting_invariants(tmp.path());
+        let literature = report
+            .required_failures()
+            .into_iter()
+            .filter(|failure| failure.starts_with("RC-LITERATURE:"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            literature.contains("2 row(s) spanning 1 distinct"),
+            "{literature}"
+        );
+        assert!(
+            literature.contains("asserts 2 distinct entities each contributed multiple")
+                && literature.contains("establishes 1"),
+            "{literature}"
         );
     }
 

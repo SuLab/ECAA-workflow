@@ -60,8 +60,17 @@ impl AuditWriter {
         writer: &mut W,
         row: &serde_json::Value,
     ) -> std::io::Result<()> {
-        let mac = self.sign_row(row);
-        let mut signed = row.clone();
+        // Sign the exact JSON value readers will reconstruct from the wire,
+        // rather than an in-memory representation that has not crossed the
+        // serde_json serialization boundary yet. This matters for arbitrary
+        // nested numeric payloads: the signed audit surface is generic and can
+        // carry measurements from any analysis modality, including values
+        // whose canonical external representation is normalized during JSON
+        // serialization.
+        let encoded = serde_json::to_vec(row)?;
+        let normalized: serde_json::Value = serde_json::from_slice(&encoded)?;
+        let mac = self.sign_row(&normalized);
+        let mut signed = normalized;
         if let Some(obj) = signed.as_object_mut() {
             obj.insert("_mac".into(), serde_json::Value::String(mac));
         } else {
@@ -71,6 +80,17 @@ impl AuditWriter {
             ));
         }
         let line = serde_json::to_string(&signed)?;
+        // Refuse to persist a row that this same writer cannot recover and
+        // verify from its serialized form. The signed verdict ledger is a
+        // trust boundary; failing this write is safer than atomically
+        // replacing a previously valid ledger with an unverifiable row.
+        let reparsed: serde_json::Value = serde_json::from_str(&line)?;
+        self.verify_row(&reparsed).map_err(|error| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("serialized signed row failed self-verification: {error}"),
+            )
+        })?;
         writeln!(writer, "{line}")?;
         Ok(())
     }
@@ -199,6 +219,36 @@ mod tests {
 
         // The mac in the line should match what sign_row returned.
         assert!(line.contains(&mac));
+    }
+
+    #[test]
+    fn signed_row_self_verifies_after_json_normalization() {
+        let writer = AuditWriter::for_session();
+        let row = serde_json::json!({
+            "task_id": "arbitrary_analysis",
+            "measurements": [
+                -0.0,
+                f64::MIN_POSITIVE,
+                3.32215426150238e-19,
+                2.9370788852442,
+                u64::MAX,
+            ],
+            "nested": {
+                "β": ["μm", "Δ", "arbitrary modality"],
+                "counts": {"checked": 17, "verified": 13},
+            },
+        });
+
+        let mut buf = Vec::new();
+        writer.write_signed_row(&mut buf, &row).unwrap();
+        let parsed: serde_json::Value =
+            serde_json::from_slice(buf.strip_suffix(b"\n").unwrap()).unwrap();
+        let verified = writer.verify_row(&parsed).unwrap();
+
+        // The writer's normalized value is the value a reader reconstructs.
+        let normalized: serde_json::Value =
+            serde_json::from_slice(&serde_json::to_vec(&row).unwrap()).unwrap();
+        assert_eq!(verified, normalized);
     }
 
     #[test]

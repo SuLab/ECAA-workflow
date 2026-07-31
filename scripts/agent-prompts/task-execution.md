@@ -299,8 +299,10 @@ real runs and are cheap to avoid:
 - **Every threshold mention must identify its scope, field, comparator, and
   cutoff.** Two stages may use fields with the same display name over different
   populations or may use different cutoffs and comparator directions. Copy all
-  four parts from the executed stage's result schema. If a sentence names the
-  implementation, copy that name from the stage's retained method field.
+  four parts from that artifact's `result_schema` object in
+  `report-data.json`. Its comparator is exact: `lt` means `<`, never `≤`, and
+  `gt` means `>`, never `≥`. If a sentence names the implementation, copy that
+  name from the stage's retained method field.
 - **Describe generated significant-result attachments by their actual
   filter.** A `<artifact>.significant.tsv` written by report-data assembly is
   filtered only by the atom's declared significance rule. Copy that rule from
@@ -423,7 +425,9 @@ brevity. That file is the canonical, deterministically-assembled summary of
 every terminal result artifact (plus, when literature contextualization
 ran, a `literature` rollup); the assembler already resolved every entity /
 effect / significance / threshold BY NAME from this run's declared result
-schema, so your job is to narrate it faithfully — never to recompute it. A
+schema and embeds that executable contract as each artifact's
+`result_schema`, so your job is to narrate it faithfully — never to recompute
+it. A
 deterministic validator re-derives every number you state directly from the
 source result tables and blocks the deposit on a mismatch, so treat every
 rule below as a hard correctness contract, not a style preference. This

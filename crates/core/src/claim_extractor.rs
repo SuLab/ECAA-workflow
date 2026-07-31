@@ -447,6 +447,13 @@ static ENTITY_STOPLIST: &[&str] = &[
     "ONE", "GENE", "HASM", "LIBRARY", "FEATURES", "MDS", "MEDIAN", "NOT", "PMC", "OA", "CC",
 ];
 
+pub(crate) fn excluded_entity_token(token: &str, cfg: &ExtractorConfig) -> bool {
+    cfg.entity_exclude_patterns
+        .iter()
+        .any(|excluded| excluded.is_match(token))
+        || ENTITY_STOPLIST.contains(&token.to_ascii_uppercase().as_str())
+}
+
 /// Pre-built regex set for the dynamic per-keyword scanners in
 /// `extract_claims`. Built once from `ExtractorConfig` (plus the
 /// baked-in default keywords) so the per-sentence scan loop reuses
@@ -1300,6 +1307,9 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
         if ADMINISTRATIVE_STATUS_RE.is_match(trimmed) {
             continue;
         }
+        if is_rights_metadata_sentence(trimmed) {
+            continue;
+        }
 
         // Phase C — derived-statistic claims (quantile-of-column, composite-key
         // enrichment cell) are SENTENCE-level: their subject is a column
@@ -1370,15 +1380,11 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
         for pat in &cfg.entity_patterns {
             for m in pat.find_iter(trimmed) {
                 let token = m.as_str();
-                let tok_upper = token.to_ascii_uppercase();
-                let excluded = cfg
-                    .entity_exclude_patterns
-                    .iter()
-                    .any(|excl| excl.is_match(token))
-                    || ENTITY_STOPLIST.contains(&tok_upper.as_str());
+                let excluded = excluded_entity_token(token, cfg);
                 if excluded
                     || leading_edge_members_start.is_some_and(|start| m.start() >= start)
                     || is_embedded_in_alnum_token(trimmed, m.start(), m.end())
+                    || is_hyphenated_numeric_identifier_component(trimmed, m.end())
                     || is_namespace_component(trimmed, m.start(), m.end())
                     || is_contextual_non_entity(trimmed, m.start(), m.end(), token)
                     || table_ref_spans
@@ -2331,6 +2337,44 @@ fn is_embedded_in_alnum_token(sentence: &str, start: usize, end: usize) -> bool 
         .next()
         .is_some_and(is_alnum_token_char);
     prev_blocks || next_blocks
+}
+
+/// A broad all-caps pattern can match only the alphabetic prefix of a
+/// hyphenated identifier such as `SHA-256` or `IL-6`. That prefix is not the
+/// entity asserted by the sentence, regardless of modality. Reject the partial
+/// hit while leaving a standalone identifier with the same spelling eligible.
+fn is_hyphenated_numeric_identifier_component(sentence: &str, end: usize) -> bool {
+    sentence[end..]
+        .strip_prefix('-')
+        .and_then(|suffix| suffix.chars().next())
+        .is_some_and(|ch| ch.is_ascii_digit())
+}
+
+/// A parenthetical source-rights or retrieval-policy notice is administrative
+/// provenance, not an analysis assertion. Apply this only when the entire
+/// sentence fragment is parenthetical and carries both a rights term and a
+/// source/retrieval term, so arbitrary identifiers remain eligible in
+/// scientific prose and result tables.
+fn is_rights_metadata_sentence(sentence: &str) -> bool {
+    let trimmed = sentence.trim();
+    if !(trimmed.starts_with('(') && trimmed.ends_with(')')) {
+        return false;
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    let has_rights_term = [
+        "fair-use policy",
+        "fair use policy",
+        "license",
+        "licence",
+        "copyright",
+        "terms of use",
+    ]
+    .iter()
+    .any(|term| lower.contains(term));
+    let has_source_term = ["retrieval", "source", "abstract text", "metadata"]
+        .iter()
+        .any(|term| lower.contains(term));
+    has_rights_term && has_source_term
 }
 
 /// `true` when a broad all-caps match is one component of a colon-delimited
@@ -3978,6 +4022,30 @@ mod tests {
             "CRISPLD2 with an effect size must survive: {:?}",
             claims
         );
+    }
+
+    #[test]
+    fn metadata_constructions_do_not_globally_reserve_identifiers() {
+        let mut policy = policy_json();
+        policy["verifiableEntities"]["entityNameExcludePatterns"] = json!([]);
+        let cfg = ExtractorConfig::from_policy(&policy).unwrap();
+        let claims = extract_claims(
+            "The SHA-256 manifest was retained. \
+             (Abstract text under NLM fair-use policy for research retrieval). \
+             ACAN had effect = 1.2.",
+            &cfg,
+        );
+        let entities: Vec<&str> = claims.iter().map(|claim| claim.entity.as_str()).collect();
+        assert!(!entities.contains(&"SHA"), "{claims:#?}");
+        assert!(!entities.contains(&"NLM"), "{claims:#?}");
+        assert!(entities.contains(&"ACAN"), "{claims:#?}");
+
+        for sentence in ["SHA had effect = 1.2.", "NLM had effect = 1.2."] {
+            assert!(
+                !extract_claims(sentence, &cfg).is_empty(),
+                "contextual metadata guards must not globally deny-list {sentence}"
+            );
+        }
     }
 
     #[test]

@@ -129,6 +129,7 @@ mod tests {
         ResultArtifactSummary {
             stage_id: stage.into(),
             artifact: "result.tsv".into(),
+            result_schema: None,
             n_total: 100,
             n_significant: Some(entities.len() as u64),
             direction_split: None,

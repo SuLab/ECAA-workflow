@@ -2142,6 +2142,7 @@ mod tests {
             artifacts: vec![ResultArtifactSummary {
                 stage_id: "differential_expression".into(),
                 artifact: "de_results.tsv".into(),
+                result_schema: None,
                 n_total: 3,
                 n_significant: Some(3),
                 direction_split: None,
@@ -2251,6 +2252,7 @@ mod tests {
             artifacts: vec![ResultArtifactSummary {
                 stage_id: "differential_expression".into(),
                 artifact: "de_results.tsv".into(),
+                result_schema: None,
                 n_total: 1,
                 n_significant: Some(1),
                 direction_split: None,
@@ -2350,6 +2352,7 @@ mod tests {
             artifacts: vec![ResultArtifactSummary {
                 stage_id: "differential_expression".into(),
                 artifact: "de_results.tsv".into(),
+                result_schema: None,
                 n_total: 2,
                 n_significant: Some(2),
                 direction_split: None,
@@ -2454,6 +2457,7 @@ mod tests {
             artifacts: vec![ResultArtifactSummary {
                 stage_id: "pathway_enrichment".into(),
                 artifact: "pathway_results.tsv".into(),
+                result_schema: None,
                 n_total: 1,
                 n_significant: Some(1),
                 direction_split: None,

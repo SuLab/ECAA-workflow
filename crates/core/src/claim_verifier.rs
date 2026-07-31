@@ -1074,10 +1074,7 @@ fn numeric_token_owned_by_claim(
             let normalized = normalize(entity);
             if id_namespace(entity) != claim_namespace
                 || (normalized != claim_entity && !table_entities.contains(&normalized))
-                || cfg
-                    .entity_exclude_patterns
-                    .iter()
-                    .any(|excluded| excluded.is_match(entity))
+                || crate::claim_extractor::excluded_entity_token(entity, cfg)
             {
                 continue;
             }
@@ -1133,6 +1130,70 @@ fn numeric_token_owned_by_claim(
     });
     if spans.is_empty() {
         return None;
+    }
+
+    // A parenthetical is an explicit measurement scope. When it contains no
+    // entity of its own, bind every measurement in it to the entity that
+    // immediately introduces the parenthetical. This takes precedence over
+    // raw byte distance: the final value in `(effect = X, q-value = Y)` can be
+    // closer to the next entity in a list than to its semantic owner.
+    //
+    // The scan records balanced pairs and selects the innermost pair
+    // containing the token, so nested explanatory parentheses remain
+    // deterministic. Only presentation-only CommonMark characters may occur
+    // between the introducing entity and `(`; prose or punctuation therefore
+    // cannot create an accidental binding.
+    let mut stack = Vec::new();
+    let mut containing_parentheticals = Vec::new();
+    for (index, character) in canonical_excerpt.char_indices() {
+        match character {
+            '(' => stack.push(index),
+            ')' => {
+                if let Some(open) = stack.pop() {
+                    let close = index + character.len_utf8();
+                    if open < token.start && token.end <= close {
+                        containing_parentheticals.push((open, close));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    if let Some((open, close)) = containing_parentheticals
+        .into_iter()
+        .min_by_key(|(open, close)| close.saturating_sub(*open))
+    {
+        let inside: BTreeSet<(usize, usize, String)> = spans
+            .iter()
+            .filter(|(start, end, _)| open < *start && *end < close)
+            .cloned()
+            .collect();
+        if !inside.is_empty() {
+            spans = inside;
+        } else {
+            let presentation_only = |value: &str| {
+                value.chars().all(|character| {
+                    character.is_whitespace() || matches!(character, '*' | '_' | '`' | '~' | '\\')
+                })
+            };
+            let preceding_end = spans
+                .iter()
+                .filter(|(_, end, _)| *end <= open)
+                .map(|(_, end, _)| *end)
+                .max();
+            if let Some(preceding_end) = preceding_end {
+                let introducing: BTreeSet<(usize, usize, String)> = spans
+                    .iter()
+                    .filter(|(_, end, _)| {
+                        *end == preceding_end && presentation_only(&canonical_excerpt[*end..open])
+                    })
+                    .cloned()
+                    .collect();
+                if !introducing.is_empty() {
+                    spans = introducing;
+                }
+            }
+        }
     }
 
     let distance = |start: usize, end: usize| {
@@ -4886,6 +4947,29 @@ static ASSESSED_COUNTS_SUMMARY_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     .expect("static regex")
 });
 
+/// A reported assessment universe split into assessed and unassessed
+/// populations. The noun phrase is deliberately open so the same grammar can
+/// describe variants, spectra, taxa, cells, image regions, or any future
+/// analysis entity. The universe is verified by conservation against the two
+/// retained partition fields, avoiding an ambiguous lookup among unrelated
+/// stages that may each expose an `n_significant` field.
+static ASSESSMENT_PARTITION_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r"(?i)\b(?:of\s+(?:the\s+)?)?(\d[\d,]*)\s+([^,;.!?]{1,80}?)\s*,\s*(\d[\d,]*)\s+(?:[A-Za-z][\w-]*\s+){0,4}?(?:were\s+)?assessed\b[^;.!?]{0,200}?[;,]\s*(\d[\d,]*)\s+(?:[A-Za-z][\w-]*\s+){0,4}?(?:were\s+)?not[\s_-]+assessed\b",
+    )
+    .expect("static regex")
+});
+
+/// A relation between an assessed entity population and the evidence-row
+/// population it produced. Each noun is captured independently so a count of
+/// entities can never be compared with a count of evidence records.
+static ASSESSMENT_EVIDENCE_RELATION_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r"(?i)\b(\d[\d,]*)\s+(?:were\s+)?assessed\s+([A-Za-z][A-Za-z0-9_-]*(?:\s+[A-Za-z][A-Za-z0-9_-]*){0,3}?)\s+(?:contributed|produced|yielded|generated|provided)\s+(\d[\d,]*)\s+([A-Za-z][A-Za-z0-9_-]*(?:\s+[A-Za-z][A-Za-z0-9_-]*){0,3}?)(?:\s*[.;]|$)",
+    )
+    .expect("static regex")
+});
+
 static INPUT_DIMENSION_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(
         r"(?i)\b(\d[\d,]*)\s+([A-Za-z][A-Za-z0-9_-]*(?:\s+[A-Za-z][A-Za-z0-9_-]*){0,3}?)(?:\s*[×*]\s*|\s+x\s+|\s*,\s*|\s+across\s+)(\d[\d,]*)\s+([A-Za-z][A-Za-z0-9_-]*(?:\s+[A-Za-z][A-Za-z0-9_-]*){0,3}?)(?:\s*[\(\).,;:]|\s+(?:as|for|were|was|with|from|in|at|per)\b|$)",
@@ -5331,6 +5415,8 @@ fn semantic_role_query(context: &str) -> Option<(&'static str, &'static [&'stati
             &["removed", "excluded", "discarded", "filtered_out"],
         ))
     } else if normalized.contains("retained")
+        || normalized.contains("retaining")
+        || normalized.contains("retain")
         || normalized.contains("keeping")
         || normalized.contains("kept")
         || normalized.contains("post filter")
@@ -5591,10 +5677,10 @@ impl SemanticSummaryIndex {
             }
         }
         let (first, noun_tokens) = candidates.first()?;
-        if candidates
-            .iter()
-            .any(|(candidate, _)| candidate.value != first.value)
-        {
+        // Equal numbers in two different summaries do not identify which
+        // summary owns the claim. Numeric agreement is never a provenance
+        // selector, so retain a source link only for one unambiguous field.
+        if candidates.len() != 1 {
             return None;
         }
         Some((
@@ -5604,6 +5690,85 @@ impl SemanticSummaryIndex {
             noun_tokens.join(" "),
         ))
     }
+}
+
+/// Result artifacts explicitly selected by the deterministic report-data
+/// contract. Derivative tables may reproduce the same rows and counts, but
+/// only the `(stage_id, artifact)` pair retained here is the authoritative
+/// analytical source for uncited report claims.
+fn canonical_report_artifact_paths(package_root: &Path) -> BTreeSet<PathBuf> {
+    let path = package_root
+        .join("runtime")
+        .join("outputs")
+        .join("reporting")
+        .join("report-data.json");
+    let Ok(bytes) = std::fs::read(path) else {
+        return BTreeSet::new();
+    };
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+        return BTreeSet::new();
+    };
+    value
+        .get("artifacts")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|artifact| {
+            let stage = artifact.get("stage_id")?.as_str()?;
+            let file = artifact.get("artifact")?.as_str()?;
+            let is_safe_relative = |value: &str| {
+                !value.is_empty()
+                    && Path::new(value)
+                        .components()
+                        .all(|component| matches!(component, std::path::Component::Normal(_)))
+            };
+            if !is_safe_relative(stage) || !is_safe_relative(file) {
+                return None;
+            }
+            let path = package_root
+                .join("runtime")
+                .join("outputs")
+                .join(stage)
+                .join(file);
+            path.is_file().then_some(path)
+        })
+        .collect()
+}
+
+/// Select one evidence table from several positive reproductions without
+/// using filenames, discovery order, or claimed-number equality as a
+/// scientific-authority proxy.
+///
+/// The report-data contract's declared source artifact wins whenever exactly
+/// one declared source reproduces the claim. Without that contract, a single
+/// table in the current task's evidence root wins. Remaining ambiguity
+/// abstains.
+fn select_authoritative_reproduction(
+    matches: &BTreeSet<PathBuf>,
+    tables_root: &Path,
+    canonical_paths: &BTreeSet<PathBuf>,
+) -> Option<PathBuf> {
+    let canonical: Vec<&PathBuf> = matches
+        .iter()
+        .filter(|path| canonical_paths.contains(*path))
+        .collect();
+    if !canonical.is_empty() {
+        return (canonical.len() == 1)
+            .then(|| canonical.first().map(|path| (*path).clone()))
+            .flatten();
+    }
+
+    let local: Vec<&PathBuf> = matches
+        .iter()
+        .filter(|path| path.starts_with(tables_root))
+        .collect();
+    if local.len() == 1 {
+        return local.first().map(|path| (*path).clone());
+    }
+
+    (matches.len() == 1)
+        .then(|| matches.iter().next().cloned())
+        .flatten()
 }
 
 /// VF-16 — verify aggregate COUNT claims in a narrative ("2209 genes were
@@ -5641,6 +5806,7 @@ pub fn verify_narrative_counts(
     candidate_paths.dedup();
     let candidate_index = TableIndex::from_paths(&candidate_paths);
     let semantic_summaries = SemanticSummaryIndex::scan(package_root);
+    let canonical_result_paths = canonical_report_artifact_paths(package_root);
 
     // A directional/significant bullet often inherits its threshold from the
     // preceding paragraph. Retain the adjusted thresholds declared anywhere in
@@ -5923,6 +6089,140 @@ pub fn verify_narrative_counts(
             }
         }
 
+        if let Some(captures) = ASSESSMENT_PARTITION_RE.captures(s) {
+            if let (Some(total), Some(noun), Some(assessed), Some(not_assessed)) = (
+                captures
+                    .get(1)
+                    .and_then(|value| parse_count(value.as_str())),
+                captures.get(2).map(|value| value.as_str().trim()),
+                captures
+                    .get(3)
+                    .and_then(|value| parse_count(value.as_str())),
+                captures
+                    .get(4)
+                    .and_then(|value| parse_count(value.as_str())),
+            ) {
+                let assessed_match = semantic_summaries.resolve_context(
+                    &format!("{noun} assessed"),
+                    &["assessed", "searched", "queried"],
+                );
+                let not_assessed_match = semantic_summaries.resolve_context(
+                    &format!("{noun} not assessed"),
+                    &["not_assessed", "unassessed", "not_searched", "not_queried"],
+                );
+                match (assessed_match, not_assessed_match) {
+                    (
+                        Some((assessed_path, assessed_field, assessed_observed, assessed_noun)),
+                        Some((
+                            not_assessed_path,
+                            not_assessed_field,
+                            not_assessed_observed,
+                            not_assessed_noun,
+                        )),
+                    ) if assessed_path == not_assessed_path => {
+                        let source = Some(package_relative_label(&assessed_path, package_root));
+                        out.push(make(
+                            &format!("count:assessment universe {noun}"),
+                            compare_exact_count(
+                                total,
+                                assessed_observed.saturating_add(not_assessed_observed),
+                                &assessed_path,
+                                &format!(
+                                    "partition conservation `{assessed_field}` + \
+                                     `{not_assessed_field}`"
+                                ),
+                            ),
+                            source.clone(),
+                        ));
+                        out.push(make(
+                            &format!("count:assessed {assessed_noun}"),
+                            compare_exact_count(
+                                assessed,
+                                assessed_observed,
+                                &assessed_path,
+                                &format!("stage-summary field `{assessed_field}`"),
+                            ),
+                            source.clone(),
+                        ));
+                        out.push(make(
+                            &format!("count:not assessed {not_assessed_noun}"),
+                            compare_exact_count(
+                                not_assessed,
+                                not_assessed_observed,
+                                &not_assessed_path,
+                                &format!("stage-summary field `{not_assessed_field}`"),
+                            ),
+                            source,
+                        ));
+                    }
+                    _ => {
+                        for entity in [
+                            format!("count:assessment universe {noun}"),
+                            format!("count:assessed {noun}"),
+                            format!("count:not assessed {noun}"),
+                        ] {
+                            out.push(make(
+                                &entity,
+                                ClaimStatus::Unverifiable {
+                                    reason: format!(
+                                        "no single retained summary artifact unambiguously \
+                                         established the assessed/not-assessed partition for \
+                                         `{noun}`"
+                                    ),
+                                },
+                                None,
+                            ));
+                        }
+                    }
+                }
+                continue;
+            }
+        }
+
+        if let Some(captures) = ASSESSMENT_EVIDENCE_RELATION_RE.captures(s) {
+            if let (Some(assessed), Some(entity_noun), Some(rows), Some(row_noun)) = (
+                captures
+                    .get(1)
+                    .and_then(|value| parse_count(value.as_str())),
+                captures.get(2).map(|value| value.as_str().trim()),
+                captures
+                    .get(3)
+                    .and_then(|value| parse_count(value.as_str())),
+                captures.get(4).map(|value| value.as_str().trim()),
+            ) {
+                for (entity, claimed, noun) in [
+                    (
+                        format!("count:assessed {entity_noun}"),
+                        assessed,
+                        entity_noun,
+                    ),
+                    (format!("count:assessed {row_noun}"), rows, row_noun),
+                ] {
+                    out.push(
+                        semantic_summary_fact(
+                            &entity,
+                            claimed,
+                            noun,
+                            &["assessed", "searched", "queried"],
+                        )
+                        .unwrap_or_else(|| {
+                            make(
+                                &entity,
+                                ClaimStatus::Unverifiable {
+                                    reason: format!(
+                                        "no unambiguous retained summary field matched assessed \
+                                         `{noun}`"
+                                    ),
+                                },
+                                None,
+                            )
+                        }),
+                    );
+                }
+                continue;
+            }
+        }
+
         // A compound operational sentence can name several lifecycle
         // populations whose scientific noun has never appeared in this
         // source tree. Resolve each punctuation-bounded clause against the
@@ -5932,7 +6232,6 @@ pub fn verify_narrative_counts(
         // parser rather than assigning one lifecycle verb to both integers.
         let legacy_compound_shape = [
             &*MISSING_SIGNIFICANCE_SUBSET_RE,
-            &*ASSESSED_COUNTS_SUMMARY_RE,
             &*PREFILTER_SUMMARY_RE,
             &*GENE_MAPPING_SUMMARY_RE,
             &*DUPLICATE_RANKING_SUMMARY_RE,
@@ -6271,9 +6570,7 @@ pub fn verify_narrative_counts(
                         matches.insert(path.clone());
                     }
                 }
-                (matches.len() == 1)
-                    .then(|| matches.into_iter().next())
-                    .flatten()
+                select_authoritative_reproduction(&matches, tables_root, &canonical_result_paths)
             };
 
             if let Some(path) = resolved {
@@ -6509,11 +6806,9 @@ pub fn verify_narrative_counts(
                     }
                 }
             }
-            if inferred.len() == 1 {
-                let path = inferred
-                    .into_iter()
-                    .next()
-                    .expect("one inferred evidence table");
+            if let Some(path) =
+                select_authoritative_reproduction(&inferred, tables_root, &canonical_result_paths)
+            {
                 out.push(make(
                     &entity,
                     ClaimStatus::Verified,
@@ -6555,11 +6850,9 @@ pub fn verify_narrative_counts(
                 inferred.insert(path.clone());
             }
         }
-        if inferred.len() == 1 {
-            let path = inferred
-                .into_iter()
-                .next()
-                .expect("one inferred evidence table");
+        if let Some(path) =
+            select_authoritative_reproduction(&inferred, tables_root, &canonical_result_paths)
+        {
             out.push(make(
                 &entity,
                 ClaimStatus::Verified,
@@ -11081,11 +11374,11 @@ mod tests {
 
     #[test]
     fn multi_entity_sentence_does_not_cross_flag_other_entitys_value() {
-        // Real himes FP: one sentence names TWO genes each with its own log2FC
-        // ("… GENEA (log2FC = +10.9963) and … GENEB (log2FC = -4.8136)"). The
-        // extractor binds each gene's OWN value, but run_numeric_gate scanned
-        // EVERY excerpt token and compared the OTHER gene's value against the
-        // resolved row → two false mismatches. Both must Verify.
+        // One sentence names two entities and gives each a parenthetical
+        // effect and significance value. Every measurement inside one
+        // parenthetical belongs to the entity immediately introducing that
+        // parenthetical, including the last value, which can be physically
+        // closer to the next entity than to its owner.
         let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
         let tmp = tempdir().unwrap();
         write_pkg_table(
@@ -11095,17 +11388,22 @@ mod tests {
             "gene\tlog2FC\tpadj\nGENEA\t10.9963\t1.1e-17\nGENEB\t-4.8136\t2.0e-4\n",
         );
         let claims = extract_claims(
-            "Representative changes included GENEA (log2FC = +10.9963) and GENEB (log2FC = -4.8136).",
+            "Representative changes included GENEA (log2FC = +10.9963, padj = 1.1e-17) \
+             and GENEB (log2FC = -4.8136, padj = 2.0e-4).",
             &cfg,
         );
-        // Guard the code path: these must be plain table-lookups (the numeric
-        // gate runs), not ExtremeValue/RankTopN claims routed elsewhere.
+        // Guard the code path: both contracts run the class-agnostic numeric
+        // gate; a significance token may legitimately select the thresholded
+        // contract.
         for entity in ["GENEA", "GENEB"] {
             let c = claims.iter().find(|c| c.entity == entity).unwrap();
-            assert_eq!(
-                c.contract,
-                crate::claim_contract::ClaimContract::NumericTableLookup,
-                "{entity} should be a plain table-lookup so the numeric gate runs"
+            assert!(
+                matches!(
+                    c.contract,
+                    crate::claim_contract::ClaimContract::NumericTableLookup
+                        | crate::claim_contract::ClaimContract::ThresholdedDeOrEnrichment
+                ),
+                "{entity} should take a numeric-gated contract"
             );
         }
         let v = verify_claims_with_discovery(&claims, tmp.path(), tmp.path(), &cfg);
@@ -11120,6 +11418,102 @@ mod tests {
                 vd.status
             );
         }
+    }
+
+    #[test]
+    fn vf16_qualified_filter_counts_resolve_the_matching_lifecycle_fields() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        let quality_dir = tmp.path().join("runtime/outputs/quality_filtering");
+        let model_dir = tmp.path().join("runtime/outputs/model_fitting");
+        std::fs::create_dir_all(&quality_dir).unwrap();
+        std::fs::create_dir_all(&model_dir).unwrap();
+        std::fs::write(
+            quality_dir.join("result.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "n_features_removed_zero_count": 12,
+                "n_features_retained": 25
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            model_dir.join("result.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "n_features_filtered_out": 7
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let verdicts = verify_narrative_counts(
+            "Quality filtering removed 12 features with zero total observations across \
+             all samples, retaining 25 measured features.",
+            tmp.path(),
+            tmp.path(),
+            &cfg,
+        );
+        assert_eq!(verdicts.len(), 2, "{verdicts:#?}");
+        assert!(
+            verdicts
+                .iter()
+                .all(|verdict| matches!(verdict.status, ClaimStatus::Verified)),
+            "{verdicts:#?}"
+        );
+        assert!(
+            verdicts.iter().all(|verdict| verdict
+                .claim
+                .source_table
+                .as_deref()
+                .is_some_and(|path| path.ends_with("quality_filtering/result.json"))),
+            "{verdicts:#?}"
+        );
+    }
+
+    #[test]
+    fn vf16_assessment_partition_keeps_entity_and_evidence_row_denominators_separate() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        let analysis_dir = tmp.path().join("runtime/outputs/association_testing");
+        let context_dir = tmp
+            .path()
+            .join("runtime/outputs/contextualize_findings_with_literature");
+        std::fs::create_dir_all(&analysis_dir).unwrap();
+        std::fs::create_dir_all(&context_dir).unwrap();
+        std::fs::write(
+            analysis_dir.join("result.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({"n_significant": 37})).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            context_dir.join("result.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "n_entities_assessed": 11,
+                "n_entities_not_assessed": 26,
+                "n_evidence_rows_assessed": 14
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let verdicts = verify_narrative_counts(
+            "Of the 37 significant entities, 11 were assessed against the retained corpus; \
+             26 were not assessed. The 11 assessed entities contributed 14 evidence rows.",
+            tmp.path(),
+            tmp.path(),
+            &cfg,
+        );
+        assert!(
+            verdicts.len() >= 5,
+            "all three entity populations and both evidence denominators must be retained: \
+             {verdicts:#?}"
+        );
+        assert!(
+            verdicts
+                .iter()
+                .all(|verdict| matches!(verdict.status, ClaimStatus::Verified)),
+            "{verdicts:#?}"
+        );
     }
 
     #[test]
@@ -11696,6 +12090,78 @@ The source matrix contained 37 features across 24 acquisition cycles.";
                 .source_table
                 .as_deref()
                 .is_some_and(|path| path.ends_with("association_results.tsv"))),
+            "{verdicts:#?}"
+        );
+    }
+
+    #[test]
+    fn vf16_equivalent_derivatives_resolve_to_the_declared_result_artifact() {
+        let cfg = ExtractorConfig::from_policy(&serde_json::json!({
+            "verifiableEntities": {
+                "enabled": true,
+                "entityNamePatterns": ["[A-Z][A-Z0-9_]+"],
+                "entityNameExcludePatterns": [],
+                "directionVocab": {"up": ["higher"], "down": ["lower"]},
+                "effectSizeColumns": ["effect_score"],
+                "entityColumns": ["event_id"],
+                "pvalueColumns": ["anomaly_score"]
+            }
+        }))
+        .unwrap();
+        let tmp = tempdir().unwrap();
+        write_pkg_table(
+            tmp.path(),
+            "anomaly_screen",
+            "scores.tsv",
+            "event_id\teffect_score\tanomaly_score\n\
+             E1\t3.0\t0.5\nE2\t0.5\t2.6\nE3\t4.0\t8.0\nE4\t4.0\t2.5\n",
+        );
+        write_pkg_table(
+            tmp.path(),
+            "annotation",
+            "scores_with_labels.tsv",
+            "event_id\teffect_score\tanomaly_score\n\
+             E1\t3.0\t0.5\nE2\t0.5\t2.6\nE3\t4.0\t8.0\nE4\t4.0\t2.5\n",
+        );
+        let reporting = tmp.path().join("runtime/outputs/reporting");
+        std::fs::create_dir_all(&reporting).unwrap();
+        std::fs::write(
+            reporting.join("scores.full.tsv"),
+            "event_id\teffect_score\tanomaly_score\n\
+             E1\t3.0\t0.5\nE2\t0.5\t2.6\nE3\t4.0\t8.0\nE4\t4.0\t2.5\n",
+        )
+        .unwrap();
+        std::fs::write(
+            reporting.join("report-data.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "artifacts": [{
+                    "stage_id": "anomaly_screen",
+                    "artifact": "scores.tsv"
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let verdicts = verify_narrative_counts(
+            "Out of 4 telemetry events tested, 2 were significant at \
+             anomaly_score > 2.5.",
+            &reporting,
+            tmp.path(),
+            &cfg,
+        );
+        assert_eq!(verdicts.len(), 2, "{verdicts:#?}");
+        assert!(
+            verdicts
+                .iter()
+                .all(|verdict| matches!(verdict.status, ClaimStatus::Verified)),
+            "{verdicts:#?}"
+        );
+        assert!(
+            verdicts.iter().all(|verdict| {
+                verdict.claim.source_table.as_deref()
+                    == Some("runtime/outputs/anomaly_screen/scores.tsv")
+            }),
             "{verdicts:#?}"
         );
     }
@@ -13555,6 +14021,54 @@ The source matrix contained 37 features across 24 acquisition cycles.";
                 .iter()
                 .map(|v| &v.status)
                 .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn vf16_multiple_declared_reproductions_abstain_even_with_one_local_copy() {
+        let local = PathBuf::from("/package/runtime/outputs/reporting/scores.full.tsv");
+        let canonical_a = PathBuf::from("/package/runtime/outputs/screen_a/scores.tsv");
+        let canonical_b = PathBuf::from("/package/runtime/outputs/screen_b/scores.tsv");
+        let matches = BTreeSet::from([local, canonical_a.clone(), canonical_b.clone()]);
+        let canonical = BTreeSet::from([canonical_a, canonical_b]);
+
+        assert!(
+            select_authoritative_reproduction(
+                &matches,
+                Path::new("/package/runtime/outputs/reporting"),
+                &canonical,
+            )
+            .is_none(),
+            "two declared analytical sources are scientifically ambiguous; a local derivative \
+             must not break the tie"
+        );
+    }
+
+    #[test]
+    fn semantic_summary_context_does_not_choose_between_equal_sources() {
+        let index = SemanticSummaryIndex {
+            counts: vec![
+                SemanticSummaryCount {
+                    path: PathBuf::from("/package/runtime/outputs/screen_a/result.json"),
+                    field: "n_records_assessed".into(),
+                    value: 7,
+                    tokens: semantic_tokens("n_records_assessed"),
+                },
+                SemanticSummaryCount {
+                    path: PathBuf::from("/package/runtime/outputs/screen_b/result.json"),
+                    field: "n_records_assessed".into(),
+                    value: 7,
+                    tokens: semantic_tokens("n_records_assessed"),
+                },
+            ],
+        };
+
+        assert!(
+            index
+                .resolve_context("7 records were assessed", &["assessed"])
+                .is_none(),
+            "equal values cannot supply provenance when two retained summaries are equally \
+             authoritative"
         );
     }
 }

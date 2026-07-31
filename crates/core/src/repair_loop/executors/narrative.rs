@@ -142,6 +142,45 @@ fn replace_first_standalone_number(text: &str, needle: &str, replacement: &str) 
     None
 }
 
+/// Replace a count only inside the exact claim excerpt that produced the
+/// verifier failure.
+///
+/// A report can contain the same number in table ranks, citations, thresholds,
+/// and unrelated prose. Searching the whole report lets a deterministic repair
+/// corrupt the wrong assertion. Requiring one exact excerpt match makes the
+/// repair provenance-scoped and modality-neutral. Missing or repeated excerpts
+/// are ambiguous and therefore rejected.
+fn replace_count_in_claim_excerpt(
+    narrative: &str,
+    excerpt: &str,
+    needle: &str,
+    replacement: &str,
+) -> Result<String, &'static str> {
+    if excerpt.is_empty() {
+        return Err("claim excerpt is empty");
+    }
+
+    let mut matches = narrative.match_indices(excerpt);
+    let Some((start, matched)) = matches.next() else {
+        return Err("claim excerpt is not present in the narrative");
+    };
+    if matches.next().is_some() {
+        return Err("claim excerpt occurs more than once in the narrative");
+    }
+
+    let Some(corrected_excerpt) = replace_first_standalone_number(matched, needle, replacement)
+    else {
+        return Err("claimed count is not present in the claim excerpt");
+    };
+    let end = start + matched.len();
+    let mut corrected =
+        String::with_capacity(narrative.len() + corrected_excerpt.len() - matched.len());
+    corrected.push_str(&narrative[..start]);
+    corrected.push_str(&corrected_excerpt);
+    corrected.push_str(&narrative[end..]);
+    Ok(corrected)
+}
+
 impl Executor for NarrativeCorrection {
     fn class(&self) -> RepairClass {
         RepairClass::NarrativeCorrection
@@ -177,11 +216,14 @@ impl Executor for NarrativeCorrection {
 
         let n_str = claimed_n.to_string();
         let m_str = observed_m.to_string();
-        let Some(corrected) = replace_first_standalone_number(&text, &n_str, &m_str) else {
-            return RepairOutcome::Unrepairable(format!(
-                "claimed count {claimed_n} not present as a standalone number in narrative {}",
-                narrative_path.display()
-            ));
+        let corrected = match replace_count_in_claim_excerpt(&text, &f.subject, &n_str, &m_str) {
+            Ok(corrected) => corrected,
+            Err(reason) => {
+                return RepairOutcome::Unrepairable(format!(
+                    "{reason}; refusing unscoped count replacement in {}",
+                    narrative_path.display()
+                ));
+            }
         };
 
         if let Err(e) = std::fs::write(&narrative_path, corrected.as_bytes()) {
@@ -232,12 +274,12 @@ mod tests {
         (dir, report, table)
     }
 
-    fn failure_with_detail(detail: &str) -> Failure {
+    fn failure_with_subject(subject: &str, detail: &str) -> Failure {
         Failure::new(
             FailureSource::ClaimMismatch,
             RepairClass::NarrativeCorrection,
             "reporting",
-            "count_claim",
+            subject,
             detail,
         )
     }
@@ -252,7 +294,8 @@ mod tests {
         );
         let table_before = fs::read(&table).expect("read table before");
 
-        let f = failure_with_detail(
+        let f = failure_with_subject(
+            "9 gene sets were significantly enriched at FDR < 0.05; see below.",
             "count claim: narrative says 9, `pw.tsv` has 3 (rows below the cited threshold)",
         );
         let outcome = NarrativeCorrection.repair(&f, dir.path(), dir.path(), &NoRunner);
@@ -296,7 +339,8 @@ mod tests {
         let (dir, report, _table) =
             build_pkg("report.md", body, "de.tsv", b"gene\tlog2fc\nA\t9.0\n");
 
-        let f = failure_with_detail(
+        let f = failure_with_subject(
+            body.trim_end(),
             "effect size: narrative says 9.0000, table has 2.5000 (tolerance ±0.0500)",
         );
         let outcome = NarrativeCorrection.repair(&f, dir.path(), dir.path(), &NoRunner);
@@ -317,13 +361,14 @@ mod tests {
         let (dir, report, _table) =
             build_pkg("report.md", body, "mod.tsv", b"module\nm1\nm2\nm3\n");
 
-        let f = failure_with_detail(
+        let f = failure_with_subject(
+            body.trim_end(),
             "count claim: narrative says 9, `mod.tsv` has 3 (rows below threshold)",
         );
         let outcome = NarrativeCorrection.repair(&f, dir.path(), dir.path(), &NoRunner);
 
         assert!(
-            matches!(outcome, RepairOutcome::Unrepairable(ref r) if r.contains("not present as a standalone number")),
+            matches!(outcome, RepairOutcome::Unrepairable(ref r) if r.contains("not present in the claim excerpt")),
             "absent claimed number must be Unrepairable, got: {outcome:?}"
         );
         let after = fs::read_to_string(&report).expect("read narrative after");
@@ -343,6 +388,59 @@ mod tests {
         assert_eq!(
             out, "groups 19 and 90 differ; 1.9 fold; exactly 3 passed.",
             "only the standalone 9 may be rewritten"
+        );
+    }
+
+    #[test]
+    fn correction_is_scoped_to_claim_excerpt_not_an_earlier_table_number() {
+        let body = concat!(
+            "| rank | entity | score |\n",
+            "|---:|---|---:|\n",
+            "| 11 | ALPHA | 0.42 |\n\n",
+            "The 11 assessed entities contributed 14 evidence rows.\n",
+        );
+        let (dir, report, _table) =
+            build_pkg("report.md", body, "evidence.csv", b"entity\nALPHA\n");
+        let f = failure_with_subject(
+            "The 11 assessed entities contributed 14 evidence rows.",
+            "count claim: narrative says 11, `evidence.csv` has 14 (evidence rows)",
+        );
+
+        let outcome = NarrativeCorrection.repair(&f, dir.path(), dir.path(), &NoRunner);
+        assert!(
+            matches!(outcome, RepairOutcome::Applied { .. }),
+            "claim-scoped correction must apply, got: {outcome:?}"
+        );
+        let after = fs::read_to_string(report).unwrap();
+        assert!(
+            after.contains("| 11 | ALPHA | 0.42 |"),
+            "unrelated table rank must remain unchanged: {after}"
+        );
+        assert!(
+            after.contains("The 14 assessed entities contributed 14 evidence rows."),
+            "only the claim excerpt count may change: {after}"
+        );
+    }
+
+    #[test]
+    fn repeated_claim_excerpt_is_ambiguous_and_left_unchanged() {
+        let sentence = "Exactly 9 arbitrary units passed.";
+        let body = format!("{sentence}\n{sentence}\n");
+        let (dir, report, _table) = build_pkg("report.md", &body, "units.tsv", b"unit\nA\nB\nC\n");
+        let f = failure_with_subject(
+            sentence,
+            "count claim: narrative says 9, `units.tsv` has 3 (retained units)",
+        );
+
+        let outcome = NarrativeCorrection.repair(&f, dir.path(), dir.path(), &NoRunner);
+        assert!(
+            matches!(outcome, RepairOutcome::Unrepairable(ref r) if r.contains("more than once")),
+            "ambiguous excerpts must route to review, got: {outcome:?}"
+        );
+        assert_eq!(
+            fs::read_to_string(report).unwrap(),
+            body,
+            "ambiguous narratives must not be edited"
         );
     }
 

@@ -144,7 +144,7 @@ fn narrative_failure(status: FailureStatus) -> Failure {
         FailureSource::ClaimMismatch,
         RepairClass::NarrativeCorrection,
         TASK,
-        "gene_sets_significant",
+        "9 gene sets were significantly enriched (padj < 0.05) (pw.tsv).",
         &count_mismatch_detail(),
     );
     f.status = status;

@@ -166,6 +166,7 @@ pub fn assemble_report_data(
         artifacts.push(ResultArtifactSummary {
             stage_id: stage_id.clone(),
             artifact: schema.artifact.clone(),
+            result_schema: Some(schema.clone()),
             n_total: stats.n_total,
             n_significant: stats.n_significant,
             direction_split: stats.direction_split,

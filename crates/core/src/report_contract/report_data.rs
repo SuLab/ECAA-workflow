@@ -95,6 +95,12 @@ pub struct ReportData {
 pub struct ResultArtifactSummary {
     pub stage_id: String,
     pub artifact: String,
+    /// Exact executable contract used to interpret `artifact`. Embedded so a
+    /// reporting stage can name the entity, effect, significance, grouping,
+    /// comparator, and cutoff without reopening or reconstructing
+    /// `WORKFLOW.json`. Older report-data files omit this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result_schema: Option<ResultSchema>,
     pub n_total: u64,
     pub n_significant: Option<u64>,
     /// `Some` iff `ResultSchema::signed_effect_column` was declared and resolved.
@@ -1942,5 +1948,42 @@ mod tests {
         assert_eq!(rollup.n_entities_not_assessed, 2);
         assert_eq!(rollup.not_assessed_count, 2);
         assert_eq!(rollup.n_evidence_rows_total, 2);
+    }
+
+    #[test]
+    fn artifact_summary_embeds_the_exact_schema_and_reads_legacy_payloads() {
+        let legacy = serde_json::json!({
+            "stage_id": "risk_screen",
+            "artifact": "scores.tsv",
+            "n_total": 4,
+            "n_significant": 2,
+            "direction_split": null,
+            "effect_distribution": null,
+            "significant_entities": [],
+            "significant_table_path": "runtime/outputs/risk_screen/scores.significant.tsv",
+            "full_table_path": "runtime/outputs/risk_screen/scores.full.tsv",
+            "spilled_to_attachment_only": false
+        });
+        let parsed: ResultArtifactSummary = serde_json::from_value(legacy).unwrap();
+        assert!(parsed.result_schema.is_none());
+
+        let schema = ResultSchema {
+            artifact: "scores.tsv".into(),
+            entity_column: "event_id".into(),
+            entity_column_aliases: vec![],
+            significance: Some(Significance {
+                column: "risk_score".into(),
+                threshold: 2.5,
+                comparator: Comparator::Gt,
+            }),
+            signed_effect_column: Some("effect_score".into()),
+            signed_effect_aliases: vec![],
+            grouping_column: Some("sensor_type".into()),
+        };
+        let mut current = parsed;
+        current.result_schema = Some(schema.clone());
+        let round_trip: ResultArtifactSummary =
+            serde_json::from_value(serde_json::to_value(current).unwrap()).unwrap();
+        assert_eq!(round_trip.result_schema, Some(schema));
     }
 }
