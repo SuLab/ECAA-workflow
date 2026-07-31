@@ -1958,6 +1958,7 @@ fn build_manifest_for_auto_register(
             sha256: sha,
         });
     }
+    files.sort_by(|left, right| left.relpath.cmp(&right.relpath));
     Ok(files)
 }
 
@@ -1972,23 +1973,32 @@ fn auto_register_pending_hints(session: &mut crate::session::Session) {
     let mut retained: Vec<crate::intake_path_hints::InputPathHint> = Vec::new();
     let already_registered: std::collections::BTreeSet<String> =
         session.inputs.iter().map(|i| i.root_path.clone()).collect();
-    let pending = std::mem::take(&mut session.pending_input_hints);
-    for hint in pending {
-        if already_registered.contains(&hint.canonical_root) {
-            // Skip — already registered (idempotent retry).
+    let mut grouped_hints: std::collections::BTreeMap<
+        String,
+        Vec<crate::intake_path_hints::InputPathHint>,
+    > = std::collections::BTreeMap::new();
+    for hint in std::mem::take(&mut session.pending_input_hints) {
+        grouped_hints
+            .entry(hint.canonical_root.clone())
+            .or_default()
+            .push(hint);
+    }
+    for (canonical_root, hints) in grouped_hints {
+        if already_registered.contains(&canonical_root) {
+            // Skip — this root is already registered (idempotent retry).
             continue;
         }
-        let root = std::path::PathBuf::from(&hint.canonical_root);
+        let root = std::path::PathBuf::from(&canonical_root);
         let files = match build_manifest_for_auto_register(&root) {
             Ok(f) => f,
             Err(err) => {
                 tracing::warn!(
                     session_id = %session.id,
-                    root = %hint.canonical_root,
+                    root = %canonical_root,
                     err = %err,
                     "auto_register_pending_hints: walk/hash failed, leaving hint pending"
                 );
-                retained.push(hint);
+                retained.extend(hints);
                 continue;
             }
         };
@@ -1996,13 +2006,13 @@ fn auto_register_pending_hints(session: &mut crate::session::Session) {
             .file_name()
             .and_then(|n| n.to_str())
             .map(|s| s.to_string())
-            .unwrap_or_else(|| hint.canonical_root.clone());
+            .unwrap_or_else(|| canonical_root.clone());
         let input_id = Uuid::new_v4().as_simple().to_string()[..16].to_string();
         let registration = crate::session::state::UserInput {
             input_id,
             label,
             kind: crate::session::state::UserInputKind::LocalPath,
-            root_path: hint.canonical_root.clone(),
+            root_path: canonical_root,
             files,
             registered_at: Utc::now(),
             registered_by: session.owner_user.clone(),

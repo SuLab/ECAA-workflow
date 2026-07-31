@@ -21,6 +21,7 @@ use ecaa_workflow_conversation::session::Session;
 use ecaa_workflow_conversation::tools::{dispatch_one, BatchableTool, Tool, ToolContext};
 use ecaa_workflow_core::decision_log::DecisionType;
 use serial_test::serial;
+use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use tempfile::tempdir;
 
@@ -58,6 +59,15 @@ fn canonical(p: &Path) -> PathBuf {
     p.canonicalize().unwrap_or_else(|_| p.to_path_buf())
 }
 
+fn manifest_file(path: &Path, relpath: &str) -> UserInputFile {
+    let bytes = std::fs::read(path).unwrap();
+    UserInputFile {
+        relpath: relpath.to_string(),
+        size_bytes: bytes.len() as u64,
+        sha256: hex::encode(Sha256::digest(&bytes)),
+    }
+}
+
 /// Every `AssumptionRecorded` id on the session, in record order.
 fn assumption_ids(session: &Session) -> Vec<String> {
     session
@@ -91,6 +101,7 @@ async fn existing_prose_path_is_auto_registered_at_emit() {
     std::fs::create_dir_all(&data_dir).unwrap();
     std::fs::write(data_dir.join("counts.tsv"), "gene\ts1\ts2\nA\t1\t2\n").unwrap();
     std::fs::write(data_dir.join("samples.csv"), "sample,group\ns1,ctrl\n").unwrap();
+    std::fs::write(data_dir.join("unrelated.csv"), "must,not,be,registered\n").unwrap();
 
     let mut session = boot_session_with_dag().await;
     std::env::set_var("ECAA_INPUT_ROOTS", root_path.display().to_string());
@@ -102,6 +113,13 @@ async fn existing_prose_path_is_auto_registered_at_emit() {
         matched_extension: "tsv".into(),
         file_mention: true,
         file_relpath: Some("counts.tsv".into()),
+    });
+    session.pending_input_hints.push(InputPathHint {
+        raw_mention: data_dir.join("samples.csv").display().to_string(),
+        canonical_root: data_dir.display().to_string(),
+        matched_extension: "csv".into(),
+        file_mention: true,
+        file_relpath: Some("samples.csv".into()),
     });
     assert!(
         session.inputs.is_empty(),
@@ -148,7 +166,8 @@ async fn existing_prose_path_is_auto_registered_at_emit() {
     assert_eq!(
         files,
         vec!["counts.tsv", "samples.csv"],
-        "the manifest must inventory both files, relpath-sorted"
+        "file hints must be grouped into one registration and must not \
+         broaden the manifest to unrelated siblings"
     );
 
     // 2. The session now carries the registration.
@@ -187,6 +206,189 @@ async fn existing_prose_path_is_auto_registered_at_emit() {
     assert!(
         !pkg.path().join("runtime/inputs-unavailable.json").exists(),
         "a resolvable path must not be reported as unavailable"
+    );
+}
+
+/// A browser upload can satisfy prose file hints even though the
+/// upload root differs from the server-local path against which bare
+/// filenames were resolved. Exact bytes already registered by the SME
+/// must prevent a second, broader local-path registration.
+#[tokio::test]
+#[serial]
+async fn uploaded_files_satisfy_equal_prose_hints_without_broad_registration() {
+    let roots = tempdir().unwrap();
+    let root_path = canonical(roots.path());
+    let data_dir = root_path.join("allowlisted-inputs");
+    let upload_dir = root_path.join("browser-upload");
+    std::fs::create_dir_all(&data_dir).unwrap();
+    std::fs::create_dir_all(&upload_dir).unwrap();
+    let counts = "gene\ts1\ts2\nA\t1\t2\n";
+    let samples = "sample,group\ns1,ctrl\n";
+    std::fs::write(data_dir.join("counts.tsv"), counts).unwrap();
+    std::fs::write(data_dir.join("samples.csv"), samples).unwrap();
+    std::fs::write(data_dir.join("historical.csv"), "not,declared\n").unwrap();
+    std::fs::write(upload_dir.join("counts.tsv"), counts).unwrap();
+    std::fs::write(upload_dir.join("samples.csv"), samples).unwrap();
+
+    let mut session = boot_session_with_dag().await;
+    std::env::set_var("ECAA_INPUT_ROOTS", root_path.display().to_string());
+    session.inputs.push(UserInput {
+        input_id: "uploaded123456789".into(),
+        label: "browser-upload".into(),
+        kind: UserInputKind::UploadedFiles,
+        root_path: upload_dir.display().to_string(),
+        files: vec![
+            manifest_file(&upload_dir.join("counts.tsv"), "counts.tsv"),
+            manifest_file(&upload_dir.join("samples.csv"), "samples.csv"),
+        ],
+        registered_at: chrono::Utc::now(),
+        registered_by: session.owner_user.clone(),
+    });
+    for (name, extension) in [("counts.tsv", "tsv"), ("samples.csv", "csv")] {
+        session.pending_input_hints.push(InputPathHint {
+            raw_mention: name.to_string(),
+            canonical_root: data_dir.display().to_string(),
+            matched_extension: extension.to_string(),
+            file_mention: true,
+            file_relpath: Some(name.to_string()),
+        });
+    }
+
+    let pkg = tempdir().unwrap();
+    emit_with_conversation_log(&mut session, pkg.path(), &config_dir())
+        .await
+        .expect("emit must succeed");
+    std::env::remove_var("ECAA_INPUT_ROOTS");
+
+    let manifest: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(pkg.path().join("runtime/inputs.json")).unwrap(),
+    )
+    .unwrap();
+    let entries = manifest.as_array().unwrap();
+    assert_eq!(
+        entries.len(),
+        1,
+        "only the explicit browser upload may remain; got {manifest}"
+    );
+    assert_eq!(entries[0]["input_id"].as_str(), Some("uploaded123456789"));
+    assert_eq!(session.inputs.len(), 1);
+    assert!(
+        session.pending_input_hints.is_empty(),
+        "content-equivalent prose hints are satisfied"
+    );
+    assert!(
+        assumption_ids(&session)
+            .iter()
+            .all(|id| !id.starts_with("a_input_path_")),
+        "no auto-registration decision is valid when the explicit upload already satisfies the hints"
+    );
+}
+
+/// The opt-in noninteractive path also sees one hint per filename.
+/// Multiple names in one directory must produce one registration, not
+/// duplicate registrations for the same mounted root.
+#[tokio::test]
+#[serial]
+async fn eager_auto_registration_groups_file_hints_by_root() {
+    let roots = tempdir().unwrap();
+    let root_path = canonical(roots.path());
+    let data_dir = root_path.join("cohort");
+    std::fs::create_dir_all(&data_dir).unwrap();
+    std::fs::write(data_dir.join("measurements.csv"), "sample,value\na,1\n").unwrap();
+    std::fs::write(data_dir.join("metadata.tsv"), "sample\tgroup\na\tcontrol\n").unwrap();
+
+    let mut session = Session::test_fixture_with_dag();
+    let ctx = ToolContext::new(config_dir(), "claude-sonnet-5");
+    std::env::set_var("ECAA_INPUT_ROOTS", root_path.display().to_string());
+    std::env::set_var("ECAA_AUTO_REGISTER_PROSE_PATHS", "1");
+    dispatch_one(
+        &Tool::Batchable(BatchableTool::AppendIntakeProse {
+            prose: format!(
+                "Use {} with {}.",
+                data_dir.join("measurements.csv").display(),
+                data_dir.join("metadata.tsv").display()
+            ),
+        }),
+        &mut session,
+        &ctx,
+    )
+    .await;
+    std::env::remove_var("ECAA_AUTO_REGISTER_PROSE_PATHS");
+    std::env::remove_var("ECAA_INPUT_ROOTS");
+
+    assert_eq!(
+        session.inputs.len(),
+        1,
+        "two file hints under one root must produce one registration"
+    );
+    assert_eq!(session.inputs[0].root_path, data_dir.display().to_string());
+    assert_eq!(
+        session.inputs[0]
+            .files
+            .iter()
+            .map(|file| file.relpath.as_str())
+            .collect::<Vec<_>>(),
+        vec!["measurements.csv", "metadata.tsv"]
+    );
+    assert!(session.pending_input_hints.is_empty());
+}
+
+/// File hints sharing a directory are independent declarations. If one
+/// disappears between intake and emit, the surviving file is still
+/// registered while only the missing file remains pending.
+#[tokio::test]
+#[serial]
+async fn one_missing_file_hint_does_not_suppress_valid_siblings() {
+    let roots = tempdir().unwrap();
+    let root_path = canonical(roots.path());
+    let data_dir = root_path.join("cohort");
+    std::fs::create_dir_all(&data_dir).unwrap();
+    std::fs::write(data_dir.join("measurements.csv"), "sample,value\na,1\n").unwrap();
+
+    let mut session = boot_session_with_dag().await;
+    std::env::set_var("ECAA_INPUT_ROOTS", root_path.display().to_string());
+    for name in ["measurements.csv", "metadata.tsv"] {
+        session.pending_input_hints.push(InputPathHint {
+            raw_mention: name.to_string(),
+            canonical_root: data_dir.display().to_string(),
+            matched_extension: Path::new(name)
+                .extension()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+            file_mention: true,
+            file_relpath: Some(name.to_string()),
+        });
+    }
+
+    let pkg = tempdir().unwrap();
+    emit_with_conversation_log(&mut session, pkg.path(), &config_dir())
+        .await
+        .expect("emit must preserve the surviving file");
+    std::env::remove_var("ECAA_INPUT_ROOTS");
+
+    assert_eq!(session.inputs.len(), 1);
+    assert_eq!(
+        session.inputs[0]
+            .files
+            .iter()
+            .map(|file| file.relpath.as_str())
+            .collect::<Vec<_>>(),
+        vec!["measurements.csv"]
+    );
+    assert_eq!(session.pending_input_hints.len(), 1);
+    assert_eq!(
+        session.pending_input_hints[0].file_relpath.as_deref(),
+        Some("metadata.tsv")
+    );
+    let unavailable: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(pkg.path().join("runtime/inputs-unavailable.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(unavailable.as_array().map(Vec::len), Some(1));
+    assert_eq!(
+        unavailable[0]["file_relpath"].as_str(),
+        Some("metadata.tsv")
     );
 }
 

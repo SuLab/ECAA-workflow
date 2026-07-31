@@ -1028,6 +1028,7 @@ fn reconcile_input_roots(owner_user: &str) -> Vec<std::path::PathBuf> {
 /// filesystem's directory-iteration order.
 fn build_reconciled_manifest(
     root: &std::path::Path,
+    selected_relpaths: Option<&std::collections::BTreeSet<String>>,
 ) -> Result<Vec<crate::session::state::UserInputFile>, String> {
     use sha2::{Digest, Sha256};
     use std::io::Read;
@@ -1038,26 +1039,69 @@ fn build_reconciled_manifest(
     let mut files: std::collections::BTreeMap<String, crate::session::state::UserInputFile> =
         std::collections::BTreeMap::new();
     let mut total_bytes: u64 = 0;
-    for entry in walkdir::WalkDir::new(root).follow_links(false) {
-        let entry = entry.map_err(|e| format!("walking {}: {e}", root.display()))?;
-        let path = entry.path();
-        // Skip dotfiles (but never the root itself, which may live under
-        // a dot-directory like `~/.ecaa-workflow/<dir>`).
-        if path != root
-            && path
-                .file_name()
-                .and_then(|n: &std::ffi::OsStr| n.to_str())
-                .map(|n: &str| n.starts_with('.'))
-                .unwrap_or(false)
-        {
-            continue;
+    let canonical_root = root
+        .canonicalize()
+        .map_err(|e| format!("canonicalize {}: {e}", root.display()))?;
+    let candidate_paths = if let Some(relpaths) = selected_relpaths {
+        let mut paths = Vec::with_capacity(relpaths.len());
+        for relpath in relpaths {
+            let relative = std::path::Path::new(relpath);
+            if relative.is_absolute()
+                || relative.components().any(|component| {
+                    matches!(
+                        component,
+                        std::path::Component::ParentDir
+                            | std::path::Component::RootDir
+                            | std::path::Component::Prefix(_)
+                    )
+                })
+            {
+                return Err(format!(
+                    "named file `{relpath}` is not a safe relative path"
+                ));
+            }
+            let path = canonical_root.join(relative);
+            let canonical = path
+                .canonicalize()
+                .map_err(|e| format!("canonicalize {}: {e}", path.display()))?;
+            if !canonical.starts_with(&canonical_root) {
+                return Err(format!(
+                    "named file {} resolves outside {}",
+                    path.display(),
+                    canonical_root.display()
+                ));
+            }
+            if !canonical.is_file() {
+                return Err(format!("named path {} is not a file", path.display()));
+            }
+            paths.push(canonical);
         }
-        if !entry.file_type().is_file() {
-            continue;
+        paths
+    } else {
+        let mut paths = Vec::new();
+        for entry in walkdir::WalkDir::new(&canonical_root).follow_links(false) {
+            let entry = entry.map_err(|e| format!("walking {}: {e}", canonical_root.display()))?;
+            let path = entry.path();
+            // Skip dotfiles (but never the root itself, which may live
+            // under a dot-directory like `~/.ecaa-workflow/<dir>`).
+            if path != canonical_root
+                && path
+                    .file_name()
+                    .and_then(|n: &std::ffi::OsStr| n.to_str())
+                    .map(|n: &str| n.starts_with('.'))
+                    .unwrap_or(false)
+            {
+                continue;
+            }
+            if entry.file_type().is_file() {
+                paths.push(path.to_path_buf());
+            }
         }
-        let meta = entry
-            .metadata()
-            .map_err(|e| format!("stat {}: {e}", path.display()))?;
+        paths
+    };
+
+    for path in candidate_paths {
+        let meta = std::fs::metadata(&path).map_err(|e| format!("stat {}: {e}", path.display()))?;
         let size = meta.len();
         if size > MAX_FILE_BYTES {
             return Err(format!(
@@ -1075,13 +1119,13 @@ fn build_reconciled_manifest(
             ));
         }
         let relpath = path
-            .strip_prefix(root)
+            .strip_prefix(&canonical_root)
             .map_err(|e| format!("strip_prefix {}: {e}", path.display()))?
             .to_string_lossy()
             .into_owned();
         let mut hasher = Sha256::new();
         let mut f =
-            std::fs::File::open(path).map_err(|e| format!("open {}: {e}", path.display()))?;
+            std::fs::File::open(&path).map_err(|e| format!("open {}: {e}", path.display()))?;
         let mut buf = [0u8; 8192];
         loop {
             let n = f
@@ -1102,6 +1146,28 @@ fn build_reconciled_manifest(
         );
     }
     Ok(files.into_values().collect())
+}
+
+/// True when an explicitly registered input already carries the exact
+/// bytes named by a prose file hint. Browser uploads have a different
+/// root from server-local paths, so root equality alone cannot identify
+/// this case. Require size, SHA-256, and either the same relative path
+/// or the same basename to avoid treating an unrelated equal-sized file
+/// as satisfying the declaration.
+fn registered_input_covers_file(
+    candidate: &crate::session::state::UserInputFile,
+    registered: &[crate::session::state::UserInput],
+) -> bool {
+    let candidate_name = std::path::Path::new(&candidate.relpath).file_name();
+    registered
+        .iter()
+        .flat_map(|input| &input.files)
+        .any(|file| {
+            file.size_bytes == candidate.size_bytes
+                && file.sha256 == candidate.sha256
+                && (file.relpath == candidate.relpath
+                    || std::path::Path::new(&file.relpath).file_name() == candidate_name)
+        })
 }
 
 /// Stable 16-hex-char id for an auto-registered input, derived from the
@@ -1164,14 +1230,24 @@ fn reconcile_prose_input_hints(
     let mut unavailable: Vec<UnavailableProseInput> = Vec::new();
     let mut registered: Vec<crate::session::state::UserInput> = Vec::new();
     let mut retained: Vec<crate::intake_path_hints::InputPathHint> = Vec::new();
-
+    let mut grouped_hints: std::collections::BTreeMap<
+        String,
+        Vec<crate::intake_path_hints::InputPathHint>,
+    > = std::collections::BTreeMap::new();
     for hint in std::mem::take(&mut session.pending_input_hints) {
-        // Already registered through the UI / tool path: the hint is
-        // stale, drop it. Existing registrations are untouched.
-        if already_registered.contains(&hint.canonical_root) {
+        grouped_hints
+            .entry(hint.canonical_root.clone())
+            .or_default()
+            .push(hint);
+    }
+
+    for (canonical_root, hints) in grouped_hints {
+        // Already registered through the UI / tool path: all hints for
+        // this root are stale. Existing registrations are untouched.
+        if already_registered.contains(&canonical_root) {
             continue;
         }
-        let root = std::path::PathBuf::from(&hint.canonical_root);
+        let root = std::path::PathBuf::from(&canonical_root);
         let inside_jail = roots.iter().any(|allowed| {
             let allowed = allowed.canonicalize().unwrap_or_else(|_| allowed.clone());
             root.starts_with(&allowed)
@@ -1184,48 +1260,114 @@ fn reconcile_prose_input_hints(
                 session_id = %session.id,
                 "reconcile_prose_input_hints: hint root is outside ECAA_INPUT_ROOTS; not registering"
             );
-            retained.push(hint);
+            retained.extend(hints);
             continue;
         }
-        let reason = if !root.exists() {
+        let root_reason = if !root.exists() {
             Some("not present on disk at emit".to_string())
         } else if !root.is_dir() {
             Some("present at emit but not a directory".to_string())
         } else {
-            match build_reconciled_manifest(&root) {
-                Ok(files) => {
-                    let input_id = deterministic_input_id(&hint.canonical_root);
-                    registered.push(crate::session::state::UserInput {
-                        input_id,
-                        label: root
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .map(|s| s.to_string())
-                            .unwrap_or_else(|| hint.canonical_root.clone()),
-                        kind: crate::session::state::UserInputKind::LocalPath,
-                        root_path: hint.canonical_root.clone(),
-                        files,
-                        registered_at: now,
-                        registered_by: owner_user.clone(),
-                    });
-                    None
-                }
-                Err(err) => Some(format!(
-                    "present at emit but could not be inventoried: {err}"
-                )),
-            }
+            None
         };
-        if let Some(reason) = reason {
-            unavailable.push(UnavailableProseInput {
-                raw_mention: hint.raw_mention.clone(),
-                canonical_root: hint.canonical_root.clone(),
-                file_relpath: hint.file_relpath.clone(),
-                reason,
-            });
-            // Keep the hint pending: the SME can still restore the path
-            // and register it, and a later re-emit will pick it up.
-            retained.push(hint);
+        if let Some(reason) = root_reason {
+            for hint in hints {
+                unavailable.push(UnavailableProseInput {
+                    raw_mention: hint.raw_mention.clone(),
+                    canonical_root: hint.canonical_root.clone(),
+                    file_relpath: hint.file_relpath.clone(),
+                    reason: reason.clone(),
+                });
+                // Keep the hint pending: the SME can still restore the
+                // path and register it, and a later re-emit will pick
+                // it up.
+                retained.push(hint);
+            }
+            continue;
         }
+
+        // A directory mention authorizes inventory of the directory.
+        // File-only mentions authorize only those named files. Resolve
+        // file hints independently so one file that disappeared after
+        // intake does not suppress other still-valid declarations.
+        let mut resolved_files: std::collections::BTreeMap<
+            String,
+            crate::session::state::UserInputFile,
+        > = std::collections::BTreeMap::new();
+        if hints.iter().any(|hint| hint.file_relpath.is_none()) {
+            match build_reconciled_manifest(&root, None) {
+                Ok(files) => {
+                    for file in files {
+                        resolved_files.insert(file.relpath.clone(), file);
+                    }
+                }
+                Err(err) => {
+                    let reason = format!("present at emit but could not be inventoried: {err}");
+                    for hint in hints {
+                        unavailable.push(UnavailableProseInput {
+                            raw_mention: hint.raw_mention.clone(),
+                            canonical_root: hint.canonical_root.clone(),
+                            file_relpath: hint.file_relpath.clone(),
+                            reason: reason.clone(),
+                        });
+                        retained.push(hint);
+                    }
+                    continue;
+                }
+            }
+        } else {
+            for hint in &hints {
+                let Some(relpath) = hint.file_relpath.as_ref() else {
+                    continue;
+                };
+                let selected = std::collections::BTreeSet::from([relpath.clone()]);
+                match build_reconciled_manifest(&root, Some(&selected)) {
+                    Ok(files) => {
+                        for file in files {
+                            resolved_files.insert(file.relpath.clone(), file);
+                        }
+                    }
+                    Err(err) => {
+                        unavailable.push(UnavailableProseInput {
+                            raw_mention: hint.raw_mention.clone(),
+                            canonical_root: hint.canonical_root.clone(),
+                            file_relpath: hint.file_relpath.clone(),
+                            reason: format!(
+                                "present at emit but named file could not be inventoried: {err}"
+                            ),
+                        });
+                        retained.push(hint.clone());
+                    }
+                }
+            }
+        }
+
+        // An explicit browser upload or path registration may already
+        // contain the exact named bytes under a different root. Do not
+        // add a broader local-path registration in that case. When only
+        // part of a group is covered, register only the uncovered named
+        // files.
+        let files: Vec<_> = resolved_files
+            .into_values()
+            .filter(|file| !registered_input_covers_file(file, &session.inputs))
+            .collect();
+        if files.is_empty() {
+            continue;
+        }
+        let input_id = deterministic_input_id(&canonical_root);
+        registered.push(crate::session::state::UserInput {
+            input_id,
+            label: root
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| canonical_root.clone()),
+            kind: crate::session::state::UserInputKind::LocalPath,
+            root_path: canonical_root,
+            files,
+            registered_at: now,
+            registered_by: owner_user.clone(),
+        });
     }
     session.pending_input_hints = retained;
 
