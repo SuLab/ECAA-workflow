@@ -91,6 +91,10 @@
 //!     must equal a fresh recomputation from `claims_evidence_matrix.csv`.
 //!     Evidence-row counts stay separate from distinct-entity counts, and
 //!     missing entity labels fall back to the row's finding identifier.
+//!   * **RC-LITERATURE-LINK** every explicit entity-to-literature-source
+//!     attribution in report prose must resolve to that exact pair in
+//!     `claims_evidence_matrix.csv`. A source carried by one entity cannot be
+//!     distributed across a prose list of neighboring entities.
 //!   * **RC-IDENTITY** a `direction_split`'s `up + down` must not EXCEED
 //!     `n_significant` (directional rows can't outnumber the significant
 //!     set). A shortfall is legitimate — a significant row with a zero/NA
@@ -289,6 +293,7 @@ pub fn check_reporting_invariants(package_root: &Path) -> ReportingInvariantsRep
     check_rc_threshold_contract(package_root, &outputs, &mut report);
     check_rc_count(package_root, &outputs, &mut report);
     check_rc_literature_counts(package_root, &outputs, &mut report);
+    check_rc_literature_claim_links(package_root, &outputs, &mut report);
     check_rc_identity(&outputs, &mut report);
     check_rc_sections(package_root, &outputs, &mut report);
     check_rc_table(&outputs, &mut report);
@@ -3890,6 +3895,100 @@ fn check_rc_literature_counts(
     }
 }
 
+/// RC-LITERATURE-LINK: verify every entity/source association stated in the
+/// agent-authored report against the package's own row-level literature
+/// matrix. The claim extractor already binds sources locally in multi-entity
+/// sentences, and the literature verifier requires the exact entity/source
+/// pair. Reusing those policy-driven components avoids a second,
+/// report-specific entity grammar and applies to every analysis modality.
+fn check_rc_literature_claim_links(
+    package_root: &Path,
+    outputs: &Path,
+    report: &mut ReportingInvariantsReport,
+) {
+    let matrix_path = outputs
+        .join("contextualize_findings_with_literature")
+        .join("claims_evidence_matrix.csv");
+    if !matrix_path.is_file() {
+        return;
+    }
+    let Some(narrative) = read_agent_report_prose(outputs) else {
+        return;
+    };
+    let cfg = [package_root.join("policies"), package_root.join("config")]
+        .into_iter()
+        .find_map(|dir| {
+            let path =
+                crate::claim_extractor::resolve_policy_file(&dir, "interpretation-policy.json")?;
+            let raw = std::fs::read_to_string(path).ok()?;
+            let policy = serde_json::from_str::<Value>(&raw).ok()?;
+            crate::claim_extractor::ExtractorConfig::from_policy(&policy).ok()
+        });
+    let Some(cfg) = cfg else {
+        return;
+    };
+    let claims: Vec<_> = crate::claim_extractor::extract_claims(&narrative, &cfg)
+        .into_iter()
+        .filter(|claim| {
+            claim.contract == crate::claim_contract::ClaimContract::LiteratureGrounded
+                && claim
+                    .literature_evidence
+                    .as_ref()
+                    .is_some_and(|evidence| !evidence.cited_pmids.is_empty())
+        })
+        .collect();
+    if claims.is_empty() {
+        return;
+    }
+    report.checked.push("RC-LITERATURE-LINK");
+
+    let mut failures: Vec<String> =
+        crate::claim_verifier::verify_claims_with_discovery(&claims, outputs, package_root, &cfg)
+            .into_iter()
+            .filter_map(|verdict| match verdict.status {
+                crate::claim_verifier::ClaimStatus::Mismatch { detail }
+                    if detail.starts_with("literature:") =>
+                {
+                    Some(format!(
+                        "entity `{}` in `{}`: {detail}",
+                        verdict.claim.entity, verdict.claim.excerpt
+                    ))
+                }
+                crate::claim_verifier::ClaimStatus::Unverifiable { reason }
+                    if reason.starts_with("no claims_evidence_matrix row for finding") =>
+                {
+                    Some(format!(
+                        "entity `{}` in `{}`: literature: {reason}",
+                        verdict.claim.entity, verdict.claim.excerpt
+                    ))
+                }
+                _ => None,
+            })
+            .collect();
+    if failures.is_empty() {
+        return;
+    }
+    failures.sort();
+    failures.dedup();
+    const MAX_REPORTED_FAILURES: usize = 20;
+    let omitted = failures.len().saturating_sub(MAX_REPORTED_FAILURES);
+    failures.truncate(MAX_REPORTED_FAILURES);
+    let suffix = if omitted == 0 {
+        String::new()
+    } else {
+        format!("; {omitted} additional invalid association(s) omitted")
+    };
+    report.findings.push(ReportingFinding {
+        invariant: "RC-LITERATURE-LINK",
+        severity: Severity::Required,
+        detail: format!(
+            "report prose contains entity/source associations absent from \
+             claims_evidence_matrix.csv: {}{suffix}",
+            failures.join("; ")
+        ),
+    });
+}
+
 /// RC-IDENTITY: for every `report-data.json` artifact that declares a
 /// `direction_split`, its `up + down` must not EXCEED `n_significant` — the
 /// directional rows are a subset of the significant set, so they can never
@@ -5765,6 +5864,69 @@ mod tests {
                 failure.starts_with("RC-LITERATURE:") && failure.contains("effect or significance")
             }),
             "{wrong_measurement:?}"
+        );
+    }
+
+    #[test]
+    fn rc_literature_link_rejects_distributing_one_source_across_an_entity_list() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write_root(
+            tmp.path(),
+            "policies/interpretation-policy.json",
+            include_str!("../../../config/downstream-policy/interpretation-policy.json"),
+        );
+        write(
+            &outputs,
+            "contextualize_findings_with_literature/claims_evidence_matrix.csv",
+            "finding_id,entity,pmid,prior_pmids,concordance_flag,searched,verified\n\
+             F1,ALPHA,11111111,11111111,same_direction,true,true\n\
+             F2,BETA,22222222,22222222,same_direction,true,true\n",
+        );
+        write(
+            &outputs,
+            "reporting/report.md",
+            "The evidence context for ALPHA and BETA derives from PMID 11111111.",
+        );
+
+        let invalid = check_reporting_invariants(tmp.path());
+        assert!(
+            invalid.required_failures().iter().any(|failure| {
+                failure.starts_with("RC-LITERATURE-LINK:")
+                    && failure.contains("BETA")
+                    && failure.contains("11111111")
+            }),
+            "{invalid:#?}"
+        );
+
+        write(
+            &outputs,
+            "reporting/report.md",
+            "The evidence context for ALPHA derives from PMID 11111111. \
+             The evidence context for BETA derives from PMID 22222222.",
+        );
+        let corrected = check_reporting_invariants(tmp.path());
+        assert!(
+            corrected
+                .required_failures()
+                .iter()
+                .all(|failure| !failure.starts_with("RC-LITERATURE-LINK:")),
+            "{corrected:#?}"
+        );
+
+        write(
+            &outputs,
+            "reporting/report.md",
+            "The evidence context for GAMMA derives from PMID 33333333.",
+        );
+        let absent_entity = check_reporting_invariants(tmp.path());
+        assert!(
+            absent_entity.required_failures().iter().any(|failure| {
+                failure.starts_with("RC-LITERATURE-LINK:")
+                    && failure.contains("GAMMA")
+                    && failure.contains("33333333")
+            }),
+            "{absent_entity:#?}"
         );
     }
 

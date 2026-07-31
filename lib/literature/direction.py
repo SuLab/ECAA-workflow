@@ -135,6 +135,31 @@ NEGATION_WINDOW = 40
 # concordance verdict.
 ENTITY_CUE_WINDOW = 48
 
+# Terms that place the named entity in an experimental-intervention or
+# explanatory role rather than making it the measured outcome. A nearby cue in
+# "Feature-A knockdown reduced endpoint B" describes endpoint B, not Feature-A.
+# The list is entity- and modality-neutral and is applied only immediately
+# around an entity mention or in the bridge from that mention to a later cue.
+ENTITY_ROLE_TERMS: Tuple[str, ...] = (
+    "activation",
+    "administration",
+    "agonism",
+    "antagonism",
+    "deficiency",
+    "deficient",
+    "depletion",
+    "inhibition",
+    "knockdown",
+    "knockout",
+    "loss",
+    "mutation",
+    "mutant",
+    "overexpression",
+    "silencing",
+    "supplementation",
+    "treatment",
+)
+
 UP = "up"
 DOWN = "down"
 
@@ -176,6 +201,14 @@ def _phrase(term: str) -> re.Pattern:
 
 _PRECEDING_NEGATOR_RE = [_phrase(t) for t in PRECEDING_NEGATORS]
 _VOIDING_RE = [_phrase(t) for t in VOIDING_TERMS]
+_ENTITY_ROLE_ALT = "|".join(re.escape(term) for term in ENTITY_ROLE_TERMS)
+_ENTITY_ROLE_RE = re.compile(rf"(?<![a-z])(?:{_ENTITY_ROLE_ALT})(?![a-z])")
+_ENTITY_ROLE_BEFORE_RE = re.compile(
+    rf"(?:{_ENTITY_ROLE_ALT})(?:\s+of)?\s*$",
+)
+_ENTITY_ROLE_AFTER_RE = re.compile(
+    rf"^\s*(?:-|–|—)?\s*(?:{_ENTITY_ROLE_ALT})(?![a-z])",
+)
 
 
 def is_voided(text_lower: str) -> bool:
@@ -238,11 +271,24 @@ def infer_direction(
         def near_entity(hit: Tuple[int, str]) -> bool:
             cue_start, stem = hit
             cue_end = cue_start + len(stem)
-            return any(
-                max(entity_start - cue_end, cue_start - entity_end, 0)
-                <= ENTITY_CUE_WINDOW
-                for entity_start, entity_end in entity_spans
-            )
+            for entity_start, entity_end in entity_spans:
+                distance = max(entity_start - cue_end, cue_start - entity_end, 0)
+                if distance > ENTITY_CUE_WINDOW:
+                    continue
+
+                before = lower[max(0, entity_start - ENTITY_CUE_WINDOW) : entity_start]
+                after = lower[entity_end : entity_end + ENTITY_CUE_WINDOW]
+                if _ENTITY_ROLE_BEFORE_RE.search(before) or _ENTITY_ROLE_AFTER_RE.search(after):
+                    continue
+
+                # When the entity precedes the cue, any intervention-role term
+                # in the bridge means the cue can describe a downstream
+                # endpoint. Fail closed instead of assigning that endpoint's
+                # direction to the entity.
+                if entity_end <= cue_start and _ENTITY_ROLE_RE.search(lower[entity_end:cue_start]):
+                    continue
+                return True
+            return False
 
         up_hits = [hit for hit in up_hits if near_entity(hit)]
         down_hits = [hit for hit in down_hits if near_entity(hit)]

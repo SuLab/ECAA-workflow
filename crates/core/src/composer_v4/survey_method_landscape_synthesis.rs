@@ -421,6 +421,51 @@ mod tests {
         );
     }
 
+    #[test]
+    fn binds_quality_context_to_semantically_distinct_survey_ports() {
+        let reg = real_registry();
+        let matrix_qc = TaskNode::from_atom(reg.get("qc_preprocessing").expect("matrix-QC atom"));
+        let sequence_qc = TaskNode::from_atom(reg.get("raw_qc").expect("sequence-QC atom"));
+        let discover = TaskNode::synthesize_discover(
+            "discover_generic_summary",
+            "generic_summary",
+            &["robust_summary".to_string()],
+            "generic_summary",
+        );
+        let mut dag = dag_with(vec![matrix_qc, sequence_qc, discover]);
+
+        synthesize_survey_method_landscape(&mut dag, &reg, None);
+
+        let edges: Vec<&EdgeContract> = dag
+            .edges
+            .iter()
+            .filter(|edge| edge.to_node == "survey_method_landscape")
+            .collect();
+        for (producer, output, input) in [
+            ("qc_preprocessing", "qc_metrics", "matrix_qc_metrics"),
+            ("qc_preprocessing", "qc_summary", "qc_summary"),
+            ("raw_qc", "qc_metrics", "sequence_qc_metrics"),
+            ("raw_qc", "qc_summary", "qc_summary"),
+        ] {
+            assert!(
+                edges.iter().any(|edge| {
+                    edge.from_node == producer
+                        && edge.from_port == output
+                        && edge.to_port == input
+                        && edge.kind == EdgeKind::TypedDataFlow
+                }),
+                "{producer}.{output} must bind {input}: {edges:#?}"
+            );
+        }
+        assert!(
+            edges.iter().all(|edge| {
+                edge.from_port != "qc_metrics"
+                    || !matches!(edge.to_port.as_str(), "count_matrix" | "intake_facts")
+            }),
+            "a QC metric table is not a count matrix or intake-facts document: {edges:#?}"
+        );
+    }
+
     /// A non-empty SME goal is stamped as `goal_context` retrieval-scope
     /// context on the synthesized survey node (so retrieval gathers
     /// goal-relevant candidates), staying inside the survey atom's

@@ -1,5 +1,5 @@
 id: qc_preprocessing
-version: "2.0.0"
+version: "2.1.0"
 role: operation
 description: |
   Apply modality-appropriate count-matrix QC. For bulk RNA-seq, columns are
@@ -62,12 +62,22 @@ outputs:
       kind: local_extension
       namespace: "ecaax"
       id: "qc_metrics"
-      proposed_parent_terms:
-        - "data:3917"
+      proposed_parent_terms: []
       definition: "Per-sample or per-cell count-matrix quality-control metrics and filter decisions"
     physical_format:
       iri: "format:3475"
       label: "Tabular text"
+    privacy_class: internal
+  - name: qc_summary
+    semantic_type:
+      kind: local_extension
+      namespace: "ecaax"
+      id: "qc_summary"
+      proposed_parent_terms: []
+      definition: "Structured quality-control summary for the observations and features retained by an analysis"
+    physical_format:
+      iri: "format:3464"
+      label: "JSON"
     privacy_class: internal
   - name: filtered_count_matrix
     semantic_type:

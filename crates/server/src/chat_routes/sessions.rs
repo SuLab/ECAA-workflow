@@ -1206,6 +1206,27 @@ mod tests {
                 Some(&true),
                 "SME method signal was not retained for modality {modality}"
             );
+            let decision = session
+                .decisions
+                .iter()
+                .find(|record| {
+                    matches!(
+                        &record.decision,
+                        ecaa_workflow_core::decision_log::DecisionType::SetIntakeMethod {
+                            stage: recorded_stage,
+                            method_prose,
+                        } if recorded_stage == stage && method_prose == expected_method
+                    )
+                })
+                .expect("structured intake method decision exists");
+            assert!(
+                decision.rationale.as_deref().is_some_and(|rationale| {
+                    rationale.len() >= 30
+                        && rationale.contains(expected_method)
+                        && rationale.contains(stage)
+                }),
+                "method decision must retain an audit-sufficient rationale for modality {modality}"
+            );
             let method_id =
                 ecaa_workflow_core::preferred_methods::normalize_method_id(expected_method);
             let discover = session

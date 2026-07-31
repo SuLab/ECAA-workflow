@@ -133,9 +133,7 @@ def test_perturbation_vocabulary_is_not_a_down_outcome() -> None:
 
 
 def test_enhancer_noun_is_not_an_enhance_cue() -> None:
-    sentence = (
-        "CCAAT/Enhancer Binding Protein D (CEBPD) modulates inflammatory responses."
-    )
+    sentence = "CCAAT/Enhancer Binding Protein D (CEBPD) modulates inflammatory responses."
     assert infer_direction(sentence, entity="CEBPD").direction is None
 
 
@@ -151,6 +149,37 @@ def test_entity_window_does_not_assign_a_distant_cue_to_the_gene() -> None:
 def test_entity_window_retains_a_local_directional_cue() -> None:
     sentence = "Dexamethasone treatment significantly increased CRISPLD2 mRNA."
     assert infer_direction(sentence, entity="CRISPLD2").direction == UP
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "Feature-A treatment increased endpoint-B abundance.",
+        "Feature-A deficiency was associated with reduced endpoint-B.",
+        "Knockdown of Feature-A reduced endpoint-B.",
+    ],
+)
+def test_entity_intervention_role_does_not_inherit_downstream_direction(
+    sentence: str,
+) -> None:
+    assert infer_direction(sentence, entity="Feature-A").direction is None
+
+
+def test_entity_measurement_still_retains_its_own_direction() -> None:
+    assert (
+        infer_direction(
+            "Treatment increased Feature-A abundance.",
+            entity="Feature-A",
+        ).direction
+        == UP
+    )
+    assert (
+        infer_direction(
+            "Feature-A abundance was reduced after treatment.",
+            entity="Feature-A",
+        ).direction
+        == DOWN
+    )
 
 
 # --- contrast grounding ---------------------------------------------------

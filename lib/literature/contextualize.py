@@ -91,11 +91,6 @@ from .matrix import (
 ENTITY_KINDS = ("gene", "region", "variant")
 
 
-def _fmt_effect(value: Optional[float]) -> str:
-    """Fixed 6-decimal rendering so the column is byte-stable."""
-    return "" if value is None else f"{value:.6f}"
-
-
 def _best_evidence(
     entry: EvidenceEntry,
     symbol: str,
@@ -122,9 +117,12 @@ def _best_evidence(
             entity=symbol,
         )
         rank = (
-            0 if (call.direction and call.contrast_grounded)
-            else 1 if call.direction
-            else 2 if call.contrast_grounded
+            0
+            if (call.direction and call.contrast_grounded)
+            else 1
+            if call.direction
+            else 2
+            if call.contrast_grounded
             else 3
         )
         scored.append((rank, offset, sentence, call))
@@ -143,6 +141,7 @@ def _row_for_pair(
     call: DirectionCall,
     *,
     searched: bool = True,
+    require_contrast_grounding: bool = False,
 ) -> ClaimRow:
     verified = verify_quote(entry, quote, offset)
     if not verified:
@@ -150,14 +149,18 @@ def _row_for_pair(
         # Emit the row without it rather than shipping an unverifiable
         # citation that the downstream substring check would reject.
         quote, offset = "", 0
-    prior_direction = call.direction if verified else None
+    prior_direction = (
+        call.direction
+        if verified and (not require_contrast_grounding or call.contrast_grounded)
+        else None
+    )
     flag = concordance(analysis_direction, prior_direction)
     return ClaimRow(
         finding_id=finding.finding_id,
         entity=finding.symbol,
         entity_kind=entity_kind,
-        analysis_effect=_fmt_effect(finding.effect),
-        analysis_significance=_fmt_effect(finding.significance),
+        analysis_effect=finding.effect_text,
+        analysis_significance=finding.significance_text,
         analysis_direction=analysis_direction or "",
         prior_pmid=entry.pmid,
         prior_direction=prior_direction or "",
@@ -180,8 +183,8 @@ def _unsearched_row(
         finding_id=finding.finding_id,
         entity=finding.symbol,
         entity_kind=entity_kind,
-        analysis_effect=_fmt_effect(finding.effect),
-        analysis_significance=_fmt_effect(finding.significance),
+        analysis_effect=finding.effect_text,
+        analysis_significance=finding.significance_text,
         analysis_direction=analysis_direction or "",
         prior_pmid="",
         prior_direction="",
@@ -261,7 +264,14 @@ def build_rows(
             offset, sentence, call = best
             rows.append(
                 _row_for_pair(
-                    finding, entity_kind, analysis_direction, entry, offset, sentence, call
+                    finding,
+                    entity_kind,
+                    analysis_direction,
+                    entry,
+                    offset,
+                    sentence,
+                    call,
+                    require_contrast_grounding=bool(contrast_terms),
                 )
             )
             cited += 1
@@ -751,10 +761,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--retrieval-scope",
         type=Path,
         default=None,
-        help=(
-            "retained retrieval_scope.json (auto-detected beside --prior-claims "
-            "when omitted)"
-        ),
+        help=("retained retrieval_scope.json (auto-detected beside --prior-claims when omitted)"),
     )
     p.add_argument(
         "--no-verify-hashes",

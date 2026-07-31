@@ -1,5 +1,5 @@
 id: survey_method_landscape
-version: "1.0.0"
+version: "1.1.0"
 role: operation
 description: |
   Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each
@@ -44,6 +44,35 @@ inputs:
       label: "Count matrix"
       ontology_version: "EDAM-1.25"
     physical_format: { iri: "format:3475", label: "Tabular text" }
+    cardinality: { kind: optional }
+    privacy_class: internal
+  - name: matrix_qc_metrics
+    semantic_type:
+      kind: local_extension
+      namespace: "ecaax"
+      id: "qc_metrics"
+      proposed_parent_terms: []
+      definition: "Per-observation or per-feature quality-control metrics and filter decisions"
+    physical_format: { iri: "format:3475", label: "Tabular text" }
+    cardinality: { kind: optional }
+    privacy_class: internal
+  - name: sequence_qc_metrics
+    semantic_type:
+      kind: ontology_term
+      iri: "data:2914"
+      label: "Sequence metrics"
+      ontology_version: "EDAM-1.25"
+    physical_format: { iri: "format:3475", label: "Tabular text" }
+    cardinality: { kind: optional }
+    privacy_class: internal
+  - name: qc_summary
+    semantic_type:
+      kind: local_extension
+      namespace: "ecaax"
+      id: "qc_summary"
+      proposed_parent_terms: []
+      definition: "Structured quality-control summary for the observations and features retained by an analysis"
+    physical_format: { iri: "format:3464", label: "JSON" }
     cardinality: { kind: optional }
     privacy_class: internal
 outputs:

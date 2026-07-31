@@ -176,6 +176,22 @@ def test_variant_measurements_use_modality_neutral_matrix_fields(tmp_path: Path)
     assert not hasattr(rows[0], "analysis_log2fc")
 
 
+def test_measurement_lexemes_are_preserved_without_underflow_or_rounding(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "generic_findings.tsv"
+    path.write_text(
+        "finding_id\teffect\tp_value\nfeature-a\t-1.23456789012345\t5e-300\n",
+        encoding="utf-8",
+    )
+    table = read_result_table(path, threshold=0.05)
+    rows = build_rows(table, [], {}, entity_kind="region")
+
+    assert rows[0].analysis_effect == "-1.23456789012345"
+    assert rows[0].analysis_significance == "5e-300"
+    assert rows[0].analysis_direction == "down"
+
+
 # --- searched-set boundary ------------------------------------------------
 
 
@@ -316,6 +332,19 @@ def test_mention_without_direction_is_unverifiable(workspace: dict) -> None:
     assert hit[0]["prior_direction"] == ""
 
 
+def test_supplied_contrast_terms_fail_closed_for_ungrounded_direction(
+    workspace: dict,
+) -> None:
+    _run(workspace, contrast_terms=["unrelated-perturbation"])
+    hit = [
+        row
+        for row in _matrix(workspace)
+        if row["prior_pmid"] == "25625944" and row["entity"] == "DUSP1"
+    ]
+    assert hit[0]["prior_direction"] == ""
+    assert hit[0]["concordance_flag"] == "unverifiable"
+
+
 def test_snapshot_never_naming_the_entity_is_not_cited(workspace: dict) -> None:
     """The hand-written script attached a CD38 quote to DUSP1 as
     `unverifiable`. A snapshot that never names the entity is not evidence
@@ -414,9 +443,7 @@ def test_symbol_map_carries_every_input_mapping(workspace: dict) -> None:
     written = (workspace["out"] / SYMBOL_MAP_RELPATH).read_text(encoding="utf-8")
     header, *rows = written.splitlines()
     assert header.split("\t") == list(SYMBOL_MAP_COLUMNS)
-    assert rows == [
-        f"{symbol}\t{gene}" for gene, symbol, _effect, _padj in sorted(DE_ROWS)
-    ]
+    assert rows == [f"{symbol}\t{gene}" for gene, symbol, _effect, _padj in sorted(DE_ROWS)]
     assert summary["symbol_map"] == {"path": SYMBOL_MAP_RELPATH, "n_rows": len(DE_ROWS)}
 
 
@@ -450,9 +477,7 @@ def test_summary_counts_match_the_matrix(workspace: dict) -> None:
 
 
 @pytest.mark.parametrize("marker", ["", "NA", "N/A", "NaN", "None", "null", "-", "."])
-def test_missing_symbol_markers_fall_back_to_the_finding_id(
-    workspace: dict, marker: str
-) -> None:
+def test_missing_symbol_markers_fall_back_to_the_finding_id(workspace: dict, marker: str) -> None:
     with workspace["results"].open("w", encoding="utf-8", newline="") as fh:
         writer = csv.writer(fh, delimiter="\t", lineterminator="\n")
         writer.writerow(["gene", "symbol", "log2FoldChange", "padj"])
@@ -520,7 +545,8 @@ def test_axis_total_is_separate_from_axes_naming_an_entity(workspace: dict) -> N
         )
     with workspace["prior"].open("w", encoding="utf-8", newline="") as fh:
         writer = csv.DictWriter(
-            fh, fieldnames=["axis", "pmid", "source_hash", "evidence_quote"],
+            fh,
+            fieldnames=["axis", "pmid", "source_hash", "evidence_quote"],
             lineterminator="\n",
         )
         writer.writeheader()
@@ -553,9 +579,7 @@ def test_every_emitted_count_carries_its_own_definition(workspace: dict) -> None
     assert definitions == COUNT_DEFINITIONS
     # Every new count is defined, and every definition names an emitted count —
     # so a narrative can never quote one of these numbers with no denominator.
-    assert set(COUNT_DEFINITIONS) == _NEW_COUNT_KEYS, (
-        set(COUNT_DEFINITIONS) ^ _NEW_COUNT_KEYS
-    )
+    assert set(COUNT_DEFINITIONS) == _NEW_COUNT_KEYS, set(COUNT_DEFINITIONS) ^ _NEW_COUNT_KEYS
     for key in _NEW_COUNT_KEYS:
         assert key in summary, key
         assert isinstance(summary[key], int), key

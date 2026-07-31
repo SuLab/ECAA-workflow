@@ -464,6 +464,25 @@ async fn set_intake_method_accepts_with_sme_signal() {
         )),
         "successful set_intake_method must land a decision-log record"
     );
+    let decision = s
+        .decisions
+        .iter()
+        .find(|d| {
+            matches!(
+                &d.decision,
+                ecaa_workflow_core::decision_log::DecisionType::SetIntakeMethod { stage, .. }
+                    if stage == "alignment"
+            )
+        })
+        .expect("method decision exists");
+    assert!(
+        decision.rationale.as_deref().is_some_and(|rationale| {
+            rationale.len() >= 30
+                && rationale.contains("STAR with default parameters")
+                && rationale.contains("alignment")
+        }),
+        "explicit method choice must carry a truthful audit-sufficient rationale"
+    );
 }
 
 #[tokio::test]

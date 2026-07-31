@@ -295,8 +295,10 @@ fn literature_obligations() -> Vec<ValidationObligation> {
             id: "method_quote_mentions_candidate".into(),
             kind: "literature_integrity".into(),
             statement: "Every paper-class method_landscape row carries a verbatim \
-                        evidence_quote that names its candidate method or a canonical \
-                        compound-method alias."
+                        evidence_quote that names the complete candidate identity. \
+                        Compound candidates require every distinctive component or \
+                        an explicit complete-method synonym; an atomic parent name \
+                        alone is insufficient."
                 .into(),
             reference: Some("method_landscape.csv".into()),
         },

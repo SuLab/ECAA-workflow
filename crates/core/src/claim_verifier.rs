@@ -2356,6 +2356,63 @@ static EXTREME_UP_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
         .expect("static regex")
 });
 
+/// Bind a signed extreme cue to the named entity rather than to the whole
+/// sentence. Reports commonly state an argmax and argmin in one sentence. A
+/// sentence-wide `is_match` cannot distinguish those two facts, while the
+/// nearest explicit cue can. Ties and missing entity mentions abstain.
+fn entity_local_extreme_direction(excerpt: &str, entity: &str) -> Option<Direction> {
+    let down_cues: Vec<_> = EXTREME_DOWN_RE.find_iter(excerpt).collect();
+    let up_cues: Vec<_> = EXTREME_UP_RE.find_iter(excerpt).collect();
+    match (down_cues.is_empty(), up_cues.is_empty()) {
+        (false, true) => return Some(Direction::Down),
+        (true, false) => return Some(Direction::Up),
+        (true, true) => return None,
+        (false, false) => {}
+    }
+
+    if entity.is_empty() {
+        return None;
+    }
+    let entity_re = regex::RegexBuilder::new(&regex::escape(entity))
+        .case_insensitive(true)
+        .build()
+        .ok()?;
+    let is_entity_boundary = |matched: &regex::Match<'_>| {
+        let before = excerpt[..matched.start()].chars().next_back();
+        let after = excerpt[matched.end()..].chars().next();
+        !before.is_some_and(|ch| ch.is_alphanumeric() || ch == '_')
+            && !after.is_some_and(|ch| ch.is_alphanumeric() || ch == '_')
+    };
+    let span_distance = |left: &regex::Match<'_>, right: &regex::Match<'_>| {
+        if left.end() < right.start() {
+            right.start() - left.end()
+        } else if right.end() < left.start() {
+            left.start() - right.end()
+        } else {
+            0
+        }
+    };
+
+    let mut down_distance: Option<usize> = None;
+    let mut up_distance: Option<usize> = None;
+    for entity_match in entity_re.find_iter(excerpt).filter(is_entity_boundary) {
+        for cue in &down_cues {
+            let distance = span_distance(&entity_match, cue);
+            down_distance = Some(down_distance.map_or(distance, |current| current.min(distance)));
+        }
+        for cue in &up_cues {
+            let distance = span_distance(&entity_match, cue);
+            up_distance = Some(up_distance.map_or(distance, |current| current.min(distance)));
+        }
+    }
+
+    match (down_distance, up_distance) {
+        (Some(down), Some(up)) if down < up => Some(Direction::Down),
+        (Some(down), Some(up)) if up < down => Some(Direction::Up),
+        _ => None,
+    }
+}
+
 /// Contrastive / non-replication phrasing that frames a direction word as a
 /// reference to a PRIOR or contrasted finding rather than a claim about THIS
 /// result — e.g. "in the opposite direction from the prior repression", "in
@@ -2475,10 +2532,11 @@ fn verify_extreme_value(
             // association verifies each entity against the correct extreme.
             Some(Direction::Down) => (true, false),
             Some(Direction::Up) => (false, true),
-            None => (
-                EXTREME_DOWN_RE.is_match(excerpt),
-                EXTREME_UP_RE.is_match(excerpt),
-            ),
+            None => match entity_local_extreme_direction(excerpt, &claim.entity) {
+                Some(Direction::Down) => (true, false),
+                Some(Direction::Up) => (false, true),
+                None => (false, false),
+            },
         }
     };
     let kind = if down_dir && !up_dir {
@@ -5000,6 +5058,16 @@ static FILTER_FUNNEL_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     .expect("static regex")
 });
 
+/// Two lifecycle populations reported side by side, without an `X of Y`
+/// denominator. Capture each number and noun phrase independently so a later
+/// "removed" cue cannot be applied to the earlier retained count.
+static RETAINED_REMOVED_PAIR_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r"(?i)\b(?:retained|kept)\s+(\d[\d,]*)\s+([A-Za-z][A-Za-z0-9_-]*(?:\s+[A-Za-z][A-Za-z0-9_-]*){0,3}?)\s+(?:and|while|but)\s+(?:removed|excluded|discarded|filtered\s+out)\s+(\d[\d,]*)\s+([A-Za-z][A-Za-z0-9_-]*(?:\s+[A-Za-z][A-Za-z0-9_-]*){0,4}?)(?:\s*[.;]|$)",
+    )
+    .expect("static regex")
+});
+
 static GENE_MAPPING_SUMMARY_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(
         r"(?i)\b(?:of\s+)?(\d[\d,]*)\s+(?:input\s+|tested\s+|filtered\s+)?genes?(?:\s+in\s+[^,;]{1,160})?\s*,\s+(\d[\d,]*)\s+(?:were\s+)?mapped\b.{0,320}?[;,]\s*(\d[\d,]*)\s+(?:genes?\s+)?(?:(?:were|remained)\s+)?unmapped\b",
@@ -5888,6 +5956,61 @@ pub fn verify_narrative_counts(
         // retained summary field vocabulary itself. The noun grammar is open:
         // a new modality can introduce an unseen entity or design-axis name
         // without adding it to a scientific whitelist here.
+        if let Some(captures) = RETAINED_REMOVED_PAIR_RE.captures(s) {
+            if let (Some(retained), Some(retained_noun), Some(removed), Some(removed_phrase)) = (
+                captures
+                    .get(1)
+                    .and_then(|value| parse_count(value.as_str())),
+                captures.get(2).map(|value| value.as_str().trim()),
+                captures
+                    .get(3)
+                    .and_then(|value| parse_count(value.as_str())),
+                captures.get(4).map(|value| value.as_str().trim()),
+            ) {
+                let retained_tokens = semantic_tokens(retained_noun);
+                let removed_tokens = semantic_tokens(removed_phrase);
+                let removed_noun = if !retained_tokens.is_empty()
+                    && retained_tokens
+                        .iter()
+                        .all(|token| removed_tokens.iter().any(|candidate| candidate == token))
+                {
+                    retained_noun
+                } else {
+                    removed_phrase
+                };
+                for (entity, claimed, noun, roles) in [
+                    (
+                        format!("count:retained {retained_noun}"),
+                        retained,
+                        retained_noun,
+                        &["retained", "kept", "post_filter", "filtered"][..],
+                    ),
+                    (
+                        format!("count:removed {removed_noun}"),
+                        removed,
+                        removed_noun,
+                        &["removed", "excluded", "discarded", "filtered_out"][..],
+                    ),
+                ] {
+                    out.push(
+                        semantic_summary_fact(&entity, claimed, noun, roles).unwrap_or_else(|| {
+                            make(
+                                &entity,
+                                ClaimStatus::Unverifiable {
+                                    reason: format!(
+                                        "no unambiguous retained summary field matched \
+                                         `{noun}` with role `{}`",
+                                        roles.join("|")
+                                    ),
+                                },
+                                None,
+                            )
+                        }),
+                    );
+                }
+                continue;
+            }
+        }
         if let Some(captures) = INPUT_DIMENSION_RE.captures(s) {
             if let (Some(first_count), Some(first_noun), Some(second_count), Some(second_noun)) = (
                 captures
@@ -8488,6 +8611,58 @@ mod tests {
         let report = verify_claims(&claims, tmp.path(), &cfg);
         assert_eq!(report.n_verified, 2, "{:?}", report.verdicts);
         assert_eq!(report.n_mismatch, 0, "{:?}", report.verdicts);
+    }
+
+    #[test]
+    fn paired_signed_extremes_without_extracted_directions_bind_per_entity() {
+        let mut cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        cfg.entity_columns = vec!["feature".into()];
+        cfg.effect_size_columns = vec!["effect".into()];
+        cfg.pvalue_columns = vec!["adjusted_p_value".into()];
+        let tmp = tempdir().unwrap();
+        write_table(
+            tmp.path(),
+            "effects.tsv",
+            "feature\teffect\tadjusted_p_value\n\
+             FEATURE_HIGH\t8.5\t0.002\n\
+             FEATURE_LOW\t-6.25\t0.004\n\
+             FEATURE_MIDDLE\t1.0\t0.5\n",
+        );
+        let excerpt = "The feature with the largest positive effect is FEATURE_HIGH \
+                       (effect = 8.5); the feature with the most negative effect is \
+                       FEATURE_LOW (effect = -6.25).";
+        let high = Claim {
+            entity: "FEATURE_HIGH".into(),
+            direction: None,
+            effect_size: Some(8.5),
+            pvalue: None,
+            source_table: Some("effects.tsv".into()),
+            excerpt: excerpt.into(),
+            contract: ClaimContract::ExtremeValue,
+            literature_evidence: None,
+            matched_pvalue_keyword: None,
+            linear_fold: None,
+            aggregate_kind: None,
+            aggregate_column: None,
+            aggregate_rowset: None,
+            aggregate_value: None,
+            collection: None,
+            term: None,
+            keyed_column: None,
+            keyed_value: None,
+        };
+        let claims = [
+            high.clone(),
+            Claim {
+                entity: "FEATURE_LOW".into(),
+                effect_size: Some(-6.25),
+                ..high
+            },
+        ];
+
+        let report = verify_claims(&claims, tmp.path(), &cfg);
+        assert_eq!(report.n_verified, 2, "{:#?}", report.verdicts);
+        assert_eq!(report.n_mismatch, 0, "{:#?}", report.verdicts);
     }
 
     #[test]
@@ -11466,6 +11641,37 @@ mod tests {
                 .source_table
                 .as_deref()
                 .is_some_and(|path| path.ends_with("quality_filtering/result.json"))),
+            "{verdicts:#?}"
+        );
+    }
+
+    #[test]
+    fn vf16_retained_and_removed_pair_binds_each_count_to_its_local_role() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        let quality_dir = tmp.path().join("runtime/outputs/quality_filtering");
+        std::fs::create_dir_all(&quality_dir).unwrap();
+        std::fs::write(
+            quality_dir.join("result.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "n_metabolites_retained": 127,
+                "n_metabolites_removed": 19
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let verdicts = verify_narrative_counts(
+            "The quality filter kept 127 metabolites and excluded 19 low-confidence metabolites.",
+            tmp.path(),
+            tmp.path(),
+            &cfg,
+        );
+        assert_eq!(verdicts.len(), 2, "{verdicts:#?}");
+        assert!(
+            verdicts
+                .iter()
+                .all(|verdict| matches!(verdict.status, ClaimStatus::Verified)),
             "{verdicts:#?}"
         );
     }

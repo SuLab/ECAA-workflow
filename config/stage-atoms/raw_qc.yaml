@@ -1,5 +1,5 @@
 id: raw_qc
-version: "1.0.0"
+version: "1.1.0"
 role: operation
 description: |
   Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric
@@ -51,4 +51,15 @@ outputs:
     physical_format:
       iri: "format:3475"
       label: "Tabular text"
+    privacy_class: internal
+  - name: qc_summary
+    semantic_type:
+      kind: local_extension
+      namespace: "ecaax"
+      id: "qc_summary"
+      proposed_parent_terms: []
+      definition: "Structured quality-control summary for the observations and features retained by an analysis"
+    physical_format:
+      iri: "format:3464"
+      label: "JSON"
     privacy_class: internal

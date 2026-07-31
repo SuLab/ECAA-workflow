@@ -4469,15 +4469,35 @@ mod tests {
     // ====================================================================
 
     #[test]
-    fn method_quote_accepts_canonical_compound_alias() {
+    fn method_quote_accepts_complete_compound_signature() {
         let dir = TempDir::new().unwrap();
         let csv = dir.path().join("method_landscape.csv");
         write(
             &csv,
             "axis,candidate_method,source_class,evidence_quote\n\
-             normalisation,deseq2_vst,primary_literature,DESeq2 estimates sample-specific size factors.\n",
+             normalisation,deseq2_vst,primary_literature,DESeq2 applies a variance-stabilizing transformation (VST).\n",
         );
         assert!(run_method_quote_mentions_candidate(&csv, &dir.path().join("ignored")).is_ok());
+    }
+
+    #[test]
+    fn method_quote_rejects_atomic_parent_for_compound_candidate() {
+        let dir = TempDir::new().unwrap();
+        let csv = dir.path().join("method_landscape.csv");
+        write(
+            &csv,
+            "axis,candidate_method,source_class,evidence_quote\n\
+             generic_partitioning,spectral_partition,primary_literature,Spectral estimators were compared with several baselines.\n",
+        );
+        let err =
+            run_method_quote_mentions_candidate(&csv, &dir.path().join("ignored")).unwrap_err();
+        assert!(matches!(
+            err.1,
+            ValidationFailureCause::LiteratureClaim {
+                kind: LiteratureClaimFailureKind::CandidateNotInEvidenceQuote,
+                ..
+            }
+        ));
     }
 
     #[test]

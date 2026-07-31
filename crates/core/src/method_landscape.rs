@@ -28,53 +28,93 @@ use crate::composite_score::{CandidateMetadata, Confidence};
 /// `literature_eligible` predicate and `high_quality_evidence_count`.
 const PAPER_SOURCE_CLASSES: [&str; 2] = ["primary_literature", "conference_proceedings"];
 
-/// Conservative source-text aliases for compound curated method ids.
+/// Complete source-text aliases for candidate method ids.
 ///
 /// A method-landscape row must not gain literature eligibility merely because
-/// its query returned a paper. The retained quote has to name the candidate (or
-/// one of these canonical aliases) so the claim-to-source relationship is
-/// inspectable rather than inferred from search rank.
+/// its query returned a paper. Every alias here identifies the whole candidate;
+/// a compound candidate never aliases to one atomic parent/tool name.
 pub fn candidate_aliases(candidate: &str) -> Vec<String> {
     let key = normalize_candidate_text(candidate).replace(' ', "_");
-    let mut aliases: Vec<String> = match key.as_str() {
-        "deseq2_vst" => vec!["deseq2", "variance stabilizing transformation"],
-        "edger_tmm" => vec!["edger", "tmm", "trimmed mean of m values"],
-        "limma_voom" => vec!["limma", "voom"],
-        "seurat_lognormalize" => vec!["seurat", "lognormalize"],
-        "sctransform" => vec!["sctransform"],
-        "clusterprofiler" => vec!["clusterprofiler"],
-        "fgsea" => vec!["fgsea"],
-        "gsea" => vec!["gsea", "gene set enrichment analysis"],
-        _ => Vec::new(),
-    }
-    .into_iter()
-    .map(str::to_string)
-    .collect();
-
+    let mut aliases = Vec::new();
     let full = key.replace('_', " ");
     if !full.is_empty() {
         aliases.push(full);
     }
-    for token in key.split('_') {
-        let generic = matches!(
-            token,
-            "analysis"
-                | "filter"
-                | "filtering"
-                | "method"
-                | "model"
-                | "modeling"
-                | "modelling"
-                | "normalization"
-                | "normalisation"
-        );
-        if token.len() >= 4 && !generic {
-            aliases.push(token.to_string());
-        }
+    aliases.extend(match key.as_str() {
+        "deseq2_vst" => vec![
+            "deseq2 vst".to_string(),
+            "deseq2 variance stabilizing transformation".to_string(),
+        ],
+        "edger_tmm" => vec![
+            "edger tmm".to_string(),
+            "edger trimmed mean of m values".to_string(),
+        ],
+        "limma_voom" => vec!["limma voom".to_string()],
+        "seurat_lognormalize" => vec!["seurat lognormalize".to_string()],
+        "gsea" => vec![
+            "gsea".to_string(),
+            "gene set enrichment analysis".to_string(),
+        ],
+        _ => Vec::new(),
+    });
+
+    let components = candidate_components(candidate);
+    if components.len() > 1 {
+        aliases.push(components.concat());
     }
     aliases.sort();
     aliases.dedup();
     aliases
+}
+
+fn candidate_components(candidate: &str) -> Vec<String> {
+    let all = normalize_candidate_text(candidate)
+        .split_whitespace()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let distinctive = all
+        .iter()
+        .filter(|token| {
+            !matches!(
+                token.as_str(),
+                "analysis"
+                    | "filter"
+                    | "filtering"
+                    | "method"
+                    | "model"
+                    | "modeling"
+                    | "modelling"
+                    | "normalization"
+                    | "normalisation"
+            )
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if distinctive.is_empty() {
+        all
+    } else {
+        distinctive
+    }
+}
+
+fn candidate_signatures(candidate: &str) -> Vec<Vec<String>> {
+    let mut signatures = candidate_aliases(candidate)
+        .into_iter()
+        .map(|alias| {
+            normalize_candidate_text(&alias)
+                .split_whitespace()
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .filter(|signature| !signature.is_empty())
+        .collect::<Vec<_>>();
+    let components = candidate_components(candidate);
+    if !components.is_empty() {
+        signatures.push(components);
+    }
+    signatures.sort();
+    signatures.dedup();
+    signatures
 }
 
 fn normalize_candidate_text(text: &str) -> String {
@@ -95,17 +135,28 @@ fn normalize_candidate_text(text: &str) -> String {
 /// Whether a retained evidence quote explicitly names its candidate method.
 pub fn evidence_quote_mentions_candidate(quote: &str, candidate: &str) -> bool {
     let key = normalize_candidate_text(candidate).replace(' ', "_");
-    if matches!(key.as_str(), "mast" | "star") {
-        let canonical = key.to_ascii_uppercase();
+    let conventional = match key.as_str() {
+        "mast" => Some("MAST"),
+        "scran" => Some("scran"),
+        "star" => Some("STAR"),
+        _ => None,
+    };
+    if let Some(canonical) = conventional {
         return quote
             .split(|c: char| !c.is_ascii_alphanumeric())
             .any(|token| token == canonical);
     }
-    let quote = format!(" {} ", normalize_candidate_text(quote));
-    candidate_aliases(candidate).into_iter().any(|alias| {
-        let alias = normalize_candidate_text(&alias);
-        !alias.is_empty() && quote.contains(&format!(" {alias} "))
-    })
+    let quote_tokens = normalize_candidate_text(quote)
+        .split_whitespace()
+        .map(str::to_string)
+        .collect::<BTreeSet<_>>();
+    candidate_signatures(candidate)
+        .into_iter()
+        .any(|signature| {
+            signature
+                .iter()
+                .all(|component| quote_tokens.contains(component))
+        })
 }
 
 /// Per-axis map: `axis -> [(candidate_method, metadata)]`. The inner vec is
@@ -307,10 +358,22 @@ mod tests {
     }
 
     #[test]
-    fn compound_candidate_aliases_match_method_naming_quotes() {
-        assert!(evidence_quote_mentions_candidate(
+    fn compound_candidate_signatures_require_complete_method_identity() {
+        assert!(!evidence_quote_mentions_candidate(
             "DESeq2 estimates size factors before fitting its model.",
             "deseq2_vst"
+        ));
+        assert!(evidence_quote_mentions_candidate(
+            "DESeq2 applies a variance-stabilizing transformation (VST).",
+            "deseq2_vst"
+        ));
+        assert!(!evidence_quote_mentions_candidate(
+            "Spectral estimators were compared with several baselines.",
+            "spectral_partition"
+        ));
+        assert!(evidence_quote_mentions_candidate(
+            "A spectral graph partition was computed for each input.",
+            "spectral_partition"
         ));
         assert!(evidence_quote_mentions_candidate(
             "Gene set enrichment analysis (GSEA) evaluates ranked lists.",
@@ -327,6 +390,14 @@ mod tests {
         assert!(evidence_quote_mentions_candidate(
             "MAST fits hurdle models to single-cell expression.",
             "mast"
+        ));
+        assert!(!evidence_quote_mentions_candidate(
+            "The scRAN-seq assay was evaluated in a benchmark.",
+            "scran"
+        ));
+        assert!(evidence_quote_mentions_candidate(
+            "The scran package estimates pooling-based size factors.",
+            "scran"
         ));
     }
 }

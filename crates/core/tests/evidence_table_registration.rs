@@ -227,6 +227,83 @@ fn table_stage_primary_summary_is_registered_as_independent_evidence() {
 }
 
 #[test]
+fn stage_declared_non_tabular_artifacts_are_registered_without_path_escape() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let task = "quality_assessment";
+    write_production_shaped_package(root, "metrics.tsv", task);
+    let task_dir = root.join(format!("runtime/outputs/{task}"));
+    fs::create_dir_all(task_dir.join("evidence")).unwrap();
+    fs::write(
+        task_dir.join("quality_summary.json"),
+        br#"{"observations_retained":127}"#,
+    )
+    .unwrap();
+    fs::write(
+        task_dir.join("evidence/context.json"),
+        br#"{"source":"retained-input"}"#,
+    )
+    .unwrap();
+    fs::write(root.join("outside.json"), br#"{"must_not_register":true}"#).unwrap();
+    fs::write(
+        task_dir.join("result.json"),
+        serde_json::to_vec_pretty(&json!({
+            "status": "completed",
+            "artifacts": [
+                "metrics.tsv",
+                "quality_summary.json",
+                "evidence/context.json",
+                "result.json",
+                "../outside.json",
+                "/absolute/host/path.json",
+                "C:\\host\\path.json"
+            ]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let registered = ecaa_workflow_core::ro_crate::register_produced_output_tables(root).unwrap();
+    assert_eq!(
+        registered, 4,
+        "one table plus three safe stage-declared JSON artifacts must be registered"
+    );
+
+    let doc: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("ro-crate-metadata.json")).unwrap()).unwrap();
+    let graph = doc["@graph"].as_array().unwrap();
+    let ids: std::collections::BTreeSet<&str> = graph
+        .iter()
+        .filter_map(|entity| entity["@id"].as_str())
+        .collect();
+    for rel in [
+        "runtime/outputs/quality_assessment/metrics.tsv",
+        "runtime/outputs/quality_assessment/quality_summary.json",
+        "runtime/outputs/quality_assessment/evidence/context.json",
+        "runtime/outputs/quality_assessment/result.json",
+    ] {
+        assert!(ids.contains(rel), "declared artifact must resolve: {rel}");
+        assert!(
+            ids.contains(format!("#action/{rel}").as_str()),
+            "declared artifact must retain a production action: {rel}"
+        );
+    }
+    assert!(
+        ids.iter().all(|id| {
+            !id.contains("outside.json")
+                && !id.contains("/absolute/host")
+                && !id.contains("C:\\host")
+        }),
+        "unsafe declared paths must never become graph nodes: {ids:?}"
+    );
+    let summary = graph
+        .iter()
+        .find(|entity| entity["@id"] == "runtime/outputs/quality_assessment/quality_summary.json")
+        .unwrap();
+    assert_eq!(summary["encodingFormat"], "application/json");
+}
+
+#[test]
 fn finalize_registers_tables_and_reseals_manifest() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();

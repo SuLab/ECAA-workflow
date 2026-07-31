@@ -188,6 +188,13 @@ spec provides no explicit read allowance for it, do not read the artifact.
 Record a precise blocker if the task cannot complete without that undeclared
 input.
 
+An input named in `task-spec.json` but absent from the task's typed incoming
+edges is not permission to assign an arbitrary dependency artifact to that
+port. Runtime context such as `intake_facts` may already be present in the task
+specification or `ECAA_HW_INTAKE_FACTS`; use that retained context directly.
+Only record a cross-stage file under a port when `runtime/proofs.jsonl`
+contains the producer, consumer, and exact port binding.
+
 ### Tabular file format
 
 A table's filename extension MUST match its actual delimiter: `.tsv` is
@@ -499,6 +506,13 @@ defines them — never assume genes/log2FC.
   finding, use only that same finding object's `effect` and `significance`.
   If either field is absent, omit that measurement from prose. Never borrow a
   number from another finding, a nearby row, model memory, or a prior run.
+- **Bind every literature source to each entity before grouping prose.** A
+  sentence that lists several entities and attributes the list to one PMID or
+  other source asserts that the exact `(entity, source)` pair exists for every
+  listed entity. Group entities under a source only after checking that exact
+  pair in each retained evidence object. If the pairs differ, write separate
+  clauses or sentences. Proximity in the matrix, a shared status, or a source
+  carried by another entity never licenses a grouped source attribution.
 - **Render the literature-concordance table at evidence-row granularity.**
   Write exactly one row for every object in `literature.concordant`,
   `literature.discordant`, and `literature.unverifiable`, preserving that

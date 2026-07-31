@@ -130,7 +130,9 @@ class Finding:
     finding_id: str
     symbol: str
     effect: Optional[float]
+    effect_text: str
     significance: Optional[float]
+    significance_text: str
     row_index: int
 
 
@@ -274,6 +276,7 @@ def read_result_table(
             if not finding_id:
                 continue
             table.n_rows += 1
+            effect = _float(row.get(eff_col)) if eff_col else None
             significance = _float(row.get(sig_col)) if sig_col else None
             passes = True
             if significant_only and threshold is not None and sig_col is not None:
@@ -291,8 +294,18 @@ def read_result_table(
                     # identifier resolution belongs to the run's pinned
                     # annotation, which the caller joins in beforehand.
                     symbol=symbol or finding_id,
-                    effect=_float(row.get(eff_col)) if eff_col else None,
+                    effect=effect,
+                    # Preserve the exact upstream numeric lexemes in the
+                    # retained claim matrix. Reformatting every measurement to
+                    # fixed decimals can turn a valid small probability into
+                    # zero and silently discard estimator precision. The
+                    # parsed floats above remain the source of truth for
+                    # thresholding and direction calls.
+                    effect_text=(row.get(eff_col) or "").strip() if effect is not None else "",
                     significance=significance,
+                    significance_text=(row.get(sig_col) or "").strip()
+                    if significance is not None
+                    else "",
                     row_index=row_index,
                 )
             )

@@ -356,8 +356,8 @@ class PrimaryLiteratureFetchTest(unittest.TestCase):
         alf._http_get_json = lambda url, host, allowed: {"esearchresult": {"idlist": ["25217409"]}}
         abstract = (
             "RNA sequencing is widely used in transcriptomics. "
-            "DESeq2 estimates sample-specific size factors and fits "
-            "negative-binomial generalized linear models."
+            "DESeq2 applies a variance stabilizing transformation (VST) "
+            "before downstream visualization."
         )
         alf._http_get_text = lambda url, host, allowed: (
             "<PubmedArticleSet><PubmedArticle><MedlineCitation>"
@@ -387,6 +387,36 @@ class PrimaryLiteratureFetchTest(unittest.TestCase):
                 "RNA sequencing is widely used in transcriptomics.",
             )
             self.assertEqual(rows[0]["verified"], "true")
+
+    def test_compound_candidate_requires_its_complete_identity(self):
+        self.assertEqual(
+            alf.candidate_evidence_quote(
+                "DESeq2 estimates sample-specific size factors.",
+                "deseq2_vst",
+            ),
+            "",
+        )
+        self.assertIn(
+            "variance stabilizing transformation",
+            alf.candidate_evidence_quote(
+                "DESeq2 applies a variance stabilizing transformation to the matrix.",
+                "deseq2_vst",
+            ),
+        )
+        self.assertEqual(
+            alf.candidate_evidence_quote(
+                "Spectral estimators were compared with several baselines.",
+                "spectral_partition",
+            ),
+            "",
+        )
+        self.assertIn(
+            "partition",
+            alf.candidate_evidence_quote(
+                "A spectral graph partition was computed for every input.",
+                "spectral_partition",
+            ),
+        )
 
     def test_candidate_override_rejects_unrelated_query_hits(self):
         import tempfile
@@ -430,6 +460,18 @@ class PrimaryLiteratureFetchTest(unittest.TestCase):
             "MAST",
             alf.candidate_evidence_quote(
                 "MAST fits hurdle models to single-cell expression.", "mast"
+            ),
+        )
+        self.assertEqual(
+            alf.candidate_evidence_quote(
+                "The scRAN-seq assay was evaluated in a benchmark.", "scran"
+            ),
+            "",
+        )
+        self.assertIn(
+            "scran",
+            alf.candidate_evidence_quote(
+                "The scran package estimates pooling-based size factors.", "scran"
             ),
         )
 
@@ -491,6 +533,26 @@ class CandidateQueryWideningTest(unittest.TestCase):
             self.assertEqual(len(_read_manifest(out)["entries"]), 2)
             scope_queries = {entry["query"] for entry in _read_retrieval_scope(out)["axes"]}
             self.assertEqual(scope_queries, set(calls))
+
+    def test_compound_query_never_widens_to_an_atomic_parent_name(self):
+        self.assertEqual(
+            alf.candidate_query_variants(
+                "context-rich normalization benchmark",
+                "deseq2_vst",
+            ),
+            (
+                "context-rich normalization benchmark",
+                "deseq2 vst",
+                "deseq2 variance stabilizing transformation",
+            ),
+        )
+        self.assertNotIn(
+            "deseq2",
+            alf.candidate_query_variants(
+                "context-rich normalization benchmark",
+                "deseq2_vst",
+            ),
+        )
 
     def test_sufficient_original_query_does_not_widen(self):
         import tempfile
@@ -988,7 +1050,8 @@ class ManifestSchemaConformanceTest(unittest.TestCase):
                 "<PubmedArticleSet><PubmedArticle><MedlineCitation>"
                 "<PMID>25217409</PMID><Article><ArticleTitle>DESeq2 methods"
                 "</ArticleTitle><Abstract><AbstractText>"
-                "DESeq2 estimates size factors for RNA-seq count data."
+                "DESeq2 uses its variance stabilizing transformation (VST) "
+                "for exploratory analysis of count data."
                 "</AbstractText></Abstract></Article></MedlineCitation>"
                 "</PubmedArticle></PubmedArticleSet>"
             )

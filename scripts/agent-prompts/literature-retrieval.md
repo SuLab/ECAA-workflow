@@ -27,11 +27,9 @@ never describe the abstract as public-domain U.S. Government work. Treat only a
 redistributable. A locally stored external PDF
 (`source_kind: external_pdf_local_only`) remains non-redistributable.
 
-**Corroboration — call the helper ONCE PER CANDIDATE METHOD.** The
-corroboration validator applies the package's required number of distinct
-verified sources under the SAME `candidate_method`. So iterate the axis's
-candidate methods (its task-spec `attributes.candidate_tools`) and run the
-helper once per method, passing `--candidate <method>` and a method-scoped
+**Corroboration — call the helper ONCE PER CANDIDATE METHOD.** Iterate the
+axis's candidate methods (its task-spec `attributes.candidate_tools`) and run
+the helper once per method, passing `--candidate <method>` and a method-scoped
 query, e.g.
 
 ```
@@ -39,27 +37,28 @@ python3 lib/agent_literature_fetch.py <out_dir> <axis> \
   "<method> <analysis context>" primary_literature --candidate <method>
 ```
 
-`--candidate` tags every retained source with that one method, so independent
-locators accumulate under it until the packaged corroboration floor is met.
-WITHOUT `--candidate` each paper becomes its own single-source candidate and
-the survey can fail
-`insufficient_corroboration`. The helper reads the package's
+`--candidate` tags every retained source with that one method. WITHOUT
+`--candidate`, each paper's title can become a separate candidate and the
+method-choice evidence becomes unusable. The helper reads the package's
 `minimumIndependentSources` policy. When the context-rich query returns too few
 distinct verified paper sources, it performs at most two deterministic wider
-queries derived only from the declared candidate identifier and its canonical
-aliases. Every attempted query, including a zero-result query, remains recorded
-in `retrieval_scope.json`. Do not add unbounded searches around this behavior.
-If the bounded attempts still find only one genuine source, retain it and
-proceed; do not fabricate a second. The validator de-ranks an
-under-corroborated method rather than failing the axis, as long as the axis has
-adequate independent support.
+queries derived only from complete candidate identities and their complete
+synonyms. It never widens a compound candidate to one atomic parent name.
+Every attempted query, including a zero-result query, remains recorded in
+`retrieval_scope.json`. Do not add unbounded searches around this behavior. If
+the bounded attempts still find only one genuine source, retain it and proceed;
+do not fabricate a second. The validator de-ranks an under-supported method
+rather than failing the axis, as long as the axis has the required number of
+distinct paper sources across its candidate landscape.
 
-The helper retains a paper-class query hit only when the stored source text
-names the requested candidate (using the helper's conservative compound-method
-aliases), and it selects a verbatim quote that contains that name. A search hit
-is not evidence merely because the query returned it. Do not bypass this
-filter, retag an unrelated paper, or replace the selected quote with a generic
-background sentence.
+The helper retains a paper-class query hit only when one source sentence names
+the complete requested candidate. For an arbitrary compound identifier, every
+distinctive identifier component must occur in that sentence. A catalogued
+complete-method synonym may satisfy the same check. One parent package,
+algorithm family, or component alone is not evidence for the compound
+candidate. A search hit is not evidence merely because the query returned it.
+Do not bypass this filter, retag an unrelated paper, or replace the selected
+quote with a generic background sentence.
 
 For these per-candidate calls, pass `curated=[candidate]`, not the full axis
 pool. The helper also enforces this scoping when `candidate` is set. Passing the

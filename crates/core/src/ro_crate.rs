@@ -1800,7 +1800,8 @@ fn upgrade_conforms_to_executed(graph: &mut Vec<Value>) {
     }
 }
 
-/// Register produced result tables as Evidence (V) `@graph` entities.
+/// Register produced result tables and stage-declared artifacts as Evidence
+/// (V) `@graph` entities.
 ///
 /// Runs POST-EXECUTION, after the agent has written result tables under
 /// `runtime/outputs/<task>/`. At emit time only `required_figures` become
@@ -1827,11 +1828,18 @@ fn upgrade_conforms_to_executed(graph: &mut Vec<Value>) {
 /// resolves — by basename, in Inv 3 / Inv 5 — and the two invariants agree on
 /// the same C→V link.
 ///
+/// The complementary, format-neutral surface is each stage's own
+/// `result.json::artifacts` list. Every safe, existing file named there is
+/// registered too, so a JSON summary, PDF, image, or text artifact can support
+/// a claim without dangling merely because it is not tabular. Declared paths
+/// must stay beneath their owning task directory; absolute paths, parent
+/// traversal, directories, and symlinks are rejected.
+///
 /// Idempotent: an `@id` already present is left untouched, so re-running after
 /// further task completions never duplicates entities. Deterministic order
 /// (tasks then files sorted). Returns the number of newly registered evidence
-/// artifacts: produced tables plus each executed stage's real primary recorded
-/// output. A no-op `Ok(0)` when the package has no
+/// artifacts: produced tables, safe stage-declared files, plus each executed
+/// stage's real primary recorded output. A no-op `Ok(0)` when the package has no
 /// `ro-crate-metadata.json`, no `runtime/outputs/`, or every evidence artifact
 /// is already registered.
 /// A stage's primary recorded output, in attribution-priority order. Used both
@@ -1873,14 +1881,13 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
     // inputs — a task with no inbound ParameterConnection yields an empty list.
     let task_inputs = collect_task_inputs(graph);
 
-    // Discover produced tables, deterministically ordered (tasks, then nested
-    // files in sorted path order). Each `runtime/outputs/<task>/` is walked
-    // RECURSIVELY so tables the agent nested (e.g. `…/<task>/tables/de.tsv`)
-    // are registered at their real relative `@id`. The `figures/` and
-    // `view_data/` sub-trees are pruned wholesale — they hold ImageObjects /
-    // render inputs, not V `Table`s.
+    // Discover produced tables and explicitly declared stage artifacts,
+    // deterministically ordered (tasks, then nested files). The recursive table
+    // walk prunes `figures/` and `view_data/`; a concrete file there remains
+    // eligible through the stage-owned `result.json::artifacts` contract.
     let outputs_root = package_root.join("runtime").join("outputs");
     let mut rels: Vec<String> = Vec::new();
+    let mut declared_rels: Vec<String> = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&outputs_root) {
         let mut task_dirs: Vec<std::path::PathBuf> = entries
             .flatten()
@@ -1898,19 +1905,30 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
                 continue;
             }
             collect_output_tables(&task_dir, &format!("runtime/outputs/{task}"), &mut rels);
+            collect_declared_output_artifacts(
+                &task_dir,
+                &format!("runtime/outputs/{task}"),
+                &mut declared_rels,
+            );
         }
     }
     rels.sort();
+    rels.dedup();
+    declared_rels.sort();
+    declared_rels.dedup();
+    // The table loop owns every tabular path, whether or not the stage listed
+    // it. Keep the two registration loops disjoint.
+    declared_rels.retain(|rel| !is_output_table_path(rel));
 
     // Per-task produced-file index, keyed on the bare task token. Used to
     // resolve a downstream `CreateAction.object` (PROV `used`) to the CONCRETE
     // input File `@id`s — the upstream task's produced output tables — rather
     // than only the abstract `#step-<source>` reference. Built solely from the
-    // discovered `rels`, so every resolved input is a real registered output
-    // entity; never an invented path.
+    // discovered or stage-declared paths, so every resolved input is a real
+    // registered output entity; never an invented path.
     let mut task_outputs: std::collections::BTreeMap<String, Vec<String>> =
         std::collections::BTreeMap::new();
-    for rel in &rels {
+    for rel in rels.iter().chain(declared_rels.iter()) {
         if let Some((task, _)) = rel
             .strip_prefix("runtime/outputs/")
             .and_then(|r| r.split_once('/'))
@@ -1920,6 +1938,10 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
                 .or_default()
                 .push(rel.clone());
         }
+    }
+    for outputs in task_outputs.values_mut() {
+        outputs.sort();
+        outputs.dedup();
     }
 
     // Every EXECUTED stage = each `#step-<task>` HowToStep in the graph (table
@@ -1943,13 +1965,8 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
             .filter_map(|e| e.get("@id").and_then(Value::as_str))
             .filter_map(|id| id.strip_prefix("#step-").map(str::to_string))
             .collect();
-        for rel in &rels {
-            if let Some((task, _)) = rel
-                .strip_prefix("runtime/outputs/")
-                .and_then(|r| r.split_once('/'))
-            {
-                s.insert(task.to_string());
-            }
+        for task in task_outputs.keys() {
+            s.insert(task.clone());
         }
         s
     };
@@ -2176,6 +2193,94 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
         new_parts.push(json!({"@id": rel}));
     }
 
+    // ── Production CreateActions for safe stage-declared artifacts ──────────
+    //
+    // Tables above remain discoverable even when an agent omitted them from
+    // its artifact list. This complementary loop registers non-tabular files
+    // that the stage explicitly retained in `result.json::artifacts`.
+    for rel in &declared_rels {
+        if existing.contains(rel) {
+            continue;
+        }
+        let (task, file) = rel
+            .strip_prefix("runtime/outputs/")
+            .and_then(|r| r.split_once('/'))
+            .unwrap_or(("", rel.as_str()));
+        let Some(tool_id) = tool_for_task.get(task) else {
+            // A malformed descriptor can omit the owning HowToStep. Do not
+            // fabricate a tool or action in that case.
+            continue;
+        };
+        let action_id = format!("#action/{rel}");
+        let artifact_types = if is_image_artifact_path(rel) {
+            json!(["File", "ImageObject"])
+        } else {
+            json!(["File"])
+        };
+        graph.push(json!({
+            "@id": rel,
+            "@type": artifact_types,
+            "name": format!("{task} — {file}"),
+            "description": format!("Retained output declared by stage '{task}'."),
+            "encodingFormat": artifact_encoding_format(rel),
+            "schema:about": {"@id": format!("#step-{task}")},
+            "wasGeneratedBy": {"@id": action_id.clone()},
+        }));
+        let object: Vec<Value> = task_inputs
+            .get(task)
+            .map(|ins| {
+                ins.iter()
+                    .flat_map(|step| {
+                        let src_task = step.strip_prefix("#step-").unwrap_or(step);
+                        match task_outputs.get(src_task) {
+                            Some(files) if !files.is_empty() => {
+                                files.iter().map(|f| json!({"@id": f})).collect::<Vec<_>>()
+                            }
+                            _ => vec![json!({"@id": step})],
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut action = json!({
+            "@id": action_id,
+            "@type": ["CreateAction", "prov:Activity"],
+            "name": format!("Production of {file} by stage '{task}'."),
+            "instrument": {"@id": tool_id},
+            "result": {"@id": rel},
+            "object": object,
+        });
+        let task_dir = outputs_root.join(task);
+        let cstate = crate::container_state::ContainerState::read_from_task_dir(&task_dir)
+            .ok()
+            .flatten();
+        if let Some(state) = &cstate {
+            if !state.ended_at.is_empty() {
+                action["endTime"] = json!(state.ended_at);
+            }
+            if let Some((agent, backend_entity)) = executor_agent_entities(state) {
+                let agent_id = agent
+                    .get("@id")
+                    .and_then(Value::as_str)
+                    .expect("executor agent entity carries @id")
+                    .to_string();
+                action["agent"] = json!({"@id": agent_id});
+                let already = graph
+                    .iter()
+                    .chain(new_agents.iter())
+                    .any(|e| e.get("@id").and_then(Value::as_str) == Some(agent_id.as_str()));
+                if !already {
+                    new_agents.push(agent);
+                    if let Some(entity) = backend_entity {
+                        new_agents.push(entity);
+                    }
+                }
+            }
+        }
+        new_actions.push(action);
+        new_parts.push(json!({"@id": rel}));
+    }
+
     // ── Production CreateActions for every stage's primary recorded output ───
     //
     // A stage's table and primary summary are distinct evidence surfaces. The
@@ -2203,7 +2308,7 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
             continue;
         };
         let rel = format!("runtime/outputs/{task}/{file}");
-        if existing.contains(&rel) {
+        if existing.contains(&rel) || declared_rels.binary_search(&rel).is_ok() {
             continue;
         }
         let action_id = format!("#action/{rel}");
@@ -2911,6 +3016,125 @@ fn collect_output_tables(dir: &std::path::Path, rel_prefix: &str, out: &mut Vec<
         {
             out.push(rel);
         }
+    }
+}
+
+fn is_output_table_path(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    lower.ends_with(".tsv") || lower.ends_with(".csv") || lower.ends_with(".parquet")
+}
+
+fn is_image_artifact_path(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    [".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"]
+        .iter()
+        .any(|suffix| lower.ends_with(suffix))
+}
+
+fn artifact_encoding_format(path: &str) -> &'static str {
+    let lower = path.to_ascii_lowercase();
+    if lower.ends_with(".json") {
+        "application/json"
+    } else if lower.ends_with(".jsonl") {
+        "application/x-ndjson"
+    } else if lower.ends_with(".csv") {
+        "text/csv"
+    } else if lower.ends_with(".tsv") {
+        "text/tab-separated-values"
+    } else if lower.ends_with(".parquet") {
+        "application/vnd.apache.parquet"
+    } else if lower.ends_with(".md") {
+        "text/markdown"
+    } else if lower.ends_with(".txt") || lower.ends_with(".log") || lower.ends_with(".lock") {
+        "text/plain"
+    } else if lower.ends_with(".html") || lower.ends_with(".htm") {
+        "text/html"
+    } else if lower.ends_with(".yaml") || lower.ends_with(".yml") {
+        "application/yaml"
+    } else if lower.ends_with(".pdf") {
+        "application/pdf"
+    } else if lower.ends_with(".png") {
+        "image/png"
+    } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+        "image/jpeg"
+    } else if lower.ends_with(".gif") {
+        "image/gif"
+    } else if lower.ends_with(".svg") {
+        "image/svg+xml"
+    } else if lower.ends_with(".webp") {
+        "image/webp"
+    } else if lower.ends_with(".zip") {
+        "application/zip"
+    } else {
+        "application/octet-stream"
+    }
+}
+
+/// Collect safe, existing files listed by one stage in
+/// `result.json::artifacts`. Paths are stage-relative by contract. Reject
+/// absolute/Windows-style paths, traversal, scripts (registered separately as
+/// executed code), directories, symlinks, and any path whose canonical target
+/// escapes the owning task directory.
+fn collect_declared_output_artifacts(
+    task_dir: &std::path::Path,
+    rel_prefix: &str,
+    out: &mut Vec<String>,
+) {
+    let Ok(bytes) = std::fs::read(task_dir.join("result.json")) else {
+        return;
+    };
+    let Ok(result) = serde_json::from_slice::<Value>(&bytes) else {
+        return;
+    };
+    let Some(artifacts) = result.get("artifacts").and_then(Value::as_array) else {
+        return;
+    };
+    let Ok(task_root) = std::fs::canonicalize(task_dir) else {
+        return;
+    };
+    for artifact in artifacts {
+        let Some(raw) = artifact.as_str().map(str::trim) else {
+            continue;
+        };
+        if raw.is_empty()
+            || raw.contains('\\')
+            || raw.starts_with('/')
+            || raw
+                .as_bytes()
+                .get(1)
+                .is_some_and(|byte| *byte == b':' && raw.as_bytes()[0].is_ascii_alphabetic())
+        {
+            continue;
+        }
+        let path = std::path::Path::new(raw);
+        if path.is_absolute()
+            || path
+                .components()
+                .any(|component| !matches!(component, std::path::Component::Normal(_)))
+        {
+            continue;
+        }
+        let components: Vec<&str> = path
+            .components()
+            .filter_map(|component| component.as_os_str().to_str())
+            .collect();
+        if components.is_empty() || components.first() == Some(&"scripts") {
+            continue;
+        }
+        let joined = task_dir.join(path);
+        let Ok(metadata) = std::fs::symlink_metadata(&joined) else {
+            continue;
+        };
+        if !metadata.file_type().is_file() {
+            continue;
+        }
+        let Ok(canonical) = std::fs::canonicalize(&joined) else {
+            continue;
+        };
+        if !canonical.starts_with(&task_root) {
+            continue;
+        }
+        out.push(format!("{rel_prefix}/{}", components.join("/")));
     }
 }
 

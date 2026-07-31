@@ -202,13 +202,19 @@ def normalize_text(s: str) -> str:
 
 
 _CANDIDATE_ALIAS_OVERRIDES: Dict[str, Tuple[str, ...]] = {
-    "deseq2_vst": ("deseq2", "variance stabilizing transformation"),
-    "edger_tmm": ("edger", "tmm", "trimmed mean of m-values"),
-    "limma_voom": ("limma", "voom"),
-    "seurat_lognormalize": ("seurat", "lognormalize"),
-    "sctransform": ("sctransform",),
-    "clusterprofiler": ("clusterprofiler",),
-    "fgsea": ("fgsea",),
+    # Each entry is sufficient to identify the COMPLETE candidate. Atomic
+    # parent/tool names are deliberately absent: a source that names DESeq2
+    # alone is not evidence for the distinct DESeq2+VST candidate.
+    "deseq2_vst": (
+        "deseq2 vst",
+        "deseq2 variance stabilizing transformation",
+    ),
+    "edger_tmm": (
+        "edger tmm",
+        "edger trimmed mean of m-values",
+    ),
+    "limma_voom": ("limma voom",),
+    "seurat_lognormalize": ("seurat lognormalize",),
     "gsea": ("gsea", "gene set enrichment analysis"),
 }
 
@@ -224,24 +230,73 @@ _GENERIC_CANDIDATE_TOKENS = {
     "normalisation",
 }
 
+_CASE_SENSITIVE_CANDIDATE_FORMS: Dict[str, Tuple[str, ...]] = {
+    # These supported identifiers collide with ordinary text or unrelated
+    # hyphenated terms when case is discarded. Require the conventional tool
+    # spelling. This registry is method-level, not modality- or study-level.
+    "mast": ("MAST",),
+    "scran": ("scran",),
+    "star": ("STAR",),
+}
+
+
+def _candidate_key(candidate: str) -> str:
+    return normalize_text(candidate).replace("-", "_").replace(" ", "_")
+
+
+def _candidate_components(candidate: str) -> Tuple[str, ...]:
+    """Distinctive identifier components required for generic candidates."""
+    tokens = tuple(re.findall(r"[a-z0-9]+", _candidate_key(candidate)))
+    distinctive = tuple(token for token in tokens if token not in _GENERIC_CANDIDATE_TOKENS)
+    return distinctive or tokens
+
 
 def candidate_aliases(candidate: str) -> Tuple[str, ...]:
-    """Return conservative source-text aliases for a candidate method.
+    """Return complete, conservative aliases for a candidate method.
 
     Method-landscape retrieval must not treat a query hit as evidence for the
-    requested candidate unless the retained source text actually names it.
-    Curated compound ids use a small alias table; other ids retain their full
-    normalized form plus distinctive component tokens.
+    requested candidate unless the retained source text names its complete
+    identity. Curated aliases therefore preserve every conceptual component.
+    Unknown compound ids retain their full normalized and concatenated forms;
+    they never widen to one component.
     """
-    key = normalize_text(candidate).replace("-", "_").replace(" ", "_")
-    aliases = list(_CANDIDATE_ALIAS_OVERRIDES.get(key, ()))
+    key = _candidate_key(candidate)
+    aliases: List[str] = []
     full = re.sub(r"[_-]+", " ", key).strip()
     if full:
         aliases.append(full)
-    for token in re.findall(r"[a-z0-9]+", key):
-        if len(token) >= 4 and token not in _GENERIC_CANDIDATE_TOKENS:
-            aliases.append(token)
+    aliases.extend(_CANDIDATE_ALIAS_OVERRIDES.get(key, ()))
+    components = _candidate_components(candidate)
+    if len(components) > 1:
+        aliases.append("".join(components))
     return tuple(dict.fromkeys(a for a in aliases if a))
+
+
+def candidate_signatures(candidate: str) -> Tuple[Tuple[str, ...], ...]:
+    """Return alternative conjunctive signatures for retained evidence.
+
+    Every component inside one signature must occur in the same retained
+    sentence. Different signatures are alternatives. This makes the default
+    behavior safe for arbitrary compound identifiers while allowing explicit,
+    complete synonyms for catalogued method names.
+    """
+    key = _candidate_key(candidate)
+    signatures: List[Tuple[str, ...]] = []
+    for alias in candidate_aliases(candidate):
+        components = tuple(re.findall(r"[a-z0-9]+", normalize_text(alias)))
+        if components:
+            signatures.append(components)
+    if key == "deseq2_vst":
+        signatures.append(("deseq2", "variance", "stabilizing", "transformation"))
+    elif key == "edger_tmm":
+        signatures.append(("edger", "trimmed", "mean", "m", "values"))
+    elif key == "gsea":
+        signatures.append(("gene", "set", "enrichment", "analysis"))
+
+    generic_components = _candidate_components(candidate)
+    if generic_components:
+        signatures.append(generic_components)
+    return tuple(dict.fromkeys(signatures))
 
 
 def candidate_query_variants(query: str, candidate: str) -> Tuple[str, ...]:
@@ -297,18 +352,51 @@ def minimum_independent_sources(out: Path) -> int:
     return DEFAULT_MINIMUM_INDEPENDENT_SOURCES
 
 
-def _candidate_alias_match(text: str, candidate: str) -> Optional[re.Match[str]]:
-    key = normalize_text(candidate).replace("-", "_").replace(" ", "_")
-    # These canonical tool ids are ordinary English words when lower-cased.
-    # Require their conventional all-caps spelling so a MAST-cell paper or a
-    # generic "star" sentence cannot become method evidence.
-    if key in {"mast", "star"}:
-        return re.search(rf"(?<![A-Za-z0-9]){key.upper()}(?![A-Za-z0-9])", text)
-    for alias in sorted(candidate_aliases(candidate), key=len, reverse=True):
-        pattern = rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])"
-        match = re.search(pattern, text, flags=re.IGNORECASE)
-        if match:
-            return match
+def _component_match(text: str, component: str) -> Optional[re.Match[str]]:
+    tokens = re.findall(r"[A-Za-z0-9]+", component)
+    if not tokens:
+        return None
+    body = r"[^A-Za-z0-9]+".join(re.escape(token) for token in tokens)
+    return re.search(
+        rf"(?<![A-Za-z0-9]){body}(?![A-Za-z0-9])",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+
+def _candidate_alias_match(text: str, candidate: str) -> Optional[Tuple[int, int]]:
+    key = _candidate_key(candidate)
+    case_forms = _CASE_SENSITIVE_CANDIDATE_FORMS.get(key)
+    if case_forms:
+        matches = [
+            match
+            for form in case_forms
+            if (
+                match := re.search(
+                    rf"(?<![A-Za-z0-9]){re.escape(form)}(?![A-Za-z0-9])",
+                    text,
+                )
+            )
+        ]
+        if not matches:
+            return None
+        best = min(matches, key=lambda match: (match.end() - match.start(), match.start()))
+        return best.start(), best.end()
+
+    spans: List[Tuple[int, int]] = []
+    for signature in candidate_signatures(candidate):
+        matches = [_component_match(text, component) for component in signature]
+        if any(match is None for match in matches):
+            continue
+        present = [match for match in matches if match is not None]
+        spans.append(
+            (
+                min(match.start() for match in present),
+                max(match.end() for match in present),
+            )
+        )
+    if spans:
+        return min(spans, key=lambda span: (span[1] - span[0], span[0]))
     return None
 
 
@@ -324,13 +412,20 @@ def candidate_evidence_quote(source_text: str, candidate: str) -> str:
     if not text:
         return ""
     for sentence in re.split(r"(?<=[.!?])\s+", text):
-        match = _candidate_alias_match(sentence, candidate)
-        if not match:
+        span = _candidate_alias_match(sentence, candidate)
+        if span is None:
             continue
         if len(sentence) <= 320:
             return sentence.strip()
-        start = max(0, match.start() - 140)
-        end = min(len(sentence), match.end() + 140)
+        match_start, match_end = span
+        # Retain every required component. If their identifying span is wider
+        # than the normal excerpt budget, keep the whole source sentence
+        # rather than emit a shortened quote that no longer names the complete
+        # candidate.
+        if match_end - match_start > 280:
+            return sentence.strip()
+        start = max(0, match_start - 140)
+        end = min(len(sentence), match_end + 140)
         if start > 0:
             next_space = sentence.find(" ", start)
             start = next_space + 1 if next_space >= 0 else start

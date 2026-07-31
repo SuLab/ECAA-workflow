@@ -100,6 +100,11 @@ pub(super) fn apply_classifier_named_methods(
             .into_values()
             .next()
             .expect("non-empty method group checked above");
+        let rationale = explicit_method_selection_rationale(
+            stage.as_str(),
+            method.as_str(),
+            "structured intake",
+        );
         session.sme_method_signals.named.insert(stage.clone(), true);
         session
             .intake_methods
@@ -110,12 +115,26 @@ pub(super) fn apply_classifier_named_methods(
                 method_prose: method,
             },
             ecaa_workflow_core::decision_log::DecisionActor::Sme,
-            None,
+            Some(rationale),
         );
     }
 
     crate::tools::rebuild_dag(session, config_dir)
         .map_err(|error| anyhow::anyhow!(error.short_reason()))
+}
+
+/// Build a truthful, audit-sufficient rationale for a method the SME selected
+/// explicitly. The method name remains verbatim in `method_prose`; this
+/// sentence records why the value is authoritative without inventing a
+/// scientific justification the SME did not provide.
+pub(crate) fn explicit_method_selection_rationale(
+    stage: &str,
+    method: &str,
+    selection_surface: &str,
+) -> String {
+    format!(
+        "The SME explicitly selected `{method}` for the `{stage}` step through {selection_surface}."
+    )
 }
 
 /// Active method axes and their candidate ids, read from the compiled workflow

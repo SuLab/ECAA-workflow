@@ -17,6 +17,7 @@ mod greeting;
 mod retry;
 pub(crate) mod send_turn;
 mod structured_intake;
+pub(crate) use structured_intake::explicit_method_selection_rationale;
 mod tool_loop;
 mod transitions;
 

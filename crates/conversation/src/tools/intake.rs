@@ -907,6 +907,11 @@ pub(super) fn set_intake_method(
     session
         .intake_methods
         .set(stage, Some(method_prose.to_string()), None);
+    let rationale = crate::service::explicit_method_selection_rationale(
+        stage,
+        method_prose,
+        "the intake method-selection control",
+    );
 
     session.record_decision(
         ecaa_workflow_core::decision_log::DecisionType::SetIntakeMethod {
@@ -914,7 +919,7 @@ pub(super) fn set_intake_method(
             method_prose: method_prose.to_string(),
         },
         ecaa_workflow_core::decision_log::DecisionActor::Llm,
-        None,
+        Some(rationale),
     );
 
     if let Err(e) = rebuild_dag(session, config_dir) {
