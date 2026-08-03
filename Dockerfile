@@ -85,7 +85,8 @@ COPY config/  /app/config/
 COPY lib/     /app/lib/
 COPY scripts/ /app/scripts/
 COPY --from=ui /ui/dist /app/ui/dist
-ENV ECAA_CONFIG_DIR=/app/config
+ENV ECAA_CONFIG_DIR=/app/config \
+    ECAA_SPEC_SCRIPTS_DIR=/app/scripts/spec-check
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
   CMD curl -fsS http://127.0.0.1:3000/healthz || exit 1
