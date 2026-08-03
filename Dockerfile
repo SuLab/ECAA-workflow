@@ -55,17 +55,24 @@ FROM debian:trixie-slim@sha256:28de0877c2189802884ccd20f15ee41c203573bd87bb6b883
 ARG TARGETARCH
 ARG DOCKER_CLI_VERSION=27.3.1
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl git jq python3 python3-venv libssl3 nodejs npm \
+      ca-certificates curl default-jre-headless git jq python3 python3-venv libssl3 nodejs npm \
  && rm -rf /var/lib/apt/lists/*
-# WRROC substrate validator (audit-proof Invariant 6). `runcrate` >= 0.5 in an
-# isolated venv, exposed as /usr/local/bin/runcrate so scripts/wrroc-validate.py
-# (system python3, stdlib-only) can shell `runcrate report`. Enables
-# substrate_validity to verify at export time instead of staying `unverified`.
+# Keep every external conformance dependency in one isolated environment.
+# The Rust emitters use ECAA_VALIDATION_PYTHON for SHACL and OWL, while the
+# runcrate symlink supplies the WRROC substrate validator (Invariant 6).
 RUN set -eux; \
     python3 -m venv /opt/validator-venv; \
-    /opt/validator-venv/bin/pip install --no-cache-dir "runcrate>=0.5.0"; \
+    /opt/validator-venv/bin/pip install --no-cache-dir \
+      "runcrate>=0.5.0" \
+      "jsonschema>=4.0" \
+      "owlready2>=0.47" \
+      "pyld>=2.0" \
+      "pyshacl>=0.25" \
+      "rdflib>=7.0"; \
     ln -s /opt/validator-venv/bin/runcrate /usr/local/bin/runcrate; \
-    test -x /opt/validator-venv/bin/runcrate
+    /opt/validator-venv/bin/python -c 'import jsonschema, owlready2, pyld, pyshacl, rdflib'; \
+    test -x /opt/validator-venv/bin/runcrate; \
+    java -version
 RUN set -eux; \
     case "$TARGETARCH" in \
       amd64) A=x86_64 ;; \
@@ -82,11 +89,13 @@ COPY --from=builder /out/ecaa-workflow-harness     /usr/local/bin/
 COPY --from=builder /out/ecaa-workflow             /usr/local/bin/
 COPY --from=builder /out/ecaa-workflow-audit-proof /usr/local/bin/
 COPY config/  /app/config/
+COPY docs/ecaa-spec/ /app/docs/ecaa-spec/
 COPY lib/     /app/lib/
 COPY scripts/ /app/scripts/
 COPY --from=ui /ui/dist /app/ui/dist
 ENV ECAA_CONFIG_DIR=/app/config \
-    ECAA_SPEC_SCRIPTS_DIR=/app/scripts/spec-check
+    ECAA_SPEC_SCRIPTS_DIR=/app/scripts/spec-check \
+    ECAA_VALIDATION_PYTHON=/opt/validator-venv/bin/python3
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
   CMD curl -fsS http://127.0.0.1:3000/healthz || exit 1

@@ -30,6 +30,9 @@
 //!   Override directory containing `project_package.py` and
 //!   `owl_consistency.py`. Auto-detect resolves
 //!   `<crate>/../../scripts/spec-check/`.
+//! - `ECAA_VALIDATION_PYTHON` (default `python3`)
+//!   Python interpreter used for SHACL and OWL subprocesses. Deployments can
+//!   point this at an isolated environment containing the validator stack.
 //! - `ECAA_VALIDATION_BLOCK_ON_FAIL` (default `0`, warn-only)
 //!   When `1`/`true`/`yes`, schema-validation failures cause
 //!   `validate_emitted_package` to return `Err`, aborting the emit.
@@ -42,6 +45,7 @@ use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -804,12 +808,24 @@ fn resolve_validator_script(
         tracing::debug!(label = %label, reason = %reason, "[ecaa-validation] validator unavailable");
         return Err(ExternalCheckOutcome::Unavailable { reason });
     }
-    if Command::new("python3").arg("--version").output().is_err() {
-        let reason = "python3 not on PATH".to_string();
+    let python = validation_python();
+    if Command::new(&python).arg("--version").output().is_err() {
+        let reason = format!(
+            "validation Python '{}' is unavailable",
+            python.to_string_lossy()
+        );
         tracing::debug!(label = %label, reason = %reason, "[ecaa-validation] validator unavailable");
         return Err(ExternalCheckOutcome::Unavailable { reason });
     }
     Ok(script_path)
+}
+
+/// Resolve the interpreter for external conformance validators without
+/// changing the Python used by unrelated server subprocesses.
+fn validation_python() -> OsString {
+    std::env::var_os("ECAA_VALIDATION_PYTHON")
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| OsString::from("python3"))
 }
 
 /// Run an external Python validator script with timeout enforcement.
@@ -829,10 +845,10 @@ fn run_external_check(
         script = %script_path.display(),
         args = ?args,
         timeout_secs = timeout.as_secs(),
-        "[ecaa-validation] invoking python3 validator"
+        "[ecaa-validation] invoking Python validator"
     );
     let started = Instant::now();
-    let child = match Command::new("python3")
+    let child = match Command::new(validation_python())
         .arg(&script_path)
         .args(args)
         .stdout(std::process::Stdio::piped())

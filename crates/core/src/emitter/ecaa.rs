@@ -7,6 +7,7 @@ use anyhow::{anyhow, Context, Result};
 use jsonschema::JSONSchema;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::OsString;
 use std::path::Path;
 
 const INTENT_SCHEMA: &str = include_str!(concat!(
@@ -570,7 +571,16 @@ fn validator_timeout() -> std::time::Duration {
     std::time::Duration::from_secs(secs)
 }
 
-/// Spawn `python3 <script_path> <args>`, capture stdout+stderr, and kill the
+/// Resolve the interpreter for external conformance validators. An explicit
+/// path lets packaged deployments use an isolated validator environment.
+fn validation_python() -> OsString {
+    std::env::var_os("ECAA_VALIDATION_PYTHON")
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| OsString::from("python3"))
+}
+
+/// Spawn the configured Python interpreter with `<script_path> <args>`,
+/// capture stdout+stderr, and kill the
 /// child if it has not exited within `timeout`. stdout/stderr are drained on
 /// dedicated threads so a chatty validator can never fill the pipe buffer and
 /// deadlock the wait. `Instant` is a monotonic timeout clock (NOT an emitted
@@ -584,7 +594,7 @@ fn run_python_capped(
     timeout: std::time::Duration,
 ) -> std::io::Result<(Option<std::process::ExitStatus>, Vec<u8>, Vec<u8>)> {
     use std::io::Read;
-    let mut child = std::process::Command::new("python3")
+    let mut child = std::process::Command::new(validation_python())
         .arg(script_path)
         .args(args)
         .stdout(std::process::Stdio::piped())
@@ -629,7 +639,8 @@ fn run_python_validator(label: &str, script: &str, args: &[&str], scripts_dir: &
             "reason": format!("{label} script {} not found at {}", script, scripts_dir.display()),
         });
     }
-    if std::process::Command::new("python3")
+    let python = validation_python();
+    if std::process::Command::new(&python)
         .arg("--version")
         .output()
         .map(|o| !o.status.success())
@@ -637,7 +648,7 @@ fn run_python_validator(label: &str, script: &str, args: &[&str], scripts_dir: &
     {
         return json!({
             "status": "unavailable",
-            "reason": "python3 not on PATH",
+            "reason": format!("validation Python '{}' is unavailable", python.to_string_lossy()),
         });
     }
     let timeout = validator_timeout();
