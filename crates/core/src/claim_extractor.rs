@@ -1545,7 +1545,7 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
             let matched_pvalue_keyword = p_idx.map(|i| pvalue_hits[i].2.clone());
             let linear_fold = bind_fold_for_entity(ent_pos, next_entity_pos, &linear_fold_hits);
             let cited_pmids = if contract == ClaimContract::LiteratureGrounded {
-                bind_pmids_for_entity(entity_index, &entity_positions, &pmid_hits)
+                bind_pmids_for_entity(trimmed, entity_index, &entity_positions, &pmid_hits)
             } else {
                 Vec::new()
             };
@@ -2626,17 +2626,22 @@ fn bind_fold_for_entity(
 /// "every PMID × every gene" binding fabricated KLF15↔b, CRISPLD2↔a, … pairings
 /// that then failed the evidence matrix as false Mismatches.
 ///
-/// Rule: a gene is bound to the PMID(s) that fall in `[entity_pos,
-/// next_entity_pos)` — its local trailing parenthetical. When that local window
-/// is EMPTY (two genes sharing one trailing parenthetical, as "IRS2 and MFGE8
-/// (PMID c)" leaves IRS2 with no PMID before MFGE8), the gene INHERITS the local
-/// PMIDs of the next forward gene that has one — the shared trailing citation.
+/// Rule: an entity is bound to the PMID(s) that fall in `[entity_pos,
+/// next_entity_pos)` — its local trailing parenthetical. A citation run stops
+/// when prose between consecutive PMIDs introduces another subject rather than
+/// merely joining citations. This prevents a sentence such as "A and B from
+/// PMID 1, pathway records from PMID 2" from fabricating A↔2 and B↔2. When the
+/// local window is EMPTY (two entities sharing one trailing parenthetical, as
+/// "IRS2 and MFGE8 (PMID c)" leaves IRS2 with no PMID before MFGE8), the entity
+/// INHERITS the citation run of the next forward entity that has one. A leading
+/// citation run immediately before the first entity is also retained.
 ///
 /// `entity_index` indexes `entity_positions` (position-sorted, aligned with the
 /// extraction loop). `pmid_hits` is `(byte_pos, pmid)`, position-sorted. The
 /// single-gene single-PMID case is unchanged: one entity, the PMID falls after
 /// it, the local window captures it.
 fn bind_pmids_for_entity(
+    sentence: &str,
     entity_index: usize,
     entity_positions: &[usize],
     pmid_hits: &[(usize, u64)],
@@ -2647,19 +2652,90 @@ fn bind_pmids_for_entity(
     // Local span `[start, end)` for the gene at `entity_index`: from its own
     // mention up to (but excluding) the next gene mention. The last gene's span
     // runs to the end of the sentence (no upper bound).
-    let local = |idx: usize| -> Vec<u64> {
+    let local = |idx: usize| -> Vec<(usize, u64)> {
         let start = entity_positions[idx];
         let end = entity_positions.get(idx + 1).copied();
         pmid_hits
             .iter()
             .filter(|(p, _)| *p >= start && end.is_none_or(|e| *p < e))
-            .map(|(_, pmid)| *pmid)
+            .copied()
             .collect()
+    };
+
+    // Text permitted between two citations that belong to one source list.
+    // Any other word is conservatively treated as a new subject/clause. This
+    // is intentionally abstention-first: dropping an ambiguous second source
+    // is safer than asserting an entity/source pair the prose did not make.
+    let citation_connector_only = |left: usize, right: usize| -> bool {
+        let Some(between) = sentence.get(left..right) else {
+            return false;
+        };
+        let Some(citation) = PMID_CITATION_RE.find(between) else {
+            return false;
+        };
+        if citation.start() != 0 {
+            return false;
+        }
+        let remainder = &between[citation.end()..];
+        let words: Vec<String> = remainder
+            .split(|ch: char| !ch.is_ascii_alphabetic())
+            .filter(|word| !word.is_empty())
+            .map(|word| word.to_ascii_lowercase())
+            .collect();
+        words.iter().all(|word| {
+            matches!(
+                word.as_str(),
+                "and"
+                    | "or"
+                    | "also"
+                    | "plus"
+                    | "see"
+                    | "cf"
+                    | "pmid"
+                    | "pmids"
+                    | "independently"
+                    | "respectively"
+            )
+        })
+    };
+
+    let first_run = |hits: &[(usize, u64)]| -> Vec<u64> {
+        let Some((first_pos, first_pmid)) = hits.first().copied() else {
+            return Vec::new();
+        };
+        let mut out = vec![first_pmid];
+        let mut previous = first_pos;
+        for (position, pmid) in hits.iter().copied().skip(1) {
+            if !citation_connector_only(previous, position) {
+                break;
+            }
+            out.push(pmid);
+            previous = position;
+        }
+        out
     };
 
     let own = local(entity_index);
     if !own.is_empty() {
-        return own;
+        return first_run(&own);
+    }
+    // A leading citation belongs to the first entity. When several separated
+    // citation clauses precede it, retain only the nearest coherent run.
+    if entity_index == 0 {
+        let leading: Vec<(usize, u64)> = pmid_hits
+            .iter()
+            .copied()
+            .filter(|(position, _)| *position < entity_positions[0])
+            .collect();
+        if !leading.is_empty() {
+            let mut run_start = 0usize;
+            for index in 1..leading.len() {
+                if !citation_connector_only(leading[index - 1].0, leading[index].0) {
+                    run_start = index;
+                }
+            }
+            return first_run(&leading[run_start..]);
+        }
     }
     // No PMID in this gene's own span: it shares the next forward gene's
     // trailing parenthetical (e.g. "IRS2 and MFGE8 (PMID c)" → IRS2 inherits
@@ -2668,7 +2744,7 @@ fn bind_pmids_for_entity(
     for idx in (entity_index + 1)..entity_positions.len() {
         let shared = local(idx);
         if !shared.is_empty() {
-            return shared;
+            return first_run(&shared);
         }
     }
     Vec::new()
@@ -3886,38 +3962,53 @@ mod tests {
     /// the sentence-wide cross-product.
     #[test]
     fn bind_pmids_for_entity_is_per_gene_not_cross_product() {
-        // entity_positions: KLF15=0, CRISPLD2=20, IRS2=40, MFGE8=60
-        let entity_positions = vec![0usize, 20, 40, 60];
-        // pmid_hits (pos, pmid): KLF15's a at 7, CRISPLD2's b at 30, the shared
-        // trailing c at 70 (after MFGE8, in IRS2's-and-MFGE8's shared group).
-        let pmid_hits = vec![(7usize, 1001u64), (30, 1002), (70, 1003)];
+        let sentence = "KLF15 (PMID 1001), CRISPLD2 (PMID 1002), IRS2 and MFGE8 (PMID 1003)";
+        let entity_positions = ["KLF15", "CRISPLD2", "IRS2", "MFGE8"]
+            .map(|entity| sentence.find(entity).unwrap())
+            .to_vec();
+        let pmid_hits: Vec<(usize, u64)> = PMID_CITATION_RE
+            .find_iter(sentence)
+            .map(|matched| {
+                let pmid = matched
+                    .as_str()
+                    .chars()
+                    .filter(|ch| ch.is_ascii_digit())
+                    .collect::<String>()
+                    .parse()
+                    .unwrap();
+                (matched.start(), pmid)
+            })
+            .collect();
 
         assert_eq!(
-            bind_pmids_for_entity(0, &entity_positions, &pmid_hits),
+            bind_pmids_for_entity(sentence, 0, &entity_positions, &pmid_hits),
             vec![1001],
             "KLF15 → own PMID only"
         );
         assert_eq!(
-            bind_pmids_for_entity(1, &entity_positions, &pmid_hits),
+            bind_pmids_for_entity(sentence, 1, &entity_positions, &pmid_hits),
             vec![1002],
             "CRISPLD2 → own PMID only"
         );
         // IRS2 has no PMID in [40,60); it inherits MFGE8's trailing PMID.
         assert_eq!(
-            bind_pmids_for_entity(2, &entity_positions, &pmid_hits),
+            bind_pmids_for_entity(sentence, 2, &entity_positions, &pmid_hits),
             vec![1003],
             "IRS2 → shared trailing PMID"
         );
         assert_eq!(
-            bind_pmids_for_entity(3, &entity_positions, &pmid_hits),
+            bind_pmids_for_entity(sentence, 3, &entity_positions, &pmid_hits),
             vec![1003],
             "MFGE8 → trailing PMID"
         );
 
         // No PMIDs at all → empty (single-gene prose-only literature claim).
-        assert!(bind_pmids_for_entity(0, &[0], &[]).is_empty());
+        assert!(bind_pmids_for_entity("KLF15", 0, &[0], &[]).is_empty());
         // Single gene, single PMID after it → that PMID (regression guard).
-        assert_eq!(bind_pmids_for_entity(0, &[0], &[(5, 42)]), vec![42]);
+        assert_eq!(
+            bind_pmids_for_entity("KLF15 PMID 0042", 0, &[0], &[(6, 42)]),
+            vec![42]
+        );
     }
 
     /// Sentence-level: the exact multi-gene concordance sentence, extracted with
@@ -3951,6 +4042,58 @@ mod tests {
         assert_eq!(pmids("CRISPLD2"), vec![24926665]);
         assert_eq!(pmids("IRS2"), vec![28375666]);
         assert_eq!(pmids("MFGE8"), vec![28375666]);
+    }
+
+    #[test]
+    fn trailing_new_subject_citation_is_not_distributed_to_prior_entity_list() {
+        let cfg = bulk_policy();
+        let sentence = "These include entities mentioned in multi-gene lists \
+            (e.g., DUSP1, PER1, TSC22D3, C7, CCDC69) from PMID 24926665, \
+            gene-set membership records from PMID 40998941, and receptor/signaling \
+            mentions from other retained sources";
+        let claims = extract_claims(sentence, &cfg);
+        for entity in ["DUSP1", "PER1", "TSC22D3", "C7", "CCDC69"] {
+            let claim = claims
+                .iter()
+                .find(|claim| claim.entity == entity)
+                .unwrap_or_else(|| panic!("no claim for {entity}; got {claims:#?}"));
+            assert_eq!(
+                claim
+                    .literature_evidence
+                    .as_ref()
+                    .expect("literature evidence")
+                    .cited_pmids,
+                vec![24926665],
+                "{entity} must retain only the source attached to its entity list"
+            );
+        }
+    }
+
+    #[test]
+    fn leading_citation_run_binds_to_first_entity_only() {
+        let mut policy = policy_json();
+        policy["verifiableEntities"]["entityNameExcludePatterns"] = json!(["^PMID$"]);
+        let cfg = ExtractorConfig::from_policy(&policy).unwrap();
+        let claims = extract_claims(
+            "PMID 12345678 reports a prior association for KLF15 under TGF stimulation.",
+            &cfg,
+        );
+        let klf15 = claims
+            .iter()
+            .find(|claim| claim.entity == "KLF15")
+            .unwrap_or_else(|| panic!("no KLF15 claim; got {claims:#?}"));
+        assert_eq!(
+            klf15
+                .literature_evidence
+                .as_ref()
+                .expect("literature evidence")
+                .cited_pmids,
+            vec![12345678]
+        );
+        assert!(
+            claims.iter().all(|claim| claim.entity != "TGF"),
+            "context entity without a local source must be omitted: {claims:#?}"
+        );
     }
 
     #[test]

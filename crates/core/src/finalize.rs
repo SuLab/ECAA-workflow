@@ -21,8 +21,9 @@ use crate::claim_extractor::{
 };
 use crate::claim_verifier::{
     demote_claims_from_deviations, verdict_class_of, verify_claims_with_discovery,
-    verify_narrative_counts, verify_structured_claims, ClaimStatus, ClaimStrength, ClaimVerdict,
-    ClaimVerificationReport, StructuredClaim, VerdictAudit, VerdictClass, CLAIM_VERIFIER_VERSION,
+    verify_claims_with_discovery_cached, verify_narrative_counts, verify_structured_claims,
+    ClaimDiscoveryCache, ClaimStatus, ClaimStrength, ClaimVerdict, ClaimVerificationReport,
+    StructuredClaim, VerdictAudit, VerdictClass, CLAIM_VERIFIER_VERSION,
 };
 use crate::clock::WallClock;
 use crate::coverage::CoverageResult;
@@ -79,10 +80,34 @@ fn narrative_claims_from_text(narrative: &str, cfg: &ExtractorConfig) -> Vec<Cla
     claims
 }
 
-/// Read a task's narrative artifact, when it wrote one.
+/// Read the task-owned prose used for claim extraction. A dedicated narrative
+/// artifact wins. Compute stages commonly retain their only prose in the
+/// standard result envelope, so fall back to the top-level `narrative`,
+/// `narrative_text`, `summary`, and `interpretation` string fields in that
+/// order, joining distinct values when an envelope intentionally carries more
+/// than one.
 fn read_task_narrative(package_root: &Path, task_id: &str) -> Option<String> {
-    let path = find_narrative_artifact(package_root, task_id)?;
-    std::fs::read_to_string(path).ok()
+    if let Some(path) = find_narrative_artifact(package_root, task_id) {
+        if let Ok(text) = std::fs::read_to_string(path) {
+            if !text.trim().is_empty() {
+                return Some(text);
+            }
+        }
+    }
+    let task_dir = resolve_task_runtime_dir_local(package_root, task_id)?;
+    let result: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(task_dir.join("result.json")).ok()?).ok()?;
+    let mut parts = Vec::new();
+    for field in ["narrative", "narrative_text", "summary", "interpretation"] {
+        let Some(text) = result.get(field).and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        let text = text.trim();
+        if !text.is_empty() && !parts.contains(&text) {
+            parts.push(text);
+        }
+    }
+    (!parts.is_empty()).then(|| parts.join("\n"))
 }
 
 /// Which task OWNS each distinct narrative assertion in a package, and which
@@ -774,6 +799,29 @@ pub fn verify_task_with_context_deduped(
     is_confirmatory: bool,
     ledger: Option<&CrossTaskClaimLedger>,
 ) -> VerifyOutcome {
+    verify_task_with_context_deduped_cached(
+        package_root,
+        task_id,
+        config_dir,
+        project_class,
+        decisions,
+        is_confirmatory,
+        ledger,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn verify_task_with_context_deduped_cached(
+    package_root: &Path,
+    task_id: &str,
+    config_dir: &Path,
+    project_class: ProjectClass,
+    decisions: &[DecisionRecord],
+    is_confirmatory: bool,
+    ledger: Option<&CrossTaskClaimLedger>,
+    discovery_cache: Option<&mut ClaimDiscoveryCache>,
+) -> VerifyOutcome {
     let policy = match load_interpretation_policy(config_dir) {
         PolicyLoad::Loaded(value) => value,
         PolicyLoad::Disabled => return VerifyOutcome::Disabled,
@@ -797,53 +845,66 @@ pub fn verify_task_with_context_deduped(
     let cfg = extend_extractor_config_with_result_schemas(package_root, cfg);
 
     let narrative_path = find_narrative_artifact(package_root, task_id);
+    let narrative_text = read_task_narrative(package_root, task_id);
+    let has_narrative = narrative_text.is_some();
     let mut report = ClaimVerificationReport::empty();
 
-    // 1. Prose-narrative claims, when the task wrote a `.md` report.
-    if let Some(np) = narrative_path.as_ref() {
-        if let Ok(narrative) = std::fs::read_to_string(np) {
-            let tables_root = package_root.join("results").join("tables");
-            let effective_root = if tables_root.is_dir() {
-                tables_root
-            } else {
-                // Tables may live alongside the narrative in the task
-                // runtime directory. Canonical layout is
-                // `runtime/outputs/<task_id>/`; legacy used
-                // `runtime/<task_id>/`.
-                resolve_task_runtime_dir_local(package_root, task_id)
-                    .unwrap_or_else(|| package_root.join("runtime").join(task_id))
-            };
-            let mut claims = narrative_claims_from_text(&narrative, &cfg);
-            // Cross-task dedupe: keep only the assertions this task OWNS, so a
-            // narrative copied verbatim into a later task does not double every
-            // verdict (see [`CrossTaskClaimLedger`]).
+    // 1. Prose-narrative claims. Prefer a dedicated `.md` / `.txt` artifact;
+    // when the task emitted its standard prose in `result.json.summary` or
+    // `result.json.narrative`, verify that text instead. Treating the standard
+    // result envelope as claim-bearing closes a modality-independent recall
+    // gap for compute stages that do not own a separate report file.
+    if let Some(narrative) = narrative_text {
+        let tables_root = package_root.join("results").join("tables");
+        let effective_root = if tables_root.is_dir() {
+            tables_root
+        } else {
+            // Tables may live alongside the narrative in the task
+            // runtime directory. Canonical layout is
+            // `runtime/outputs/<task_id>/`; legacy used
+            // `runtime/<task_id>/`.
+            resolve_task_runtime_dir_local(package_root, task_id)
+                .unwrap_or_else(|| package_root.join("runtime").join(task_id))
+        };
+        let mut claims = narrative_claims_from_text(&narrative, &cfg);
+        // Cross-task dedupe: keep only the assertions this task OWNS, so a
+        // narrative copied verbatim into a later task does not double every
+        // verdict (see [`CrossTaskClaimLedger`]).
+        if let Some(l) = ledger {
+            claims.retain(|c| l.owns(task_id, c));
+        }
+        let verdicts = match discovery_cache {
+            Some(cache) => verify_claims_with_discovery_cached(
+                &claims,
+                &effective_root,
+                package_root,
+                &cfg,
+                cache,
+            ),
+            None => verify_claims_with_discovery(&claims, &effective_root, package_root, &cfg),
+        };
+        for mut v in verdicts {
             if let Some(l) = ledger {
-                claims.retain(|c| l.owns(task_id, c));
+                // Resolve co-asserters before the mutable borrow: the
+                // lookup reads `v.claim`, so it cannot overlap `&mut v`.
+                let co_asserters = l.co_asserters(task_id, &v.claim);
+                note_shared_assertion(&mut v, &co_asserters);
             }
-            for mut v in verify_claims_with_discovery(&claims, &effective_root, package_root, &cfg)
-            {
-                if let Some(l) = ledger {
-                    // Resolve co-asserters before the mutable borrow: the
-                    // lookup reads `v.claim`, so it cannot overlap `&mut v`.
-                    let co_asserters = l.co_asserters(task_id, &v.claim);
-                    note_shared_assertion(&mut v, &co_asserters);
+            report.push(v);
+        }
+        // VF-16: aggregate count sentences ("2209 genes upregulated at
+        // FDR<0.05 (Table N)") carry no per-entity Claim, so recompute them
+        // from cited or matching emitted evidence and fold the verdicts in.
+        // Hedged, rounded, or combined claims remain unverifiable.
+        for mut v in verify_narrative_counts(&narrative, &effective_root, package_root, &cfg) {
+            if let Some(l) = ledger {
+                if !l.owns(task_id, &v.claim) {
+                    continue;
                 }
-                report.push(v);
+                let co_asserters = l.co_asserters(task_id, &v.claim);
+                note_shared_assertion(&mut v, &co_asserters);
             }
-            // VF-16: aggregate count sentences ("2209 genes upregulated at
-            // FDR<0.05 (Table N)") carry no per-entity Claim, so recompute them
-            // from cited or matching emitted evidence and fold the verdicts in.
-            // Hedged, rounded, or combined claims remain unverifiable.
-            for mut v in verify_narrative_counts(&narrative, &effective_root, package_root, &cfg) {
-                if let Some(l) = ledger {
-                    if !l.owns(task_id, &v.claim) {
-                        continue;
-                    }
-                    let co_asserters = l.co_asserters(task_id, &v.claim);
-                    note_shared_assertion(&mut v, &co_asserters);
-                }
-                report.push(v);
-            }
+            report.push(v);
         }
     }
 
@@ -902,7 +963,7 @@ pub fn verify_task_with_context_deduped(
     // (claim_completeness) Fails. Determinism boundary holds:
     // `compute_task_coverage` reads only the package manifest + structured
     // `result.json claims[]`, never the regex/narrative path.
-    if narrative_path.is_none() && report.n_checked == 0 {
+    if !has_narrative && report.n_checked == 0 {
         let recall_gap = compute_task_coverage(package_root, task_id, &cfg)
             .map(|cov| coverage_should_block(&cov))
             .unwrap_or(false);
@@ -1075,6 +1136,7 @@ pub fn finalize_task_verdicts(
         secret,
         None,
         false,
+        None,
     )
 }
 
@@ -1102,6 +1164,7 @@ pub fn finalize_task_deduped(
         secret,
         ledger,
         true,
+        None,
     )
 }
 
@@ -1116,8 +1179,9 @@ fn finalize_task_deduped_inner(
     secret: Option<&[u8; 32]>,
     ledger: Option<&CrossTaskClaimLedger>,
     refresh_package: bool,
+    discovery_cache: Option<&mut ClaimDiscoveryCache>,
 ) -> anyhow::Result<TaskFinalizeOutcome> {
-    let outcome = verify_task_with_context_deduped(
+    let outcome = verify_task_with_context_deduped_cached(
         root,
         task_id,
         config_dir,
@@ -1125,6 +1189,7 @@ fn finalize_task_deduped_inner(
         decisions,
         is_confirmatory,
         ledger,
+        discovery_cache,
     );
 
     let mut coverage = None;
@@ -1279,6 +1344,11 @@ pub fn finalize_package(
         // assertion, not two. Built over the same deterministic task order the
         // finalize loop uses, so ownership is reproducible.
         let ledger = build_cross_task_ledger(root, config_dir, project_class, &completed);
+        // All completed tasks read the same immutable result tables. Reuse one
+        // package-scoped parse/index cache across their verification calls;
+        // the cache is dropped at function exit and can never leak state into
+        // another package or a later server request.
+        let mut discovery_cache = ClaimDiscoveryCache::default();
 
         for task_id in &completed {
             let res = finalize_task_deduped_inner(
@@ -1291,6 +1361,7 @@ pub fn finalize_package(
                 secret,
                 ledger.as_ref(),
                 false,
+                Some(&mut discovery_cache),
             )?;
             verified_any |= matches!(&res.outcome, VerifyOutcome::Verified(_));
             summary.tasks_finalized += 1;
@@ -1476,6 +1547,19 @@ fn synthesize_declared_stage_count_claim(
     let table = dir.join(&schema.artifact);
     let (headers, rows) = crate::report_contract::assemble::read_table(&table).ok()?;
     let synonyms = crate::report_contract::load_policy_column_synonyms(package_root);
+    // Bind the synthesized assertion to the PHYSICAL column that the same
+    // schema+policy resolver selected for the recomputation. A declared role
+    // may be logical (`padj`, `pathway`) while the retained table uses policy
+    // synonyms (`adj_p_value`, `term`). Quoting the logical name in an exact
+    // threshold assertion made the verifier correctly refuse a column that did
+    // not exist, leaving an otherwise recomputable stage falsely absent from
+    // coverage. Resolving once here keeps the assertion and recomputation on
+    // the identical cell family for every schema and modality.
+    let resolved = crate::report_contract::resolve_ranking_columns(&headers, &schema, &synonyms)?;
+    let significance_column = resolved
+        .significance
+        .and_then(|index| headers.get(index))?
+        .to_string();
     let stats = crate::report_contract::summarize_artifact(&rows, &headers, &schema, &synonyms);
     let count = stats.n_significant?;
     let total = stats.n_total;
@@ -1496,7 +1580,7 @@ fn synthesize_declared_stage_count_claim(
     let claim = StructuredClaim {
         claim: format!(
             "{count} of {total} entities significant at `{}` {comparator} {}",
-            significance.column, significance.threshold
+            significance_column, significance.threshold
         ),
         evidence: Some(rel),
     };
@@ -1871,6 +1955,83 @@ mod tests {
             assert_eq!(coverage.required_absent, 0, "{task_id}: {coverage:?}");
             assert_eq!(coverage.required_unverifiable, 0, "{task_id}: {coverage:?}");
         }
+    }
+
+    #[test]
+    fn compute_task_coverage_resolves_declared_roles_through_policy_synonyms() {
+        let tmp = tempdir().unwrap();
+        let task_id = "set_enrichment";
+        let policy_dir = tmp.path().join("policies");
+        fs::create_dir_all(&policy_dir).unwrap();
+        fs::write(
+            policy_dir.join("interpretation-policy.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "verifiableEntities": {
+                    "enabled": true,
+                    "entityColumns": ["feature", "term", "pathway"],
+                    "effectSizeColumns": ["effect", "NES"],
+                    "pvalueColumns": ["p_value", "padj", "adj_p_value"],
+                    "expected": [{
+                        "entity": task_id,
+                        "expected_output_table": task_id,
+                        "requirement": "required"
+                    }]
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let output_dir = tmp.path().join("runtime/outputs").join(task_id);
+        fs::create_dir_all(&output_dir).unwrap();
+        fs::write(
+            output_dir.join("result.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "task_id": task_id,
+                "claims": [],
+                "n_significant": 2,
+                "n_total_tested": 4
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            output_dir.join("set_results.tsv"),
+            "term\tcollection\tNES\tp_value\tadj_p_value\n\
+             S1\tA\t1.2\t0.001\t0.01\n\
+             S2\tA\t-1.1\t0.002\t0.20\n\
+             S3\tB\t0.3\t0.003\t0.25\n\
+             S4\tB\t0.1\t0.004\t0.80\n",
+        )
+        .unwrap();
+        write_task_nodes(
+            tmp.path(),
+            &[(
+                task_id,
+                serde_json::json!({
+                    "artifact": "set_results.tsv",
+                    "entity_column": "pathway",
+                    "grouping_column": "collection",
+                    "signed_effect_column": "NES",
+                    "significance": {
+                        "column": "padj",
+                        "comparator": "lt",
+                        "threshold": 0.25
+                    }
+                }),
+            )],
+        );
+
+        let mut cfg = test_cfg();
+        cfg.pvalue_columns.push("adj_p_value".into());
+        let coverage = compute_task_coverage(tmp.path(), task_id, &cfg)
+            .expect("declared stage coverage must be computed");
+        assert_eq!(
+            (coverage.required_total, coverage.required_addressed),
+            (1, 1),
+            "{coverage:?}"
+        );
+        assert_eq!(coverage.required_absent, 0, "{coverage:?}");
+        assert_eq!(coverage.required_unverifiable, 0, "{coverage:?}");
     }
 
     #[test]
@@ -2801,6 +2962,62 @@ mod tests {
         ));
         assert_eq!(out.report.n_verified, 1, "{:?}", out.report.verdicts);
         assert_eq!(out.report.n_mismatch, 0);
+    }
+
+    #[test]
+    fn verifies_standard_result_summary_when_no_narrative_file_exists() {
+        let pkg = tempdir().unwrap();
+        let cfg = tempdir().unwrap();
+        scaffold_config_dir(cfg.path());
+
+        let task_dir = pkg.path().join("runtime/outputs/signal_analysis");
+        write(
+            &task_dir.join("result.json"),
+            r#"{
+                "status": "completed",
+                "summary": "ACAN was upregulated (log2FC=2.1, padj=0.001)."
+            }"#,
+        );
+        write(
+            &task_dir.join("estimates.tsv"),
+            "gene\tlog2FC\tpadj\nACAN\t2.1\t0.001\n",
+        );
+        write_task_nodes(
+            pkg.path(),
+            &[(
+                "signal_analysis",
+                serde_json::json!({
+                    "artifact": "estimates.tsv",
+                    "entity_column": "gene",
+                    "signed_effect_column": "log2FC",
+                    "significance": {
+                        "column": "padj",
+                        "comparator": "lt",
+                        "threshold": 0.05
+                    }
+                }),
+            )],
+        );
+
+        let verified = expect_verified(verify_task_with_context(
+            pkg.path(),
+            "signal_analysis",
+            cfg.path(),
+            ProjectClass::Bioinformatics,
+            &[],
+            false,
+        ));
+        assert_eq!(verified.narrative_path, task_dir.join("result.json"));
+        assert!(
+            verified
+                .report
+                .verdicts
+                .iter()
+                .any(|verdict| verdict.claim.entity == "ACAN"
+                    && matches!(verdict.status, ClaimStatus::Verified)),
+            "the standard result summary must enter the claim ledger: {:?}",
+            verified.report.verdicts
+        );
     }
 
     #[test]

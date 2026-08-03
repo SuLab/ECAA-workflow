@@ -1835,8 +1835,16 @@ fn prompt_md_includes_auto_detect_compute_and_fanout_section() {
         "PROMPT.md must include the auto-detect + fan-out section header"
     );
 
-    // Detection probes — at least one per language/runtime
-    assert!(prompt.contains("nproc --all"), "must instruct nproc probe");
+    // Detection probes — at least one per language/runtime, with the
+    // container quota treated as the executable ceiling.
+    assert!(
+        prompt.contains("/sys/fs/cgroup/cpu.max"),
+        "must instruct cgroup-aware CPU detection"
+    );
+    assert!(
+        prompt.contains("MUST NOT drive workers"),
+        "must reject host-wide counts as a worker budget"
+    );
     assert!(
         prompt.contains("os.cpu_count()"),
         "must instruct Python cpu_count probe"

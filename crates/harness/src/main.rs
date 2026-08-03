@@ -4292,6 +4292,28 @@ fn run_loop(
                         obligations.push(id);
                     }
                 }
+                // A retained `parallelism:` record is an executable resource
+                // claim. Reconcile it with determinism-env.json for every
+                // modality instead of trusting an agent's self-reported
+                // usable/inner-worker counts.
+                if ecaa_workflow_harness::validators::resource_budget_is_applicable(
+                    &task_artifact_path,
+                ) {
+                    let id =
+                        ecaa_workflow_harness::validators::RESOURCE_BUDGET_OBLIGATION.to_string();
+                    if seen_obligations.insert(id.clone()) {
+                        obligations.push(id);
+                    }
+                }
+                if ecaa_workflow_harness::validators::narrative_boundary_is_applicable(
+                    &task_artifact_path,
+                ) {
+                    let id = ecaa_workflow_harness::validators::NARRATIVE_BOUNDARY_OBLIGATION
+                        .to_string();
+                    if seen_obligations.insert(id.clone()) {
+                        obligations.push(id);
+                    }
+                }
                 if !obligations.is_empty() {
                     // Validators inspect artifacts under
                     // runtime/outputs/<task_id>/ so the artifact path

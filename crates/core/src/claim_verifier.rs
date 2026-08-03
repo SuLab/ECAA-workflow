@@ -1063,7 +1063,7 @@ fn numeric_token_owned_by_claim(
     canonical_excerpt: &str,
     claim: &Claim,
     cfg: &ExtractorConfig,
-    table_entities: &BTreeSet<String>,
+    entity_exists: &dyn Fn(&str) -> bool,
 ) -> Option<bool> {
     let mut spans: BTreeSet<(usize, usize, String)> = BTreeSet::new();
     let claim_namespace = id_namespace(&claim.entity);
@@ -1073,7 +1073,7 @@ fn numeric_token_owned_by_claim(
             let entity = matched.as_str();
             let normalized = normalize(entity);
             if id_namespace(entity) != claim_namespace
-                || (normalized != claim_entity && !table_entities.contains(&normalized))
+                || (normalized != claim_entity && !entity_exists(&normalized))
                 || crate::claim_extractor::excluded_entity_token(entity, cfg)
             {
                 continue;
@@ -1272,19 +1272,23 @@ struct ResolvedRow {
     values: BTreeMap<String, String>,
 }
 
-/// Resolve the claim's entity to a row: prefer the cited `source_table`, else
-/// scan every distinct table in the index for a row whose entity matches.
-/// Returns the row's values (cloned) so the caller is free of the `&mut cache`
-/// borrow.
-fn resolve_entity_row(
+/// Resolve the claim's entity to every matching row: inspect the cited
+/// `source_table` first, then every other distinct table in deterministic
+/// order. Returning every match is important for the class-agnostic numeric
+/// gate: an entity can occur in an evidence rollup as well as the primary
+/// result artifact, and the first of those tables is not necessarily the one
+/// that carries all measurements asserted by the narrative.
+///
+/// Row values are cloned so the caller is free of the `&mut cache` borrow.
+fn resolve_entity_rows(
     claim: &Claim,
     index: &TableIndex,
     cfg: &ExtractorConfig,
     cache: &mut BTreeMap<PathBuf, CachedTable>,
-) -> Option<ResolvedRow> {
+) -> Vec<ResolvedRow> {
     let needle = normalize(&claim.entity);
     if needle.is_empty() {
-        return None;
+        return Vec::new();
     }
     let mut paths: Vec<PathBuf> = Vec::new();
     if let Some(src) = claim.source_table.as_deref() {
@@ -1297,6 +1301,7 @@ fn resolve_entity_row(
             paths.push(p);
         }
     }
+    let mut rows = Vec::new();
     for path in paths {
         if !cache.contains_key(&path) {
             match load_table_rows(&path, &cfg.entity_columns) {
@@ -1324,14 +1329,14 @@ fn resolve_entity_row(
                         .find(|c| row.values.contains_key(&normalize(c)))
                 })
                 .cloned();
-            return Some(ResolvedRow {
+            rows.push(ResolvedRow {
                 table_label: table_label(&path),
                 entity_column,
                 values: row.values.clone(),
             });
         }
     }
-    None
+    rows
 }
 
 /// The candidate `(column_name, value)` pairs a numeric token may agree with,
@@ -1419,21 +1424,82 @@ fn run_numeric_gate(
         return (base, Some(audit));
     }
 
-    let resolved = resolve_entity_row(claim, index, cfg, cache);
-    let mut table_entities = BTreeSet::new();
-    for table in cache.values() {
-        for row in &table.rows {
-            for column in &cfg.entity_columns {
-                if let Some(value) = row.values.get(&normalize(column)) {
-                    let value = normalize(value);
-                    if !value.is_empty() {
-                        table_entities.insert(value);
-                    }
-                }
+    let resolved_rows = resolve_entity_rows(claim, index, cfg, cache);
+    // Membership is already indexed in every cached table. Query those maps
+    // directly instead of rebuilding a union of every table entity for every
+    // claim. The former implementation made verification O(claims * rows): a
+    // 5,000-claim report over a 20,000-row result table repeatedly normalized
+    // and inserted roughly 100 million cells. This lookup is O(tables * log
+    // rows) per entity token and is independent of modality or table shape.
+    let entity_exists = |normalized: &str| {
+        cache
+            .values()
+            .any(|table| table.get_by_normalized(normalized).is_some())
+    };
+
+    // Pick the row that best covers the narrative's numeric assertions. A
+    // fully covered agreeing row wins outright. If no row fully agrees, prefer
+    // the row that compares the most tokens so a partial evidence rollup cannot
+    // hide a disagreement present in a measurement-complete result table.
+    // Remaining ties preserve `resolve_entity_rows` order (cited source first,
+    // then deterministic table order).
+    #[derive(Clone, Copy, Default)]
+    struct RowScore {
+        fully_agrees: bool,
+        compared: usize,
+        mismatches: usize,
+        agreements: usize,
+    }
+    let row_score = |row: &ResolvedRow| {
+        let mut score = RowScore::default();
+        let mut parseable_relevant = 0usize;
+        for tok in &tokens {
+            if numeric_token_owned_by_claim(tok, &canonical_excerpt, claim, cfg, &entity_exists)
+                == Some(false)
+            {
+                continue;
+            }
+            let Some(claimed) = tok.claimed else {
+                continue;
+            };
+            parseable_relevant += 1;
+            let candidates = observed_candidates(&row.values, tok.kind, cfg);
+            if candidates.is_empty() {
+                continue;
+            }
+            score.compared += 1;
+            let agrees = candidates.iter().any(|(_, observed)| match tok.kind {
+                NumericColumnKind::Log2Fc => (claimed - observed).abs() <= cfg.log2fc_tolerance,
+                _ => pvalue_orders_within(claimed, *observed, PVALUE_ORDERS_TOLERANCE),
+            });
+            if agrees {
+                score.agreements += 1;
+            } else {
+                score.mismatches += 1;
             }
         }
+        score.fully_agrees =
+            parseable_relevant > 0 && score.compared == parseable_relevant && score.mismatches == 0;
+        score
+    };
+    let better_score = |candidate: RowScore, current: RowScore| {
+        candidate.fully_agrees && !current.fully_agrees
+            || candidate.fully_agrees == current.fully_agrees
+                && (candidate.compared > current.compared
+                    || candidate.compared == current.compared
+                        && (candidate.mismatches < current.mismatches
+                            || candidate.mismatches == current.mismatches
+                                && candidate.agreements > current.agreements))
+    };
+    let mut resolved: Option<ResolvedRow> = None;
+    let mut best_score = RowScore::default();
+    for row in resolved_rows {
+        let score = row_score(&row);
+        if resolved.is_none() || better_score(score, best_score) {
+            resolved = Some(row);
+            best_score = score;
+        }
     }
-    table_entities.insert(normalize(&claim.entity));
     let n_tokens = tokens.len();
     let mut n_compared = 0usize;
     let mut any_unparseable = false;
@@ -1500,7 +1566,7 @@ fn run_numeric_gate(
     // second value in a single-entity claim.
     let mut n_ambient = 0usize;
     for tok in &tokens {
-        if numeric_token_owned_by_claim(tok, &canonical_excerpt, claim, cfg, &table_entities)
+        if numeric_token_owned_by_claim(tok, &canonical_excerpt, claim, cfg, &entity_exists)
             == Some(false)
         {
             n_ambient += 1;
@@ -3343,20 +3409,23 @@ impl CachedTable {
                 .iter()
                 .find(|column| row.values.contains_key(&normalize(column)))
         });
-        let primary_family = primary_column.and_then(|column| entity_alias_family(column));
         for (i, row) in rows.iter().enumerate() {
             by_entity.entry(normalize(&row.entity)).or_insert(i);
-            if let Some(family) = primary_family {
-                for column in entity_columns {
-                    if entity_alias_family(column) != Some(family) {
+            if let Some(primary) = primary_column {
+                // Index every PHYSICAL header that represents the same entity
+                // identity, not only headers already enumerated in the global
+                // policy. Result tables routinely pair an accession/id with a
+                // human label (`gene_id` + `gene_symbol`, `analyte_id` +
+                // `analyte_label`, and analogous modalities). A global policy
+                // cannot foresee every scientific noun, while the shared
+                // header stem and known identity families provide a narrow,
+                // deterministic relation that never aliases unrelated axes
+                // such as `sample_id` and `feature_id`.
+                for (column, alias) in &row.values {
+                    if !same_entity_identity_family(primary, column) || alias.trim().is_empty() {
                         continue;
                     }
-                    let Some(alias) = row.values.get(&normalize(column)) else {
-                        continue;
-                    };
-                    if !alias.trim().is_empty() {
-                        by_entity.entry(normalize(alias)).or_insert(i);
-                    }
+                    by_entity.entry(normalize(alias)).or_insert(i);
                 }
             }
         }
@@ -3377,11 +3446,12 @@ impl CachedTable {
 fn entity_alias_family(column: &str) -> Option<&'static str> {
     let normalized = normalize(column).replace([' ', '-', '.'], "_");
     match normalized.as_str() {
-        "gene" | "gene_id" | "gene_name" | "symbol" | "ensembl_id" | "ensembl_gene_id" => {
-            Some("gene")
-        }
-        "pathway" | "pathway_id" | "term" | "gene_set_id" => Some("set"),
-        "sample" | "sample_id" => Some("sample"),
+        "gene" | "gene_id" | "gene_name" | "gene_symbol" | "symbol" | "ensembl_id"
+        | "ensembl_gene_id" => Some("gene"),
+        "pathway" | "pathway_id" | "pathway_name" | "term" | "term_id" | "term_name"
+        | "gene_set" | "gene_set_id" | "gene_set_name" => Some("set"),
+        "feature" | "feature_id" | "feature_name" | "feature_label" => Some("feature"),
+        "sample" | "sample_id" | "sample_name" | "sample_label" => Some("sample"),
         "cell" | "cell_id" | "barcode" => Some("cell"),
         "taxon" | "taxon_id" | "taxon_name" | "otu" | "otu_id" | "asv" => Some("taxon"),
         "region" | "peak" | "peak_id" | "cpg" | "cpg_id" | "site" | "probe" | "probe_id" => {
@@ -3392,6 +3462,41 @@ fn entity_alias_family(column: &str) -> Option<&'static str> {
         "transcript" | "transcript_id" => Some("transcript"),
         _ => None,
     }
+}
+
+/// Stable lexical stem for an entity-identity header. Removing only standard
+/// identity suffixes lets an unseen modality pair `metabolite_id` with
+/// `metabolite_label` while keeping different table axes separate. A bare
+/// generic `id`/`name` has no stem and therefore cannot create aliases.
+fn entity_identity_stem(column: &str) -> Option<String> {
+    let normalized = normalize(column).replace([' ', '-', '.'], "_");
+    const SUFFIXES: &[&str] = &[
+        "_identifier",
+        "_accession",
+        "_symbol",
+        "_label",
+        "_name",
+        "_code",
+        "_key",
+        "_id",
+    ];
+    let stem = SUFFIXES
+        .iter()
+        .find_map(|suffix| normalized.strip_suffix(suffix))
+        .unwrap_or(&normalized)
+        .trim_matches('_');
+    (!stem.is_empty() && !matches!(stem, "id" | "name" | "label" | "symbol"))
+        .then(|| stem.to_string())
+}
+
+fn same_entity_identity_family(primary: &str, candidate: &str) -> bool {
+    let known = entity_alias_family(primary)
+        .zip(entity_alias_family(candidate))
+        .is_some_and(|(left, right)| left == right);
+    known
+        || entity_identity_stem(primary)
+            .zip(entity_identity_stem(candidate))
+            .is_some_and(|(left, right)| left == right)
 }
 
 /// Get-or-load helper. Resolves `source_ref` against `index`, then
@@ -3846,7 +3951,11 @@ struct ResolvedCountThreshold {
 /// *multiple-testing-adjusted* quantity rather than a raw p-value.
 pub(crate) fn is_adjusted_pvalue_keyword(kw: &str) -> bool {
     let k = kw.to_ascii_lowercase().replace([' ', '.', '_', '-'], "");
-    k.contains("adj") || k.contains("fdr") || k.starts_with('q') || k == "padj"
+    k.contains("adj")
+        || k.contains("fdr")
+        || k.starts_with('q')
+        || k == "padj"
+        || k == "analysissignificance"
 }
 
 /// Effect-magnitude constraint parse: "LFC>1", "log2FC > 1.5",
@@ -5044,6 +5153,16 @@ static NUMBER_OF_NUMBER_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
         .expect("static number-of-number regex compiles")
 });
 
+/// Compact subset/total notation used in operational summaries, for example
+/// `17,209/22,369 identifiers mapped`. The surrounding lifecycle cue and the
+/// retained summary-field vocabulary supply the semantics; this pattern only
+/// identifies the numerator and denominator so the generic compound scanner
+/// cannot assign the same trailing verb to both numbers.
+static NUMBER_SLASH_NUMBER_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"\b(\d[\d,]*)\s*/\s*(\d[\d,]*)\b")
+        .expect("static slash-ratio count regex compiles")
+});
+
 static PREFILTER_SUMMARY_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(
         r"(?i)\b(?:pre[\s-]?filter\s+)?removed\s+(\d[\d,]*)\s+of\s+(\d[\d,]*)\s+(?:input\s+)?genes?(?:\s*\([^)]{0,240}\))?\s*,\s+retaining\s+(\d[\d,]*)\b",
@@ -5667,6 +5786,28 @@ impl SemanticSummaryIndex {
             return None;
         }
         Some((first.path.clone(), first.field.clone(), first.value))
+    }
+
+    /// Resolve a companion lifecycle count from the same retained summary
+    /// artifact as an already-resolved fact. Ratio notation describes one
+    /// stage-local population transition, so allowing its denominator to bind
+    /// to an unrelated stage merely because the noun and field tokens match
+    /// would manufacture provenance across analytical boundaries.
+    fn resolve_in_path(
+        &self,
+        path: &Path,
+        noun: &str,
+        ordered_role_aliases: &[&str],
+    ) -> Option<(PathBuf, String, usize)> {
+        let scoped = Self {
+            counts: self
+                .counts
+                .iter()
+                .filter(|count| count.path == path)
+                .cloned()
+                .collect(),
+        };
+        scoped.resolve(noun, ordered_role_aliases)
     }
 
     /// Resolve a count when its scientific noun is not known to the source.
@@ -6365,7 +6506,100 @@ pub fn verify_narrative_counts(
         .any(|pattern| pattern.is_match(s));
         if !has_count_threshold(s) && !NUMBER_OF_NUMBER_RE.is_match(s) && !legacy_compound_shape {
             let mut compound_facts = Vec::new();
+            let mut ratio_number_spans = Vec::new();
+
+            // A slash ratio is an explicit subset/total relation. Resolve the
+            // numerator from the local operational verb, then resolve the
+            // denominator as the corresponding source population in the SAME
+            // summary artifact and scientific noun family. This is vocabulary-
+            // and modality-neutral: `89/137 metabolites mapped`,
+            // `412/500 variants retained`, and analogous future entities all
+            // follow the same field-token contract. Without this branch, the
+            // generic scanner sees the same clause for both integers and can
+            // compare the denominator with the numerator's `*_mapped` field.
+            for captures in NUMBER_SLASH_NUMBER_RE.captures_iter(s) {
+                let (Some(numerator_match), Some(denominator_match)) =
+                    (captures.get(1), captures.get(2))
+                else {
+                    continue;
+                };
+                let context =
+                    count_clause_context(s, numerator_match.start(), denominator_match.end());
+                let Some((role_label, roles)) = semantic_role_query(context) else {
+                    continue;
+                };
+                let Some(numerator) = parse_count(numerator_match.as_str()) else {
+                    continue;
+                };
+                let Some(denominator) = parse_count(denominator_match.as_str()) else {
+                    continue;
+                };
+                let Some((path, field, observed, noun_label)) =
+                    semantic_summaries.resolve_context(context, roles)
+                else {
+                    continue;
+                };
+                compound_facts.push(make(
+                    &format!("count:{role_label} {noun_label}"),
+                    compare_exact_count(
+                        numerator,
+                        observed,
+                        &path,
+                        &format!("stage-summary field `{field}`"),
+                    ),
+                    Some(package_relative_label(&path, package_root)),
+                ));
+
+                let source_roles: &[&str] = match role_label {
+                    "mapped" => &["pre_mapping", "input", "source", "original", "raw", "total"],
+                    "retained" | "removed" => {
+                        &["pre_filter", "input", "source", "original", "raw", "total"]
+                    }
+                    _ => &[
+                        "input",
+                        "source",
+                        "original",
+                        "raw",
+                        "pre_mapping",
+                        "pre_filter",
+                        "total",
+                    ],
+                };
+                let denominator_entity = format!("count:source {noun_label}");
+                if let Some((source_path, source_field, source_observed)) =
+                    semantic_summaries.resolve_in_path(&path, &noun_label, source_roles)
+                {
+                    compound_facts.push(make(
+                        &denominator_entity,
+                        compare_exact_count(
+                            denominator,
+                            source_observed,
+                            &source_path,
+                            &format!("stage-summary field `{source_field}`"),
+                        ),
+                        Some(package_relative_label(&source_path, package_root)),
+                    ));
+                } else {
+                    compound_facts.push(make(
+                        &denominator_entity,
+                        ClaimStatus::Unverifiable {
+                            reason: format!(
+                                "no same-stage retained source-population field matched `{noun_label}`"
+                            ),
+                        },
+                        None,
+                    ));
+                }
+                ratio_number_spans.push((numerator_match.start(), numerator_match.end()));
+                ratio_number_spans.push((denominator_match.start(), denominator_match.end()));
+            }
             for count_match in INTEGER_COUNT_RE.find_iter(s) {
+                if ratio_number_spans
+                    .iter()
+                    .any(|span| *span == (count_match.start(), count_match.end()))
+                {
+                    continue;
+                }
                 let preceding_decimal = count_match.start() >= 2
                     && s.as_bytes()[count_match.start() - 1] == b'.'
                     && s.as_bytes()[count_match.start() - 2].is_ascii_digit();
@@ -7691,6 +7925,19 @@ fn resolve_summary_count(
     None
 }
 
+/// Package-scoped parsed-table state for repeated claim-discovery calls.
+///
+/// Finalization verifies each completed task separately, but every task draws
+/// from the same immutable result tables. Keeping this state for the duration
+/// of one package finalization avoids reparsing large tables once per task.
+/// The public single-call verifier below still creates a fresh cache, so no
+/// state crosses packages or survives in a long-running server.
+#[derive(Default)]
+pub(crate) struct ClaimDiscoveryCache {
+    tables: BTreeMap<PathBuf, CachedTable>,
+    unusable_candidates: BTreeSet<PathBuf>,
+}
+
 /// Verify prose / markdown-table claims, discovering the backing table by
 /// entity membership when the claim cites none.
 ///
@@ -7708,10 +7955,36 @@ pub fn verify_claims_with_discovery(
     package_root: &Path,
     cfg: &ExtractorConfig,
 ) -> Vec<ClaimVerdict> {
+    verify_claims_with_discovery_cached(
+        claims,
+        effective_root,
+        package_root,
+        cfg,
+        &mut ClaimDiscoveryCache::default(),
+    )
+}
+
+/// Package-finalization variant of [`verify_claims_with_discovery`] that
+/// reuses parsed immutable tables across task-scoped verification calls.
+pub(crate) fn verify_claims_with_discovery_cached(
+    claims: &[Claim],
+    effective_root: &Path,
+    package_root: &Path,
+    cfg: &ExtractorConfig,
+    discovery_cache: &mut ClaimDiscoveryCache,
+) -> Vec<ClaimVerdict> {
     let cited_index = TableIndex::scan(effective_root);
-    let candidates = discovery_candidate_tables(package_root);
-    let mut cache: BTreeMap<PathBuf, CachedTable> = BTreeMap::new();
-    let mut unusable_candidates: BTreeSet<PathBuf> = BTreeSet::new();
+    let mut candidates = discovery_candidate_tables(package_root);
+    // A task's own tables are the highest-probability evidence source. Search
+    // them first, while retaining deterministic path order within each tier.
+    // A contradictory local table does not decide the verdict: the reducer
+    // keeps scanning until an agreeing duplicate is found or every candidate
+    // is exhausted.
+    candidates.sort_by_key(|path| usize::from(path.parent() != Some(effective_root)));
+    let ClaimDiscoveryCache {
+        tables: cache,
+        unusable_candidates,
+    } = discovery_cache;
     let mut verdicts = Vec::new();
     for claim in claims {
         // Literature-grounded claims are verified against the package's
@@ -7719,26 +7992,75 @@ pub fn verify_claims_with_discovery(
         // them before the table-discovery branch.
         if claim.contract == ClaimContract::LiteratureGrounded {
             let base = verify_literature_grounded_at(claim, package_root, cfg);
+            let matrix_source = resolve_evidence_literature(package_root, "", &[], cfg);
             // CV-1/CV-2: cross-check any numeric quantity the literature claim
             // asserts against the discovered result tables. The literature
             // handler is numeric-blind; without this a concordance claim
             // carrying a wrong effect size / p-value verifies on its
             // literature-direction predicate alone.
             let gate_index = TableIndex::from_paths(&candidates);
-            let (status, audit) = run_numeric_gate(base, claim, &gate_index, cfg, &mut cache);
+            let (status, mut audit) = run_numeric_gate(base, claim, &gate_index, cfg, cache);
             let mut out = claim.clone();
-            // Record the matrix as the supporting evidence for an ADJUDICATED
-            // verdict (Verified/Suspicious project `supported_by` from
-            // `source_table`; the sink drops it for the non-adjudicated arms).
-            // Without this a verified literature claim carries an empty
-            // `supported_by`, breaking the C→V evidence link the audit-proof
-            // `evidence_coverage`/`cross_graph_integrity` invariants rely on.
-            if matches!(
-                status,
-                ClaimStatus::Verified | ClaimStatus::Suspicious { .. }
-            ) {
-                if let Some(matrix) = resolve_evidence_literature(package_root, "", &[], cfg) {
-                    out.source_table = Some(package_relative_label(&matrix, package_root));
+            // The matrix was inspected for EVERY literature verdict, including
+            // Mismatch and Unverifiable. Retain that evidence route for every
+            // status so the signed C-graph never contains an adjudication with
+            // empty `supported_by` / `checked_against` fields merely because
+            // the claim failed. When the numeric gate did not open a separate
+            // result table, enrich its audit with a reconstructable matrix row
+            // locator and the semantic column used by the literature check.
+            if let Some(matrix) = matrix_source {
+                let matrix_label = package_relative_label(&matrix, package_root);
+                out.source_table = Some(matrix_label.clone());
+                if let Some(audit) = audit.as_mut() {
+                    if audit.source_table.is_none() {
+                        audit.source_table = Some(matrix_label);
+                        let finding_id = claim
+                            .literature_evidence
+                            .as_ref()
+                            .map(|evidence| evidence.finding_id.trim())
+                            .filter(|value| !value.is_empty());
+                        let locator = load_literature_rows(&matrix).ok().and_then(|loaded| {
+                            finding_id
+                                .and_then(|id| {
+                                    loaded
+                                        .rows
+                                        .iter()
+                                        .find(|row| row.finding_id.eq_ignore_ascii_case(id))
+                                        .map(|row| ("finding_id", row.finding_id.clone()))
+                                })
+                                .or_else(|| {
+                                    loaded
+                                        .rows
+                                        .iter()
+                                        .find(|row| {
+                                            normalize(&row.entity) == normalize(&claim.entity)
+                                        })
+                                        .map(|row| ("entity", row.entity.clone()))
+                                })
+                        });
+                        let (entity_column, entity_value) =
+                            locator.unwrap_or_else(|| ("entity", claim.entity.clone()));
+                        audit.entity_column = Some(entity_column.to_string());
+                        audit.entity_value = Some(entity_value);
+                        if audit.measurement_column.is_none() {
+                            let detail = match &status {
+                                ClaimStatus::Mismatch { detail } => detail.as_str(),
+                                ClaimStatus::Unverifiable { reason }
+                                | ClaimStatus::Pending { reason }
+                                | ClaimStatus::Suspicious { reason } => reason.as_str(),
+                                ClaimStatus::Verified => "",
+                            };
+                            let detail = detail.to_ascii_lowercase();
+                            audit.measurement_column = Some(
+                                if detail.contains("pmid") || detail.contains("paper") {
+                                    "prior_pmids"
+                                } else {
+                                    "concordance_flag"
+                                }
+                                .to_string(),
+                            );
+                        }
+                    }
                 }
             }
             verdicts.push(ClaimVerdict {
@@ -7750,7 +8072,7 @@ pub fn verify_claims_with_discovery(
             continue;
         }
         if claim.source_table.is_some() {
-            let (status, audit) = verify_for_contract_audited(claim, &cited_index, cfg, &mut cache);
+            let (status, audit) = verify_for_contract_audited(claim, &cited_index, cfg, cache);
             verdicts.push(ClaimVerdict {
                 claim: claim.clone(),
                 status,
@@ -7764,43 +8086,78 @@ pub fn verify_claims_with_discovery(
         // (e.g. `de_results.tsv` + `de_table.tsv`) with rounding-level
         // differences, so checking only the first match risks a *false*
         // mismatch against a table the narrative wasn't derived from.
-        // Verify against every containing table and let agreement win:
-        // Verified if any matching table confirms the claim; Mismatch
-        // only when a table is found but none confirm; Unverifiable when
-        // no result table contains the entity at all.
+        // Stream over containing tables and let agreement win: Verified if any
+        // matching table confirms the claim; Mismatch only when a table is
+        // found but none confirm; Unverifiable when no result table contains
+        // the entity at all. Once a table verifies, later tables cannot change
+        // the outcome, so stop without parsing them. This preserves the
+        // all-matches correctness rule while avoiding a full package-table scan
+        // for every ordinary claim whose task-local source already agrees.
         let needle = normalize(&claim.entity);
-        let containing: Vec<PathBuf> = candidates
-            .iter()
-            .filter(|cand| {
-                if unusable_candidates.contains(*cand) {
-                    return false;
-                }
-                if !cache.contains_key(*cand) {
-                    match load_table_rows(cand, &cfg.entity_columns) {
-                        Ok(t) => {
-                            cache.insert((*cand).clone(), t);
-                        }
-                        Err(e) => {
-                            unusable_candidates.insert((*cand).clone());
-                            tracing::warn!(
-                                target: "ecaa::claim_verifier",
-                                table = %cand.display(),
-                                error = %e,
-                                "table not usable for claim discovery (e.g. a non-result table with no configured entity column, such as method_landscape.csv, or a genuine parse/IO error — see `error`); excluding it"
-                            );
-                            return false;
-                        }
+        let mut best: Option<ClaimStatus> = None;
+        let mut best_audit: Option<VerdictAudit> = None;
+        let mut chosen = claim.clone();
+        for path in &candidates {
+            if unusable_candidates.contains(path) {
+                continue;
+            }
+            if !cache.contains_key(path) {
+                match load_table_rows(path, &cfg.entity_columns) {
+                    Ok(table) => {
+                        cache.insert(path.clone(), table);
+                    }
+                    Err(error) => {
+                        unusable_candidates.insert(path.clone());
+                        tracing::warn!(
+                            target: "ecaa::claim_verifier",
+                            table = %path.display(),
+                            error = %error,
+                            "table not usable for claim discovery (e.g. a non-result table with no configured entity column, such as method_landscape.csv, or a genuine parse/IO error — see `error`); excluding it"
+                        );
+                        continue;
                     }
                 }
-                cache
-                    .get(*cand)
-                    .map(|t| t.get_by_normalized(&needle).is_some())
-                    .unwrap_or(false)
-            })
-            .cloned()
-            .collect();
+            }
+            if cache
+                .get(path)
+                .and_then(|table| table.get_by_normalized(&needle))
+                .is_none()
+            {
+                continue;
+            }
 
-        let (claim_out, status, audit) = if containing.is_empty() {
+            let mut candidate_claim = claim.clone();
+            // Record the table as a package-root-relative path so projected
+            // evidence points at the actual producer rather than the claim's
+            // task directory.
+            candidate_claim.source_table = Some(package_relative_label(path, package_root));
+            let index = TableIndex::single(path);
+            let (status, audit) = verify_for_contract_audited(&candidate_claim, &index, cfg, cache);
+            let verified = matches!(status, ClaimStatus::Verified);
+            let prefer = match &best {
+                None => true,
+                Some(ClaimStatus::Verified) => false,
+                Some(ClaimStatus::Mismatch { .. }) => verified,
+                Some(ClaimStatus::Unverifiable { .. }) | Some(ClaimStatus::Pending { .. }) => {
+                    verified || matches!(status, ClaimStatus::Mismatch { .. })
+                }
+                Some(ClaimStatus::Suspicious { .. }) => {
+                    verified || matches!(status, ClaimStatus::Mismatch { .. })
+                }
+            };
+            if prefer {
+                chosen = candidate_claim;
+                best = Some(status);
+                best_audit = audit;
+            }
+            if matches!(best, Some(ClaimStatus::Verified)) {
+                break;
+            }
+        }
+
+        let (claim_out, status, audit) = if let Some(status) = best {
+            (chosen, status, best_audit)
+        } else {
             (
                 claim.clone(),
                 ClaimStatus::Unverifiable {
@@ -7811,50 +8168,6 @@ pub fn verify_claims_with_discovery(
                     entity_opt(claim),
                 )),
             )
-        } else {
-            let mut best: Option<ClaimStatus> = None;
-            let mut best_audit: Option<VerdictAudit> = None;
-            let mut chosen = claim.clone();
-            for path in &containing {
-                let mut c = claim.clone();
-                // D1: record the table as a package-root-relative path (it
-                // contains `/`), so the evidence reference projected into
-                // `supported_by` points at the directory the table actually
-                // lives in (e.g. data_acquisition/) rather than being
-                // re-prefixed with the *claim's* own task id. `evidence_ref_for`
-                // passes a path containing `/` through verbatim.
-                c.source_table = Some(package_relative_label(path, package_root));
-                let idx = TableIndex::single(path);
-                let (status, cand_audit) = verify_for_contract_audited(&c, &idx, cfg, &mut cache);
-                let verified = matches!(status, ClaimStatus::Verified);
-                let prefer = match &best {
-                    None => true,
-                    // Verified beats everything; Mismatch beats Unverifiable.
-                    Some(ClaimStatus::Verified) => false,
-                    Some(ClaimStatus::Mismatch { .. }) => verified,
-                    // Unverifiable and Pending rank identically here: a stronger
-                    // Verified/Mismatch wins over either.
-                    Some(ClaimStatus::Unverifiable { .. }) | Some(ClaimStatus::Pending { .. }) => {
-                        verified || matches!(status, ClaimStatus::Mismatch { .. })
-                    }
-                    // Suspicious only arises for entities ABSENT from a table,
-                    // which cannot happen on this containing-tables path; rank
-                    // it like Unverifiable (a stronger Verified/Mismatch wins)
-                    // for completeness.
-                    Some(ClaimStatus::Suspicious { .. }) => {
-                        verified || matches!(status, ClaimStatus::Mismatch { .. })
-                    }
-                };
-                if prefer {
-                    chosen = c;
-                    best = Some(status);
-                    best_audit = cand_audit;
-                }
-                if matches!(best, Some(ClaimStatus::Verified)) {
-                    break;
-                }
-            }
-            (chosen, best.expect("non-empty containing set"), best_audit)
         };
         verdicts.push(ClaimVerdict {
             claim: claim_out,
@@ -8061,6 +8374,31 @@ mod tests {
                 "pvalueColumns": ["padj", "pvalue"]
             }
         })
+    }
+
+    #[test]
+    fn production_policy_recognizes_canonical_analysis_rollup_measurements() {
+        let policy: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../config/downstream-policy/interpretation-policy.json"
+        ))
+        .unwrap();
+        let cfg = ExtractorConfig::from_policy(&policy).unwrap();
+        assert!(
+            cfg.effect_size_columns
+                .iter()
+                .any(|column| column == "analysis_effect"),
+            "canonical evidence-rollup effect column must be verifier-readable"
+        );
+        assert!(
+            cfg.pvalue_columns
+                .iter()
+                .any(|column| column == "analysis_significance"),
+            "canonical evidence-rollup significance column must be verifier-readable"
+        );
+        assert!(
+            is_adjusted_pvalue_keyword("analysis_significance"),
+            "canonical analysis significance is the adjusted significance role"
+        );
     }
 
     fn write_table(dir: &Path, name: &str, body: &str) {
@@ -8698,6 +9036,7 @@ mod tests {
         };
         let canonical = crate::claim_extractor::canonicalize_scientific(&claim.excerpt);
         let tokens = scan_numeric_tokens(&claim.excerpt);
+        let entity_exists = |candidate: &str| candidate == normalize(&claim.entity);
         assert_eq!(tokens.len(), 2, "{tokens:#?}");
         assert!(
             tokens.iter().all(|token| numeric_token_owned_by_claim(
@@ -8705,7 +9044,7 @@ mod tests {
                 &canonical,
                 &claim,
                 &cfg,
-                &BTreeSet::from([normalize(&claim.entity)])
+                &entity_exists,
             ) != Some(false)),
             "both values belong to the only entity in the sentence"
         );
@@ -11214,6 +11553,52 @@ mod tests {
     }
 
     #[test]
+    fn discovery_indexes_unseen_same_identity_label_columns() {
+        // The global policy cannot enumerate every modality's physical label
+        // header. A table whose configured key is `analyte_id` must still let a
+        // narrative resolve the same row by `analyte_label`; the shared stem
+        // establishes identity without aliasing an unrelated table axis.
+        let mut policy = policy_json();
+        policy["verifiableEntities"]["entityColumns"] = json!(["analyte_id"]);
+        policy["verifiableEntities"]["effectSizeColumns"] = json!(["coefficient"]);
+        policy["verifiableEntities"]["pvalueColumns"] = json!(["q_value"]);
+        let cfg = ExtractorConfig::from_policy(&policy).unwrap();
+        let tmp = tempdir().unwrap();
+        write_pkg_table(
+            tmp.path(),
+            "association_testing",
+            "association_results.tsv",
+            "analyte_id\tanalyte_label\tcoefficient\tq_value\nM0007\tLIPID_ALPHA\t1.25\t0.004\n",
+        );
+        let claim = Claim {
+            entity: "LIPID_ALPHA".into(),
+            direction: Some(Direction::Up),
+            effect_size: Some(1.25),
+            pvalue: Some(0.004),
+            source_table: None,
+            excerpt: "LIPID_ALPHA increased (coefficient = 1.25; q_value = 0.004)".into(),
+            contract: ClaimContract::NumericTableLookup,
+            literature_evidence: None,
+            matched_pvalue_keyword: Some("q_value".into()),
+            linear_fold: None,
+            aggregate_kind: None,
+            aggregate_column: None,
+            aggregate_rowset: None,
+            aggregate_value: None,
+            collection: None,
+            term: None,
+            keyed_column: None,
+            keyed_value: None,
+        };
+        let verdicts = verify_claims_with_discovery(&[claim], tmp.path(), tmp.path(), &cfg);
+        assert!(
+            matches!(verdicts[0].status, ClaimStatus::Verified),
+            "same-identity physical label must resolve generically: {:#?}",
+            verdicts[0]
+        );
+    }
+
+    #[test]
     fn cited_exact_name_wins_over_twin_tables() {
         // Two near-duplicate tables; a claim citing one by its exact file
         // name must resolve to it, NOT collapse to None (the laundering
@@ -12251,6 +12636,55 @@ The source matrix contained 37 features across 24 acquisition cycles.";
     }
 
     #[test]
+    fn vf16_slash_ratios_bind_subset_and_total_to_distinct_stage_fields() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        let write_summary = |task: &str, value: serde_json::Value| {
+            let dir = tmp.path().join("runtime").join("outputs").join(task);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(
+                dir.join("result.json"),
+                serde_json::to_vec_pretty(&value).unwrap(),
+            )
+            .unwrap();
+        };
+        write_summary(
+            "identifier_projection",
+            serde_json::json!({
+                "n_genes_pre_mapping": 22369,
+                "n_genes_mapped": 17209,
+                "n_duplicate_gene_labels_removed": 19
+            }),
+        );
+        write_summary(
+            "library_projection",
+            serde_json::json!({
+                "n_metabolites_pre_mapping": 137,
+                "n_metabolites_mapped": 89
+            }),
+        );
+
+        for narrative in [
+            "Identifier mapping used a pinned annotation; 17,209/22,369 Ensembl IDs mapped \
+             to gene symbols, and 19 duplicate labels were resolved.",
+            "The library projection mapped 89/137 metabolite identifiers to reference labels.",
+        ] {
+            let verdicts = verify_narrative_counts(narrative, tmp.path(), tmp.path(), &cfg);
+            assert_eq!(verdicts.len(), 2, "{narrative}: {verdicts:#?}");
+            assert!(
+                verdicts
+                    .iter()
+                    .all(|verdict| matches!(verdict.status, ClaimStatus::Verified)),
+                "{narrative}: {verdicts:#?}"
+            );
+            assert_ne!(
+                verdicts[0].claim.entity, verdicts[1].claim.entity,
+                "the numerator and denominator must represent distinct lifecycle populations"
+            );
+        }
+    }
+
+    #[test]
     fn vf16_thresholded_tested_summary_accepts_an_unseen_modality_noun() {
         let cfg = ExtractorConfig::from_policy(&serde_json::json!({
             "verifiableEntities": {
@@ -12769,6 +13203,87 @@ The source matrix contained 37 features across 24 acquisition cycles.";
             .expect("verified claim carries an audit tuple");
         assert_eq!(audit.class, VerdictClass::NumericTable);
         assert!((audit.parse_coverage - 1.0).abs() < 1e-9);
+    }
+
+    /// A generic evidence rollup can contain the same entity as the primary
+    /// result table without carrying every numeric role. The gate must inspect
+    /// every containing table and select the measurement-complete agreeing row,
+    /// rather than stopping at the alphabetically first evidence artifact.
+    #[test]
+    fn literature_numeric_gate_prefers_complete_agreeing_result_row() {
+        let mut policy = policy_json();
+        policy["verifiableEntities"]["entityColumns"] =
+            json!(["entity", "gene_id", "gene", "symbol", "pathway"]);
+        policy["verifiableEntities"]["effectSizeColumns"] = json!(["log2FC", "log2FoldChange"]);
+        let cfg = ExtractorConfig::from_policy(&policy).unwrap();
+        let tmp = tempdir().unwrap();
+        write_lit_matrix(
+            tmp.path(),
+            "finding_id,entity,prior_pmids,concordance_flag,source_kind\n\
+             ENSG_CRISPLD2,CRISPLD2,24926665,same_direction,pmc_oa_full_text\n",
+        );
+        // The configured primary identity is accession-keyed. The human label
+        // lives in a physical same-identity column that is intentionally not
+        // listed in `entityColumns`, matching arbitrary id+label result tables.
+        write_de_output(
+            tmp.path(),
+            "gene_id\tgene_symbol\tlog2FoldChange\tpadj\n\
+             ENSG00000103196\tCRISPLD2\t2.61\t7.5e-46\n",
+        );
+        let claim = lit_numeric_claim(
+            "CRISPLD2",
+            "CRISPLD2 (log2FC = 2.61; padj = 7.5e-46) is concordant with prior reports",
+        );
+        let verdicts = verify_claims_with_discovery(&[claim], tmp.path(), tmp.path(), &cfg);
+        let verdict = &verdicts[0];
+        assert!(
+            matches!(verdict.status, ClaimStatus::Verified),
+            "the complete agreeing result row must win, got {:?}",
+            verdict.status
+        );
+        let source = verdict
+            .audit
+            .as_ref()
+            .and_then(|audit| audit.source_table.as_deref())
+            .unwrap_or("");
+        assert!(
+            source.ends_with("de_results.tsv"),
+            "numeric audit must identify the table actually compared, got {source:?}"
+        );
+    }
+
+    /// Literature failures are still adjudications against retained evidence.
+    /// Keep the matrix plus an exact row/semantic-column locator so the signed
+    /// claim graph can reconstruct a Mismatch instead of emitting empty links.
+    #[test]
+    fn literature_mismatch_retains_matrix_evidence_locator() {
+        let mut policy = policy_json();
+        policy["verifiableEntities"]["entityColumns"] =
+            json!(["entity", "gene", "symbol", "pathway"]);
+        let cfg = ExtractorConfig::from_policy(&policy).unwrap();
+        let tmp = tempdir().unwrap();
+        write_lit_matrix(
+            tmp.path(),
+            "finding_id,entity,prior_pmids,concordance_flag,source_kind,verified\n\
+             finding_42,TP53,12345678,same_direction,pmc_oa_full_text,true\n",
+        );
+        let claim = lit_claim("finding_42", vec![99999999]);
+        let verdicts = verify_claims_with_discovery(&[claim], tmp.path(), tmp.path(), &cfg);
+        let verdict = &verdicts[0];
+        assert!(matches!(verdict.status, ClaimStatus::Mismatch { .. }));
+        assert!(verdict
+            .claim
+            .source_table
+            .as_deref()
+            .is_some_and(|source| source.ends_with("claims_evidence_matrix.csv")));
+        let audit = verdict.audit.as_ref().expect("mismatch audit");
+        assert!(audit
+            .source_table
+            .as_deref()
+            .is_some_and(|source| source.ends_with("claims_evidence_matrix.csv")));
+        assert_eq!(audit.entity_column.as_deref(), Some("finding_id"));
+        assert_eq!(audit.entity_value.as_deref(), Some("finding_42"));
+        assert_eq!(audit.measurement_column.as_deref(), Some("prior_pmids"));
     }
 
     /// A literature claim asserting a number that cannot be parsed at all

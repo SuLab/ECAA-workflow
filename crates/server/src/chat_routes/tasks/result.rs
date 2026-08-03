@@ -852,9 +852,10 @@ async fn read_progress_log_signals(
     // the same file can blow that; seeking from the tail keeps
     // memory O(tail cap) regardless of file size; the newest-first
     // scan still wins because the marker we want is the most recent.
-    let Ok(progress_tail) =
-        read_log_tail(&task_dir.join("progress.log"), PROGRESS_LOG_TAIL_CAP_BYTES).await
-    else {
+    let progress_path = newest_progress_log(task_dir)
+        .await
+        .unwrap_or_else(|| task_dir.join("progress.log"));
+    let Ok(progress_tail) = read_log_tail(&progress_path, PROGRESS_LOG_TAIL_CAP_BYTES).await else {
         return;
     };
     signals.last_progress_line = progress_tail
@@ -879,6 +880,40 @@ async fn read_progress_log_signals(
             }
         }
     }
+}
+
+/// Resolve the freshest direct child named `progress*.log`. Agents are
+/// contractually asked to append `progress.log`, but a generated script can
+/// accidentally open `progress_new.log` or `progress_agent.log`. The active-task
+/// surface remains observable by following the newest progress stream while
+/// the Logs tab continues to expose every file separately for audit.
+async fn newest_progress_log(task_dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    let mut entries = tokio::fs::read_dir(task_dir).await.ok()?;
+    let mut best: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        let lower = name.to_ascii_lowercase();
+        if !lower.starts_with("progress") || !lower.ends_with(".log") {
+            continue;
+        }
+        let Ok(metadata) = entry.metadata().await else {
+            continue;
+        };
+        if !metadata.is_file() || metadata.len() == 0 {
+            continue;
+        }
+        let modified = metadata.modified().unwrap_or(std::time::UNIX_EPOCH);
+        let replace = best.as_ref().is_none_or(|(best_modified, best_path)| {
+            modified > *best_modified || modified == *best_modified && path < *best_path
+        });
+        if replace {
+            best = Some((modified, path));
+        }
+    }
+    best.map(|(_, path)| path)
 }
 
 /// Count unique figure ids present in `figures/`, bucketing by file stem so a
@@ -1240,7 +1275,7 @@ mod artifact_disposition_tests {
 
 #[cfg(test)]
 mod tests {
-    use super::scan_artifacts;
+    use super::{newest_progress_log, scan_artifacts};
     use crate::chat_routes::test_support::{
         body_json, make_router, seed_session_with_completed_task,
     };
@@ -1248,6 +1283,24 @@ mod tests {
     use axum::http::{Request, StatusCode};
     use tower::util::ServiceExt;
     use uuid::Uuid;
+
+    #[tokio::test]
+    async fn active_progress_follows_fresh_alternate_stream() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("progress.log"), "harness started\n").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        std::fs::write(
+            tmp.path().join("progress_agent.log"),
+            "agent substantive progress\n",
+        )
+        .unwrap();
+        assert_eq!(
+            newest_progress_log(tmp.path())
+                .await
+                .and_then(|path| path.file_name().map(|name| name.to_owned())),
+            Some(std::ffi::OsString::from("progress_agent.log"))
+        );
+    }
 
     #[test]
     fn result_handler_rejects_traversal_task_id() {

@@ -1376,9 +1376,7 @@ impl Executor for LocalExecutor {
     /// The budget is a maximum — `ECAA_HARNESS_CONCURRENCY` still
     /// clamps it lower when the operator wants explicit control.
     fn cpu_budget(&self) -> usize {
-        let nproc = std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(1);
+        let nproc = super::host_probe::probe_total_vcpus() as usize;
         let peak_tool_threads = load_peak_tool_thread_curve(Path::new(&self.package)).unwrap_or(8);
         ((nproc / peak_tool_threads.max(1)) as usize).max(1)
     }

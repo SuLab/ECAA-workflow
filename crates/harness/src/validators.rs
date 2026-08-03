@@ -24,6 +24,7 @@
 //!   transitions the task to `Blocked { ValidationFailed }`,
 //!   matching the existing `claim_extractor` / `claim_verifier` path.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 /// Outcome of running a single validator over a task's artifacts.
@@ -198,7 +199,235 @@ pub fn run_validators(
 /// `(axis, candidate_method)` rows retained in `method_landscape.csv`.
 pub const DISCOVERY_EVIDENCE_OBLIGATION: &str = "discovery_evidence_consistent";
 
+/// Harness-local obligation applied whenever a task retained one or more
+/// structured `parallelism:` records. The agent may detect the host's physical
+/// cores for diagnostics, but its usable/outer/inner plan must remain inside
+/// the harness-recorded numerical thread envelope.
+pub const RESOURCE_BUDGET_OBLIGATION: &str = "resource_budget_consistent";
+pub const NARRATIVE_BOUNDARY_OBLIGATION: &str = "narrative_claim_boundary_respected";
+
 pub struct DiscoveryEvidenceConsistencyRunner;
+
+pub struct ResourceBudgetConsistencyRunner;
+pub struct NarrativeBoundaryRunner;
+
+fn task_forbids_narrative(artifact_path: &Path) -> bool {
+    let Some(spec) = std::fs::read(artifact_path.join("task-spec.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+    else {
+        return false;
+    };
+    let mut text = spec
+        .get("description")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if let Some(boundary) = spec
+        .pointer("/spec/attributes/claim_boundary")
+        .and_then(serde_json::Value::as_str)
+    {
+        text.push('\n');
+        text.push_str(&boundary.to_ascii_lowercase());
+    }
+    text.contains("no narrative")
+        || text.contains("without narrative")
+        || text.contains("no synthesis")
+        || text.contains("no biological synthesis")
+        || text.contains("do not synthesize")
+        || text.contains("must not synthesize")
+        || text.contains("do not introduce composite or narrative claims")
+        || text.contains("do not generate paragraphs")
+        || text.contains("row-level concordance flags only")
+}
+
+pub fn narrative_boundary_is_applicable(artifact_path: &Path) -> bool {
+    task_forbids_narrative(artifact_path)
+}
+
+impl ValidatorRunner for NarrativeBoundaryRunner {
+    fn obligation_id(&self) -> &'static str {
+        NARRATIVE_BOUNDARY_OBLIGATION
+    }
+
+    fn run(&self, artifact_path: &Path) -> ValidatorOutcome {
+        if !task_forbids_narrative(artifact_path) {
+            return ValidatorOutcome::Errored {
+                reason: "task declares no machine-readable narrative prohibition".to_string(),
+            };
+        }
+        let result: serde_json::Value = match std::fs::read(artifact_path.join("result.json"))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        {
+            Some(value) => value,
+            None => {
+                return ValidatorOutcome::Errored {
+                    reason: "result.json missing or unreadable".to_string(),
+                }
+            }
+        };
+        let forbidden: Vec<&str> = ["narrative", "narrative_text", "summary", "interpretation"]
+            .into_iter()
+            .filter(|field| {
+                result
+                    .get(*field)
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|text| !text.trim().is_empty())
+            })
+            .collect();
+        if forbidden.is_empty() {
+            ValidatorOutcome::Passed
+        } else {
+            ValidatorOutcome::Failed {
+                message: format!(
+                    "task claim boundary prohibits synthesized narrative, but result.json contains non-empty field(s): {}",
+                    forbidden.join(", ")
+                ),
+            }
+        }
+    }
+}
+
+fn progress_log_candidates(artifact_path: &Path) -> Vec<std::path::PathBuf> {
+    let mut paths: Vec<_> = std::fs::read_dir(artifact_path)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_file()
+                && path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| {
+                        let name = name.to_ascii_lowercase();
+                        name.starts_with("progress") && name.ends_with(".log")
+                    })
+        })
+        .collect();
+    paths.sort();
+    paths
+}
+
+/// Whether the task retained a structured resource-plan record. Data-driven,
+/// so every modality and analysis archetype receives the same validation.
+pub fn resource_budget_is_applicable(artifact_path: &Path) -> bool {
+    progress_log_candidates(artifact_path).iter().any(|path| {
+        std::fs::read_to_string(path)
+            .ok()
+            .is_some_and(|text| text.lines().any(|line| line.contains("parallelism:")))
+    })
+}
+
+fn recorded_thread_budget(artifact_path: &Path) -> Option<u64> {
+    let value: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(artifact_path.join("determinism-env.json")).ok()?)
+            .ok()?;
+    let values: Vec<u64> = value
+        .get("thread_budget")?
+        .as_object()?
+        .values()
+        .filter_map(|value| {
+            value
+                .as_u64()
+                .or_else(|| value.as_str().and_then(|raw| raw.parse::<u64>().ok()))
+        })
+        .filter(|value| *value > 0)
+        .collect();
+    let first = *values.first()?;
+    values.iter().all(|value| *value == first).then_some(first)
+}
+
+fn parse_parallelism_fields(line: &str) -> BTreeMap<String, u64> {
+    line.split(|character: char| character.is_whitespace() || character == ',')
+        .filter_map(|token| {
+            let (key, value) = token.split_once('=')?;
+            let value = value.trim_end_matches([';', ')', ']']);
+            if value.is_empty() || !value.chars().all(|character| character.is_ascii_digit()) {
+                return None;
+            }
+            Some((key.trim().to_string(), value.parse::<u64>().ok()?))
+        })
+        .collect()
+}
+
+impl ValidatorRunner for ResourceBudgetConsistencyRunner {
+    fn obligation_id(&self) -> &'static str {
+        RESOURCE_BUDGET_OBLIGATION
+    }
+
+    fn run(&self, artifact_path: &Path) -> ValidatorOutcome {
+        let Some(recorded) = recorded_thread_budget(artifact_path) else {
+            return ValidatorOutcome::Errored {
+                reason: "determinism-env.json has no single positive thread budget".to_string(),
+            };
+        };
+        let mut violations = Vec::new();
+        let mut seen = 0usize;
+        for path in progress_log_candidates(artifact_path) {
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            for (line_index, line) in text.lines().enumerate() {
+                if !line.contains("parallelism:") {
+                    continue;
+                }
+                seen += 1;
+                let fields = parse_parallelism_fields(line);
+                let required = |name: &str| fields.get(name).copied();
+                let (Some(recommended), Some(usable), Some(outer), Some(inner)) = (
+                    required("recommended"),
+                    required("usable"),
+                    required("outer_workers").or_else(|| required("outer")),
+                    required("inner_threads").or_else(|| required("inner")),
+                ) else {
+                    violations.push(format!(
+                        "{}:{} has an incomplete parallelism record",
+                        path.file_name()
+                            .and_then(|name| name.to_str())
+                            .unwrap_or("progress.log"),
+                        line_index + 1
+                    ));
+                    continue;
+                };
+                let active = outer.saturating_mul(inner);
+                let usable_ceiling = recommended.saturating_sub(1).max(1);
+                if usable > usable_ceiling || active > usable || active > recommended {
+                    violations.push(format!(
+                        "{}:{} declares recommended={recommended}, usable={usable} (maximum after the required reservation is {usable_ceiling}), outer={outer}, inner={inner} (active={active})",
+                        path.file_name().and_then(|name| name.to_str()).unwrap_or("progress.log"),
+                        line_index + 1
+                    ));
+                }
+                if recommended > recorded || usable > recorded || active > recorded {
+                    violations.push(format!(
+                        "{}:{} exceeds the determinism-env thread budget {recorded} (recommended={recommended}, usable={usable}, active={active})",
+                        path.file_name().and_then(|name| name.to_str()).unwrap_or("progress.log"),
+                        line_index + 1
+                    ));
+                }
+            }
+        }
+        if seen == 0 {
+            return ValidatorOutcome::Errored {
+                reason: "no structured parallelism record found".to_string(),
+            };
+        }
+        violations.sort();
+        violations.dedup();
+        if violations.is_empty() {
+            ValidatorOutcome::Passed
+        } else {
+            ValidatorOutcome::Failed {
+                message: format!(
+                    "parallelism plan exceeds or contradicts the retained thread envelope: {}",
+                    violations.join("; ")
+                ),
+            }
+        }
+    }
+}
 
 /// Whether a discovery artifact declares the method-landscape contract that
 /// [`DiscoveryEvidenceConsistencyRunner`] validates.
@@ -1746,6 +1975,12 @@ pub fn default_runners() -> Vec<Box<dyn ValidatorRunner>> {
         // Discovery evidence flags are checked from retained artifacts rather
         // than declared by any one atom.
         Box::new(DiscoveryEvidenceConsistencyRunner),
+        // Structured resource plans are validated against the captured
+        // determinism envelope for every task that emits one.
+        Box::new(ResourceBudgetConsistencyRunner),
+        // Claim-boundary prose prohibitions are discovered from task-spec.json
+        // and checked without any stage or modality allowlist.
+        Box::new(NarrativeBoundaryRunner),
     ];
     runners.extend(crate::literature_validators::literature_runners());
     runners
@@ -1777,6 +2012,12 @@ const HARNESS_LOCAL_PROVENANCE_OBLIGATIONS: &[&str] = &[SOURCE_DEVIATION_OBLIGAT
 const HARNESS_LOCAL_DISCOVERY_OBLIGATIONS: &[&str] = &[DISCOVERY_EVIDENCE_OBLIGATION];
 
 #[cfg(test)]
+const HARNESS_LOCAL_RESOURCE_OBLIGATIONS: &[&str] = &[RESOURCE_BUDGET_OBLIGATION];
+
+#[cfg(test)]
+const HARNESS_LOCAL_CLAIM_BOUNDARY_OBLIGATIONS: &[&str] = &[NARRATIVE_BOUNDARY_OBLIGATION];
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
@@ -1792,6 +2033,159 @@ mod tests {
         let runner = PValueInUnitIntervalRunner;
         let outcome = runner.run(tmp.path());
         assert!(matches!(outcome, ValidatorOutcome::Errored { .. }));
+    }
+
+    fn write_thread_budget(dir: &Path, budget: u64) {
+        fs::write(
+            dir.join("determinism-env.json"),
+            serde_json::json!({
+                "thread_budget": {
+                    "OMP_NUM_THREADS": budget.to_string(),
+                    "OPENBLAS_NUM_THREADS": budget.to_string()
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn resource_budget_rejects_host_core_plan_above_envelope() {
+        let tmp = TempDir::new().unwrap();
+        write_thread_budget(tmp.path(), 2);
+        fs::write(
+            tmp.path().join("progress_agent.log"),
+            "parallelism: detected_cores=48, recommended=2, usable=47, units=1, outer_workers=1, inner_threads=47\n",
+        )
+        .unwrap();
+        assert!(resource_budget_is_applicable(tmp.path()));
+        assert!(matches!(
+            ResourceBudgetConsistencyRunner.run(tmp.path()),
+            ValidatorOutcome::Failed { .. }
+        ));
+    }
+
+    #[test]
+    fn resource_budget_accepts_bounded_plan_in_alternate_progress_log() {
+        let tmp = TempDir::new().unwrap();
+        write_thread_budget(tmp.path(), 4);
+        fs::write(
+            tmp.path().join("progress_new.log"),
+            "parallelism: detected_cores=4, recommended=4, usable=3, units=8, outer_workers=3, inner_threads=1\n",
+        )
+        .unwrap();
+        assert_eq!(
+            ResourceBudgetConsistencyRunner.run(tmp.path()),
+            ValidatorOutcome::Passed
+        );
+    }
+
+    #[test]
+    fn resource_budget_accepts_a_safe_plan_below_the_envelope() {
+        let tmp = TempDir::new().unwrap();
+        write_thread_budget(tmp.path(), 4);
+        fs::write(
+            tmp.path().join("progress.log"),
+            "parallelism: detected_cores=2, recommended=2, usable=1, units=1, outer_workers=1, inner_threads=1\n",
+        )
+        .unwrap();
+        assert_eq!(
+            ResourceBudgetConsistencyRunner.run(tmp.path()),
+            ValidatorOutcome::Passed
+        );
+    }
+
+    #[test]
+    fn resource_budget_requires_one_unambiguous_captured_envelope() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(
+            tmp.path().join("progress.log"),
+            "parallelism: detected_cores=2, recommended=2, usable=1, units=1, outer_workers=1, inner_threads=1\n",
+        )
+        .unwrap();
+        assert!(matches!(
+            ResourceBudgetConsistencyRunner.run(tmp.path()),
+            ValidatorOutcome::Errored { .. }
+        ));
+
+        fs::write(
+            tmp.path().join("determinism-env.json"),
+            r#"{"thread_budget":{"OMP_NUM_THREADS":"2","OPENBLAS_NUM_THREADS":"4"}}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            ResourceBudgetConsistencyRunner.run(tmp.path()),
+            ValidatorOutcome::Errored { .. }
+        ));
+    }
+
+    #[test]
+    fn resource_budget_rejects_signed_or_malformed_counts() {
+        let tmp = TempDir::new().unwrap();
+        write_thread_budget(tmp.path(), 2);
+        fs::write(
+            tmp.path().join("progress.log"),
+            "parallelism: detected_cores=2, recommended=2, usable=-1, units=1, outer_workers=1, inner_threads=1\n",
+        )
+        .unwrap();
+        assert!(matches!(
+            ResourceBudgetConsistencyRunner.run(tmp.path()),
+            ValidatorOutcome::Failed { .. }
+        ));
+    }
+
+    #[test]
+    fn narrative_boundary_rejects_result_prose_for_row_only_task() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(
+            tmp.path().join("task-spec.json"),
+            serde_json::json!({
+                "description": "Emit row-level flags. No synthesis; no narrative.",
+                "spec": {"attributes": {"claim_boundary": "Do not introduce composite or narrative claims."}}
+            })
+            .to_string(),
+        )
+        .unwrap();
+        fs::write(
+            tmp.path().join("result.json"),
+            r#"{"status":"completed","n_rows":4,"summary":"Two rows agreed."}"#,
+        )
+        .unwrap();
+        assert!(narrative_boundary_is_applicable(tmp.path()));
+        assert!(matches!(
+            NarrativeBoundaryRunner.run(tmp.path()),
+            ValidatorOutcome::Failed { .. }
+        ));
+
+        fs::write(
+            tmp.path().join("result.json"),
+            r#"{"status":"completed","n_rows":4}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            NarrativeBoundaryRunner.run(tmp.path()),
+            ValidatorOutcome::Passed
+        );
+    }
+
+    #[test]
+    fn narrative_boundary_recognizes_modality_neutral_no_synthesis_rule() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(
+            tmp.path().join("task-spec.json"),
+            r#"{"description":"Retrieve a structured method matrix. No synthesis; no ranking."}"#,
+        )
+        .unwrap();
+        fs::write(
+            tmp.path().join("result.json"),
+            r#"{"status":"completed","summary":"Method A is best supported."}"#,
+        )
+        .unwrap();
+        assert!(narrative_boundary_is_applicable(tmp.path()));
+        assert!(matches!(
+            NarrativeBoundaryRunner.run(tmp.path()),
+            ValidatorOutcome::Failed { .. }
+        ));
     }
 
     fn discovery_fixture(
@@ -2270,6 +2664,12 @@ mod tests {
             // Discovery evidence consistency is likewise data-driven from
             // discover_*/decision.json plus the retained method landscape.
             .filter(|id| !HARNESS_LOCAL_DISCOVERY_OBLIGATIONS.contains(id))
+            // Resource-plan consistency is data-driven from progress*.log plus
+            // determinism-env.json and therefore has no atom declaration.
+            .filter(|id| !HARNESS_LOCAL_RESOURCE_OBLIGATIONS.contains(id))
+            // Narrative prohibitions come from task-spec claim boundaries,
+            // not from atom validation-obligation lists.
+            .filter(|id| !HARNESS_LOCAL_CLAIM_BOUNDARY_OBLIGATIONS.contains(id))
             .collect();
         assert!(
             drifted.is_empty(),

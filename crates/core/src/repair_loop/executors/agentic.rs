@@ -30,9 +30,11 @@ impl Executor for CitationFix {
         RepairOutcome::NeedsAgent(RepairDirective {
             task: f.task.clone(),
             instruction: format!(
-                "Fix the citation for {} by re-resolving it from an authoritative \
-                 source and correcting the reference in the narrative ({}). \
-                 Do not alter result tables.",
+                "Correct or remove the unsupported citation binding for {} in \
+                 the narrative ({}). Re-resolve it only from retained, \
+                 authoritative evidence that directly supports the exact \
+                 subject/source pair. Do not add an evidence row merely to make \
+                 the prose pass. Do not alter result tables.",
                 f.subject, f.detail
             ),
         })
@@ -93,7 +95,7 @@ impl Executor for AnalysisRerun {
     }
 }
 
-/// Records evidence missing from the claims evidence matrix.
+/// Completes a missing machine link to support already retained in the package.
 pub struct EvidenceCompletion;
 
 impl Executor for EvidenceCompletion {
@@ -111,9 +113,12 @@ impl Executor for EvidenceCompletion {
         RepairOutcome::NeedsAgent(RepairDirective {
             task: f.task.clone(),
             instruction: format!(
-                "Record the missing evidence for {} in the claims evidence matrix, \
-                 citing the existing frozen results ({}). \
-                 Do not alter result tables.",
+                "Complete the missing machine evidence link for {} only if a \
+                 retained artifact already directly supports the exact claim \
+                 ({}). If no such retained support exists, correct or remove the \
+                 narrative claim instead. Never fabricate or add a supporting \
+                 record merely to make verification pass. Do not alter result \
+                 tables.",
                 f.subject, f.detail
             ),
         })

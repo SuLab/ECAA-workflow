@@ -99,6 +99,7 @@
       "log2FoldChange",
       "log2fc",
       "effect_size",
+      "analysis_effect",
       "estimate",
       "nes",
       "NES",
@@ -163,6 +164,7 @@
       "fdr_q_value",
       "qvalue",
       "adjusted_pvalue",
+      "analysis_significance",
       "p_adj"
     ],
     "tolerance": {

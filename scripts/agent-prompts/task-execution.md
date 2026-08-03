@@ -133,8 +133,12 @@ writer of task state.
 
 2. **`result.json`** — the task result: `task_id`, `status`, a short
    narrative, the artifacts you produced, and (for analytical stages) the
-   figures you rendered. On a blocked exit include `blocker_kind` and a
-   `what_would_unblock` note.
+   figures you rendered. When the task description or claim boundary says
+   `no narrative`, `no synthesis`, or row-level claims only, OMIT free-text
+   `narrative` / `narrative_text` / `summary` / `interpretation` fields and retain only
+   the declared structured counts, rows, and provenance; that task-specific boundary wins
+   over this general envelope convention. On a blocked exit include
+   `blocker_kind` and a `what_would_unblock` note.
 
 3. **`progress.log`** — append a human-readable line at each meaningful
    step. The harness reads recent activity here as a liveness signal; a

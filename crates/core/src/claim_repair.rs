@@ -40,10 +40,9 @@ pub enum RepairAction {
     /// The claim cites an evidence FILE that does not exist / does not resolve.
     /// Fix the citation (or remove the claim) — the reference is broken.
     CitationFix,
-    /// The claim may be true but is not backed by the recorded evidence (e.g. a
-    /// literature citation with no supporting row in the evidence matrix).
-    /// Complete the evidence (record the supporting source), do not touch the
-    /// science.
+    /// A retained supporting artifact exists, but its machine link is missing
+    /// or incomplete. Complete only that provenance link. This action must
+    /// never be used to manufacture evidence for an unsupported narrative.
     EvidenceCompletion,
     /// A soft `Suspicious` flag (quantitative claim about an entity absent from
     /// the cited table). Route to a human for review; never auto-acted.
@@ -87,10 +86,22 @@ pub fn classify(verdict: &ClaimVerdict) -> RepairAction {
         // Soft flag — always human review, never auto-acted.
         ClaimStatus::Suspicious { .. } => RepairAction::ReviewRequired,
         ClaimStatus::Mismatch { detail } => {
-            // Literature concordance/citation failures are evidence problems,
-            // not prose-vs-table arithmetic.
+            // A literature mismatch does NOT authorize adding a supporting row
+            // to the evidence matrix. If the matrix lacks the exact cited
+            // entity/source pair, the report's citation binding is wrong and
+            // must be corrected or removed. Other literature contradictions
+            // (direction/concordance or a numeric value) are narrative
+            // mismatches against retained evidence.
             if verdict.claim.contract == ClaimContract::LiteratureGrounded {
-                return RepairAction::EvidenceCompletion;
+                let detail = detail.to_ascii_lowercase();
+                return if detail.contains("no such supporting row")
+                    || detail.contains("cites pmid")
+                    || detail.contains("citation")
+                {
+                    RepairAction::CitationFix
+                } else {
+                    RepairAction::NarrativeCorrection
+                };
             }
             // A cited evidence file that resolves nowhere is a broken citation.
             let d = detail.to_ascii_lowercase();
@@ -229,7 +240,8 @@ mod tests {
             )),
             RepairAction::CitationFix
         );
-        // Literature → evidence completion.
+        // An absent entity/source pair is an unsupported citation binding,
+        // never permission to add a row to the evidence matrix.
         assert_eq!(
             classify(&verdict(
                 ClaimContract::LiteratureGrounded,
@@ -238,7 +250,20 @@ mod tests {
                 },
                 None,
             )),
-            RepairAction::EvidenceCompletion
+            RepairAction::CitationFix
+        );
+        // A retained literature row that contradicts the prose requires a
+        // narrative correction, not evidence mutation.
+        assert_eq!(
+            classify(&verdict(
+                ClaimContract::LiteratureGrounded,
+                ClaimStatus::Mismatch {
+                    detail: "literature: matrix records opposite-direction prior finding for X"
+                        .into()
+                },
+                Some("claims_evidence_matrix.csv"),
+            )),
+            RepairAction::NarrativeCorrection
         );
         // Suspicious → review.
         assert_eq!(

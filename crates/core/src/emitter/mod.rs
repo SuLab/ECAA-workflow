@@ -1610,7 +1610,7 @@ You are expected to fully utilize the compute granted to you. Detect what's actu
 \n\
 Run these probes before any heavy work and log the results to `runtime/outputs/<task_id>/progress.log`:\n\
 \n\
-- **Total cores**: `nproc --all` (Linux) — fallback `getconf _NPROCESSORS_ONLN` if `nproc` is missing. In Python: `os.cpu_count()`. In R: `parallel::detectCores(logical=TRUE)`.\n\
+- **Total cores**: determine the effective integer CPU count visible to this task, not the host's physical count. Start with `nproc` (without `--all`) or `getconf _NPROCESSORS_ONLN`, then clamp it to the cgroup quota: for cgroup v2, parse `/sys/fs/cgroup/cpu.max` as `<quota> <period>` and use `max(1, floor(quota/period))` when quota is not `max`; use the analogous `cpu.cfs_quota_us / cpu.cfs_period_us` values for cgroup v1. In Python, likewise clamp `len(os.sched_getaffinity(0))` (fallback `os.cpu_count()`) to that quota. In R, clamp `parallel::detectCores(logical=TRUE)` the same way. Log this clamped count as `detected_cores`; a host-wide count from `nproc --all` is diagnostic only and MUST NOT drive workers.\n\
 - **Free memory (MiB)**: `free -m | awk 'NR==2 {{print $7}}'` (the \"available\" column on Linux). In Python: `psutil.virtual_memory().available // (1024*1024)`. In R: read `/proc/meminfo` `MemAvailable`.\n\
 - **GPU presence**: `nvidia-smi --query-gpu=name,memory.free --format=csv,noheader 2>/dev/null` — empty output = no GPU. Cross-check against `ECAA_HW_GPU`.\n\
 - **Container limits**: if running under cgroups v2, also check `/sys/fs/cgroup/cpu.max` and `/sys/fs/cgroup/memory.max` — these can be tighter than the host nproc.\n\

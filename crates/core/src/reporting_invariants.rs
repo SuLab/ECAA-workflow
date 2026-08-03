@@ -48,9 +48,9 @@
 //!   * **RC-COLLECTION** collection labels in pathway metadata must equal the
 //!     labels in `pathway_results.tsv`; provider-specific source names belong
 //!     in separate provenance fields.
-//!   * **RC-STAGE-NARRATIVE** a pathway stage narrative that names a top
-//!     enriched or depleted row must copy that row's NES and adjusted p-value
-//!     from `pathway_results.tsv` within the package policy's tolerances.
+//!   * **RC-STAGE-NARRATIVE** numeric row claims in any report-schema stage's
+//!     standard result prose must agree with that stage's declared result
+//!     artifact under the package policy's role aliases and tolerances.
 //!   * **RC-METHOD** a method name embedded in a pathway-level significance
 //!     label must match the implementation recorded by the pathway stage.
 //!   * **RC-SOFTWARE-VERSION** every package-version pair asserted in report
@@ -58,9 +58,12 @@
 //!     `env.lock`, `result.json`, or the package-level install/dependency log.
 //!     This prevents a reporting agent from filling a reproducibility table
 //!     with a plausible version recalled from model memory.
-//!   * **RC-FILTER-POPULATION** when QC records distinct source and retained
-//!     matrix row counts, the report may not introduce the retained count as
-//!     the unqualified input count-matrix population. The retained population
+//!   * **RC-METHOD-SELECTION** SME/spec preference and automatic-advance claims
+//!     must match the booleans retained by the corresponding `discover_*`
+//!     decision for every method family.
+//!   * **RC-FILTER-POPULATION** when any stage records distinct source and
+//!     retained population counts, the report may not introduce the retained
+//!     count as the unqualified input population. The retained population
 //!     must be identified as filtered, analysis-ready, tested, or as input to
 //!     a specifically named downstream model.
 //!   * **RC-FINAL-FIDELITY** when both report stages ran, the agent-authored
@@ -278,9 +281,10 @@ pub fn check_reporting_invariants(package_root: &Path) -> ReportingInvariantsRep
     check_rp2_gene_sets_tested(&outputs, &mut report);
     check_rc_pathway_collections(&outputs, &mut report);
     check_rc_pathway_rank(&outputs, &mut report);
-    check_rc_pathway_stage_narrative(package_root, &outputs, &mut report);
+    check_rc_stage_narrative(package_root, &outputs, &mut report);
     check_rc_pathway_method(&outputs, &mut report);
     check_rc_software_versions(&outputs, &mut report);
+    check_rc_method_selection_provenance(&outputs, &mut report);
     check_rc_filter_population(&outputs, &mut report);
     check_rc_final_report_fidelity(&outputs, &mut report);
     check_rp3_fdr_family(&outputs, &mut report);
@@ -1162,117 +1166,135 @@ fn check_rc_pathway_rank(outputs: &Path, report: &mut ReportingInvariantsReport)
     }
 }
 
-/// RC-STAGE-NARRATIVE: bind explicit top-pathway claims in the stage's own
-/// structured narrative to the retained pathway table. Final-report tables are
-/// covered separately by RC-ROW; this closes the same gap for `result.json`.
-fn check_rc_pathway_stage_narrative(
+/// RC-STAGE-NARRATIVE: bind numeric row claims in every report-schema stage's
+/// own standard result prose (`narrative`, `summary`, or `interpretation`) to
+/// that stage's declared result artifact. Final-report tables are covered
+/// separately by RC-ROW; this closes the same gap for compute-stage prose
+/// without naming a modality, entity kind, method, or scientific column.
+fn check_rc_stage_narrative(
     package_root: &Path,
     outputs: &Path,
     report: &mut ReportingInvariantsReport,
 ) {
-    let pathway_dir = outputs.join("pathway_enrichment");
-    let Some(result) = read_json(&pathway_dir.join("result.json")) else {
+    let Some(schemas) = read_report_schemas(package_root) else {
         return;
     };
-    let Some(narrative) = result.get("narrative").and_then(Value::as_str) else {
+    let cfg = [package_root.join("policies"), package_root.join("config")]
+        .into_iter()
+        .find_map(|dir| {
+            let path =
+                crate::claim_extractor::resolve_policy_file(&dir, "interpretation-policy.json")?;
+            let raw = std::fs::read_to_string(path).ok()?;
+            let policy = serde_json::from_str::<Value>(&raw).ok()?;
+            crate::claim_extractor::ExtractorConfig::from_policy(&policy).ok()
+        });
+    let Some(mut cfg) = cfg else {
         return;
     };
-    let Some(tolerances) = NarrativeTolerances::load(package_root) else {
-        return;
-    };
-    let Ok((headers, rows)) =
-        crate::report_contract::assemble::read_table(&pathway_dir.join("pathway_results.tsv"))
-    else {
-        return;
-    };
-    let Some(entity_idx) = headers.iter().position(|name| name == "pathway") else {
-        return;
-    };
-    let Some(effect_idx) = headers
-        .iter()
-        .position(|name| name.eq_ignore_ascii_case("NES"))
-    else {
-        return;
-    };
-    let Some(significance_idx) = headers
-        .iter()
-        .position(|name| name.eq_ignore_ascii_case("padj"))
-    else {
-        return;
-    };
-    let source: BTreeMap<String, (f64, f64)> = rows
-        .iter()
-        .filter_map(|row| {
-            Some((
-                row.get(entity_idx)?.trim().to_string(),
-                (
-                    row.get(effect_idx)?.trim().parse().ok()?,
-                    row.get(significance_idx)?.trim().parse().ok()?,
-                ),
-            ))
-        })
-        .collect();
-    let re = Regex::new(
-        r"(?ix)
-          top\s+(?:enriched|depleted)[^.]{0,240}?
-          \b([A-Z][A-Z0-9_]{2,})\s*
-          \(\s*NES\s*=\s*
-          ([+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:e[+-]?[0-9]+)?)
-          \s*,\s*padj\s*=\s*
-          ([+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:e[+-]?[0-9]+)?)
-          \s*\)",
-    )
-    .expect("static RC-STAGE-NARRATIVE regex compiles");
+    for schema in schemas.values() {
+        for name in std::iter::once(schema.entity_column.as_str())
+            .chain(schema.entity_column_aliases.iter().map(String::as_str))
+        {
+            if !cfg.entity_columns.iter().any(|column| column == name) {
+                cfg.entity_columns.push(name.to_string());
+            }
+        }
+        for name in schema
+            .signed_effect_column
+            .iter()
+            .map(String::as_str)
+            .chain(schema.signed_effect_aliases.iter().map(String::as_str))
+        {
+            if !cfg.effect_size_columns.iter().any(|column| column == name) {
+                cfg.effect_size_columns.push(name.to_string());
+            }
+        }
+        if let Some(significance) = schema.significance.as_ref() {
+            if !cfg
+                .pvalue_columns
+                .iter()
+                .any(|column| column == &significance.column)
+            {
+                cfg.pvalue_columns.push(significance.column.clone());
+            }
+        }
+    }
 
-    let effect_role = RoleCell {
-        narrative: 0,
-        source: 0,
-        significance: false,
-    };
-    let significance_role = RoleCell {
-        narrative: 0,
-        source: 0,
-        significance: true,
-    };
-    let mut mismatches = Vec::new();
+    let mut failures = BTreeSet::new();
     let mut ran = false;
-    for capture in re.captures_iter(narrative) {
-        ran = true;
-        let entity = capture.get(1).map(|m| m.as_str()).unwrap_or("");
-        let claimed_effect = capture.get(2).and_then(|m| m.as_str().parse::<f64>().ok());
-        let claimed_significance = capture.get(3).and_then(|m| m.as_str().parse::<f64>().ok());
-        let Some((observed_effect, observed_significance)) = source.get(entity).copied() else {
-            mismatches.push(format!("{entity} is absent from pathway_results.tsv"));
+    for (stage_id, schema) in schemas {
+        let stage_dir = outputs.join(&stage_id);
+        if !stage_dir.join(&schema.artifact).is_file() {
+            continue;
+        }
+        let Some(result) = read_json(&stage_dir.join("result.json")) else {
             continue;
         };
-        if claimed_effect
-            .is_none_or(|claimed| !tolerances.agrees(&effect_role, claimed, observed_effect))
-        {
-            mismatches.push(format!(
-                "{entity} NES={} vs source {observed_effect}",
-                capture.get(2).map(|m| m.as_str()).unwrap_or("<missing>")
-            ));
+        let prose = ["narrative", "narrative_text", "summary", "interpretation"]
+            .into_iter()
+            .filter_map(|field| result.get(field).and_then(Value::as_str))
+            .filter(|text| !text.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+        if prose.is_empty() {
+            continue;
         }
-        if claimed_significance.is_none_or(|claimed| {
-            !tolerances.agrees(&significance_role, claimed, observed_significance)
-        }) {
-            mismatches.push(format!(
-                "{entity} padj={} vs source {observed_significance}",
-                capture.get(3).map(|m| m.as_str()).unwrap_or("<missing>")
-            ));
+        let mut claims: Vec<_> = crate::claim_extractor::extract_claims(&prose, &cfg)
+            .into_iter()
+            .filter(|claim| claim.effect_size.is_some() || claim.pvalue.is_some())
+            .collect();
+        for claim in &mut claims {
+            claim.source_table = Some(schema.artifact.clone());
+            // This invariant checks the stage's numeric row assertion against
+            // its declared result artifact. A PMID in the same sentence can
+            // make the general extractor classify the whole sentence as
+            // LiteratureGrounded; retain literature adjudication in the main
+            // claim verifier, but use the numeric contract here so absence of
+            // a literature matrix cannot mask or falsely fail the row check.
+            if claim.contract == crate::claim_contract::ClaimContract::LiteratureGrounded {
+                claim.contract = crate::claim_contract::ClaimContract::NumericTableLookup;
+            }
+        }
+        if claims.is_empty() {
+            continue;
+        }
+        ran = true;
+        for verdict in crate::claim_verifier::verify_claims_with_discovery(
+            &claims,
+            &stage_dir,
+            package_root,
+            &cfg,
+        ) {
+            match verdict.status {
+                crate::claim_verifier::ClaimStatus::Verified => {}
+                crate::claim_verifier::ClaimStatus::Mismatch { detail } => {
+                    failures.insert(format!(
+                        "{stage_id} entity `{}`: {detail}",
+                        verdict.claim.entity
+                    ));
+                }
+                crate::claim_verifier::ClaimStatus::Unverifiable { reason }
+                | crate::claim_verifier::ClaimStatus::Pending { reason }
+                | crate::claim_verifier::ClaimStatus::Suspicious { reason } => {
+                    failures.insert(format!(
+                        "{stage_id} entity `{}` could not be checked: {reason}",
+                        verdict.claim.entity
+                    ));
+                }
+            }
         }
     }
     if !ran {
         return;
     }
     report.checked.push("RC-STAGE-NARRATIVE");
-    if !mismatches.is_empty() {
+    if !failures.is_empty() {
         report.findings.push(ReportingFinding {
             invariant: "RC-STAGE-NARRATIVE",
             severity: Severity::Required,
             detail: format!(
-                "pathway result narrative disagrees with pathway_results.tsv: {}",
-                mismatches.join("; ")
+                "compute-stage result prose disagrees with its declared result artifact: {}",
+                failures.into_iter().collect::<Vec<_>>().join("; ")
             ),
         });
     }
@@ -1599,6 +1621,21 @@ fn check_rc_self_describing_metrics(outputs: &Path, report: &mut ReportingInvari
                     if field_path_lower != metric_lower {
                         anchors.extend(find_all(&prose_lower, &metric_lower));
                     }
+                    // Human prose normally renders each JSON-key separator as
+                    // either whitespace or a hyphen, and writers can mix the
+                    // two in one label (for example `effect-size ratio`).
+                    // Treat every such rendering as the same metric anchor so
+                    // prettifying a field name cannot evade its retained
+                    // definition.
+                    let flexible_metric = metric_lower
+                        .split('_')
+                        .filter(|part| !part.is_empty())
+                        .map(regex::escape)
+                        .collect::<Vec<_>>()
+                        .join(r"[\s_-]+");
+                    if let Ok(pattern) = Regex::new(&flexible_metric) {
+                        anchors.extend(pattern.find_iter(&prose_lower).map(|hit| hit.start()));
+                    }
                     anchors.sort_unstable();
                     anchors.dedup();
                     anchors
@@ -1613,6 +1650,35 @@ fn check_rc_self_describing_metrics(outputs: &Path, report: &mut ReportingInvari
                         "{surface} cites `{metric}` but does not preserve the producing stage's \
                          retained definition verbatim"
                     ));
+                }
+
+                let retained_semantics = format!(
+                    "{} {}",
+                    description.to_ascii_lowercase(),
+                    serde_json::to_string(&basis)
+                        .unwrap_or_default()
+                        .to_ascii_lowercase()
+                );
+                for anchor in &anchors {
+                    let clause = clause_around(&prose_lower, *anchor);
+                    for cue in [
+                        "reliable",
+                        "reliability",
+                        "precise",
+                        "precision",
+                        "high confidence",
+                        "well-estimated",
+                        "well estimated",
+                        "robust estimate",
+                    ] {
+                        if clause.contains(cue) && !retained_semantics.contains(cue) {
+                            findings.insert(format!(
+                                "{surface} infers `{cue}` from metric `{metric}`, but that \
+                                 interpretation is absent from the producing stage's retained \
+                                 definition and basis"
+                            ));
+                        }
+                    }
                 }
 
                 if let Some(neutral_reference) = neutral_reference {
@@ -2315,80 +2381,420 @@ fn check_rc_software_versions(outputs: &Path, report: &mut ReportingInvariantsRe
 }
 
 // ---------------------------------------------------------------------------
-// RC-FILTER-POPULATION (Required) — source and retained matrices stay distinct
+// RC-METHOD-SELECTION (Required) — report preserves typed decision provenance
 // ---------------------------------------------------------------------------
 
-fn first_named_count(value: &Value, names: &[&str]) -> Option<u64> {
-    names.iter().find_map(|name| json_named_u64(value, name))
+fn normalized_method_text(value: &str) -> String {
+    value
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
-/// Reject the specific ambiguity where a report calls the post-QC population
-/// the unqualified input count matrix even though QC records a larger source
-/// population. Calling the retained population the filtered/tested matrix, or
-/// the input to a named downstream model, remains valid and is not matched.
-fn check_rc_filter_population(outputs: &Path, report: &mut ReportingInvariantsReport) {
-    let Some(qc) = read_json(&outputs.join("qc_preprocessing").join("result.json")) else {
-        return;
-    };
-    let filter = qc.get("gene_filter").unwrap_or(&qc);
-    let Some(source_count) = first_named_count(
-        filter,
-        &[
-            "n_genes_pre_filter",
-            "n_features_pre_filter",
-            "n_rows_pre_filter",
-        ],
-    ) else {
-        return;
-    };
-    let Some(retained_count) = first_named_count(
-        filter,
-        &["n_genes_retained", "n_features_retained", "n_rows_retained"],
-    ) else {
-        return;
-    };
-    if source_count == retained_count {
-        return;
-    }
+/// A report may name the selected method, but it may not invent an SME/spec
+/// preference or automatic advance that the retained discover decision records
+/// as false. The check discovers every `discover_*` directory and its chosen
+/// method, so it applies unchanged to new modalities and method families.
+fn check_rc_method_selection_provenance(outputs: &Path, report: &mut ReportingInvariantsReport) {
     let Some(prose) = read_agent_report_prose(outputs) else {
         return;
     };
-    report.checked.push("RC-FILTER-POPULATION");
-
-    let claim = Regex::new(
-        r"(?i)\b(?:the\s+)?input\s+(?:raw\s+)?count\s+matrix\s+(?:contained|contains|had|has)\s+(?:gene\s+expression\s+values\s+for\s+)?([0-9][0-9,]*)\s+(?:genes|features|rows)\b",
-    )
-    .expect("static input-population regex compiles");
-    let mut bad_counts = BTreeSet::new();
-    for captures in claim.captures_iter(&prose) {
-        let Some(count) = captures
-            .get(1)
-            .and_then(|value| parse_grouped_int(value.as_str()))
+    let Ok(entries) = std::fs::read_dir(outputs) else {
+        return;
+    };
+    let mut decisions = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(task_id) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if !path.is_dir() || !task_id.starts_with("discover_") {
+            continue;
+        }
+        let Some(decision) = read_json(&path.join("decision.json")) else {
+            continue;
+        };
+        let Some(chosen) = decision
+            .get("chosen")
+            .and_then(Value::as_str)
+            .filter(|chosen| !chosen.trim().is_empty())
         else {
             continue;
         };
-        if count != source_count {
-            bad_counts.insert(count);
-        }
+        decisions.push((
+            task_id.to_string(),
+            chosen.to_string(),
+            decision
+                .get("spec_preference_applied")
+                .and_then(Value::as_bool),
+            decision.get("auto_advanced").and_then(Value::as_bool),
+        ));
     }
-    if bad_counts.is_empty() {
+    if decisions.is_empty() {
         return;
     }
+    report.checked.push("RC-METHOD-SELECTION");
+    let mut failures = BTreeSet::new();
+    for sentence in prose.split(['.', '\n']) {
+        let lower = sentence.to_ascii_lowercase();
+        let compact = normalized_method_text(sentence);
+        for (task_id, chosen, spec_applied, auto_advanced) in &decisions {
+            if !compact.contains(&normalized_method_text(chosen)) {
+                continue;
+            }
+            let denies_preference = lower.contains("no spec")
+                || lower.contains("without spec")
+                || lower.contains("not sme-preferred")
+                || lower.contains("not sme preferred")
+                || lower.contains("no sme preference")
+                || lower.contains("without sme preference")
+                || lower.contains("without an sme preference")
+                || lower.contains("not intake-preferred")
+                || lower.contains("not intake preferred");
+            let asserts_preference = lower.contains("spec-preference")
+                || lower.contains("spec preference")
+                || lower.contains("sme-preferred")
+                || lower.contains("sme preferred")
+                || lower.contains("intake-preferred")
+                || lower.contains("intake preferred");
+            if asserts_preference && !denies_preference && *spec_applied != Some(true) {
+                let recorded =
+                    spec_applied.map_or("missing", |value| if value { "true" } else { "false" });
+                failures.insert(format!(
+                    "{task_id} records spec_preference_applied={recorded} for `{chosen}` rather than true, but report says: {}",
+                    sentence.trim()
+                ));
+            }
+            if denies_preference && *spec_applied == Some(true) {
+                failures.insert(format!(
+                    "{task_id} records spec_preference_applied=true for `{chosen}`, but report denies that preference: {}",
+                    sentence.trim()
+                ));
+            }
+            let denies_auto = lower.contains("not auto")
+                || lower.contains("no auto")
+                || lower.contains("without auto");
+            let asserts_auto = lower.contains("auto-advance")
+                || lower.contains("auto advance")
+                || lower.contains("auto-advanced")
+                || lower.contains("automatically selected")
+                || lower.contains("automatically advanced")
+                || lower.contains("automatically chosen")
+                || lower.contains("automatic selection");
+            if asserts_auto && !denies_auto && *auto_advanced != Some(true) {
+                let recorded =
+                    auto_advanced.map_or("missing", |value| if value { "true" } else { "false" });
+                failures.insert(format!(
+                    "{task_id} records auto_advanced={recorded} for `{chosen}` rather than true, but report says: {}",
+                    sentence.trim()
+                ));
+            }
+            if denies_auto && *auto_advanced == Some(true) {
+                failures.insert(format!(
+                    "{task_id} records auto_advanced=true for `{chosen}`, but report denies automatic advance: {}",
+                    sentence.trim()
+                ));
+            }
+        }
+    }
+    if !failures.is_empty() {
+        report.findings.push(ReportingFinding {
+            invariant: "RC-METHOD-SELECTION",
+            severity: Severity::Required,
+            detail: format!(
+                "report method-selection provenance disagrees with retained discover decisions: {}",
+                failures.into_iter().collect::<Vec<_>>().join(" | ")
+            ),
+        });
+    }
+}
 
-    report.findings.push(ReportingFinding {
-        invariant: "RC-FILTER-POPULATION",
-        severity: Severity::Required,
-        detail: format!(
-            "report calls {} the unqualified input count-matrix population, but QC records \
-             source population {source_count} and retained population {retained_count}; \
-             identify the latter as filtered/tested or as input to a named downstream model",
-            bad_counts
-                .into_iter()
-                .map(|count| count.to_string())
-                .collect::<Vec<_>>()
-                .join(" or ")
-        ),
-    });
+// ---------------------------------------------------------------------------
+// RC-FILTER-POPULATION (Required) — source and retained populations stay distinct
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct FilterPopulation {
+    field_path: String,
+    source_count: u64,
+    retained_count: u64,
+    criterion: Option<String>,
+}
+
+fn count_value(value: &Value) -> Option<u64> {
+    value
+        .as_u64()
+        .or_else(|| value.as_str().and_then(|raw| raw.parse::<u64>().ok()))
+}
+
+/// Derive the lifecycle-compatible retained keys for one input/pre-filter key.
+/// This is structural rather than entity-specific: `n_cells_input`,
+/// `n_variants_input`, `n_spectra_input`, and future domain nouns all resolve
+/// through the same suffix/prefix transformations.
+fn retained_population_keys(source_key: &str) -> Vec<String> {
+    let mut keys = Vec::new();
+    if let Some(stem) = source_key.strip_suffix("_input") {
+        keys.extend([
+            format!("{stem}_retained"),
+            format!("{stem}_post_filter"),
+            format!("{stem}_after_filter"),
+        ]);
+    }
+    if let Some(stem) = source_key.strip_suffix("_pre_filter") {
+        keys.extend([format!("{stem}_post_filter"), format!("{stem}_retained")]);
+    }
+    if let Some(stem) = source_key.strip_suffix("_before_filter") {
+        keys.extend([format!("{stem}_after_filter"), format!("{stem}_retained")]);
+    }
+    if let Some(stem) = source_key.strip_prefix("n_input_") {
+        keys.extend([
+            format!("n_retained_{stem}"),
+            format!("n_post_filter_{stem}"),
+        ]);
+    }
+    keys.sort();
+    keys.dedup();
+    keys
+}
+
+fn population_terms(field_path: &str) -> BTreeSet<String> {
+    let key = field_path.rsplit('.').next().unwrap_or(field_path);
+    key.split('_')
+        .map(str::to_ascii_lowercase)
+        .filter(|token| {
+            token.len() > 2
+                && !matches!(
+                    token.as_str(),
+                    "input"
+                        | "retained"
+                        | "filtered"
+                        | "filter"
+                        | "before"
+                        | "after"
+                        | "pre"
+                        | "post"
+                        | "count"
+                )
+        })
+        .flat_map(|token| {
+            let singular = token.strip_suffix('s').unwrap_or(&token).to_string();
+            [token, singular]
+        })
+        .filter(|token| !token.is_empty())
+        .collect()
+}
+
+fn filter_criterion_for(map: &serde_json::Map<String, Value>, source_key: &str) -> Option<String> {
+    let terms = population_terms(source_key);
+    let mut generic = None;
+    for (key, value) in map {
+        let Some(text) = value.as_str() else {
+            continue;
+        };
+        let lower = key.to_ascii_lowercase();
+        if !lower.contains("filter")
+            || ["path", "file", "artifact", "output", "matrix", "table"]
+                .iter()
+                .any(|excluded| lower.contains(excluded))
+        {
+            continue;
+        }
+        if terms.iter().any(|term| lower.contains(term)) {
+            return Some(text.to_string());
+        }
+        generic.get_or_insert_with(|| text.to_string());
+    }
+    generic
+}
+
+/// Collect every before/after population pair owned by the same JSON object.
+/// Keeping pairs local prevents unrelated nested counts from being joined;
+/// collecting all pairs prevents an unchanged population from hiding another
+/// filtered population in the same task result.
+fn collect_filter_populations(
+    value: &Value,
+    prefix: &mut Vec<String>,
+    out: &mut Vec<FilterPopulation>,
+) {
+    match value {
+        Value::Object(map) => {
+            for (source_key, source_value) in map {
+                let Some(source_count) = count_value(source_value) else {
+                    continue;
+                };
+                for retained_key in retained_population_keys(source_key) {
+                    let Some(retained_count) = map.get(&retained_key).and_then(count_value) else {
+                        continue;
+                    };
+                    let mut path = prefix.clone();
+                    path.push(source_key.clone());
+                    out.push(FilterPopulation {
+                        field_path: path.join("."),
+                        source_count,
+                        retained_count,
+                        criterion: filter_criterion_for(map, source_key),
+                    });
+                    break;
+                }
+            }
+            for (key, child) in map {
+                prefix.push(key.clone());
+                collect_filter_populations(child, prefix, out);
+                prefix.pop();
+            }
+        }
+        Value::Array(values) => {
+            for (index, child) in values.iter().enumerate() {
+                prefix.push(index.to_string());
+                collect_filter_populations(child, prefix, out);
+                prefix.pop();
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Reject the ambiguity where a report calls a post-filter population the
+/// unqualified input population even though a producing stage records a larger
+/// source population. Calling the retained population filtered/tested, or the
+/// input to a named downstream model, remains valid and is not matched.
+fn check_rc_filter_population(outputs: &Path, report: &mut ReportingInvariantsReport) {
+    let Some(prose) = read_agent_report_prose(outputs) else {
+        return;
+    };
+    let Ok(entries) = std::fs::read_dir(outputs) else {
+        return;
+    };
+    let mut populations = Vec::new();
+    for entry in entries.flatten() {
+        let task_dir = entry.path();
+        let Some(task_id) = task_dir.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        let Some(result) = read_json(&task_dir.join("result.json")) else {
+            continue;
+        };
+        let mut found = Vec::new();
+        collect_filter_populations(&result, &mut Vec::new(), &mut found);
+        populations.extend(found.into_iter().map(|mut population| {
+            population.field_path = format!("{task_id}.{}", population.field_path);
+            population
+        }));
+    }
+    populations.sort();
+    populations.dedup();
+    populations.retain(|population| population.source_count != population.retained_count);
+    if populations.is_empty() {
+        return;
+    }
+    report.checked.push("RC-FILTER-POPULATION");
+
+    let mut details = BTreeSet::new();
+    for population in populations {
+        let source_count = population.source_count;
+        let retained_count = population.retained_count;
+        let retained_digits = retained_count.to_string();
+        let entity_terms = population_terms(&population.field_path);
+        let mut unqualified = BTreeSet::new();
+        let mut false_attributions = BTreeSet::new();
+        for sentence in prose.split(['.', '\n']) {
+            let normalized = sentence.replace(',', "").to_ascii_lowercase();
+            if !normalized.contains(&retained_digits)
+                || !entity_terms.iter().any(|term| normalized.contains(term))
+            {
+                continue;
+            }
+            let qualifies_population = [
+                "filtered",
+                "retained",
+                "post-filter",
+                "postfilter",
+                "after preprocessing",
+                "after filtering",
+                "input to",
+                "input for",
+            ]
+            .iter()
+            .any(|phrase| normalized.contains(phrase));
+            if normalized.contains("input") && !qualifies_population {
+                unqualified.insert(sentence.trim().to_string());
+            }
+        }
+        if !unqualified.is_empty() {
+            details.insert(format!(
+                "{} records source population {source_count} and retained population \
+                 {retained_count}, but report presents the retained count as an unqualified \
+                 input population: {}",
+                population.field_path,
+                unqualified.into_iter().collect::<Vec<_>>().join(" | ")
+            ));
+        }
+
+        let Some(criterion) = population.criterion else {
+            continue;
+        };
+        let criterion_numbers: BTreeSet<String> = criterion
+            .split(|character: char| !character.is_ascii_alphanumeric())
+            .filter(|token| !token.is_empty() && token.chars().all(|c| c.is_ascii_digit()))
+            .map(str::to_string)
+            .collect();
+        let criterion_terms: BTreeSet<String> = criterion
+            .split(|character: char| !character.is_ascii_alphanumeric())
+            .map(str::to_ascii_lowercase)
+            .filter(|token| {
+                token.len() > 3
+                    && !matches!(
+                        token.as_str(),
+                        "filter" | "input" | "retained" | "entity" | "feature" | "genes"
+                    )
+            })
+            .collect();
+        for sentence in prose.split(['.', '\n']) {
+            let normalized = sentence.replace(',', "").to_ascii_lowercase();
+            if !normalized.contains(&retained_digits)
+                || !normalized.contains("filter")
+                || !(normalized.contains("after")
+                    || normalized.contains("following")
+                    || normalized.contains("using")
+                    || normalized.contains("applying")
+                    || normalized.contains("internal")
+                    || normalized.contains("pre-filter")
+                    || normalized.contains("prefilter"))
+            {
+                continue;
+            }
+            let numbers_present = criterion_numbers.is_empty()
+                || criterion_numbers
+                    .iter()
+                    .all(|token| normalized.contains(token));
+            let terms_present = criterion_terms.is_empty()
+                || criterion_terms
+                    .iter()
+                    .any(|token| normalized.contains(token));
+            if !numbers_present || !terms_present {
+                false_attributions.insert(sentence.trim().to_string());
+            }
+        }
+        if !false_attributions.is_empty() {
+            details.insert(format!(
+                "{} records retained population {retained_count}, but report attributes it to a \
+                 filter without the retained criterion `{criterion}`: {}",
+                population.field_path,
+                false_attributions
+                    .into_iter()
+                    .collect::<Vec<_>>()
+                    .join(" | ")
+            ));
+        }
+    }
+    if !details.is_empty() {
+        report.findings.push(ReportingFinding {
+            invariant: "RC-FILTER-POPULATION",
+            severity: Severity::Required,
+            detail: details.into_iter().collect::<Vec<_>>().join("; "),
+        });
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -5377,6 +5783,108 @@ mod tests {
     }
 
     #[test]
+    fn rc_method_selection_rejects_invented_preference_and_auto_advance() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "discover_association/decision.json",
+            r#"{
+                "chosen": "model_x",
+                "spec_preference_applied": false,
+                "auto_advanced": false
+            }"#,
+        );
+        write(
+            &outputs,
+            "reporting/report.md",
+            "Model X was the SME-preferred method and was confirmed by auto-advance.",
+        );
+        let wrong = check_reporting_invariants(tmp.path());
+        assert!(wrong.checked.contains(&"RC-METHOD-SELECTION"));
+        assert!(wrong.findings.iter().any(|finding| {
+            finding.invariant == "RC-METHOD-SELECTION"
+                && finding.detail.contains("spec_preference_applied=false")
+                && finding.detail.contains("auto_advanced=false")
+        }));
+
+        write(
+            &outputs,
+            "reporting/report.md",
+            "Model X was selected after SME review of the ranked candidates.",
+        );
+        let corrected = check_reporting_invariants(tmp.path());
+        assert!(corrected
+            .findings
+            .iter()
+            .all(|finding| finding.invariant != "RC-METHOD-SELECTION"));
+
+        write(
+            &outputs,
+            "discover_association/decision.json",
+            r#"{
+                "chosen": "model_x",
+                "spec_preference_applied": true,
+                "auto_advanced": true
+            }"#,
+        );
+        write(
+            &outputs,
+            "reporting/report.md",
+            "Model X was selected without an SME preference and was not auto-advanced.",
+        );
+        let reversed = check_reporting_invariants(tmp.path());
+        let failures = reversed.required_failures().join(" | ");
+        assert!(
+            failures.contains("spec_preference_applied=true")
+                && failures.contains("auto_advanced=true"),
+            "{failures}"
+        );
+    }
+
+    #[test]
+    fn rc_filter_population_reads_nested_stats_and_rejects_wrong_filter_attribution() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        write(
+            &outputs,
+            "preprocess_inputs/result.json",
+            r#"{
+                "qc_stats": {
+                    "n_samples_input": 8,
+                    "n_samples_retained": 8,
+                    "n_features_input": 63677,
+                    "n_features_retained": 22369,
+                    "feature_filter": "total_counts_ge_10"
+                }
+            }"#,
+        );
+        write(
+            &outputs,
+            "reporting/report.md",
+            "The matrix contained 22,369 features after ModelX's internal low-count pre-filter.",
+        );
+        let wrong = check_reporting_invariants(tmp.path());
+        assert!(wrong.checked.contains(&"RC-FILTER-POPULATION"));
+        assert!(wrong.findings.iter().any(|finding| {
+            finding.invariant == "RC-FILTER-POPULATION"
+                && finding.detail.contains("without the retained criterion")
+                && finding.detail.contains("preprocess_inputs")
+        }));
+
+        write(
+            &outputs,
+            "reporting/report.md",
+            "Preprocessing retained 22,369 features after requiring total counts >= 10.",
+        );
+        let corrected = check_reporting_invariants(tmp.path());
+        assert!(corrected
+            .findings
+            .iter()
+            .all(|finding| finding.invariant != "RC-FILTER-POPULATION"));
+    }
+
+    #[test]
     fn rc_threshold_preserves_strict_lt_and_gt_contracts_across_modalities() {
         for (field, comparator, cutoff, correct, inclusive) in [
             ("error_rate", "lt", 0.1, "<", "≤"),
@@ -6396,6 +6904,32 @@ mod tests {
             "pathway_enrichment/pathway_summary.json",
             r#"{"collections":["GO_BP"]}"#,
         );
+        write_root(
+            root,
+            "WORKFLOW.json",
+            &serde_json::json!({
+                "tasks": {
+                    "assemble_report_data": {
+                        "spec": {
+                            "report_schemas": {
+                                "pathway_enrichment": {
+                                    "artifact": "pathway_results.tsv",
+                                    "entity_column": "pathway",
+                                    "entity_column_aliases": ["term"],
+                                    "signed_effect_column": "NES",
+                                    "significance": {
+                                        "column": "padj",
+                                        "comparator": "lt",
+                                        "threshold": 0.25
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            })
+            .to_string(),
+        );
     }
 
     #[test]
@@ -6410,8 +6944,7 @@ mod tests {
         assert!(report.checked.contains(&"RC-STAGE-NARRATIVE"));
         assert!(
             failures.iter().any(|failure| {
-                failure.starts_with("RC-STAGE-NARRATIVE:")
-                    && failure.contains("GENE_SET_A padj=1.0e-04")
+                failure.starts_with("RC-STAGE-NARRATIVE:") && failure.contains("GENE_SET_A")
             }),
             "{failures:?}"
         );
@@ -6425,6 +6958,32 @@ mod tests {
 
         let report = check_reporting_invariants(tmp.path());
 
+        assert!(report.checked.contains(&"RC-STAGE-NARRATIVE"));
+        assert!(
+            report
+                .required_failures()
+                .iter()
+                .all(|failure| !failure.starts_with("RC-STAGE-NARRATIVE:")),
+            "{report:?}"
+        );
+    }
+
+    #[test]
+    fn rc_stage_narrative_checks_numeric_row_even_when_sentence_cites_literature() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        seed_pathway_stage_narrative(tmp.path(), &outputs, "6.82e-05");
+        write(
+            &outputs,
+            "pathway_enrichment/result.json",
+            &serde_json::json!({
+                "gene_sets_collections": ["GO_BP"],
+                "narrative": "GENE_SET_A was depleted (NES=-1.9024, padj=6.82e-05), consistent with prior work (PMID 12345678)."
+            })
+            .to_string(),
+        );
+
+        let report = check_reporting_invariants(tmp.path());
         assert!(report.checked.contains(&"RC-STAGE-NARRATIVE"));
         assert!(
             report
@@ -7102,6 +7661,43 @@ mod tests {
                 .iter()
                 .all(|failure| !failure.contains("RC-METRIC-DEFINITION")),
             "{report:?}"
+        );
+    }
+
+    #[test]
+    fn rc_metric_definition_rejects_unsupported_reliability_inference_from_pretty_key() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = outputs_dir(&tmp);
+        let description = "top_effect_abundance_ratio = 4.9 is the median information value in \
+                           the selected features divided by the median over all tested features";
+        write(
+            &outputs,
+            "association_scoring/result.json",
+            &serde_json::json!({
+                "top_effect_abundance_ratio": 4.9,
+                "top_effect_abundance_ratio_description": description,
+                "top_effect_abundance_ratio_basis": {
+                    "computed": true,
+                    "statistic": "ratio_of_medians",
+                    "neutral_reference": 1.0,
+                    "value": 4.9
+                }
+            })
+            .to_string(),
+        );
+        write(
+            &outputs,
+            "reporting/report.md",
+            &format!(
+                "{description}. The top-effect-abundance ratio is above 1 and therefore \
+                 indicates reliable effect estimation."
+            ),
+        );
+        let report = check_reporting_invariants(tmp.path());
+        let failures = report.required_failures().join(" | ");
+        assert!(
+            failures.contains("RC-METRIC-DEFINITION") && failures.contains("infers `reliable`"),
+            "{failures}"
         );
     }
 

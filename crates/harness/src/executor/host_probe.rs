@@ -72,10 +72,48 @@ pub fn probe() -> HostState {
     }
 }
 
-fn probe_total_vcpus() -> u32 {
-    std::thread::available_parallelism()
+pub(crate) fn probe_total_vcpus() -> u32 {
+    let available = std::thread::available_parallelism()
         .map(|n| n.get() as u32)
-        .unwrap_or(1)
+        .unwrap_or(1);
+    probe_cgroup_cpu_limit()
+        .map(|limit| available.min(limit))
+        .unwrap_or(available)
+        .max(1)
+}
+
+fn parse_cpu_quota(quota: &str, period: &str) -> Option<u32> {
+    if quota.trim() == "max" {
+        return None;
+    }
+    let quota = quota.trim().parse::<u64>().ok()?;
+    let period = period.trim().parse::<u64>().ok()?;
+    if quota == 0 || period == 0 {
+        return None;
+    }
+    Some((quota / period).max(1).min(u64::from(u32::MAX)) as u32)
+}
+
+#[cfg(target_os = "linux")]
+fn probe_cgroup_cpu_limit() -> Option<u32> {
+    // cgroup v2: `cpu.max` is `<quota> <period>` or `max <period>`.
+    if let Ok(raw) = std::fs::read_to_string("/sys/fs/cgroup/cpu.max") {
+        let mut fields = raw.split_whitespace();
+        if let (Some(quota), Some(period)) = (fields.next(), fields.next()) {
+            if let Some(limit) = parse_cpu_quota(quota, period) {
+                return Some(limit);
+            }
+        }
+    }
+    // cgroup v1 fallback.
+    let quota = std::fs::read_to_string("/sys/fs/cgroup/cpu/cpu.cfs_quota_us").ok()?;
+    let period = std::fs::read_to_string("/sys/fs/cgroup/cpu/cpu.cfs_period_us").ok()?;
+    parse_cpu_quota(&quota, &period)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn probe_cgroup_cpu_limit() -> Option<u32> {
+    None
 }
 
 #[cfg(target_os = "linux")]
@@ -598,6 +636,16 @@ mod tests {
         assert_eq!(parse_loadavg_first("0.87 1.23 2.05 1/123 4567"), Some(0.87));
         assert_eq!(parse_loadavg_first(""), None);
         assert_eq!(parse_loadavg_first("not-a-number"), None);
+    }
+
+    #[test]
+    fn parses_cgroup_cpu_quota_as_a_hard_vcpu_ceiling() {
+        assert_eq!(parse_cpu_quota("200000", "100000"), Some(2));
+        assert_eq!(parse_cpu_quota("150000", "100000"), Some(1));
+        assert_eq!(parse_cpu_quota("50000", "100000"), Some(1));
+        assert_eq!(parse_cpu_quota("max", "100000"), None);
+        assert_eq!(parse_cpu_quota("-1", "100000"), None);
+        assert_eq!(parse_cpu_quota("200000", "0"), None);
     }
 
     #[test]
