@@ -692,6 +692,35 @@ pub fn ensure_data_provenance_section(package_root: &Path) -> bool {
 /// session/web-UI) so a new system-owned section never needs a second call
 /// site — and so the caller re-seals the BagIt manifest exactly once.
 /// Idempotent and best-effort; each injection is independent.
+///
+/// # Invariant: an injected section must contribute no verifiable claim
+///
+/// This runs as the LAST content step of the end-of-run convergence block, so
+/// it rewrites `report.md` / `final_report.md` AFTER the claim verifier has
+/// computed, sidecar-published and HMAC-signed the verdicts for those tasks
+/// ([`finalize_package`] at the head of the block, then the repair loop's final
+/// re-assessment). Every block injected here must therefore be invisible to
+/// claim extraction. Were one to contribute a claim, the signed verdict sink
+/// would describe bytes the package does not ship, and an honest offline
+/// re-verify over the shipped narrative could disagree with the recorded
+/// verdict through no fault of the data — the one thing a package sold on
+/// offline re-verifiability cannot afford.
+///
+/// The complete-significant-entities block satisfies this structurally:
+/// `claim_extractor::strip_system_generated_blocks` blanks it, and both
+/// extraction entry points call that. The data-provenance block is NOT
+/// stripped; it satisfies the invariant only because every line it renders is a
+/// markdown heading, an HTML comment, a pipe-table row (which the sentence
+/// scanner skips), or a table whose fixed header resolves no
+/// entity/effect/p-value role. Nothing in that renderer enforces it, so
+/// `crates/harness/tests/system_report_sections_verifier_invisible.rs` holds
+/// both renderers to it: a claim-bearing prose line or an entity-shaped column
+/// header added to either block fails that test rather than silently making the
+/// recorded verdicts stale.
+///
+/// Re-injection is a byte-level no-op (both injections replace their own marker
+/// block), so a later finalize pass re-verifies the shipped bytes and does not
+/// rewrite them again — the window closes rather than reopening each pass.
 pub fn ensure_system_report_sections(package_root: &Path) -> bool {
     // Evaluated eagerly (not short-circuited) — both injections must run.
     let tables = ensure_full_significant_tables(package_root);

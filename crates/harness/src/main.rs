@@ -4814,18 +4814,7 @@ fn run_loop(
             // repair pass so nothing strips the injected blocks. report.md /
             // final_report.md are manifested files, so re-seal on a change.
             // Best-effort + idempotent.
-            if ecaa_workflow_harness::end_of_run_finalize::ensure_system_report_sections(path) {
-                if let Err(e) = ecaa_workflow_core::emitter::regenerate_bagit_manifest(
-                    path,
-                    &ecaa_workflow_core::clock::WallClock,
-                ) {
-                    tracing::warn!(
-                        target: "harness",
-                        error = %e,
-                        "BagIt re-seal after system report-section injection failed (continuing)"
-                    );
-                }
-            }
+            ecaa_workflow_harness::end_of_run_finalize::ensure_system_report_sections(path);
 
             if let Some(ref pc) = progress {
                 pc.execution_finished();
@@ -4844,6 +4833,23 @@ fn run_loop(
                     target: "harness-wal",
                     error = %e,
                     "truncate on completion failed (continuing)"
+                );
+            }
+            // Seal LAST, after every write this run performs. Sealing before the
+            // progress flush and the WAL truncate left `runtime/harness-health.json`
+            // and `runtime/dispatches.jsonl` recorded at pre-write digests, so the
+            // working package's own manifest did not verify: 2 of 801 entries
+            // failed on a clean converged run. `runtime/harness.log` is the same
+            // latent case, and only stayed intact because logging happened to be
+            // quiescent. Best-effort: a seal failure must not fail a converged run.
+            if let Err(e) = ecaa_workflow_core::emitter::regenerate_bagit_manifest(
+                path,
+                &ecaa_workflow_core::clock::WallClock,
+            ) {
+                tracing::warn!(
+                    target: "harness",
+                    error = %e,
+                    "final BagIt re-seal failed (continuing)"
                 );
             }
             return Ok(());
