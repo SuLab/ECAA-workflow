@@ -30,7 +30,12 @@ pub mod boundary_actionability;
 /// Builder module.
 pub mod builder;
 pub mod checkpoint_mode;
+pub mod claim_bound;
+pub mod claim_citation;
 pub mod claim_contract;
+pub mod claim_membership;
+pub mod claim_population;
+pub mod claim_quantity;
 pub mod claim_extractor;
 pub mod claim_repair;
 pub mod claim_sink;
@@ -63,6 +68,7 @@ pub mod cross_version_diff;
 // ResilientClient: HTTPS-only client wrapper with scheme guards.
 /// Dag module.
 pub mod dag;
+pub mod observable_registry;
 pub mod decision_log;
 pub mod decision_substrate;
 pub mod dependency_lock;

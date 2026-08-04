@@ -5749,9 +5749,9 @@ fn semantic_role_query(context: &str) -> Option<(&'static str, &'static [&'stati
 }
 
 impl SemanticSummaryIndex {
-    fn scan(package_root: &Path) -> Self {
+    fn scan(package_root: &Path, scope: Option<&BTreeSet<String>>) -> Self {
         let mut counts = Vec::new();
-        for path in discovery_candidate_summaries(package_root) {
+        for path in discovery_candidate_summaries(package_root, scope) {
             let Ok(bytes) = std::fs::read(&path) else {
                 continue;
             };
@@ -6156,12 +6156,38 @@ fn select_authoritative_reproduction(
 /// directional counts because all four values are recomputed together. Other
 /// combined-direction prose still abstains. A non-matching uncited table never
 /// produces a Mismatch.
+/// Unscoped entry point: summary resolution may reach any stage in the package.
+///
+/// Prefer [`verify_narrative_counts_for`], which names the stage the narrative
+/// belongs to and confines resolution to that stage and its DAG ancestors. A
+/// caller that knows the owning task and does not pass it lets a downstream
+/// stage's field answer an upstream stage's sentence.
 pub fn verify_narrative_counts(
     narrative: &str,
     tables_root: &Path,
     package_root: &Path,
     cfg: &ExtractorConfig,
 ) -> Vec<ClaimVerdict> {
+    verify_narrative_counts_for(narrative, tables_root, package_root, cfg, None)
+}
+
+/// Verify the aggregate counts in one stage's narrative.
+///
+/// `owner_stage` names the stage that wrote `narrative`. When it is `Some`,
+/// retained stage summaries are restricted to that stage and its transitive
+/// `depends_on` ancestors (see [`ancestor_stage_scope`]), so a count can never
+/// be adjudicated against a population computed downstream of the sentence
+/// asserting it.
+pub fn verify_narrative_counts_for(
+    narrative: &str,
+    tables_root: &Path,
+    package_root: &Path,
+    cfg: &ExtractorConfig,
+    owner_stage: Option<&str>,
+) -> Vec<ClaimVerdict> {
+    let stage_scope =
+        owner_stage.and_then(|stage| ancestor_stage_scope(package_root, stage));
+    let scope = stage_scope.as_ref();
     let index = TableIndex::scan(tables_root);
     let mut out: Vec<ClaimVerdict> = Vec::new();
     let mut cache: BTreeMap<PathBuf, CachedTable> = BTreeMap::new();
@@ -6174,7 +6200,7 @@ pub fn verify_narrative_counts(
     candidate_paths.sort();
     candidate_paths.dedup();
     let candidate_index = TableIndex::from_paths(&candidate_paths);
-    let semantic_summaries = SemanticSummaryIndex::scan(package_root);
+    let semantic_summaries = SemanticSummaryIndex::scan(package_root, scope);
     let canonical_result_paths = canonical_report_artifact_paths(package_root);
 
     // A directional/significant bullet often inherits its threshold from the
@@ -6262,12 +6288,7 @@ pub fn verify_narrative_counts(
             });
             Some(make(
                 claim_entity,
-                compare_exact_count(
-                    claimed,
-                    observed,
-                    &path,
-                    &format!("stage-summary field `{field}`"),
-                ),
+                compare_summary_count(claimed, observed, &path, &field, s, noun),
                 Some(package_relative_label(&path, package_root)),
             ))
         };
@@ -6869,12 +6890,7 @@ pub fn verify_narrative_counts(
                 };
                 compound_facts.push(make(
                     &format!("count:{role_label} {noun_label}"),
-                    compare_exact_count(
-                        claimed,
-                        observed,
-                        &path,
-                        &format!("stage-summary field `{field}`"),
-                    ),
+                    compare_summary_count(claimed, observed, &path, &field, context, &noun_label),
                     Some(package_relative_label(&path, package_root)),
                 ));
             }
@@ -6993,7 +7009,8 @@ pub fn verify_narrative_counts(
             )
         };
         let summary_fact = |claim_entity: &str, claimed: f64, fields: &[&str]| -> ClaimVerdict {
-            let Some((path, field, observed)) = resolve_summary_count(package_root, fields) else {
+            let Some((path, field, observed)) = resolve_summary_count(package_root, fields, scope)
+            else {
                 return make(
                     claim_entity,
                     ClaimStatus::Unverifiable {
@@ -7014,12 +7031,7 @@ pub fn verify_narrative_counts(
             });
             make(
                 claim_entity,
-                compare_exact_count(
-                    claimed,
-                    observed,
-                    &path,
-                    &format!("stage-summary field `{field}`"),
-                ),
+                compare_summary_count(claimed, observed, &path, &field, s, noun),
                 Some(package_relative_label(&path, package_root)),
             )
         };
@@ -7319,6 +7331,34 @@ pub fn verify_narrative_counts(
         // asserted subset (for example, 4,024 of 4,030 were not assessed), not
         // the denominator immediately preceding the noun.
         if !has_count_threshold(s) {
+            // The sentence named its own source, so that file is what the count
+            // is about. The stage-summary fields consulted below are searched
+            // package-wide, which lets a threshold-less count bind across an
+            // analytical boundary to a field that merely shares a role word:
+            // `normalisation` wrote "the 500 highest-variance VST features are
+            // retained in `hvg_list.tsv`" and the 500 was convicted against
+            // `qc_preprocessing`'s `counts.n_features_retained` (22,369) while
+            // the named file held exactly 500 rows. Adjudicate against the named
+            // artifact or abstain; a foreign population total is not an answer to
+            // this sentence. Placed after the multi-axis and tested/significant
+            // paths above, which already resolve the table a sentence cites.
+            if let Some(named) = named_local_artifact(s, tables_root) {
+                let status = verify_count_claim(s, &named, cfg).unwrap_or_else(|| {
+                    ClaimStatus::Unverifiable {
+                        reason: format!(
+                            "the count names `{}` as its source; a threshold-less row count \
+                             there is not adjudicable",
+                            table_label(&named)
+                        ),
+                    }
+                });
+                out.push(make(
+                    &entity,
+                    status,
+                    Some(package_relative_label(&named, package_root)),
+                ));
+                continue;
+            }
             let local_context = noun_caps
                 .get(0)
                 .map(|matched| count_clause_context(s, matched.start(), matched.end()))
@@ -7351,16 +7391,11 @@ pub fn verify_narrative_counts(
                         .and_then(|value| parse_count(value.as_str()));
                     if let Some(claimed) = claimed {
                         if let Some((path, field, observed)) =
-                            resolve_summary_count(package_root, fields)
+                            resolve_summary_count(package_root, fields, scope)
                         {
                             out.push(make(
                                 &entity,
-                                compare_exact_count(
-                                    claimed,
-                                    observed,
-                                    &path,
-                                    &format!("stage-summary field `{field}`"),
-                                ),
+                                compare_summary_count(claimed, observed, &path, &field, s, noun),
                                 Some(package_relative_label(&path, package_root)),
                             ));
                             continue;
@@ -7716,6 +7751,70 @@ fn compare_count(claimed_n: f64, observed: usize, table_path: &Path, what: &str)
     }
 }
 
+/// Compare a narrative count against a retained stage-summary field, refusing
+/// the comparison when the binding cannot bear it.
+///
+/// A summary field is located by NAME, so nothing about the match guarantees the
+/// field measures what the sentence counts. Two refusals precede any equality
+/// test, and both can only turn a conviction into an abstention:
+///
+/// - **Dimensional disagreement.** A tally of columns is not an extremum of
+///   row-wise sums; a maximum absolute difference is not a tally at all. Real
+///   convictions of correct prose: "the 8 columns" against
+///   `max_removed_row_sum` = 9, and "a maximum absolute difference of 0" against
+///   an assertion-family count of 5.
+/// - **A bounded numeral.** "the removed rows summed to fewer than 10" asserts
+///   an inequality that an observed 9 satisfies. Comparing it for equality
+///   reported 10 against 9 as a mismatch on a sentence that was right.
+fn compare_summary_count(
+    claimed_n: f64,
+    observed: usize,
+    source_path: &Path,
+    field: &str,
+    clause: &str,
+    noun: &str,
+) -> ClaimStatus {
+    let what = format!("stage-summary field `{field}`");
+    let claim_kind = crate::claim_quantity::kind_of_clause(clause, noun);
+    let field_kind = crate::claim_quantity::kind_of_field(field);
+    if !crate::claim_quantity::kinds_admissible(claim_kind, field_kind) {
+        return ClaimStatus::Unverifiable {
+            reason: format!(
+                "this sentence states a quantity of kind {claim_kind:?} while `{field}` records \
+                 one of kind {field_kind:?}, so the field does not measure what the sentence \
+                 counts"
+            ),
+        };
+    }
+    let bound = crate::claim_bound::bound_of_clause(clause);
+    if bound != crate::claim_bound::BoundKind::Point {
+        // A cue-detected bound may acquit but never convict. English bounding
+        // words double as prepositions: "it holds over the 21 assessed entities"
+        // means ACROSS 21, not more than 21, and reading it as a lower bound
+        // turned an observed 21 against a claimed 21 into a mismatch on a
+        // sentence that was right. Satisfying the bound is positive evidence and
+        // is trusted; failing it only means one of the reading or the binding is
+        // wrong, and which one is not decidable from the cue.
+        return match crate::claim_bound::satisfies(claimed_n, observed as f64, bound) {
+            Some(true) => ClaimStatus::Verified,
+            Some(false) => ClaimStatus::Unverifiable {
+                reason: format!(
+                    "read as a {bound:?} bound this count is not satisfied by the {observed} in \
+                     `{field}`, but the bounding word may be prepositional rather than \
+                     comparative, so the reading is not adjudicable"
+                ),
+            },
+            None => ClaimStatus::Unverifiable {
+                reason: format!(
+                    "the sentence states an approximate or interval quantity, which is not \
+                     adjudicable against the single exact value in `{field}`"
+                ),
+            },
+        };
+    }
+    compare_exact_count(claimed_n, observed, source_path, &what)
+}
+
 fn compare_exact_count(
     claimed_n: f64,
     observed: usize,
@@ -7950,26 +8049,53 @@ fn verify_one_structured(
     // package it is a legitimate (if not table-adjudicable) self-citation →
     // Unverifiable, NOT a phantom-file Mismatch. Only a base file that is itself
     // absent everywhere is a genuine fabricated citation.
-    if let Some((base, _pointer)) = evidence.split_once("::") {
-        let base = base.trim();
-        let status = if !base.is_empty() && evidence_basename_exists(package_root, base) {
-            // Never adjudicated: an in-result field self-reference is not a
-            // result table, so no adjudication site ran. Pending.
-            ClaimStatus::Pending {
-                reason: format!(
-                    "cited evidence `{evidence}` is an in-result field self-reference (not a result table); value not table-adjudicable"
-                ),
-            }
-        } else {
-            ClaimStatus::Mismatch {
-                detail: format!(
-                    "claim cites evidence `{evidence}` whose base file `{base}` does not exist anywhere in the package"
-                ),
-            }
-        };
-        return make(summarize_claim_subject(&sc.claim), status, None);
+    // An agent may cite several sources for one claim, e.g.
+    // `de_results.tsv (padj column); de_summary.json::n_significant`. Splitting
+    // on the first `::` treats that entire string as one filename, so the
+    // phantom-file branch below convicted three correct claims of citing a file
+    // named `de_results.tsv (padj column); de_summary.json`. Resolve each cited
+    // artifact on its own terms.
+    let citations = crate::claim_citation::parse_evidence_citations(evidence);
+    if !citations.is_empty() {
+        let missing: Vec<&str> = citations
+            .iter()
+            .filter(|cite| !evidence_basename_exists(package_root, &cite.artifact))
+            .map(|cite| cite.artifact.as_str())
+            .collect();
+        if !missing.is_empty() {
+            return make(
+                summarize_claim_subject(&sc.claim),
+                ClaimStatus::Mismatch {
+                    detail: format!(
+                        "claim cites evidence `{evidence}` whose file `{}` does not exist anywhere in the package",
+                        missing.join("`, `")
+                    ),
+                },
+                None,
+            );
+        }
+        // Every cited source is a `file::field` pointer into a stage's own JSON.
+        // That is a self-reference, so no table adjudication site exists for it.
+        if citations.iter().all(|cite| cite.field.is_some()) {
+            return make(
+                summarize_claim_subject(&sc.claim),
+                ClaimStatus::Pending {
+                    reason: format!(
+                        "cited evidence `{evidence}` is an in-result field self-reference (not a result table); value not table-adjudicable"
+                    ),
+                },
+                None,
+            );
+        }
     }
-    let Some(table_path) = resolve_evidence_table(package_root, evidence) else {
+    // Adjudicate against the first cited artifact that is not a field pointer,
+    // falling back to the raw string when nothing parsed as an artifact.
+    let table_reference = citations
+        .iter()
+        .find(|cite| cite.field.is_none())
+        .map(|cite| cite.artifact.as_str())
+        .unwrap_or(evidence);
+    let Some(table_path) = resolve_evidence_table(package_root, table_reference) else {
         let basename = Path::new(evidence)
             .file_name()
             .and_then(|s| s.to_str())
@@ -8114,7 +8240,75 @@ fn discovery_candidate_tables(package_root: &Path) -> Vec<PathBuf> {
 /// and explicitly named summary JSON files are eligible. This keeps provenance
 /// discovery away from arbitrary JSON numbers such as seeds, versions, or plot
 /// dimensions.
-fn discovery_candidate_summaries(package_root: &Path) -> Vec<PathBuf> {
+/// The stages whose retained summaries may answer a count in `owner_stage`'s
+/// narrative: itself plus every transitive `depends_on` ancestor from
+/// `WORKFLOW.json`.
+///
+/// A stage can only describe data that flowed into it. Resolving its numbers
+/// against a DOWNSTREAM or SIBLING stage's summary field manufactures provenance
+/// backwards across an analytical boundary, and because summary resolution
+/// matches on field NAME at any nesting depth, a shared role word is enough to
+/// make it happen: `differential_expression` stating its analysis-ready
+/// population of 22,369 was convicted against `pathway_enrichment`'s
+/// `n_genes_ranked` of 17,190, a count produced two stages later from a
+/// different population.
+///
+/// `None` means the DAG could not be read, in which case resolution stays
+/// unrestricted — an absent scope must not silently narrow verification.
+fn ancestor_stage_scope(package_root: &Path, owner_stage: &str) -> Option<BTreeSet<String>> {
+    let bytes = std::fs::read(package_root.join("WORKFLOW.json")).ok()?;
+    let workflow = serde_json::from_slice::<serde_json::Value>(&bytes).ok()?;
+    let tasks = workflow.get("tasks")?.as_object()?;
+    if !tasks.contains_key(owner_stage) {
+        return None;
+    }
+    let mut scope = BTreeSet::new();
+    let mut frontier = vec![owner_stage.to_string()];
+    while let Some(stage) = frontier.pop() {
+        if !scope.insert(stage.clone()) {
+            continue;
+        }
+        let Some(prereqs) = tasks
+            .get(&stage)
+            .and_then(|task| task.get("depends_on"))
+            .and_then(|value| value.as_array())
+        else {
+            continue;
+        };
+        for prereq in prereqs {
+            if let Some(id) = prereq.as_str() {
+                frontier.push(id.to_string());
+            }
+        }
+    }
+    Some(scope)
+}
+
+/// `true` when `path` is a retained summary of a stage inside `scope`.
+///
+/// Paths outside `runtime/outputs/<stage>/` (a package-root `result.json`) are
+/// not owned by any analytical stage and stay in scope.
+fn summary_is_in_scope(path: &Path, package_root: &Path, scope: &BTreeSet<String>) -> bool {
+    let Ok(relative) = path.strip_prefix(package_root) else {
+        return true;
+    };
+    let mut parts = relative.components().map(|part| part.as_os_str());
+    if parts.next().and_then(|part| part.to_str()) != Some("runtime") {
+        return true;
+    }
+    if parts.next().and_then(|part| part.to_str()) != Some("outputs") {
+        return true;
+    }
+    match parts.next().and_then(|part| part.to_str()) {
+        Some(stage) => scope.contains(stage),
+        None => true,
+    }
+}
+
+fn discovery_candidate_summaries(
+    package_root: &Path,
+    scope: Option<&BTreeSet<String>>,
+) -> Vec<PathBuf> {
     fn push_summaries(dir: &Path, out: &mut Vec<PathBuf>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
             return;
@@ -8163,6 +8357,9 @@ fn discovery_candidate_summaries(package_root: &Path) -> Vec<PathBuf> {
             .then_with(|| left.cmp(right))
     });
     out.dedup();
+    if let Some(scope) = scope {
+        out.retain(|path| summary_is_in_scope(path, package_root, scope));
+    }
     out
 }
 
@@ -8207,6 +8404,56 @@ fn collect_json_integer_fields(value: &serde_json::Value, wanted: &str, found: &
 /// numeric equality alone never creates a link. If the same preferred field is
 /// present with conflicting values, the resolver abstains instead of choosing
 /// whichever file sorts first.
+/// An artifact this stage retained, named inside the sentence making the claim.
+///
+/// A narrative that says where a number lives — "the 500 highest-variance VST
+/// features are retained in `hvg_list.tsv`" — has cited its own source. That
+/// file is the thing to count, and resolving the number to a stage-summary
+/// population total instead answers a question the sentence did not ask: the 500
+/// bound to `qc_preprocessing`'s `counts.n_features_retained` (22,369) and
+/// convicted a narrative whose named file holds exactly 500 rows. Cross-stage
+/// besides, which `resolve_in_path` already documents as manufacturing
+/// provenance across analytical boundaries.
+fn named_local_artifact(sentence: &str, tables_root: &Path) -> Option<PathBuf> {
+    static ARTIFACT_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(r"[A-Za-z0-9][A-Za-z0-9_.-]*\.(?:tsv|csv|json|jsonl)\b")
+            .expect("static artifact-name regex")
+    });
+    let mut hit = None;
+    for m in ARTIFACT_RE.find_iter(sentence) {
+        let name = m.as_str();
+        // Only this stage's own retained files, found at the top level or one
+        // directory down (intermediates/, view_data/, figure_data/).
+        let direct = tables_root.join(name);
+        let candidate = if direct.is_file() {
+            Some(direct)
+        } else {
+            std::fs::read_dir(tables_root).ok().and_then(|entries| {
+                let mut nested: Vec<PathBuf> = entries
+                    .flatten()
+                    .map(|entry| entry.path())
+                    .filter(|path| path.is_dir())
+                    .collect();
+                // Deterministic order: a directory listing is not sorted.
+                nested.sort();
+                nested
+                    .into_iter()
+                    .map(|dir| dir.join(name))
+                    .find(|path| path.is_file())
+            })
+        };
+        if let Some(path) = candidate {
+            // Two different named files in one sentence give no unambiguous
+            // subject; leave the claim to the other paths.
+            if hit.is_some() {
+                return None;
+            }
+            hit = Some(path);
+        }
+    }
+    hit
+}
+
 /// One count claim answered from a retained stage-summary field.
 #[derive(Debug, Clone)]
 struct SummaryBinding {
@@ -8278,8 +8525,9 @@ fn downgrade_ambiguous_summary_bindings(out: &mut [ClaimVerdict], bindings: &[Su
 fn resolve_summary_count(
     package_root: &Path,
     field_names: &[&str],
+    scope: Option<&BTreeSet<String>>,
 ) -> Option<(PathBuf, String, usize)> {
-    let summaries = discovery_candidate_summaries(package_root);
+    let summaries = discovery_candidate_summaries(package_root, scope);
     for field in field_names {
         let mut matches = Vec::new();
         for path in &summaries {
@@ -15344,6 +15592,205 @@ The source matrix contained 37 features across 24 acquisition cycles.";
             .expect("the flagged-samples field is unambiguous and must resolve");
         assert_eq!(field, "sample_outlier_assessment.n_samples_flagged");
         assert_eq!(observed, 0);
+    }
+
+    /// A sentence that cites its own source is checked against that source.
+    ///
+    /// `normalisation` wrote "The 500 highest-variance VST features are retained
+    /// in hvg_list.tsv under the declared rule", and hvg_list.tsv holds exactly
+    /// 500 rows. The 500 nonetheless resolved to `qc_preprocessing`'s
+    /// `counts.n_features_retained` (22,369) — another stage's population total —
+    /// and blocked the run. Only one claim bound to that field, so the
+    /// conflicting-value rule could not see it; the sentence naming its source is
+    /// what distinguishes it.
+    #[test]
+    fn a_count_citing_its_own_artifact_is_checked_against_that_artifact() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let stage = root.join("runtime/outputs/normalisation");
+        std::fs::create_dir_all(&stage).unwrap();
+        // 500 data rows, as the narrative says.
+        let mut hvg = String::from("gene_id\tvariance\n");
+        for i in 0..500 {
+            hvg.push_str(&format!("ENSG{i:011}\t{}\n", 1.0 / (i as f64 + 1.0)));
+        }
+        std::fs::write(stage.join("hvg_list.tsv"), hvg).unwrap();
+        // The population total that previously answered the claim.
+        std::fs::create_dir_all(root.join("runtime/outputs/qc_preprocessing")).unwrap();
+        std::fs::write(
+            root.join("runtime/outputs/qc_preprocessing/result.json"),
+            serde_json::json!({ "counts": { "n_features_retained": 22369 } }).to_string(),
+        )
+        .unwrap();
+
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let text = "The 500 highest-variance VST features are retained in hvg_list.tsv \
+                    under the declared rule.";
+        let verdicts = verify_narrative_counts(text, &stage, root, &cfg);
+        assert_eq!(verdicts.len(), 1, "{verdicts:#?}");
+        // Abstention, not conviction: a threshold-less row count is not
+        // adjudicable (the module declines it generally, because NA-filtered
+        // tables false-mismatch), but the abstention is attributed to the file
+        // the narrative named rather than resolved to another stage's total.
+        assert!(
+            matches!(verdicts[0].status, ClaimStatus::Unverifiable { .. }),
+            "{:#?}",
+            verdicts[0]
+        );
+        assert!(
+            verdicts[0]
+                .claim
+                .source_table
+                .as_deref()
+                .is_some_and(|source| source.contains("hvg_list.tsv")),
+            "the verdict must attribute to the artifact the sentence named: {:?}",
+            verdicts[0].claim.source_table
+        );
+    }
+
+    /// A count is never adjudicated against a population computed downstream of
+    /// the sentence asserting it.
+    ///
+    /// `differential_expression` reported its analysis-ready population of
+    /// 22,369 and was convicted against `pathway_enrichment`'s `n_genes_ranked`
+    /// of 17,190 — a count produced from a narrower population two stages later.
+    /// Summary fields are matched by NAME at any nesting depth over every stage
+    /// in the package, so a shared role word was the whole of the binding. The
+    /// stage can only describe what flowed into it, so resolution is confined to
+    /// itself and its `depends_on` ancestors.
+    ///
+    /// Asserts the defect under the unscoped entry point and its absence under
+    /// the scoped one, so the test fails if either half regresses.
+    #[test]
+    fn a_count_is_not_adjudicated_against_a_downstream_population() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::write(
+            root.join("WORKFLOW.json"),
+            serde_json::json!({
+                "tasks": {
+                    "qc_preprocessing": { "depends_on": [] },
+                    "differential_expression": { "depends_on": ["qc_preprocessing"] },
+                    "pathway_enrichment": { "depends_on": ["differential_expression"] }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let stage = root.join("runtime/outputs/differential_expression");
+        std::fs::create_dir_all(&stage).unwrap();
+        let downstream = root.join("runtime/outputs/pathway_enrichment");
+        std::fs::create_dir_all(&downstream).unwrap();
+        std::fs::write(
+            downstream.join("pathway_summary.json"),
+            serde_json::json!({ "n_genes_ranked": 17190 }).to_string(),
+        )
+        .unwrap();
+
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let text = "The 22369 ranked genes were supplied to the model.";
+
+        let unscoped = verify_narrative_counts(text, &stage, root, &cfg);
+        assert!(
+            unscoped
+                .iter()
+                .any(|verdict| matches!(verdict.status, ClaimStatus::Mismatch { .. })),
+            "the unscoped path must still reach the downstream field, otherwise this \
+             test no longer pins the defect it was written for: {unscoped:#?}"
+        );
+
+        let scoped = verify_narrative_counts_for(
+            text,
+            &stage,
+            root,
+            &cfg,
+            Some("differential_expression"),
+        );
+        assert!(
+            !scoped
+                .iter()
+                .any(|verdict| matches!(verdict.status, ClaimStatus::Mismatch { .. })),
+            "a downstream stage's field must not convict this sentence: {scoped:#?}"
+        );
+    }
+
+    /// An ancestor's retained summary stays reachable. Confining resolution to
+    /// the DAG must not sever the legitimate upstream reference a transition
+    /// sentence makes to the population it received.
+    #[test]
+    fn an_ancestor_population_remains_resolvable() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::write(
+            root.join("WORKFLOW.json"),
+            serde_json::json!({
+                "tasks": {
+                    "qc_preprocessing": { "depends_on": [] },
+                    "differential_expression": { "depends_on": ["qc_preprocessing"] }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let scope = ancestor_stage_scope(root, "differential_expression").unwrap();
+        assert!(scope.contains("differential_expression"));
+        assert!(scope.contains("qc_preprocessing"));
+        assert_eq!(scope.len(), 2);
+
+        // A stage absent from the DAG yields no scope, so resolution stays
+        // unrestricted rather than silently verifying nothing.
+        assert!(ancestor_stage_scope(root, "not_a_stage").is_none());
+        assert!(ancestor_stage_scope(tmp.path().join("absent").as_path(), "x").is_none());
+    }
+
+    /// Preferring the named artifact recomputes against it wherever the count
+    /// is adjudicable, rather than always abstaining. A grouping count is
+    /// answerable from distinct column values, so naming the file must produce a
+    /// verdict from that file — and a wrong number must still be convicted.
+    #[test]
+    fn a_grouping_count_naming_its_own_artifact_is_recomputed_from_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let stage = root.join("runtime/outputs/clustering");
+        std::fs::create_dir_all(&stage).unwrap();
+        std::fs::write(
+            stage.join("cluster_assignments.tsv"),
+            "gene\tcluster\nA1\t1\nA2\t1\nA3\t2\nA4\t3\nA5\t3\nA6\t4\n",
+        )
+        .unwrap();
+        // A foreign total that shares the role word, as in the himes defect.
+        std::fs::create_dir_all(root.join("runtime/outputs/qc_preprocessing")).unwrap();
+        std::fs::write(
+            root.join("runtime/outputs/qc_preprocessing/result.json"),
+            serde_json::json!({ "counts": { "n_clusters_retained": 99 } }).to_string(),
+        )
+        .unwrap();
+
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let verified = verify_narrative_counts(
+            "4 clusters are retained in cluster_assignments.tsv.",
+            &stage,
+            root,
+            &cfg,
+        );
+        assert!(
+            verified
+                .iter()
+                .any(|verdict| matches!(verdict.status, ClaimStatus::Verified)),
+            "{verified:#?}"
+        );
+        let wrong = verify_narrative_counts(
+            "7 clusters are retained in cluster_assignments.tsv.",
+            &stage,
+            root,
+            &cfg,
+        );
+        assert!(
+            wrong
+                .iter()
+                .any(|verdict| matches!(verdict.status, ClaimStatus::Mismatch { .. })),
+            "a wrong count against the named file is still a mismatch: {wrong:#?}"
+        );
     }
 
     /// The size of an absent set is not a population total.

@@ -21,7 +21,7 @@ use crate::claim_extractor::{
 };
 use crate::claim_verifier::{
     demote_claims_from_deviations, verdict_class_of, verify_claims_with_discovery,
-    verify_claims_with_discovery_cached, verify_narrative_counts, verify_structured_claims,
+    verify_claims_with_discovery_cached, verify_narrative_counts_for, verify_structured_claims,
     ClaimDiscoveryCache, ClaimStatus, ClaimStrength, ClaimVerdict, ClaimVerificationReport,
     StructuredClaim, VerdictAudit, VerdictClass, CLAIM_VERIFIER_VERSION,
 };
@@ -174,7 +174,13 @@ impl CrossTaskClaimLedger {
                 resolve_task_runtime_dir_local(package_root, task_id)
                     .unwrap_or_else(|| package_root.join("runtime").join(task_id))
             };
-            for verdict in verify_narrative_counts(&narrative, &effective_root, package_root, cfg) {
+            for verdict in verify_narrative_counts_for(
+                &narrative,
+                &effective_root,
+                package_root,
+                cfg,
+                Some(task_id.as_str()),
+            ) {
                 ledger.record(task_id, &verdict.claim);
             }
         }
@@ -896,7 +902,13 @@ fn verify_task_with_context_deduped_cached(
         // FDR<0.05 (Table N)") carry no per-entity Claim, so recompute them
         // from cited or matching emitted evidence and fold the verdicts in.
         // Hedged, rounded, or combined claims remain unverifiable.
-        for mut v in verify_narrative_counts(&narrative, &effective_root, package_root, &cfg) {
+        for mut v in verify_narrative_counts_for(
+            &narrative,
+            &effective_root,
+            package_root,
+            &cfg,
+            Some(task_id),
+        ) {
             if let Some(l) = ledger {
                 if !l.owns(task_id, &v.claim) {
                     continue;
@@ -1260,11 +1272,19 @@ fn finalize_task_deduped_inner(
                 coverage.as_ref(),
                 &writer,
             ) {
-                tracing::warn!(
+                // Error, not warn: the task verified, so the plaintext sidecar
+                // records its verdicts while the signed sink — the artifact
+                // audit-proof Invariant 1 reads and a deposit re-verify
+                // cross-checks — is now short by this task. A truncated sink
+                // still passes its own header-vs-rows consistency check, so
+                // nothing downstream notices unless this is loud. The durable
+                // marker written by `claim_sink` is what a reader consults; see
+                // `claim_sink::unpersisted_tasks`.
+                tracing::error!(
                     target: "ecaa::finalize",
                     error = %e,
                     task_id,
-                    "signed verdict sink write failed"
+                    "signed verdict sink write failed; sink is short by this task"
                 );
             }
 
@@ -2252,7 +2272,8 @@ mod tests {
 
         let tasks = vec!["reporting".to_string(), "final_reporting".to_string()];
         let ledger = CrossTaskClaimLedger::build(root, &tasks, &cfg);
-        let count_verdicts = verify_narrative_counts(narrative, &result_dir, root, &cfg);
+        let count_verdicts =
+            verify_narrative_counts_for(narrative, &result_dir, root, &cfg, None);
         assert_eq!(count_verdicts.len(), 2, "{count_verdicts:#?}");
         assert_eq!(
             ledger.len(),
