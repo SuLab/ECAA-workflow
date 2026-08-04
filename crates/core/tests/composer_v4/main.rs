@@ -32,5 +32,6 @@ mod composer_v4_validate_companions;
 mod ordering_only_declaration;
 mod v3_alignment_status_baseline;
 mod v4_archetype_collision_fallback;
+mod v4_figure_required_artifacts;
 mod v4_task_spec_required_figures;
 mod v4_task_spec_required_input_stage;

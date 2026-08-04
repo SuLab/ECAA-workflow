@@ -88,6 +88,7 @@ fn overlay_atom(id: &str) -> AtomDefinition {
         expected_artifacts: Vec::new(),
         required_artifacts: Vec::new(),
         result_schema: None,
+        observables: None,
         required_report_sections: Vec::new(),
         required_tables: Vec::new(),
         interpretation_exempt_from_word_budget: false,

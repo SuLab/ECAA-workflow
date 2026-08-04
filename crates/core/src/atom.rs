@@ -283,6 +283,21 @@ pub struct AtomDefinition {
     #[ts(optional)]
     pub result_schema: Option<crate::report_contract::ResultSchema>,
 
+    /// Declares the scalar quantities this atom promises to report, so a
+    /// quantity quoted in its narrative binds to a *declared* observable
+    /// instead of being resolved by a name search over every scalar in
+    /// the package. Absent (the default) means the atom promises no
+    /// scalar, which is the pre-existing behavior for every atom that
+    /// does not declare the block — the field is
+    /// `skip_serializing_if = "Option::is_none"` so an unchanged atom
+    /// YAML serializes byte-identically. Mirrored by the
+    /// `observables` property in `_atom.schema.json`; threaded to
+    /// `TaskNode::attributes["observables"]` by
+    /// `workflow_contracts::from_atom::preserve_attributes`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub observables: Option<crate::report_contract::ObservableSchema>,
+
     /// Report-section ids this atom's narrative must cover when the
     /// reporting/final_reporting agent composes its output.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -597,6 +612,7 @@ impl AtomDefinition {
             expected_artifacts: Vec::new(),
             required_artifacts: Vec::new(),
             result_schema: None,
+            observables: None,
             required_report_sections: Vec::new(),
             required_tables: Vec::new(),
             interpretation_exempt_from_word_budget: false,
@@ -1622,6 +1638,7 @@ assignee: agent
             expected_artifacts: vec![],
             required_artifacts: vec![],
             result_schema: None,
+            observables: None,
             required_report_sections: vec![],
             required_tables: vec![],
             interpretation_exempt_from_word_budget: false,
@@ -1677,6 +1694,7 @@ assignee: agent
             expected_artifacts: vec![],
             required_artifacts: vec![],
             result_schema: None,
+            observables: None,
             required_report_sections: vec![],
             required_tables: vec![],
             interpretation_exempt_from_word_budget: false,
@@ -1736,6 +1754,7 @@ assignee: agent
             expected_artifacts: vec![],
             required_artifacts: vec![],
             result_schema: None,
+            observables: None,
             required_report_sections: vec![],
             required_tables: vec![],
             interpretation_exempt_from_word_budget: false,
@@ -1869,6 +1888,7 @@ assignee: agent
             expected_artifacts: vec![],
             required_artifacts: vec![],
             result_schema: None,
+            observables: None,
             required_report_sections: vec![],
             required_tables: vec![],
             interpretation_exempt_from_word_budget: false,

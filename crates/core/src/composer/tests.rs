@@ -190,6 +190,7 @@ fn make_atom(
         expected_artifacts: vec![],
         required_artifacts: vec![],
         result_schema: None,
+        observables: None,
         required_report_sections: vec![],
         required_tables: vec![],
         interpretation_exempt_from_word_budget: false,

@@ -83,6 +83,132 @@ fn atom_schema_declares_interpretation_word_budget_flag() {
     );
 }
 
+/// Sibling gate to the one above, for the `observables` block
+/// (`crates/core/src/report_contract/observable_schema.rs::ObservableSchema`).
+/// The atom schema is `additionalProperties:false` and is validated BEFORE
+/// `serde_json::from_value` in `atom_registry::validate_one`, so a Rust field
+/// with no matching schema property is permanently unauthorable from YAML and
+/// a schema property with no Rust field breaks the registry. This test is the
+/// only thing that catches either half of that split — including a rename of a
+/// `quantity_kind` / `bound_kind` variant, since the expected enum members are
+/// produced by serializing the Rust variants rather than being typed out.
+#[test]
+fn atom_schema_declares_observables_block() {
+    use ecaa_workflow_core::report_contract::{ObservableBound, ObservableKind};
+
+    let schema_path = repo_root().join("config/stage-atoms/_atom.schema.json");
+    let raw = fs::read_to_string(&schema_path)
+        .unwrap_or_else(|e| panic!("reading {}: {e}", schema_path.display()));
+    let schema: serde_json::Value = serde_json::from_str(&raw).expect("schema is valid JSON");
+
+    let block = &schema["properties"]["observables"];
+    assert_eq!(
+        block["type"], "object",
+        "schema must declare a top-level `observables` object property mirroring \
+         ObservableSchema; the atom schema is additionalProperties:false so the \
+         field must be enumerated or it can never be authored"
+    );
+    assert_eq!(
+        block["additionalProperties"], false,
+        "the observables block must be sealed, like every sibling sub-object"
+    );
+
+    // ObservableSchema's single field is itself named `observables`.
+    let list = &block["properties"]["observables"];
+    assert_eq!(
+        list["type"], "array",
+        "ObservableSchema::observables is a Vec<Observable>"
+    );
+    let item = &list["items"];
+    assert_eq!(item["type"], "object", "each entry mirrors Observable");
+    assert_eq!(
+        item["additionalProperties"], false,
+        "an Observable entry must be sealed"
+    );
+
+    // Every serde field on `Observable`, with its JSON type. Nothing here
+    // is `required`: every field carries a serde default, and the semantic
+    // rules are enforced by ObservableSchema::validate at registry load.
+    for (field, ty) in [
+        ("key", "string"),
+        ("aliases", "array"),
+        ("quantity_kind", "string"),
+        ("population", "string"),
+        ("bound_kind", "string"),
+        ("host_derivable", "boolean"),
+        ("unit", "string"),
+    ] {
+        assert_eq!(
+            item["properties"][field]["type"], ty,
+            "Observable::{field} must be declared as a {ty} in the atom schema"
+        );
+    }
+    assert!(
+        item.get("required").is_none(),
+        "no Observable field may be schema-required: all carry serde defaults, and \
+         ObservableSchema::validate is what reports the offending observable's index"
+    );
+
+    // The snake_case discriminants must match the Rust variants exactly.
+    // Serializing each variant means a rename fails here rather than
+    // silently making a declaration unauthorable.
+    let kind_variants = [
+        ObservableKind::Count,
+        ObservableKind::Sum,
+        ObservableKind::Extremum,
+        ObservableKind::Difference,
+        ObservableKind::Ratio,
+        ObservableKind::Proportion,
+        ObservableKind::Significance,
+        ObservableKind::Effect,
+        ObservableKind::Threshold,
+        ObservableKind::Duration,
+        ObservableKind::Other,
+    ];
+    let declared_kinds = item["properties"]["quantity_kind"]["enum"]
+        .as_array()
+        .expect("quantity_kind must declare an enum");
+    assert_eq!(
+        declared_kinds.len(),
+        kind_variants.len(),
+        "schema quantity_kind enum has {} members, ObservableKind has {}",
+        declared_kinds.len(),
+        kind_variants.len()
+    );
+    for v in kind_variants {
+        let wire = serde_json::to_value(v).expect("ObservableKind serializes");
+        assert!(
+            declared_kinds.contains(&wire),
+            "schema quantity_kind enum is missing {wire}; declared={declared_kinds:?}"
+        );
+    }
+
+    let bound_variants = [
+        ObservableBound::Point,
+        ObservableBound::Upper,
+        ObservableBound::Lower,
+        ObservableBound::Range,
+        ObservableBound::Approximate,
+    ];
+    let declared_bounds = item["properties"]["bound_kind"]["enum"]
+        .as_array()
+        .expect("bound_kind must declare an enum");
+    assert_eq!(
+        declared_bounds.len(),
+        bound_variants.len(),
+        "schema bound_kind enum has {} members, ObservableBound has {}",
+        declared_bounds.len(),
+        bound_variants.len()
+    );
+    for v in bound_variants {
+        let wire = serde_json::to_value(v).expect("ObservableBound serializes");
+        assert!(
+            declared_bounds.contains(&wire),
+            "schema bound_kind enum is missing {wire}; declared={declared_bounds:?}"
+        );
+    }
+}
+
 /// The method-neutral `biological_interpretation` atom: operation role,
 /// agent assignee, word-budget exempt, figure-exempt, an OPTIONAL
 /// literature_concordance input port, and a claim_boundary that requires

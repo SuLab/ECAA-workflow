@@ -99,6 +99,86 @@ fn push_required_artifact_once(
     }
 }
 
+/// Turn each lowered compute task's declared figure contract into hard
+/// artifact obligations, so a task that reports `completed` without its
+/// plots re-blocks with `[missing_artifact]` instead of standing.
+///
+/// The stage-driven path already does this inside
+/// `required_artifacts_for_stage(stage, include_figures = true)`. The
+/// `WorkflowDag` lowering pass carries `required_figures` onto
+/// `Task.spec` — that is the executing agent's render contract — but
+/// converted only the atom's literally-declared `required_artifacts`
+/// into `RequiredArtifact`s, so the figure half of the obligation had no
+/// machine-checked counterpart on this path.
+///
+/// Scope rules, both mirroring the stage-driven path:
+/// - only `TaskKind::Computation` tasks acquire figure obligations
+///   (the `!is_review && !is_validation` rule) — a `validate_*` or
+///   `discover_*` companion's own output dir must not be forced to hold
+///   the parent compute task's plots;
+/// - `figures/manifest.json` is required alongside the figures, because
+///   `runtime.plotting.core.generate()` writes it on every invocation
+///   and its absence means the render step never ran at all.
+///
+/// Only the PNG is required, not the PDF sibling. `written` in
+/// `figures/manifest.json` maps a figure id to its PRIMARY path (the
+/// PNG); the PDF is a theme-configurable sibling format
+/// (`output.formats` in the plotting theme), so gating on it would let a
+/// theme change block a run that in fact produced every figure.
+///
+/// `validation_obligations` stays empty on synthesized figure artifacts:
+/// the obligation runners are table-oriented, so binding them to a PNG
+/// yields only soft-skipped `Errored { reason }` outcomes. A figure
+/// obligation is a presence gate, nothing more.
+///
+/// Determinism: `dag.tasks` is a `BTreeMap`, and each task's figure ids
+/// keep the order the atom declared them in, so the appended artifacts
+/// are byte-stable for a given composition.
+fn attach_figure_required_artifacts(dag: &mut DAG) {
+    for task in dag.tasks.values_mut() {
+        if !matches!(task.kind, TaskKind::Computation) {
+            continue;
+        }
+        let figures: Vec<String> = task
+            .spec
+            .as_ref()
+            .and_then(|spec| spec.get("required_figures"))
+            .and_then(|v| v.as_array())
+            .map(|entries| {
+                entries
+                    .iter()
+                    .filter_map(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(String::from)
+                    .collect()
+            })
+            .unwrap_or_default();
+        if figures.is_empty() {
+            continue;
+        }
+        push_required_artifact_once(
+            &mut task.required_artifacts,
+            crate::dag::RequiredArtifact {
+                path: "figures/manifest.json".into(),
+                min_size_bytes: Some(2),
+                schema_ref: None,
+                validation_obligations: Vec::new(),
+            },
+        );
+        for fig in figures {
+            push_required_artifact_once(
+                &mut task.required_artifacts,
+                crate::dag::RequiredArtifact {
+                    path: format!("figures/{fig}.png"),
+                    min_size_bytes: Some(1),
+                    schema_ref: None,
+                    validation_obligations: Vec::new(),
+                },
+            );
+        }
+    }
+}
+
 fn add_plotting_spec_fields(spec: &mut serde_json::Value, stage: &StageSpec) {
     if !stage.required_figures.is_empty() {
         spec["required_figures"] = serde_json::Value::Array(
@@ -186,6 +266,7 @@ pub fn build_dag_from_workflow_dag(
     // Override workflow_id so the caller's choice (typically the
     // session id) wins over the WorkflowDag's stable id.
     dag.workflow_id = workflow_id.to_string();
+    attach_figure_required_artifacts(&mut dag);
     crate::dag::validate_dag_typed(&dag)
         .map_err(|e| anyhow::anyhow!("Phase 16 lowered DAG failed validation: {}", e))?;
     dag.populate_execution_order();
@@ -988,6 +1069,7 @@ mod tests {
             expected_artifacts: vec![],
             required_artifacts: vec![],
             result_schema: None,
+            observables: None,
             required_report_sections: vec![],
             required_tables: vec![],
             interpretation_exempt_from_word_budget: false,
@@ -1036,6 +1118,7 @@ mod tests {
             expected_artifacts: vec![],
             required_artifacts: vec![],
             result_schema: None,
+            observables: None,
             required_report_sections: vec![],
             required_tables: vec![],
             interpretation_exempt_from_word_budget: false,
@@ -1173,6 +1256,7 @@ mod tests {
             expected_artifacts: vec![],
             required_artifacts: vec![],
             result_schema: None,
+            observables: None,
             required_report_sections: vec![],
             required_tables: vec![],
             interpretation_exempt_from_word_budget: false,
@@ -1221,6 +1305,7 @@ mod tests {
             expected_artifacts: vec![],
             required_artifacts: vec![],
             result_schema: None,
+            observables: None,
             required_report_sections: vec![],
             required_tables: vec![],
             interpretation_exempt_from_word_budget: false,
@@ -1328,6 +1413,7 @@ mod tests {
             expected_artifacts: vec![],
             required_artifacts: vec![],
             result_schema: None,
+            observables: None,
             required_report_sections: vec![],
             required_tables: vec![],
             interpretation_exempt_from_word_budget: false,
@@ -1418,6 +1504,7 @@ mod tests {
                 schema_ref: None,
             }],
             result_schema: None,
+            observables: None,
             required_report_sections: vec![],
             required_tables: vec![],
             interpretation_exempt_from_word_budget: false,
@@ -1549,6 +1636,7 @@ mod tests {
             expected_artifacts: vec![],
             required_artifacts: vec![],
             result_schema: None,
+            observables: None,
             required_report_sections: vec![],
             required_tables: vec![],
             interpretation_exempt_from_word_budget: false,

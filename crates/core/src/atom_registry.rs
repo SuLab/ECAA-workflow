@@ -669,7 +669,20 @@ impl AtomRegistry {
                 msgs.join("\n  - ")
             ));
         }
-        serde_json::from_value(parsed.clone()).with_context(|| format!("deserializing {ctx}"))
+        let atom: AtomDefinition =
+            serde_json::from_value(parsed.clone()).with_context(|| format!("deserializing {ctx}"))?;
+        // The `observables` block's semantic rules are not expressible in
+        // the JSON Schema (a duplicate key path across two observables,
+        // and a unit on a count, are cross-field facts). Every property
+        // carries a serde default so a partial declaration parses; this
+        // is the check that turns it into a load error naming the index
+        // of the offending observable.
+        if let Some(observables) = &atom.observables {
+            observables
+                .validate()
+                .with_context(|| format!("invalid `observables` declaration in {ctx}"))?;
+        }
+        Ok(atom)
     }
 
     /// Validate an in-memory candidate atom (e.g. a drafted atom from the

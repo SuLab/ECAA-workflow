@@ -271,6 +271,7 @@ fn unknown_atom_attributes_are_preserved_unchanged() {
                 "plot_stage_id",
                 "expected_artifacts",
                 "required_artifacts",
+                "observables",
                 "runtime_packages",
             ];
             if RESERVED.contains(&k.as_str()) {

@@ -596,4 +596,69 @@ mod tests {
             "result_schema must not leak into the emitted task spec"
         );
     }
+
+    /// `observables` follows the `result_schema` precedent exactly: the
+    /// declaration is stamped onto the `TaskNode` — so it lands in
+    /// `runtime/task-nodes.json` wholesale, where a verifier reads it — but
+    /// is deliberately NOT allowlisted into the emitted `Task.spec`. This
+    /// pins both halves: a dropped `preserve_attributes` stamp fails the
+    /// first assertion, and an allowlist edit that leaks the block into the
+    /// dispatched spec fails the second.
+    #[test]
+    fn declared_observables_reach_the_task_node_but_not_the_task_spec() {
+        use crate::backend_emitters::workflow_json::{lower_to_workflow_json, EmitContext};
+        use crate::report_contract::{Observable, ObservableKind, ObservableSchema};
+
+        let reg = atom_registry();
+        let mut atom = reg
+            .get("reporting")
+            .expect("reporting atom present")
+            .clone();
+        assert!(
+            atom.observables.is_none(),
+            "precondition: no committed atom YAML declares observables yet"
+        );
+        let declared = ObservableSchema {
+            observables: vec![Observable {
+                key: "counts.n_reported".into(),
+                population: "result_rows".into(),
+                quantity_kind: ObservableKind::Count,
+                ..Observable::default()
+            }],
+        };
+        assert!(declared.validate().is_ok(), "fixture declaration is valid");
+        atom.observables = Some(declared.clone());
+
+        let node = TaskNode::from_atom(&atom);
+        let stamped = node
+            .attributes
+            .get("observables")
+            .expect("from_atom must stamp the declaration onto TaskNode::attributes");
+        let round_tripped: ObservableSchema =
+            serde_json::from_value(stamped.clone()).expect("stamped attribute deserializes");
+        assert_eq!(
+            round_tripped, declared,
+            "the stamped attribute must be the declaration verbatim"
+        );
+
+        let dag = dag_with(
+            vec![node, plain_node("final_reporting")],
+            vec![simple_edge("reporting", "final_reporting")],
+        );
+        let artifact = lower_to_workflow_json(&dag, &EmitContext::defaults())
+            .expect("lowering the dag must succeed");
+        let spec = artifact
+            .dag
+            .tasks
+            .get("reporting")
+            .expect("reporting task must be present in the lowered DAG")
+            .spec
+            .as_ref()
+            .expect("reporting task must carry a spec");
+        assert!(
+            spec.get("observables").is_none(),
+            "observables must not leak into the emitted task spec (mirrors the \
+             deliberate result_schema exclusion); spec={spec:?}"
+        );
+    }
 }

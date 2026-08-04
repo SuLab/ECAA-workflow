@@ -8,6 +8,7 @@
 //! signed effect) enters the system only through these declarations —
 //! never hardcoded downstream.
 
+pub mod observable_schema;
 pub mod report_data;
 pub mod result_schema;
 
@@ -17,6 +18,9 @@ pub mod pathway_ranking;
 pub mod provenance_section;
 
 pub use assemble::{assemble_report_data, CONTEXTUALIZE_STAGE_ID};
+pub use observable_schema::{
+    Observable, ObservableBound, ObservableKind, ObservableSchema, ObservableSchemaError,
+};
 pub use full_table::{
     inject_full_tables, significant_entities_section, FULL_TABLE_END, FULL_TABLE_START,
 };

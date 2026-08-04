@@ -1,4 +1,5 @@
 mod dag_patch_concurrent_agents;
+mod figure_required_artifacts_gate;
 mod invocation_record_emitted;
 mod required_artifact_pathjail;
 mod scheduler_session_pause_test;

@@ -439,6 +439,66 @@
         "grouping_column": {"type": "string"}
       }
     },
+    "observables": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Declares the scalar quantities this atom promises to report, so a quantity quoted in its narrative binds to a DECLARED observable instead of being resolved by a name search over every scalar in the package. Mirrors crates/core/src/report_contract/observable_schema.rs::ObservableSchema. Absent = the atom promises no scalar. This schema is purely STRUCTURAL — every property carries a serde default, so the semantic rules (non-empty key, non-empty population, no key path promised twice across keys and aliases, no unit on a count) are enforced by ObservableSchema::validate at registry load, which reports the index of the offending observable.",
+      "properties": {
+        "observables": {
+          "type": "array",
+          "description": "The promised observables, in authoring order. Order is load-bearing: it is the alias-resolution order of ObservableSchema::get and the serialization order that keeps an emitted package byte-reproducible. Mirrors observable_schema.rs::Observable.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "key": {
+                "type": "string",
+                "description": "Dotted key path into the stage's result.json (e.g. counts.n_retained). Matched literally, never fuzzily. Semantically required — ObservableSchema::validate rejects an empty key."
+              },
+              "aliases": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Additional accepted key paths (the agent may emit a synonym). Resolution tries `key` first, then each alias in declaration order. A path promised twice — across keys and aliases alike — is rejected by ObservableSchema::validate."
+              },
+              "quantity_kind": {
+                "type": "string",
+                "enum": [
+                  "count",
+                  "sum",
+                  "extremum",
+                  "difference",
+                  "ratio",
+                  "proportion",
+                  "significance",
+                  "effect",
+                  "threshold",
+                  "duration",
+                  "other"
+                ],
+                "description": "Dimensional kind of the quantity, in the spirit of a QUDT quantity kind; stops an incommensurable comparison. Defaults to `other` (binds by key, supports no dimensional reasoning)."
+              },
+              "population": {
+                "type": "string",
+                "description": "What the quantity is *of* — a declared port id or an abstract population name, never a domain noun. Semantically required: ObservableSchema::validate rejects an empty population, because a quantity of nothing cannot be compared."
+              },
+              "bound_kind": {
+                "type": "string",
+                "enum": ["point", "upper", "lower", "range", "approximate"],
+                "description": "How tightly the value is asserted, so a one-sided or hedged statement is not convicted by an exact-equality check. Defaults to `point` (strictest grading — silence must not buy leniency)."
+              },
+              "host_derivable": {
+                "type": "boolean",
+                "description": "True when the host can recompute the value from primary bytes, so the registry marks it authoritative rather than agent-asserted. Defaults false — silence never upgrades an assertion."
+              },
+              "unit": {
+                "type": "string",
+                "description": "Optional unit for a non-count quantity (QUDT-style symbol or CURIE). Absent = dimensionless. A unit on a `count` is rejected by ObservableSchema::validate."
+              }
+            }
+          }
+        }
+      }
+    },
     "required_report_sections": {
       "type": "array",
       "items": {"type": "string"},

@@ -42,6 +42,7 @@
 //!   `TaskNode::attributes["required_report_sections"]`
 //! - required_tables → `TaskNode::attributes["required_tables"]`
 //! - result_schema → `TaskNode::attributes["result_schema"]`
+//! - observables → `TaskNode::attributes["observables"]`
 //! - interpretation_exempt_from_word_budget →
 //!   `TaskNode::attributes["interpretation_exempt_from_word_budget"]`
 //!   (only stamped when `true`)
@@ -351,6 +352,18 @@ fn preserve_attributes(atom: &AtomDefinition) -> BTreeMap<String, serde_json::Va
             serde_json::to_value(rs).unwrap_or(serde_json::Value::Null),
         );
     }
+    // Declared scalar observables, threaded the same way as
+    // `result_schema`: stamped on the node so it lands in
+    // `runtime/task-nodes.json` wholesale, and deliberately NOT
+    // allowlisted into `Task.spec` by
+    // `backend_emitters::workflow_json` — a verifier reads the
+    // declaration from the node record, not from the dispatched spec.
+    if let Some(obs) = &atom.observables {
+        a.insert(
+            "observables".into(),
+            serde_json::to_value(obs).unwrap_or(serde_json::Value::Null),
+        );
+    }
     if atom.interpretation_exempt_from_word_budget {
         a.insert(
             "interpretation_exempt_from_word_budget".into(),
@@ -437,6 +450,7 @@ mod tests {
             expected_artifacts: vec![],
             required_artifacts: vec![],
             result_schema: None,
+            observables: None,
             required_report_sections: vec![],
             required_tables: vec![],
             interpretation_exempt_from_word_budget: false,
