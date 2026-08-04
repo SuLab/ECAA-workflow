@@ -863,15 +863,16 @@ pub fn build_messages_payload(req: &TurnRequest) -> serde_json::Value {
         "messages": messages,
         "tools": tools,
     });
-    // `temperature` is deprecated for the Opus 4.x generation AND for Sonnet 5 —
-    // the API rejects the request with a 400 ("`temperature` is deprecated for
-    // this model") when it is present. Omit it for those; the older Sonnet 4.x
-    // line and Haiku still accept it.
+    // `temperature` is deprecated for the Opus 4.x generation, Opus 5, AND for
+    // Sonnet 5 — the API rejects the request with a 400 ("`temperature` is
+    // deprecated for this model") when it is present. Omit it for those; the
+    // older Sonnet 4.x line and Haiku still accept it.
     if !matches!(
         req.model,
         crate::model_policy::ModelId::Opus46
             | crate::model_policy::ModelId::Opus47
             | crate::model_policy::ModelId::Opus48
+            | crate::model_policy::ModelId::Opus5
             | crate::model_policy::ModelId::Sonnet5
     ) {
         payload["temperature"] = json!(req.temperature);

@@ -33,6 +33,11 @@ fn resolve_model_api_id_strips_context_variant_suffix() {
     // under-priced Opus 4.7 agent runs by ~1.67×).
     assert_eq!(resolve_model_api_id("claude-opus-4-7"), ModelId::Opus47);
     assert_eq!(resolve_model_api_id("claude-opus-4-7[1m]"), ModelId::Opus47);
+    // Same hazard for Opus 5: the executor reports `claude-opus-5` (and
+    // `claude-opus-5[1m]` on the 1M-context variant), so both must land on
+    // the Opus rate card rather than the Sonnet 4.6 fallback.
+    assert_eq!(resolve_model_api_id("claude-opus-5"), ModelId::Opus5);
+    assert_eq!(resolve_model_api_id("claude-opus-5[1m]"), ModelId::Opus5);
     assert_eq!(resolve_model_api_id("claude-sonnet-4-6"), ModelId::Sonnet46);
     assert_eq!(
         resolve_model_api_id("claude-haiku-4-5-20251001"),

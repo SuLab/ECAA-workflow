@@ -63,6 +63,15 @@ pub enum ModelId {
     /// different tool-use behavior.
     #[serde(rename = "opus_4_8")]
     Opus48,
+    /// Claude Opus 5 — successor to Opus 4.8 in the Opus line. Same rate
+    /// card as the Opus 4.x generation ($5 input / $25 output / $6.25
+    /// 5-min cache write / $0.50 cache read per MTok). Thinking is on by
+    /// default and sampling parameters are rejected, so the client omits
+    /// `temperature` for this variant alongside the Opus 4.x line.
+    /// Reachable via an operator `ECAA_MODEL_POLICY_PATH` override; not a
+    /// default routing target.
+    #[serde(rename = "opus_5")]
+    Opus5,
     /// Claude Haiku 4.5 — cheaper, faster, smaller-context model. Not
     /// currently reachable via `ModelPolicy::choose`; variant lands now
     /// so the pricing table + metrics pipeline are ready for a future
@@ -80,6 +89,7 @@ impl ModelId {
             ModelId::Opus46 => "claude-opus-4-6",
             ModelId::Opus47 => "claude-opus-4-7",
             ModelId::Opus48 => "claude-opus-4-8",
+            ModelId::Opus5 => "claude-opus-5",
             ModelId::Haiku45 => "claude-haiku-4-5-20251001",
         }
     }
@@ -89,7 +99,10 @@ impl ModelId {
     /// `opus_cost_usd` UI mirrors so the upgrade isn't a visual cliff
     /// for operators watching those rows.
     pub fn is_opus(self) -> bool {
-        matches!(self, ModelId::Opus46 | ModelId::Opus47 | ModelId::Opus48)
+        matches!(
+            self,
+            ModelId::Opus46 | ModelId::Opus47 | ModelId::Opus48 | ModelId::Opus5
+        )
     }
 
     /// Enumerate every variant. Used by metrics tests to assert every
@@ -101,6 +114,7 @@ impl ModelId {
         ModelId::Opus46,
         ModelId::Opus47,
         ModelId::Opus48,
+        ModelId::Opus5,
         ModelId::Haiku45,
     ];
 }
@@ -380,6 +394,7 @@ mod tests {
         assert_eq!(ModelId::Opus46.api_id(), "claude-opus-4-6");
         assert_eq!(ModelId::Opus47.api_id(), "claude-opus-4-7");
         assert_eq!(ModelId::Opus48.api_id(), "claude-opus-4-8");
+        assert_eq!(ModelId::Opus5.api_id(), "claude-opus-5");
         assert_eq!(ModelId::Haiku45.api_id(), "claude-haiku-4-5-20251001");
     }
 
@@ -388,6 +403,7 @@ mod tests {
         assert!(ModelId::Opus46.is_opus());
         assert!(ModelId::Opus47.is_opus());
         assert!(ModelId::Opus48.is_opus());
+        assert!(ModelId::Opus5.is_opus());
         assert!(!ModelId::Sonnet46.is_opus());
         assert!(!ModelId::Sonnet5.is_opus());
         assert!(!ModelId::Haiku45.is_opus());
@@ -408,6 +424,6 @@ mod tests {
         // If a new variant is added, ModelId::ALL must be extended so the
         // metrics pricing-coverage test can fail loudly. This test pins
         // the count; bump it alongside ALL when adding a variant.
-        assert_eq!(ModelId::ALL.len(), 6);
+        assert_eq!(ModelId::ALL.len(), 7);
     }
 }

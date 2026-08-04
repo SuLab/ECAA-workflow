@@ -77,6 +77,18 @@ pub const OPUS_4_8: ModelPrices = ModelPrices {
     cache_read_per_mtok: 0.50,
 };
 
+/// Opus 5 list pricing. Successor to Opus 4.8 in the Opus line; the
+/// upgrade is capability-only, so the rate card is unchanged from
+/// 4.6/4.7/4.8. Kept as a distinct constant so agent runs reported as
+/// `claude-opus-5` price accurately instead of falling through to
+/// Sonnet 4.6 rates.
+pub const OPUS_5: ModelPrices = ModelPrices {
+    input_per_mtok: 5.00,
+    output_per_mtok: 25.00,
+    cache_write_per_mtok: 6.25,
+    cache_read_per_mtok: 0.50,
+};
+
 /// Claude Haiku 4.5 list pricing. Cache write / read multipliers
 /// follow the standard 1.25× / 0.1× ephemeral-tier ratios.
 pub const HAIKU_4_5: ModelPrices = ModelPrices {
@@ -97,6 +109,7 @@ pub fn prices_for(model: ModelId) -> &'static ModelPrices {
         ModelId::Opus46 => &OPUS_4_6,
         ModelId::Opus47 => &OPUS_4_7,
         ModelId::Opus48 => &OPUS_4_8,
+        ModelId::Opus5 => &OPUS_5,
         ModelId::Haiku45 => &HAIKU_4_5,
     }
 }
