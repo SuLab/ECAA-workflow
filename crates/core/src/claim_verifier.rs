@@ -6952,6 +6952,25 @@ pub fn verify_narrative_counts(
         if lower.contains("leading ") && lower.contains(" of ") {
             continue;
         }
+        // A negative-containment enumeration states that a set is ABSENT, so the
+        // set's size is incidental to the assertion rather than a population
+        // total the package retains: a validator writing "the appendix carries
+        // none of the 39 gene symbols drawn from de_results.tsv" asserts absence,
+        // not that 39 is any stage's gene count. Resolving it against a summary
+        // population field convicts the narrative of a claim it never made.
+        // Scoped to the clause holding the count so a real count elsewhere in
+        // the same sentence still gets checked.
+        let negated_membership = noun_caps
+            .get(0)
+            .map(|matched| count_clause_context(s, matched.start(), matched.end()))
+            .unwrap_or(s)
+            .to_ascii_lowercase();
+        if ["none of", "neither of", "not one of"]
+            .iter()
+            .any(|cue| negated_membership.contains(cue))
+        {
+            continue;
+        }
         let (has_up, has_down) = noun_caps
             .get(0)
             .map(|matched| aggregate_count_directions(s, &matched, cfg))
@@ -15325,6 +15344,42 @@ The source matrix contained 37 features across 24 acquisition cycles.";
             .expect("the flagged-samples field is unambiguous and must resolve");
         assert_eq!(field, "sample_outlier_assessment.n_samples_flagged");
         assert_eq!(observed, 0);
+    }
+
+    /// The size of an absent set is not a population total.
+    ///
+    /// `validate_final_reporting` wrote "the navigation header and appendix carry
+    /// … none of the 39 gene symbols drawn from de_results.tsv". The assertion is
+    /// absence; 39 is the size of the excluded set. It resolved against a pathway
+    /// stage's `n_genes_pre_mapping` (16,139) and blocked the run. A count in a
+    /// negative-containment clause claims nothing about a retained population, so
+    /// no verdict is owed. A real count in another clause of the same sentence is
+    /// still checked.
+    #[test]
+    fn a_count_inside_a_negative_containment_clause_is_not_checked() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join("runtime/outputs/pathway_enrichment")).unwrap();
+        std::fs::write(
+            root.join("runtime/outputs/pathway_enrichment/pathway_summary.json"),
+            serde_json::json!({ "n_genes_pre_mapping": 16139 }).to_string(),
+        )
+        .unwrap();
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+
+        let negated = "Claim isolation holds: the appendix carries no p-value, no effect size, \
+                       and none of the 39 gene symbols drawn from de_results.tsv.";
+        let verdicts = verify_narrative_counts(negated, root, root, &cfg);
+        assert!(
+            !verdicts
+                .iter()
+                .any(|verdict| matches!(verdict.status, ClaimStatus::Mismatch { .. })),
+            "absence of a set says nothing about any stage's population total: {:?}",
+            verdicts
+                .iter()
+                .map(|verdict| (&verdict.claim.entity, &verdict.status))
+                .collect::<Vec<_>>()
+        );
     }
 
     /// A hard-wrapped sentence must be extracted whole.
