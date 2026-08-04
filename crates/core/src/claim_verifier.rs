@@ -5630,6 +5630,16 @@ fn semantic_role_query(context: &str) -> Option<(&'static str, &'static [&'stati
         ))
     } else if normalized.contains("mapped") || normalized.contains("resolved") {
         Some(("mapped", &["mapped", "resolved"]))
+    } else if normalized.contains("flagged") {
+        // A QC outlier verdict is its own lifecycle role. It has to be tested
+        // BEFORE the removed/retained branches: an outlier sentence routinely
+        // reports the flagged subset and the retained remainder in one clause
+        // ("0 of 8 samples were flagged and all 8 columns were retained"), and
+        // whichever branch matches first supplies the role for the counted
+        // noun. Ranking `retained` above `flagged` there let the count bind to
+        // whatever the stage happened to retain, which on a count matrix is the
+        // FEATURE axis rather than the samples the sentence counts.
+        Some(("flagged", &["flagged"]))
     } else if normalized.contains("removing")
         || normalized.contains("removed")
         || normalized.contains("excluding")
@@ -5882,13 +5892,20 @@ impl SemanticSummaryIndex {
                         && !selected_role_tokens.iter().any(|role| role == *token)
                 })
                 .count();
-            // Prefer the field whose tokens say only the requested noun and
-            // lifecycle role. Alias order breaks ties between equally precise
-            // spellings. Precision must rank first so a qualified field such
-            // as `n_features_prefilter_removed` cannot outrank exact
-            // `n_features_input` merely because `prefilter` appeared earlier
-            // in the source-role alias list.
-            let rank = (extra_tokens, matched_role, generic_penalty);
+            // A field that names the requested population always outranks one
+            // reached through the generic-count-unit escape hatch, which exists
+            // only so an unseen noun can still bind to `n_items` / `n_records`.
+            // With `generic_penalty` ranked last, a generic match could win on
+            // token count alone and silently answer a claim about one
+            // population from a field counting another.
+            //
+            // Within a class, prefer the field whose tokens say only the
+            // requested noun and lifecycle role. Alias order breaks ties
+            // between equally precise spellings. Precision must outrank alias
+            // order so a qualified field such as `n_features_prefilter_removed`
+            // cannot outrank exact `n_features_input` merely because
+            // `prefilter` appeared earlier in the source-role alias list.
+            let rank = (generic_penalty, extra_tokens, matched_role);
             match best_rank {
                 None => {
                     best_rank = Some(rank);
@@ -15148,5 +15165,92 @@ The source matrix contained 37 features across 24 acquisition cycles.";
             "equal values cannot supply provenance when two retained summaries are equally \
              authoritative"
         );
+    }
+
+    /// A QC-outlier count must bind to the population it counts.
+    ///
+    /// `qc_preprocessing` narrates "0 of 8 samples were flagged and all 8
+    /// columns were retained". The clause names two populations with two
+    /// lifecycle verbs. The role ladder had no `flagged` role, so the trailing
+    /// `retained` won and the samples count resolved against
+    /// `feature_filter.n_features_retained` — a different axis of the count
+    /// matrix, reachable only because `feature` is a generic count unit. That
+    /// reported a 0-vs-16139 mismatch and blocked a run whose narrative and
+    /// summary agreed exactly.
+    #[test]
+    fn vf16_outlier_flag_count_binds_to_the_sample_population_not_the_feature_axis() {
+        let clause = " so 0 of 8 samples were flagged and all 8 columns were retained";
+        let (role, aliases) =
+            semantic_role_query(clause).expect("an outlier-flag clause must carry a role");
+        assert_eq!(
+            role, "flagged",
+            "the verb attached to the counted noun is `flagged`, not the trailing `retained`"
+        );
+
+        let summary = PathBuf::from("/package/runtime/outputs/qc_preprocessing/qc_summary.json");
+        let index = SemanticSummaryIndex {
+            counts: vec![
+                SemanticSummaryCount {
+                    path: summary.clone(),
+                    field: "feature_filter.n_features_retained".into(),
+                    value: 16139,
+                    tokens: semantic_tokens("feature_filter.n_features_retained"),
+                },
+                SemanticSummaryCount {
+                    path: summary.clone(),
+                    field: "sample_outlier_assessment.n_samples_assessed".into(),
+                    value: 8,
+                    tokens: semantic_tokens("sample_outlier_assessment.n_samples_assessed"),
+                },
+                SemanticSummaryCount {
+                    path: summary.clone(),
+                    field: "sample_outlier_assessment.n_samples_flagged".into(),
+                    value: 0,
+                    tokens: semantic_tokens("sample_outlier_assessment.n_samples_flagged"),
+                },
+            ],
+        };
+
+        let (_, field, observed) = index
+            .resolve("samples", aliases)
+            .expect("the flagged-samples field is unambiguous and must resolve");
+        assert_eq!(field, "sample_outlier_assessment.n_samples_flagged");
+        assert_eq!(observed, 0);
+    }
+
+    /// An exact noun match must outrank a generic-unit match.
+    ///
+    /// `generic_penalty` sat last in the rank tuple, so a candidate that matched
+    /// only through the generic-count-unit escape hatch could outrank one that
+    /// matched the claim's noun exactly, purely by carrying fewer extra tokens.
+    /// The escape hatch exists so an unseen noun can still bind to `n_items`;
+    /// it must never override a field that names the requested population.
+    #[test]
+    fn vf16_exact_noun_match_outranks_a_shorter_generic_unit_match() {
+        let index = SemanticSummaryIndex {
+            counts: vec![
+                SemanticSummaryCount {
+                    path: PathBuf::from("/package/runtime/outputs/qc/summary.json"),
+                    field: "n_features_retained".into(),
+                    value: 16139,
+                    tokens: semantic_tokens("n_features_retained"),
+                },
+                SemanticSummaryCount {
+                    path: PathBuf::from("/package/runtime/outputs/qc/summary.json"),
+                    field: "sample_outlier_assessment.n_samples_retained".into(),
+                    value: 8,
+                    tokens: semantic_tokens("sample_outlier_assessment.n_samples_retained"),
+                },
+            ],
+        };
+
+        let (_, field, observed) = index
+            .resolve("samples", &["retained"])
+            .expect("an exactly-noun-matched field must resolve");
+        assert_eq!(
+            field, "sample_outlier_assessment.n_samples_retained",
+            "a generic `feature` match must not outrank an exact `sample` match"
+        );
+        assert_eq!(observed, 8);
     }
 }
