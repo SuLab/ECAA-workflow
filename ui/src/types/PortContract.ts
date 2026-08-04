@@ -12,8 +12,8 @@ import type { ValidatorRef } from "./ValidatorRef";
 /**
  * A typed port — input or output of a `TaskNode`. Design §1 + §12.
  *
- * All facet-bearing fields are optional because atoms synthesized from
- * `AtomDefinition.edam_data` / `edam_format` provide only the EDAM
+ * All facet-bearing fields are optional because the legacy
+ * `AtomDefinition.edam_data` / `edam_format` fallback provides only the EDAM
  * pair; richer ports supply genome build, coordinate system, and other
  * biological facets inline.
  *

@@ -10,6 +10,7 @@ import type { InputGroup } from "./InputGroup";
 import type { IterateSpec } from "./IterateSpec";
 import type { JointlyWithConstraint } from "./JointlyWithConstraint";
 import type { MethodChoiceRef } from "./MethodChoiceRef";
+import type { ObservableSchema } from "./ObservableSchema";
 import type { ParameterSpec } from "./ParameterSpec";
 import type { PortContract } from "./PortContract";
 import type { ReadAllowance } from "./ReadAllowance";
@@ -253,6 +254,20 @@ required_artifacts: Array<{ path: string; min_size_bytes?: number; schema_ref?: 
  * Primary-Results block to the assembled report.
  */
 result_schema?: ResultSchema, 
+/**
+ * Declares the scalar quantities this atom promises to report, so a
+ * quantity quoted in its narrative binds to a *declared* observable
+ * instead of being resolved by a name search over every scalar in
+ * the package. Absent (the default) means the atom promises no
+ * scalar, which is the pre-existing behavior for every atom that
+ * does not declare the block — the field is
+ * `skip_serializing_if = "Option::is_none"` so an unchanged atom
+ * YAML serializes byte-identically. Mirrored by the
+ * `observables` property in `_atom.schema.json`; threaded to
+ * `TaskNode::attributes["observables"]` by
+ * `workflow_contracts::from_atom::preserve_attributes`.
+ */
+observables?: ObservableSchema, 
 /**
  * Report-section ids this atom's narrative must cover when the
  * reporting/final_reporting agent composes its output.

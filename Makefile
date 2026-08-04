@@ -164,8 +164,7 @@ check: test ## test + TypeScript noEmit
 	cd ui && npx tsc --noEmit
 
 types: ## Regenerate ts-rs TypeScript bindings into ui/src/types/
-	cargo test -p ecaa-workflow-core export_bindings
-	cargo test -p ecaa-workflow-conversation export_bindings
+	bash scripts/regen-ts-bindings.sh
 
 # ── End-to-end ───────────────────────────────────────────────────────────────
 

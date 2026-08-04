@@ -28,7 +28,7 @@ user_confirmed: boolean,
  * Optional on the wire so a UI can still inspect a snapshot emitted by a
  * pre-field server. This server always returns `Some`.
  */
-project_class?: ProjectClass,
+project_class?: ProjectClass, 
 /**
  * Timestamp of the most recent activity in this session.
  */
