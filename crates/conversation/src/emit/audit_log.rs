@@ -10,10 +10,29 @@ use serde::Serialize;
 use std::path::Path;
 use tokio::io::AsyncWriteExt;
 
-/// Serialize each item as a JSON line and append to
-/// `<runtime>/<filename>`. Used by `write_decision_log` and
-/// `write_conversation_log` so both share the same newline-delimited
-/// JSON writer rather than duplicating the loop + flush idiom.
+/// Render each item to the exact JSONL line that will be stored for it.
+///
+/// Separated from the write so a caller that must ALSO sign what it stores
+/// (`write_decision_log_tiered` → `write_decisions_mac_sidecar`) can hand the
+/// same `String`s to both, instead of serializing twice and hoping the two
+/// serializations agree. Serializing up front also means a serialization
+/// failure can no longer leave a truncated file behind.
+fn jsonl_lines<T: Serialize>(items: &[T]) -> Result<Vec<String>> {
+    items
+        .iter()
+        .map(|item| serde_json::to_string(item).map_err(Into::into))
+        .collect()
+}
+
+/// Serialize each item as a JSON line and write `<runtime>/<filename>`. Used by
+/// `write_decision_log` and `write_conversation_log` so both share the same
+/// newline-delimited JSON writer rather than duplicating the loop + flush idiom.
+async fn write_jsonl<T: Serialize>(runtime: &Path, filename: &str, items: &[T]) -> Result<()> {
+    write_jsonl_lines(runtime, filename, &jsonl_lines(items)?).await
+}
+
+/// Write pre-rendered JSONL `lines` (one per row, newline-terminated) to
+/// `<runtime>/<filename>`.
 ///
 /// Plan S2.1 — `sync_data()` (fdatasync) replaces the prior
 /// `flush().await` so the audit-log write is durable across kernel
@@ -25,14 +44,13 @@ use tokio::io::AsyncWriteExt;
 /// per the PostgreSQL "20-year fsync bug" lesson: a silent fsync
 /// failure leaves the on-disk state inconsistent with what we tell
 /// the caller.
-async fn write_jsonl<T: Serialize>(runtime: &Path, filename: &str, items: &[T]) -> Result<()> {
+async fn write_jsonl_lines(runtime: &Path, filename: &str, lines: &[String]) -> Result<()> {
     tokio::fs::create_dir_all(runtime).await?;
     let path = runtime.join(filename);
     let mut file = tokio::fs::File::create(&path)
         .await
         .with_context(|| format!("creating {}", path.display()))?;
-    for item in items {
-        let line = serde_json::to_string(item)?;
+    for line in lines {
         file.write_all(line.as_bytes()).await?;
         file.write_all(b"\n").await?;
     }
@@ -132,7 +150,11 @@ pub(super) async fn write_decision_log_tiered(
             *output_dir = ".".to_string();
         }
     }
-    write_jsonl(&runtime, "decisions.jsonl", &redacted).await?;
+    // Render the wire lines ONCE. The same `String`s are stored as
+    // `decisions.jsonl` and signed into `decisions.jsonl.mac`, so the MAC
+    // cannot end up covering a different serialization than the one on disk.
+    let lines = jsonl_lines(&redacted).context("serializing runtime/decisions.jsonl")?;
+    write_jsonl_lines(&runtime, "decisions.jsonl", &lines).await?;
 
     // HMAC-SHA256 sidecar (C5): one hex digest per row in
     // `runtime/decisions.jsonl.mac`, verifiable with the session's
@@ -141,7 +163,7 @@ pub(super) async fn write_decision_log_tiered(
     // by extension without additional discovery. A corrupt or missing
     // `.mac` file is detected by the verifier and logged as a warning;
     // it never blocks emission.
-    write_decisions_mac_sidecar(session, &runtime, &redacted).await
+    write_decisions_mac_sidecar(session, &runtime, &lines).await
 }
 
 /// Write `runtime/decisions.jsonl.mac`: one lowercase-hex HMAC-SHA256
@@ -151,10 +173,28 @@ pub(super) async fn write_decision_log_tiered(
 /// from `session.audit_writer_secret`. The sidecar is verified
 /// row-by-row with the same key; a mismatch indicates tampering or
 /// a secret rotation across emits.
+///
+/// # Invariant
+///
+/// **`stored_lines` are the exact bytes of `runtime/decisions.jsonl`, and each
+/// MAC covers the value a reader recovers by parsing its line.** The only reader
+/// the documented contract can describe ("a keyed HMAC over `decisions.jsonl`;
+/// verified with the session secret" — `core::emitter::bagit`) parses a stored
+/// line and recomputes [`AuditWriter::sign_row`] over it, so that parsed value
+/// is the signed domain. Never sign `to_value(record)`: `serde_json` here is
+/// built without `float_roundtrip`, so its number parser is not the inverse of
+/// its number printer, and for some finite f64 values the parser lands one ULP
+/// away whose own shortest rendering is a *different* decimal that parses back
+/// to the original — a period-2 orbit with no fixed point (e.g. `4.16e-134` ⇄
+/// `4.1599999999999996e-134`). An in-memory signature over such a row is one
+/// parse/print step out of phase with the line it authenticates, so every
+/// secret-holding reader reports a false tamper on an untampered audit trail —
+/// and the affected values are ordinary: `overall_concordance` is a `k / n`
+/// ratio, and a large share of those quotients have no wire fixed point.
 async fn write_decisions_mac_sidecar(
     session: &Session,
     runtime: &Path,
-    records: &[impl serde::Serialize],
+    stored_lines: &[String],
 ) -> Result<()> {
     use ecaa_workflow_core::audit_writer::AuditWriter;
     let writer = AuditWriter::with_secret(session.audit_writer_secret);
@@ -162,8 +202,9 @@ async fn write_decisions_mac_sidecar(
     let tmp_path = runtime.join("decisions.jsonl.mac.tmp");
 
     let mut mac_lines = String::new();
-    for rec in records {
-        let row = serde_json::to_value(rec).context("serializing decision record for MAC")?;
+    for line in stored_lines {
+        let row: serde_json::Value =
+            serde_json::from_str(line).context("re-parsing a stored decision line for its MAC")?;
         let mac = writer.sign_row(&row);
         mac_lines.push_str(&mac);
         mac_lines.push('\n');
@@ -769,6 +810,42 @@ mod tests {
     use crate::session::Session;
     use ecaa_workflow_core::audit_writer::AuditWriter;
 
+    /// Recompute the sidecar the way a secret-holding reader does: parse the
+    /// stored `decisions.jsonl` line, sign THAT, compare to the `.mac` line.
+    async fn assert_sidecar_authenticates_stored_lines(runtime: &Path, session: &Session) {
+        let stored = tokio::fs::read_to_string(runtime.join("decisions.jsonl"))
+            .await
+            .expect("decisions.jsonl present");
+        let macs = tokio::fs::read_to_string(runtime.join("decisions.jsonl.mac"))
+            .await
+            .expect("decisions.jsonl.mac present");
+        let rows: Vec<&str> = stored.lines().filter(|l| !l.trim().is_empty()).collect();
+        let mac_lines: Vec<&str> = macs.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert_eq!(rows.len(), mac_lines.len(), "one MAC line per stored row");
+        let verifier = AuditWriter::with_secret(session.audit_writer_secret);
+        for (i, (row, mac)) in rows.iter().zip(mac_lines.iter()).enumerate() {
+            let parsed: serde_json::Value =
+                serde_json::from_str(row).expect("one JSON object per JSONL line");
+            assert_eq!(
+                &verifier.sign_row(&parsed),
+                mac,
+                "MAC line {i} must authenticate the bytes stored on line {i}"
+            );
+        }
+    }
+
+    /// Store `records` as `decisions.jsonl` + `decisions.jsonl.mac` through the
+    /// same single-serialization path `write_decision_log_tiered` uses.
+    async fn store_pair(runtime: &Path, session: &Session, records: &[serde_json::Value]) {
+        let lines = jsonl_lines(records).expect("records serialize");
+        write_jsonl_lines(runtime, "decisions.jsonl", &lines)
+            .await
+            .expect("jsonl write must succeed");
+        write_decisions_mac_sidecar(session, runtime, &lines)
+            .await
+            .expect("sidecar write must succeed");
+    }
+
     /// E23 — `write_decisions_mac_sidecar` writes one hex HMAC per
     /// decision record and each line verifies against the session secret.
     #[tokio::test]
@@ -786,28 +863,60 @@ mod tests {
             serde_json::json!({"kind": "Confirm", "user": "alice"}),
             serde_json::json!({"kind": "Reject", "user": "bob"}),
         ];
-        write_decisions_mac_sidecar(&session, &runtime, &records)
-            .await
-            .expect("sidecar write must succeed");
+        store_pair(&runtime, &session, &records).await;
 
         let mac_path = runtime.join("decisions.jsonl.mac");
         assert!(mac_path.exists(), "decisions.jsonl.mac must be created");
-
         let mac_content = tokio::fs::read_to_string(&mac_path).await.unwrap();
-        let mac_lines: Vec<&str> = mac_content.lines().collect();
-        assert_eq!(mac_lines.len(), records.len(), "one MAC line per record");
+        assert_eq!(
+            mac_content.lines().count(),
+            records.len(),
+            "one MAC line per record"
+        );
+        assert_sidecar_authenticates_stored_lines(&runtime, &session).await;
+    }
 
-        // Verify each MAC using the same secret.
+    /// The MAC must cover the value a reader recovers from the stored line, not
+    /// the in-memory value. `serde_json` here is built without
+    /// `float_roundtrip`, so a row carrying a float whose parse/print orbit has
+    /// no fixed point (`4.16e-134` ⇄ `4.1599999999999996e-134`) signs to a
+    /// DIFFERENT digest in memory than from the wire — an in-memory signer makes
+    /// every secret-holding reader see a false tamper. The control float has a
+    /// wire fixed point and is unaffected either way, so the two halves bracket
+    /// the hazard.
+    #[tokio::test]
+    async fn decisions_mac_sidecar_signs_the_wire_view_of_a_float_row() {
+        let dir = tempfile::tempdir().unwrap();
+        let runtime = dir.path().join("runtime");
+        tokio::fs::create_dir_all(&runtime).await.unwrap();
+        let session = Session::new(false);
         let verifier = AuditWriter::with_secret(session.audit_writer_secret);
-        for (i, (record, mac_hex)) in records.iter().zip(mac_lines.iter()).enumerate() {
-            let expected = verifier.sign_row(record);
-            assert_eq!(
-                *mac_hex,
-                expected.as_str(),
-                "MAC line {} must match sign_row output",
-                i
-            );
-        }
+
+        // 4.16e-134 has no wire fixed point; 4.156217311e-134 does.
+        let hazard =
+            serde_json::json!({"kind": "cross_version_diff", "overall_concordance": 4.16e-134});
+        let control = serde_json::json!({"kind": "cross_version_diff", "overall_concordance": 4.156217311e-134});
+
+        // Vacuity guard: the hazard row must really put the two domains apart,
+        // and the control must really not. If `float_roundtrip` is ever enabled
+        // workspace-wide, this fails loudly instead of passing vacuously.
+        let wire_of = |v: &serde_json::Value| -> serde_json::Value {
+            serde_json::from_str(&serde_json::to_string(v).unwrap()).unwrap()
+        };
+        assert_ne!(
+            verifier.sign_row(&hazard),
+            verifier.sign_row(&wire_of(&hazard)),
+            "fixture no longer exercises the parse/print phase error — pick a value whose \
+             serde_json parse/print orbit has no fixed point, or delete this test"
+        );
+        assert_eq!(
+            verifier.sign_row(&control),
+            verifier.sign_row(&wire_of(&control)),
+            "control fixture must NOT exercise the phase error"
+        );
+
+        store_pair(&runtime, &session, &[hazard, control]).await;
+        assert_sidecar_authenticates_stored_lines(&runtime, &session).await;
     }
 
     /// E23 — empty record list writes an empty sidecar (zero bytes,
@@ -819,8 +928,7 @@ mod tests {
         tokio::fs::create_dir_all(&runtime).await.unwrap();
 
         let session = Session::new(false);
-        let records: Vec<serde_json::Value> = vec![];
-        write_decisions_mac_sidecar(&session, &runtime, &records)
+        write_decisions_mac_sidecar(&session, &runtime, &[])
             .await
             .expect("empty sidecar write must succeed");
 
@@ -839,9 +947,7 @@ mod tests {
 
         let session = Session::new(false);
         let records = vec![serde_json::json!({"kind": "Confirm"})];
-        write_decisions_mac_sidecar(&session, &runtime, &records)
-            .await
-            .unwrap();
+        store_pair(&runtime, &session, &records).await;
 
         // Tamper: overwrite the sidecar with a bogus hex.
         let mac_path = runtime.join("decisions.jsonl.mac");

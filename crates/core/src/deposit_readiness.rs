@@ -1766,7 +1766,17 @@ pub fn validate_deposit_tier1(dst: &Path, reader_version: &str) -> Result<Tier1V
     let hash_mismatches = recheck_ro_crate_content_hashes(dst)
         .context("post-seal RO-Crate content-hash recheck for readiness")?;
 
-    let ro_crate = if recorded_verdict_diverged || !hash_mismatches.is_empty() {
+    // A task that verified but whose signed row could not be persisted leaves
+    // the signed sink short. That truncation still passes the sink's own
+    // header-vs-rows consistency check, so nothing else here would notice it,
+    // and the missing rows are exactly the recorded evidence a re-verifier is
+    // meant to compare against. Treat it as the strongest form of
+    // recorded-verdict divergence: the record does not merely disagree with a
+    // recomputation, it is absent.
+    let unpersisted = crate::claim_sink::unpersisted_tasks(dst);
+
+    let ro_crate = if recorded_verdict_diverged || !hash_mismatches.is_empty() || !unpersisted.is_empty()
+    {
         CheckStatus::Fail
     } else {
         CheckStatus::Pass
@@ -1792,6 +1802,12 @@ pub fn validate_deposit_tier1(dst: &Path, reader_version: &str) -> Result<Tier1V
         notes.push(format!(
             "RO-Crate content-hash mismatch on: {}",
             paths.join(", ")
+        ));
+    }
+    if !unpersisted.is_empty() {
+        notes.push(format!(
+            "signed claim-verification sink is missing verified task(s): {}",
+            unpersisted.join(", ")
         ));
     }
     if bagit == CheckStatus::Fail {

@@ -23,6 +23,18 @@ pub const SIGNED_SINK_UNDER_RUNTIME: &str = "verification-reports/claim-verifica
 /// [`SIGNED_SINK_UNDER_RUNTIME`] by the `signed_sink_paths_agree` test.
 pub const SIGNED_SINK_REL: &str = "runtime/verification-reports/claim-verification.signed.json";
 
+/// Durable alarm ledger, relative to the PACKAGE ROOT: **NDJSON**, one row per
+/// task whose verdicts were computed but whose signed row could not be
+/// persisted. Written by [`persist_signed_verdicts`] on every failure path and
+/// cleared per task the moment that task's row lands, so its presence means the
+/// signed sink is short RIGHT NOW — never that it once was.
+///
+/// Deliberately UNSIGNED. It must be writable precisely when signing is the
+/// thing that broke, and it grants no authority: it carries no verdicts, only
+/// the fact that verdicts are missing. Read it with [`unpersisted_tasks`].
+pub const UNPERSISTED_MARKER_REL: &str =
+    "runtime/verification-reports/claim-verification.unpersisted.json";
+
 struct SinkUpdateLock {
     dir: PathBuf,
 }
@@ -414,7 +426,37 @@ pub fn build_sink_doc(
 /// (`server::chat_routes::events::rate_limit`). Written post-execution by
 /// the host (which holds the session secret), so it is outside the emit
 /// byte-diff baseline and cannot be forged by the agent.
+///
+/// # Failure is never silent
+///
+/// The signed sink is the artifact audit-proof Inv 1 trusts and a deposit
+/// re-verify cross-checks, and its readers derive their counts from the rows
+/// they find — a missing row is therefore indistinguishable from a task with
+/// nothing to say. So a task whose verdicts were computed but whose row could
+/// not be persisted is recorded three ways before this returns: an error-level
+/// `ecaa::claim_sink` log, a durable row in [`UNPERSISTED_MARKER_REL`], and the
+/// `Err` returned here. A later successful persist for the same task clears its
+/// marker row, so the marker never outlives the condition it reports.
 pub fn persist_signed_verdicts(
+    package_root: &Path,
+    task_id: &str,
+    report: &ClaimVerificationReport,
+    coverage: Option<&CoverageResult>,
+    writer: &AuditWriter,
+) -> std::io::Result<PathBuf> {
+    match persist_signed_verdicts_inner(package_root, task_id, report, coverage, writer) {
+        Ok(path) => {
+            clear_unpersisted_marker(package_root, task_id);
+            Ok(path)
+        }
+        Err(error) => {
+            record_unpersisted_marker(package_root, task_id, report, &error);
+            Err(error)
+        }
+    }
+}
+
+fn persist_signed_verdicts_inner(
     package_root: &Path,
     task_id: &str,
     report: &ClaimVerificationReport,
@@ -464,6 +506,148 @@ pub fn persist_signed_verdicts(
 
     crate::fs_helpers::atomic_write_bytes_sync(&path, &kept)?;
     Ok(path)
+}
+
+/// Rewrite [`UNPERSISTED_MARKER_REL`] with `task_id`'s row replaced by
+/// `replacement` (or dropped when `None`). Every other task's row survives
+/// verbatim. Rows are keyed by `task_id`, so the ledger holds at most one row
+/// per task and the write is idempotent.
+fn rewrite_unpersisted_marker(
+    package_root: &Path,
+    task_id: &str,
+    replacement: Option<Value>,
+) -> std::io::Result<bool> {
+    let path = package_root.join(UNPERSISTED_MARKER_REL);
+    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    let mut kept = String::new();
+    let mut dropped = false;
+    for line in existing.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let belongs = serde_json::from_str::<Value>(line)
+            .ok()
+            .and_then(|v| {
+                v.get("task_id")
+                    .and_then(Value::as_str)
+                    .map(|t| t == task_id)
+            })
+            .unwrap_or(false);
+        if belongs {
+            dropped = true;
+            continue;
+        }
+        kept.push_str(line);
+        kept.push('\n');
+    }
+    let changed = dropped || replacement.is_some();
+    if let Some(row) = replacement {
+        kept.push_str(&serde_json::to_string(&row).map_err(std::io::Error::other)?);
+        kept.push('\n');
+    }
+    if !changed {
+        return Ok(false);
+    }
+    if kept.is_empty() {
+        // No task is short any more: remove the alarm rather than leave an
+        // empty file a reader has to interpret.
+        match std::fs::remove_file(&path) {
+            Ok(()) => return Ok(true),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(true),
+            Err(error) => return Err(error),
+        }
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    crate::fs_helpers::atomic_write_bytes_sync(&path, kept.as_bytes())?;
+    Ok(true)
+}
+
+/// Log at error level and record a durable [`UNPERSISTED_MARKER_REL`] row for a
+/// task whose verdicts exist but whose signed row is absent from the sink.
+///
+/// Best-effort on the marker write itself — the caller still returns the
+/// original `Err`, and a marker-write failure is logged rather than masking it.
+fn record_unpersisted_marker(
+    package_root: &Path,
+    task_id: &str,
+    report: &ClaimVerificationReport,
+    error: &std::io::Error,
+) {
+    tracing::error!(
+        target: "ecaa::claim_sink",
+        task_id,
+        error = %error,
+        n_checked = report.n_checked,
+        n_mismatch = report.n_mismatch,
+        marker = UNPERSISTED_MARKER_REL,
+        "signed verdict row NOT persisted: the signed sink is SHORT for this task \
+         while the plaintext sidecar retains its verdicts"
+    );
+    let row = json!({
+        "task_id": task_id,
+        "reason": "signed_row_not_persisted",
+        "error": error.to_string(),
+        "n_checked": report.n_checked,
+        "n_verified": report.n_verified,
+        "n_mismatch": report.n_mismatch,
+        "n_unverifiable": report.n_unverifiable,
+        "n_pending": report.n_pending,
+        "n_suspicious": report.n_suspicious,
+    });
+    if let Err(marker_error) = rewrite_unpersisted_marker(package_root, task_id, Some(row)) {
+        tracing::error!(
+            target: "ecaa::claim_sink",
+            task_id,
+            error = %marker_error,
+            "failed to record the unpersisted-verdict marker"
+        );
+    }
+}
+
+/// Drop `task_id`'s marker row once its signed row is durable.
+fn clear_unpersisted_marker(package_root: &Path, task_id: &str) {
+    match rewrite_unpersisted_marker(package_root, task_id, None) {
+        Ok(true) => tracing::info!(
+            target: "ecaa::claim_sink",
+            task_id,
+            "signed verdict row persisted; cleared the unpersisted-verdict marker"
+        ),
+        Ok(false) => {}
+        Err(error) => tracing::error!(
+            target: "ecaa::claim_sink",
+            task_id,
+            error = %error,
+            "failed to clear the unpersisted-verdict marker"
+        ),
+    }
+}
+
+/// Task ids whose verdicts are missing from the signed sink, as recorded by
+/// [`persist_signed_verdicts`] in [`UNPERSISTED_MARKER_REL`]. Empty when the
+/// sink is complete. Sorted, so callers get a deterministic report.
+///
+/// A downstream gate that treats the signed sink as evidence should consult
+/// this: a non-empty result means the sink under-reports and its counts are a
+/// floor, not the truth.
+pub fn unpersisted_tasks(package_root: &Path) -> Vec<String> {
+    let Ok(raw) = std::fs::read_to_string(package_root.join(UNPERSISTED_MARKER_REL)) else {
+        return Vec::new();
+    };
+    let mut tasks: Vec<String> = raw
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter_map(|row| {
+            row.get("task_id")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .collect();
+    tasks.sort();
+    tasks.dedup();
+    tasks
 }
 
 /// Plaintext (operator/UI-visible) sidecar path. This is the human-readable,

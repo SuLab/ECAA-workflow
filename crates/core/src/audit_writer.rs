@@ -17,6 +17,10 @@ use thiserror::Error;
 
 type HmacSha256 = Hmac<Sha256>;
 
+/// Row member carrying the hex HMAC. Excluded from the signed payload: the
+/// writer appends it after signing, the verifier strips it before recomputing.
+const MAC_FIELD: &str = "_mac";
+
 /// Per-session HMAC writer/verifier for audit-log rows.
 #[derive(Clone)]
 pub struct AuditWriter {
@@ -46,6 +50,14 @@ impl AuditWriter {
 
     /// Sign a JSON value. Output is hex-encoded HMAC-SHA256 over the
     /// canonical JSON representation (sorted keys, no whitespace).
+    ///
+    /// The signed domain is the value as a READER RECOVERS IT FROM THE WIRE,
+    /// never an in-memory value that has yet to cross the serialization
+    /// boundary. `serde_json`'s number parser is not the exact inverse of its
+    /// number printer (the `float_roundtrip` feature is not enabled), so for
+    /// some values `from_str(to_string(v)) != v`. Callers that sign a value
+    /// they are about to serialize must therefore sign
+    /// `from_str(&to_string(v))`, as [`AuditWriter::write_signed_row`] does.
     pub fn sign_row(&self, row: &serde_json::Value) -> String {
         let canonical = canonical_json(row);
         let mut mac = HmacSha256::new_from_slice(&self.secret).expect("32-byte secret");
@@ -55,30 +67,62 @@ impl AuditWriter {
 
     /// Write `row` to `writer` as a signed JSONL line. The row is
     /// extended with a `_mac` field containing the hex HMAC.
+    ///
+    /// # Invariant
+    ///
+    /// **The MAC covers the value a reader recovers from the exact bytes this
+    /// call writes.** The row is serialized ONCE; that serialization is the
+    /// wire contract, and the signed payload is the value parsed back out of
+    /// it. [`AuditWriter::verify_row`] recomputes over exactly the same
+    /// wire-recovered value, so signing and verification cannot disagree.
+    ///
+    /// # Failure this prevents
+    ///
+    /// `serde_json` is built without the `float_roundtrip` feature, so its
+    /// number parser is not the inverse of its number printer: for some finite
+    /// f64 values the parser lands one ULP away, and printing that neighbour
+    /// yields a *different* decimal that parses back to the original — a
+    /// period-2 orbit with no fixed point (e.g. `4.16e-134` ⇄
+    /// `4.1599999999999996e-134`). Signing an in-memory value and then writing
+    /// a re-serialization of it therefore put the MAC one parse/print step out
+    /// of phase with the bytes on disk, and the self-check below rejected the
+    /// row — silently truncating the signed verdict ledger for the affected
+    /// task while the unsigned plaintext sidecar kept the full record. Signing
+    /// the wire-recovered value removes the phase error entirely, for any
+    /// float, at any magnitude, without weakening the self-check.
     pub fn write_signed_row<W: std::io::Write>(
         &self,
         writer: &mut W,
         row: &serde_json::Value,
     ) -> std::io::Result<()> {
-        // Sign the exact JSON value readers will reconstruct from the wire,
-        // rather than an in-memory representation that has not crossed the
-        // serde_json serialization boundary yet. This matters for arbitrary
-        // nested numeric payloads: the signed audit surface is generic and can
-        // carry measurements from any analysis modality, including values
-        // whose canonical external representation is normalized during JSON
-        // serialization.
-        let encoded = serde_json::to_vec(row)?;
-        let normalized: serde_json::Value = serde_json::from_slice(&encoded)?;
-        let mac = self.sign_row(&normalized);
-        let mut signed = normalized;
-        if let Some(obj) = signed.as_object_mut() {
-            obj.insert("_mac".into(), serde_json::Value::String(mac));
-        } else {
+        if !row.is_object() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "row must be a JSON object",
             ));
         }
+        // A caller-supplied `_mac` would be signed as payload and then
+        // overwritten by the real signature, so the two sides would cover
+        // different objects. Refuse instead of producing an unverifiable row.
+        if row.get(MAC_FIELD).is_some() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("row must not already carry a `{MAC_FIELD}` field"),
+            ));
+        }
+        let mut signed = row.clone();
+        // The wire bytes are the contract. Serialize the body once, then sign
+        // the value recovered from those bytes. Adding `_mac` cannot perturb
+        // any sibling member's rendering (each member is serialized
+        // independently), so the reader's `_mac`-stripped view is exactly
+        // `wire_view`.
+        let body = serde_json::to_string(&signed)?;
+        let wire_view: serde_json::Value = serde_json::from_str(&body)?;
+        let mac = self.sign_row(&wire_view);
+        signed
+            .as_object_mut()
+            .expect("row verified to be an object above")
+            .insert(MAC_FIELD.into(), serde_json::Value::String(mac));
         let line = serde_json::to_string(&signed)?;
         // Refuse to persist a row that this same writer cannot recover and
         // verify from its serialized form. The signed verdict ledger is a
@@ -97,6 +141,11 @@ impl AuditWriter {
 
     /// Verify a signed row. Returns the row with `_mac` stripped iff
     /// the HMAC validates; otherwise [`AuditError`].
+    ///
+    /// `signed_row` MUST be the value parsed directly from the stored line.
+    /// Passing a value that has been round-tripped through an extra
+    /// serialize/parse cycle can shift a float onto its parser-neighbour (see
+    /// [`AuditWriter::write_signed_row`]) and report a false tamper.
     ///
     /// Every rejection path emits a `target = "ecaa::audit_tamper"`
     /// warn-level event so operators can alert on non-zero rates via
@@ -119,7 +168,7 @@ impl AuditWriter {
             }
         };
         let presented_mac = match obj
-            .remove("_mac")
+            .remove(MAC_FIELD)
             .and_then(|v| v.as_str().map(String::from))
         {
             Some(mac) => mac,
