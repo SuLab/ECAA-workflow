@@ -198,6 +198,7 @@ pub fn run_validators(
 /// Agent-authored evidence flags must agree with the exact
 /// `(axis, candidate_method)` rows retained in `method_landscape.csv`.
 pub const DISCOVERY_EVIDENCE_OBLIGATION: &str = "discovery_evidence_consistent";
+pub const DISCOVERY_DECISION_RESULT_OBLIGATION: &str = "discovery_decision_result_consistent";
 
 /// Harness-local obligation applied whenever a task retained one or more
 /// structured `parallelism:` records. The agent may detect the host's physical
@@ -205,11 +206,431 @@ pub const DISCOVERY_EVIDENCE_OBLIGATION: &str = "discovery_evidence_consistent";
 /// the harness-recorded numerical thread envelope.
 pub const RESOURCE_BUDGET_OBLIGATION: &str = "resource_budget_consistent";
 pub const NARRATIVE_BOUNDARY_OBLIGATION: &str = "narrative_claim_boundary_respected";
+pub const EFFECT_ESTIMATOR_COHERENCE_OBLIGATION: &str = "effect_estimator_coherent";
 
 pub struct DiscoveryEvidenceConsistencyRunner;
+pub struct DiscoveryDecisionResultConsistencyRunner;
 
 pub struct ResourceBudgetConsistencyRunner;
 pub struct NarrativeBoundaryRunner;
+pub struct EffectEstimatorCoherenceRunner;
+
+fn declared_nontrivial_regularization(value: &serde_json::Value) -> bool {
+    fn nontrivial_value(value: &serde_json::Value) -> bool {
+        match value {
+            serde_json::Value::String(method) => {
+                let method = method.trim();
+                !method.is_empty()
+                    && !matches!(
+                        method.to_ascii_lowercase().as_str(),
+                        "none" | "no" | "false" | "unshrunk" | "unregularized" | "mle"
+                    )
+            }
+            serde_json::Value::Bool(applied) => *applied,
+            serde_json::Value::Number(amount) => amount.as_f64().is_some_and(|value| value != 0.0),
+            serde_json::Value::Array(values) => values.iter().any(nontrivial_value),
+            serde_json::Value::Object(fields) => {
+                if fields.get("applied").and_then(serde_json::Value::as_bool) == Some(false) {
+                    return false;
+                }
+                fields.values().any(nontrivial_value)
+            }
+            serde_json::Value::Null => false,
+        }
+    }
+
+    match value {
+        serde_json::Value::Object(fields) => fields.iter().any(|(field, child)| {
+            matches!(
+                field.as_str(),
+                "lfc_shrinkage" | "effect_shrinkage" | "shrinkage_method" | "regularization_method"
+            ) && nontrivial_value(child)
+                || declared_nontrivial_regularization(child)
+        }),
+        serde_json::Value::Array(values) => values.iter().any(declared_nontrivial_regularization),
+        _ => false,
+    }
+}
+
+fn read_json_if_present(path: &Path) -> Option<serde_json::Value> {
+    std::fs::read(path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+}
+
+/// Data-driven applicability for every modality and analysis archetype. A
+/// task opts in explicitly with effect_estimator_contract, while legacy
+/// shrinkage metadata also arms the validator so an alternate estimator cannot
+/// silently overwrite primary inferential columns.
+pub fn effect_estimator_coherence_is_applicable(artifact_path: &Path) -> bool {
+    ["result.json", "de_summary.json"]
+        .iter()
+        .filter_map(|name| read_json_if_present(&artifact_path.join(name)))
+        .any(|value| {
+            value.get("effect_estimator_contract").is_some()
+                || declared_nontrivial_regularization(&value)
+        })
+}
+
+fn table_header(path: &Path) -> Result<Vec<String>, String> {
+    let text = std::fs::read_to_string(path)
+        .map_err(|error| format!("cannot read results table {}: {error}", path.display()))?;
+    let line = text
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .ok_or_else(|| format!("results table {} is empty", path.display()))?;
+    let delimiter = if line.matches('\t').count() >= line.matches(',').count() {
+        '\t'
+    } else {
+        ','
+    };
+    let header: Vec<String> = line
+        .split(delimiter)
+        .map(|column| {
+            column
+                .trim()
+                .trim_start_matches('\u{feff}')
+                .trim_matches('"')
+                .to_string()
+        })
+        .collect();
+    if header.is_empty() || header.iter().any(|column| column.is_empty()) {
+        return Err(format!(
+            "results table {} has an invalid header",
+            path.display()
+        ));
+    }
+    Ok(header)
+}
+
+fn contract_string<'a>(contract: &'a serde_json::Value, field: &str) -> Result<&'a str, String> {
+    contract
+        .get(field)
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| format!("effect_estimator_contract lacks non-empty `{field}`"))
+}
+
+fn report_schema_for_task(
+    artifact_path: &Path,
+    task_spec: Option<&serde_json::Value>,
+) -> Option<serde_json::Value> {
+    if let Some(schema) = task_spec.and_then(|spec| {
+        spec.pointer("/spec/result_schema")
+            .or_else(|| spec.pointer("/result_schema"))
+    }) {
+        return Some(schema.clone());
+    }
+
+    let task_id = artifact_path.file_name()?.to_str()?;
+    let package_root = artifact_path.ancestors().nth(3)?;
+    let assembled_spec = read_json_if_present(
+        &package_root.join("runtime/outputs/assemble_report_data/task-spec.json"),
+    );
+    assembled_spec
+        .as_ref()
+        .and_then(|spec| spec.pointer("/spec/report_schemas"))
+        .and_then(|schemas| schemas.get(task_id))
+        .cloned()
+        .or_else(|| {
+            read_json_if_present(&package_root.join("WORKFLOW.json"))
+                .as_ref()
+                .and_then(|workflow| {
+                    workflow.pointer("/tasks/assemble_report_data/spec/report_schemas")
+                })
+                .and_then(|schemas| schemas.get(task_id))
+                .cloned()
+        })
+}
+
+impl ValidatorRunner for EffectEstimatorCoherenceRunner {
+    fn obligation_id(&self) -> &'static str {
+        EFFECT_ESTIMATOR_COHERENCE_OBLIGATION
+    }
+
+    fn run(&self, artifact_path: &Path) -> ValidatorOutcome {
+        let Some(result) = read_json_if_present(&artifact_path.join("result.json")) else {
+            return ValidatorOutcome::Failed {
+                message: "result.json missing or unreadable for effect-estimator validation"
+                    .to_string(),
+            };
+        };
+        let Some(contract) = result.get("effect_estimator_contract") else {
+            return ValidatorOutcome::Failed {
+                message: "nontrivial shrinkage or regularization is declared, but result.json lacks effect_estimator_contract".to_string(),
+            };
+        };
+        if !contract.is_object() {
+            return ValidatorOutcome::Failed {
+                message: "result.json::effect_estimator_contract must be an object".to_string(),
+            };
+        }
+
+        let validate = || -> Result<(), String> {
+            let artifact = contract_string(contract, "results_artifact")?;
+            let relative = Path::new(artifact);
+            if relative.is_absolute()
+                || relative
+                    .components()
+                    .any(|part| !matches!(part, std::path::Component::Normal(_)))
+            {
+                return Err("effect_estimator_contract::results_artifact must be a task-relative path composed only of normal components".to_string());
+            }
+            let header = table_header(&artifact_path.join(relative))?;
+            let require_column = |field: &str| -> Result<&str, String> {
+                let column = contract_string(contract, field)?;
+                if !header.iter().any(|candidate| candidate == column) {
+                    return Err(format!(
+                        "effect_estimator_contract::{field} names absent column `{column}` in {artifact}"
+                    ));
+                }
+                Ok(column)
+            };
+
+            contract_string(contract, "primary_estimator")?;
+            let primary_effect = require_column("primary_effect_column")?;
+            let mut primary_companions = std::collections::BTreeSet::new();
+            for field in [
+                "primary_uncertainty_column",
+                "test_statistic_column",
+                "pvalue_column",
+                "adjusted_pvalue_column",
+            ] {
+                if contract.get(field).is_some() {
+                    primary_companions.insert(require_column(field)?.to_string());
+                }
+            }
+            if let Some(additional) = contract.get("primary_inferential_companion_columns") {
+                let additional = additional.as_array().ok_or_else(|| {
+                    "effect_estimator_contract::primary_inferential_companion_columns must be an array of column names".to_string()
+                })?;
+                for (index, value) in additional.iter().enumerate() {
+                    let column = value
+                        .as_str()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .ok_or_else(|| format!(
+                            "effect_estimator_contract::primary_inferential_companion_columns[{index}] must be a non-empty string"
+                        ))?;
+                    if !header.iter().any(|candidate| candidate == column) {
+                        return Err(format!(
+                            "effect_estimator_contract::primary_inferential_companion_columns[{index}] names absent column `{column}` in {artifact}"
+                        ));
+                    }
+                    primary_companions.insert(column.to_string());
+                }
+            }
+
+            match contract_string(contract, "mode")? {
+                "single_inferential" => {
+                    if contract.get("secondary_effect_column").is_some()
+                        || contract.get("secondary_estimator").is_some()
+                        || contract.get("secondary_uncertainty_column").is_some()
+                    {
+                        return Err("single_inferential mode must not declare a secondary estimator, effect, or uncertainty column".to_string());
+                    }
+                }
+                "post_hoc_secondary" => {
+                    contract_string(contract, "secondary_estimator")?;
+                    let secondary_effect = require_column("secondary_effect_column")?;
+                    if secondary_effect == primary_effect
+                        || primary_companions.contains(secondary_effect)
+                    {
+                        return Err("post_hoc_secondary mode must retain its effect in a column distinct from every primary inferential column".to_string());
+                    }
+                    if contract.get("secondary_uncertainty_column").is_some() {
+                        let secondary_uncertainty = require_column("secondary_uncertainty_column")?;
+                        if secondary_uncertainty == primary_effect
+                            || secondary_uncertainty == secondary_effect
+                            || primary_companions.contains(secondary_uncertainty)
+                        {
+                            return Err("post_hoc_secondary mode must retain its uncertainty in a column distinct from every primary inferential column and the secondary effect".to_string());
+                        }
+                    }
+                }
+                mode => {
+                    return Err(format!(
+                        "effect_estimator_contract::mode `{mode}` is not single_inferential or post_hoc_secondary"
+                    ));
+                }
+            }
+
+            let task_spec = read_json_if_present(&artifact_path.join("task-spec.json"));
+            if let Some(schema) = report_schema_for_task(artifact_path, task_spec.as_ref()) {
+                if let Some(schema_artifact) = schema
+                    .get("artifact")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                {
+                    if schema_artifact != artifact {
+                        return Err(format!(
+                            "task report schema selects artifact `{schema_artifact}`, but effect_estimator_contract selects `{artifact}`"
+                        ));
+                    }
+                }
+                if let Some(schema_effect) = schema
+                    .get("signed_effect_column")
+                    .and_then(serde_json::Value::as_str)
+                {
+                    let effect_matches = schema_effect == primary_effect
+                        || schema
+                            .get("signed_effect_aliases")
+                            .and_then(serde_json::Value::as_array)
+                            .into_iter()
+                            .flatten()
+                            .filter_map(serde_json::Value::as_str)
+                            .any(|alias| alias == primary_effect);
+                    if !effect_matches {
+                        return Err(format!(
+                            "task result schema selects primary effect `{schema_effect}` (or its declared aliases), but effect_estimator_contract selects `{primary_effect}`"
+                        ));
+                    }
+                }
+                if let Some(significance) = schema
+                    .pointer("/significance/column")
+                    .and_then(serde_json::Value::as_str)
+                {
+                    if !primary_companions.contains(significance) {
+                        return Err(format!(
+                            "task result schema selects inferential significance column `{significance}`, but effect_estimator_contract does not retain it as a primary inferential companion"
+                        ));
+                    }
+                }
+            }
+            if primary_companions.contains(primary_effect) {
+                return Err(format!(
+                    "primary effect column `{primary_effect}` is duplicated as an inferential companion"
+                ));
+            }
+            Ok(())
+        };
+
+        match validate() {
+            Ok(()) => ValidatorOutcome::Passed,
+            Err(message) => ValidatorOutcome::Failed {
+                message: format!("effect-estimator coherence violation: {message}"),
+            },
+        }
+    }
+}
+
+/// Whether an artifact directory is a typed discovery task with both of its
+/// retained decision surfaces present. The typed task kind makes this work for
+/// namespaced and aliased discovery ids without a modality allowlist.
+pub fn discovery_decision_result_is_applicable(artifact_path: &Path) -> bool {
+    if !artifact_path.join("decision.json").is_file()
+        || !artifact_path.join("result.json").is_file()
+    {
+        return false;
+    }
+    std::fs::read(artifact_path.join("task-spec.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .and_then(|spec| spec.get("kind").cloned())
+        .is_some_and(|kind| kind.get("discovery").is_some())
+}
+
+fn first_json_field<'value, 'name>(
+    value: &'value serde_json::Value,
+    names: &'name [&'name str],
+) -> Option<(&'name str, &'value serde_json::Value)> {
+    names
+        .iter()
+        .find_map(|name| value.get(*name).map(|field| (*name, field)))
+}
+
+impl ValidatorRunner for DiscoveryDecisionResultConsistencyRunner {
+    fn obligation_id(&self) -> &'static str {
+        DISCOVERY_DECISION_RESULT_OBLIGATION
+    }
+
+    fn run(&self, artifact_path: &Path) -> ValidatorOutcome {
+        let read = |name: &str| -> Result<serde_json::Value, String> {
+            let path = artifact_path.join(name);
+            std::fs::read(&path)
+                .map_err(|error| format!("cannot read {}: {error}", path.display()))
+                .and_then(|bytes| {
+                    serde_json::from_slice(&bytes)
+                        .map_err(|error| format!("cannot parse {}: {error}", path.display()))
+                })
+        };
+        let decision = match read("decision.json") {
+            Ok(value) => value,
+            Err(message) => return ValidatorOutcome::Failed { message },
+        };
+        let result = match read("result.json") {
+            Ok(value) => value,
+            Err(message) => return ValidatorOutcome::Failed { message },
+        };
+
+        let mut violations = Vec::new();
+        let chosen_aliases = ["chosen", "chosen_method", "selected_method", "method"];
+        match (
+            first_json_field(&decision, &chosen_aliases),
+            first_json_field(&result, &chosen_aliases),
+        ) {
+            (Some((decision_name, decision_value)), Some((result_name, result_value))) => {
+                if decision_value != result_value {
+                    violations.push(format!(
+                        "decision.json::{decision_name}={decision_value} disagrees with result.json::{result_name}={result_value}"
+                    ));
+                }
+            }
+            (None, _) => violations.push("decision.json lacks a chosen method".to_string()),
+            (Some(_), None) => {}
+        }
+
+        // These fields are optional on result.json, but whenever result.json
+        // repeats one it becomes a claim about the retained decision and must
+        // equal the authoritative decision.json value.
+        for field in [
+            "auto_advanced",
+            "spec_preference_applied",
+            "spec_match_renormalized",
+            "sme_preapproval_present",
+            "sme_selection_via",
+            "recommended_default",
+            "runner_up",
+            "requires_install",
+        ] {
+            let Some(result_value) = result.get(field) else {
+                continue;
+            };
+            match decision.get(field) {
+                Some(decision_value) if decision_value == result_value => {}
+                Some(decision_value) => violations.push(format!(
+                    "decision.json::{field}={decision_value} disagrees with result.json::{field}={result_value}"
+                )),
+                None => violations.push(format!(
+                    "result.json::{field}={result_value} has no supporting field in decision.json"
+                )),
+            }
+        }
+
+        if let Some(confirmed) = decision.get("sme_confirmed_chosen") {
+            if let Some((chosen_name, chosen)) = first_json_field(&decision, &chosen_aliases) {
+                if confirmed != chosen {
+                    violations.push(format!(
+                        "decision.json::sme_confirmed_chosen={confirmed} disagrees with decision.json::{chosen_name}={chosen}"
+                    ));
+                }
+            }
+        }
+
+        if violations.is_empty() {
+            ValidatorOutcome::Passed
+        } else {
+            ValidatorOutcome::Failed {
+                message: format!(
+                    "discovery decision/result provenance disagreement: {}",
+                    violations.join("; ")
+                ),
+            }
+        }
+    }
+}
 
 fn task_forbids_narrative(artifact_path: &Path) -> bool {
     let Some(spec) = std::fs::read(artifact_path.join("task-spec.json"))
@@ -218,6 +639,14 @@ fn task_forbids_narrative(artifact_path: &Path) -> bool {
     else {
         return false;
     };
+    // A validation task inherits the target task's description verbatim under
+    // "Validate outputs of: ...". Any no-narrative rule in that inherited
+    // text constrains the target's scientific output, not the validator's
+    // machine-generated validation summary. Key off the typed task kind so
+    // namespaced validator ids receive the same treatment.
+    if spec.get("kind").and_then(serde_json::Value::as_str) == Some("validation") {
+        return false;
+    }
     let mut text = spec
         .get("description")
         .and_then(serde_json::Value::as_str)
@@ -1975,12 +2404,18 @@ pub fn default_runners() -> Vec<Box<dyn ValidatorRunner>> {
         // Discovery evidence flags are checked from retained artifacts rather
         // than declared by any one atom.
         Box::new(DiscoveryEvidenceConsistencyRunner),
+        // Any selection metadata repeated in result.json must agree with the
+        // typed decision.json retained by that discovery task.
+        Box::new(DiscoveryDecisionResultConsistencyRunner),
         // Structured resource plans are validated against the captured
         // determinism envelope for every task that emits one.
         Box::new(ResourceBudgetConsistencyRunner),
         // Claim-boundary prose prohibitions are discovered from task-spec.json
         // and checked without any stage or modality allowlist.
         Box::new(NarrativeBoundaryRunner),
+        // Alternate effect estimators must remain separate from the primary
+        // inferential columns for every modality and task shape.
+        Box::new(EffectEstimatorCoherenceRunner),
     ];
     runners.extend(crate::literature_validators::literature_runners());
     runners
@@ -2009,13 +2444,19 @@ const HARNESS_LOCAL_VARIANT_OBLIGATIONS: &[&str] = &[
 const HARNESS_LOCAL_PROVENANCE_OBLIGATIONS: &[&str] = &[SOURCE_DEVIATION_OBLIGATION];
 
 #[cfg(test)]
-const HARNESS_LOCAL_DISCOVERY_OBLIGATIONS: &[&str] = &[DISCOVERY_EVIDENCE_OBLIGATION];
+const HARNESS_LOCAL_DISCOVERY_OBLIGATIONS: &[&str] = &[
+    DISCOVERY_EVIDENCE_OBLIGATION,
+    DISCOVERY_DECISION_RESULT_OBLIGATION,
+];
 
 #[cfg(test)]
 const HARNESS_LOCAL_RESOURCE_OBLIGATIONS: &[&str] = &[RESOURCE_BUDGET_OBLIGATION];
 
 #[cfg(test)]
 const HARNESS_LOCAL_CLAIM_BOUNDARY_OBLIGATIONS: &[&str] = &[NARRATIVE_BOUNDARY_OBLIGATION];
+
+#[cfg(test)]
+const HARNESS_LOCAL_ESTIMATOR_OBLIGATIONS: &[&str] = &[EFFECT_ESTIMATOR_COHERENCE_OBLIGATION];
 
 #[cfg(test)]
 mod tests {
@@ -2186,6 +2627,310 @@ mod tests {
             NarrativeBoundaryRunner.run(tmp.path()),
             ValidatorOutcome::Failed { .. }
         ));
+    }
+
+    #[test]
+    fn effect_estimator_rejects_legacy_shrinkage_without_contract() {
+        let tmp = TempDir::new().unwrap();
+        write_result_json(
+            tmp.path(),
+            serde_json::json!({"status":"completed", "lfc_shrinkage":"normal"}),
+        );
+        assert!(effect_estimator_coherence_is_applicable(tmp.path()));
+        assert!(matches!(
+            EffectEstimatorCoherenceRunner.run(tmp.path()),
+            ValidatorOutcome::Failed { .. }
+        ));
+    }
+
+    #[test]
+    fn effect_estimator_detects_nested_legacy_regularization_metadata() {
+        let tmp = TempDir::new().unwrap();
+        write_result_json(
+            tmp.path(),
+            serde_json::json!({
+                "status": "completed",
+                "method_metadata": {"regularization_method": {"applied": true, "name": "adaptive"}}
+            }),
+        );
+        assert!(effect_estimator_coherence_is_applicable(tmp.path()));
+        assert!(matches!(
+            EffectEstimatorCoherenceRunner.run(tmp.path()),
+            ValidatorOutcome::Failed { .. }
+        ));
+    }
+
+    #[test]
+    fn effect_estimator_accepts_distinct_post_hoc_columns() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(
+            tmp.path().join("effects.tsv"),
+            "entity\teffect\tse\tstat\tpvalue\tpadj\teffect_regularized\tse_regularized\nA\t1\t0.2\t5\t0.01\t0.02\t0.8\t0.1\n",
+        )
+        .unwrap();
+        fs::write(
+            tmp.path().join("task-spec.json"),
+            serde_json::json!({
+                "spec": {"result_schema": {"signed_effect_column": "effect"}}
+            })
+            .to_string(),
+        )
+        .unwrap();
+        write_result_json(
+            tmp.path(),
+            serde_json::json!({
+                "regularization_method": "adaptive",
+                "effect_estimator_contract": {
+                    "results_artifact": "effects.tsv",
+                    "mode": "post_hoc_secondary",
+                    "primary_estimator": "maximum_likelihood",
+                    "primary_effect_column": "effect",
+                    "primary_uncertainty_column": "se",
+                    "test_statistic_column": "stat",
+                    "pvalue_column": "pvalue",
+                    "adjusted_pvalue_column": "padj",
+                    "secondary_estimator": "adaptive",
+                    "secondary_effect_column": "effect_regularized",
+                    "secondary_uncertainty_column": "se_regularized"
+                }
+            }),
+        );
+        assert_eq!(
+            EffectEstimatorCoherenceRunner.run(tmp.path()),
+            ValidatorOutcome::Passed
+        );
+    }
+
+    #[test]
+    fn effect_estimator_rejects_secondary_aliasing_primary() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(
+            tmp.path().join("effects.csv"),
+            "entity,effect,padj\nA,1,0.02\n",
+        )
+        .unwrap();
+        write_result_json(
+            tmp.path(),
+            serde_json::json!({
+                "effect_estimator_contract": {
+                    "results_artifact": "effects.csv",
+                    "mode": "post_hoc_secondary",
+                    "primary_estimator": "unregularized",
+                    "primary_effect_column": "effect",
+                    "adjusted_pvalue_column": "padj",
+                    "secondary_estimator": "regularized",
+                    "secondary_effect_column": "effect"
+                }
+            }),
+        );
+        assert!(matches!(
+            EffectEstimatorCoherenceRunner.run(tmp.path()),
+            ValidatorOutcome::Failed { .. }
+        ));
+    }
+
+    #[test]
+    fn effect_estimator_accepts_primary_joint_regularized_inference() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(
+            tmp.path().join("posterior.tsv"),
+            "feature\tposterior_effect\tposterior_sd\nA\t0.7\t0.1\n",
+        )
+        .unwrap();
+        write_result_json(
+            tmp.path(),
+            serde_json::json!({
+                "regularization_method": "joint_bayesian",
+                "effect_estimator_contract": {
+                    "results_artifact": "posterior.tsv",
+                    "mode": "single_inferential",
+                    "primary_estimator": "joint_bayesian_posterior",
+                    "primary_effect_column": "posterior_effect",
+                    "primary_uncertainty_column": "posterior_sd"
+                }
+            }),
+        );
+        assert_eq!(
+            EffectEstimatorCoherenceRunner.run(tmp.path()),
+            ValidatorOutcome::Passed
+        );
+    }
+
+    fn write_assembled_report_schema(package_root: &Path, task_id: &str) {
+        let dir = package_root.join("runtime/outputs/assemble_report_data");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("task-spec.json"),
+            serde_json::json!({
+                "spec": {
+                    "report_schemas": {
+                        (task_id): {
+                            "artifact": "effects.tsv",
+                            "signed_effect_column": "effect",
+                            "signed_effect_aliases": ["effect_alias"],
+                            "significance": {"column": "posterior_probability"}
+                        }
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn effect_estimator_uses_assembled_schema_alias_and_generic_companion() {
+        let tmp = TempDir::new().unwrap();
+        let task = tmp.path().join("runtime/outputs/arbitrary_effect_stage");
+        fs::create_dir_all(&task).unwrap();
+        write_assembled_report_schema(tmp.path(), "arbitrary_effect_stage");
+        fs::write(
+            task.join("effects.tsv"),
+            "entity\teffect_alias\tposterior_probability\teffect_regularized\nA\t1\t0.99\t0.8\n",
+        )
+        .unwrap();
+        write_result_json(
+            &task,
+            serde_json::json!({
+                "effect_estimator_contract": {
+                    "results_artifact": "effects.tsv",
+                    "mode": "post_hoc_secondary",
+                    "primary_estimator": "joint_model",
+                    "primary_effect_column": "effect_alias",
+                    "primary_inferential_companion_columns": ["posterior_probability"],
+                    "secondary_estimator": "post_hoc_regularizer",
+                    "secondary_effect_column": "effect_regularized"
+                }
+            }),
+        );
+        assert_eq!(
+            EffectEstimatorCoherenceRunner.run(&task),
+            ValidatorOutcome::Passed
+        );
+    }
+
+    #[test]
+    fn effect_estimator_requires_reported_significance_as_primary_companion() {
+        let tmp = TempDir::new().unwrap();
+        let task = tmp.path().join("runtime/outputs/arbitrary_effect_stage");
+        fs::create_dir_all(&task).unwrap();
+        write_assembled_report_schema(tmp.path(), "arbitrary_effect_stage");
+        fs::write(
+            task.join("effects.tsv"),
+            "entity\teffect\tposterior_probability\nA\t1\t0.99\n",
+        )
+        .unwrap();
+        write_result_json(
+            &task,
+            serde_json::json!({
+                "effect_estimator_contract": {
+                    "results_artifact": "effects.tsv",
+                    "mode": "single_inferential",
+                    "primary_estimator": "joint_model",
+                    "primary_effect_column": "effect"
+                }
+            }),
+        );
+        assert!(matches!(
+            EffectEstimatorCoherenceRunner.run(&task),
+            ValidatorOutcome::Failed { message }
+                if message.contains("posterior_probability")
+        ));
+    }
+
+    #[test]
+    fn narrative_boundary_does_not_apply_target_rule_to_validator_summary() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(
+            tmp.path().join("task-spec.json"),
+            r#"{"kind":"validation","description":"Validate outputs of: emit row-level flags. No synthesis; no narrative."}"#,
+        )
+        .unwrap();
+        fs::write(
+            tmp.path().join("result.json"),
+            r#"{"status":"completed","summary":"All structural checks passed."}"#,
+        )
+        .unwrap();
+
+        assert!(!narrative_boundary_is_applicable(tmp.path()));
+    }
+
+    fn decision_result_fixture(decision: serde_json::Value, result: serde_json::Value) -> TempDir {
+        let tmp = TempDir::new().unwrap();
+        fs::write(
+            tmp.path().join("task-spec.json"),
+            r#"{"kind":{"discovery":"best_practice"},"description":"choose"}"#,
+        )
+        .unwrap();
+        fs::write(
+            tmp.path().join("decision.json"),
+            serde_json::to_vec(&decision).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            tmp.path().join("result.json"),
+            serde_json::to_vec(&result).unwrap(),
+        )
+        .unwrap();
+        tmp
+    }
+
+    #[test]
+    fn discovery_decision_result_rejects_auto_advance_disagreement() {
+        let tmp = decision_result_fixture(
+            serde_json::json!({
+                "chosen": "method_a",
+                "auto_advanced": false,
+                "spec_preference_applied": false,
+                "sme_confirmed_chosen": "method_a"
+            }),
+            serde_json::json!({
+                "chosen_method": "method_a",
+                "auto_advanced": true,
+                "spec_preference_applied": false
+            }),
+        );
+        assert!(discovery_decision_result_is_applicable(tmp.path()));
+        assert!(matches!(
+            DiscoveryDecisionResultConsistencyRunner.run(tmp.path()),
+            ValidatorOutcome::Failed { message }
+                if message.contains("auto_advanced")
+        ));
+    }
+
+    #[test]
+    fn discovery_decision_result_accepts_chosen_alias_and_matching_provenance() {
+        let tmp = decision_result_fixture(
+            serde_json::json!({
+                "chosen": "method_a",
+                "auto_advanced": false,
+                "spec_preference_applied": false,
+                "sme_selection_via": "sme_selection",
+                "sme_confirmed_chosen": "method_a"
+            }),
+            serde_json::json!({
+                "chosen_method": "method_a",
+                "auto_advanced": false,
+                "spec_preference_applied": false,
+                "sme_selection_via": "sme_selection"
+            }),
+        );
+        assert_eq!(
+            DiscoveryDecisionResultConsistencyRunner.run(tmp.path()),
+            ValidatorOutcome::Passed
+        );
+    }
+
+    #[test]
+    fn discovery_result_may_omit_authoritative_choice_duplicate() {
+        let tmp = decision_result_fixture(
+            serde_json::json!({"chosen": "method_a", "auto_advanced": false}),
+            serde_json::json!({"status": "completed"}),
+        );
+        assert_eq!(
+            DiscoveryDecisionResultConsistencyRunner.run(tmp.path()),
+            ValidatorOutcome::Passed
+        );
     }
 
     fn discovery_fixture(
@@ -2670,6 +3415,9 @@ mod tests {
             // Narrative prohibitions come from task-spec claim boundaries,
             // not from atom validation-obligation lists.
             .filter(|id| !HARNESS_LOCAL_CLAIM_BOUNDARY_OBLIGATIONS.contains(id))
+            // Estimator identity is inferred from retained result metadata and
+            // table headers, independent of any atom or modality registry.
+            .filter(|id| !HARNESS_LOCAL_ESTIMATOR_OBLIGATIONS.contains(id))
             .collect();
         assert!(
             drifted.is_empty(),

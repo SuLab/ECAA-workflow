@@ -2458,15 +2458,33 @@ fn entity_local_extreme_direction(excerpt: &str, entity: &str) -> Option<Directi
             0
         }
     };
+    let same_clause = |left: &regex::Match<'_>, right: &regex::Match<'_>| {
+        let between = if left.end() <= right.start() {
+            &excerpt[left.end()..right.start()]
+        } else if right.end() <= left.start() {
+            &excerpt[right.end()..left.start()]
+        } else {
+            ""
+        };
+        !between
+            .chars()
+            .any(|character| matches!(character, ';' | '.' | '!' | '?' | '\n' | '\r'))
+    };
 
     let mut down_distance: Option<usize> = None;
     let mut up_distance: Option<usize> = None;
     for entity_match in entity_re.find_iter(excerpt).filter(is_entity_boundary) {
         for cue in &down_cues {
+            if !same_clause(&entity_match, cue) {
+                continue;
+            }
             let distance = span_distance(&entity_match, cue);
             down_distance = Some(down_distance.map_or(distance, |current| current.min(distance)));
         }
         for cue in &up_cues {
+            if !same_clause(&entity_match, cue) {
+                continue;
+            }
             let distance = span_distance(&entity_match, cue);
             up_distance = Some(up_distance.map_or(distance, |current| current.min(distance)));
         }
@@ -2475,6 +2493,8 @@ fn entity_local_extreme_direction(excerpt: &str, entity: &str) -> Option<Directi
     match (down_distance, up_distance) {
         (Some(down), Some(up)) if down < up => Some(Direction::Down),
         (Some(down), Some(up)) if up < down => Some(Direction::Up),
+        (Some(_), None) => Some(Direction::Down),
+        (None, Some(_)) => Some(Direction::Up),
         _ => None,
     }
 }
@@ -2591,18 +2611,16 @@ fn verify_extreme_value(
     let (down_dir, up_dir) = if over_pvalue {
         (false, false)
     } else {
-        match claim.direction {
-            // Extraction binds direction words to their nearest entity. Prefer
-            // that entity-local binding over sentence-wide regexes so a sentence
-            // that names both the strongest positive and strongest negative
-            // association verifies each entity against the correct extreme.
+        // Rebind from the entity's local clause first. The extractor's
+        // direction is usually entity-local, but an excerpt that joins two
+        // superlatives can still carry a sentence-wide direction onto both
+        // extracted claims. A directly measured nearest cue is more specific
+        // than that inherited tag. Fall back to the extracted direction only
+        // when the excerpt cannot bind a local cue.
+        match entity_local_extreme_direction(excerpt, &claim.entity).or(claim.direction) {
             Some(Direction::Down) => (true, false),
             Some(Direction::Up) => (false, true),
-            None => match entity_local_extreme_direction(excerpt, &claim.entity) {
-                Some(Direction::Down) => (true, false),
-                Some(Direction::Up) => (false, true),
-                None => (false, false),
-            },
+            None => (false, false),
         }
     };
     let kind = if down_dir && !up_dir {
@@ -5215,6 +5233,17 @@ static RANKED_MAPPING_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     .expect("static regex")
 });
 
+/// One stage-local population after analysis-time eligibility/filtering and
+/// the source population from which it came. The scientific noun is open, so
+/// this applies to genes, variants, spectra, taxa, image regions, and future
+/// modalities without a noun allowlist.
+static TESTED_INPUT_FUNNEL_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r"(?i)\b(?:tested|analy[sz]ed|processed)\s+(\d[\d,]*)\s+([A-Za-z][A-Za-z0-9_-]*(?:\s+[A-Za-z][A-Za-z0-9_-]*){0,3}?)(?:\s*\([^)]{0,240}\))?\s+out\s+of\s+(\d[\d,]*)\s+(?:input|source|original)\s+([A-Za-z][A-Za-z0-9_-]*(?:\s+[A-Za-z][A-Za-z0-9_-]*){0,3}?)(?:\s*[,.;]|$)",
+    )
+    .expect("static tested/input funnel regex compiles")
+});
+
 /// Closed semantic mapping from narrative wording to retained stage-summary
 /// fields. The key selection is independent of the claimed number, preventing
 /// coincidentally equal counts from being treated as evidence.
@@ -5297,6 +5326,7 @@ fn semantic_summary_fields(
     if lower.contains("retained") && matches!(noun, "gene" | "genes") {
         return Some(&[
             "n_genes_retained",
+            "n_features_input",
             "tested_feature_count",
             "n_genes_in_matrix",
             "n_genes_tested",
@@ -5312,7 +5342,11 @@ fn semantic_summary_fields(
             ]);
         }
         if matches!(noun, "gene" | "genes" | "feature" | "features") {
-            return Some(&["n_genes_tested", "tested_feature_count"]);
+            return Some(&[
+                "n_features_tested",
+                "n_genes_tested",
+                "tested_feature_count",
+            ]);
         }
     }
     if lower.contains("significant") {
@@ -5470,6 +5504,13 @@ fn semantic_tokens(text: &str) -> Vec<String> {
         }
     }
     separated.split_whitespace().map(singularize).collect()
+}
+
+fn is_generic_count_unit(token: &str) -> bool {
+    matches!(
+        token,
+        "entity" | "feature" | "item" | "observation" | "record" | "row" | "unit"
+    )
 }
 
 fn collect_semantic_summary_counts(
@@ -5704,6 +5745,82 @@ impl SemanticSummaryIndex {
         Self { counts }
     }
 
+    /// Return true when the selected terminal field name occurs elsewhere in
+    /// the package with a different integer value. A shorter JSON path must
+    /// not silently outrank a conflicting nested or stage-local copy of the
+    /// same declared summary field: prose without an explicit stage/path link
+    /// cannot identify which value it means.
+    fn terminal_field_conflicts(&self, selected: &SemanticSummaryCount) -> bool {
+        let selected_terminal = selected
+            .field
+            .rsplit('.')
+            .next()
+            .unwrap_or(selected.field.as_str());
+        let terminal_tokens = semantic_tokens(selected_terminal);
+        let is_summary_qualifier = |token: &str| {
+            matches!(
+                token,
+                "n" | "num"
+                    | "number"
+                    | "count"
+                    | "total"
+                    | "value"
+                    | "size"
+                    | "input"
+                    | "source"
+                    | "original"
+                    | "raw"
+                    | "pre"
+                    | "post"
+                    | "filter"
+                    | "mapping"
+                    | "mapped"
+                    | "resolved"
+                    | "unmapped"
+                    | "unresolved"
+                    | "retained"
+                    | "kept"
+                    | "removed"
+                    | "excluded"
+                    | "discarded"
+                    | "ranked"
+                    | "ordered"
+                    | "supplied"
+                    | "provided"
+                    | "tested"
+                    | "analyzed"
+                    | "analysed"
+                    | "processed"
+                    | "significant"
+                    | "sig"
+                    | "assessed"
+                    | "searched"
+                    | "queried"
+                    | "not"
+            )
+        };
+        // A leaf such as `source` gains its scientific meaning from its
+        // parent (`feature_counts.source` versus
+        // `metabolite_counts.source`) and is therefore not globally
+        // comparable by leaf name. A self-describing leaf such as
+        // `n_entities_not_assessed` is.
+        if !terminal_tokens
+            .iter()
+            .any(|token| !is_summary_qualifier(token))
+        {
+            return false;
+        }
+        self.counts.iter().any(|candidate| {
+            candidate
+                .field
+                .rsplit('.')
+                .next()
+                .unwrap_or(candidate.field.as_str())
+                == selected_terminal
+                && candidate.value != selected.value
+        })
+    }
+
     /// Resolve `noun` through the first lifecycle-role alias that occurs in a
     /// retained field name. Every noun token and every token of the chosen
     /// alias must be present. Conflicting values under the same best semantic
@@ -5722,15 +5839,22 @@ impl SemanticSummaryIndex {
             .map(|role| semantic_tokens(role))
             .collect();
 
-        let mut best_rank: Option<(usize, usize)> = None;
+        let generic_unit_allowed = noun_tokens.len() == 1;
+        let mut best_rank: Option<(usize, usize, usize)> = None;
         let mut candidates: Vec<&SemanticSummaryCount> = Vec::new();
         for count in &self.counts {
-            if !noun_tokens
+            let exact_noun_match = noun_tokens
                 .iter()
-                .all(|token| count.tokens.iter().any(|field| field == token))
-            {
+                .all(|token| count.tokens.iter().any(|field| field == token));
+            let generic_noun_match = generic_unit_allowed
+                && count
+                    .tokens
+                    .iter()
+                    .any(|field| is_generic_count_unit(field));
+            if !exact_noun_match && !generic_noun_match {
                 continue;
             }
+            let generic_penalty = usize::from(!exact_noun_match);
             let matched_role = if role_tokens.is_empty() {
                 Some(0)
             } else {
@@ -5754,6 +5878,7 @@ impl SemanticSummaryIndex {
                         token.as_str(),
                         "n" | "num" | "number" | "count" | "counts" | "total"
                     ) && !noun_tokens.iter().any(|noun| noun == *token)
+                        && !(generic_noun_match && is_generic_count_unit(token))
                         && !selected_role_tokens.iter().any(|role| role == *token)
                 })
                 .count();
@@ -5763,7 +5888,7 @@ impl SemanticSummaryIndex {
             // as `n_features_prefilter_removed` cannot outrank exact
             // `n_features_input` merely because `prefilter` appeared earlier
             // in the source-role alias list.
-            let rank = (extra_tokens, matched_role);
+            let rank = (extra_tokens, matched_role, generic_penalty);
             match best_rank {
                 None => {
                     best_rank = Some(rank);
@@ -5782,6 +5907,7 @@ impl SemanticSummaryIndex {
         if candidates
             .iter()
             .any(|candidate| candidate.value != first.value)
+            || self.terminal_field_conflicts(first)
         {
             return None;
         }
@@ -5890,6 +6016,9 @@ impl SemanticSummaryIndex {
         // summary owns the claim. Numeric agreement is never a provenance
         // selector, so retain a source link only for one unambiguous field.
         if candidates.len() != 1 {
+            return None;
+        }
+        if self.terminal_field_conflicts(first) {
             return None;
         }
         Some((
@@ -6487,6 +6616,73 @@ pub fn verify_narrative_counts(
             }
         }
 
+        if let Some(captures) = TESTED_INPUT_FUNNEL_RE.captures(s) {
+            if let (Some(tested), Some(tested_noun), Some(input), Some(input_noun)) = (
+                captures
+                    .get(1)
+                    .and_then(|value| parse_count(value.as_str())),
+                captures.get(2).map(|value| value.as_str().trim()),
+                captures
+                    .get(3)
+                    .and_then(|value| parse_count(value.as_str())),
+                captures.get(4).map(|value| value.as_str().trim()),
+            ) {
+                let tested_match = semantic_summaries.resolve(
+                    tested_noun,
+                    &["tested", "analyzed", "analysed", "processed"],
+                );
+                if let Some((path, tested_field, tested_observed)) = tested_match {
+                    let source_match = semantic_summaries.resolve_in_path(
+                        &path,
+                        input_noun,
+                        &[
+                            "input",
+                            "source",
+                            "original",
+                            "raw",
+                            "pre_filter",
+                            "prefilter",
+                            "pre_mapping",
+                        ],
+                    );
+                    let source = Some(package_relative_label(&path, package_root));
+                    out.push(make(
+                        &format!("count:tested {tested_noun}"),
+                        compare_exact_count(
+                            tested,
+                            tested_observed,
+                            &path,
+                            &format!("stage-summary field `{tested_field}`"),
+                        ),
+                        source.clone(),
+                    ));
+                    if let Some((source_path, source_field, source_observed)) = source_match {
+                        out.push(make(
+                            &format!("count:input {input_noun}"),
+                            compare_exact_count(
+                                input,
+                                source_observed,
+                                &source_path,
+                                &format!("stage-summary field `{source_field}`"),
+                            ),
+                            Some(package_relative_label(&source_path, package_root)),
+                        ));
+                    } else {
+                        out.push(make(
+                            &format!("count:input {input_noun}"),
+                            ClaimStatus::Unverifiable {
+                                reason: format!(
+                                    "no same-stage retained input-population field matched `{input_noun}`"
+                                ),
+                            },
+                            None,
+                        ));
+                    }
+                    continue;
+                }
+            }
+        }
+
         // A compound operational sentence can name several lifecycle
         // populations whose scientific noun has never appeared in this
         // source tree. Resolve each punctuation-bounded clause against the
@@ -6632,7 +6828,39 @@ pub fn verify_narrative_counts(
                     Some(package_relative_label(&path, package_root)),
                 ));
             }
-            if compound_facts.len() >= 2 {
+            // Preserve the mature closed-noun/table recomputation path for a
+            // simple direct "N noun" claim. A single semantic fact takes
+            // precedence only when the closed grammar has no noun or skipped
+            // one or more words between the number and its eventual allowlist
+            // noun. The latter is how an unseen head noun such as "axes" in
+            // "2 axes named assessed entities" used to be misread as a count
+            // of entities. Multi-fact sentences still use every independently
+            // resolved semantic fact.
+            let direct_closed_noun = COUNT_NOUN_RE.captures(s).is_some_and(|captures| {
+                match (captures.get(1), captures.get(2)) {
+                    (Some(number), Some(noun)) => s[number.end()..noun.start()].trim().is_empty(),
+                    _ => false,
+                }
+            });
+            let head_matches_semantic_fact = INTEGER_COUNT_RE.find(s).is_some_and(|number| {
+                let head = s[number.end()..]
+                    .trim_start()
+                    .split(|character: char| !character.is_ascii_alphanumeric())
+                    .find(|word| !word.is_empty())
+                    .unwrap_or_default();
+                let head_tokens = semantic_tokens(head);
+                let fact_tokens = compound_facts
+                    .first()
+                    .map(|fact| semantic_tokens(&fact.claim.entity))
+                    .unwrap_or_default();
+                !head_tokens.is_empty()
+                    && head_tokens
+                        .iter()
+                        .all(|token| fact_tokens.iter().any(|fact_token| fact_token == token))
+            });
+            if compound_facts.len() >= 2
+                || (compound_facts.len() == 1 && !direct_closed_noun && head_matches_semantic_fact)
+            {
                 out.extend(compound_facts);
                 continue;
             }
@@ -6798,6 +7026,7 @@ pub fn verify_narrative_counts(
                     retained,
                     &[
                         "n_genes_retained",
+                        "n_features_input",
                         "tested_feature_count",
                         "n_genes_in_matrix",
                         "n_genes_tested",
@@ -6870,7 +7099,11 @@ pub fn verify_narrative_counts(
                 out.push(summary_fact(
                     "count:genes in filtered matrix",
                     in_matrix,
-                    &["n_genes_in_matrix", "tested_feature_count"],
+                    &[
+                        "n_genes_in_matrix",
+                        "n_features_input",
+                        "tested_feature_count",
+                    ],
                 ));
                 out.push(summary_fact(
                     "count:genes with estimable adjusted p-values",
@@ -6897,7 +7130,11 @@ pub fn verify_narrative_counts(
                 out.push(summary_fact(
                     "count:tested genes",
                     tested,
-                    &["n_genes_tested", "tested_feature_count"],
+                    &[
+                        "n_features_tested",
+                        "n_genes_tested",
+                        "tested_feature_count",
+                    ],
                 ));
                 continue;
             }
@@ -7023,7 +7260,7 @@ pub fn verify_narrative_counts(
                     }
                 }
             }
-            if let Some(fields) = semantic_summary_fields(s, noun, has_up, has_down) {
+            if let Some(fields) = semantic_summary_fields(local_context, noun, has_up, has_down) {
                 let row_recompute_preferred = fields.first().is_some_and(|field| {
                     matches!(
                         *field,
@@ -8949,6 +9186,33 @@ mod tests {
         let report = verify_claims(&claims, tmp.path(), &cfg);
         assert_eq!(report.n_verified, 2, "{:?}", report.verdicts);
         assert_eq!(report.n_mismatch, 0, "{:?}", report.verdicts);
+    }
+
+    #[test]
+    fn paired_positive_and_negative_column_extremes_override_inherited_direction() {
+        let mut cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        cfg.entity_columns = vec!["gene_id".into()];
+        cfg.effect_size_columns = vec!["log2FoldChange".into(), "log2FC".into()];
+        let tmp = tempdir().unwrap();
+        write_table(
+            tmp.path(),
+            "de_results.full.tsv",
+            "gene_id\tlog2FoldChange\tpadj\n\
+             ENSG00000109906\t4.8383\t2.21e-40\n\
+             ENSG00000162692\t-3.4485\t5.12e-81\n\
+             ENSG00000152583\t4.10\t7.06e-132\n",
+        );
+        let excerpt = "The feature with the largest positive log2FC among significant genes is \
+                       ENSG00000109906; the feature with the most negative log2FC is \
+                       ENSG00000162692";
+        let mut claims = crate::claim_extractor::extract_claims(excerpt, &cfg);
+        assert_eq!(claims.len(), 2, "{claims:#?}");
+        for claim in &mut claims {
+            claim.source_table = Some("de_results.full.tsv".to_string());
+        }
+        let report = verify_claims(&claims, tmp.path(), &cfg);
+        assert_eq!(report.n_verified, 2, "{:#?}", report.verdicts);
+        assert_eq!(report.n_mismatch, 0, "{:#?}", report.verdicts);
     }
 
     #[test]
@@ -12268,6 +12532,99 @@ All 4,030 significant entities are `not_assessed`.";
             verdicts
                 .iter()
                 .all(|verdict| matches!(verdict.status, ClaimStatus::Verified)),
+            "{verdicts:#?}"
+        );
+    }
+
+    #[test]
+    fn vf16_open_axis_noun_binds_to_its_full_retained_field() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        let dir = tmp
+            .path()
+            .join("runtime/outputs/contextualize_findings_with_literature");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("result.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "literature_summary": {
+                    "n_entities_assessed": 18,
+                    "n_search_axes_total": 5,
+                    "n_search_axes_naming_an_assessed_entity": 2
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let verdicts = verify_narrative_counts(
+            "Of these, 2 axes named assessed entities (axis_a and axis_b).",
+            tmp.path(),
+            tmp.path(),
+            &cfg,
+        );
+        assert_eq!(verdicts.len(), 1, "{verdicts:#?}");
+        assert!(
+            matches!(verdicts[0].status, ClaimStatus::Verified),
+            "{verdicts:#?}"
+        );
+        assert!(
+            verdicts[0].claim.source_table.as_deref().is_some_and(
+                |path| path.ends_with("contextualize_findings_with_literature/result.json")
+            ),
+            "{verdicts:#?}"
+        );
+    }
+
+    #[test]
+    fn vf16_tested_out_of_input_binds_both_counts_to_one_stage() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        let qc = tmp.path().join("runtime/outputs/qc_preprocessing");
+        let de = tmp
+            .path()
+            .join("runtime/outputs/arbitrary_inferential_stage");
+        std::fs::create_dir_all(&qc).unwrap();
+        std::fs::create_dir_all(&de).unwrap();
+        std::fs::write(
+            qc.join("result.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "n_genes_pre_filter": 63677
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            de.join("result.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "n_features_input": 22369,
+                "n_features_tested": 17165,
+                "effect_measurement_population_size": 22369
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let verdicts = verify_narrative_counts(
+            "The selected method tested 17,165 genes (after its eligibility filter) out of \
+             22,369 input genes, using the declared contrast.",
+            tmp.path(),
+            tmp.path(),
+            &cfg,
+        );
+        assert_eq!(verdicts.len(), 2, "{verdicts:#?}");
+        assert!(
+            verdicts
+                .iter()
+                .all(|verdict| matches!(verdict.status, ClaimStatus::Verified)),
+            "{verdicts:#?}"
+        );
+        assert!(
+            verdicts.iter().all(|verdict| verdict
+                .claim
+                .source_table
+                .as_deref()
+                .is_some_and(|path| path.ends_with("arbitrary_inferential_stage/result.json"))),
             "{verdicts:#?}"
         );
     }

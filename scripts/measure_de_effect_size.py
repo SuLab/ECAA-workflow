@@ -418,7 +418,7 @@ def compute_metrics(
       top_effect_abundance_ratio_basis / top_effect_abundance_ratio_description:
         the self-describing companions (see `abundance_ratio_basis`). Additive —
         the numeric keys above are unchanged.
-      top_effect_k / tested_feature_count: informational only.
+      top_effect_k / effect_measurement_population_size: informational only.
     """
     # Parse (|effect|, info, significance) triples, dropping rows where the
     # effect is unparseable. `sig` rides along only to be counted over the top-K.
@@ -468,7 +468,7 @@ def compute_metrics(
             "top_effect_abundance_ratio_basis": basis,
             "top_effect_abundance_ratio_description": description,
             "top_effect_k": int(top_k),
-            "tested_feature_count": count,
+            "effect_measurement_population_size": count,
         }
 
     if not information_column_recorded:
@@ -520,7 +520,7 @@ def compute_metrics(
         "top_effect_abundance_ratio_basis": basis,
         "top_effect_abundance_ratio_description": description,
         "top_effect_k": int(top_k),
-        "tested_feature_count": len(tested),
+        "effect_measurement_population_size": len(tested),
     }
 
 
@@ -596,7 +596,7 @@ def main(argv=None):
             "top_effect_abundance_ratio_basis": basis,
             "top_effect_abundance_ratio_description": description,
             "top_effect_k": int(TOP_K),
-            "tested_feature_count": 0,
+            "effect_measurement_population_size": 0,
             "r_squared_column_recorded": False,
             "sample_size_column_recorded": False,
         }
@@ -636,7 +636,7 @@ def main(argv=None):
             "top_effect_abundance_ratio_basis": basis,
             "top_effect_abundance_ratio_description": description,
             "top_effect_k": int(TOP_K),
-            "tested_feature_count": 0,
+            "effect_measurement_population_size": 0,
         }
         result.update(completeness)
         result["narrative_text"] = _fold_narrative_text(args.out)

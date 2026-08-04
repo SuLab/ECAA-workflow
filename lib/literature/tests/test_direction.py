@@ -182,6 +182,36 @@ def test_entity_measurement_still_retains_its_own_direction() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "Feature-A is a transcriptional repressor of endpoint B.",
+        "Feature-A is an inhibitor of endpoint B activation.",
+        (
+            "We integrated data from Feature-A overexpression to identify endpoint B "
+            "as both a Feature-A-regulated feature and a novel repressor of hypertrophy."
+        ),
+    ],
+)
+def test_entity_does_not_inherit_direction_from_agentive_function_noun(
+    sentence: str,
+) -> None:
+    assert infer_direction(sentence, entity="Feature-A").direction is None
+
+
+def test_passive_change_is_not_confused_with_agentive_function_noun() -> None:
+    result = infer_direction("Feature-A was repressed after treatment.", entity="Feature-A")
+    assert result.direction == DOWN
+
+
+def test_entity_does_not_inherit_cue_across_contrasting_clause() -> None:
+    call = infer_direction(
+        "Feature-B was reduced while Feature-A was measured as a covariate.",
+        entity="Feature-A",
+    )
+    assert call.direction is None
+
+
 # --- contrast grounding ---------------------------------------------------
 
 

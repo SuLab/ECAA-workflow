@@ -136,6 +136,112 @@ case "$eco" in
       return 1
     }
 
+    # Named conda environments are prefix-bound. Moving a cache directory
+    # leaves the old absolute prefix embedded in launchers, R configuration,
+    # pkg-config files, TLS paths, and binary metadata. Mounting the moved tree
+    # at its new host path does not repair those bytes. Retain the exact prefix
+    # at creation and reconstruct the complete environment from `conda list
+    # --explicit` when the cache appears at a different path. The explicit lock
+    # preserves every package already installed by earlier tasks, unlike
+    # recreating from only the package named by the current call.
+    _bioc_expected_prefix() {
+      local _old_ifs="$IFS" _dir
+      IFS=':'
+      for _dir in ${CONDA_ENVS_DIRS:-}; do
+        if [ -n "$_dir" ]; then
+          IFS="$_old_ifs"
+          printf '%s/%s\n' "${_dir%/}" "$BIOC_ENV"
+          return 0
+        fi
+      done
+      IFS="$_old_ifs"
+      "$MAMBA" env list 2>/dev/null \
+        | awk -v name="$BIOC_ENV" '$1 == name { print $NF; exit }'
+    }
+
+    BIOC_PREFIX="$(_bioc_expected_prefix)"
+    BIOC_PREFIX_MARKER="${BIOC_PREFIX:+$BIOC_PREFIX/.ecaa-created-prefix}"
+    _bioc_relocation_backup=""
+
+    _refresh_bioc_prefix() {
+      BIOC_PREFIX="$(_bioc_expected_prefix)"
+      BIOC_PREFIX_MARKER="${BIOC_PREFIX:+$BIOC_PREFIX/.ecaa-created-prefix}"
+    }
+
+    _restore_bioc_relocation_backup() {
+      if [ -n "$_bioc_relocation_backup" ] \
+         && [ ! -d "$BIOC_PREFIX" ] \
+         && [ -d "$_bioc_relocation_backup" ]; then
+        mv -- "$_bioc_relocation_backup" "$BIOC_PREFIX" 2>/dev/null || true
+      fi
+    }
+    trap _restore_bioc_relocation_backup EXIT HUP INT TERM
+
+    _mark_bioc_prefix() {
+      [ -n "$BIOC_PREFIX_MARKER" ] && [ -d "$BIOC_PREFIX" ] || return 0
+      printf '%s\n' "$BIOC_PREFIX" > "$BIOC_PREFIX_MARKER"
+    }
+
+    _repair_relocated_bioc_env() {
+      [ -n "$BIOC_PREFIX" ] && [ -d "$BIOC_PREFIX/conda-meta" ] || return 0
+      case "$BIOC_PREFIX" in
+        */"$BIOC_ENV") ;;
+        *)
+          echo "ecaa-install: refusing unsafe conda prefix repair target: $BIOC_PREFIX" >&2
+          return 1
+          ;;
+      esac
+
+      local _recorded=""
+      [ -f "$BIOC_PREFIX_MARKER" ] && _recorded="$(cat "$BIOC_PREFIX_MARKER" 2>/dev/null || true)"
+      [ "$_recorded" = "$BIOC_PREFIX" ] && return 0
+
+      local _parent _lock _explicit _backup
+      _parent="${BIOC_PREFIX%/*}"
+      mkdir -p "$_parent" || return 1
+      _lock="$_parent/.${BIOC_ENV}.prefix-repair.lock"
+      if command -v flock >/dev/null 2>&1; then
+        exec 9>"$_lock"
+        flock 9
+        _recorded=""
+        [ -f "$BIOC_PREFIX_MARKER" ] && _recorded="$(cat "$BIOC_PREFIX_MARKER" 2>/dev/null || true)"
+        [ "$_recorded" = "$BIOC_PREFIX" ] && return 0
+      fi
+
+      _explicit="$(mktemp "$_parent/.${BIOC_ENV}.explicit.XXXXXX")" || return 1
+      if ! "$MAMBA" list -p "$BIOC_PREFIX" --explicit > "$_explicit"; then
+        rm -f -- "$_explicit"
+        echo "ecaa-install: cannot snapshot prefix-bound env '$BIOC_PREFIX' before relocation repair" >&2
+        return 1
+      fi
+
+      _backup="$_parent/.${BIOC_ENV}.pre-relocation.$$"
+      if ! mv -- "$BIOC_PREFIX" "$_backup"; then
+        rm -f -- "$_explicit"
+        return 1
+      fi
+      _bioc_relocation_backup="$_backup"
+      echo "ecaa-install: rebuilding relocated conda env at current prefix: $BIOC_PREFIX" >&2
+      if "$MAMBA" create -y -p "$BIOC_PREFIX" --file "$_explicit"; then
+        _mark_bioc_prefix
+        _bioc_relocation_backup=""
+        rm -rf -- "$_backup"
+        rm -f -- "$_explicit"
+        return 0
+      fi
+
+      rm -rf -- "$BIOC_PREFIX"
+      mv -- "$_backup" "$BIOC_PREFIX" 2>/dev/null || true
+      _bioc_relocation_backup=""
+      rm -f -- "$_explicit"
+      echo "ecaa-install: failed to rebuild relocated conda env; restored the prior cache and will not execute it" >&2
+      return 1
+    }
+
+    if [ -n "$MAMBA" ] && ! _repair_relocated_bioc_env; then
+      exit 1
+    fi
+
     _bioc_failed=()   # pkgs that bioconda couldn't satisfy
     _bioc_ok=()
 
@@ -174,6 +280,8 @@ case "$eco" in
           echo "ecaa-install: bioconda install failed (exit $_conda_exit); falling back to BiocManager for: $*" >&2
           _bioc_failed=("$@")
         else
+          _refresh_bioc_prefix
+          _mark_bioc_prefix
           # Record successes and print usage hints.
           for _pkg in "$@"; do
             _lc="$(printf '%s' "$_pkg" | tr '[:upper:]' '[:lower:]')"
@@ -212,6 +320,8 @@ case "$eco" in
           echo "ecaa-install: FAILED (bioc): could not create env '${BIOC_ENV}'" >&2
           exit 1
         fi
+        _refresh_bioc_prefix
+        _mark_bioc_prefix
       fi
       pkgs="$(r_vec "${_bioc_failed[@]}")"
       # `env -u R_LIBS_USER` so install targets the env's own site library, not

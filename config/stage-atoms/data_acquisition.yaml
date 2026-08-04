@@ -2,10 +2,13 @@ id: data_acquisition
 version: "1.0.0"
 role: operation
 description: |
-  Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,
-  ENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,
-  per-accession provenance summary, and an index pointing at the materialized
-  artifacts. Downstream atoms consume the manifest, not the raw bytes directly.
+  Acquire the workflow's resolved experimental input substrate from public
+  repositories (SRA, GEO, ArrayExpress, ENA, PRIDE, ClinVar, gnomAD, GTEx) or
+  SME-supplied paths. The substrate may be raw or processed, as fixed by
+  task-spec.json::required_input_stage after composition and intake pruning.
+  Emit a cohort manifest, per-accession provenance summary, and an index
+  pointing at the materialized artifacts. Downstream atoms consume the
+  retained package-internal inputs and declared manifest.
 
   RECORD-WHAT-YOU-DID (audit, not instruction): if the source you actually read
   DIFFERS in any way from the source that was requested — the requested path or
@@ -36,6 +39,20 @@ description: |
   read exactly the requested source, OMIT the key entirely. A file or directory
   in runtime/inputs.json is a requested source: reading those registered bytes
   unchanged is not a fallback and MUST NOT produce `source_deviation`.
+
+  REGISTERED TABLE SCHEMA IDENTITY: a header supplied by the SME is part of
+  the input contract. When a registered metadata table already provides the
+  rows needed by cohort_manifest.tsv, preserve its column identifiers and
+  cell values exactly (delimiter conversion is allowed); place added
+  provenance in separate columns or in per_accession_summary.json. Do not
+  silently replace a source identifier with a preferred synonym or canonical
+  spelling. If a downstream format makes a rename unavoidable, retain
+  metadata_column_mapping.json with `source`, `derived`, and a `columns` array
+  of `{source, derived, transformation}` rows, include it in result.json's
+  artifacts, and make every downstream consumer cite that mapping. An
+  identity-preserving manifest omits the mapping artifact. This rule applies
+  to every registered tabular modality, including sample, subject, feature,
+  clinical, spatial, assay, and variant metadata.
 edam_operation: "operation:2422"
 edam_data: "data:2531"
 edam_format: "format:3915"

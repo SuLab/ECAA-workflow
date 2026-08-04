@@ -42,9 +42,55 @@ use crate::session::Session;
 use anyhow::{anyhow, Context, Result};
 use ecaa_workflow_core::ablation::AblationFlagExt;
 use ecaa_workflow_core::classify::ClassificationResult;
+use ecaa_workflow_core::dag::{TaskKind, DAG};
 use ecaa_workflow_core::emitter::{emit_package, EmitConfig};
 use std::path::Path;
 use tracing::instrument;
+
+/// Describe the workflow that will actually execute, after every intake-driven
+/// prune and rewire has been applied.
+///
+/// Archetype descriptions are authored against the archetype's full scaffold.
+/// Reusing that prose after a downstream-first input removes upstream stages
+/// can make a correct DAG claim it will run steps that are no longer present.
+/// The final DAG and its `required_input_stage` stamp are the executable
+/// authorities, so the emitted description is a deterministic projection of
+/// those structures. This is intentionally modality-neutral: every archetype,
+/// including inherited and namespaced multi-omics graphs, follows the same
+/// rule.
+fn executable_workflow_description(dag: &DAG, fallback: &str) -> String {
+    let order = if dag.execution_order.is_empty() {
+        ecaa_workflow_core::dag::topo_order_ids(dag)
+    } else {
+        dag.execution_order.clone()
+    };
+    let stages: Vec<String> = order
+        .iter()
+        .filter_map(|task_id| {
+            let task = dag.tasks.get(task_id)?;
+            matches!(task.kind, TaskKind::Computation | TaskKind::Review)
+                .then(|| task_id.as_str().replace('_', " "))
+        })
+        .collect();
+    if stages.is_empty() {
+        return fallback.trim().to_string();
+    }
+
+    let input_substrate = dag.tasks.values().find_map(|task| {
+        task.spec
+            .as_ref()?
+            .get("required_input_stage")?
+            .as_str()
+            .filter(|value| !value.trim().is_empty())
+    });
+    match input_substrate {
+        Some(substrate) => format!(
+            "Executable workflow for input substrate `{substrate}`: {}.",
+            stages.join(" -> ")
+        ),
+        None => format!("Executable workflow stages: {}.", stages.join(" -> ")),
+    }
+}
 
 /// Atomic emit step. Wraps the multi-step emit pipeline
 /// in a `<basename>.partial-<uuid>` staging directory next to the
@@ -205,20 +251,21 @@ async fn emit_steps(
         .taxonomy
         .as_ref()
         .ok_or_else(|| anyhow!("session has no taxonomy loaded"))?;
+    let workflow_description = executable_workflow_description(dag, &taxonomy.description);
 
     let policies_dir = config_dir.join("downstream-policy");
 
     let classification: ClassificationResult = match &session.classification {
         Some(c) => ClassificationResult {
             domain: taxonomy.domain.clone(),
-            workflow_description: taxonomy.description.clone(),
+            workflow_description: workflow_description.clone(),
             ..c.clone()
         },
         None => ClassificationResult {
             modality: taxonomy.id.clone(),
             taxonomy_path: String::new(),
             domain: taxonomy.domain.clone(),
-            workflow_description: taxonomy.description.clone(),
+            workflow_description,
             confidence: 1.0,
             confidence_label: "high".into(),
             edam_topic: String::new(),
@@ -1742,6 +1789,73 @@ mod tests {
             .parent()
             .unwrap()
             .join("config")
+    }
+
+    #[test]
+    fn workflow_description_comes_from_final_dag_and_input_substrate() {
+        let dag: DAG = serde_json::from_value(serde_json::json!({
+            "version": "1",
+            "workflow_id": "wf-counts-first",
+            "current_task": null,
+            "tasks": {
+                "data_acquisition": {
+                    "kind": "computation",
+                    "state": {"status": "pending"},
+                    "depends_on": [],
+                    "assignee": "agent",
+                    "description": "acquire",
+                    "spec": {"required_input_stage": "data:3917"}
+                },
+                "qc_preprocessing": {
+                    "kind": "computation",
+                    "state": {"status": "pending"},
+                    "depends_on": ["data_acquisition"],
+                    "assignee": "agent",
+                    "description": "matrix QC"
+                },
+                "discover_normalisation": {
+                    "kind": {"discovery": "best_practice"},
+                    "state": {"status": "pending"},
+                    "depends_on": ["qc_preprocessing"],
+                    "assignee": "agent",
+                    "description": "choose method"
+                },
+                "normalisation": {
+                    "kind": "computation",
+                    "state": {"status": "pending"},
+                    "depends_on": ["discover_normalisation"],
+                    "assignee": "agent",
+                    "description": "normalise"
+                },
+                "validate_normalisation": {
+                    "kind": "validation",
+                    "state": {"status": "pending"},
+                    "depends_on": ["normalisation"],
+                    "assignee": "agent",
+                    "description": "validate"
+                }
+            },
+            "execution_order": [
+                "data_acquisition",
+                "qc_preprocessing",
+                "discover_normalisation",
+                "normalisation",
+                "validate_normalisation"
+            ]
+        }))
+        .expect("minimal DAG");
+
+        let description = executable_workflow_description(
+            &dag,
+            "Download raw reads, trim, align, and quantify them.",
+        );
+        assert_eq!(
+            description,
+            "Executable workflow for input substrate `data:3917`: data acquisition -> qc preprocessing -> normalisation."
+        );
+        assert!(!description.contains("trim"));
+        assert!(!description.contains("discover"));
+        assert!(!description.contains("validate"));
     }
 
     /// DR-8 portability: the `emit_package` decision records the package's own

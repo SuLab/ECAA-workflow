@@ -40,6 +40,30 @@ description: |
   after a different fallback ran. The retained script must regenerate truthful,
   identical method metadata during replay.
 
+  ESTIMATOR COHERENCE: every primary effect estimate, uncertainty, test
+  statistic, raw p-value, and adjusted p-value in a results row MUST come from
+  the same inferential result object. A post-hoc shrunken, regularized, or
+  posterior effect is a separate estimate: retain it in separately named
+  columns and never overwrite the primary effect or uncertainty columns while
+  leaving the primary test statistic and p-values beside them. This rule is
+  method-neutral. It applies to any engine that creates an alternate estimate,
+  and it does not require an unregularized estimate when regularization is part
+  of the primary joint inferential model.
+
+  Record the contract in result.json::effect_estimator_contract. Include
+  task-relative `results_artifact`, `mode` (`single_inferential` or
+  `post_hoc_secondary`),
+  `primary_effect_column`, and every inferential companion column that exists:
+  `primary_uncertainty_column`, `test_statistic_column`, `pvalue_column`, and
+  `adjusted_pvalue_column`. Put any other primary companion, such as a
+  posterior probability, interval bound, or model score, in
+  `primary_inferential_companion_columns`. For `post_hoc_secondary`, also include
+  `secondary_effect_column`; include `secondary_uncertainty_column` only when
+  the selected method emits one. Name the primary and secondary estimators in
+  `primary_estimator` and `secondary_estimator`. All declared columns must
+  exist in the retained table. The canonical result-schema effect column is
+  the primary inferential effect, not the post-hoc estimate.
+
   CANONICAL COUNT HANDOFF: when a direct `qc_preprocessing` dependency emits
   `filtered_count_matrix.tsv`, a count-GLM analysis MUST read that exact
   artifact as its `raw_counts` input. Feature/sample filtering changes the
@@ -269,17 +293,18 @@ result_schema:
   significance: { column: padj, threshold: 0.05, comparator: lt }
   signed_effect_column: log2FoldChange
   signed_effect_aliases: [log2FC, logFC]
-# Declared non-determinism (Rec 1). Both shrunken effect-size columns —
-# log2FC AND lfcSE — are outputs of an empirical-Bayes adaptive-shrinkage
+# Declared non-determinism (Rec 1). Separately named shrunken effect-size
+# columns are outputs of an empirical-Bayes adaptive-shrinkage
 # step (e.g. DESeq2/apeglm or ashr) whose fitted prior shifts both estimates
 # within the tolerance band across runs, and which is itself environment-sensitive
 # (the recorded shrinkage engine may be absent from a re-execution's env, so the
 # effect-size columns fall back to a different estimator). The Wald stat/pvalue/padj
 # come from the UNSHRUNKEN model, so the significant set is shrinkage-independent.
-# Agents may emit the effect-size column under the declared canonical
-# `log2FoldChange` name or one of its result-schema aliases. Cover every accepted
-# spelling so replay does not treat the same adaptive-shrinkage output
-# differently solely because an executor chose a valid header alias.
+# The primary inferential effect and uncertainty are intentionally excluded:
+# they must remain coupled to the retained statistic and p-values. Cover the
+# accepted secondary spellings so replay does not treat the same
+# adaptive-shrinkage output differently solely because an executor chose a
+# valid header alias.
 # Projected at emit time into determinism-shim.json::non_deterministic_artifacts
 # so a divergence confined to these two columns is bucketed
 # AcknowledgedNonDeterminism, while a divergence in any other column (e.g. stat,
@@ -287,10 +312,10 @@ result_schema:
 non_determinism:
   - artifact: de_results.tsv
     columns:
-      - log2FoldChange
-      - log2FC
-      - logFC
-      - lfcSE
+      - log2FoldChange_shrunken
+      - log2FC_shrunken
+      - logFC_shrunken
+      - lfcSE_shrunken
     kind: adaptive_shrinkage
     reason: >-
       Empirical-Bayes adaptive shrinkage of effect sizes (e.g. DESeq2/apeglm or

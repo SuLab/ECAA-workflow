@@ -1867,6 +1867,14 @@ fn prompt_md_includes_auto_detect_compute_and_fanout_section() {
         prompt.contains("inner_threads_per_unit"),
         "must define the inner_threads_per_unit variable"
     );
+    assert!(
+        prompt.contains("If `usable == 1`, `inner_threads_per_unit` MUST remain 1"),
+        "a one-core usable envelope must not be oversubscribed"
+    );
+    assert!(
+        prompt.contains("equal to `min(usable, ECAA_HW_TOOL_THREAD_CURVES"),
+        "tool thread flags must use the post-reservation usable budget"
+    );
 
     // Per-language fan-out APIs
     assert!(

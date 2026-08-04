@@ -42,6 +42,28 @@ implementation actually consumed it, and populate metadata from the variable
 passed to that call. Do not declare a permutation count, cutoff, seed, or size
 bound that exists only in the script's summary block.
 
+### Effect-estimator coherence
+
+Whenever a retained results table reports an effect together with uncertainty,
+a test statistic, a raw p-value, an adjusted p-value, a posterior probability,
+or another inferential companion, the primary columns must come from one
+inferential result object. Never replace only the effect or uncertainty with a
+post-hoc shrunken, regularized, bias-corrected, calibrated, or posterior
+estimate while retaining inferential companions from a different object.
+
+If an alternate estimate is useful, write it to separately named secondary
+columns. In result.json, retain an `effect_estimator_contract` object with the
+task-relative results-table path, `mode` (`single_inferential` or
+`post_hoc_secondary`), the primary estimator and effect column, every primary
+inferential companion column that exists, and, for post-hoc mode, the secondary
+estimator and its separate effect and optional uncertainty columns. Use the
+named uncertainty/statistic/p-value fields where applicable and list any other
+primary companions in `primary_inferential_companion_columns`. A task whose
+primary method
+performs joint regularized inference may use `single_inferential`; this rule
+does not require an artificial unregularized estimate. The point is estimator
+identity, not a favored statistical method, modality, or analysis archetype.
+
 Treat every software version as a quantitative provenance claim. Copy it only
 from retained runtime evidence produced by this run: the executed stage's
 `result.json`, `env.lock`, `env.explicit.lock`, `language_packages_installed`,
@@ -137,7 +159,10 @@ writer of task state.
    `no narrative`, `no synthesis`, or row-level claims only, OMIT free-text
    `narrative` / `narrative_text` / `summary` / `interpretation` fields and retain only
    the declared structured counts, rows, and provenance; that task-specific boundary wins
-   over this general envelope convention. On a blocked exit include
+   over this general envelope convention. This includes an operational or retrieval
+   summary: encode its counts and source classes as structured fields instead. The
+   nested result in `state.patch.json` may carry a short task-state summary for the UI,
+   but that does not authorize a `summary` field in `result.json`. On a blocked exit include
    `blocker_kind` and a `what_would_unblock` note.
 
 3. **`progress.log`** — append a human-readable line at each meaningful
@@ -641,6 +666,23 @@ Fetch to match it; do not substitute a different, easier-to-grab form.
 If `required_input_stage` is absent, acquire the raw input the stage's ports
 declare, as before.
 
+### Registered table schema identity
+
+Treat every SME-supplied table header as retained input provenance. A copied or
+row-equivalent derivative must preserve the source column identifiers and cell
+values; do not silently replace an identifier with a preferred synonym. This
+includes design variables, subject/sample keys, clinical covariates, assay or
+feature identifiers, spatial coordinates, and variant fields. If an external
+tool requires different internal names, rename only in memory and report the
+model/formula in the SME's original identifiers.
+
+When an output format genuinely requires persistent renamed columns, write
+`metadata_column_mapping.json` in that task's output directory with `source`,
+`derived`, and a `columns` array of `{source, derived, transformation}` rows;
+list it in `result.json::artifacts`, cite it from `reads.jsonl`, and make every
+downstream consumer apply the retained mapping. Similar values are not proof
+that two differently named fields are the same variable.
+
 ### Discovery tasks (`discover_*`)
 
 A `discover_*` task selects the method for its downstream stage. Follow the
@@ -652,6 +694,15 @@ and any `sme-review-confirmed-*.json`) — block by default with
 `blocker_kind: AwaitingSmeApproval` rather than silently committing to a
 method. When pre-approval is present, record the auto-advance in
 `decision.json` and complete.
+
+`decision.json` is the authoritative selection record. If `result.json` repeats
+the chosen method (under `chosen`, `chosen_method`, `selected_method`, or
+`method`) or any of `auto_advanced`, `spec_preference_applied`,
+`spec_match_renormalized`, `sme_preapproval_present`, `sme_selection_via`,
+`recommended_default`, `runner_up`, or `requires_install`, copy the value from
+the finalized `decision.json`; never recompute or invert it while writing the
+result. In particular, a method selected through a visible SME approval has
+`auto_advanced: false` unless the retained decision itself says otherwise.
 
 When `task-spec.json` carries a non-empty `spec_preferred_methods` map, every
 `method_id` in it is an SME/intake-requested method and is a hard preference,

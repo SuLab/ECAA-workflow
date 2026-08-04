@@ -158,11 +158,11 @@ def test_end_to_end_tsv_and_sorted_keys(tmp_path):
     assert list(parsed.keys()) == sorted(parsed.keys()), "result.json keys must be sorted"
 
 
-def test_emitted_count_key_is_tested_feature_count_not_significant(tmp_path):
-    """Twin for the key rename: the count is over TESTED features, so the
-    emitted JSON key must be `tested_feature_count`. The misleading
+def test_emitted_count_key_names_measurement_population_not_inferential_tested(tmp_path):
+    """Twin for the key rename: the count is over measurement-eligible rows, so the
+    emitted JSON key must be `effect_measurement_population_size`. The misleading
     `significant_feature_count` (it never counted significance) must be gone,
-    and the value must equal the number of tested features."""
+    and the value must equal the number of eligible rows."""
     mod = _load_module()
     table = tmp_path / "de_results.tsv"
     rows = _planted_artifact_rows()
@@ -173,15 +173,15 @@ def test_emitted_count_key_is_tested_feature_count_not_significant(tmp_path):
     out = tmp_path / "result.json"
     assert mod.main(["--table", str(table), "--out", str(out)]) == 0
     parsed = json.loads(out.read_text())
-    assert "tested_feature_count" in parsed, parsed
+    assert "effect_measurement_population_size" in parsed, parsed
     assert "significant_feature_count" not in parsed, parsed
-    # Every planted row carries a usable effect AND abundance, so all are tested.
-    assert parsed["tested_feature_count"] == len(rows)
+    # Every planted row carries a usable effect AND abundance, so all are eligible.
+    assert parsed["effect_measurement_population_size"] == len(rows)
 
     # The pure compute path emits the same key.
     eff, info = 1, 2
     res = mod.compute_metrics(rows, eff, info)
-    assert "tested_feature_count" in res
+    assert "effect_measurement_population_size" in res
     assert "significant_feature_count" not in res
 
 
@@ -384,7 +384,10 @@ def test_metric_block_is_present_and_self_consistent(tmp_path):
     # The DENOMINATOR population is the whole tested set — the exact fact a
     # deposited report got wrong by naming the significant subset instead.
     assert basis["denominator_population"] == mod.DENOMINATOR_POPULATION_ID
-    assert basis["denominator_population_size"] == parsed["tested_feature_count"]
+    assert (
+        basis["denominator_population_size"]
+        == parsed["effect_measurement_population_size"]
+    )
     assert basis["numerator_population"] == mod.NUMERATOR_POPULATION_ID
     assert basis["numerator_population_size"] == mod.TOP_K
     assert basis["numerator_statistic"] == basis["denominator_statistic"] == "median"
@@ -492,7 +495,10 @@ def test_significance_column_does_not_change_the_ratio(tmp_path):
         [r + ["NA"] for r in rows], eff, info, sig_idx=3
     )
     assert without["top_effect_abundance_ratio"] == with_sig["top_effect_abundance_ratio"]
-    assert without["tested_feature_count"] == with_sig["tested_feature_count"]
+    assert (
+        without["effect_measurement_population_size"]
+        == with_sig["effect_measurement_population_size"]
+    )
     # Only the new count differs: every top feature lacks a usable padj.
     assert with_sig["top_effect_abundance_ratio_basis"]["top_k_missing_significance_count"] == 15
     assert without["top_effect_abundance_ratio_basis"]["top_k_missing_significance_count"] is None
@@ -568,6 +574,6 @@ def test_pre_existing_keys_are_unchanged_by_the_additions():
     res = mod.compute_metrics(_planted_artifact_rows(), 1, 2)
     assert res["information_column_recorded"] is True
     assert res["top_effect_k"] == mod.TOP_K
-    assert res["tested_feature_count"] == len(_planted_artifact_rows())
+    assert res["effect_measurement_population_size"] == len(_planted_artifact_rows())
     assert isinstance(res["top_effect_abundance_ratio"], float)
     assert res["top_effect_abundance_ratio"] < mod.MIN_ABUNDANCE_RATIO

@@ -1669,12 +1669,25 @@ const DIRECTIONAL_CUES: &[&str] = &[
     "enrich",
     "deplet",
     "suppress",
-    "activat",
     "inhibit",
-    "gain",
-    "loss",
     "positively correlat",
     "negatively correlat",
+];
+
+const DIRECTION_ENTITY_WINDOW: usize = 48;
+const ENTITY_INTERVENTION_TERMS: &[&str] = &[
+    "activation",
+    "administration",
+    "deficiency",
+    "depletion",
+    "inhibition",
+    "knockdown",
+    "knockout",
+    "loss",
+    "mutation",
+    "overexpression",
+    "silencing",
+    "treatment",
 ];
 
 /// A directional concordance flag — `same_direction` / `opposite_direction` —
@@ -1690,18 +1703,149 @@ fn flag_asserts_direction(flag: Option<&str>) -> bool {
 /// they don't spuriously fire inside unrelated words (e.g. "upstream",
 /// "downstream", "boundary"); the morphological stems above use plain
 /// containment.
-fn quote_states_direction(normalized_quote: &str) -> bool {
-    if DIRECTIONAL_CUES
-        .iter()
-        .any(|c| normalized_quote.contains(c))
+fn ascii_word_boundary(text: &str, index: usize) -> bool {
+    index == 0
+        || index == text.len()
+        || !text.as_bytes()[index.saturating_sub(1)].is_ascii_alphanumeric()
+}
+
+fn agentive_direction_noun(text: &str, cue_end: usize) -> bool {
+    ["or", "ors", "er", "ers"].iter().any(|suffix| {
+        let tail = &text[cue_end..];
+        tail.starts_with(suffix)
+            && (tail.len() == suffix.len() || !tail.as_bytes()[suffix.len()].is_ascii_alphabetic())
+    })
+}
+
+fn entity_spans(text: &str, entity: &str) -> Vec<(usize, usize)> {
+    let entity = entity.trim().to_ascii_lowercase();
+    if entity.is_empty() {
+        return Vec::new();
+    }
+    text.match_indices(&entity)
+        .filter_map(|(start, matched)| {
+            let end = start + matched.len();
+            let before_ok = start == 0 || !text.as_bytes()[start - 1].is_ascii_alphanumeric();
+            let after_ok = end == text.len() || !text.as_bytes()[end].is_ascii_alphanumeric();
+            (before_ok && after_ok).then_some((start, end))
+        })
+        .collect()
+}
+
+fn crosses_direction_clause_boundary(text: &str, left_end: usize, right_start: usize) -> bool {
+    if right_start <= left_end {
+        return false;
+    }
+    let bridge = &text[left_end..right_start];
+    if bridge
+        .chars()
+        .any(|character| matches!(character, ';' | '.' | '!' | '?' | '\n' | '\r'))
     {
         return true;
     }
-    // Whole-word `up` / `down` (the bare directional adverbs). Split on spaces;
-    // the quote is already whitespace-collapsed and lowercased.
-    normalized_quote
-        .split(' ')
-        .any(|w| w == "up" || w == "down")
+    let words = bridge.split(|character: char| !character.is_ascii_alphabetic());
+    words
+        .filter(|word| !word.is_empty())
+        .any(|word| matches!(word, "while" | "whereas" | "but" | "although" | "though"))
+}
+
+/// A cue must describe the row's entity, not merely occur somewhere in the
+/// same quote. The bounded association check deliberately fails closed for an
+/// intervention-role entity ("A overexpression reduced B") and for agentive
+/// nouns ("B is a repressor") that state function rather than measured
+/// direction.
+fn quote_states_direction_for_entity(normalized_quote: &str, entity: &str) -> bool {
+    let spans = entity_spans(normalized_quote, entity);
+    if spans.is_empty() {
+        return false;
+    }
+
+    let mut cue_spans = Vec::new();
+    for cue in DIRECTIONAL_CUES {
+        for (start, _) in normalized_quote.match_indices(cue) {
+            if !ascii_word_boundary(normalized_quote, start) {
+                continue;
+            }
+            let end = start + cue.len();
+            if agentive_direction_noun(normalized_quote, end) {
+                continue;
+            }
+            cue_spans.push((start, end));
+        }
+    }
+    for bare in ["up", "down"] {
+        for (start, _) in normalized_quote.match_indices(bare) {
+            let end = start + bare.len();
+            let before_ok =
+                start == 0 || !normalized_quote.as_bytes()[start - 1].is_ascii_alphanumeric();
+            let after_ok = end == normalized_quote.len()
+                || !normalized_quote.as_bytes()[end].is_ascii_alphanumeric();
+            if before_ok && after_ok {
+                cue_spans.push((start, end));
+            }
+        }
+    }
+
+    cue_spans.into_iter().any(|(cue_start, cue_end)| {
+        let nearest = spans
+            .iter()
+            .map(|(entity_start, entity_end)| {
+                if cue_end <= *entity_start {
+                    entity_start - cue_end
+                } else if *entity_end <= cue_start {
+                    cue_start - entity_end
+                } else {
+                    0
+                }
+            })
+            .min();
+        let Some(nearest) = nearest.filter(|distance| *distance <= DIRECTION_ENTITY_WINDOW) else {
+            return false;
+        };
+
+        spans.iter().any(|(entity_start, entity_end)| {
+            let distance = if cue_end <= *entity_start {
+                entity_start - cue_end
+            } else if *entity_end <= cue_start {
+                cue_start - entity_end
+            } else {
+                0
+            };
+            if distance != nearest {
+                return false;
+            }
+
+            let (left_end, right_start) = if cue_end <= *entity_start {
+                (cue_end, *entity_start)
+            } else {
+                (*entity_end, cue_start)
+            };
+            if crosses_direction_clause_boundary(normalized_quote, left_end, right_start) {
+                return false;
+            }
+
+            if *entity_end <= cue_start {
+                let after_entity =
+                    normalized_quote[*entity_end..].trim_start_matches(|character: char| {
+                        character.is_ascii_whitespace() || matches!(character, '-' | '–' | '—')
+                    });
+                if ENTITY_INTERVENTION_TERMS
+                    .iter()
+                    .any(|term| after_entity.starts_with(term))
+                {
+                    return false;
+                }
+                let bridge = &normalized_quote[*entity_end..cue_start];
+                if ENTITY_INTERVENTION_TERMS
+                    .iter()
+                    .any(|term| bridge.contains(term))
+                {
+                    return false;
+                }
+            }
+            true
+        })
+    })
 }
 
 /// Validates that every row carrying a directional concordance flag
@@ -1731,7 +1875,7 @@ pub fn run_direction_supported_by_quote(
             continue;
         }
         let normalized_quote = collapse_whitespace_lowercase_v1(&row.evidence_quote);
-        if !quote_states_direction(&normalized_quote) {
+        if !quote_states_direction_for_entity(&normalized_quote, &row.entity) {
             return Err((
                 i as u64,
                 ValidationFailureCause::LiteratureClaim {
@@ -4054,9 +4198,66 @@ mod tests {
         let csv = write_dir_row(
             &dir,
             "opposite_direction",
-            "the treatment reduced MFGE8 levels relative to control",
+            "the treatment reduced IRS2 levels relative to control",
         );
         assert!(run_direction_supported_by_quote(&csv, &manifest).is_ok());
+    }
+
+    #[test]
+    fn direction_must_be_bound_to_row_entity_not_another_endpoint() {
+        let dir = TempDir::new().unwrap();
+        let manifest = dir.path().join("evidence/manifest.json");
+        let csv = write_dir_row(
+            &dir,
+            "opposite_direction",
+            "Feature-B was reduced while IRS2 was measured as a covariate",
+        );
+        let err = run_direction_supported_by_quote(&csv, &manifest).unwrap_err();
+        assert!(matches!(
+            err.1,
+            ValidationFailureCause::LiteratureClaim {
+                kind: LiteratureClaimFailureKind::DirectionNotSupportedByQuote,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn agentive_function_noun_does_not_support_entity_direction() {
+        let dir = TempDir::new().unwrap();
+        let manifest = dir.path().join("evidence/manifest.json");
+        let csv = write_dir_row(
+            &dir,
+            "opposite_direction",
+            "IRS2-regulated endpoint B is a novel repressor of hypertrophy",
+        );
+        let err = run_direction_supported_by_quote(&csv, &manifest).unwrap_err();
+        assert!(matches!(
+            err.1,
+            ValidationFailureCause::LiteratureClaim {
+                kind: LiteratureClaimFailureKind::DirectionNotSupportedByQuote,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn repeated_entity_does_not_reassign_intervention_cue() {
+        let dir = TempDir::new().unwrap();
+        let manifest = dir.path().join("evidence/manifest.json");
+        let csv = write_dir_row(
+            &dir,
+            "opposite_direction",
+            "IRS2 overexpression identified endpoint B as an IRS2-regulated feature and a novel repressor of hypertrophy",
+        );
+        let err = run_direction_supported_by_quote(&csv, &manifest).unwrap_err();
+        assert!(matches!(
+            err.1,
+            ValidationFailureCause::LiteratureClaim {
+                kind: LiteratureClaimFailureKind::DirectionNotSupportedByQuote,
+                ..
+            }
+        ));
     }
 
     #[test]

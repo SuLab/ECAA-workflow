@@ -348,10 +348,12 @@ mod nondet_projection_tests {
             .expect("load stage-atoms registry")
     }
 
-    /// The `differential_expression` atom declares every supported shrunken
-    /// effect-size alias plus `lfcSE` as adaptive-shrinkage non-determinism;
-    /// the projection must expand that to the task's FULL package-relative
-    /// artifact path while preserving all declared columns.
+    /// The `differential_expression` atom declares only separately named
+    /// post-hoc shrunken effect and uncertainty columns as adaptive-shrinkage
+    /// non-determinism. Primary inferential columns stay deterministic and
+    /// estimator-coherent. The projection must expand the declaration to the
+    /// task's full package-relative path while preserving every secondary
+    /// alias.
     #[test]
     fn projects_de_atom_shrinkage_ack_to_full_path() {
         let reg = registry();
@@ -364,10 +366,10 @@ mod nondet_projection_tests {
             de.columns.as_deref(),
             Some(
                 &[
-                    "log2FoldChange".to_string(),
-                    "log2FC".to_string(),
-                    "logFC".to_string(),
-                    "lfcSE".to_string(),
+                    "log2FoldChange_shrunken".to_string(),
+                    "log2FC_shrunken".to_string(),
+                    "logFC_shrunken".to_string(),
+                    "lfcSE_shrunken".to_string(),
                 ][..]
             )
         );

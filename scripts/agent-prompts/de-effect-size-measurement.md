@@ -14,7 +14,10 @@ python3 lib/measure_de_effect_size.py \
 
 The script emits `information_column_recorded` and
 `top_effect_abundance_ratio` into result.json (plus informational
-`top_effect_k` and `tested_feature_count`). It emits that ratio together with
+`top_effect_k` and `effect_measurement_population_size`). The latter is the
+population used only by this reliability measurement; it is deliberately not
+called a tested-feature count because it may differ from the inferential
+method's estimable/tested population. It emits that ratio together with
 its own definition: `top_effect_abundance_ratio_description` is one sentence
 naming the numerator population, the denominator population, and each
 population's size, and `top_effect_abundance_ratio_basis` carries the same facts

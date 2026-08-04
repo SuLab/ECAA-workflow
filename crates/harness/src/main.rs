@@ -4292,6 +4292,16 @@ fn run_loop(
                         obligations.push(id);
                     }
                 }
+                if ecaa_workflow_harness::validators::discovery_decision_result_is_applicable(
+                    &task_artifact_path,
+                ) {
+                    let id =
+                        ecaa_workflow_harness::validators::DISCOVERY_DECISION_RESULT_OBLIGATION
+                            .to_string();
+                    if seen_obligations.insert(id.clone()) {
+                        obligations.push(id);
+                    }
+                }
                 // A retained `parallelism:` record is an executable resource
                 // claim. Reconcile it with determinism-env.json for every
                 // modality instead of trusting an agent's self-reported
@@ -4310,6 +4320,16 @@ fn run_loop(
                 ) {
                     let id = ecaa_workflow_harness::validators::NARRATIVE_BOUNDARY_OBLIGATION
                         .to_string();
+                    if seen_obligations.insert(id.clone()) {
+                        obligations.push(id);
+                    }
+                }
+                if ecaa_workflow_harness::validators::effect_estimator_coherence_is_applicable(
+                    &task_artifact_path,
+                ) {
+                    let id =
+                        ecaa_workflow_harness::validators::EFFECT_ESTIMATOR_COHERENCE_OBLIGATION
+                            .to_string();
                     if seen_obligations.insert(id.clone()) {
                         obligations.push(id);
                     }

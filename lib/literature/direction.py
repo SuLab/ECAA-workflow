@@ -209,6 +209,9 @@ _ENTITY_ROLE_BEFORE_RE = re.compile(
 _ENTITY_ROLE_AFTER_RE = re.compile(
     rf"^\s*(?:-|–|—)?\s*(?:{_ENTITY_ROLE_ALT})(?![a-z])",
 )
+_CLAUSE_BOUNDARY_RE = re.compile(
+    r"(?:[;.!?\n\r]|(?<![a-z])(?:while|whereas|but|although|though)(?![a-z]))"
+)
 
 
 def is_voided(text_lower: str) -> bool:
@@ -221,10 +224,20 @@ def _stem_hits(text_lower: str, stems: Sequence[str]) -> List[Tuple[int, str]]:
     hits: List[Tuple[int, str]] = []
     for stem in stems:
         for match in re.finditer(rf"(?<![a-z]){re.escape(stem)}", text_lower):
-            # "enhancer" names a regulatory element; it is not a conjugation
-            # of "enhance" and must never become an increase cue.
-            if stem == "enhanc" and text_lower[match.start() :].startswith(
-                ("enhancer", "enhancers")
+            # Agentive nouns describe what something DOES, not a measured
+            # change in its own abundance/state: enhancer, inducer, repressor,
+            # suppressor, inhibitor, reducer. Prefix matching is necessary for
+            # conjugations, but without this suffix guard a sentence calling a
+            # downstream endpoint "a novel repressor" assigns a decrease to
+            # whichever entity happens to be nearby.
+            tail = text_lower[match.end() :]
+            if any(
+                tail.startswith(suffix)
+                and (
+                    len(tail) == len(suffix)
+                    or not tail[len(suffix)].isalpha()
+                )
+                for suffix in ("or", "ors", "er", "ers")
             ):
                 continue
             start = match.start()
@@ -271,9 +284,32 @@ def infer_direction(
         def near_entity(hit: Tuple[int, str]) -> bool:
             cue_start, stem = hit
             cue_end = cue_start + len(stem)
-            for entity_start, entity_end in entity_spans:
-                distance = max(entity_start - cue_end, cue_start - entity_end, 0)
-                if distance > ENTITY_CUE_WINDOW:
+            distances = [
+                (
+                    max(entity_start - cue_end, cue_start - entity_end, 0),
+                    entity_start,
+                    entity_end,
+                )
+                for entity_start, entity_end in entity_spans
+            ]
+            if not distances:
+                return False
+            nearest_distance = min(distance for distance, _, _ in distances)
+            if nearest_distance > ENTITY_CUE_WINDOW:
+                return False
+            # A repeated entity mention must not let a cue bypass the role of
+            # the mention it actually modifies. In "A overexpression ...
+            # A-regulated endpoint", the intervention cue belongs to the
+            # first (nearest) A; the later occurrence cannot inherit it.
+            for distance, entity_start, entity_end in distances:
+                if distance != nearest_distance:
+                    continue
+
+                bridge_start = min(entity_end, cue_end)
+                bridge_end = max(entity_start, cue_start)
+                if bridge_end > bridge_start and _CLAUSE_BOUNDARY_RE.search(
+                    lower[bridge_start:bridge_end]
+                ):
                     continue
 
                 before = lower[max(0, entity_start - ENTITY_CUE_WINDOW) : entity_start]

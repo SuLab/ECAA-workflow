@@ -5,6 +5,15 @@ description: |
   Standardise expression values to remove library-size and composition biases.
   Method neutrality: DESeq2 VST / edgeR TMM / scran pooling / Seurat
   LogNormalize / scnorm / sctransform are selected at runtime.
+
+  METADATA IDENTIFIERS: fit and report design/covariate fields using the exact
+  identifiers retained by the registered metadata contract. Do not substitute
+  a synonym created in a derived manifest. If data_acquisition retained
+  metadata_column_mapping.json because a rename was unavoidable, resolve the
+  source identifier through that artifact and record the mapping path in
+  reads.jsonl/result.json. A formula requested by the SME must remain
+  inspectable in the SME's original identifiers even when a library requires a
+  temporary internal model-matrix name.
 edam_operation: "operation:3435"
 edam_data: "data:3917"
 edam_format: "format:3475"
