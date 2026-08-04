@@ -1589,6 +1589,66 @@ impl ValidatorRunner for DeterminismRerunRunner {
     }
 }
 
+/// Normalize a declared-vs-probed artifact path for comparison. Declarations
+/// are relative to the task's output dir; strip the redundant leading `./` and
+/// `/` a hand-authored atom or contract may carry, and fold `\` to `/`.
+fn normalize_declared_artifact_path(path: &str) -> String {
+    path.trim()
+        .replace('\\', "/")
+        .trim_start_matches("./")
+        .trim_start_matches('/')
+        .to_string()
+}
+
+/// The `required_artifacts` paths `WORKFLOW.json` declares for the task whose
+/// output dir is `artifact_path`, or `None` when the declaration cannot be
+/// established (no readable `WORKFLOW.json`, no `tasks` entry for this task id,
+/// or a non-array `required_artifacts`).
+///
+/// `Some(vec![])` is a POSITIVE finding, not an unknown: the task is in the
+/// graph and declares no artifact obligations at all. That is the shape of every
+/// synthesized `validate_<stage>` companion, so the distinction is what lets a
+/// goal-required validator tell "this task owed me nothing" apart from "I cannot
+/// tell what this task owed".
+fn declared_required_artifact_paths(artifact_path: &Path) -> Option<Vec<String>> {
+    let task_id = artifact_path.file_name()?.to_str()?;
+    let workflow = read_json_if_present(
+        &package_root_from_artifact_path(artifact_path).join("WORKFLOW.json"),
+    )?;
+    let task = workflow.pointer("/tasks")?.get(task_id)?;
+    let declared = match task.get("required_artifacts") {
+        // The task model omits an empty `required_artifacts` on serialize, so an
+        // absent key means "declares none", not "declaration unavailable".
+        None => return Some(Vec::new()),
+        Some(value) => value.as_array()?,
+    };
+    Some(
+        declared
+            .iter()
+            .filter_map(|entry| entry.get("path").and_then(|p| p.as_str()))
+            .map(normalize_declared_artifact_path)
+            .collect(),
+    )
+}
+
+/// True when the graph positively shows `relative_path` was never this task's to
+/// produce. Returns `false` on any unknown, so a validator built to fail closed
+/// on an absent measurement input keeps doing so unless `WORKFLOW.json` says the
+/// artifact was not declared for the task under validation.
+///
+/// A validator must not hard-block a task over an artifact the task was never
+/// obliged to write. That happens when a task carries an obligation id without
+/// carrying the artifact the obligation reads — e.g. a synthesized
+/// `validate_<stage>` companion that took on the parent stage's obligation ids,
+/// or an atom that lists an obligation whose input another stage produces.
+pub fn task_was_not_obliged_to_produce(artifact_path: &Path, relative_path: &str) -> bool {
+    let probed = normalize_declared_artifact_path(relative_path);
+    match declared_required_artifact_paths(artifact_path) {
+        Some(declared) => !declared.iter().any(|path| path == &probed),
+        None => false,
+    }
+}
+
 /// `variant_af_spectrum_plausible`. Reads
 /// `<artifact_path>/result.json::af_values` (a JSON array of allele
 /// frequencies) and asserts the spectrum is well-formed for a
@@ -1597,7 +1657,10 @@ impl ValidatorRunner for DeterminismRerunRunner {
 /// obligation-keyed companion to the goal-driven
 /// `numeric_distribution` assertion arm — it guards the *shape* of the
 /// AF column rather than a specific operator bound, so it never hands
-/// the agent a threshold. Soft-skips when `af_values` is absent.
+/// the agent a threshold. Soft-skips when `af_values` is absent, and when
+/// `result.json` itself is absent from a task that never declared it as a
+/// required artifact; an absent `result.json` on the task that DID owe it fails
+/// closed (see `task_was_not_obliged_to_produce`).
 pub struct VariantAfSpectrumPlausibleRunner;
 
 impl ValidatorRunner for VariantAfSpectrumPlausibleRunner {
@@ -1614,6 +1677,23 @@ impl ValidatorRunner for VariantAfSpectrumPlausibleRunner {
         // set is silently accepted. A present-but-malformed result.json is a
         // genuine internal error and stays Errored (see read_json below).
         if !result_path.exists() {
+            // Scope the fail-closed to the task that actually owed the
+            // measurement. A task can carry this obligation id without ever
+            // being asked to write result.json — a synthesized
+            // `validate_<stage>` companion that took on the parent stage's
+            // obligation ids is the concrete case — and hard-blocking there
+            // blocks a task on a file it was never obliged to produce. Positive
+            // evidence of non-obligation only: an unestablishable declaration
+            // keeps the fail-closed below.
+            if task_was_not_obliged_to_produce(artifact_path, "result.json") {
+                return ValidatorOutcome::Errored {
+                    reason: format!(
+                        "{} is absent and this task does not declare it as a required artifact — \
+                         the AF-spectrum obligation is not applicable to this task",
+                        result_path.display()
+                    ),
+                };
+            }
             return ValidatorOutcome::Failed {
                 message: "AF-spectrum input (result.json) is absent — the measurement step did not run; failing closed so the wrong call set is not silently accepted".to_string(),
             };
@@ -3334,6 +3414,112 @@ mod tests {
         assert!(
             matches!(outcome, ValidatorOutcome::Failed { .. }),
             "missing required input must fail closed (Failed), got {outcome:?}"
+        );
+    }
+
+    /// Write a minimal package skeleton and return the output dir of `task_id`.
+    /// `required` is the task's declared `required_artifacts` paths; passing
+    /// `None` omits the key entirely (how the task model serializes an empty
+    /// declaration).
+    fn package_with_task(
+        root: &Path,
+        task_id: &str,
+        required: Option<&[&str]>,
+    ) -> std::path::PathBuf {
+        let outputs = root.join("runtime/outputs").join(task_id);
+        fs::create_dir_all(&outputs).unwrap();
+        let mut task = serde_json::json!({ "kind": "validation" });
+        if let Some(paths) = required {
+            task["required_artifacts"] = serde_json::Value::Array(
+                paths
+                    .iter()
+                    .map(|p| serde_json::json!({ "path": p }))
+                    .collect(),
+            );
+        }
+        fs::write(
+            root.join("WORKFLOW.json"),
+            serde_json::json!({ "tasks": { task_id: task } }).to_string(),
+        )
+        .unwrap();
+        outputs
+    }
+
+    /// A task carrying the obligation without declaring `result.json` was never
+    /// obliged to write it, so an absent file soft-skips instead of hard-blocking
+    /// the task. This is the shape of a synthesized `validate_<stage>` companion
+    /// that took on its parent stage's obligation ids.
+    #[test]
+    fn variant_af_spectrum_soft_skips_when_result_json_was_never_obliged() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = package_with_task(tmp.path(), "validate_variant_calling", None);
+        let outcome = VariantAfSpectrumPlausibleRunner.run(&outputs);
+        match outcome {
+            ValidatorOutcome::Errored { ref reason } => {
+                assert!(
+                    reason.contains("does not declare it as a required artifact"),
+                    "{reason}"
+                );
+            }
+            other => panic!("expected Errored soft-skip, got {other:?}"),
+        }
+    }
+
+    /// Same, when the task declares OTHER artifacts but not `result.json`.
+    #[test]
+    fn variant_af_spectrum_soft_skips_when_other_artifacts_declared() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = package_with_task(
+            tmp.path(),
+            "validate_variant_calling",
+            Some(&["validation_report.json"]),
+        );
+        assert!(matches!(
+            VariantAfSpectrumPlausibleRunner.run(&outputs),
+            ValidatorOutcome::Errored { .. }
+        ));
+    }
+
+    /// The task that DID declare `result.json` still fails closed when it is
+    /// absent — the guard scopes the fail-closed, it does not remove it.
+    #[test]
+    fn variant_af_spectrum_still_fails_closed_when_result_json_was_obliged() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = package_with_task(tmp.path(), "variant_calling", Some(&["result.json"]));
+        assert!(
+            matches!(
+                VariantAfSpectrumPlausibleRunner.run(&outputs),
+                ValidatorOutcome::Failed { .. }
+            ),
+            "an obliged-but-absent result.json must still fail closed"
+        );
+    }
+
+    /// A leading `./` in the declaration is the same obligation.
+    #[test]
+    fn declared_artifact_path_comparison_ignores_leading_dot_slash() {
+        let tmp = TempDir::new().unwrap();
+        let outputs = package_with_task(tmp.path(), "variant_calling", Some(&["./result.json"]));
+        assert!(!task_was_not_obliged_to_produce(&outputs, "result.json"));
+    }
+
+    /// No `WORKFLOW.json` (or no entry for this task) is an UNKNOWN, not a
+    /// finding of non-obligation: the fail-closed is preserved.
+    #[test]
+    fn obligation_probe_is_conservative_when_declaration_is_unknown() {
+        let tmp = TempDir::new().unwrap();
+        let orphan = tmp.path().join("runtime/outputs/no_such_task");
+        fs::create_dir_all(&orphan).unwrap();
+        assert!(
+            !task_was_not_obliged_to_produce(&orphan, "result.json"),
+            "absent WORKFLOW.json must not be read as evidence of non-obligation"
+        );
+        let outputs = package_with_task(tmp.path(), "variant_calling", Some(&["result.json"]));
+        // Task present in the graph but probing a DIFFERENT task's dir.
+        let _ = outputs;
+        assert!(
+            !task_was_not_obliged_to_produce(&orphan, "result.json"),
+            "a task id absent from WORKFLOW.json/tasks is an unknown, not a finding"
         );
     }
 

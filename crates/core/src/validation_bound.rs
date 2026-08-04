@@ -19,10 +19,19 @@ use serde_json::Value;
 /// `assertion_type` is not in this set is rejected / dropped (fail-closed): an
 /// unimplemented type resolves to `false` in `run_assertion` and would block
 /// every run regardless of the result.
+///
+/// Drift in the OTHER direction is the subtler hazard: a type `run_assertion`
+/// implements but this list omits is silently unavailable to an SME-authored
+/// bound while an archetype contract may use it freely. The lockstep pin is
+/// `crates/harness/tests/assertion_type_whitelist_lockstep.rs`, which extracts
+/// `run_assertion`'s match arms from source and asserts set equality with this
+/// constant; `every_supported_type_has_a_check_shape_arm` below pins the third
+/// list (`validate_bound_check_shape`'s arms) to this one.
 pub const SUPPORTED_ASSERTION_TYPES: &[&str] = &[
     "artifact_present",
     "artifact_non_empty_table",
     "artifact_glob_any",
+    "table_header_has_all_groups",
     "string_contains",
     "numeric_threshold",
     "numeric_distribution",
@@ -32,6 +41,7 @@ pub const SUPPORTED_ASSERTION_TYPES: &[&str] = &[
     "json_pointer_is_bool",
     "json_pointer_is_array",
     "cross_stage_output_comparison",
+    "cross_stage_table_handoff",
     "cross_field_equals",
     "formula_references_covariates",
 ];
@@ -82,6 +92,22 @@ pub fn validate_bound_check_shape(assertion_type: &str, check: &Value) -> Result
             .and_then(|v| v.as_array())
             .is_some()
     };
+    // A non-negative integer field readable as u64 (matches `.as_u64()`). A
+    // float or negative value passes `.as_f64()` but NOT `.as_u64()`, so the
+    // narrower predicate is what mirrors `run_assertion`'s read.
+    let has_u64 = |k: &str| {
+        obj.and_then(|o| o.get(k))
+            .and_then(|v| v.as_u64())
+            .is_some()
+    };
+    // A non-empty array whose every element is a string. `run_assertion`
+    // collects these through `Option<Vec<&str>>`, so one non-string element
+    // fails the whole read.
+    let has_str_array = |k: &str| {
+        obj.and_then(|o| o.get(k))
+            .and_then(|v| v.as_array())
+            .is_some_and(|arr| !arr.is_empty() && arr.iter().all(|v| v.is_string()))
+    };
     // Assemble an error listing every missing field so the SME fixes them all
     // in one round-trip instead of one 400 per field.
     let require = |missing: Vec<&str>| -> Result<(), String> {
@@ -97,6 +123,31 @@ pub fn validate_bound_check_shape(assertion_type: &str, check: &Value) -> Result
     match assertion_type {
         // Presence-style: no `check` fields consumed by run_assertion.
         "artifact_present" | "artifact_non_empty_table" | "artifact_glob_any" => Ok(()),
+        // Needs `column_groups`: a non-empty array of groups, each group a
+        // non-empty array carrying at least one string candidate. A group with
+        // no string candidate can never match a header, so the assertion would
+        // fail-closed forever.
+        "table_header_has_all_groups" => {
+            let groups_ok = obj
+                .and_then(|o| o.get("column_groups"))
+                .and_then(|v| v.as_array())
+                .is_some_and(|groups| {
+                    !groups.is_empty()
+                        && groups.iter().all(|group| {
+                            group.as_array().is_some_and(|candidates| {
+                                candidates.iter().any(|candidate| candidate.is_string())
+                            })
+                        })
+                });
+            if groups_ok {
+                Ok(())
+            } else {
+                Err(format!(
+                    "assertion_type `{assertion_type}` requires check.column_groups (a non-empty \
+                     array of groups, each a non-empty array of column-name strings)"
+                ))
+            }
+        }
         // Needs one of `substrings` / `substrings_any` (array); else false.
         "string_contains" => {
             if has_array("substrings") || has_array("substrings_any") {
@@ -173,6 +224,28 @@ pub fn validate_bound_check_shape(assertion_type: &str, check: &Value) -> Result
             }
             if !has_str("op") {
                 missing.push("op (string)");
+            }
+            require(missing)
+        }
+        // Canonical table handoff. Every field below is a `?`-early-return read
+        // in `run_assertion`; `header_rows` must be a non-negative integer
+        // (`as_u64`) and `alternative_ports` a non-empty all-string array.
+        "cross_stage_table_handoff" => {
+            let mut missing = Vec::new();
+            if !has_str("upstream_task") {
+                missing.push("upstream_task (string)");
+            }
+            if !has_str("upstream_file") {
+                missing.push("upstream_file (string)");
+            }
+            if !has_str("declared_port") {
+                missing.push("declared_port (string)");
+            }
+            if !has_str_array("alternative_ports") {
+                missing.push("alternative_ports (non-empty array of strings)");
+            }
+            if !has_u64("header_rows") {
+                missing.push("header_rows (non-negative integer)");
             }
             require(missing)
         }
@@ -487,6 +560,105 @@ mod tests {
         assert!(is_valid_severity("recommended"));
         assert!(!is_valid_severity("blocking"));
         assert!(!is_valid_severity(""));
+    }
+
+    /// Third-list lockstep: `validate_bound_check_shape` ends in an
+    /// `other => Err("... is not harness-runnable")` arm. A type added to
+    /// `SUPPORTED_ASSERTION_TYPES` without a matching check-shape arm therefore
+    /// passes `is_supported_assertion_type` and is then rejected at set-time
+    /// with a message that flatly contradicts the whitelist. Every whitelisted
+    /// type must reach a real arm — the arm may still report missing fields.
+    #[test]
+    fn every_supported_type_has_a_check_shape_arm() {
+        let orphans: Vec<&&str> = SUPPORTED_ASSERTION_TYPES
+            .iter()
+            .filter(|t| {
+                matches!(
+                    validate_bound_check_shape(t, &serde_json::json!({})),
+                    Err(ref msg) if msg.contains("is not harness-runnable")
+                )
+            })
+            .collect();
+        assert!(
+            orphans.is_empty(),
+            "assertion types in SUPPORTED_ASSERTION_TYPES with no \
+             validate_bound_check_shape arm: {orphans:?}"
+        );
+    }
+
+    /// The two arms added alongside the whitelist entries: a well-shaped check
+    /// is accepted, and each fail-closed read is named when it is absent.
+    #[test]
+    fn check_shape_covers_table_header_and_table_handoff() {
+        assert!(validate_bound_check_shape(
+            "table_header_has_all_groups",
+            &serde_json::json!({ "column_groups": [["gene_id"], ["symbol", "gene_name"]] })
+        )
+        .is_ok());
+        // Empty outer array, empty group, and a group with no string candidate
+        // all fail-close in `table_header_has_all_groups`.
+        for bad in [
+            serde_json::json!({ "column_groups": [] }),
+            serde_json::json!({ "column_groups": [[]] }),
+            serde_json::json!({ "column_groups": [[7]] }),
+            serde_json::json!({}),
+        ] {
+            assert!(
+                validate_bound_check_shape("table_header_has_all_groups", &bad).is_err(),
+                "expected rejection for {bad}"
+            );
+        }
+
+        assert!(validate_bound_check_shape(
+            "cross_stage_table_handoff",
+            &serde_json::json!({
+                "upstream_task": "qc_preprocessing",
+                "upstream_file": "filtered_count_matrix.tsv",
+                "declared_port": "raw_counts",
+                "alternative_ports": ["normalized_counts"],
+                "header_rows": 1
+            })
+        )
+        .is_ok());
+        let err = validate_bound_check_shape(
+            "cross_stage_table_handoff",
+            &serde_json::json!({ "upstream_task": "qc_preprocessing" }),
+        )
+        .unwrap_err();
+        for field in [
+            "upstream_file",
+            "declared_port",
+            "alternative_ports",
+            "header_rows",
+        ] {
+            assert!(err.contains(field), "error must name {field}: {err}");
+        }
+        // `header_rows` is read with `as_u64`, so a float permanently
+        // fail-closes and must be rejected at set-time.
+        assert!(validate_bound_check_shape(
+            "cross_stage_table_handoff",
+            &serde_json::json!({
+                "upstream_task": "qc",
+                "upstream_file": "m.tsv",
+                "declared_port": "raw",
+                "alternative_ports": ["norm"],
+                "header_rows": 1.5
+            })
+        )
+        .is_err());
+        // `alternative_ports` is collected through `Option<Vec<&str>>`, so one
+        // non-string element fails the read.
+        assert!(validate_bound_check_shape(
+            "cross_stage_table_handoff",
+            &serde_json::json!({
+                "upstream_task": "qc",
+                "upstream_file": "m.tsv",
+                "declared_port": "raw",
+                "alternative_ports": ["norm", 3],
+                "header_rows": 1
+            })
+        )
+        .is_err());
     }
 
     #[test]
