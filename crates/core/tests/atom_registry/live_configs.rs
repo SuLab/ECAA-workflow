@@ -135,10 +135,23 @@ fn differential_expression_default_call_set_matches_result_schema() {
             .iter()
             .cloned(),
     );
-    for header in accepted_effect_headers {
+    // Acknowledged non-determinism excuses a replay divergence, so it must name
+    // the SEPARATELY-REPORTED shrunken estimate and never the primary one.
+    // Listing the primary `log2FoldChange` here would bucket a genuine change in
+    // the headline effect as AcknowledgedNonDeterminism instead of failing,
+    // while the retained stat/pvalue/padj it is coupled to still had to match.
+    // Every accepted spelling of the effect header needs its shrunken form
+    // covered, so an executor choosing a valid alias cannot dodge the band.
+    for header in &accepted_effect_headers {
+        let shrunken = format!("{header}_shrunken");
         assert!(
-            shrinkage_columns.contains(&header),
-            "adaptive-shrinkage replay declaration must cover accepted effect header {header}"
+            shrinkage_columns.contains(&shrunken),
+            "adaptive-shrinkage replay declaration must cover shrunken effect header {shrunken}"
+        );
+        assert!(
+            !shrinkage_columns.contains(header),
+            "primary effect header {header} must stay coupled to the retained statistic and \
+             p-values; declaring it non-deterministic would excuse a real divergence"
         );
     }
 }
