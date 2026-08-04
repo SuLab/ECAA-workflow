@@ -761,6 +761,20 @@ pub fn verify_task_with_context_emit_time(
             .unwrap_or_else(|| package_root.join("runtime").join(task_id))
     };
 
+    // Join hard-wrapped prose before extracting, exactly as the narrative-count
+    // path already does. A model writes a report wrapped at ~80 columns, so one
+    // sentence spans several lines, and extracting per line splits an
+    // entity away from its own statistic:
+    //
+    //   GOBP_CELLULAR_RESPONSE_TO_HORMONE_STIMULUS carries an NES of +1.715 at
+    //   padj = 1.58e-04, and GOBP_CELLULAR_RESPONSE_TO_PEPTIDE_HORMONE_STIMULUS carries
+    //   an NES of +1.780 at padj = 7.71e-04.
+    //
+    // The middle line holds one entity and one padj, so they pair — attributing
+    // the FIRST pathway's p-value to the second and reporting a mismatch against
+    // a correct report. Positional slot binding already resolves the whole
+    // sentence correctly; it just never saw it whole.
+    let narrative = coalesce_wrapped_prose(&narrative);
     let claims = crate::claim_extractor::extract_claims(&narrative, &cfg);
     let mut report = verify_claims(&claims, &effective_root, &cfg);
     demote_claims_from_deviations(&mut report, decisions, is_confirmatory);
@@ -6180,6 +6194,18 @@ pub fn verify_narrative_counts(
     adjusted_thresholds.sort_by(f64::total_cmp);
     adjusted_thresholds.dedup_by(|left, right| left.total_cmp(right).is_eq());
 
+    // Every count claim answered from a retained stage-summary field, recorded
+    // as (entity, excerpt, source, field, stated value). A narrative reports
+    // subset counts a stage summary does not separately retain — "of the 4,073
+    // significant genes, 3,824 mapped to a symbol" — and the resolver answers
+    // each from the one global field it can reach. When a single field answers
+    // several claims that state DIFFERENT values, at most one of them can be
+    // the population that field counts, so the resolution demonstrably failed
+    // to discriminate. `downgrade_ambiguous_summary_bindings` turns those
+    // Mismatch verdicts into Unverifiable afterwards.
+    let summary_bindings: std::cell::RefCell<Vec<SummaryBinding>> =
+        std::cell::RefCell::new(Vec::new());
+
     for sentence in crate::claim_extractor::split_sentences(&narrative) {
         let s = sentence.trim();
         // Skip markdown table rows (mined structurally elsewhere).
@@ -6227,6 +6253,13 @@ pub fn verify_narrative_counts(
                                      role_aliases: &[&str]|
          -> Option<ClaimVerdict> {
             let (path, field, observed) = semantic_summaries.resolve(noun, role_aliases)?;
+            summary_bindings.borrow_mut().push(SummaryBinding {
+                entity: claim_entity.to_string(),
+                excerpt: s.to_string(),
+                path: path.clone(),
+                field: field.clone(),
+                claimed,
+            });
             Some(make(
                 claim_entity,
                 compare_exact_count(
@@ -6953,6 +6986,13 @@ pub fn verify_narrative_counts(
                     None,
                 );
             };
+            summary_bindings.borrow_mut().push(SummaryBinding {
+                entity: claim_entity.to_string(),
+                excerpt: s.to_string(),
+                path: path.clone(),
+                field: field.clone(),
+                claimed,
+            });
             make(
                 claim_entity,
                 compare_exact_count(
@@ -7475,6 +7515,7 @@ pub fn verify_narrative_counts(
             ));
         }
     }
+    downgrade_ambiguous_summary_bindings(&mut out, &summary_bindings.borrow());
     out
 }
 
@@ -8147,6 +8188,74 @@ fn collect_json_integer_fields(value: &serde_json::Value, wanted: &str, found: &
 /// numeric equality alone never creates a link. If the same preferred field is
 /// present with conflicting values, the resolver abstains instead of choosing
 /// whichever file sorts first.
+/// One count claim answered from a retained stage-summary field.
+#[derive(Debug, Clone)]
+struct SummaryBinding {
+    entity: String,
+    excerpt: String,
+    path: PathBuf,
+    field: String,
+    claimed: f64,
+}
+
+/// Withdraw a Mismatch whose summary field also answered a claim stating a
+/// different value.
+///
+/// A stage summary retains population totals; a narrative also reports subsets
+/// of them ("of the 4,073 significant genes, 3,824 mapped to a symbol"). When
+/// the resolver answers several differently-valued claims from ONE field, at
+/// most one of them concerns the population that field counts, so it cannot be
+/// established which — the binding, not the narrative, is what failed. Reporting
+/// those as Mismatch manufactures report incorrectness out of a resolution
+/// limitation, and blocks a run whose prose is right.
+///
+/// Agreement is left alone: a claim that matches the field it resolved to stays
+/// Verified, since a wrong binding that nonetheless agrees asserts nothing false.
+fn downgrade_ambiguous_summary_bindings(out: &mut [ClaimVerdict], bindings: &[SummaryBinding]) {
+    let mut per_field: BTreeMap<(PathBuf, String), Vec<&SummaryBinding>> = BTreeMap::new();
+    for binding in bindings {
+        per_field
+            .entry((binding.path.clone(), binding.field.clone()))
+            .or_default()
+            .push(binding);
+    }
+
+    let mut ambiguous: BTreeSet<(String, String)> = BTreeSet::new();
+    for ((_, field), group) in &per_field {
+        let mut values: Vec<f64> = group.iter().map(|binding| binding.claimed).collect();
+        values.sort_by(f64::total_cmp);
+        values.dedup_by(|left, right| left.total_cmp(right).is_eq());
+        if values.len() < 2 {
+            continue;
+        }
+        for binding in group {
+            ambiguous.insert((binding.entity.clone(), binding.excerpt.clone()));
+        }
+        tracing::debug!(
+            target: "claim_verifier",
+            field = %field,
+            distinct_values = values.len(),
+            "one stage-summary field answered several differently-valued count claims"
+        );
+    }
+
+    for verdict in out.iter_mut() {
+        if !matches!(verdict.status, ClaimStatus::Mismatch { .. }) {
+            continue;
+        }
+        let key = (verdict.claim.entity.clone(), verdict.claim.excerpt.clone());
+        if !ambiguous.contains(&key) {
+            continue;
+        }
+        verdict.status = ClaimStatus::Unverifiable {
+            reason: "the retained stage-summary field this count resolved to also answered \
+                     another count stating a different value, so it does not identify the \
+                     population this sentence counts"
+                .to_string(),
+        };
+    }
+}
+
 fn resolve_summary_count(
     package_root: &Path,
     field_names: &[&str],
@@ -15216,6 +15325,174 @@ The source matrix contained 37 features across 24 acquisition cycles.";
             .expect("the flagged-samples field is unambiguous and must resolve");
         assert_eq!(field, "sample_outlier_assessment.n_samples_flagged");
         assert_eq!(observed, 0);
+    }
+
+    /// A hard-wrapped sentence must be extracted whole.
+    ///
+    /// Reports are written wrapped at ~80 columns, so one sentence naming two
+    /// pathways with their own statistics spans three lines. Extracting per
+    /// line left the middle fragment holding exactly one entity and the
+    /// PREVIOUS pathway's padj, which then paired — convicting a correct report
+    /// of a 1.58e-04-vs-7.71e-04 mismatch. Text taken verbatim from the himes
+    /// `reporting` narrative that triggered it.
+    #[test]
+    fn wrapped_sentence_binds_each_pathway_to_its_own_pvalue() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let wrapped = "Hormone-response sets appear on the positive side:\n\
+GOBP_CELLULAR_RESPONSE_TO_HORMONE_STIMULUS carries an NES of +1.715 at\n\
+padj = 1.58e-04, and GOBP_CELLULAR_RESPONSE_TO_PEPTIDE_HORMONE_STIMULUS carries\n\
+an NES of +1.780 at padj = 7.71e-04.\n";
+
+        // The defect: extracting the raw wrapped text pairs the second pathway
+        // with the first one's p-value.
+        let fragmented = extract_claims(wrapped, &cfg);
+        let fragmented_peptide = fragmented
+            .iter()
+            .find(|claim| claim.entity == "GOBP_CELLULAR_RESPONSE_TO_PEPTIDE_HORMONE_STIMULUS")
+            .and_then(|claim| claim.pvalue);
+
+        // The fix: coalesce first, as the production path now does.
+        let claims = extract_claims(&coalesce_wrapped_prose(wrapped), &cfg);
+        let peptide = claims
+            .iter()
+            .find(|claim| claim.entity == "GOBP_CELLULAR_RESPONSE_TO_PEPTIDE_HORMONE_STIMULUS")
+            .and_then(|claim| claim.pvalue)
+            .expect("the peptide-hormone pathway must be extracted");
+        let hormone = claims
+            .iter()
+            .find(|claim| claim.entity == "GOBP_CELLULAR_RESPONSE_TO_HORMONE_STIMULUS")
+            .and_then(|claim| claim.pvalue)
+            .expect("the hormone pathway must be extracted");
+
+        assert!(
+            (peptide - 7.71e-04).abs() < 1e-12,
+            "the second pathway owns the padj that FOLLOWS it, got {peptide:e}"
+        );
+        assert!(
+            (hormone - 1.58e-04).abs() < 1e-12,
+            "the first pathway keeps its own padj, got {hormone:e}"
+        );
+        assert_ne!(
+            fragmented_peptide.map(|p| (p * 1e12).round()),
+            Some((7.71e-04_f64 * 1e12).round()),
+            "regression guard: unjoined wrapped text is what mis-paired, so this \
+             test only proves the fix while the raw path still fails"
+        );
+    }
+
+    /// One summary field cannot answer several differently-valued counts.
+    ///
+    /// The himes `reporting` narrative stated 16, 3,824 and 4,073 mapped
+    /// symbols in different sentences — a top-N table, the symbol-resolved
+    /// share of the significant set, and the significant set itself. All three
+    /// resolved to the single retained `n_symbol_resolved` (13,964) and were
+    /// reported as mismatches, blocking a run whose prose was correct. At most
+    /// one of three different values can describe the population that field
+    /// counts, so the binding is what failed and the verdict must not assert
+    /// that the narrative is wrong.
+    #[test]
+    fn a_summary_field_answering_conflicting_counts_withdraws_its_mismatches() {
+        let path = PathBuf::from("runtime/outputs/contextualize/annotation_summary.json");
+        let verdict = |entity: &str, excerpt: &str, detail: &str| ClaimVerdict {
+            claim: Claim {
+                entity: entity.to_string(),
+                direction: None,
+                effect_size: None,
+                pvalue: None,
+                source_table: None,
+                excerpt: excerpt.to_string(),
+                contract: crate::claim_contract::ClaimContract::ThresholdedDeOrEnrichment,
+                literature_evidence: None,
+                matched_pvalue_keyword: None,
+                linear_fold: None,
+                aggregate_kind: None,
+                aggregate_column: None,
+                aggregate_rowset: None,
+                aggregate_value: None,
+                collection: None,
+                term: None,
+                keyed_column: None,
+                keyed_value: None,
+            },
+            status: ClaimStatus::Mismatch {
+                detail: detail.to_string(),
+            },
+            strength: ClaimStrength::Exploratory,
+            audit: None,
+        };
+        let bind = |excerpt: &str, field: &str, claimed: f64| SummaryBinding {
+            entity: "count:mapped symbol".to_string(),
+            excerpt: excerpt.to_string(),
+            path: path.clone(),
+            field: field.to_string(),
+            claimed,
+        };
+
+        let mut out = vec![
+            verdict("count:mapped symbol", "16 of the top genes mapped", "d1"),
+            verdict("count:mapped symbol", "3824 of the significant genes mapped", "d2"),
+            verdict("count:mapped symbol", "4073 genes were significant", "d3"),
+        ];
+        let bindings = vec![
+            bind("16 of the top genes mapped", "n_symbol_resolved", 16.0),
+            bind("3824 of the significant genes mapped", "n_symbol_resolved", 3824.0),
+            bind("4073 genes were significant", "n_symbol_resolved", 4073.0),
+        ];
+
+        downgrade_ambiguous_summary_bindings(&mut out, &bindings);
+        for verdict in &out {
+            assert!(
+                matches!(verdict.status, ClaimStatus::Unverifiable { .. }),
+                "a field that answered three different values cannot convict any of them: {:?}",
+                verdict.status
+            );
+        }
+    }
+
+    /// A field answering ONE count keeps its verdict.
+    #[test]
+    fn an_unambiguous_summary_binding_keeps_its_mismatch() {
+        let path = PathBuf::from("runtime/outputs/de/de_summary.json");
+        let mut out = vec![ClaimVerdict {
+            claim: Claim {
+                entity: "count:significant genes".to_string(),
+                direction: None,
+                effect_size: None,
+                pvalue: None,
+                source_table: None,
+                excerpt: "9999 genes were significant".to_string(),
+                contract: crate::claim_contract::ClaimContract::ThresholdedDeOrEnrichment,
+                literature_evidence: None,
+                matched_pvalue_keyword: None,
+                linear_fold: None,
+                aggregate_kind: None,
+                aggregate_column: None,
+                aggregate_rowset: None,
+                aggregate_value: None,
+                collection: None,
+                term: None,
+                keyed_column: None,
+                keyed_value: None,
+            },
+            status: ClaimStatus::Mismatch {
+                detail: "narrative says 9999, de_summary.json has 4073".to_string(),
+            },
+            strength: ClaimStrength::Exploratory,
+            audit: None,
+        }];
+        let bindings = vec![SummaryBinding {
+            entity: "count:significant genes".to_string(),
+            excerpt: "9999 genes were significant".to_string(),
+            path,
+            field: "n_significant".to_string(),
+            claimed: 9999.0,
+        }];
+
+        downgrade_ambiguous_summary_bindings(&mut out, &bindings);
+        assert!(
+            matches!(out[0].status, ClaimStatus::Mismatch { .. }),
+            "a single claim against a field it does not match is a real mismatch"
+        );
     }
 
     /// An exact noun match must outrank a generic-unit match.
