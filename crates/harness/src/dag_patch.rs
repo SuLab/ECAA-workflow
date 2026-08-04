@@ -646,15 +646,74 @@ fn canonicalize_completed_result_from_result_json(
             );
         }
     }
-    if *patch_result != retained {
+    // The agent writes a SUMMARY of its result inline in the patch and the full
+    // document to result.json, so the two differ in shape on essentially every
+    // task. Comparing them wholesale warned on all 12 dispatches of a 23-task
+    // run, which buries the case actually worth reading: the patch asserting
+    // something result.json does not carry. Report only that contradiction;
+    // result.json stays canonical either way.
+    let contradictions = result_contradictions(patch_result, &retained, "");
+    if !contradictions.is_empty() {
         tracing::warn!(
             target: "patch",
             task_id = %task_id,
-            "completed state.patch.json result disagreed with result.json; using retained result.json"
+            fields = %contradictions.join(", "),
+            "completed state.patch.json result contradicted result.json; using retained result.json"
         );
-        *patch_result = retained;
     }
+    *patch_result = retained;
     Ok(())
+}
+
+/// Paths where the inline patch result asserts something `result.json` does not
+/// cover.
+///
+/// Coverage, not equality, is the test. The patch is a summary: `result.json`
+/// holding MORE keys, or a longer `artifacts` list, is the normal shape and not
+/// a disagreement. A contradiction is the patch claiming a scalar that
+/// `result.json` contradicts, or naming an array element `result.json` omits —
+/// for instance an artifact the agent promised in the transition but left out of
+/// its retained manifest.
+fn result_contradictions(
+    patch: &serde_json::Value,
+    retained: &serde_json::Value,
+    path: &str,
+) -> Vec<String> {
+    let here = || {
+        if path.is_empty() {
+            "<result>".to_string()
+        } else {
+            path.to_string()
+        }
+    };
+    match (patch, retained) {
+        (serde_json::Value::Object(p), serde_json::Value::Object(r)) => {
+            let mut out = Vec::new();
+            for (key, value) in p {
+                // A key absent from result.json is a patch-only summary field,
+                // not a contradicted one.
+                if let Some(retained_value) = r.get(key) {
+                    let child = if path.is_empty() {
+                        key.clone()
+                    } else {
+                        format!("{path}.{key}")
+                    };
+                    out.extend(result_contradictions(value, retained_value, &child));
+                }
+            }
+            out.sort();
+            out
+        }
+        (serde_json::Value::Array(p), serde_json::Value::Array(r)) => {
+            if p.iter().all(|item| r.contains(item)) {
+                Vec::new()
+            } else {
+                vec![here()]
+            }
+        }
+        (p, r) if p == r => Vec::new(),
+        _ => vec![here()],
+    }
 }
 
 fn try_apply_patch(
@@ -2071,5 +2130,71 @@ mod tests {
 
         // 5. Genuinely unparseable (completed, no result, no recoverable shape) still errors.
         assert!(parse_state_patch(r#"{"status":"completed"}"#).is_err());
+    }
+
+    /// A summary inline result is not a disagreement.
+    ///
+    /// Every completing task writes a short result in the patch and the full
+    /// document to result.json, so a wholesale inequality check warned on all
+    /// 12 dispatches of a 23-task himes run — the shapes taken verbatim from
+    /// that run's `discover_differential_expression` and `qc_preprocessing`
+    /// outputs. A warning that fires on every task carries no signal, so only a
+    /// genuine contradiction is reported now.
+    #[test]
+    fn summary_shaped_patch_result_is_not_a_contradiction() {
+        // Patch-only keys: result.json simply does not carry `summary`, `tier`,
+        // or the design formula.
+        let patch = serde_json::json!({
+            "summary": "Selected DESeq2 (composite 4.436, defaultRecommended)",
+            "chosen": "deseq2",
+            "tier": "defaultRecommended",
+            "auto_advanced": true,
+            "design_formula_in_sme_column_names": "~ cell + dex",
+        });
+        let retained = serde_json::json!({
+            "chosen": "deseq2",
+            "chosen_method": "deseq2",
+            "auto_advanced": true,
+            "status": "completed",
+        });
+        assert!(
+            result_contradictions(&patch, &retained, "").is_empty(),
+            "extra keys on either side are the normal summary shape"
+        );
+
+        // result.json's artifact list is a superset of the promised one.
+        let patch = serde_json::json!({ "artifacts": ["qc_summary.json", "result.json"] });
+        let retained = serde_json::json!({
+            "artifacts": ["qc_summary.json", "result.json", "progress.log", "figures/manifest.json"],
+        });
+        assert!(
+            result_contradictions(&patch, &retained, "").is_empty(),
+            "a retained manifest that covers more than the patch promised is not a conflict"
+        );
+    }
+
+    /// The warning still bites when the patch asserts something unretained.
+    #[test]
+    fn contradicted_result_fields_are_still_reported() {
+        // Shared scalar disagrees.
+        let patch = serde_json::json!({ "chosen": "edger" });
+        let retained = serde_json::json!({ "chosen": "deseq2" });
+        assert_eq!(result_contradictions(&patch, &retained, ""), vec!["chosen"]);
+
+        // The patch promised an artifact the retained manifest omits.
+        let patch = serde_json::json!({ "artifacts": ["de_results.tsv", "volcano.png"] });
+        let retained = serde_json::json!({ "artifacts": ["de_results.tsv"] });
+        assert_eq!(
+            result_contradictions(&patch, &retained, ""),
+            vec!["artifacts"]
+        );
+
+        // Nested disagreement reports its path.
+        let patch = serde_json::json!({ "counts": { "significant": 4030 } });
+        let retained = serde_json::json!({ "counts": { "significant": 17 } });
+        assert_eq!(
+            result_contradictions(&patch, &retained, ""),
+            vec!["counts.significant"]
+        );
     }
 }
