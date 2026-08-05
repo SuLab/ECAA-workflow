@@ -6894,7 +6894,13 @@ pub fn verify_narrative_counts_for(
                 compound_facts.push(make(
                     &format!("count:{role_label} {noun_label}"),
                     compare_summary_count(
-                        claimed, observed, &path, &field, context, &noun_label, package_root,
+                        claimed,
+                        observed,
+                        &path,
+                        &field,
+                        context,
+                        clause_count_noun(context),
+                        package_root,
                         &populations,
                     ),
                     Some(package_relative_label(&path, package_root)),
@@ -7838,6 +7844,21 @@ fn owning_stage(path: &Path, package_root: &Path) -> Option<String> {
         return None;
     }
     parts.next()?.map(str::to_string)
+}
+
+/// The noun the NARRATIVE attaches to a count, for a population check.
+///
+/// The semantic resolver returns a noun label derived from the field it matched,
+/// so handing that label to a population check compares the field against itself
+/// and can only ever agree. A population check has to read the sentence's own
+/// subject, which is what this extracts. Empty when the clause states no noun,
+/// which leaves the population undeclared rather than asserting one.
+fn clause_count_noun(clause: &str) -> &str {
+    COUNT_NOUN_RE
+        .captures(clause)
+        .and_then(|captures| captures.get(2))
+        .map(|matched| matched.as_str())
+        .unwrap_or("")
 }
 
 /// Compare a narrative count against a retained stage-summary field, refusing
