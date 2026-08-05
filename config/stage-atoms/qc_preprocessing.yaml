@@ -92,3 +92,21 @@ outputs:
     units: "read counts"
     normalization_state: "raw"
     privacy_class: internal
+observables:
+  observables:
+    - key: counts.n_features_retained
+      quantity_kind: count
+      population: features
+      # A narrative may call the retained set either features or genes for this
+      # modality. Enumerating both makes the declaration closed, so a count of a
+      # DIFFERENT population — matrix cells, which is this total times the sample
+      # count — no longer binds here.
+      population_terms:
+        - genes
+      bound_kind: point
+      host_derivable: true
+    - key: counts.n_samples_retained
+      quantity_kind: count
+      population: samples
+      bound_kind: point
+      host_derivable: true

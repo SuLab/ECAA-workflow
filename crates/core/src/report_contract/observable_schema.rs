@@ -101,6 +101,21 @@ pub struct Observable {
     /// field that keeps a checker from equating them.
     #[serde(default)]
     pub population: String,
+    /// Surface forms a narrative may legitimately use for `population`.
+    ///
+    /// `aliases` is defined over key PATHS and cannot carry this: two names for
+    /// the same counted set is a different relation from two paths to the same
+    /// value. Without a channel for it, a checker comparing a narrative noun to
+    /// `population` must either reject every synonym — condemning "22,369 genes
+    /// retained" against a population declared as features — or accept every
+    /// noun, which is what let a count of matrix cells bind to a feature total.
+    ///
+    /// Empty means the declaration speaks only for `population` itself, and a
+    /// different noun is UNDECLARED rather than wrong: strictness is opt-in by
+    /// completeness, so an author is never convicted for a synonym they were
+    /// never asked to declare.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub population_terms: Vec<String>,
     /// How tightly the value is asserted. Prevents convicting a deliberately
     /// one-sided or hedged statement for failing an exact-equality check.
     #[serde(default)]

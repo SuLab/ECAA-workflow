@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://ecaa-workflow/config/stage-atoms/_atom.schema.json",
   "title": "AtomDefinition",
-  "description": "Schema for `config/stage-atoms/<id>.yaml`. Plan §S4.3 — validates AtomDefinition shape before deserialization (`include_str!` schema-validate-before-deserialize discipline). Mirrors the `crates/core/src/atom.rs::AtomDefinition` Rust type. Per plan §S4.3: role==discovery requires discovery_kind, no `..` in paths, assignee enum, EDAM IRI regex constrains the operation/data/format namespaces.",
+  "description": "Schema for `config/stage-atoms/<id>.yaml`. Plan \u00a7S4.3 \u2014 validates AtomDefinition shape before deserialization (`include_str!` schema-validate-before-deserialize discipline). Mirrors the `crates/core/src/atom.rs::AtomDefinition` Rust type. Per plan \u00a7S4.3: role==discovery requires discovery_kind, no `..` in paths, assignee enum, EDAM IRI regex constrains the operation/data/format namespaces.",
   "type": "object",
   "required": [
     "id",
@@ -20,84 +20,188 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "kind": { "const": "bridge" }
+            "kind": {
+              "const": "bridge"
+            }
           },
-          "required": ["kind"]
+          "required": [
+            "kind"
+          ]
         },
         {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "kind": { "const": "none" },
+            "kind": {
+              "const": "none"
+            },
             "allowlist": {
               "type": "array",
-              "items": { "type": "string", "minLength": 1 }
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
             }
           },
-          "required": ["kind"]
+          "required": [
+            "kind"
+          ]
         }
       ]
     },
     "parameter_spec": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "type"],
+      "required": [
+        "name",
+        "type"
+      ],
       "properties": {
-        "name": { "type": "string", "minLength": 1 },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
         "type": {
           "type": "string",
-          "enum": ["string", "number", "integer", "boolean", "array", "object", "enum"]
+          "enum": [
+            "string",
+            "number",
+            "integer",
+            "boolean",
+            "array",
+            "object",
+            "enum"
+          ]
         },
-        "required": { "type": "boolean" },
+        "required": {
+          "type": "boolean"
+        },
         "default": {},
-        "allowed_values": { "type": "array" },
-        "examples": { "type": "array" },
-        "description": { "type": "string", "minLength": 1 }
+        "allowed_values": {
+          "type": "array"
+        },
+        "examples": {
+          "type": "array"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "port_contract": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "semantic_type"],
+      "required": [
+        "name",
+        "semantic_type"
+      ],
       "description": "Mirrors crates/core/src/workflow_contracts/port.rs::PortContract. Sealed (additionalProperties:false) so a typo'd facet key fails at registry load; the `facets` escape hatch stays open inside.",
       "properties": {
-        "name": { "type": "string", "minLength": 1 },
-        "semantic_type": { "type": "object" },
-        "physical_format": { "type": "object" },
-        "structural_schema": { "type": "object" },
-        "ontology_terms": { "type": "array" },
-        "modality": { "type": "string", "minLength": 1 },
-        "organism": { "type": "string", "minLength": 1 },
-        "genome_build": { "type": "string", "minLength": 1 },
-        "annotation_version": { "type": "string", "minLength": 1 },
-        "coordinate_system": { "type": "string", "minLength": 1 },
-        "units": { "type": "string", "minLength": 1 },
-        "normalization_state": { "type": "string", "minLength": 1 },
-        "statistical_state": { "type": "string", "minLength": 1 },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "semantic_type": {
+          "type": "object"
+        },
+        "physical_format": {
+          "type": "object"
+        },
+        "structural_schema": {
+          "type": "object"
+        },
+        "ontology_terms": {
+          "type": "array"
+        },
+        "modality": {
+          "type": "string",
+          "minLength": 1
+        },
+        "organism": {
+          "type": "string",
+          "minLength": 1
+        },
+        "genome_build": {
+          "type": "string",
+          "minLength": 1
+        },
+        "annotation_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "coordinate_system": {
+          "type": "string",
+          "minLength": 1
+        },
+        "units": {
+          "type": "string",
+          "minLength": 1
+        },
+        "normalization_state": {
+          "type": "string",
+          "minLength": 1
+        },
+        "statistical_state": {
+          "type": "string",
+          "minLength": 1
+        },
         "privacy_class": {
           "type": "string",
-          "enum": ["public", "internal", "sensitive", "phi", "restricted"]
+          "enum": [
+            "public",
+            "internal",
+            "sensitive",
+            "phi",
+            "restricted"
+          ]
         },
-        "cardinality": { "type": "object" },
-        "validators": { "type": "array" },
-        "constraints": { "type": "array" },
-        "facets": { "type": "object", "additionalProperties": true }
+        "cardinality": {
+          "type": "object"
+        },
+        "validators": {
+          "type": "array"
+        },
+        "constraints": {
+          "type": "array"
+        },
+        "facets": {
+          "type": "object",
+          "additionalProperties": true
+        }
       }
     },
     "input_group": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "members"],
+      "required": [
+        "name",
+        "members"
+      ],
       "description": "Mirrors crates/core/src/atom.rs::InputGroup. Constrains a set of input port names as a one-of substrate choice (e.g. a DE count input that is raw for count-GLM tools and normalized for rank tools) WITHOUT the compiler selecting the method.",
       "properties": {
-        "name": { "type": "string", "minLength": 1 },
-        "kind": { "type": "string", "enum": ["one_of"] },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "one_of"
+          ]
+        },
         "members": {
           "type": "array",
-          "items": { "type": "string", "minLength": 1 },
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
           "minItems": 1
         },
-        "min_bound": { "type": "integer", "minimum": 1 }
+        "min_bound": {
+          "type": "integer",
+          "minimum": 1
+        }
       }
     }
   },
@@ -126,7 +230,7 @@
         "adversarial",
         "monitor"
       ],
-      "description": "Drives builder-side expansion semantics. Plan §A.S1 — `selection` lifts the legacy `select_*` filename prefix into a typed role; `calibration`/`pilot`/`adversarial`/`monitor` are speculative variants that default to `operation`-equivalent behavior at consumer sites until specialized."
+      "description": "Drives builder-side expansion semantics. Plan \u00a7A.S1 \u2014 `selection` lifts the legacy `select_*` filename prefix into a typed role; `calibration`/`pilot`/`adversarial`/`monitor` are speculative variants that default to `operation`-equivalent behavior at consumer sites until specialized."
     },
     "confirmatory": {
       "type": "boolean",
@@ -150,21 +254,27 @@
     "edam_data": {
       "type": "string",
       "pattern": "^((operation|data|format|topic):\\d+|ecaax:[a-z][a-z0-9_]*[a-z0-9])$",
-      "description": "EDAM data class IRI for primary input. **DEPRECATED in Phase 16 of the DAG composer alignment plan** — superseded by the typed `inputs:` array. Retained for migration / synthesis fallback only; new atoms should declare `inputs:` and `outputs:` directly. The synthesis fallback in `crates/core/src/workflow_contracts/from_atom.rs::synthesize_inputs` still consumes this field when `inputs:` is absent."
+      "description": "EDAM data class IRI for primary input. **DEPRECATED in Phase 16 of the DAG composer alignment plan** \u2014 superseded by the typed `inputs:` array. Retained for migration / synthesis fallback only; new atoms should declare `inputs:` and `outputs:` directly. The synthesis fallback in `crates/core/src/workflow_contracts/from_atom.rs::synthesize_inputs` still consumes this field when `inputs:` is absent."
     },
     "edam_format": {
       "type": "string",
       "pattern": "^((operation|data|format|topic):\\d+|ecaax:[a-z][a-z0-9_]*[a-z0-9])$",
-      "description": "EDAM format IRI for primary committed artifact. **DEPRECATED in Phase 16 of the DAG composer alignment plan** — superseded by `outputs:` array entries' `physical_format` field. See `edam_data` deprecation note."
+      "description": "EDAM format IRI for primary committed artifact. **DEPRECATED in Phase 16 of the DAG composer alignment plan** \u2014 superseded by `outputs:` array entries' `physical_format` field. See `edam_data` deprecation note."
     },
     "assignee": {
       "type": "string",
-      "enum": ["agent", "sme"],
+      "enum": [
+        "agent",
+        "sme"
+      ],
       "description": "Whoever runs this atom. Closed enum."
     },
     "depends_on": {
       "type": "array",
-      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$" },
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$"
+      },
       "description": "Atom ids this atom requires output from."
     },
     "excludes": {
@@ -172,8 +282,12 @@
       "items": {
         "type": "string",
         "anyOf": [
-          { "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$" },
-          { "pattern": "^cel:.+$" }
+          {
+            "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$"
+          },
+          {
+            "pattern": "^cel:.+$"
+          }
         ]
       },
       "description": "Mutually-exclusive atoms. Atom-id form (lowercase snake_case) maps to a literal id reference; `cel:<expression>` form (Phase 3 / S7.3) compiles the CEL at registry load (`AtomRegistry::validate_consistency`) and the composer evaluates it against the (intake, <task_id>.result, self) context at compose time."
@@ -186,63 +300,108 @@
     "parameters": {
       "type": "array",
       "description": "Typed parameter list (paper D.1 parameter axis). Each entry is schema-validated; unknown keys inside an entry are rejected.",
-      "items": { "$ref": "#/definitions/parameter_spec" }
+      "items": {
+        "$ref": "#/definitions/parameter_spec"
+      }
     },
     "provenance": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["origin", "maintainer"],
+      "required": [
+        "origin",
+        "maintainer"
+      ],
       "description": "Atom provenance (paper D.1 origin/maintainer axis). Author-set.",
       "properties": {
-        "origin": { "type": "string", "enum": ["builtin", "site_local", "community"] },
-        "maintainer": { "type": "string", "minLength": 1 }
+        "origin": {
+          "type": "string",
+          "enum": [
+            "builtin",
+            "site_local",
+            "community"
+          ]
+        },
+        "maintainer": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "estimated_duration": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["seconds_p50", "basis"],
+      "required": [
+        "seconds_p50",
+        "basis"
+      ],
       "description": "Machine-readable duration estimate (paper D.1). Pilot-measured values live in runtime sidecars, not atom YAML.",
       "properties": {
-        "seconds_p50": { "type": "integer", "minimum": 0 },
-        "seconds_p95": { "type": "integer", "minimum": 0 },
+        "seconds_p50": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "seconds_p95": {
+          "type": "integer",
+          "minimum": 0
+        },
         "basis": {
           "type": "string",
-          "enum": ["runtime_class_default", "author_estimate", "pilot_measured"]
+          "enum": [
+            "runtime_class_default",
+            "author_estimate",
+            "pilot_measured"
+          ]
         }
       }
     },
     "joint_with": {
       "type": "array",
-      "description": "Plan §S7.10 — multi-modal joint-source constraints. Each entry pairs two upstream atom ids that must share `attributes.source_atom`. Used by integration atoms (e.g. multi-modal scRNA-seq + CITE-seq).",
+      "description": "Plan \u00a7S7.10 \u2014 multi-modal joint-source constraints. Each entry pairs two upstream atom ids that must share `attributes.source_atom`. Used by integration atoms (e.g. multi-modal scRNA-seq + CITE-seq).",
       "items": {
         "type": "object",
-        "required": ["lhs", "rhs"],
+        "required": [
+          "lhs",
+          "rhs"
+        ],
         "additionalProperties": false,
         "properties": {
-          "lhs": { "type": "string", "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$" },
-          "rhs": { "type": "string", "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$" }
+          "lhs": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$"
+          },
+          "rhs": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$"
+          }
         }
       }
     },
     "inputs": {
       "type": "array",
-      "description": "Phase 2 of the DAG composer alignment plan — explicit rich PortContract input ports. Optional and additive: when absent, the compatibility::engine synthesizes coarse ports from edam_data / edam_format. Each entry mirrors crates/core/src/workflow_contracts/port.rs::PortContract.",
-      "items": { "$ref": "#/definitions/port_contract" }
+      "description": "Phase 2 of the DAG composer alignment plan \u2014 explicit rich PortContract input ports. Optional and additive: when absent, the compatibility::engine synthesizes coarse ports from edam_data / edam_format. Each entry mirrors crates/core/src/workflow_contracts/port.rs::PortContract.",
+      "items": {
+        "$ref": "#/definitions/port_contract"
+      }
     },
     "outputs": {
       "type": "array",
-      "description": "Phase 2 of the DAG composer alignment plan — explicit rich PortContract output ports. See `inputs` for the migration story.",
-      "items": { "$ref": "#/definitions/port_contract" }
+      "description": "Phase 2 of the DAG composer alignment plan \u2014 explicit rich PortContract output ports. See `inputs` for the migration story.",
+      "items": {
+        "$ref": "#/definitions/port_contract"
+      }
     },
     "input_groups": {
       "type": "array",
       "description": "Input-port groupings (e.g. one-of substrate choice). Mirrors crates/core/src/atom.rs::AtomDefinition::input_groups. Default-empty so atoms without groups are unaffected.",
-      "items": { "$ref": "#/definitions/input_group" }
+      "items": {
+        "$ref": "#/definitions/input_group"
+      }
     },
     "method_choice": {
       "type": "object",
-      "required": ["deferred_to"],
+      "required": [
+        "deferred_to"
+      ],
       "additionalProperties": false,
       "properties": {
         "deferred_to": {
@@ -256,85 +415,144 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "cpu": { "type": "string", "minLength": 1 },
-        "memory": { "type": "string", "minLength": 1 },
-        "gpu": { "type": "boolean" },
-        "runtime_class": { "type": "string", "minLength": 1 }
+        "cpu": {
+          "type": "string",
+          "minLength": 1
+        },
+        "memory": {
+          "type": "string",
+          "minLength": 1
+        },
+        "gpu": {
+          "type": "boolean"
+        },
+        "runtime_class": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "preferred_container": {
       "type": "object",
-      "required": ["image", "tag"],
+      "required": [
+        "image",
+        "tag"
+      ],
       "additionalProperties": false,
       "properties": {
         "image": {
           "type": "string",
           "minLength": 1,
           "description": "OCI image reference. No `..` segments allowed (defense in depth against path-style attacks).",
-          "not": { "pattern": "\\.\\." }
+          "not": {
+            "pattern": "\\.\\."
+          }
         },
-        "tag": { "type": "string", "minLength": 1 },
+        "tag": {
+          "type": "string",
+          "minLength": 1
+        },
         "digest": {
           "type": "string",
           "description": "SHA-256 digest. Empty in atom YAML; emitter populates per ADR 0025."
         },
         "arch": {
           "type": "array",
-          "items": { "type": "string", "enum": ["amd64", "arm64"] }
+          "items": {
+            "type": "string",
+            "enum": [
+              "amd64",
+              "arm64"
+            ]
+          }
         },
-        "gpu_required": { "type": "boolean" },
+        "gpu_required": {
+          "type": "boolean"
+        },
         "network": {
-          "description": "Plan §S15.1/§S15.9 — typed NetworkPolicy. `{kind: bridge}` (default) or `{kind: none, allowlist: [...]}`. Pre-S15.1 string shorthand (\"bridge\"|\"none\") is rejected; rewrite atom YAMLs.",
+          "description": "Plan \u00a7S15.1/\u00a7S15.9 \u2014 typed NetworkPolicy. `{kind: bridge}` (default) or `{kind: none, allowlist: [...]}`. Pre-S15.1 string shorthand (\"bridge\"|\"none\") is rejected; rewrite atom YAMLs.",
           "oneOf": [
             {
               "type": "object",
-              "required": ["kind"],
+              "required": [
+                "kind"
+              ],
               "additionalProperties": false,
-              "properties": { "kind": { "const": "bridge" } }
+              "properties": {
+                "kind": {
+                  "const": "bridge"
+                }
+              }
             },
             {
               "type": "object",
-              "required": ["kind"],
+              "required": [
+                "kind"
+              ],
               "additionalProperties": false,
               "properties": {
-                "kind": { "const": "none" },
+                "kind": {
+                  "const": "none"
+                },
                 "allowlist": {
                   "type": "array",
-                  "items": { "type": "string", "minLength": 1 }
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
                 }
               }
             }
           ]
         },
         "source": {
-          "description": "Plan §S15.1/§S15.13 — typed ContainerSource. Default `{kind: image}`. `{kind: conda, conda_packages}` routes through Wave/Seqera (S15.13); `{kind: host}` opts back to bare-host execution.",
+          "description": "Plan \u00a7S15.1/\u00a7S15.13 \u2014 typed ContainerSource. Default `{kind: image}`. `{kind: conda, conda_packages}` routes through Wave/Seqera (S15.13); `{kind: host}` opts back to bare-host execution.",
           "oneOf": [
             {
               "type": "object",
-              "required": ["kind"],
+              "required": [
+                "kind"
+              ],
               "additionalProperties": false,
-              "properties": { "kind": { "const": "image" } }
+              "properties": {
+                "kind": {
+                  "const": "image"
+                }
+              }
             },
             {
               "type": "object",
-              "required": ["kind"],
+              "required": [
+                "kind"
+              ],
               "additionalProperties": false,
               "properties": {
-                "kind": { "const": "conda" },
+                "kind": {
+                  "const": "conda"
+                },
                 "conda_packages": {
                   "type": "object",
                   "additionalProperties": {
                     "type": "array",
-                    "items": { "type": "string", "minLength": 1 }
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
                   }
                 }
               }
             },
             {
               "type": "object",
-              "required": ["kind"],
+              "required": [
+                "kind"
+              ],
               "additionalProperties": false,
-              "properties": { "kind": { "const": "host" } }
+              "properties": {
+                "kind": {
+                  "const": "host"
+                }
+              }
             }
           ]
         }
@@ -352,19 +570,24 @@
     "condition": {
       "type": "string",
       "minLength": 1,
-      "description": "Plan §S7.3 follow-on — atom-level CEL gate. Threaded onto StageSpec::condition by the composer adapter; builder's propagate_readiness evaluates against upstream results at runtime. Returning false short-circuits the task to TaskState::Skipped. Example: 'discover_batch_correction.result.batch_correction_required == true'."
+      "description": "Plan \u00a7S7.3 follow-on \u2014 atom-level CEL gate. Threaded onto StageSpec::condition by the composer adapter; builder's propagate_readiness evaluates against upstream results at runtime. Returning false short-circuits the task to TaskState::Skipped. Example: 'discover_batch_correction.result.batch_correction_required == true'."
     },
     "required_figures": {
       "type": "array",
-      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$" },
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$"
+      },
       "uniqueItems": true,
       "description": "Figure ids the atom must produce under runtime/outputs/<stage_id>/figures/. Composer threads this to Task.spec.required_figures."
     },
     "figure_exempt": {
       "type": "object",
-      "required": ["reason"],
+      "required": [
+        "reason"
+      ],
       "additionalProperties": false,
-      "description": "Phase 4 figure-obligation lint — marks this atom as explicitly exempt from the obligation that every DataProduct output resolve to a non-Deferred PlotAffordance. Required when an atom produces data that has no registered affordance and either (a) is a benchmark/eval atom, (b) is a discovery-only atom, or (c) is pending Phase 10 affordance migration.",
+      "description": "Phase 4 figure-obligation lint \u2014 marks this atom as explicitly exempt from the obligation that every DataProduct output resolve to a non-Deferred PlotAffordance. Required when an atom produces data that has no registered affordance and either (a) is a benchmark/eval atom, (b) is a discovery-only atom, or (c) is pending Phase 10 affordance migration.",
       "properties": {
         "reason": {
           "type": "string",
@@ -373,7 +596,12 @@
         },
         "category": {
           "type": "string",
-          "enum": ["adapter", "intermediate", "non_plottable", "pending_affordance_migration"],
+          "enum": [
+            "adapter",
+            "intermediate",
+            "non_plottable",
+            "pending_affordance_migration"
+          ],
           "description": "Optional category for triage tooling."
         }
       }
@@ -388,7 +616,9 @@
       "items": {
         "type": "string",
         "minLength": 1,
-        "not": { "pattern": "(^/|(^|/)\\.\\.(/|$))" }
+        "not": {
+          "pattern": "(^/|(^|/)\\.\\.(/|$))"
+        }
       },
       "uniqueItems": true,
       "description": "Headline artifacts expected under runtime/outputs/<stage_id>/."
@@ -398,19 +628,28 @@
       "description": "Artifacts the harness must verify before accepting task completion. Paths are relative to runtime/outputs/<stage_id>/.",
       "items": {
         "type": "object",
-        "required": ["path"],
+        "required": [
+          "path"
+        ],
         "additionalProperties": false,
         "properties": {
           "path": {
             "type": "string",
             "minLength": 1,
-            "not": { "pattern": "(^/|(^|/)\\.\\.(/|$))" }
+            "not": {
+              "pattern": "(^/|(^|/)\\.\\.(/|$))"
+            }
           },
-          "min_size_bytes": { "type": "integer", "minimum": 0 },
+          "min_size_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
           "schema_ref": {
             "type": "string",
             "pattern": "^[^/][^\\n]*\\.schema\\.json$",
-            "not": { "pattern": "(^/|(^|/)\\.\\.(/|$))" }
+            "not": {
+              "pattern": "(^/|(^|/)\\.\\.(/|$))"
+            }
           }
         }
       }
@@ -418,31 +657,65 @@
     "result_schema": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["artifact", "entity_column"],
+      "required": [
+        "artifact",
+        "entity_column"
+      ],
       "description": "Declares how this terminal atom's primary result artifact is read by the report-data assembler + reporting invariants. Present only on result-producing atoms.",
       "properties": {
-        "artifact": {"type": "string"},
-        "entity_column": {"type": "string"},
-        "entity_column_aliases": {"type": "array", "items": {"type": "string"}},
+        "artifact": {
+          "type": "string"
+        },
+        "entity_column": {
+          "type": "string"
+        },
+        "entity_column_aliases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "significance": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["column", "threshold", "comparator"],
+          "required": [
+            "column",
+            "threshold",
+            "comparator"
+          ],
           "properties": {
-            "column": {"type": "string"},
-            "threshold": {"type": "number"},
-            "comparator": {"enum": ["lt", "gt"]}
+            "column": {
+              "type": "string"
+            },
+            "threshold": {
+              "type": "number"
+            },
+            "comparator": {
+              "enum": [
+                "lt",
+                "gt"
+              ]
+            }
           }
         },
-        "signed_effect_column": {"type": "string"},
-        "signed_effect_aliases": {"type": "array", "items": {"type": "string"}},
-        "grouping_column": {"type": "string"}
+        "signed_effect_column": {
+          "type": "string"
+        },
+        "signed_effect_aliases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "grouping_column": {
+          "type": "string"
+        }
       }
     },
     "observables": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Declares the scalar quantities this atom promises to report, so a quantity quoted in its narrative binds to a DECLARED observable instead of being resolved by a name search over every scalar in the package. Mirrors crates/core/src/report_contract/observable_schema.rs::ObservableSchema. Absent = the atom promises no scalar. This schema is purely STRUCTURAL — every property carries a serde default, so the semantic rules (non-empty key, non-empty population, no key path promised twice across keys and aliases, no unit on a count) are enforced by ObservableSchema::validate at registry load, which reports the index of the offending observable.",
+      "description": "Declares the scalar quantities this atom promises to report, so a quantity quoted in its narrative binds to a DECLARED observable instead of being resolved by a name search over every scalar in the package. Mirrors crates/core/src/report_contract/observable_schema.rs::ObservableSchema. Absent = the atom promises no scalar. This schema is purely STRUCTURAL \u2014 every property carries a serde default, so the semantic rules (non-empty key, non-empty population, no key path promised twice across keys and aliases, no unit on a count) are enforced by ObservableSchema::validate at registry load, which reports the index of the offending observable.",
       "properties": {
         "observables": {
           "type": "array",
@@ -453,12 +726,14 @@
             "properties": {
               "key": {
                 "type": "string",
-                "description": "Dotted key path into the stage's result.json (e.g. counts.n_retained). Matched literally, never fuzzily. Semantically required — ObservableSchema::validate rejects an empty key."
+                "description": "Dotted key path into the stage's result.json (e.g. counts.n_retained). Matched literally, never fuzzily. Semantically required \u2014 ObservableSchema::validate rejects an empty key."
               },
               "aliases": {
                 "type": "array",
-                "items": { "type": "string" },
-                "description": "Additional accepted key paths (the agent may emit a synonym). Resolution tries `key` first, then each alias in declaration order. A path promised twice — across keys and aliases alike — is rejected by ObservableSchema::validate."
+                "items": {
+                  "type": "string"
+                },
+                "description": "Additional accepted key paths (the agent may emit a synonym). Resolution tries `key` first, then each alias in declaration order. A path promised twice \u2014 across keys and aliases alike \u2014 is rejected by ObservableSchema::validate."
               },
               "quantity_kind": {
                 "type": "string",
@@ -479,20 +754,33 @@
               },
               "population": {
                 "type": "string",
-                "description": "What the quantity is *of* — a declared port id or an abstract population name, never a domain noun. Semantically required: ObservableSchema::validate rejects an empty population, because a quantity of nothing cannot be compared."
+                "description": "What the quantity is *of* \u2014 a declared port id or an abstract population name, never a domain noun. Semantically required: ObservableSchema::validate rejects an empty population, because a quantity of nothing cannot be compared."
               },
               "bound_kind": {
                 "type": "string",
-                "enum": ["point", "upper", "lower", "range", "approximate"],
-                "description": "How tightly the value is asserted, so a one-sided or hedged statement is not convicted by an exact-equality check. Defaults to `point` (strictest grading — silence must not buy leniency)."
+                "enum": [
+                  "point",
+                  "upper",
+                  "lower",
+                  "range",
+                  "approximate"
+                ],
+                "description": "How tightly the value is asserted, so a one-sided or hedged statement is not convicted by an exact-equality check. Defaults to `point` (strictest grading \u2014 silence must not buy leniency)."
               },
               "host_derivable": {
                 "type": "boolean",
-                "description": "True when the host can recompute the value from primary bytes, so the registry marks it authoritative rather than agent-asserted. Defaults false — silence never upgrades an assertion."
+                "description": "True when the host can recompute the value from primary bytes, so the registry marks it authoritative rather than agent-asserted. Defaults false \u2014 silence never upgrades an assertion."
               },
               "unit": {
                 "type": "string",
                 "description": "Optional unit for a non-count quantity (QUDT-style symbol or CURIE). Absent = dimensionless. A unit on a `count` is rejected by ObservableSchema::validate."
+              },
+              "population_terms": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Surface forms a narrative may legitimately use for `population`. Mirrors crates/core/src/report_contract/observable_schema.rs::Observable::population_terms. Empty (the default) means the declaration speaks only for `population` itself and any other noun is undeclared rather than wrong."
               }
             }
           }
@@ -501,12 +789,16 @@
     },
     "required_report_sections": {
       "type": "array",
-      "items": {"type": "string"},
+      "items": {
+        "type": "string"
+      },
       "description": "Report sections (by id) this atom's narrative must cover when the reporting/final_reporting agent composes its output."
     },
     "required_tables": {
       "type": "array",
-      "items": {"type": "string"},
+      "items": {
+        "type": "string"
+      },
       "description": "Supplementary table ids this atom's narrative must reference or attach when composing its report."
     },
     "validators": {
@@ -516,88 +808,192 @@
         "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$"
       },
       "uniqueItems": true,
-      "description": "Phase 13/16 — Validation-obligation ids the harness runs against this atom's emitted artifacts after task completion. Each id resolves against the runner registry (ValidatorRegistry); typical values: p_value_in_unit_interval, gene_id_in_annotation, coordinate_in_contig, barcode_matrix_dim_consistency, no_train_test_leakage, deterministic_or_bounded_variance. Threaded through to RequiredArtifact.validation_obligations by both the v4 lowering pass and the legacy build_dag_from_composition path. Empty default — atoms without obligations pass through unchanged."
+      "description": "Phase 13/16 \u2014 Validation-obligation ids the harness runs against this atom's emitted artifacts after task completion. Each id resolves against the runner registry (ValidatorRegistry); typical values: p_value_in_unit_interval, gene_id_in_annotation, coordinate_in_contig, barcode_matrix_dim_consistency, no_train_test_leakage, deterministic_or_bounded_variance. Threaded through to RequiredArtifact.validation_obligations by both the v4 lowering pass and the legacy build_dag_from_composition path. Empty default \u2014 atoms without obligations pass through unchanged."
     },
     "runtime_packages": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Plan §S15.x derived-image warm-up — system + language packages this atom requires at runtime. The emitter aggregates the union of every reachable atom's declarations into policies/runtime-prereqs.json. At the atom level only system_packages, language_packages, and system_check are meaningful — base_image and modality belong on the archetype/taxonomy and are ignored here.",
+      "description": "Plan \u00a7S15.x derived-image warm-up \u2014 system + language packages this atom requires at runtime. The emitter aggregates the union of every reachable atom's declarations into policies/runtime-prereqs.json. At the atom level only system_packages, language_packages, and system_check are meaningful \u2014 base_image and modality belong on the archetype/taxonomy and are ignored here.",
       "properties": {
-        "schema_version": { "type": "integer", "minimum": 1 },
-        "modality": { "type": "string", "minLength": 1 },
-        "base_image": { "type": "string", "minLength": 1 },
+        "schema_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "modality": {
+          "type": "string",
+          "minLength": 1
+        },
+        "base_image": {
+          "type": "string",
+          "minLength": 1
+        },
         "system_packages": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "apt": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
-            "dnf": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+            "apt": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            },
+            "dnf": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            }
           }
         },
         "language_packages": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "r": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
-            "python": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
-            "conda": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+            "r": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            },
+            "python": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            },
+            "conda": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            }
           }
         },
-        "system_check": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+        "system_check": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
       }
     },
     "safety": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Plan §A.S6 — atom safety classification.",
+      "description": "Plan \u00a7A.S6 \u2014 atom safety classification.",
       "properties": {
-        "level":            { "type": "string", "enum": ["safe", "network", "compute", "exec"] },
-        "network":          { "$ref": "#/definitions/network_policy" },
-        "code_execution":   { "type": "string", "enum": ["none", "vetted", "generated_by_agent"] },
-        "sandbox":          { "type": "string", "enum": ["none", "process_isolation", "hardware_enclave"] },
-        "provisioning":     { "type": "string", "enum": ["sealed", "declared_only", "allowlisted"] },
+        "level": {
+          "type": "string",
+          "enum": [
+            "safe",
+            "network",
+            "compute",
+            "exec"
+          ]
+        },
+        "network": {
+          "$ref": "#/definitions/network_policy"
+        },
+        "code_execution": {
+          "type": "string",
+          "enum": [
+            "none",
+            "vetted",
+            "generated_by_agent"
+          ]
+        },
+        "sandbox": {
+          "type": "string",
+          "enum": [
+            "none",
+            "process_isolation",
+            "hardware_enclave"
+          ]
+        },
+        "provisioning": {
+          "type": "string",
+          "enum": [
+            "sealed",
+            "declared_only",
+            "allowlisted"
+          ]
+        },
         "controlled_access": {
           "type": "boolean",
-          "description": "G2 — true when this atom operates on controlled-access data (dbGaP phs* / EGA EGA*) that must not be forwarded to a third-party LLM inference endpoint. The harness dispatch gate refuses such a task on any LLM-forwarding executor (BlockerKind::ControlledAccessViolation). Default false."
+          "description": "G2 \u2014 true when this atom operates on controlled-access data (dbGaP phs* / EGA EGA*) that must not be forwarded to a third-party LLM inference endpoint. The harness dispatch gate refuses such a task on any LLM-forwarding executor (BlockerKind::ControlledAccessViolation). Default false."
         }
       }
     },
     "governance": {
       "type": "object",
       "additionalProperties": false,
-      "description": "G4 — atom-registry governance lifecycle metadata. Optional + additive. The only load-bearing rule is 'Exec atoms require status: reviewed' (atom_safety::validate_atom_governance); `retired` atoms are excluded from the composer candidate set.",
+      "description": "G4 \u2014 atom-registry governance lifecycle metadata. Optional + additive. The only load-bearing rule is 'Exec atoms require status: reviewed' (atom_safety::validate_atom_governance); `retired` atoms are excluded from the composer candidate set.",
       "properties": {
         "status": {
           "type": "string",
-          "enum": ["draft", "reviewed", "deprecated", "retired"],
+          "enum": [
+            "draft",
+            "reviewed",
+            "deprecated",
+            "retired"
+          ],
           "description": "Lifecycle status. Defaults to draft."
         },
-        "reviewed_by": { "type": "string", "minLength": 1, "description": "Reviewer identity (team / individual)." },
+        "reviewed_by": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Reviewer identity (team / individual)."
+        },
         "review_date": {
           "type": "string",
           "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
           "description": "Author-supplied static YYYY-MM-DD. NOT a host clock value (deterministic emission)."
         },
-        "supersedes": { "type": "string", "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$", "description": "Atom id this revision supersedes." }
+        "supersedes": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$",
+          "description": "Atom id this revision supersedes."
+        }
       }
     },
     "non_determinism": {
       "type": "array",
-      "description": "Rec 1 — declared, justified sources of non-determinism in this atom's outputs. Projected at emit time into determinism-shim.json::non_deterministic_artifacts (the single source the re-execution comparator + audit-proof equivalence-failure invariant read). A >±5% divergence on a declared column is bucketed AcknowledgedNonDeterminism; an un-declared divergence still Fails. Mirrors crates/core/src/determinism_shim.rs::NonDetAck.",
+      "description": "Rec 1 \u2014 declared, justified sources of non-determinism in this atom's outputs. Projected at emit time into determinism-shim.json::non_deterministic_artifacts (the single source the re-execution comparator + audit-proof equivalence-failure invariant read). A >\u00b15% divergence on a declared column is bucketed AcknowledgedNonDeterminism; an un-declared divergence still Fails. Mirrors crates/core/src/determinism_shim.rs::NonDetAck.",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["artifact", "kind", "reason"],
+        "required": [
+          "artifact",
+          "kind",
+          "reason"
+        ],
         "properties": {
           "artifact": {
             "type": "string",
             "minLength": 1,
             "description": "Bare filename (e.g. de_results.tsv) or package-relative path this ack applies to.",
-            "not": { "pattern": "(^/|(^|/)\\.\\.(/|$))" }
+            "not": {
+              "pattern": "(^/|(^|/)\\.\\.(/|$))"
+            }
           },
           "columns": {
             "type": "array",
-            "items": { "type": "string", "minLength": 1 },
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
             "uniqueItems": true,
             "description": "Columns whose divergence is acknowledged. Absent = whole-artifact ack (covers every column); present = covers only these columns, so a divergence in an un-listed column still Fails."
           },
@@ -626,11 +1022,16 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["scope", "rationale"],
+        "required": [
+          "scope",
+          "rationale"
+        ],
         "properties": {
           "scope": {
             "type": "string",
-            "enum": ["any_upstream_stage"],
+            "enum": [
+              "any_upstream_stage"
+            ],
             "description": "How broad the sanctioned read scope is. any_upstream_stage: the atom may read the primary result artifact of any other stage present in the composed DAG."
           },
           "rationale": {
@@ -643,14 +1044,17 @@
     },
     "iterate": {
       "type": "object",
-      "description": "Plan §S10.1 — iterate-until block. Required when the atom's compiled stage carries Cardinality::IterateUntil; the builder emits a 4-template-task scaffold (iterate_gate / placeholder / iterate_check / validate) and the agent fans out a linear chain of <id>_iter_N tasks until convergence.",
+      "description": "Plan \u00a7S10.1 \u2014 iterate-until block. Required when the atom's compiled stage carries Cardinality::IterateUntil; the builder emits a 4-template-task scaffold (iterate_gate / placeholder / iterate_check / validate) and the agent fans out a linear chain of <id>_iter_N tasks until convergence.",
       "additionalProperties": false,
-      "required": ["max_iterations", "convergence"],
+      "required": [
+        "max_iterations",
+        "convergence"
+      ],
       "properties": {
         "max_iterations": {
           "type": "integer",
           "minimum": 1,
-          "description": "Hard ceiling. Reached without convergence → BlockerKind::IterationDidNotConverge."
+          "description": "Hard ceiling. Reached without convergence \u2192 BlockerKind::IterationDidNotConverge."
         },
         "min_iterations": {
           "type": "integer",
@@ -661,7 +1065,11 @@
         "convergence": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["metric_source", "operator", "threshold"],
+          "required": [
+            "metric_source",
+            "operator",
+            "threshold"
+          ],
           "properties": {
             "metric_source": {
               "type": "string",
@@ -670,7 +1078,12 @@
             },
             "operator": {
               "type": "string",
-              "enum": ["lt", "lt_eq", "gt", "gt_eq"],
+              "enum": [
+                "lt",
+                "lt_eq",
+                "gt",
+                "gt_eq"
+              ],
               "description": "Comparison operator. lt for loss-decreasing, gt for silhouette-rising, etc."
             },
             "threshold": {
@@ -681,13 +1094,17 @@
               "type": "integer",
               "minimum": 1,
               "default": 2,
-              "description": "How many consecutive iterations must satisfy the rule before declaring convergence. Default 2 — one stable pass rules out a stochastic dip."
+              "description": "How many consecutive iterations must satisfy the rule before declaring convergence. Default 2 \u2014 one stable pass rules out a stochastic dip."
             }
           }
         },
         "on_max_iterations": {
           "type": "string",
-          "enum": ["block", "accept_best", "abort"],
+          "enum": [
+            "block",
+            "accept_best",
+            "abort"
+          ],
           "default": "block",
           "description": "What the harness does when max_iterations hits without convergence. Default block surfaces BlockerKind::IterationDidNotConverge so the SME picks (raise / accept / abort)."
         },
@@ -701,17 +1118,25 @@
   },
   "allOf": [
     {
-      "comment": "Plan §S4.3 — role == discovery REQUIRES discovery_kind.",
+      "comment": "Plan \u00a7S4.3 \u2014 role == discovery REQUIRES discovery_kind.",
       "if": {
-        "properties": { "role": { "const": "discovery" } },
-        "required": ["role"]
+        "properties": {
+          "role": {
+            "const": "discovery"
+          }
+        },
+        "required": [
+          "role"
+        ]
       },
       "then": {
-        "required": ["discovery_kind"]
+        "required": [
+          "discovery_kind"
+        ]
       }
     },
     {
-      "comment": "Plan §S4.3 — no `..` segments in any string-valued field. Defense-in-depth against atom yaml that tries to escape its directory via `description` or `image`. JSON Schema can't do recursive negative pattern, so this is enforced on the path-bearing fields above (image) and at load time by the registry."
+      "comment": "Plan \u00a7S4.3 \u2014 no `..` segments in any string-valued field. Defense-in-depth against atom yaml that tries to escape its directory via `description` or `image`. JSON Schema can't do recursive negative pattern, so this is enforced on the path-bearing fields above (image) and at load time by the registry."
     }
   ]
 }

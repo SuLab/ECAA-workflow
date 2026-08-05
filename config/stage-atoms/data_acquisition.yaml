@@ -150,3 +150,10 @@ outputs:
       iri: "format:1930"
       label: "FASTQ"
     privacy_class: internal
+observables:
+  observables:
+    - key: sources.n_feature_rows
+      quantity_kind: count
+      population: feature_rows
+      bound_kind: point
+      host_derivable: true

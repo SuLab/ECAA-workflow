@@ -6188,6 +6188,7 @@ pub fn verify_narrative_counts_for(
     let stage_scope =
         owner_stage.and_then(|stage| ancestor_stage_scope(package_root, stage));
     let scope = stage_scope.as_ref();
+    let populations = declared_populations(package_root);
     let index = TableIndex::scan(tables_root);
     let mut out: Vec<ClaimVerdict> = Vec::new();
     let mut cache: BTreeMap<PathBuf, CachedTable> = BTreeMap::new();
@@ -6288,7 +6289,9 @@ pub fn verify_narrative_counts_for(
             });
             Some(make(
                 claim_entity,
-                compare_summary_count(claimed, observed, &path, &field, s, noun),
+                compare_summary_count(
+                    claimed, observed, &path, &field, s, noun, package_root, &populations,
+                ),
                 Some(package_relative_label(&path, package_root)),
             ))
         };
@@ -6890,7 +6893,10 @@ pub fn verify_narrative_counts_for(
                 };
                 compound_facts.push(make(
                     &format!("count:{role_label} {noun_label}"),
-                    compare_summary_count(claimed, observed, &path, &field, context, &noun_label),
+                    compare_summary_count(
+                        claimed, observed, &path, &field, context, &noun_label, package_root,
+                        &populations,
+                    ),
                     Some(package_relative_label(&path, package_root)),
                 ));
             }
@@ -7031,7 +7037,9 @@ pub fn verify_narrative_counts_for(
             });
             make(
                 claim_entity,
-                compare_summary_count(claimed, observed, &path, &field, s, noun),
+                compare_summary_count(
+                    claimed, observed, &path, &field, s, noun, package_root, &populations,
+                ),
                 Some(package_relative_label(&path, package_root)),
             )
         };
@@ -7395,7 +7403,9 @@ pub fn verify_narrative_counts_for(
                         {
                             out.push(make(
                                 &entity,
-                                compare_summary_count(claimed, observed, &path, &field, s, noun),
+                                compare_summary_count(
+                    claimed, observed, &path, &field, s, noun, package_root, &populations,
+                ),
                                 Some(package_relative_label(&path, package_root)),
                             ));
                             continue;
@@ -7751,6 +7761,85 @@ fn compare_count(claimed_n: f64, observed: usize, table_path: &Path, what: &str)
     }
 }
 
+/// Declared population terms for retained scalars, keyed by `(stage_id, key_path)`.
+///
+/// Read from `runtime/task-nodes.json`, where the emitter stamps each atom's
+/// `observables` declaration alongside `result_schema`. Absent, unreadable, or
+/// undeclared yields no entry, and a binding with no entry stays undecided: the
+/// population channel exists to object, never to corroborate.
+fn declared_populations(package_root: &Path) -> BTreeMap<(String, String), String> {
+    let mut out = BTreeMap::new();
+    let Ok(bytes) = std::fs::read(package_root.join("runtime").join("task-nodes.json")) else {
+        return out;
+    };
+    let Ok(nodes) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+        return out;
+    };
+    let Some(rows) = nodes.as_array() else {
+        return out;
+    };
+    for row in rows {
+        let Some(stage) = row.get("id").and_then(|value| value.as_str()) else {
+            continue;
+        };
+        let Some(observables) = row
+            .get("attributes")
+            .and_then(|attrs| attrs.get("observables"))
+            .and_then(|decl| decl.get("observables"))
+            .and_then(|list| list.as_array())
+        else {
+            continue;
+        };
+        for observable in observables {
+            let Some(key) = observable.get("key").and_then(|value| value.as_str()) else {
+                continue;
+            };
+            let population = observable
+                .get("population")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default();
+            if population.is_empty() {
+                continue;
+            }
+            // `claim_population` reads several surface forms from one string, so
+            // fold the declared terms into the separator form it parses.
+            let mut declared = String::from(population);
+            if let Some(terms) = observable
+                .get("population_terms")
+                .and_then(|value| value.as_array())
+            {
+                for term in terms.iter().filter_map(|term| term.as_str()) {
+                    declared.push_str(" | ");
+                    declared.push_str(term);
+                }
+            }
+            let mut keys = vec![key.to_string()];
+            if let Some(aliases) = observable.get("aliases").and_then(|value| value.as_array()) {
+                keys.extend(
+                    aliases
+                        .iter()
+                        .filter_map(|alias| alias.as_str())
+                        .map(str::to_string),
+                );
+            }
+            for key in keys {
+                out.insert((stage.to_string(), key), declared.clone());
+            }
+        }
+    }
+    out
+}
+
+/// The stage that owns a retained summary file, from its package-relative path.
+fn owning_stage(path: &Path, package_root: &Path) -> Option<String> {
+    let relative = path.strip_prefix(package_root).ok()?;
+    let mut parts = relative.components().map(|part| part.as_os_str().to_str());
+    if parts.next()? != Some("runtime") || parts.next()? != Some("outputs") {
+        return None;
+    }
+    parts.next()?.map(str::to_string)
+}
+
 /// Compare a narrative count against a retained stage-summary field, refusing
 /// the comparison when the binding cannot bear it.
 ///
@@ -7766,6 +7855,7 @@ fn compare_count(claimed_n: f64, observed: usize, table_path: &Path, what: &str)
 /// - **A bounded numeral.** "the removed rows summed to fewer than 10" asserts
 ///   an inequality that an observed 9 satisfies. Comparing it for equality
 ///   reported 10 against 9 as a mismatch on a sentence that was right.
+#[allow(clippy::too_many_arguments)]
 fn compare_summary_count(
     claimed_n: f64,
     observed: usize,
@@ -7773,8 +7863,27 @@ fn compare_summary_count(
     field: &str,
     clause: &str,
     noun: &str,
+    package_root: &Path,
+    populations: &BTreeMap<(String, String), String>,
 ) -> ClaimStatus {
     let what = format!("stage-summary field `{field}`");
+    // The declared population is the only ground truth for "a count of WHAT".
+    // Two cardinalities over different populations are not comparable, and
+    // nothing in a field NAME distinguishes a synonym from a different set: a
+    // count of matrix cells bound to a feature total, while a count of genes
+    // bound to the same total was correct. Undeclared abstains.
+    let declared = owning_stage(source_path, package_root)
+        .and_then(|stage| populations.get(&(stage, field.to_string())))
+        .map(String::as_str);
+    let population = crate::claim_population::agreement(clause, noun, declared);
+    if crate::claim_population::may_convict(population) {
+        return ClaimStatus::Unverifiable {
+            reason: format!(
+                "`{field}` declares a different population than this sentence counts, so it \
+                 does not measure the stated quantity"
+            ),
+        };
+    }
     let claim_kind = crate::claim_quantity::kind_of_clause(clause, noun);
     let field_kind = crate::claim_quantity::kind_of_field(field);
     if !crate::claim_quantity::kinds_admissible(claim_kind, field_kind) {
