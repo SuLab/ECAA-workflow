@@ -203,6 +203,14 @@ pub enum PopulationAgreement {
 /// agrees, so the function biases toward silence: an ambiguous clause degrades
 /// to [`PopulationAgreement::Undeclared`] instead of convicting on whichever
 /// interpretation happens to conflict.
+///
+/// `noun` is whatever subject the *caller's* noun channel recovered, and that
+/// channel is allowed to recover nothing. When it does — an empty `noun`, or one
+/// whose head names no declared population — the declaration's own heads are
+/// used to re-read the clause, via
+/// [`subject_attested_for_declared_heads`]. Without that second reading the
+/// whole discriminator is inert whenever the noun channel misses, which is the
+/// failure mode described on that function.
 #[must_use]
 pub fn agreement(
     clause: &str,
@@ -213,16 +221,32 @@ pub fn agreement(
     if declared.is_empty() {
         return PopulationAgreement::Undeclared;
     }
-    let Some(subject) = subject_of(clause, noun) else {
-        return PopulationAgreement::Undeclared;
-    };
+    if let Some(subject) = subject_of(clause, noun) {
+        match adjudicate(&subject, &declared) {
+            PopulationAgreement::Undeclared => {}
+            decided => return decided,
+        }
+    }
+    match subject_attested_for_declared_heads(clause, &declared) {
+        Some(subject) => adjudicate(&subject, &declared),
+        None => PopulationAgreement::Undeclared,
+    }
+}
+
+/// One subject reading against the whole declaration.
+///
+/// Extracted so the caller-supplied noun and the declaration-derived re-reading
+/// of the clause are adjudicated by *identical* rules: a second code path here
+/// would let the fallback convict on grounds the primary reading would not, and
+/// the asymmetry would be invisible at the call site.
+fn adjudicate(subject: &Subject, declared: &[Vec<String>]) -> PopulationAgreement {
     if subject.is_product {
         return PopulationAgreement::Disagrees;
     }
     let enumerated = declared.len() > 1;
     let mut saw_disagreement = false;
     for candidate in &subject.candidates {
-        for term in &declared {
+        for term in declared {
             match compare_phrases(candidate, term, enumerated) {
                 PopulationAgreement::Agrees => return PopulationAgreement::Agrees,
                 PopulationAgreement::Disagrees => saw_disagreement = true,
@@ -238,6 +262,69 @@ pub fn agreement(
     } else {
         PopulationAgreement::Undeclared
     }
+}
+
+/// The clause's counted subject re-read using the *declaration's* heads, for
+/// when the caller's noun channel recovered no usable one.
+///
+/// The invariant this restores: **a declared population is adjudicated against
+/// the clause whenever the clause states its granularity, not only when some
+/// other channel happens to hand over a matching noun.** A caller's noun channel
+/// is a separate mechanism with its own coverage — a closed noun grammar, say —
+/// and its misses are silent. Every miss reaches
+/// [`PopulationAgreement::Undeclared`] via [`subject_of`] returning `None` on an
+/// empty noun, or via a recovered head that names no declared population, and
+/// [`may_convict`] is then `false` for every declaration and every clause
+/// phrasing. That is not the intended abstention on missing ground truth: the
+/// ground truth is present and simply never consulted, so a numeric comparison
+/// across two different populations proceeds and convicts prose that was right.
+///
+/// The failure this prevents, observed on an executed run: a stage declared its
+/// count over `feature_rows`, its narrative stated `23-row … at evidence-row
+/// granularity`, and the noun channel returned nothing for it because the
+/// numeral was hyphen-attached to a noun outside the channel's grammar. The
+/// declaration was found, the clause named its own granularity, and the binding
+/// was still compared and reported as a mismatch of 23 against 63677.
+///
+/// Reading the clause through the declaration cannot invent a population: the
+/// head comes from the declaration and the qualifier from
+/// [`attested_qualifiers`], so both sides are run-time data and no term
+/// belonging to any field of study is consulted. It is also strictly narrower
+/// than the primary reading — it can only fire on a head the declaration
+/// itself names, and only when the clause hyphen-attests a qualifier of that
+/// head, so a declaration whose terms carry no qualifier of their own can never
+/// convict through it (an unqualified declared term is a subset of every
+/// attested qualifier set, which is agreement).
+///
+/// Product marking is re-checked here rather than inherited, so a product over
+/// two populations cannot slip through by being spelled as a hyphenated
+/// qualifier of one factor's head. `BTreeSet` keeps the candidate order, and
+/// therefore the verdict, identical on every run.
+fn subject_attested_for_declared_heads(clause: &str, declared: &[Vec<String>]) -> Option<Subject> {
+    let mut candidates: BTreeSet<Vec<String>> = BTreeSet::new();
+    let mut is_product = false;
+    for term in declared {
+        let Some(head) = term.last() else {
+            continue;
+        };
+        let attested = attested_qualifiers(clause, head);
+        if attested.is_empty() {
+            continue;
+        }
+        is_product |= product_marked_near_head(clause, head);
+        for phrase in attested {
+            is_product |= COMPOSITE_SUBJECT_RE.is_match(&phrase.join("-"));
+            candidates.insert(phrase);
+        }
+    }
+    if candidates.is_empty() {
+        return None;
+    }
+    Some(Subject {
+        ambiguous: candidates.len() > 1,
+        candidates: candidates.into_iter().collect(),
+        is_product,
+    })
 }
 
 /// Whether the population channel alone permits this binding to produce a
@@ -833,6 +920,85 @@ mod tests {
             ),
             PopulationAgreement::Undeclared,
             "a single-term declaration stays silent about synonyms"
+        );
+    }
+
+    /// A caller whose noun channel recovered nothing must still get a verdict
+    /// when the clause states its own granularity: the declaration's head is
+    /// enough to re-read the clause. Without this the discriminator is inert
+    /// for every clause that channel misses, which is how a true sentence was
+    /// convicted by a comparison across two populations.
+    #[test]
+    fn an_empty_noun_is_decided_from_the_declared_head() {
+        let clause = "The 23-row literature-concordance table is at evidence-row granularity";
+        assert_eq!(
+            agreement(clause, "", FEATURE_ROW_POPULATION),
+            PopulationAgreement::Disagrees,
+            "the declared head re-reads the clause when the noun channel is silent"
+        );
+        assert_eq!(
+            agreement(clause, "", None),
+            PopulationAgreement::Undeclared,
+            "and it still needs a declaration to say anything at all"
+        );
+    }
+
+    /// The same re-reading applies when the noun channel returned a subject
+    /// naming some other population: a single-term declaration is silent about
+    /// that subject, but it is not silent about a hyphen-attested qualifier of
+    /// its own head.
+    #[test]
+    fn an_off_head_noun_does_not_suppress_the_declared_heads_reading() {
+        assert_eq!(
+            agreement(
+                "The 23 shipments in the concordance table are at evidence-row granularity",
+                "shipments",
+                FEATURE_ROW_POPULATION
+            ),
+            PopulationAgreement::Disagrees,
+            "an undecidable primary subject falls through to the declared head"
+        );
+    }
+
+    /// The re-reading is bounded by the same rules as the primary one, so it
+    /// cannot convict where the primary reading would not: an unqualified
+    /// declared term is a subset of every attested qualifier set and therefore
+    /// agrees, a clause that attests nothing stays silent, two conflicting
+    /// attestations stay ambiguous, and a product over two populations is still
+    /// a product when spelled as a qualifier of one factor's head.
+    #[test]
+    fn the_declared_head_reading_is_no_stricter_than_the_primary_one() {
+        assert_eq!(
+            agreement(
+                "the 23-row log is at rejected-row granularity",
+                "",
+                Some("rows")
+            ),
+            PopulationAgreement::Agrees,
+            "an unqualified declared term accepts any attested sub-population"
+        );
+        assert_eq!(
+            agreement("the table was written", "", FEATURE_ROW_POPULATION),
+            PopulationAgreement::Undeclared,
+            "a clause attesting no qualifier of the declared head stays silent"
+        );
+        assert_eq!(
+            agreement(
+                "the evidence-row table and the summary-row table were both written",
+                "",
+                FEATURE_ROW_POPULATION
+            ),
+            PopulationAgreement::Undeclared,
+            "two attested qualifiers warrant no single reading here either"
+        );
+        assert_eq!(
+            agreement(
+                "all 178952 feature-by-sample entries were compared",
+                "",
+                Some("samples")
+            ),
+            PopulationAgreement::Disagrees,
+            "a product must not agree by being spelled as a qualifier of one factor"
         );
     }
 

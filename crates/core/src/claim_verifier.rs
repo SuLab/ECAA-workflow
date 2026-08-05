@@ -16163,3 +16163,189 @@ an NES of +1.780 at padj = 7.71e-04.\n";
         assert_eq!(observed, 8);
     }
 }
+
+/// The declared-population channel end to end: declaration on disk, narrative
+/// clause, and the verdict the two produce together.
+///
+/// These exercise the whole chain rather than [`crate::claim_population`] alone
+/// because the observed false conviction lived entirely in the *seam*. Every
+/// link adjudicated correctly in isolation — the declaration was read, the
+/// owning stage resolved, and the discriminator returned a disagreement when
+/// handed the clause's subject — yet the binding still convicted, because the
+/// subject never reached the discriminator. A unit test of the discriminator
+/// cannot see that, so the regression is pinned where the seam is.
+#[cfg(test)]
+mod declared_population_binding {
+    use super::*;
+    use serde_json::json;
+    use tempfile::tempdir;
+
+    /// The narrative sentence from an executed run that was convicted while
+    /// being true: a 23-row concordance table bound to the 63677 feature rows
+    /// of another stage's summary.
+    const CONCORDANCE_SENTENCE: &str = "The 23-row literature-concordance table is at evidence-row granularity with KLF15 and STAT3 correctly repeated across sources";
+
+    /// A package root declaring one observable for the stage that owns
+    /// `per_accession_summary.json`, plus that summary carrying the field the
+    /// declaration names. Mirrors what the emitter stamps into
+    /// `runtime/task-nodes.json` from an atom's `observables` block.
+    fn package_with_declaration(
+        root: &Path,
+        key: &str,
+        population: &str,
+        observed: usize,
+    ) -> PathBuf {
+        let outputs = root
+            .join("runtime")
+            .join("outputs")
+            .join("data_acquisition");
+        std::fs::create_dir_all(&outputs).expect("stage output dir");
+        let summary = outputs.join("per_accession_summary.json");
+        std::fs::write(
+            &summary,
+            serde_json::to_vec(&json!({ "sources": [{ "n_feature_rows": observed }] }))
+                .expect("summary bytes"),
+        )
+        .expect("write summary");
+        std::fs::write(
+            root.join("runtime").join("task-nodes.json"),
+            serde_json::to_vec(&json!([{
+                "id": "data_acquisition",
+                "attributes": { "observables": { "observables": [{
+                    "key": key,
+                    "quantity_kind": "count",
+                    "population": population,
+                    "bound_kind": "point",
+                    "host_derivable": true,
+                }] } },
+            }]))
+            .expect("node bytes"),
+        )
+        .expect("write task nodes");
+        summary
+    }
+
+    /// Adjudicate `claimed` against the summary field, exactly as the
+    /// compound-fact resolver does: the clause supplies its own noun through
+    /// the caller's noun channel.
+    fn adjudicate(root: &Path, summary: &Path, clause: &str, claimed: f64) -> ClaimStatus {
+        let populations = declared_populations(root);
+        compare_summary_count(
+            claimed,
+            63677,
+            summary,
+            "sources.n_feature_rows",
+            clause,
+            clause_count_noun(clause),
+            root,
+            &populations,
+        )
+    }
+
+    /// A count over a population the narrative explicitly distinguishes from
+    /// the declared one must abstain, even though the caller's noun channel
+    /// recovers no subject at all from the clause.
+    ///
+    /// The second assertion is the load-bearing one: it records *why* this
+    /// cannot be left to the noun channel. That channel finds nothing here, so
+    /// the declaration has to be what re-reads the clause, or the comparison
+    /// proceeds across two different populations and convicts.
+    #[test]
+    fn a_stated_granularity_conflict_abstains_though_the_noun_channel_is_silent() {
+        let dir = tempdir().expect("tempdir");
+        let summary =
+            package_with_declaration(dir.path(), "sources.n_feature_rows", "feature_rows", 63677);
+        assert_eq!(
+            clause_count_noun(CONCORDANCE_SENTENCE),
+            "",
+            "the caller's noun channel recovers nothing from this clause, which is \
+             precisely the condition the declaration must cover"
+        );
+        let status = adjudicate(dir.path(), &summary, CONCORDANCE_SENTENCE, 23.0);
+        assert!(
+            matches!(status, ClaimStatus::Unverifiable { .. }),
+            "a declared population the narrative contradicts must abstain, got {status:?}"
+        );
+    }
+
+    /// The abstention is bought by the *declaration*, not by giving up on the
+    /// clause. With no observable declared for the field there is no ground
+    /// truth for the counted subject, so the comparison proceeds and the
+    /// numeric disagreement is reported — the behaviour every undeclared atom
+    /// keeps.
+    #[test]
+    fn the_same_clause_still_convicts_with_no_declaration() {
+        let dir = tempdir().expect("tempdir");
+        let outputs = dir
+            .path()
+            .join("runtime")
+            .join("outputs")
+            .join("data_acquisition");
+        std::fs::create_dir_all(&outputs).expect("stage output dir");
+        let summary = outputs.join("per_accession_summary.json");
+        std::fs::write(
+            &summary,
+            serde_json::to_vec(&json!({ "sources": [{ "n_feature_rows": 63677 }] }))
+                .expect("summary bytes"),
+        )
+        .expect("write summary");
+        let status = adjudicate(dir.path(), &summary, CONCORDANCE_SENTENCE, 23.0);
+        assert!(
+            matches!(status, ClaimStatus::Mismatch { .. }),
+            "without a declaration the population channel raises no objection, got {status:?}"
+        );
+    }
+
+    /// The inverse, so the fix cannot be a blanket abstention: a narrative
+    /// counting the *declared* population with a wrong number is still
+    /// convicted. The declared surface form and the clause's hyphenated one
+    /// agree, which removes the population objection and leaves the numeric
+    /// comparison to run.
+    #[test]
+    fn a_wrong_count_over_the_declared_population_is_still_convicted() {
+        let dir = tempdir().expect("tempdir");
+        let summary =
+            package_with_declaration(dir.path(), "sources.n_feature_rows", "feature_rows", 63677);
+        let status = adjudicate(
+            dir.path(),
+            &summary,
+            "23 feature-row records were emitted",
+            23.0,
+        );
+        assert!(
+            matches!(status, ClaimStatus::Mismatch { .. }),
+            "an agreeing population must not suppress a real numeric error, got {status:?}"
+        );
+    }
+
+    /// A declaration is only consulted under the key the summary walk actually
+    /// produces. The walk does not index array elements, so a declaration
+    /// written with one is never found and the binding keeps its undeclared
+    /// behaviour — recorded here because the key form is the one link that
+    /// silently disables the whole channel.
+    #[test]
+    fn an_indexed_declaration_key_never_matches_the_walked_field_path() {
+        let dir = tempdir().expect("tempdir");
+        let summary = package_with_declaration(
+            dir.path(),
+            "sources.0.n_feature_rows",
+            "feature_rows",
+            63677,
+        );
+        let populations = declared_populations(dir.path());
+        assert!(
+            populations
+                .get(&(
+                    "data_acquisition".to_string(),
+                    "sources.n_feature_rows".to_string()
+                ))
+                .is_none(),
+            "an indexed key does not answer for the walked field path"
+        );
+        let status = adjudicate(dir.path(), &summary, CONCORDANCE_SENTENCE, 23.0);
+        assert!(
+            matches!(status, ClaimStatus::Mismatch { .. }),
+            "a declaration under an unreachable key cannot abstain, got {status:?}"
+        );
+    }
+}
